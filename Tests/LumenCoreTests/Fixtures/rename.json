@@ -1,0 +1,144 @@
+{
+ "cases": [
+  {
+   "template": "{date}_{job}_{seq}",
+   "seq": 12,
+   "context": {
+    "originalBasename": "IMG_4032",
+    "captureDate": {
+     "year": 2026,
+     "month": 8,
+     "day": 19,
+     "hour": 21,
+     "minute": 5,
+     "second": 9
+    },
+    "camera": "X-T5",
+    "cameraSerial": "7A0042",
+    "iso": 1600,
+    "job": "kovacs wedding"
+   },
+   "expected": "20260819_kovacs wedding_0012"
+  },
+  {
+   "template": "{year}/{month}/{orig}",
+   "seq": 1,
+   "context": {
+    "originalBasename": "IMG_4032",
+    "captureDate": {
+     "year": 2026,
+     "month": 8,
+     "day": 19,
+     "hour": 21,
+     "minute": 5,
+     "second": 9
+    },
+    "camera": "X-T5",
+    "cameraSerial": "7A0042",
+    "iso": 1600,
+    "job": "kovacs wedding"
+   },
+   "expected": "2026-08-IMG_4032"
+  },
+  {
+   "template": "{date}-{time}-{seq:6}",
+   "seq": 31,
+   "context": {
+    "originalBasename": "IMG_4032",
+    "captureDate": {
+     "year": 2026,
+     "month": 8,
+     "day": 19,
+     "hour": 21,
+     "minute": 5,
+     "second": 9
+    },
+    "camera": "X-T5",
+    "cameraSerial": "7A0042",
+    "iso": 1600,
+    "job": "kovacs wedding"
+   },
+   "expected": "20260819-210509-000031"
+  },
+  {
+   "template": "{camera}_{iso}iso_{seq:2}",
+   "seq": 7,
+   "context": {
+    "originalBasename": "IMG_4032",
+    "captureDate": {
+     "year": 2026,
+     "month": 8,
+     "day": 19,
+     "hour": 21,
+     "minute": 5,
+     "second": 9
+    },
+    "camera": "X-T5",
+    "cameraSerial": "7A0042",
+    "iso": 1600,
+    "job": "kovacs wedding"
+   },
+   "expected": "X-T5_1600iso_07"
+  },
+  {
+   "template": "plain-name",
+   "seq": 1,
+   "context": {
+    "originalBasename": "IMG_4032",
+    "captureDate": {
+     "year": 2026,
+     "month": 8,
+     "day": 19,
+     "hour": 21,
+     "minute": 5,
+     "second": 9
+    },
+    "camera": "X-T5",
+    "cameraSerial": "7A0042",
+    "iso": 1600,
+    "job": "kovacs wedding"
+   },
+   "expected": "plain-name"
+  },
+  {
+   "template": "broken{unclosed",
+   "seq": 1,
+   "context": {
+    "originalBasename": "IMG_4032",
+    "captureDate": {
+     "year": 2026,
+     "month": 8,
+     "day": 19,
+     "hour": 21,
+     "minute": 5,
+     "second": 9
+    },
+    "camera": "X-T5",
+    "cameraSerial": "7A0042",
+    "iso": 1600,
+    "job": "kovacs wedding"
+   },
+   "expected": "broken{unclosed"
+  },
+  {
+   "template": "{orig} copy",
+   "seq": 1,
+   "context": {
+    "originalBasename": "IMG_4032",
+    "captureDate": {
+     "year": 2026,
+     "month": 8,
+     "day": 19,
+     "hour": 21,
+     "minute": 5,
+     "second": 9
+    },
+    "camera": "X-T5",
+    "cameraSerial": "7A0042",
+    "iso": 1600,
+    "job": "kovacs wedding"
+   },
+   "expected": "IMG_4032 copy"
+  }
+ ]
+}

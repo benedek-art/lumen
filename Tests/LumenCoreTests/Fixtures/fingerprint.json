@@ -1,0 +1,48 @@
+{
+ "vectors": [
+  {
+   "input": "",
+   "xxh64": "ef46db3751d8e999"
+  },
+  {
+   "input": "a",
+   "xxh64": "d24ec4f1a98c6e5b"
+  },
+  {
+   "input": "abcd",
+   "xxh64": "de0327b0d25d92cc"
+  },
+  {
+   "input": "lumen",
+   "xxh64": "abe020207677e594"
+  },
+  {
+   "input": "0123456789abcdef",
+   "xxh64": "5c5b90c34e376d0b"
+  },
+  {
+   "input": "0123456789abcdefghijklmnopqrstu",
+   "xxh64": "80adfc1d42020f39"
+  },
+  {
+   "input": "0123456789abcdefghijklmnopqrstuv",
+   "xxh64": "bf7c9dbe16b5c6e2"
+  },
+  {
+   "input": "The quick brown fox jumps over the lazy dog",
+   "xxh64": "0b242d361fda71bc"
+  },
+  {
+   "input": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "xxh64": "4cb9a3b69cb700e1"
+  },
+  {
+   "input": "gr\u00fc\u00df-dich-\u2600\ufe0f",
+   "xxh64": "61b627838d91008b"
+  },
+  {
+   "input": "{\"pipelineVersion\":1}",
+   "xxh64": "1b1987a12b6f04be"
+  }
+ ]
+}

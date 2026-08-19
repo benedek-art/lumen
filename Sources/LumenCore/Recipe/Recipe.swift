@@ -1,0 +1,433 @@
+// Recipe.swift
+// The edit recipe: one declarative parameter document per photo version.
+// Format authority: docs/15-catalog.md §15.4. Key names here ARE the wire format —
+// changing one is a format change and needs a pipelineVersion / migration decision.
+//
+// Doctrine (docs/15 §15.4):
+//  - Declarative state, never an operation log; render order is fixed by the pipeline.
+//  - Rendering is a pure function of (original, recipe, pipelineVersion).
+//  - Serialization is canonical + sparse (see CanonicalJSON.swift); `recipe_fp` keys every cache.
+//  - The develop/look split (D4) is structural: `look` is the portable subtree.
+
+import Foundation
+
+/// The current recipe pipeline version. Bump only with an explicit, badged migration (D52).
+public let currentPipelineVersion = 1
+
+public struct Recipe: Codable, Equatable, Sendable {
+    public var pipelineVersion: Int
+    public var develop: Develop
+    public var look: Look
+    public var masks: [Mask]
+
+    public init(
+        pipelineVersion: Int = currentPipelineVersion,
+        develop: Develop = Develop(),
+        look: Look = Look(),
+        masks: [Mask] = []
+    ) {
+        self.pipelineVersion = pipelineVersion
+        self.develop = develop
+        self.look = look
+        self.masks = masks
+    }
+}
+
+// MARK: - Develop (per-image normalization, D4)
+
+public struct Develop: Codable, Equatable, Sendable {
+    public var raw: RawParams
+    public var tone: Tone
+    public var zones: Zones
+    public var curve: CurveSet
+    public var mixer: Mixer
+    public var pointColors: [PointColor]
+    public var detail: Detail
+    public var denoise: Denoise
+    public var geometry: Geometry
+    public var heal: Heal
+
+    public init(
+        raw: RawParams = RawParams(),
+        tone: Tone = Tone(),
+        zones: Zones = Zones(),
+        curve: CurveSet = CurveSet(),
+        mixer: Mixer = Mixer(),
+        pointColors: [PointColor] = [],
+        detail: Detail = Detail(),
+        denoise: Denoise = Denoise(),
+        geometry: Geometry = Geometry(),
+        heal: Heal = Heal()
+    ) {
+        self.raw = raw
+        self.tone = tone
+        self.zones = zones
+        self.curve = curve
+        self.mixer = mixer
+        self.pointColors = pointColors
+        self.detail = detail
+        self.denoise = denoise
+        self.geometry = geometry
+        self.heal = heal
+    }
+}
+
+/// Parameters consumed by the RAW decode stage (docs/14 S1–S5).
+/// `temp`/`tint` nil means "as shot" (the decode's own neutral); when set, WB is a
+/// CAT16 adaptation at pipeline stage S6, not a decode-time multiplier (docs/14 §2.1.4).
+public struct RawParams: Codable, Equatable, Sendable {
+    public var decoder: String        // "apple" | "lumen" (RawSource escape hatch, D50)
+    public var decoderVersion: Int?   // pinned Apple decoder version; nil = not yet pinned
+    public var temp: Double?          // Kelvin 2000…50000 (docs/04); nil = as shot
+    public var tint: Double?          // −150…+150 soft, ±300 hard (docs/04); nil = as shot
+
+    public init(decoder: String = "apple", decoderVersion: Int? = nil,
+                temp: Double? = nil, tint: Double? = nil) {
+        self.decoder = decoder
+        self.decoderVersion = decoderVersion
+        self.temp = temp
+        self.tint = tint
+    }
+}
+
+/// The six-slider tone contract (D6): identical names/ranges to Lightroom Classic.
+/// exposure in EV (−5…+5); the rest −100…+100.
+public struct Tone: Codable, Equatable, Sendable {
+    public var exposure: Double
+    public var contrast: Double
+    public var highlights: Double
+    public var shadows: Double
+    public var whites: Double
+    public var blacks: Double
+
+    public init(exposure: Double = 0, contrast: Double = 0, highlights: Double = 0,
+                shadows: Double = 0, whites: Double = 0, blacks: Double = 0) {
+        self.exposure = exposure
+        self.contrast = contrast
+        self.highlights = highlights
+        self.shadows = shadows
+        self.whites = whites
+        self.blacks = blacks
+    }
+}
+
+/// The Zones panel (D7): five named zones + global over the normalized tonal axis,
+/// with draggable pivots. Zone math reference: ZoneWeights.swift.
+public struct Zones: Codable, Equatable, Sendable {
+    /// Zone pivot positions on the normalized tonal axis [0,1], ascending.
+    public var pivots: [Double]
+    public var dark: ZoneAdjust
+    public var shadow: ZoneAdjust
+    public var mid: ZoneAdjust
+    public var light: ZoneAdjust
+    public var bright: ZoneAdjust
+    public var global: ZoneAdjust
+
+    public static let defaultPivots: [Double] = [0.08, 0.25, 0.5, 0.75, 0.92]
+
+    public init(pivots: [Double] = Zones.defaultPivots,
+                dark: ZoneAdjust = ZoneAdjust(), shadow: ZoneAdjust = ZoneAdjust(),
+                mid: ZoneAdjust = ZoneAdjust(), light: ZoneAdjust = ZoneAdjust(),
+                bright: ZoneAdjust = ZoneAdjust(), global: ZoneAdjust = ZoneAdjust()) {
+        self.pivots = pivots
+        self.dark = dark
+        self.shadow = shadow
+        self.mid = mid
+        self.light = light
+        self.bright = bright
+        self.global = global
+    }
+}
+
+/// Per-zone adjustment: exposure in stops, a color-wheel offset, saturation.
+public struct ZoneAdjust: Codable, Equatable, Sendable {
+    public var ev: Double            // per-zone exposure, in stops (D7)
+    public var wheel: [Double]       // [a, b] chroma offset in the working perceptual plane
+    public var sat: Double           // −100…+100
+
+    public init(ev: Double = 0, wheel: [Double] = [0, 0], sat: Double = 0) {
+        self.ev = ev
+        self.wheel = wheel
+        self.sat = sat
+    }
+}
+
+/// Tone curves (D10). Point curves are [[x,y],…] with x,y in [0,1], strictly
+/// ascending x; interpolation is monotone cubic (MonotoneCubic.swift).
+public struct CurveSet: Codable, Equatable, Sendable {
+    public var parametric: ParametricCurve
+    public var point: [[Double]]?
+    public var r: [[Double]]?
+    public var g: [[Double]]?
+    public var b: [[Double]]?
+    public var luma: [[Double]]?
+    /// D10: luminance-preserving application is the default (LR "Refine Saturation 0" semantics).
+    public var preserveLuminance: Bool
+
+    public init(parametric: ParametricCurve = ParametricCurve(),
+                point: [[Double]]? = nil, r: [[Double]]? = nil, g: [[Double]]? = nil,
+                b: [[Double]]? = nil, luma: [[Double]]? = nil,
+                preserveLuminance: Bool = true) {
+        self.parametric = parametric
+        self.point = point
+        self.r = r
+        self.g = g
+        self.b = b
+        self.luma = luma
+        self.preserveLuminance = preserveLuminance
+    }
+}
+
+/// Four-region parametric curve with movable region splits (docs/04).
+public struct ParametricCurve: Codable, Equatable, Sendable {
+    public var highlights: Double   // −100…+100
+    public var lights: Double
+    public var darks: Double
+    public var shadows: Double
+    public var splits: [Double]     // three region boundaries, defaults 0.25/0.5/0.75
+
+    public init(highlights: Double = 0, lights: Double = 0, darks: Double = 0,
+                shadows: Double = 0, splits: [Double] = [0.25, 0.5, 0.75]) {
+        self.highlights = highlights
+        self.lights = lights
+        self.darks = darks
+        self.shadows = shadows
+        self.splits = splits
+    }
+}
+
+/// The 8-band Color Mixer (D13). Band order is fixed:
+/// red, orange, yellow, green, aqua, blue, purple, magenta.
+public struct Mixer: Codable, Equatable, Sendable {
+    public var bands: [MixerBand]    // always 8
+    public var uniformity: Double    // 0…100, hue convergence (D13)
+
+    public init(bands: [MixerBand] = Array(repeating: MixerBand(), count: 8),
+                uniformity: Double = 0) {
+        self.bands = bands
+        self.uniformity = uniformity
+    }
+}
+
+public struct MixerBand: Codable, Equatable, Sendable {
+    public var hue: Double    // −100…+100
+    public var sat: Double
+    public var lum: Double    // chroma-preserving luminance (D13)
+
+    public init(hue: Double = 0, sat: Double = 0, lum: Double = 0) {
+        self.hue = hue
+        self.sat = sat
+        self.lum = lum
+    }
+}
+
+/// A sampled Point Color swatch (D14).
+public struct PointColor: Codable, Equatable, Sendable {
+    public var sample: [Double]     // sampled color, working-space RGB [r,g,b] in [0,1]
+    public var range: Double        // 0…100 master falloff
+    public var variance: Double     // −100…+100 (negative converges, positive expands)
+    public var shift: HSLShift
+
+    public init(sample: [Double], range: Double = 50, variance: Double = 0,
+                shift: HSLShift = HSLShift()) {
+        self.sample = sample
+        self.range = range
+        self.variance = variance
+        self.shift = shift
+    }
+}
+
+public struct HSLShift: Codable, Equatable, Sendable {
+    public var h: Double
+    public var s: Double
+    public var l: Double
+
+    public init(h: Double = 0, s: Double = 0, l: Double = 0) {
+        self.h = h
+        self.s = s
+        self.l = l
+    }
+}
+
+/// Presence + sharpening (docs/06).
+public struct Detail: Codable, Equatable, Sendable {
+    public var capture: CaptureSharpen
+    public var texture: Double      // −100…+100
+    public var clarity: Double
+    public var dehaze: Double
+    public var sharpen: ManualSharpen
+
+    public init(capture: CaptureSharpen = CaptureSharpen(), texture: Double = 0,
+                clarity: Double = 0, dehaze: Double = 0,
+                sharpen: ManualSharpen = ManualSharpen()) {
+        self.capture = capture
+        self.texture = texture
+        self.clarity = clarity
+        self.dehaze = dehaze
+        self.sharpen = sharpen
+    }
+}
+
+/// Capture sharpening (D24): auto-radius RL deconvolution, on by default for raw.
+public struct CaptureSharpen: Codable, Equatable, Sendable {
+    public var auto: Bool
+    public var radius: Double?      // manual override; nil = auto-estimated
+    public var amount: Double?      // manual strength override; nil = auto
+
+    public init(auto: Bool = true, radius: Double? = nil, amount: Double? = nil) {
+        self.auto = auto
+        self.radius = radius
+        self.amount = amount
+    }
+}
+
+/// Manual/creative sharpening surface (docs/06): LR contract + halo suppression.
+/// Defaults to 0 on raw because capture sharpening owns the baseline.
+public struct ManualSharpen: Codable, Equatable, Sendable {
+    public var amount: Double       // 0…150
+    public var radius: Double       // 0.5…3.0
+    public var detail: Double       // 0…100
+    public var masking: Double      // 0…100
+    public var haloSuppression: Double // 0…100 (C1-inspired)
+
+    public init(amount: Double = 0, radius: Double = 1.0, detail: Double = 25,
+                masking: Double = 0, haloSuppression: Double = 0) {
+        self.amount = amount
+        self.radius = radius
+        self.detail = detail
+        self.masking = masking
+        self.haloSuppression = haloSuppression
+    }
+}
+
+/// Two-tier denoise (D26). `ai` results are cached artifacts, never files (docs/07).
+public struct Denoise: Codable, Equatable, Sendable {
+    public enum Mode: String, Codable, Sendable {
+        case off, classic, ai
+    }
+    public var mode: Mode
+    public var amount: Double       // AI blend 0…100; instant post-compute
+    public var model: String?       // e.g. "nafnet/2.1"; nil = current default
+    public var classic: ClassicNR
+
+    public init(mode: Mode = .classic, amount: Double = 50, model: String? = nil,
+                classic: ClassicNR = ClassicNR()) {
+        self.mode = mode
+        self.amount = amount
+        self.model = model
+        self.classic = classic
+    }
+}
+
+public struct ClassicNR: Codable, Equatable, Sendable {
+    public var luma: Double         // 0…100
+    public var chroma: Double       // 0…100, default mild (docs/07)
+    public var hotPixels: Double    // 0…100 (D26, single-pixel control)
+
+    public init(luma: Double = 0, chroma: Double = 25, hotPixels: Double = 0) {
+        self.luma = luma
+        self.chroma = chroma
+        self.hotPixels = hotPixels
+    }
+}
+
+/// Geometry (docs/09). Crop is normalized to the source frame; masks are stored in
+/// source coordinates and reproject through geometry changes (docs/09 invariant).
+public struct Geometry: Codable, Equatable, Sendable {
+    public var crop: Crop
+    public var angle: Double        // degrees, straighten
+    public var flipH: Bool
+    public var upright: Upright?
+    public var lens: LensCorrections
+
+    public init(crop: Crop = Crop(), angle: Double = 0, flipH: Bool = false,
+                upright: Upright? = nil, lens: LensCorrections = LensCorrections()) {
+        self.crop = crop
+        self.angle = angle
+        self.flipH = flipH
+        self.upright = upright
+        self.lens = lens
+    }
+}
+
+public struct Crop: Codable, Equatable, Sendable {
+    public var x: Double
+    public var y: Double
+    public var w: Double
+    public var h: Double
+
+    public init(x: Double = 0, y: Double = 0, w: Double = 1, h: Double = 1) {
+        self.x = x
+        self.y = y
+        self.w = w
+        self.h = h
+    }
+}
+
+/// Manual/guided perspective (docs/09). Slider bounds are Lumen's own (docs/09 note).
+public struct Upright: Codable, Equatable, Sendable {
+    public var vertical: Double     // −100…+100
+    public var horizontal: Double   // −100…+100
+    public var rotate: Double       // −10…+10
+    public var aspect: Double       // −100…+100
+    public var scale: Double        // 50…150, default 100
+    public var offsetX: Double
+    public var offsetY: Double
+    public var strength: Double     // 0…100 back-off of a guided solution (docs/09)
+
+    public init(vertical: Double = 0, horizontal: Double = 0, rotate: Double = 0,
+                aspect: Double = 0, scale: Double = 100,
+                offsetX: Double = 0, offsetY: Double = 0, strength: Double = 100) {
+        self.vertical = vertical
+        self.horizontal = horizontal
+        self.rotate = rotate
+        self.aspect = aspect
+        self.scale = scale
+        self.offsetX = offsetX
+        self.offsetY = offsetY
+        self.strength = strength
+    }
+}
+
+public struct LensCorrections: Codable, Equatable, Sendable {
+    public var profile: Bool        // built-in / profile geometric+vignetting corrections
+    public var removeCA: Bool
+    public var defringe: Defringe?
+
+    public init(profile: Bool = true, removeCA: Bool = true, defringe: Defringe? = nil) {
+        self.profile = profile
+        self.removeCA = removeCA
+        self.defringe = defringe
+    }
+}
+
+/// Defringe with LR's exact defaults (docs/09): purple 30/70, green 40/60.
+public struct Defringe: Codable, Equatable, Sendable {
+    public var purpleAmount: Double  // 0…20
+    public var purpleHueLo: Double
+    public var purpleHueHi: Double
+    public var greenAmount: Double   // 0…20
+    public var greenHueLo: Double
+    public var greenHueHi: Double
+
+    public init(purpleAmount: Double = 0, purpleHueLo: Double = 30, purpleHueHi: Double = 70,
+                greenAmount: Double = 0, greenHueLo: Double = 40, greenHueHi: Double = 60) {
+        self.purpleAmount = purpleAmount
+        self.purpleHueLo = purpleHueLo
+        self.purpleHueHi = purpleHueHi
+        self.greenAmount = greenAmount
+        self.greenHueLo = greenHueLo
+        self.greenHueHi = greenHueHi
+    }
+}
+
+/// Heal/clone stroke vectors live in content-addressed blobs (docs/15 §15.4 rule 4).
+public struct Heal: Codable, Equatable, Sendable {
+    public var strokesRef: String?  // "blob:xxh64:<hash>"
+    public var count: Int
+
+    public init(strokesRef: String? = nil, count: Int = 0) {
+        self.strokesRef = strokesRef
+        self.count = count
+    }
+}
