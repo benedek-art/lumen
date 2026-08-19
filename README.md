@@ -23,11 +23,17 @@ Apple's platform is what makes it one-person-sized *well*.
 
 ## Status
 
-**Phase 0 — planning complete (v2), no code yet.** This package is the product of a full research
-sweep (August 2026): the color-grading and editing literature, a slider-by-slider teardown of
-Lightroom Classic 15.5, deep teardowns of Capture One, DxO, Topaz, the Mac-native field, the
-culling tools, the open-source engines, and cinema color. Every feature in the spec carries a
-named verdict against the best in class. Implementation starts at Phase 1 of the roadmap.
+**Phase 1 — walking skeleton in progress.** The planning package below (v2) is complete — the
+product of a full research sweep (August 2026): the color-grading and editing literature, a
+slider-by-slider teardown of Lightroom Classic 15.5, deep teardowns of Capture One, DxO, Topaz,
+the Mac-native field, the culling tools, the open-source engines, and cinema color, with every
+feature carrying a named verdict against the best in class.
+
+Code so far: `LumenCore` (recipe model, canonical JSON + fingerprints, curve/zone/mask reference
+math, XMP sidecars, catalog schema) builds green with all tests passing on CI's macOS runner,
+cross-verified against an executable Python reference; the walking-skeleton app (browse → loupe →
+basic sliders → JPEG export) compiles and awaits its first launch. See [BUILDING.md](BUILDING.md)
+for the honest ledger and how to run it.
 
 ## What "better, for me" means — measurably
 
