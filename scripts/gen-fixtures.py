@@ -152,7 +152,7 @@ def fp(s):
 # ---------------------------------------------------------------------------
 
 def zone_adjust():
-    return {"ev": 0, "wheel": [0, 0], "sat": 0}
+    return {"ev": 0, "wheel": [0, 0], "sat": 0, "falloff": 0.5}
 
 
 def wheel():
@@ -163,7 +163,7 @@ DEFAULT_RECIPE = {
     "pipelineVersion": 1,
     "develop": {
         "raw": {"decoder": "apple"},
-        "tone": {"exposure": 0, "contrast": 0, "highlights": 0,
+        "tone": {"exposure": 0, "contrast": 0, "contrastPivot": 0, "highlights": 0,
                  "shadows": 0, "whites": 0, "blacks": 0},
         "zones": {"pivots": [0.08, 0.25, 0.5, 0.75, 0.92],
                   "dark": zone_adjust(), "shadow": zone_adjust(), "mid": zone_adjust(),
@@ -234,11 +234,14 @@ def gen_canonical_fixture():
             {"op": "intersect", "kind": "lumaRange", "amount": 100, "invert": False,
              "lo": 0.55, "hi": 1, "smooth": 0.5},
         ],
-        "refine": {"feather": 12, "edge": -5, "blur": 0},
+        "refine": {"feather": 12, "edge": -5, "blur": 0,
+                   "levelsLo": 0, "levelsHi": 100, "levelsGamma": 1},
         "adjust": {"exposure": -0.6, "contrast": 0, "highlights": 0, "shadows": 0,
-                   "whites": 0, "blacks": 0, "temp": -300, "tint": 0, "sat": 0,
-                   "texture": 0, "clarity": 0, "dehaze": 0, "sharpness": 0,
-                   "noise": 0, "moire": 0, "defringe": 0, "grainAmount": 0},
+                   "whites": 0, "blacks": 0, "temp": -300, "tint": 0, "hue": 0,
+                   "sat": 0, "vibrance": 0, "texture": 0, "clarity": 0, "dehaze": 0,
+                   "sharpness": 0, "noise": 0, "noiseChroma": 0, "moire": 0,
+                   "defringe": 0, "grainAmount": 0, "colorTintStrength": 0,
+                   "pointColors": []},
     }]
     c_canon = canonical_recipe_json(c, defaults)
     cases.append({"name": "maskAndLook", "canonical": c_canon, "fingerprint": fp(c_canon)})
@@ -566,10 +569,10 @@ def rename_render(template, ctx, seq):
         if token == "seq":
             return "%04d" % seq
         if token.startswith("seq:"):
-            try:
-                width = int(token[4:])
-            except ValueError:
+            spec = token[4:]
+            if not re.fullmatch(r"[0-9]+", spec):
                 return ""
+            width = int(spec)
             return ("%0" + str(width) + "d") % seq if 1 <= width <= 9 else ""
         if token == "date":
             return pad(c.get("year"), 4) + pad(c.get("month"), 2) + pad(c.get("day"), 2)

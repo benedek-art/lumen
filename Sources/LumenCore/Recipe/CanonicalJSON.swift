@@ -161,7 +161,12 @@ public enum CanonicalJSON {
             out += "]"
         case .object(let o):
             out += "{"
-            for (i, key) in o.keys.sorted().enumerated() {
+            // Sort by Unicode code point (== UTF-8 byte order), matching Python's
+            // sorted() exactly; Swift's default String sort uses canonical-equivalence
+            // ordering, which diverges on some non-ASCII keys. (Canonically-equivalent
+            // but distinct keys still collapse on decode — inherent to [String: _].)
+            let sortedKeys = o.keys.sorted { $0.utf8.lexicographicallyPrecedes($1.utf8) }
+            for (i, key) in sortedKeys.enumerated() {
                 if i > 0 { out += "," }
                 writeEscaped(key, into: &out)
                 out += ":"

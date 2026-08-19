@@ -115,13 +115,19 @@ public enum RenameTemplate {
     }
 
     /// Filesystem hygiene: strip path separators and control characters,
-    /// collapse whitespace runs to single spaces, trim.
+    /// collapse whitespace runs to single spaces, trim. Iterates unicode scalars
+    /// so a separator followed by a combining mark can't smuggle through as one
+    /// grapheme cluster (mirrors the Python reference exactly).
     static func sanitize(_ s: String) -> String {
         var cleaned = ""
-        for ch in s {
-            if ch == "/" || ch == ":" || ch == "\\" { cleaned.append("-") }
-            else if let scalar = ch.unicodeScalars.first, scalar.value < 0x20 { continue }
-            else { cleaned.append(ch) }
+        for scalar in s.unicodeScalars {
+            if scalar == "/" || scalar == ":" || scalar == "\\" {
+                cleaned.append("-")
+            } else if scalar.value < 0x20 {
+                continue
+            } else {
+                cleaned.unicodeScalars.append(scalar)
+            }
         }
         let parts = cleaned.split(separator: " ", omittingEmptySubsequences: true)
         return parts.joined(separator: " ")

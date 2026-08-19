@@ -107,6 +107,7 @@
   "tone": {
    "blacks": 0,
    "contrast": 0,
+   "contrastPivot": 0,
    "exposure": 0,
    "highlights": 0,
    "shadows": 0,
@@ -115,6 +116,7 @@
   "zones": {
    "bright": {
     "ev": 0,
+    "falloff": 0.5,
     "sat": 0,
     "wheel": [
      0,
@@ -123,6 +125,7 @@
    },
    "dark": {
     "ev": 0,
+    "falloff": 0.5,
     "sat": 0,
     "wheel": [
      0,
@@ -131,6 +134,7 @@
    },
    "global": {
     "ev": 0,
+    "falloff": 0.5,
     "sat": 0,
     "wheel": [
      0,
@@ -139,6 +143,7 @@
    },
    "light": {
     "ev": 0,
+    "falloff": 0.5,
     "sat": 0,
     "wheel": [
      0,
@@ -147,6 +152,7 @@
    },
    "mid": {
     "ev": 0,
+    "falloff": 0.5,
     "sat": 0,
     "wheel": [
      0,
@@ -162,6 +168,7 @@
    ],
    "shadow": {
     "ev": 0,
+    "falloff": 0.5,
     "sat": 0,
     "wheel": [
      0,

@@ -4,10 +4,12 @@
 
 #if os(macOS)
 
+import AppKit
 import SwiftUI
 
 struct GridView: View {
     @EnvironmentObject var state: AppState
+    @FocusState private var focused: Bool
 
     private let columns = [GridItem(.adaptive(minimum: 160, maximum: 220), spacing: 8)]
 
@@ -28,6 +30,8 @@ struct GridView: View {
             .padding(8)
         }
         .focusable()
+        .focused($focused)
+        .onAppear { focused = true }   // arrow keys must work without a Tab first
         .onMoveCommand { direction in
             switch direction {
             case .left: state.selectPrevious()

@@ -91,19 +91,23 @@ public struct RawParams: Codable, Equatable, Sendable {
 }
 
 /// The six-slider tone contract (D6): identical names/ranges to Lightroom Classic.
-/// exposure in EV (−5…+5); the rest −100…+100.
+/// exposure in EV (−5…+5); the rest −100…+100. contrastPivot is docs/04's
+/// Contrast+Pivot anchor in EV relative to mid-gray (−4…+4, 0 = mid-gray).
 public struct Tone: Codable, Equatable, Sendable {
     public var exposure: Double
     public var contrast: Double
+    public var contrastPivot: Double
     public var highlights: Double
     public var shadows: Double
     public var whites: Double
     public var blacks: Double
 
-    public init(exposure: Double = 0, contrast: Double = 0, highlights: Double = 0,
-                shadows: Double = 0, whites: Double = 0, blacks: Double = 0) {
+    public init(exposure: Double = 0, contrast: Double = 0, contrastPivot: Double = 0,
+                highlights: Double = 0, shadows: Double = 0, whites: Double = 0,
+                blacks: Double = 0) {
         self.exposure = exposure
         self.contrast = contrast
+        self.contrastPivot = contrastPivot
         self.highlights = highlights
         self.shadows = shadows
         self.whites = whites
@@ -139,16 +143,21 @@ public struct Zones: Codable, Equatable, Sendable {
     }
 }
 
-/// Per-zone adjustment: exposure in stops, a color-wheel offset, saturation.
+/// Per-zone adjustment: exposure in stops, a color-wheel offset, saturation, falloff.
+/// Wire note: `sat` stores UI-percent − 100 (docs/04 shows 0…200% default 100;
+/// the wire form is the −100…+100 offset so the sparse default is 0).
 public struct ZoneAdjust: Codable, Equatable, Sendable {
     public var ev: Double            // per-zone exposure, in stops (D7)
     public var wheel: [Double]       // [a, b] chroma offset in the working perceptual plane
-    public var sat: Double           // −100…+100
+    public var sat: Double           // −100…+100 (UI% − 100)
+    public var falloff: Double       // 0…1 transition softness at this zone's edges (docs/04)
 
-    public init(ev: Double = 0, wheel: [Double] = [0, 0], sat: Double = 0) {
+    public init(ev: Double = 0, wheel: [Double] = [0, 0], sat: Double = 0,
+                falloff: Double = 0.5) {
         self.ev = ev
         self.wheel = wheel
         self.sat = sat
+        self.falloff = falloff
     }
 }
 
@@ -161,7 +170,9 @@ public struct CurveSet: Codable, Equatable, Sendable {
     public var g: [[Double]]?
     public var b: [[Double]]?
     public var luma: [[Double]]?
-    /// D10: luminance-preserving application is the default (LR "Refine Saturation 0" semantics).
+    /// D10: luminance-preserving application is the default (LR "Refine Saturation 0"
+    /// semantics). docs/04's continuous chroma-boost dial and per-end soft-clip
+    /// controls are deferred format additions (pipelineVersion-gated when they land).
     public var preserveLuminance: Bool
 
     public init(parametric: ParametricCurve = ParametricCurve(),

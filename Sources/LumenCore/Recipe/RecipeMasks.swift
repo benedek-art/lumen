@@ -136,16 +136,26 @@ public struct MaskComponent: Codable, Equatable, Sendable {
     }
 }
 
-/// Mask refinement chain (docs/08): guided-filter feathering + edge shift (+ blur).
+/// Mask refinement chain (docs/08 §8.5). Wire-name mapping to the doc's controls:
+/// `feather` = guided-filter edge-aware refinement ("Refine"), `edge` = boundary
+/// shift ("Edge"), `blur` = gaussian softening ("Feather"), `levels*` = the density
+/// remap ("Levels"). The wire names follow docs/15 §15.4's example.
 public struct MaskRefine: Codable, Equatable, Sendable {
-    public var feather: Double     // 0…100
+    public var feather: Double     // 0…100 guided-filter edge-aware refinement
     public var edge: Double        // −50…+50 boundary shift
     public var blur: Double        // 0…100 gaussian softness
+    public var levelsLo: Double    // 0…100 density remap floor
+    public var levelsHi: Double    // 0…100 density remap ceiling
+    public var levelsGamma: Double // 0.2…5.0 density gamma
 
-    public init(feather: Double = 0, edge: Double = 0, blur: Double = 0) {
+    public init(feather: Double = 0, edge: Double = 0, blur: Double = 0,
+                levelsLo: Double = 0, levelsHi: Double = 100, levelsGamma: Double = 1) {
         self.feather = feather
         self.edge = edge
         self.blur = blur
+        self.levelsLo = levelsLo
+        self.levelsHi = levelsHi
+        self.levelsGamma = levelsGamma
     }
 }
 
@@ -161,24 +171,32 @@ public struct LocalAdjust: Codable, Equatable, Sendable {
     public var blacks: Double
     public var temp: Double        // relative WB shift
     public var tint: Double
+    public var hue: Double         // −180…+180 hue shift (docs/08 §8.4)
     public var sat: Double
+    public var vibrance: Double    // skin-protected saturation (docs/08 §8.4)
     public var texture: Double
     public var clarity: Double
     public var dehaze: Double
     public var sharpness: Double   // negative = blur
-    public var noise: Double       // classical NR lift (docs/07)
+    public var noise: Double       // classical luma NR lift (docs/07)
+    public var noiseChroma: Double // chroma NR lift (disclosure split, docs/08 §8.4)
     public var moire: Double
     public var defringe: Double
     public var grainAmount: Double
+    public var colorTint: [Double]?      // colorize swatch, working-space RGB; nil = off
+    public var colorTintStrength: Double // 0…100
+    public var pointColors: [PointColor] // local Point Color swatches (docs/08 §8.4)
     public var curve: CurveSet?    // local point curve (D29)
     public var wheels: GradingWheels? // local grading wheels (D29)
 
     public init(exposure: Double = 0, contrast: Double = 0, highlights: Double = 0,
                 shadows: Double = 0, whites: Double = 0, blacks: Double = 0,
-                temp: Double = 0, tint: Double = 0, sat: Double = 0,
-                texture: Double = 0, clarity: Double = 0, dehaze: Double = 0,
-                sharpness: Double = 0, noise: Double = 0, moire: Double = 0,
-                defringe: Double = 0, grainAmount: Double = 0,
+                temp: Double = 0, tint: Double = 0, hue: Double = 0, sat: Double = 0,
+                vibrance: Double = 0, texture: Double = 0, clarity: Double = 0,
+                dehaze: Double = 0, sharpness: Double = 0, noise: Double = 0,
+                noiseChroma: Double = 0, moire: Double = 0, defringe: Double = 0,
+                grainAmount: Double = 0, colorTint: [Double]? = nil,
+                colorTintStrength: Double = 0, pointColors: [PointColor] = [],
                 curve: CurveSet? = nil, wheels: GradingWheels? = nil) {
         self.exposure = exposure
         self.contrast = contrast
@@ -188,15 +206,21 @@ public struct LocalAdjust: Codable, Equatable, Sendable {
         self.blacks = blacks
         self.temp = temp
         self.tint = tint
+        self.hue = hue
         self.sat = sat
+        self.vibrance = vibrance
         self.texture = texture
         self.clarity = clarity
         self.dehaze = dehaze
         self.sharpness = sharpness
         self.noise = noise
+        self.noiseChroma = noiseChroma
         self.moire = moire
         self.defringe = defringe
         self.grainAmount = grainAmount
+        self.colorTint = colorTint
+        self.colorTintStrength = colorTintStrength
+        self.pointColors = pointColors
         self.curve = curve
         self.wheels = wheels
     }

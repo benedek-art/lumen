@@ -17,24 +17,40 @@ struct LoupeView: View {
     @EnvironmentObject var state: AppState
     let photo: PhotoItem
 
+    /// Everything that should trigger a re-render, cheap to compare (Recipe is
+    /// Equatable — no fingerprint hashing on the main actor per body pass).
+    private struct RenderKey: Equatable {
+        let url: URL
+        let recipe: Recipe
+    }
+
     @State private var rendered: CGImage?
+    @State private var renderedFor: URL?      // which photo `rendered` belongs to
     @State private var isEmbeddedFallback = false
-    @State private var renderTask: Task<Void, Never>?
+    @State private var isUnreadable = false
+    @FocusState private var focused: Bool
 
     var body: some View {
         ZStack(alignment: .bottomLeading) {
             Group {
-                if let rendered {
+                if let rendered, renderedFor == photo.id {
                     Image(decorative: rendered, scale: 1.0)
                         .resizable()
                         .scaledToFit()
+                } else if isUnreadable {
+                    VStack(spacing: 6) {
+                        Image(systemName: "exclamationmark.triangle")
+                            .font(.system(size: 32))
+                        Text("Can't read \(photo.filename)")
+                    }
+                    .foregroundStyle(.secondary)
                 } else {
                     ProgressView("Rendering…")
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            if isEmbeddedFallback {
+            if isEmbeddedFallback && renderedFor == photo.id {
                 Text("EMBEDDED PREVIEW")
                     .font(.caption2.bold())
                     .padding(4)
@@ -44,6 +60,8 @@ struct LoupeView: View {
             }
         }
         .focusable()
+        .focused($focused)
+        .onAppear { focused = true }
         .onMoveCommand { direction in
             switch direction {
             case .left: state.selectPrevious()
@@ -51,40 +69,49 @@ struct LoupeView: View {
             default: break
             }
         }
-        .task(id: renderKey) { await render() }
-    }
-
-    /// Re-render whenever the photo or its recipe changes.
-    private var renderKey: String {
-        let fp = (try? RecipeFingerprint.fingerprint(state.recipe(for: photo))) ?? "?"
-        return photo.id.absoluteString + "|" + fp
+        .task(id: RenderKey(url: photo.id, recipe: state.recipe(for: photo))) {
+            await render()
+        }
     }
 
     @MainActor
     private func render() async {
         let url = photo.id
         let recipe = state.recipe(for: photo)
-        let renderer = RenderCoordinator.shared
 
-        // Show the embedded preview instantly while the real render happens (Law 11:
-        // something honest within a frame beats a spinner).
-        if rendered == nil, let thumb = await state.thumbnails.load(url: url, maxPixel: 1600),
-           let cg = thumb.cgImage(forProposedRect: nil, context: nil, hints: nil) {
-            if !Task.isCancelled && rendered == nil {
+        // New photo: drop the previous photo's pixels and give THIS photo the
+        // instant embedded-preview path (Law 11) before the real render lands.
+        if renderedFor != url {
+            rendered = nil
+            renderedFor = nil
+            isEmbeddedFallback = false
+            isUnreadable = false
+            if let thumb = await state.thumbnails.load(url: url, maxPixel: 1600),
+               let cg = thumb.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+                guard !Task.isCancelled else { return }
                 rendered = cg
+                renderedFor = url
                 isEmbeddedFallback = true
             }
         }
 
-        let result = await renderer.render(url: url, recipe: recipe, maxLongEdge: 2560)
+        let result = await RenderCoordinator.shared.render(
+            url: url, recipe: recipe, maxLongEdge: 2560)
         guard !Task.isCancelled else { return }
         switch result {
         case .success(let cg):
             rendered = cg
+            renderedFor = url
             isEmbeddedFallback = false
+            isUnreadable = false
         case .failure:
-            // keep the embedded preview + badge; never crash on an undecodable file
-            isEmbeddedFallback = rendered != nil
+            // Keep the embedded preview + badge when we have one; otherwise say so
+            // honestly instead of spinning forever (docs/12: honest errors).
+            if renderedFor == url, rendered != nil {
+                isEmbeddedFallback = true
+            } else {
+                isUnreadable = true
+            }
         }
     }
 }

@@ -5,7 +5,6 @@
 
 #if os(macOS)
 
-import LumenCore
 import SwiftUI
 
 struct ContentView: View {

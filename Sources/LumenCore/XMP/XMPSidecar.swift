@@ -77,14 +77,16 @@ public enum XMPSidecar {
     }
 
     static func escapeXML(_ s: String) -> String {
+        // Iterate unicode scalars, not Characters: a special char followed by a
+        // combining mark forms one grapheme and would dodge a Character switch.
         var out = ""
-        for c in s {
-            switch c {
+        for scalar in s.unicodeScalars {
+            switch scalar {
             case "&": out += "&amp;"
             case "<": out += "&lt;"
             case ">": out += "&gt;"
             case "\"": out += "&quot;"
-            default: out.append(c)
+            default: out.unicodeScalars.append(scalar)
             }
         }
         return out
@@ -96,7 +98,9 @@ public enum XMPSidecar {
         let delegate = SidecarParserDelegate()
         let parser = XMLParser(data: data)
         parser.delegate = delegate
-        guard parser.parse() || delegate.sawAnyField else { return nil }
+        _ = parser.parse()
+        // Partial salvage is deliberate: a truncated sidecar that yielded fields is
+        // better recovered than dropped (docs/15 §15.5 conflict rules do the rest).
         guard delegate.sawAnyField else { return nil }
         return delegate.content
     }

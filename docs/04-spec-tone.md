@@ -194,6 +194,12 @@ falloff are visible and draggable on the histogram.
 | Per-zone Falloff | 0…1 | 0.5 | Transition softness at the zone boundary |
 | Global | same Exposure/wheel/Saturation | neutral | Unwindowed; composes with everything |
 
+Wire note (docs/15 §15.4): pivots are STORED as normalized positions on the tonal
+axis [0,1] (defaults 0.08/0.25/0.5/0.75/0.92); the EV values above are the UI
+denomination, mapped through the pipeline's log-luminance→axis function
+(docs/14-pipeline.md owns the mapping). Per-zone Saturation stores UI% − 100
+(so the sparse default is 0); per-zone Falloff stores 0…1 directly.
+
 **How it works.** Scene-referred, per-pixel, one pass — the implementation recipe (verified against
 Resolve-compatible colorist math, digest r10 §3.1):
 

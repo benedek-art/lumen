@@ -28,8 +28,19 @@ public final class AppleRawSource {
 
     private let filter: CIRAWFilter
     public let url: URL
-    /// The decoder version actually in use — persist into recipe.develop.raw.decoderVersion.
-    public let decoderVersionRawValue: Int
+
+    /// The decoder version actually pinned — persist into recipe.develop.raw.decoderVersion.
+    /// nil when Apple's rawValue for this file's decoder isn't a plain integer
+    /// (some DNG-variant decoders) — the pin still holds on the filter itself.
+    public let pinnedDecoderVersion: Int?
+
+    /// As-shot values captured at init so decode() can restore them: the filter
+    /// instance is cached and reused, so every property must be written on every
+    /// decode or previous recipes' values stick (review finding: sticky state).
+    private let asShotTemperature: Float
+    private let asShotTint: Float
+    private let defaultLuminanceNR: Float
+    private let defaultColorNR: Float
 
     public init(url: URL) throws {
         guard FileManager.default.fileExists(atPath: url.path) else {
@@ -41,17 +52,25 @@ public final class AppleRawSource {
         self.url = url
         self.filter = filter
 
-        // Pin the newest supported decoder version explicitly (D50): implicit "latest"
-        // could shift under a macOS update and silently change renders.
-        if let newest = filter.supportedDecoderVersions.map(\.rawValue).sorted().last,
-           let version = Int(newest) {
-            self.decoderVersionRawValue = version
+        // Pin the decoder version explicitly (D50): implicit "latest" could shift
+        // under a macOS update and silently change renders. supportedDecoderVersions
+        // is ordered oldest→newest; take the newest and ACTUALLY assign it.
+        if let newest = filter.supportedDecoderVersions.last {
+            filter.decoderVersion = newest
+            self.pinnedDecoderVersion = Int(newest.rawValue.filter(\.isNumber))
         } else {
-            self.decoderVersionRawValue = 0
+            self.pinnedDecoderVersion = nil
         }
+
+        self.asShotTemperature = filter.neutralTemperature
+        self.asShotTint = filter.neutralTint
+        self.defaultLuminanceNR = filter.luminanceNoiseReductionAmount
+        self.defaultColorNR = filter.colorNoiseReductionAmount
     }
 
     /// Configure Apple's stage from the recipe and return the decoded image.
+    /// Every recipe-driven property is written unconditionally (recipe value or
+    /// captured as-shot default) so a cached filter never carries stale state.
     /// `draft: true` uses the fast decode path for interactive preview rendering.
     public func decode(recipe: Recipe, draft: Bool, scaleFactor: Double = 1.0) -> CIImage? {
         let dev = recipe.develop
@@ -59,13 +78,9 @@ public final class AppleRawSource {
         filter.isDraftModeEnabled = draft
         filter.scaleFactor = Float(scaleFactor)
 
-        // White balance: as-shot unless the recipe sets Kelvin/tint.
-        if let temp = dev.raw.temp {
-            filter.neutralTemperature = Float(temp)
-        }
-        if let tint = dev.raw.tint {
-            filter.neutralTint = Float(tint)
-        }
+        // White balance: recipe Kelvin/tint, or the captured as-shot neutral.
+        filter.neutralTemperature = dev.raw.temp.map(Float.init) ?? asShotTemperature
+        filter.neutralTint = dev.raw.tint.map(Float.init) ?? asShotTint
 
         // Exposure in EV maps directly.
         filter.exposure = Float(dev.tone.exposure)
@@ -73,21 +88,18 @@ public final class AppleRawSource {
         // Phase 1 approximations (replaced by Lumen's zone engine in Phase 3):
         // shadows lift rides Apple's shadow boost; highlight recovery rides the
         // local tone map amount. Both clamp to Apple's 0…1 ranges.
-        if dev.tone.shadows > 0 {
-            filter.boostShadowAmount = Float(min(dev.tone.shadows / 100.0, 1.0))
-        } else {
-            filter.boostShadowAmount = 0
-        }
-        if dev.tone.highlights < 0 {
-            filter.localToneMapAmount = Float(min(-dev.tone.highlights / 100.0, 1.0))
-        } else {
-            filter.localToneMapAmount = 0
-        }
+        filter.boostShadowAmount =
+            dev.tone.shadows > 0 ? Float(min(dev.tone.shadows / 100.0, 1.0)) : 0
+        filter.localToneMapAmount =
+            dev.tone.highlights < 0 ? Float(min(-dev.tone.highlights / 100.0, 1.0)) : 0
 
-        // NR: mode .off zeroes Apple's noise reduction; otherwise leave camera defaults.
+        // NR: mode .off zeroes Apple's noise reduction; otherwise camera defaults.
         if dev.denoise.mode == .off {
             filter.luminanceNoiseReductionAmount = 0
             filter.colorNoiseReductionAmount = 0
+        } else {
+            filter.luminanceNoiseReductionAmount = defaultLuminanceNR
+            filter.colorNoiseReductionAmount = defaultColorNR
         }
 
         filter.isLensCorrectionEnabled = dev.geometry.lens.profile

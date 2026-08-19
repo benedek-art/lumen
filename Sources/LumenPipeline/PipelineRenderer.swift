@@ -11,7 +11,6 @@ import CoreImage
 import Foundation
 import ImageIO
 import LumenCore
-import UniformTypeIdentifiers
 
 public struct ExportSettings: Sendable {
     public var jpegQuality: Double      // 0…1
@@ -97,9 +96,12 @@ public final class PipelineRenderer {
 
         let crop = geo.crop
         if crop.x != 0 || crop.y != 0 || crop.w != 1 || crop.h != 1 {
+            // Recipe crop is top-left-origin (image convention); Core Image extents
+            // are bottom-up — flip the y term. (Review finding; a unit test guards
+            // this once the crop UI lands in Phase 3.)
             let e = out.extent
             let rect = CGRect(x: e.origin.x + crop.x * e.width,
-                              y: e.origin.y + crop.y * e.height,
+                              y: e.origin.y + (1 - crop.y - crop.h) * e.height,
                               width: crop.w * e.width,
                               height: crop.h * e.height)
             out = out.cropped(to: rect.intersection(e))

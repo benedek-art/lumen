@@ -9,7 +9,6 @@
 import AppKit
 import Foundation
 import LumenCore
-import LumenPipeline
 import SwiftUI
 
 struct PhotoItem: Identifiable, Hashable {

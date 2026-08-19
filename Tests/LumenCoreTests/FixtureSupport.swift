@@ -5,12 +5,20 @@
 import Foundation
 import XCTest
 
+struct MissingFixture: Error, CustomStringConvertible {
+    let name: String
+    var description: String {
+        "fixture \(name).json missing — run scripts/gen-fixtures.py"
+    }
+}
+
 enum Fixtures {
     static func data(_ name: String) throws -> Data {
         guard let url = Bundle.module.url(
             forResource: name, withExtension: "json", subdirectory: "Fixtures")
         else {
-            throw XCTSkip("fixture \(name).json missing — run scripts/gen-fixtures.py")
+            XCTFail("fixture \(name).json missing — run scripts/gen-fixtures.py")
+            throw MissingFixture(name: name)
         }
         return try Data(contentsOf: url)
     }

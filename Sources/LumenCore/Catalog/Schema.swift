@@ -222,7 +222,10 @@ public enum CatalogSchema {
     """
 
     /// Connection pragmas (docs/15 §15.2), applied on every open.
+    /// page_size must run first: it only takes effect on a fresh database before
+    /// the first write / before WAL mode is entered.
     public static let pragmas = """
+    PRAGMA page_size=8192;
     PRAGMA journal_mode=WAL;
     PRAGMA synchronous=NORMAL;
     PRAGMA foreign_keys=ON;

@@ -7,22 +7,31 @@ exists, what has been verified where, and what to do first on a Mac.
 
 | Piece | Status |
 |---|---|
-| `Sources/LumenCore` | Written **and machine-verified on Linux** via the fixture system below: recipe model, canonical sparse JSON + fingerprints, curves, zone weights, mask algebra, XMP sidecars, rename templates, catalog DDL (executed in real SQLite, grid query proven index-backed) |
-| `Tests/LumenCoreTests` | Written; replays the verified fixtures. **Not yet executed** (written on a Linux box with no Swift toolchain — see "First run on a Mac") |
-| `Sources/LumenPipeline` | Written, **untested**: CIRAWFilter wrapper (decoder pinned, draft mode), preview/export renderer (one graph for both — docs/13) |
-| `Sources/LumenApp` | Written, **untested**: three-pane shell, embedded-preview grid, loupe with draft-render + embedded fallback badge, develop panel (exposure/WB/highlights/shadows/NR), JPEG export, G/E + arrow keys |
+| `Sources/LumenCore` | Written, machine-verified on Linux via the fixture system below, **compiled green and all tests passing on the CI macOS runner** |
+| `Tests/LumenCoreTests` | **21 tests, all passing on macOS CI** (see Actions tab) |
+| `Sources/LumenPipeline` | **Compiles on macOS CI**; runtime behavior reviewed by a 4-lens adversarial pass (decoder pinning, cached-filter state, crop axis all fixed from findings) — first *visual* verification happens on your Mac |
+| `Sources/LumenApp` | **Compiles on macOS CI**; UI behavior reviewed (focus routing, loupe state reset, thumbnail cache) — first launch happens on your Mac |
+| CI | `.github/workflows/ci.yml`: macos-15 `swift build` + `swift test`, plus a Linux job that regenerates fixtures with the Python reference and fails on drift |
 
-## First run on a Mac (Xcode 16+ / Swift 6 toolchain)
+## Running it on a Mac (Xcode 16+ / Swift 6 toolchain)
 
 ```sh
-swift test          # runs LumenCoreTests against the golden fixtures
-swift run LumenApp  # launches the walking skeleton
+swift test               # the golden-fixture suite (green on CI as of this commit)
+swift run LumenApp       # launch the walking skeleton directly
+scripts/build-app.sh     # or build dist/Lumen.app and `open` it
 ```
 
-Expectations, honestly stated:
+What the walking skeleton does today: open a folder of RAWs (Cmd+O), browse the
+grid on embedded previews, double-click or `E` into the loupe (draft-quality RAW
+render with an honest EMBEDDED PREVIEW badge until the real render lands), arrow
+keys to move, `G` back to grid, edit exposure / WB Kelvin+tint / highlights /
+shadows / NR toggle, export a JPEG. That is the docs/16 Phase-1 slice.
 
-1. **Compile errors are likely on first build** — all Swift here was written without a
-   compiler. They should be shallow (API signatures, imports), not structural.
+Notes:
+
+1. **CI compiles and tests this code on every push** — but no one has *seen* the
+   app run yet. UI glitches, layout issues, and CIRAWFilter rendering surprises on
+   real camera files are expected discoveries for the first Mac session.
 2. **A failing `LumenCoreTests` test is the system working.** Every expected value in
    `Tests/LumenCoreTests/Fixtures/` was computed and property-checked by
    `scripts/gen-fixtures.py` (curve monotonicity, zone partition-of-unity, xxh64 vs the

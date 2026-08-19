@@ -33,7 +33,7 @@ docs/12-spec-ux.md (one-frame rule: ≤16.7 ms for continuous input; ≤100 ms f
 ### Masks, components, and algebra
 
 **What it is.** A photo has a list of **masks**. Each mask is a stack of **components** (any of the
-13 types in §8.2–8.3) combined with **Add / Subtract / Intersect**, each component individually
+14 types in §8.2–8.3) combined with **Add / Subtract / Intersect**, each component individually
 invertible. Each mask carries one set of local adjustments (§8.4).
 
 **Controls.**
