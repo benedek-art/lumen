@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  workflow_dispatch:
+
+jobs:
+  # The real thing: compile every target and run the golden-fixture suite on macOS.
+  test-macos:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: swift --version && xcodebuild -version
+      - name: Build (all targets)
+        run: swift build
+      - name: Test (LumenCore golden fixtures)
+        run: swift test
+
+  # Linux lane: regenerate fixtures with the Python reference and fail if the
+  # committed fixtures drifted from the verified reference.
+  fixtures-linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install reference deps
+        run: pip install xxhash
+      - name: Regenerate + self-verify fixtures
+        run: python3 scripts/gen-fixtures.py
+      - name: Fixtures must match committed state
+        run: git diff --exit-code -- Tests/LumenCoreTests/Fixtures
