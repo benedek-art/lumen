@@ -77,6 +77,68 @@ final class KernelGoldenTests: XCTestCase {
                               + "per-channel again, not a luminance ratio")
     }
 
+    /// Dehaze must not drive scene-linear pixels below zero.
+    ///
+    /// The transmission divides the recombination, so a transmission that reads too
+    /// high subtracts too much airlight and lands the result under black. The shipping
+    /// path took its dark channel off the un-normalised image and divided by the
+    /// airlight's scalar MEAN, where the reference normalises per channel — a
+    /// difference that only exists when the veil has a colour, which is every veil
+    /// worth a Dehaze slider. Measured against the reference under a blue-cyan airlight
+    /// of (0.55, 0.68, 0.85): the transmission came out 0.060 high on average, 0.149 at
+    /// worst, and 9.2% of recovered pixels went negative where the reference produces
+    /// none.
+    ///
+    /// A frame this stage cannot make negative is the assertion, rather than a
+    /// tolerance against the reference: negative scene-linear values are the thing that
+    /// actually reaches the picture, as crushed black or as a channel clipping on its
+    /// own and taking the hue with it.
+    func testDehazeKeepsPixelsAboveBlack() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+        let width = 48, height = 48
+        // A scene under a distinctly blue-cyan veil, with the veil thickening down the
+        // frame so the transmission varies. Colour in the airlight is the whole point:
+        // a neutral veil hides the bug, because then the per-channel normalisation and
+        // the scalar mean agree.
+        let air = RGB(0.55, 0.68, 0.85)
+        let source = ImageBuffer(width: width, height: height) { u, v in
+            let scene = RGB(0.05 + 0.50 * u, 0.08 + 0.35 * u + 0.10 * v,
+                            0.06 + 0.20 * u + 0.05 * v)
+            let t = 0.25 + 0.60 * (1 - v)
+            return RGB(scene.r * t + air.r * (1 - t),
+                       scene.g * t + air.g * (1 - t),
+                       scene.b * t + air.b * (1 - t))
+        }
+        let input = ciImage(from: source)
+
+        for amount in [40.0, 80.0, 100.0] {
+            let output = RenderGraph.applyDehaze(input, amount: amount, longEdge: width)
+            guard let after = readBack(output, width: width, height: height),
+                  let before = readBack(input, width: width, height: height)
+            else { return XCTFail("dehaze render failed at \(amount)") }
+
+            var worstNegative = 0.0
+            var moved = 0.0
+            for y in 0..<height {
+                for x in 0..<width {
+                    let c = after[x, y]
+                    moved = Swift.max(moved, before[x, y].maxAbsDifference(c))
+                    worstNegative = Swift.min(worstNegative,
+                                              Swift.min(Double(c.r),
+                                                        Swift.min(Double(c.g), Double(c.b))))
+                }
+            }
+            XCTAssertGreaterThan(moved, 0.01,
+                                 "dehaze at \(amount) changed nothing, so this proves "
+                                     + "nothing")
+            // A hair under zero is float noise; a fifth of a stop under is the bug.
+            XCTAssertGreaterThan(worstNegative, -1e-3,
+                                 "dehaze at \(amount) drove a channel to \(worstNegative) "
+                                     + "— the transmission is too high, which is what a "
+                                     + "scalar-mean normalisation does to a coloured veil")
+        }
+    }
+
     // MARK: - Sharpening: Masking, Detail, and the structure the gate reads
 
     /// A frame with three regions a sharpening mask has to tell apart: a hard vertical

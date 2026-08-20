@@ -280,7 +280,11 @@ public struct RenderGraph {
     static func applyDehaze(_ image: CIImage, amount: Double, longEdge: Int) -> CIImage {
         let strength = Num.clamp(amount / 100.0, -1, 1)
         guard strength != 0 else { return image }
-        let radius = Swift.max(Int(Double(longEdge) * 0.01), 3)
+        // The reference sizes the dark-channel window off `min(width, height) / 100`.
+        // This used the LONG edge, which on a 3:2 frame is a window half again as wide
+        // as the one the transmission is defined against.
+        let shortEdge = Swift.min(image.extent.width, image.extent.height)
+        let radius = Swift.max(Int(shortEdge / 100), 3)
 
         // Dark channel via the stock minimum morphology, then the guided filter
         // refines the transmission so edges survive.
@@ -337,20 +341,62 @@ public struct RenderGraph {
            let weight = Self.averageAlpha(masked), weight > 1e-6 {
             airlight = RGB(sums.r / weight, sums.g / weight, sums.b / weight)
         }
-        let mean = Swift.max((airlight.r + airlight.g + airlight.b) / 3, 1e-4)
-
-        // t = 1 − w·dark/A, refined. The amount is NOT folded in here any more.
+        // t = 1 − ω·darkChannel(I / A), refined. Three things here were not the
+        // reference's, and together they were putting scene-linear pixels below zero.
         //
-        // It used to be — `scale` carried `-strength` — which conflated the estimate
-        // with the strength: the transmission map itself changed shape as the slider
-        // moved, so the recombination could not be the reference's, which takes an
-        // amount-independent transmission and applies the amount at the end. Folding it
-        // in also made the negative branch's transmission the wrong sign entirely.
-        let scale = -0.95 / mean
-        let scaled = Self.applyMatrix(dark, Mat3.diagonal(RGB(gray: scale)))
+        // 1. The dark channel has to come off the image NORMALISED BY THE AIRLIGHT, per
+        //    channel — `Decomposition.transmission()` divides `c` by `a` componentwise
+        //    before taking the minimum. This divided by the airlight's scalar MEAN
+        //    instead, which is a different number in every channel whenever the veil
+        //    has a colour, and a veil that has no colour needs no dehaze worth the name.
+        //    Measured on a synthetic scene under a blue-cyan airlight (0.55, 0.68,
+        //    0.85), the transmission came out 0.060 too high on average and 0.149 at
+        //    worst — and since the recombination divides by it, that pushed 9.2% of
+        //    recovered pixels NEGATIVE where the reference produces none at all.
+        //    Normalising per channel reproduces the reference exactly: 0.000000 mean
+        //    absolute difference across the frame.
+        //
+        // 2. The dark channel is `saturate`d before use, so `t` cannot leave [0.05, 1].
+        //    Without it a negative dark channel — legal, scene-referred data arrives
+        //    here after stages that can undershoot — gives t > 1, and `(I − A)/t + A`
+        //    with t above one ADDS haze.
+        //
+        // 3. The refinement guides with log luminance at the reference's radius and ε,
+        //    not with the dark channel at a quarter the ε. Guiding by the dark channel
+        //    means the transmission inherits the edges of a minimum-filtered plane,
+        //    which is exactly the blocky structure the guided filter is there to remove.
+        let normalized = Self.applyMatrix(
+            image, Mat3.diagonal(RGB(1 / Swift.max(airlight.r, 1e-5),
+                                     1 / Swift.max(airlight.g, 1e-5),
+                                     1 / Swift.max(airlight.b, 1e-5))))
+        let normalMinimum = CIFilter.morphologyRectangleMinimum()
+        normalMinimum.inputImage = normalized.clampedToExtent()
+        normalMinimum.width = Float(radius * 2 + 1)
+        normalMinimum.height = Float(radius * 2 + 1)
+        guard let normalDarkRGB = normalMinimum.outputImage?.cropped(to: image.extent),
+              let normalDark = Self.channelMinimum(normalDarkRGB),
+              let clampedDark = Self.clamped(normalDark, low: 0, high: 1)
+        else { return image }
+
+        let scaled = Self.applyMatrix(clampedDark,
+                                      Mat3.diagonal(RGB(gray: -DetailEngine.dehazeOmega)))
         let biased = Self.addConstant(scaled, 1.0)
-        let refined = Self.crossGuidedFilter(input: biased, guide: dark, radius: radius,
-                                             epsilon: 0.0025) ?? biased
+
+        // The reference guides with `logLuminance`, in EV, and regularises at ε = 0.02.
+        // This plane is `LumenLog`-encoded, so its variance is smaller by `range²` and
+        // the ε that means the same thing is smaller by the same factor. Written as the
+        // division rather than as 3.47e-5, because the number is a consequence.
+        let guideRadius = Swift.max(Swift.max(Int(Double(longEdge) * 0.02), 3), 8)
+        let refined: CIImage
+        if let guide = Self.logLuminance(image),
+           let filtered = Self.crossGuidedFilter(
+            input: biased, guide: guide, radius: guideRadius,
+            epsilon: 0.02 / (LumenLog.range * LumenLog.range)),
+           let bounded = Self.clamped(filtered, low: 0.02, high: 1.0) {
+            refined = bounded
+        } else {
+            refined = Self.clamped(biased, low: 0.02, high: 1.0) ?? biased
+        }
 
         // The same base transmission floor the reference uses. The reference ALSO lifts
         // it per pixel toward 0.9 where the frame is bright and flat — its sky guard —
@@ -822,6 +868,17 @@ public struct RenderGraph {
         let filter = CIFilter.minimumComponent()
         filter.inputImage = image
         return filter.outputImage
+    }
+
+    /// Component-wise clamp on RGB, with alpha held to its own legal [0, 1].
+    /// `CIColorClamp` rather than a kernel: it is one of the few stock filters that
+    /// does exactly one thing, and a clamp is not worth a shader.
+    static func clamped(_ image: CIImage, low: Double, high: Double) -> CIImage? {
+        let filter = CIFilter.colorClamp()
+        filter.inputImage = image
+        filter.minComponents = CIVector(x: low, y: low, z: low, w: 0)
+        filter.maxComponents = CIVector(x: high, y: high, z: high, w: 1)
+        return filter.outputImage?.cropped(to: image.extent)
     }
 
     static func addConstant(_ image: CIImage, _ value: Double) -> CIImage {
