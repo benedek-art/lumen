@@ -47,13 +47,15 @@ actor RenderCoordinator {
     /// again. Work that must not participate goes through `renderOneShot` instead.
     func render(url: URL, recipe: Recipe, maxLongEdge: Int, draft: Bool,
                 generation: UInt64,
-                strokeSets: [String: BrushStrokeSet] = [:]) async -> RenderResult? {
+                strokeSets: [String: BrushStrokeSet] = [:],
+                showingUncropped: Bool = false) async -> RenderResult? {
         latestGeneration = max(latestGeneration, generation)
         // Drop work that is already stale before paying for a decode.
         guard generation >= latestGeneration else { return nil }
         return await produce(url: url, recipe: recipe, maxLongEdge: maxLongEdge,
                              draft: draft, generation: generation, coalesced: true,
-                             strokeSets: strokeSets)
+                             strokeSets: strokeSets,
+                             showingUncropped: showingUncropped)
     }
 
     /// A render nobody else is waiting on — the scope proxy, the Auto-tone probe. It
@@ -69,7 +71,8 @@ actor RenderCoordinator {
 
     private func produce(url: URL, recipe: Recipe, maxLongEdge: Int, draft: Bool,
                          generation: UInt64, coalesced: Bool,
-                         strokeSets: [String: BrushStrokeSet]) async -> RenderResult? {
+                         strokeSets: [String: BrushStrokeSet],
+                         showingUncropped: Bool = false) async -> RenderResult? {
         func stale() -> Bool { coalesced && generation < latestGeneration }
 
         do {
@@ -91,6 +94,7 @@ actor RenderCoordinator {
             if KernelLibrary.coreAvailable {
                 image = try renderer.renderPreview(source: source, recipe: recipe,
                                                    maxLongEdge: maxLongEdge, draft: draft,
+                                                   showingUncropped: showingUncropped,
                                                    strokeSets: strokeSets)
                 // Core kernels present but something else missing: the picture is real,
                 // and some stage of it silently did nothing. Say which.

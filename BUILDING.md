@@ -246,13 +246,16 @@ These are tracked, not hidden.
   dictionary. Nothing *adds* a field: Copyright and Contact are stored with the recipe
   and never written, for the same `CGImageDestination` reason as the gain map. The panel
   says so. Before this the entire section had no reader at all.
-- **The on-image crop tool does not exist.** `LoupeViewport.showCrop` has no writer, and
-  unlike `beforeMode` — which was in the same state and now has its `Y` / `⇧Y` / `⌥Y`
-  keys — it cannot simply be given one: `renderPreview` applies the crop before
-  returning the image, so `CropOverlayView`, whose rect is normalized to the *source*
-  frame, would draw a second inset crop over an already-cropped picture. Wiring a key to
-  it would produce a tool that draws the wrong rectangle. The ratio menu is the whole
-  crop surface for now, and it says so.
+- **The crop tool is reachable now, and correct.** `showCrop` had no writer, so a
+  complete interactive `CropOverlayView` was dead code. A first attempt at wiring it
+  drew the wrong rectangle and was reverted the same hour: `renderPreview` applies
+  geometry before returning, and the overlay's rect is normalized to the
+  straightened frame, so the two composed into a second inset crop that compounded
+  on every drag. `applyGeometry(skipCrop:)` is the fix — while R is held open the
+  renderer returns the straightened frame WITHOUT its crop, so the rectangle is
+  drawn against the frame it is expressed in. Orientation and scale still apply,
+  because a crop tool on an unstraightened frame asks the user to place a rectangle
+  against a picture they are not editing.
 
 ### What the engine, masking, panel and dailies audits found
 

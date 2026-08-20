@@ -154,8 +154,16 @@ final class KeyDispatcher {
             viewport.beforeMode = viewport.beforeMode == wanted ? .off : wanted
             if viewport.beforeMode != .off { state.showLoupe() }
         case "r":
+            // R opens the crop tool and R again leaves it, which is the grammar every
+            // photographer already has. The overlay was complete and unreachable:
+            // `showCrop` had no writer anywhere. A first attempt at wiring it drew the
+            // wrong rectangle, because `renderPreview` cropped before returning and the
+            // overlay's rect is normalized to the straightened frame — a second inset
+            // crop inside the first, compounding on every drag. The renderer now shows
+            // the uncropped frame while this is on, which is what makes it correct.
             state.activeSection = .effects       // crop lives with the effects group
             state.showLoupe()
+            LoupeViewport.shared.showCrop.toggle()
         case "m":
             state.activeSection = .masks
             state.showLoupe()
@@ -327,7 +335,7 @@ enum KeyReference {
             Entry(keys: "D", action: "Detail panel"),
             Entry(keys: "L", action: "Look panel"),
             Entry(keys: "M", action: "Masks"),
-            Entry(keys: "R", action: "Effects panel, where crop ratios live"),
+            Entry(keys: "R", action: "Crop tool on the image; again to leave it"),
             Entry(keys: "\\", action: "Before / after, full frame"),
             Entry(keys: "Y", action: "Before / after, side by side"),
             Entry(keys: "⇧Y", action: "Before / after, split with a divider"),

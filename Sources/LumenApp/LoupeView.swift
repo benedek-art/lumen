@@ -296,7 +296,8 @@ final class PhotoRenderModel: ObservableObject {
               thumbnails: ThumbnailLoader?,
               draftLongEdge: Int,
               fullLongEdge: Int,
-              strokeSets: [String: BrushStrokeSet] = [:]) async {
+              strokeSets: [String: BrushStrokeSet] = [:],
+              showingUncropped: Bool = false) async {
 
         // New photo: drop the previous photo's pixels rather than showing them under a
         // new filename, and give this one the instant embedded-preview path (Law 11).
@@ -325,7 +326,8 @@ final class PhotoRenderModel: ObservableObject {
         let draft = await coordinator.render(url: url, recipe: recipe,
                                              maxLongEdge: Swift.max(draftLongEdge, 64),
                                              draft: true, generation: draftGeneration,
-                                             strokeSets: strokeSets)
+                                             strokeSets: strokeSets,
+                                             showingUncropped: showingUncropped)
         guard !Task.isCancelled else { return }
         if let draft, draft.generation == latestGeneration {
             apply(draft, url: url)
@@ -346,7 +348,8 @@ final class PhotoRenderModel: ObservableObject {
             let result = await coordinator.render(url: url, recipe: recipe,
                                                   maxLongEdge: Swift.max(fullLongEdge, 64),
                                                   draft: false, generation: generation,
-                                                  strokeSets: strokeSets)
+                                                  strokeSets: strokeSets,
+                                                  showingUncropped: showingUncropped)
             guard !Task.isCancelled else { return }
             if let result, result.generation == generation, latestGeneration == generation {
                 apply(result, url: url)
@@ -522,7 +525,12 @@ struct LoupeView: View {
                          thumbnails: state.thumbnails,
                          draftLongEdge: LoupeView.draftLongEdge,
                          fullLongEdge: longEdge,
-                         strokeSets: state.strokeSets(for: recipe))
+                         strokeSets: state.strokeSets(for: recipe),
+                         // While the crop tool is open the loupe shows the frame
+                         // WITHOUT its crop, so the rectangle being dragged is drawn
+                         // against the frame it is expressed in.
+                         showingUncropped: viewport.showCrop
+                             && state.activeSection == .effects)
     }
 
     /// The before rendition, evaluated through the same pipeline as the edit so the
@@ -624,7 +632,11 @@ struct LoupeView: View {
                     .frame(width: drawn.width, height: drawn.height)
             }
 
-            if viewport.showCrop {
+            // Reachable again, and correct this time. The renderer is asked for the
+            // frame WITHOUT its crop while this is open (`showingUncropped`), so the
+            // rectangle is drawn against the frame it is expressed in rather than
+            // inside a picture that has already been cut to it.
+            if viewport.showCrop && state.activeSection == .effects {
                 CropOverlayView(crop: cropBinding)
                     .frame(width: drawn.width, height: drawn.height)
             }

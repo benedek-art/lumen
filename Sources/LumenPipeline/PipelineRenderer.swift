@@ -53,8 +53,11 @@ public final class PipelineRenderer {
 
     // MARK: - Preview
 
+    /// `showingUncropped` is set while the crop tool is open, so the tool draws its
+    /// rectangle against the frame that rectangle is expressed in.
     public func renderPreview(source: any ImageSource, recipe: Recipe,
                               maxLongEdge: Int, draft: Bool,
+                              showingUncropped: Bool = false,
                               strokeSets: [String: BrushStrokeSet] = [:]) throws -> CGImage {
         // Decode at the target resolution, not the sensor's: a 2560 px preview of a
         // 7000 px raw decodes roughly seven times less data.
@@ -75,7 +78,8 @@ public final class PipelineRenderer {
         var image = graph.build(decoded, plan: plan,
                                 options: RenderGraph.Options(longEdge: longEdge,
                                                              draft: draft))
-        image = Self.applyGeometry(image, recipe: recipe, scaleTo: maxLongEdge)
+        image = Self.applyGeometry(image, recipe: recipe, scaleTo: maxLongEdge,
+                                   skipCrop: showingUncropped)
 
         guard let cgImage = context.createCGImage(
             image, from: image.extent, format: .RGBA8,
@@ -665,9 +669,19 @@ public final class PipelineRenderer {
     /// enlarged size and this then refused to reach it. Unticking "Don't enlarge" and
     /// asking for an 8000 px long edge from a 24 MP file wrote 4000 px, with nothing
     /// said. A preview never wants enlargement, so the clamp stays the default.
+    /// `skipCrop` renders the straightened frame WITHOUT its crop, which is what a
+    /// crop tool needs and the reason that tool could not be wired before.
+    ///
+    /// `renderPreview` applies geometry before returning, so the picture handed to the
+    /// loupe is already cropped — while `CropOverlayView`'s rectangle is normalized to
+    /// the straightened frame. Drawing one over the other put a second inset crop
+    /// inside the first, compounding on every drag. Orientation and output scale still
+    /// apply, because a crop tool showing an unstraightened frame would ask the user to
+    /// place a rectangle against a picture they are not editing.
     static func applyGeometry(_ image: CIImage, recipe: Recipe,
                               scaleTo maxLongEdge: Int? = nil,
-                              allowUpscale: Bool = false) -> CIImage {
+                              allowUpscale: Bool = false,
+                              skipCrop: Bool = false) -> CIImage {
         let geo = recipe.develop.geometry
         var out = image
 
@@ -681,7 +695,8 @@ public final class PipelineRenderer {
             : out.extent.applying(orientation)
         var target = straightened
         let crop = geo.crop
-        if crop.x != 0 || crop.y != 0 || crop.w != 1 || crop.h != 1,
+        if !skipCrop,
+           crop.x != 0 || crop.y != 0 || crop.w != 1 || crop.h != 1,
            straightened.width > 0, straightened.height > 0 {
             // Recipe crop is top-left-origin (image convention); Core Image extents are
             // bottom-up, so the y term flips.
