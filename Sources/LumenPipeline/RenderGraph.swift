@@ -400,18 +400,84 @@ public struct RenderGraph {
 
     // MARK: - S12 sharpen
 
+    /// Sharpening as a log-luminance delta, which is what the reference does and what
+    /// `CIUnsharpMask` could not express.
+    ///
+    /// The stock filter was the whole path, so Masking and Halo Suppression — one of
+    /// which docs/06 calls "the fifth slider Adobe never shipped" — were live controls
+    /// no preview and no export ever read, and Detail had to be folded into a radius
+    /// because a USM has nowhere else to put it. A per-channel USM also shifts hue on
+    /// any saturated edge; a luminance ratio cannot.
+    ///
+    /// Falls back to the stock filter if any kernel is unavailable, rather than
+    /// dropping the stage: a soft picture is a better failure than a stage that
+    /// silently does nothing.
     static func applySharpen(_ image: CIImage, _ sharpen: ManualSharpen,
                              longEdge: Int) -> CIImage {
-        let filter = CIFilter.unsharpMask()
+        let amount = Num.clamp(sharpen.amount, 0, 150) / 100
+        guard amount > 0 else { return image }
+        let radius = Num.clamp(sharpen.radius, 0.5, 3.0)
+        let detail = Num.clamp(sharpen.detail, 0, 100) / 100
+        let masking = Num.clamp(sharpen.masking, 0, 100) / 100
+        let halo = Num.clamp(sharpen.haloSuppression, 0, 100) / 100
+
+        guard let lum = Self.logLuminance(image),
+              let blurred = Self.gaussianBlur(lum, sigma: radius),
+              // The finest scale the reference takes its detail band from. A single
+              // narrow blur is not an à-trous decomposition, but it is the same band —
+              // and it is honest about `detail` in a way that bending the radius was
+              // not.
+              let finestBlur = Self.gaussianBlur(lum, sigma: 1.0),
+              let fine = Self.subtract(lum, finestBlur),
+              let gradient = Self.gradientMagnitude(lum),
+              let delta = KernelLibrary.apply(
+                KernelLibrary.sharpenDelta, extent: image.extent,
+                [lum, blurred, fine, gradient, Float(amount), Float(detail),
+                 Float(masking), Float(halo), Float(LumenLog.range)]),
+              let out = KernelLibrary.apply(KernelLibrary.lumaRatio,
+                                            extent: image.extent,
+                                            [image, delta, Float(2.0)])
+        else {
+            let filter = CIFilter.unsharpMask()
+            filter.inputImage = image.clampedToExtent()
+            filter.radius = Float(sharpen.unsharpRadius)
+            filter.intensity = Float(Num.clamp(sharpen.amount / 100.0, 0, 1.5))
+            return filter.outputImage?.cropped(to: image.extent) ?? image
+        }
+        return out
+    }
+
+    /// Gaussian blur that keeps the extent it was given.
+    static func gaussianBlur(_ image: CIImage, sigma: Double) -> CIImage? {
+        guard sigma > 0 else { return image }
+        let filter = CIFilter.gaussianBlur()
         filter.inputImage = image.clampedToExtent()
-        // `unsharpRadius`, not `radius`: Detail was read by nothing here while the
-        // panel shipped it as a live slider, and a radius is the one thing a stock
-        // unsharp mask can honestly carry it in. Masking and halo suppression have no
-        // expression in this filter and are still unimplemented on this path — see the
-        // note on `ManualSharpen.unsharpRadius`.
-        filter.radius = Float(sharpen.unsharpRadius)
-        filter.intensity = Float(Num.clamp(sharpen.amount / 100.0, 0, 1.5))
-        return filter.outputImage?.cropped(to: image.extent) ?? image
+        filter.radius = Float(sigma)
+        return filter.outputImage?.cropped(to: image.extent)
+    }
+
+    /// a − b, signed. Not `CISubtractBlendMode`: the blend modes are defined over
+    /// display-referred colour and clamp at zero, and a detail band is signed by nature
+    /// — half of it is the dark side of every edge.
+    static func subtract(_ a: CIImage, _ b: CIImage) -> CIImage? {
+        KernelLibrary.apply(KernelLibrary.subtract, extent: a.extent, [a, b])
+    }
+
+    /// Sobel gradient magnitude, in the units of the plane it is given.
+    static func gradientMagnitude(_ plane: CIImage) -> CIImage? {
+        let horizontal = CIFilter.convolution3X3()
+        horizontal.inputImage = plane.clampedToExtent()
+        horizontal.weights = CIVector(values: [-1, 0, 1, -2, 0, 2, -1, 0, 1], count: 9)
+        horizontal.bias = 0
+        let vertical = CIFilter.convolution3X3()
+        vertical.inputImage = plane.clampedToExtent()
+        vertical.weights = CIVector(values: [-1, -2, -1, 0, 0, 0, 1, 2, 1], count: 9)
+        vertical.bias = 0
+        guard let gx = horizontal.outputImage?.cropped(to: plane.extent),
+              let gy = vertical.outputImage?.cropped(to: plane.extent)
+        else { return nil }
+        return KernelLibrary.apply(KernelLibrary.sobelMagnitude,
+                                   extent: plane.extent, [gx, gy])
     }
 
     // MARK: - S13 vignette and halation

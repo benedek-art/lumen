@@ -421,8 +421,12 @@ public struct ManualSharpen: Codable, Equatable, Sendable {
     /// and Detail 0 leaves it where the Radius slider put it. Masking and halo
     /// suppression have no expression in a stock unsharp mask at all — an edge gate and
     /// an asymmetric overshoot clamp are per-pixel decisions the filter does not offer.
-    /// Those two remain unimplemented on the GPU path, which the panel now says rather
-    /// than implying otherwise.
+    ///
+    /// Kept only as the FALLBACK radius. The GPU path now sharpens the way the
+    /// reference does — a log-luminance delta with a real edge gate and a one-sided
+    /// overshoot clamp — and reaches for a stock unsharp mask only if one of those
+    /// kernels is unavailable, where a soft picture beats a stage that silently does
+    /// nothing.
     public var unsharpRadius: Double {
         let base = Num.clamp(radius.isFinite ? radius : 1.0, 0.5, 3.0)
         let fine = Num.clamp(detail.isFinite ? detail : 0, 0, 100) / 100

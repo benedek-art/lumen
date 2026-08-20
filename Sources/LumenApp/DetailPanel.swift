@@ -171,15 +171,6 @@ struct DetailPanel: View {
                                                 "detail.sharpen.haloSuppression"),
                             range: 0...100, hardRange: nil, defaultValue: 0,
                             step: 1, decimals: 0, bipolar: false)
-                // Masking and Halo Suppression are implemented in the reference
-                // renderer and NOT on the GPU path — a stock unsharp mask takes a
-                // radius and an intensity, and an edge gate and an asymmetric overshoot
-                // clamp are per-pixel decisions it does not offer. They used to be
-                // presented as live, with the note below promising Halo Suppression is
-                // "what lets Amount above 80 stay clean". Saying so beats a slider that
-                // moves while the picture does not.
-                DevelopNote("Masking and Halo Suppression apply on the reference "
-                            + "renderer only; the GPU path does not implement them yet.")
                 if recipe.develop.detail.capture.auto {
                     DevelopNote("Capture sharpening already owns the baseline for this "
                                 + "photo, so Amount starts at 0.")

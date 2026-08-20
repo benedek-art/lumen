@@ -162,6 +162,77 @@ public enum KernelLibrary {
     }
     """
 
+    /// Sharpening as a log-luminance delta in EV, with the two sliders the stock
+    /// unsharp mask had no expression for.
+    ///
+    /// `CIUnsharpMask` on RGB was the whole sharpen path, so Masking and Halo
+    /// Suppression — one of which docs/06 calls "the fifth slider Adobe never shipped"
+    /// — were live controls that no preview and no export ever read, and Detail was
+    /// folded into a radius because a stock USM has nowhere else to put it.
+    ///
+    /// The unit matters and has bitten this codebase before. `logLuminance` is
+    /// LumenLog-ENCODED, which squeezes 24 stops into [0,1], so a difference taken on
+    /// that plane is EV/24 and every threshold the reference states in EV must be
+    /// multiplied back by `range` before it means anything. Texture spent its whole
+    /// life doing one twenty-fourth of what it said for exactly this reason.
+    ///
+    /// Halo damping is one-sided by design: only the BRIGHT overshoot is a rim, and
+    /// only once it is large enough to read as one rather than as edge definition.
+    /// `step(0.0, v)` selects that side branchlessly.
+    static let sharpenDeltaSource = """
+    kernel vec4 lumenSharpenDelta(__sample lum, __sample blurred, __sample fine,
+                                  __sample gradient, float amount, float detail,
+                                  float masking, float halo, float range) {
+        float usm = (lum.r - blurred.r) * range;
+        float fineEV = fine.r * range;
+        float v = amount * mix(usm, fineEV, detail);
+
+        float bright = step(0.0, v) * halo;
+        v = v * (1.0 - bright * smoothstep(0.15, 0.60, usm));
+
+        float edge = smoothstep(0.02 + 0.10 * masking,
+                                0.10 + 0.25 * masking,
+                                gradient.r * range);
+        v = v * mix(1.0, edge, masking);
+        return vec4(v, v, v, 1.0);
+    }
+    """
+
+    /// Apply a per-pixel EV delta as a LUMINANCE ratio, so sharpening cannot shift hue
+    /// or saturation the way a per-channel unsharp mask does. Limited, because an
+    /// unbounded gain on a specular highlight is how a sharpener makes white holes.
+    static let lumaRatioSource = """
+    kernel vec4 lumenLumaRatio(__sample image, __sample deltaEV, float limit) {
+        float d = clamp(deltaEV.r, -limit, limit);
+        return vec4(image.rgb * exp2(d), image.a);
+    }
+    """
+
+    /// a − b on a plane, signed.
+    ///
+    /// A kernel rather than `CISubtractBlendMode`, because the blend modes are defined
+    /// over display-referred colour and clamp at zero. A detail band is signed by
+    /// nature — half of it is the dark side of every edge — and clamping it would
+    /// sharpen only the bright half of the picture.
+    static let subtractSource = """
+    kernel vec4 lumenSubtract(__sample a, __sample b) {
+        return vec4(a.rgb - b.rgb, a.a);
+    }
+    """
+
+    /// Gradient magnitude by Sobel, in the units of whatever plane it is given.
+    ///
+    /// The 3x3 Sobel responds with eight times the derivative on a linear ramp, which
+    /// is where the /8 comes from — without it the magnitude is eight times too large
+    /// and every threshold expressed against it is meaningless.
+    static let sobelMagnitudeSource = """
+    kernel vec4 lumenSobelMagnitude(__sample gx, __sample gy) {
+        float x = gx.r / 8.0;
+        float y = gy.r / 8.0;
+        return vec4(vec3(sqrt(x * x + y * y)), 1.0);
+    }
+    """
+
     /// Add a blurred glow field back into the image in linear light — halation's
     /// recombination, and the same shape any additive bloom needs.
     static let addGlowSource = """
@@ -237,6 +308,10 @@ public enum KernelLibrary {
     public static let grain = make(grainSource)
     public static let vignette = make(vignetteSource)
     public static let detailGain = make(detailGainSource)
+    public static let sharpenDelta = make(sharpenDeltaSource)
+    public static let subtract = make(subtractSource)
+    public static let lumaRatio = make(lumaRatioSource)
+    public static let sobelMagnitude = make(sobelMagnitudeSource)
     public static let dehaze = make(dehazeSource)
     public static let addGlow = make(addGlowSource)
     public static let highlightEnergy = make(highlightEnergySource)
@@ -256,6 +331,9 @@ public enum KernelLibrary {
             ("guidedApply", guidedApply),
             ("blendMask", blendMask), ("grain", grain), ("vignette", vignette),
             ("detailGain", detailGain), ("dehaze", dehaze), ("addGlow", addGlow),
+            ("sharpenDelta", sharpenDelta), ("lumaRatio", lumaRatio),
+            ("subtract", subtract),
+            ("sobelMagnitude", sobelMagnitude),
             ("highlightEnergy", highlightEnergy),
         ]
         return all.filter { $0.1 == nil }.map { $0.0 }
