@@ -54,10 +54,18 @@ jobs:
             | sed 's#/Users/runner/work/lumen/lumen/##' | sort -u | head -40
           echo "=== summary ==="
           grep -E "Executed [0-9]+ test" test.log | tail -1
+          # Which TESTS failed, before what they said. One test can fail a hundred
+          # assertions inside a loop, and a list deduplicated by message is then a
+          # hundred near-identical lines that hide every other failing test.
+          echo "=== failing tests ==="
+          grep -E ": error: -\[" test.log \
+            | sed -E 's/^.*error: -\[([^]]*)\].*/\1/' | sort | uniq -c | sort -rn | head -20
           # Failures print LAST so a short tail of the CI log always reaches them.
-          echo "=== test failures ==="
+          # Two examples per test is enough to see the shape of the problem.
+          echo "=== first failures per test ==="
           grep -E ": error: -\[" test.log | sed 's#/Users/runner/work/lumen/lumen/##' \
-            | sed 's/^.*error: //' | sort -u | head -40
+            | sed 's/^.*error: //' \
+            | awk '{ key = $1; if (seen[key]++ < 2) print }' | head -24
           exit $status
 
   # The thing a photographer can actually open. Runs on every push regardless of the
