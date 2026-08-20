@@ -582,6 +582,116 @@ final class EngineIntegrationTests: XCTestCase {
         XCTAssertEqual(MaskRaster.stampProfile(1, hardness: 0.2), 0, accuracy: 1e-12)
     }
 
+    // MARK: - Mask refinement
+
+    /// `levels` — the density remap at the end of the refine chain.
+    ///
+    /// Nothing in the suite referenced `refine.` at all, so all six controls of that
+    /// panel were untested. This one is a pure function, so it can be pinned exactly.
+    func testMaskLevelsRemapsDensityTheWayItDocuments() {
+        // Identity at the defaults, in both spellings of "full range". Accepting 0…1
+        // and 0…100 as the same thing is a documented affordance, and a wire value that
+        // silently meant a different range would rewrite every saved mask.
+        for hi in [1.0, 100.0] {
+            for v in [0.0, 0.25, 0.5, 0.75, 1.0] {
+                XCTAssertEqual(MaskRaster.levels(v, lo: 0, hi: hi, gamma: 1), v,
+                               accuracy: 1e-12, "levels moved \(v) at hi=\(hi)")
+            }
+        }
+
+        // A window maps its endpoints to 0 and 1 and its midpoint to the middle.
+        XCTAssertEqual(MaskRaster.levels(0.25, lo: 25, hi: 75, gamma: 1), 0,
+                       accuracy: 1e-12)
+        XCTAssertEqual(MaskRaster.levels(0.75, lo: 25, hi: 75, gamma: 1), 1,
+                       accuracy: 1e-12)
+        XCTAssertEqual(MaskRaster.levels(0.5, lo: 25, hi: 75, gamma: 1), 0.5,
+                       accuracy: 1e-12)
+        // Outside the window it saturates rather than extrapolating.
+        XCTAssertEqual(MaskRaster.levels(0.1, lo: 25, hi: 75, gamma: 1), 0,
+                       accuracy: 1e-12)
+        XCTAssertEqual(MaskRaster.levels(0.9, lo: 25, hi: 75, gamma: 1), 1,
+                       accuracy: 1e-12)
+
+        // γ > 1 raises density, γ < 1 lowers it — the direction the doc comment states,
+        // and the one a user reads off the slider.
+        for v in [0.2, 0.5, 0.8] {
+            XCTAssertGreaterThan(MaskRaster.levels(v, lo: 0, hi: 100, gamma: 2), v,
+                                 "gamma 2 did not raise density at \(v)")
+            XCTAssertLessThan(MaskRaster.levels(v, lo: 0, hi: 100, gamma: 0.5), v,
+                              "gamma 0.5 did not lower density at \(v)")
+        }
+        // The endpoints are fixed points of the gamma whatever it is.
+        for gamma in [0.2, 0.5, 1.0, 2.0, 5.0] {
+            XCTAssertEqual(MaskRaster.levels(0, lo: 0, hi: 100, gamma: gamma), 0,
+                           accuracy: 1e-12)
+            XCTAssertEqual(MaskRaster.levels(1, lo: 0, hi: 100, gamma: gamma), 1,
+                           accuracy: 1e-12)
+        }
+
+        // hi ≤ lo collapses to a hard step rather than inverting: inversion is a
+        // different control, and a mask that silently inverted on a dragged handle
+        // would be the worst kind of surprise.
+        XCTAssertEqual(MaskRaster.levels(0.3, lo: 60, hi: 40, gamma: 1), 0,
+                       accuracy: 1e-12)
+        XCTAssertEqual(MaskRaster.levels(0.7, lo: 60, hi: 40, gamma: 1), 1,
+                       accuracy: 1e-12)
+        // And a non-finite input cannot produce a non-finite alpha.
+        XCTAssertEqual(MaskRaster.levels(.nan, lo: 0, hi: 100, gamma: 1), 0,
+                       accuracy: 1e-12)
+    }
+
+    func testRefineRadiusScalesWithTheFrame() {
+        XCTAssertEqual(MaskRaster.refineRadius(feather: 0, longEdge: 2560), 0)
+        // 2% of the long edge at Feather 100.
+        XCTAssertEqual(MaskRaster.refineRadius(feather: 100, longEdge: 1000), 20)
+        XCTAssertEqual(MaskRaster.refineRadius(feather: 50, longEdge: 1000), 10)
+        // A radius that rounds below one pixel is no radius at all, not a radius of 0
+        // that the guided filter would still be invoked for.
+        XCTAssertEqual(MaskRaster.refineRadius(feather: 1, longEdge: 20), 0)
+        XCTAssertEqual(MaskRaster.refineRadius(feather: .nan, longEdge: 1000), 0)
+    }
+
+    /// Edge and Blur, on a real mask: each must move it, in the direction its label
+    /// promises, and neither may leave the 0…1 range a mask has to stay inside.
+    func testEdgeShiftAndBlurMoveTheMaskInTheDirectionTheyClaim() {
+        var component = MaskComponent(op: .add, kind: .radial)
+        component.center = [0.5, 0.5]
+        component.radii = [0.25, 0.25]
+        component.feather = 10
+        let base = MaskRaster.rasterize(component: component,
+                                        size: (width: 96, height: 96))
+        func coverage(_ p: Plane) -> Double { p.mean }
+
+        let dilated = MaskRaster.edgeShifted(base, edge: 40, longEdge: 96)
+        let eroded = MaskRaster.edgeShifted(base, edge: -40, longEdge: 96)
+        // Measured against the reference: +40 grows coverage to 1.067× and −40 shrinks
+        // it to 0.950×, so these thresholds have real margin on both sides while still
+        // failing anything that leaves the mask alone.
+        XCTAssertGreaterThan(coverage(dilated), coverage(base) * 1.03,
+                             "Edge +40 did not grow the mask")
+        XCTAssertLessThan(coverage(eroded), coverage(base) * 0.97,
+                          "Edge −40 did not shrink the mask")
+        XCTAssertEqual(coverage(MaskRaster.edgeShifted(base, edge: 0, longEdge: 96)),
+                       coverage(base), accuracy: 1e-9, "Edge 0 moved the mask")
+
+        for plane in [dilated, eroded] {
+            let range = plane.range
+            XCTAssertGreaterThanOrEqual(range.min, 0, "edge shift produced alpha < 0")
+            XCTAssertLessThanOrEqual(range.max, 1, "edge shift produced alpha > 1")
+        }
+
+        // Blur widens the transition band without moving the mask's centre of mass
+        // much — that is what distinguishes softening from dilating.
+        let blurred = SpatialOps.gaussianBlur(base, sigma: 3)
+        func partialFraction(_ p: Plane) -> Double {
+            Double(p.values.filter { $0 > 0.02 && $0 < 0.98 }.count) / Double(p.values.count)
+        }
+        XCTAssertGreaterThan(partialFraction(blurred), partialFraction(base) * 1.5,
+                             "blurring did not widen the transition band")
+        XCTAssertEqual(coverage(blurred), coverage(base), accuracy: coverage(base) * 0.1,
+                       "blurring changed how much of the frame the mask covers")
+    }
+
     func testInvalidComponentRasterizesToNothingRatherThanCrashing() {
         let component = MaskComponent(op: .add, kind: .linear)  // no line
         let plane = MaskRaster.rasterize(component: component,
