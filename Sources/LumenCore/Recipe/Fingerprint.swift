@@ -112,8 +112,18 @@ public enum XXH64 {
 }
 
 public enum RecipeFingerprint {
-    /// The catalog's `recipe_fp`: xxh64 of the canonical sparse JSON.
+    /// The catalog's `recipe_fp`: xxh64 of the canonical sparse JSON of the recipe's
+    /// RENDER IDENTITY — see `Recipe.renderIdentity`. This is a cache key, so it must
+    /// change when and only when the picture would.
     public static func fingerprint(_ recipe: Recipe) throws -> String {
+        "xxh64:" + XXH64.hexDigest(
+            try CanonicalJSON.canonicalRecipeJSON(recipe.renderIdentity))
+    }
+
+    /// Fingerprint of the recipe exactly as stored, cosmetics included. For anything
+    /// that needs to notice a rename — a sync or a change log — rather than a render
+    /// cache, which must not.
+    public static func literalFingerprint(_ recipe: Recipe) throws -> String {
         "xxh64:" + XXH64.hexDigest(try CanonicalJSON.canonicalRecipeJSON(recipe))
     }
 

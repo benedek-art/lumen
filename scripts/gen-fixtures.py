@@ -157,6 +157,20 @@ def merge(defaults, overlay):
     return result
 
 
+def render_identity(tree):
+    """Mirror of Recipe.renderIdentity — what the fingerprint hashes.
+
+    Masks lose their name and their id: the name is a panel label, and the id is a
+    random UUID whose presence meant renaming a mask threw away every cached render
+    and two photos with identical mask edits could never share one.
+    """
+    out = json.loads(json.dumps(tree))
+    for mask in out.get("masks", []) or []:
+        mask["name"] = ""
+        mask["id"] = ""
+    return out
+
+
 def canonical_recipe_json(full_tree, defaults):
     sp = sparse(full_tree, defaults)
     sp["pipelineVersion"] = full_tree.get("pipelineVersion", 1)
@@ -226,7 +240,8 @@ def gen_canonical_fixture():
     # Case A: pristine default recipe -> everything pruned except pipelineVersion.
     a_canon = canonical_recipe_json(defaults, defaults)
     check(a_canon == '{"pipelineVersion":1}', f"case A canonical unexpected: {a_canon}")
-    cases.append({"name": "default", "canonical": a_canon, "fingerprint": fp(a_canon)})
+    cases.append({"name": "default", "canonical": a_canon,
+                  "fingerprint": fp(canonical_recipe_json(render_identity(defaults), defaults))})
 
     # Case B: a plausible develop edit (mirrors RecipeCodecTests.caseB in Swift).
     b = json.loads(json.dumps(defaults))  # deep copy
@@ -235,7 +250,8 @@ def gen_canonical_fixture():
     b["develop"]["tone"]["exposure"] = 0.35
     b["develop"]["tone"]["shadows"] = 25
     b_canon = canonical_recipe_json(b, defaults)
-    cases.append({"name": "developEdit", "canonical": b_canon, "fingerprint": fp(b_canon)})
+    cases.append({"name": "developEdit", "canonical": b_canon,
+                  "fingerprint": fp(canonical_recipe_json(render_identity(b), defaults))})
     check('"exposure":0.35' in b_canon and '"temp":5200' in b_canon,
           f"case B canonical missing fields: {b_canon}")
 
@@ -267,7 +283,8 @@ def gen_canonical_fixture():
                    "pointColors": []},
     }]
     c_canon = canonical_recipe_json(c, defaults)
-    cases.append({"name": "maskAndLook", "canonical": c_canon, "fingerprint": fp(c_canon)})
+    cases.append({"name": "maskAndLook", "canonical": c_canon,
+                  "fingerprint": fp(canonical_recipe_json(render_identity(c), defaults))})
     check('"filmLab"' in c_canon and '"aiSky"' in c_canon,
           f"case C canonical missing fields: {c_canon[:200]}")
 
@@ -282,7 +299,7 @@ def gen_canonical_fixture():
     d1["look"]["vignette"] = -0.30000000000000004      # a real float-arithmetic result
     d1_canon = canonical_recipe_json(d1, defaults)
     cases.append({"name": "beyondSixFigures", "canonical": d1_canon,
-                  "fingerprint": fp(d1_canon)})
+                  "fingerprint": fp(canonical_recipe_json(render_identity(d1), defaults))})
 
     d2 = json.loads(json.dumps(d1))
     d2["develop"]["tone"]["exposure"] = 1.2345678901235   # differs in the 14th digit
@@ -292,13 +309,24 @@ def gen_canonical_fixture():
     check(fp(d1_canon) != fp(d2_canon),
           "two recipes that render differently share a fingerprint")
     cases.append({"name": "beyondSixFiguresNeighbour", "canonical": d2_canon,
-                  "fingerprint": fp(d2_canon)})
+                  "fingerprint": fp(canonical_recipe_json(render_identity(d2), defaults))})
 
     # ...and serialization must be lossless: what comes back parses to what went in.
     for value in (1.2345678901234, 0.1, 1 / 3, 5123.456789, -0.30000000000000004,
                   1e-7, 2.5e20, 1234567.5):
         check(float(canonical_number(value)) == value,
               f"canonical_number lost {value!r} -> {canonical_number(value)}")
+
+    # Renaming a mask must not change the fingerprint — it keys every cached
+    # render — and two photos given identical mask edits must share one.
+    renamed = json.loads(json.dumps(c))
+    renamed["masks"][0]["name"] = "Sky (final)"
+    renamed["masks"][0]["id"] = "6f000000-0000-0000-0000-0000000zzz99"
+    check(fp(canonical_recipe_json(render_identity(c), defaults))
+          == fp(canonical_recipe_json(render_identity(renamed), defaults)),
+          "renaming a mask changed the render fingerprint")
+    check(c_canon != canonical_recipe_json(renamed, defaults),
+          "the stored recipe lost the mask name — only the fingerprint should")
 
     with open(os.path.join(FIXTURES, "canonical.json"), "w") as f:
         json.dump({"cases": cases}, f, indent=1)

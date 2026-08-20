@@ -131,6 +131,19 @@ These are tracked, not hidden.
   offers — exposure, contrast, the tone pair, temp, tint, hue, saturation, vibrance,
   texture, clarity, dehaze, sharpness, point colour — is wired and covered by a test
   that asserts each one changes the render.
+- **A lot of the catalog schema has no app behind it yet.** The tables, indices and
+  `CatalogStore` API exist and are tested, and nothing in the app calls them: the
+  preview/artifact cache (so thumbnails re-decode from the embedded JPEG on every
+  launch rather than being served warm), stacks, keywords, collections, jobs, the
+  export log, per-source view state, and virtual copies — `saveRecipe` only ever
+  writes `kind = .working`, so `.version` and `.snapshot` rows are never created and
+  the queries that filter on them can never match. The SQL filter and sort engine is
+  in the same position: `PhotoQuery`, the FTS index and the fourteen chip indices are
+  built and unused, because `FilterBar` filters in memory. None of this is broken, and
+  all of it is unfinished — the schema went in ahead of the features, which is the
+  right order, but it means a schema tour overstates what the app does.
+- **`quickCheck()` and `integrityCheck()` are documented as running on every open.**
+  They have no callers, so a corrupt catalog is discovered when a query throws.
 - **xxh64, not xxh3**, for `recipe_fp` and blob refs (docs/15 says xxh3). The `xxh64:`
   prefix makes the algorithm self-describing, so upgrading later is a migration rather
   than a breakage.

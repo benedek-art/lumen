@@ -1282,7 +1282,9 @@ public final class CatalogStore {
         // "Edited" means the recipe differs from the default at its own pipeline
         // version — comparing against a *different* version's default would light the
         // pencil badge on every photo after a pipeline bump.
-        let isEdited = recipe != Recipe(pipelineVersion: recipe.pipelineVersion)
+        // `rendersSameAs`, not `!=`: a recipe differing only by a mask name is not an
+        // edit, and lighting the pencil badge for one is a lie about the photograph.
+        let isEdited = !recipe.rendersSameAs(Recipe(pipelineVersion: recipe.pipelineVersion))
 
         return try db.transaction {
             if isCurrent {
@@ -1305,8 +1307,13 @@ public final class CatalogStore {
                 """, [.optionalText(name), .bool(isCurrent),
                       .int(recipe.pipelineVersion), .text(json), .text(fingerprint),
                       .integer(now), .integer(id)])
-                try self.db.run("UPDATE photo SET edited = ? WHERE id = ?;",
-                                [.bool(isEdited), .integer(photoID)])
+                // Only the CURRENT edit decides the badge. Saving a snapshot of a
+                // default recipe used to clear `edited` on a photo whose working edit
+                // was heavily worked.
+                if isCurrent {
+                    try self.db.run("UPDATE photo SET edited = ? WHERE id = ?;",
+                                    [.bool(isEdited), .integer(photoID)])
+                }
                 return id
             }
 
@@ -1318,8 +1325,10 @@ public final class CatalogStore {
                   .bool(isCurrent), .int(recipe.pipelineVersion), .text(json),
                   .text(fingerprint), .integer(now)])
             let inserted = self.db.lastInsertRowID
-            try self.db.run("UPDATE photo SET edited = ? WHERE id = ?;",
-                            [.bool(isEdited), .integer(photoID)])
+            if isCurrent {
+                try self.db.run("UPDATE photo SET edited = ? WHERE id = ?;",
+                                [.bool(isEdited), .integer(photoID)])
+            }
             return inserted
         }
     }

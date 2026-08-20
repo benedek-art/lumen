@@ -36,9 +36,30 @@ public struct Recipe: Codable, Equatable, Sendable {
     /// is a pixel: a mask's name is a label for the panel, and typing one should not
     /// re-render the frame and re-bin the scopes on every keystroke.
     public func rendersSameAs(_ other: Recipe) -> Bool {
-        develop == other.develop
-            && look == other.look
-            && masks.map(\.withoutCosmetics) == other.masks.map(\.withoutCosmetics)
+        renderIdentity == other.renderIdentity
+    }
+
+    /// The recipe reduced to what actually reaches a pixel — what the fingerprint
+    /// hashes, and what `rendersSameAs` compares.
+    ///
+    /// Masks lose their name AND their id. The name is a label for the panel. The id
+    /// is a random UUID, and hashing it had two costs: renaming a mask changed
+    /// `recipe_fp`, which keys every preview and artifact in the cache, so one
+    /// keystroke in a text field threw away the 1:1 and fit renders of a 45-megapixel
+    /// frame — and two photos given genuinely identical mask edits got different
+    /// fingerprints, so they could never share a cached artifact. What the renderer
+    /// needs to tell masks apart is their position in the stack, which survives here.
+    ///
+    /// The stored `edit.recipe` is still the full-fidelity recipe; this projection
+    /// exists only to be hashed and compared.
+    public var renderIdentity: Recipe {
+        var copy = self
+        copy.masks = masks.map { mask in
+            var stripped = mask.withoutCosmetics
+            stripped.id = ""
+            return stripped
+        }
+        return copy
     }
 }
 
