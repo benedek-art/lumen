@@ -62,8 +62,7 @@ public enum LumenLog: Sendable {
         kernel vec4 lumenLogEncode(__sample s) {
             vec3 c = s.rgb;
             vec3 lo = vec3(\(fmt(toeSlope))) * c + vec3(\(fmt(toeOffset)));
-            vec3 hi = (log2(max(c, vec3(1e-9)) / vec3(\(fmt(midGrey)))) \
-- vec3(\(fmt(minEV)))) * vec3(\(fmt(invRange)));
+            vec3 hi = (log2(max(c, vec3(1e-9)) / vec3(\(fmt(midGrey)))) - vec3(\(fmt(minEV)))) * vec3(\(fmt(invRange)));
             vec3 useHi = step(vec3(\(fmt(linearCut))), c);
             return vec4(mix(lo, hi, useHi), s.a);
         }
@@ -76,8 +75,7 @@ public enum LumenLog: Sendable {
         kernel vec4 lumenLogDecode(__sample s) {
             vec3 c = s.rgb;
             vec3 lo = (c - vec3(\(fmt(toeOffset)))) / vec3(\(fmt(toeSlope)));
-            vec3 hi = vec3(\(fmt(midGrey))) * exp2(c * vec3(\(fmt(range))) \
-+ vec3(\(fmt(minEV))));
+            vec3 hi = vec3(\(fmt(midGrey))) * exp2(c * vec3(\(fmt(range))) + vec3(\(fmt(minEV))));
             vec3 useHi = step(vec3(\(fmt(cutY))), c);
             return vec4(mix(lo, hi, useHi), s.a);
         }
