@@ -328,8 +328,14 @@ DEFAULT_RECIPE = {
         "detail": {"capture": {"auto": True}, "texture": 0, "clarity": 0, "dehaze": 0,
                    "sharpen": {"amount": 0, "radius": 1, "detail": 25,
                                "masking": 0, "haloSuppression": 0}},
+        # All seven Tier-1 controls are on the wire (docs/07 §2.1). The four
+        # sub-sliders default to Lightroom's own 50 / 0 / 50 / 50, which are the same
+        # numbers the engine used to hardcode, so a recipe written before they existed
+        # decodes to exactly what it always rendered.
         "denoise": {"mode": "classic", "amount": 50,
-                    "classic": {"luma": 0, "chroma": 25, "hotPixels": 0}},
+                    "classic": {"luma": 0, "chroma": 25, "hotPixels": 0,
+                                "lumaDetail": 50, "lumaContrast": 0,
+                                "colorDetail": 50, "colorSmoothness": 50}},
         "geometry": {"crop": {"x": 0, "y": 0, "w": 1, "h": 1}, "angle": 0,
                      "flipH": False, "lens": {"profile": True, "removeCA": True}},
         "heal": {"count": 0},

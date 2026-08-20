@@ -605,11 +605,16 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(off.luma, 0, accuracy: 1e-12)
         XCTAssertEqual(off.chroma, 0, accuracy: 1e-12)
 
-        // Classic follows the two sliders Classic shows.
+        // Classic hands the decoder NOTHING now that Lumen's own Tier 1 runs in the
+        // graph. Leaving Apple's stage on underneath it would denoise the frame twice
+        // — once with a model of this sensor and once with somebody else's guess — and
+        // the two smoothings compound where they agree.
         let classic = Denoise(mode: .classic,
                               classic: ClassicNR(luma: 40, chroma: 60)).appleStandIn
-        XCTAssertEqual(classic.luma, 0.4, accuracy: 1e-12)
-        XCTAssertEqual(classic.chroma, 0.6, accuracy: 1e-12)
+        XCTAssertEqual(classic.luma, 0, accuracy: 1e-12,
+                       "the decoder's own luminance NR is still on under Tier 1")
+        XCTAssertEqual(classic.chroma, 0, accuracy: 1e-12,
+                       "the decoder's own colour NR is still on under Tier 1")
 
         // AI follows `amount`, and does NOT follow the hidden Classic values. The
         // hidden numbers are deliberately different from every amount used here — set
@@ -626,7 +631,7 @@ final class EngineTests: XCTestCase {
         XCTAssertNotEqual(loud.luma, 0.15, accuracy: 1e-9,
                           "AI mode is still reading the hidden Classic luma")
 
-        // And the switch itself changes the result for the same recipe.
+        // And the switch itself changes what the decoder is asked for.
         var recipe = Denoise(mode: .classic, amount: 90,
                              classic: ClassicNR(luma: 10, chroma: 10))
         let asClassic = recipe.appleStandIn
@@ -634,6 +639,15 @@ final class EngineTests: XCTestCase {
         let asAI = recipe.appleStandIn
         XCTAssertNotEqual(asClassic.chroma, asAI.chroma, accuracy: 1e-9,
                           "Classic and AI rendered the same for the same recipe")
+
+        // Classic's two sliders are no longer part of the decode key, which is what
+        // stopped a Luminance drag from re-demosaicing a 45-megapixel frame per frame.
+        let quietClassic = Denoise(mode: .classic,
+                                   classic: ClassicNR(luma: 0, chroma: 0)).appleStandIn
+        let loudClassic = Denoise(mode: .classic,
+                                  classic: ClassicNR(luma: 100, chroma: 100)).appleStandIn
+        XCTAssertEqual(quietClassic.luma, loudClassic.luma, accuracy: 1e-12)
+        XCTAssertEqual(quietClassic.chroma, loudClassic.chroma, accuracy: 1e-12)
 
         // Total: nothing escapes 0…1, including hostile input.
         let hostile: [Double] = [-50, 0, 500, .infinity, -.infinity, .nan]

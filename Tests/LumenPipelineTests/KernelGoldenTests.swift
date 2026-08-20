@@ -14,6 +14,7 @@
 #if os(macOS)
 
 import CoreImage
+import Foundation
 import XCTest
 @testable import LumenCore
 @testable import LumenPipeline
@@ -1027,6 +1028,237 @@ final class KernelGoldenTests: XCTestCase {
         let vignette = movement(from: try render { $0.look.vignette = -1.0 })
         XCTAssertGreaterThan(vignette, 0.05,
                              "a −1 EV vignette moved the frame by \(vignette)")
+    }
+
+    // MARK: - S3 denoise
+
+    /// A flat field of profiled noise plus a hard edge and a one-pixel colour line. The
+    /// noise is a deterministic hash, so a failure here is reproducible.
+    private func noisyFrame(width: Int, height: Int, profile: NoiseProfile,
+                            seed: UInt64 = 0x5EED) -> ImageBuffer {
+        func mix(_ v: UInt64) -> UInt64 {
+            var z = v &+ 0x9E3779B97F4A7C15
+            z = (z ^ (z >> 30)) &* 0xBF58476D1CE4E5B9
+            z = (z ^ (z >> 27)) &* 0x94D049BB133111EB
+            return z ^ (z >> 31)
+        }
+        var buffer = ImageBuffer(width: width, height: height)
+        for y in 0..<height {
+            for x in 0..<width {
+                let u = (Double(x) + 0.5) / Double(width)
+                var base = RGB(gray: u < 0.5 ? 0.08 : 0.42)
+                if x == width - 3 { base = RGB(0.30, 0.16, 0.11) }
+                for channel in 0..<3 {
+                    let h = mix(seed &+ UInt64(bitPattern: Int64(x &* 73_856_093))
+                                &+ UInt64(bitPattern: Int64(y &* 19_349_663))
+                                &+ UInt64(channel &* 83_492_791))
+                    let u1 = Double(h >> 11) / Double(1 << 53)
+                    let u2 = Double(mix(h) >> 11) / Double(1 << 53)
+                    let n = (-2 * Foundation.log(Swift.max(u1, 1e-12))).squareRoot()
+                        * Foundation.cos(2 * Double.pi * u2)
+                    base[channel] = Swift.max(base[channel]
+                                              + n * profile.sigma(at: base[channel]), 0)
+                }
+                buffer[x, y] = base
+            }
+        }
+        return buffer
+    }
+
+    private func denoisePlan(_ block: ClassicNR, iso: Double) -> RenderPlan {
+        var recipe = Recipe()
+        recipe.develop.denoise = Denoise(mode: .classic, classic: block)
+        return RenderPlan(recipe: recipe, captureISO: iso)
+    }
+
+    /// The whole S3 chain against `ClassicalDenoise.apply`.
+    ///
+    /// Nine kernels, five à-trous levels, two edge maps and an inverse transform have to
+    /// add up to the same operator the reference defines. Modelled in double precision
+    /// the two agree to 9e-16, and in float32 — which is what this context renders in —
+    /// to 2e-7; the bar below is 2e-4, three orders looser, because the point is to
+    /// catch a wrong kernel rather than to police the last bit.
+    ///
+    /// Every case also asserts the stage MOVED the frame. A denoise that returns its
+    /// input matches nothing and would otherwise sail through a comparison against a
+    /// reference that also did nothing.
+    func testDenoiseMatchesTheReferenceEngine() throws {
+        try XCTSkipUnless(KernelLibrary.denoiseAvailable, "denoise kernels unavailable")
+        let iso = 6400.0
+        let profile = NoiseProfile.forISO(iso)
+        let width = 64, height = 64
+        let source = noisyFrame(width: width, height: height, profile: profile)
+        let input = ciImage(from: source)
+
+        // Colour Smoothness is 0 in every case here, which takes the guided-filter
+        // blotch pass out: that pass runs through CIBoxBlur, whose border handling is
+        // Core Image's rather than the reference's, and mixing it in would blur the
+        // question this test is asking. It gets its own case below.
+        let cases: [(String, ClassicNR)] = [
+            ("luma only", ClassicNR(luma: 60, chroma: 0, colorSmoothness: 0)),
+            ("colour only", ClassicNR(luma: 0, chroma: 50, colorSmoothness: 0)),
+            ("both, LR defaults", ClassicNR(luma: 40, chroma: 40, colorSmoothness: 0)),
+            ("detail and contrast", ClassicNR(luma: 80, chroma: 60, lumaDetail: 85,
+                                              lumaContrast: 60, colorDetail: 90,
+                                              colorSmoothness: 0)),
+        ]
+        for (name, block) in cases {
+            let plan = denoisePlan(block, iso: iso)
+            let expected = plan.classicalDenoise.apply(source)
+            let output = RenderGraph().applyDenoise(
+                input, plan: plan,
+                options: RenderGraph.Options(longEdge: width, draft: false))
+            guard let got = readBack(output, width: width, height: height) else {
+                return XCTFail("\(name): denoise render failed")
+            }
+            var moved = 0.0
+            var worst = 0.0
+            var worstAt = (0, 0)
+            for y in 0..<height {
+                for x in 0..<width {
+                    moved = Swift.max(moved,
+                                      expected[x, y].maxAbsDifference(source[x, y]))
+                    let d = got[x, y].maxAbsDifference(expected[x, y])
+                    if d > worst { worst = d; worstAt = (x, y) }
+                }
+            }
+            XCTAssertGreaterThan(moved, 1e-3,
+                                 "\(name): the reference moved the frame by \(moved), "
+                                     + "so matching it proves nothing")
+            XCTAssertLessThan(worst, 2e-4,
+                              "\(name): GPU and reference differ by \(worst) at "
+                                  + "\(worstAt), against a stage effect of \(moved)")
+        }
+    }
+
+    /// The blotch pass, on its own, with a looser bar for the reason above: its guided
+    /// filter runs on CIBoxBlur, and the reference's runs on its own box blur.
+    func testDenoiseBlotchPassTracksTheReference() throws {
+        try XCTSkipUnless(KernelLibrary.denoiseAvailable, "denoise kernels unavailable")
+        let iso = 12800.0
+        let profile = NoiseProfile.forISO(iso)
+        let width = 64, height = 64
+        var source = noisyFrame(width: width, height: height, profile: profile)
+        for y in 0..<height {
+            for x in 0..<width {
+                let dx = Double(x) - 32, dy = Double(y) - 32
+                let blob = Foundation.exp(-(dx * dx + dy * dy) / (2 * 100))
+                var c = source[x, y]
+                c.r += 0.02 * blob
+                c.b -= 0.02 * blob
+                source[x, y] = c
+            }
+        }
+        let block = ClassicNR(luma: 0, chroma: 70, colorSmoothness: 100)
+        let plan = denoisePlan(block, iso: iso)
+        let expected = plan.classicalDenoise.apply(source)
+        let output = RenderGraph().applyDenoise(
+            ciImage(from: source), plan: plan,
+            options: RenderGraph.Options(longEdge: width, draft: false))
+        guard let got = readBack(output, width: width, height: height) else {
+            return XCTFail("blotch render failed")
+        }
+        var moved = 0.0
+        var worst = 0.0
+        for y in 0..<height {
+            for x in 0..<width {
+                moved = Swift.max(moved, expected[x, y].maxAbsDifference(source[x, y]))
+                worst = Swift.max(worst, got[x, y].maxAbsDifference(expected[x, y]))
+            }
+        }
+        XCTAssertGreaterThan(moved, 1e-3, "the reference blotch pass did nothing")
+        XCTAssertLessThan(worst, moved * 0.25,
+                          "the blotch pass differs from the reference by \(worst), a "
+                              + "quarter or more of the \(moved) it is meant to remove")
+    }
+
+    /// Hot Pixels: the branchless sorting-network kernel against the branchy reference.
+    /// Both halves — the spikes must go, and the one-pixel line must not.
+    func testHotPixelKernelMatchesTheReference() throws {
+        try XCTSkipUnless(KernelLibrary.hotPixel != nil, "hot pixel kernel unavailable")
+        let iso = 3200.0
+        let profile = NoiseProfile.forISO(iso)
+        let width = 48, height = 48
+        var source = noisyFrame(width: width, height: height, profile: profile)
+        for y in 0..<height { source[24, y] = RGB(gray: 0.6) }
+        source[8, 8] = RGB(gray: 0.95)
+        source[30, 12] = RGB(gray: 0.0)
+
+        let block = ClassicNR(luma: 0, chroma: 0, hotPixels: 60)
+        let plan = denoisePlan(block, iso: iso)
+        let expected = plan.classicalDenoise.hotPixelPass(source)
+        let output = RenderGraph().applyDenoise(
+            ciImage(from: source), plan: plan,
+            options: RenderGraph.Options(longEdge: width, draft: false))
+        guard let got = readBack(output, width: width, height: height) else {
+            return XCTFail("hot pixel render failed")
+        }
+        XCTAssertLessThan(expected[8, 8].g, 0.3, "the reference kept the bright spike")
+        XCTAssertLessThan(got[8, 8].g, 0.3,
+                          "the kernel kept the bright spike at \(got[8, 8].g)")
+        XCTAssertGreaterThan(got[30, 12].g, 0.05,
+                             "the kernel kept the dark spike at \(got[30, 12].g)")
+        for y in [4, 20, 36, 44] {
+            XCTAssertEqual(got[24, y].g, source[24, y].g, accuracy: 1e-4,
+                           "the kernel ate the one-pixel line at row \(y)")
+        }
+        var worst = 0.0
+        for y in 0..<height {
+            for x in 0..<width {
+                worst = Swift.max(worst, got[x, y].maxAbsDifference(expected[x, y]))
+            }
+        }
+        XCTAssertLessThan(worst, 1e-4,
+                          "the sorting network disagrees with the reference by \(worst)")
+    }
+
+    /// The trace that matters: the slider reaches the picture through `build`, which is
+    /// what the loupe and the export both call — not through a stage a test poked
+    /// directly.
+    func testDenoiseReachesTheShippingGraph() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+        let iso = 6400.0
+        let profile = NoiseProfile.forISO(iso)
+        let width = 64, height = 64
+        let source = noisyFrame(width: width, height: height, profile: profile)
+        let input = ciImage(from: source)
+
+        func render(_ denoise: Denoise, draft: Bool = false) throws -> ImageBuffer {
+            var recipe = Recipe()
+            recipe.develop.denoise = denoise
+            let plan = RenderPlan(recipe: recipe, captureISO: iso)
+            let out = RenderGraph().build(
+                input, plan: plan,
+                options: RenderGraph.Options(longEdge: width, draft: draft))
+            guard let buffer = readBack(out, width: width, height: height) else {
+                throw RenderError.renderFailed
+            }
+            return buffer
+        }
+
+        func spread(_ a: ImageBuffer, _ b: ImageBuffer) -> Double {
+            var worst = 0.0
+            for y in 0..<height {
+                for x in 0..<width {
+                    worst = Swift.max(worst, a[x, y].maxAbsDifference(b[x, y]))
+                }
+            }
+            return worst
+        }
+
+        let strong = Denoise(mode: .classic, classic: ClassicNR(luma: 80, chroma: 80))
+        let off = try render(Denoise(mode: .off))
+        let on = try render(strong)
+        XCTAssertGreaterThan(spread(off, on), 5e-3,
+                             "the denoise sliders moved the shipping render by "
+                                 + "\(spread(off, on))")
+
+        // Off really is off: a recipe that says off must render what an untouched
+        // Tier 1 renders, not merely something different from `on`.
+        let quiet = try render(Denoise(mode: .classic,
+                                       classic: ClassicNR(luma: 0, chroma: 0)))
+        XCTAssertLessThan(spread(off, quiet), 1e-5,
+                          "Off and an all-zero Classic block rendered differently")
     }
 
     func testMidGreyLandsWhereTheTransformPromises() throws {

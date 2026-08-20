@@ -30,12 +30,23 @@ public struct RenderGraph {
         public var draft: Bool
         /// Table size — interactive during a drag, export size when it settles.
         public var lutSize: Int
+        /// `(rendered long edge ÷ the file's own long edge)²` — the factor by which the
+        /// decode's own downsampling has already reduced the noise VARIANCE, and
+        /// therefore the factor the noise profile must be scaled by for the denoise
+        /// stage to remove the noise that is actually there. 1 for an export.
+        ///
+        /// Without it a 2560 px preview of an 8000 px frame would be denoised as though
+        /// it still carried the sensor's full noise — a heavily smoothed preview and a
+        /// much lighter export of the same photograph.
+        public var noiseScale: Double
 
         public init(longEdge: Int, draft: Bool = false,
-                    lutSize: Int = LUT3D.interactiveSize) {
+                    lutSize: Int = LUT3D.interactiveSize,
+                    noiseScale: Double = 1) {
             self.longEdge = longEdge
             self.draft = draft
             self.lutSize = lutSize
+            self.noiseScale = noiseScale
         }
     }
 
@@ -59,6 +70,17 @@ public struct RenderGraph {
     public func localStageInput(_ input: CIImage, plan: RenderPlan,
                                 options: Options) -> CIImage {
         var image = input
+
+        // S3 — profiled classical noise reduction, upstream of everything, because a
+        // noise model is a statement about the sensor's own linear signal and stops
+        // being true the moment a curve or a matrix has touched it.
+        //
+        // Draft frames skip it, which also takes it off the mask rasterizer's path:
+        // that caller asks for `draft: true` at a 1024 px proxy, where the noise it
+        // would remove is already averaged away by the downsample.
+        if !options.draft {
+            image = applyDenoise(image, plan: plan, options: options)
+        }
 
         // S6 — one fused matrix: white balance, exposure, printer lights.
         image = Self.applyMatrix(image, plan.linear.matrix)
@@ -209,6 +231,222 @@ public struct RenderGraph {
                             size: CGSize(width: 1, height: 1),
                             format: .RGBAf, colorSpace: nil)
         return image.clampedToExtent().cropped(to: extent)
+    }
+    // MARK: - S3 profiled classical noise reduction
+
+    /// Tier 1 (docs/07 §2), in the graph: hot pixels, then a variance-stabilizing
+    /// transform, an à-trous decomposition in a decorrelating luma/chroma basis,
+    /// per-scale edge-aware soft shrinkage, and the inverse transform.
+    ///
+    /// The reference is `ClassicalDenoise.apply`, and every number this stage uses comes
+    /// from `ClassicalDenoise.gpuPlan` rather than being re-derived here — the two paths
+    /// read one definition of what each slider means. `KernelGoldenTests` renders this
+    /// against that reference on real frames.
+    ///
+    /// **Radii here do not scale with resolution, deliberately.** Every other spatial
+    /// stage in this file sizes itself off `longEdge`, because clarity and sharpening
+    /// are statements about the picture. Noise is a statement about the sensor: it lives
+    /// at the pixel, so the à-trous levels and the blotch radius are fixed pixel counts,
+    /// and it is the noise PROFILE that follows the render scale, through
+    /// `options.noiseScale`.
+    func applyDenoise(_ image: CIImage, plan: RenderPlan, options: Options) -> CIImage {
+        guard !plan.denoiseIsIdentity, KernelLibrary.denoiseAvailable else { return image }
+        let extent = image.extent
+        guard extent.width >= 2, extent.height >= 2 else { return image }
+
+        let gpu = plan.classicalDenoise.gpuPlan(width: Int(extent.width),
+                                                height: Int(extent.height),
+                                                noiseScale: options.noiseScale)
+        var work = image
+        if gpu.hotPixelK.isFinite, KernelLibrary.hotPixel != nil {
+            work = Self.applyHotPixels(work, gpu: gpu) ?? work
+        }
+
+        let bands = Swift.min(gpu.lumaThresholds.count, gpu.chromaThresholds.count)
+        let shrinks = gpu.lumaThresholds.contains { $0 > 0 }
+            || gpu.chromaThresholds.contains { $0 > 0 }
+        guard bands > 0, shrinks else { return work }
+
+        let shot = gpu.profile.a
+        // `0.375·a² + b` is the transform's own offset term, formed once here rather
+        // than in the shader so the kernel takes one uniform instead of squaring a
+        // number that spans seven decades.
+        let offset = 0.375 * shot * shot + gpu.profile.b
+        guard let forward = KernelLibrary.apply(
+            KernelLibrary.denoiseForward, extent: extent,
+            [work, Float(shot), Float(offset), Float(gpu.pedestalSignal),
+             Float(gpu.sqrtPedestal), Float(Swift.max(gpu.signalFloor, -1e30)),
+             Float(gpu.encodedScale)])
+        else { return work }
+        let rotated = Self.applyMatrix(forward, ClassicalDenoise.toY0U0V0)
+
+        // Edge maps, each built only if the slider that reads it is live. Luma edges
+        // come off the luma plane; chroma edges off the chroma magnitude, so a
+        // saturated edge on flat luminance still protects itself.
+        let flat = CIImage(color: CIColor(red: 0, green: 0, blue: 0, alpha: 1))
+            .cropped(to: extent)
+        var lumaEdge = flat
+        if gpu.lumaProtection > 0 {
+            let plane = Self.applyMatrix(rotated, Self.broadcastRed)
+            lumaEdge = Self.edgePlane(plane, gpu: gpu) ?? flat
+        }
+        var chromaEdge = flat
+        if gpu.chromaProtection > 0,
+           let magnitude = KernelLibrary.apply(KernelLibrary.chromaMagnitude,
+                                               extent: extent, [rotated]) {
+            chromaEdge = Self.edgePlane(magnitude, gpu: gpu) ?? flat
+        }
+
+        let protection = CIVector(x: CGFloat(gpu.lumaProtection),
+                                  y: CGFloat(gpu.chromaProtection),
+                                  z: CGFloat(gpu.chromaProtection))
+
+        // The à-trous stack. `current` walks down the smoothing chain and `out` carries
+        // the running result: each band's REMOVED part is subtracted from it, which is
+        // the same reconstruction as summing the shrunk bands and the residual without
+        // ever adding five full-range planes back together.
+        var current = rotated
+        var out = rotated
+        for j in 0..<bands {
+            guard let smooth = Self.bSplinePass(current, step: 1 << j),
+                  let detail = KernelLibrary.apply(KernelLibrary.subtract,
+                                                   extent: extent, [current, smooth])
+            else { break }
+            let threshold = CIVector(x: CGFloat(gpu.lumaThresholds[j]),
+                                     y: CGFloat(gpu.chromaThresholds[j]),
+                                     z: CGFloat(gpu.chromaThresholds[j]))
+            guard let removed = KernelLibrary.apply(
+                    KernelLibrary.denoiseRemoved, extent: extent,
+                    [detail, lumaEdge, chromaEdge, threshold, protection]),
+                  let next = KernelLibrary.apply(KernelLibrary.subtract,
+                                                 extent: extent, [out, removed])
+            else { break }
+            out = next
+            current = smooth
+        }
+
+        // Large-scale chroma blotches survive band shrinkage because they ARE the coarse
+        // band. A luminance-guided edge-preserving smooth is what removes them without
+        // bleeding colour across an edge — and the guide is the linear luminance of the
+        // stage's own input, so the filter follows the picture rather than the
+        // variance-stabilized plane it is filtering.
+        if gpu.blotchMix > 0, KernelLibrary.mixChroma != nil {
+            let w = RGBColorSpace.rec2020.luminanceWeights
+            if let guide = KernelLibrary.apply(KernelLibrary.luminance, extent: extent,
+                                               [work, CIVector(x: w.r, y: w.g, z: w.b)]),
+               let filteredU = Self.crossGuidedFilter(
+                    input: Self.applyMatrix(out, Self.broadcastGreen), guide: guide,
+                    radius: ClassicalDenoise.blotchRadius,
+                    epsilon: ClassicalDenoise.blotchEpsilon),
+               let filteredV = Self.crossGuidedFilter(
+                    input: Self.applyMatrix(out, Self.broadcastBlue), guide: guide,
+                    radius: ClassicalDenoise.blotchRadius,
+                    epsilon: ClassicalDenoise.blotchEpsilon),
+               let mixed = KernelLibrary.apply(
+                    KernelLibrary.mixChroma, extent: extent,
+                    [out, filteredU, filteredV, Float(gpu.blotchMix)]) {
+                out = mixed
+            }
+        }
+
+        let unrotated = Self.applyMatrix(out, ClassicalDenoise.fromY0U0V0)
+        guard let restored = KernelLibrary.apply(
+            KernelLibrary.denoiseInverse, extent: extent,
+            [unrotated, Float(shot), Float(gpu.pedestalSignal), Float(gpu.sqrtPedestal),
+             Float(1.0 / gpu.encodedScale),
+             Float(Swift.max(gpu.minimumForwardRelative, -1e30)),
+             Float(gpu.referenceLevel), Float(gpu.unbiasedGain), Float(gpu.shrinkage)])
+        else { return work }
+        return restored
+    }
+
+    /// Broadcast one channel of a three-plane image to all three, so a single-channel
+    /// kernel — the guided filter, the edge map — can read it off `.r`.
+    static let broadcastRed = Mat3(1, 0, 0, 1, 0, 0, 1, 0, 0)
+    static let broadcastGreen = Mat3(0, 1, 0, 0, 1, 0, 0, 1, 0)
+    static let broadcastBlue = Mat3(0, 0, 1, 0, 0, 1, 0, 0, 1)
+
+    /// The hot-pixel pass: the centre plus its eight neighbours, each a translation of
+    /// the same clamped image, into one branchless kernel.
+    static func applyHotPixels(_ image: CIImage,
+                               gpu: ClassicalDenoise.GPUPlan) -> CIImage? {
+        var arguments: [Any] = [image]
+        for dy in -1...1 {
+            for dx in -1...1 where !(dx == 0 && dy == 0) {
+                arguments.append(shifted(image, dx: dx, dy: dy))
+            }
+        }
+        arguments.append(Float(Swift.min(gpu.hotPixelK, 1e30)))
+        arguments.append(Float(gpu.profile.a))
+        arguments.append(Float(gpu.profile.b))
+        return KernelLibrary.apply(KernelLibrary.hotPixel, extent: image.extent,
+                                   arguments)
+    }
+
+    /// One à-trous smoothing step: the B3-spline row `[1,4,6,4,1]/16` applied
+    /// separably with its taps `step` pixels apart — the holes the transform is named
+    /// for. Level `j` uses `step = 2^j`, so the support doubles per level while the
+    /// resolution never drops, which is what makes the reconstruction an exact sum.
+    static func bSplinePass(_ image: CIImage, step: Int) -> CIImage? {
+        let extent = image.extent
+        let s = Swift.max(step, 1)
+        func taps(_ source: CIImage, dx: Int, dy: Int) -> [Any] {
+            var out: [Any] = []
+            out.reserveCapacity(5)
+            for t in 0..<5 {
+                out.append(shifted(source, dx: (t - 2) * dx * s, dy: (t - 2) * dy * s))
+            }
+            return out
+        }
+        guard let horizontal = KernelLibrary.apply(KernelLibrary.bSpline5, extent: extent,
+                                                   taps(image, dx: 1, dy: 0))
+        else { return nil }
+        return KernelLibrary.apply(KernelLibrary.bSpline5, extent: extent,
+                                   taps(horizontal, dx: 0, dy: 1))
+    }
+
+    /// The blur-stabilized gradient edge map: three radius-1 box passes on each axis —
+    /// which is exactly `SpatialOps.gaussianBlur(_:sigma: 1.5)` — then a central
+    /// difference through the smoothstep knees the plan carries.
+    static func edgePlane(_ plane: CIImage,
+                          gpu: ClassicalDenoise.GPUPlan) -> CIImage? {
+        let extent = plane.extent
+        var blurred = plane
+        for _ in 0..<3 {
+            guard let horizontal = KernelLibrary.apply(
+                    KernelLibrary.box3, extent: extent,
+                    [shifted(blurred, dx: -1, dy: 0), blurred,
+                     shifted(blurred, dx: 1, dy: 0)]),
+                  let vertical = KernelLibrary.apply(
+                    KernelLibrary.box3, extent: extent,
+                    [shifted(horizontal, dx: 0, dy: -1), horizontal,
+                     shifted(horizontal, dx: 0, dy: 1)])
+            else { return nil }
+            blurred = vertical
+        }
+        return KernelLibrary.apply(
+            KernelLibrary.edgeMap, extent: extent,
+            [shifted(blurred, dx: 1, dy: 0), shifted(blurred, dx: -1, dy: 0),
+             shifted(blurred, dx: 0, dy: 1), shifted(blurred, dx: 0, dy: -1),
+             Float(gpu.edgeKneeLow), Float(gpu.edgeKneeHigh)])
+    }
+
+    /// The image as seen from `(dx, dy)` away: sampling the result at `p` reads the
+    /// source at `p + (dx, dy)`.
+    ///
+    /// Clamped first, so a tap that falls outside the frame repeats the border pixel —
+    /// the same edge convention `Plane.clampedSample` gives the CPU reference, and the
+    /// reason a 5-tap kernel needs no special case per border.
+    ///
+    /// The y sign is not a hazard here even though Core Image's origin is bottom-left
+    /// and the reference's is top-left: every filter built out of this — the B3-spline
+    /// row, the box blur, the gradient magnitude, the 3×3 neighbourhood — is symmetric
+    /// under a y flip.
+    static func shifted(_ image: CIImage, dx: Int, dy: Int) -> CIImage {
+        guard dx != 0 || dy != 0 else { return image.clampedToExtent() }
+        return image.clampedToExtent()
+            .transformed(by: CGAffineTransform(translationX: CGFloat(-dx),
+                                               y: CGFloat(-dy)))
     }
 
     // MARK: - S6

@@ -133,7 +133,7 @@ final class RobustnessTests: XCTestCase {
 
         func render(luma: Double) -> Double {
             let params = ClassicNR(luma: luma, chroma: 0, hotPixels: 0)
-            let engine = ClassicalDenoise(params, profile: profile, isoDefaults: false)
+            let engine = ClassicalDenoise(params, profile: profile)
             return engine.apply(black)[4, 4].g
         }
 
@@ -761,8 +761,7 @@ final class RobustnessTests: XCTestCase {
                           "the detail stage moved a pixel at rest")
 
         let denoiseOff = ClassicalDenoise(ClassicNR(luma: 0, chroma: 0, hotPixels: 0),
-                                          profile: NoiseProfile.forISO(100),
-                                          isoDefaults: false).apply(field)
+                                          profile: NoiseProfile.forISO(100)).apply(field)
         XCTAssertLessThan(denoiseOff.maxAbsDifference(field), 1e-12,
                           "the denoise stage moved a pixel at rest")
     }

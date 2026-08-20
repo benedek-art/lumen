@@ -466,12 +466,16 @@ public struct ManualSharpen: Codable, Equatable, Sendable {
 
 /// Two-tier denoise (D26). `ai` results are cached artifacts, never files (docs/07).
 ///
-/// `appleStandIn` is what the RAW stage applies until Lumen's own Tier 1 and Tier 2
-/// engines run in the graph. It exists as a named, tested mapping because the wiring was
-/// wrong in a way the panel hid: in `.ai` mode the stage read `classic.luma` and
-/// `classic.chroma`, which the panel does not show in that mode, and ignored `amount`,
-/// which is the only slider it does show. Switching Classic → AI changed nothing, and
-/// dragging the AI Amount slider changed nothing.
+/// Tier 1 — the `classic` block — runs in the graph at S3: a profiled variance-stabilizing
+/// transform and à-trous shrinkage, `ClassicalDenoise`, driven by the capture ISO's own
+/// noise model. Tier 2 does not exist yet; `amount` reaches the RAW decoder's own
+/// denoise through `appleStandIn` as a stand-in, and the panel says so.
+///
+/// `appleStandIn` exists as a named, tested mapping because the wiring was wrong in a
+/// way the panel hid: in `.ai` mode the stage read `classic.luma` and `classic.chroma`,
+/// which the panel does not show in that mode, and ignored `amount`, which is the only
+/// slider it does show. Switching Classic → AI changed nothing, and dragging the AI
+/// Amount slider changed nothing.
 public struct Denoise: Codable, Equatable, Sendable {
     public enum Mode: String, Codable, Sendable {
         case off, classic, ai
@@ -491,24 +495,28 @@ public struct Denoise: Codable, Equatable, Sendable {
 
     /// Luminance and colour fractions, 0…1, for the RAW decoder's own denoise stage.
     ///
-    /// Off is off. Classic follows the two sliders the Classic panel shows. AI follows
-    /// `amount`, which is the ONLY slider the AI panel shows — and which the wiring
-    /// previously ignored in favour of two hidden Classic values, so the mode switch
-    /// and the visible slider were both inert.
+    /// **Classic now hands the decoder nothing.** Tier 1 runs in the graph — a profiled
+    /// VST plus à-trous shrinkage, `ClassicalDenoise` — and leaving Apple's stage on
+    /// underneath it would denoise the frame twice, once with a model of the sensor and
+    /// once with somebody else's guess, with the two smoothings compounding where they
+    /// agree. docs/07 §2 calls the decoder's properties a "Milestone-1 stopgap until
+    /// this stage ships". It has shipped, so the stopgap comes out.
     ///
-    /// The AI mapping is a stand-in, not the model: Tier 2 is a cached artifact that
-    /// does not run in the graph yet. Weighting colour above luminance mirrors the
-    /// Classic defaults, where chroma sits at 25 and luma at 0 — colour noise is the
-    /// one every sensor has and the one a decoder can cheaply help with.
+    /// It also makes the two Classic sliders cheap: they are no longer part of
+    /// `AppleRawSource`'s decode key, so dragging Luminance stopped forcing a full
+    /// re-demosaic of a 45-megapixel frame per frame of the drag.
+    ///
+    /// Off is off. AI follows `amount`, which is the ONLY slider the AI panel shows —
+    /// and which the wiring previously ignored in favour of two hidden Classic values,
+    /// so the mode switch and the visible slider were both inert. That mapping is still
+    /// a stand-in, not a model: Tier 2 is a cached artifact that does not exist yet.
     public var appleStandIn: (luma: Double, chroma: Double) {
         func fraction(_ v: Double) -> Double {
             Num.clamp(v.isFinite ? v : 0, 0, 100) / 100
         }
         switch mode {
-        case .off:
+        case .off, .classic:
             return (0, 0)
-        case .classic:
-            return (fraction(classic.luma), fraction(classic.chroma))
         case .ai:
             let blend = fraction(amount)
             return (blend * 0.6, blend)
@@ -516,15 +524,74 @@ public struct Denoise: Codable, Equatable, Sendable {
     }
 }
 
+/// Tier 1's seven controls (docs/07 §2.1), all of them on the wire.
+///
+/// Four of these — Luminance Detail, Luminance Contrast, Colour Detail, Colour
+/// Smoothness — were engine parameters with no wire format, so `ClassicalDenoise`
+/// took them from hardcoded defaults and the panel could not show them. The names,
+/// ranges and 50/50 sub-defaults are Lightroom's manual NR contract on purpose: it is
+/// muscle memory for every refugee and there is no better parameterization to invent.
+///
+/// Decoding is tolerant of a recipe written before these existed: the four new keys
+/// decode to their documented defaults rather than failing, so an older sidecar still
+/// opens and renders what it always rendered.
 public struct ClassicNR: Codable, Equatable, Sendable {
-    public var luma: Double         // 0…100
-    public var chroma: Double       // 0…100, default mild (docs/07)
-    public var hotPixels: Double    // 0…100 (D26, single-pixel control)
+    public var luma: Double             // 0…100
+    public var chroma: Double           // 0…100, default mild (docs/07)
+    public var hotPixels: Double        // 0…100 (D26, single-pixel control)
+    /// Shrinkage threshold multiplier on luma: higher preserves texture (and noise).
+    public var lumaDetail: Double       // 0…100, default 50
+    /// Biases shrinkage away from the coarse luma bands — preserves luminance
+    /// contrast at the cost of mottling, LR's own tradeoff.
+    public var lumaContrast: Double     // 0…100, default 0
+    /// Spatially protects thin colour edges from chroma shrinkage.
+    public var colorDetail: Double      // 0…100, default 50
+    /// Extends chroma shrinkage into the coarsest bands, where blotches live.
+    public var colorSmoothness: Double  // 0…100, default 50
 
-    public init(luma: Double = 0, chroma: Double = 25, hotPixels: Double = 0) {
+    public init(luma: Double = 0, chroma: Double = 25, hotPixels: Double = 0,
+                lumaDetail: Double = 50, lumaContrast: Double = 0,
+                colorDetail: Double = 50, colorSmoothness: Double = 50) {
         self.luma = luma
         self.chroma = chroma
         self.hotPixels = hotPixels
+        self.lumaDetail = lumaDetail
+        self.lumaContrast = lumaContrast
+        self.colorDetail = colorDetail
+        self.colorSmoothness = colorSmoothness
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case luma, chroma, hotPixels, lumaDetail, lumaContrast
+        case colorDetail, colorSmoothness
+    }
+
+    /// Tolerant of the three-field form this struct used to have. Every recipe already
+    /// in a catalog or a sidecar was written before the four sub-sliders existed, and a
+    /// strict decode would fail on all of them — the four keys fall back to the
+    /// documented defaults, which are exactly the values the engine hardcoded before.
+    /// So an old recipe renders what it always rendered.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.luma = try c.decodeIfPresent(Double.self, forKey: .luma) ?? 0
+        self.chroma = try c.decodeIfPresent(Double.self, forKey: .chroma) ?? 25
+        self.hotPixels = try c.decodeIfPresent(Double.self, forKey: .hotPixels) ?? 0
+        self.lumaDetail = try c.decodeIfPresent(Double.self, forKey: .lumaDetail) ?? 50
+        self.lumaContrast = try c.decodeIfPresent(Double.self, forKey: .lumaContrast) ?? 0
+        self.colorDetail = try c.decodeIfPresent(Double.self, forKey: .colorDetail) ?? 50
+        self.colorSmoothness = try c.decodeIfPresent(Double.self,
+                                                     forKey: .colorSmoothness) ?? 50
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(luma, forKey: .luma)
+        try c.encode(chroma, forKey: .chroma)
+        try c.encode(hotPixels, forKey: .hotPixels)
+        try c.encode(lumaDetail, forKey: .lumaDetail)
+        try c.encode(lumaContrast, forKey: .lumaContrast)
+        try c.encode(colorDetail, forKey: .colorDetail)
+        try c.encode(colorSmoothness, forKey: .colorSmoothness)
     }
 }
 
