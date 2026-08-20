@@ -20,15 +20,18 @@
 # LumenCore. This script claimed that coverage before the modulemap existed, which is
 # the same shape of failure as a check that cannot fail.
 #
-# Three tests fail HERE and pass on macOS, and they are not worth chasing:
-# RobustnessTests.testEachTableTracksItsOwnExactEvaluationSeparately,
-# testExportTableErrorStaysUnderOnePercent, and
-# EngineIntegrationTests.testTheInteractiveTableAgreesWithTheExportOne. All three
-# measure how far a baked LUT lands from an exact evaluation, so they are sensitive to
-# the last bits of exp/log/pow — and glibc dispatches those to FMA variants by CPU while
-# Apple's libm does not. Confirmed by running the same commit on both: green on the
-# macOS runner, red here, same numbers every time. The macOS lane is the gate for the
-# Swift suite; this toolchain is for compiling and for everything else.
+# Three tests fail here — testEachTableTracksItsOwnExactEvaluationSeparately,
+# testExportTableErrorStaysUnderOnePercent and
+# testTheInteractiveTableAgreesWithTheExportOne. They are NOT a Linux artefact. This
+# comment used to say they were, on the evidence that the macOS `test-fast` lane was
+# green; `test-fast` excludes the nine slow whole-pipeline tests and all three are among
+# them, so that lane had never run them. The macOS `test-macos` lane fails all three with
+# the same numbers this toolchain produces.
+#
+# They are real, they predate the local toolchain, and they are about how far a baked LUT
+# lands from an exact evaluation at the edges of the domain — a full stop at −3 EV on a
+# blue hue in the colour/grade table. Do not treat a failure here as "just Linux" without
+# checking `test-macos` for the same test name.
 #
 # What it does NOT cover: LumenPipeline and LumenApp are `#if os(macOS)` and need Core
 # Image, AppKit and SwiftUI. They still need the macOS runner. The mechanical checker
