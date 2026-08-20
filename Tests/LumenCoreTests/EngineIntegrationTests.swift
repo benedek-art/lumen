@@ -805,6 +805,90 @@ final class EngineIntegrationTests: XCTestCase {
                        "blurring changed how much of the frame the mask covers")
     }
 
+    /// `MaskKind.readsSourceImage` has to be TRUE, not just documentation.
+    ///
+    /// Every component that samples the picture returns an empty plane when handed no
+    /// source — silently, because a recipe with no source is not invalid and
+    /// `validationError()` has nothing to report. That is how the GPU path shipped
+    /// passing `source: nil`: Luma Range, Colour Range and both Similarity kinds
+    /// selected nothing at all, on every preview and every export, with no badge and no
+    /// log line. Linear, Radial and a plain brush were the only kinds that worked.
+    ///
+    /// The renderer now asks this flag whether it needs to build the stage input, so
+    /// the flag has to match what the rasterizer actually does. This checks both
+    /// directions: a kind that claims to read the picture must produce nothing without
+    /// one and something with one, and a kind that claims not to must be unaffected.
+    func testEveryMaskKindAgreesWithWhetherItSaysItReadsThePicture() {
+        let size = (width: 48, height: 32)
+        // A frame with a luminance ramp across it and real colour, so a luma band, a
+        // colour range and a similarity point all have something to find.
+        let source = ImageBuffer(width: size.width, height: size.height) { u, v in
+            let level = 0.18 * pow(2, -6 + u * 9)
+            return RGB(level, level * (0.5 + 0.5 * v), level * (1.2 - 0.6 * v))
+        }
+
+        func component(_ kind: MaskKind) -> MaskComponent {
+            var c = MaskComponent(op: .add, kind: kind)
+            c.center = [0.5, 0.5]
+            c.radii = [0.3, 0.3]
+            c.feather = 50
+            c.line = [0.1, 0.5, 0.9, 0.5]
+            c.lo = 0.25
+            c.hi = 0.75
+            c.smooth = 50
+            c.samples = [[source[24, 16].r, source[24, 16].g, source[24, 16].b]]
+            c.rangeAmount = 50
+            c.chromaSel = 50
+            c.lumaSel = 50
+            c.depthLo = 0.25
+            c.depthHi = 0.75
+            return c
+        }
+        func coverage(_ plane: Plane) -> Double {
+            Double(plane.values.filter { $0 > 0.01 }.count) / Double(plane.values.count)
+        }
+
+        for kind in [MaskKind.brush, .linear, .radial, .lumaRange, .colorRange,
+                     .similarity, .similarityLine, .aiSky, .depthRange] {
+            let withSource = MaskRaster.rasterize(component: component(kind),
+                                                  size: size, source: source)
+            let without = MaskRaster.rasterize(component: component(kind),
+                                               size: size, source: nil)
+            if kind.readsSourceImage {
+                // Strictly above zero rather than a fraction: what varies between these
+                // kinds is how much of the frame they select, and the failure being
+                // guarded against is "exactly nothing". Luma Range's real coverage on
+                // this frame is asserted separately below.
+                XCTAssertGreaterThan(
+                    coverage(withSource), 0,
+                    "\(kind) claims to read the picture but selected nothing when "
+                        + "given one — either the flag or the rasterizer is wrong")
+                XCTAssertEqual(
+                    coverage(without), 0, accuracy: 1e-12,
+                    "\(kind) produced coverage with NO source, so a renderer that "
+                        + "forgets to supply one would never find out")
+            } else if !kind.needsMatte {
+                // Pure geometry: the source cannot matter.
+                XCTAssertEqual(withSource.values, without.values,
+                               "\(kind) says it is geometry but the source changed it")
+            }
+        }
+
+        // Luma Range selects a real band, not a token pixel: the frame ramps 9 stops
+        // and the component asks for the middle half of the −10…+4 EV axis.
+        var band = component(.lumaRange)
+        band.lo = 0.25
+        band.hi = 0.75
+        let selected = coverage(MaskRaster.rasterize(component: band, size: size,
+                                                     source: source))
+        XCTAssertGreaterThan(selected, 0.1,
+                             "a luma band across half the axis selected only "
+                                 + "\(selected) of a 9-stop ramp")
+        XCTAssertLessThan(selected, 0.95,
+                          "the luma band selected \(selected) of the frame — it is not "
+                              + "banding, it is selecting everything")
+    }
+
     func testInvalidComponentRasterizesToNothingRatherThanCrashing() {
         let component = MaskComponent(op: .add, kind: .linear)  // no line
         let plane = MaskRaster.rasterize(component: component,

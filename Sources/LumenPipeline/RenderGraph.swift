@@ -49,7 +49,15 @@ public struct RenderGraph {
 
     // MARK: - The chain
 
-    public func build(_ input: CIImage, plan: RenderPlan, options: Options) -> CIImage {
+    /// S6 through S10 — everything upstream of the local stage.
+    ///
+    /// Factored out because the mask rasterizer needs exactly this image: a luma-range
+    /// or colour-range component samples the LOCAL STAGE INPUT, which is what makes its
+    /// handles EV-denominated and stable (docs/08 §8.2), and the CPU reference passes
+    /// precisely this (`ReferenceRenderer.applyMasks(source: image)`). Calling it rather
+    /// than repeating the sequence keeps the two from drifting apart.
+    public func localStageInput(_ input: CIImage, plan: RenderPlan,
+                                options: Options) -> CIImage {
         var image = input
 
         // S6 — one fused matrix: white balance, exposure, printer lights.
@@ -71,6 +79,11 @@ public struct RenderGraph {
                 ColorCube.filter(plan.colorGradeLUT, image: encoded)
             } ?? image
         }
+        return image
+    }
+
+    public func build(_ input: CIImage, plan: RenderPlan, options: Options) -> CIImage {
+        var image = localStageInput(input, plan: plan, options: options)
 
         // S11 — local adjustments, blended through each mask's alpha.
         if !plan.masks.isEmpty && !options.draft {

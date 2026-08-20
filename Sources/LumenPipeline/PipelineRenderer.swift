@@ -70,7 +70,7 @@ public final class PipelineRenderer {
                               asShotKelvin: source.asShotTemperature,
                               asShotTint: source.asShotTint,
                               lutSize: draft ? 17 : LUT3D.interactiveSize)
-        let graph = makeGraph(plan: plan, extent: decoded.extent, draft: draft,
+        let graph = makeGraph(plan: plan, decoded: decoded, draft: draft,
                               strokeSets: strokeSets)
         var image = graph.build(decoded, plan: plan,
                                 options: RenderGraph.Options(longEdge: longEdge,
@@ -100,7 +100,7 @@ public final class PipelineRenderer {
                               displayWhiteTarget: exportRecipe.hdr?.whiteTargetPercent,
                               lutSize: LUT3D.exportSize)
 
-        let graph = makeGraph(plan: plan, extent: decoded.extent, draft: false,
+        let graph = makeGraph(plan: plan, decoded: decoded, draft: false,
                               strokeSets: strokeSets)
         var image = graph.build(decoded, plan: plan,
                                 options: RenderGraph.Options(longEdge: longEdge,
@@ -144,9 +144,9 @@ public final class PipelineRenderer {
                                  displayWhiteTarget: settings.whiteTargetPercent,
                                  lutSize: LUT3D.exportSize)
 
-        let sdrGraph = makeGraph(plan: sdrPlan, extent: decoded.extent, draft: false,
+        let sdrGraph = makeGraph(plan: sdrPlan, decoded: decoded, draft: false,
                                  strokeSets: strokeSets)
-        let hdrGraph = makeGraph(plan: hdrPlan, extent: decoded.extent, draft: false,
+        let hdrGraph = makeGraph(plan: hdrPlan, decoded: decoded, draft: false,
                                  strokeSets: strokeSets)
         let sdr = Self.applyGeometry(sdrGraph.build(decoded, plan: sdrPlan, options: options),
                                      recipe: recipe)
@@ -208,10 +208,11 @@ public final class PipelineRenderer {
     /// the reference implementation and handed in as single-channel images; the grain
     /// plate is generated once per stock and tiled. Leaving either empty is how the
     /// local stage and film grain silently did nothing.
-    private func makeGraph(plan: RenderPlan, extent: CGRect, draft: Bool,
+    private func makeGraph(plan: RenderPlan, decoded: CIImage, draft: Bool,
                            strokeSets: [String: BrushStrokeSet]) -> RenderGraph {
         var graph = RenderGraph()
         guard !draft else { return graph }
+        let extent = decoded.extent
 
         if !plan.masks.isEmpty {
             // Mask rasters are smooth by construction, so they cost a fraction of the
@@ -220,10 +221,28 @@ public final class PipelineRenderer {
             let scale = long > 0 ? Swift.min(1.0, CGFloat(Self.maskRasterLongEdge) / long) : 1
             let width = Swift.max(Int(extent.width * scale), 8)
             let height = Swift.max(Int(extent.height * scale), 8)
+
+            // The stage input the mask components sample.
+            //
+            // This used to be `nil`, which meant every component that reads the picture
+            // rasterized to an EMPTY plane on every shipping path — Luma Range, Colour
+            // Range and both Similarity kinds returned nothing, the Refine slider's
+            // guided-filter step was skipped entirely (`refined` guards on the same
+            // argument), and Automask was forced off. Linear, Radial and a plain brush
+            // were the only mask kinds that did anything, and the panel showed no
+            // badge, because `validationError()` has nothing to complain about.
+            //
+            // Built at raster resolution, so this is a small fraction of a frame, and
+            // through `localStageInput` so it is the same image the CPU reference hands
+            // its rasterizer — a luma band is denominated in EV of the corrected scene,
+            // not of the raw decode, or the handles move when Exposure does.
+            let source = maskSource(decoded: decoded, plan: plan,
+                                    width: width, height: height, extent: extent)
+
             for mask in plan.masks {
                 let alpha = MaskRaster.combine(mask: mask,
                                                size: (width: width, height: height),
-                                               source: nil,
+                                               source: source,
                                                strokeSets: strokeSets,
                                                aiMattes: [:])
                 guard let image = Self.image(from: alpha, targetExtent: extent) else {
@@ -237,6 +256,34 @@ public final class PipelineRenderer {
             graph.grainPlate = Self.grainPlate(film: film, extent: extent)
         }
         return graph
+    }
+
+    /// The local-stage input, at mask-raster resolution, as an `ImageBuffer`.
+    ///
+    /// Returns nil when no mask component actually reads the picture, because then this
+    /// is a whole extra render pass bought for nothing: a Linear or Radial gradient is
+    /// pure geometry and a brush is pure geometry plus its stroke set.
+    private func maskSource(decoded: CIImage, plan: RenderPlan,
+                            width: Int, height: Int, extent: CGRect) -> ImageBuffer? {
+        let needsPicture = plan.masks.contains { mask in
+            mask.components.contains { $0.kind.readsSourceImage }
+                || MaskRaster.refineRadius(feather: mask.refine.feather,
+                                           longEdge: Swift.max(width, height)) >= 1
+        }
+        guard needsPicture else { return nil }
+
+        let scaleX = CGFloat(width) / Swift.max(extent.width, 1)
+        let scaleY = CGFloat(height) / Swift.max(extent.height, 1)
+        let small = decoded
+            .transformed(by: CGAffineTransform(scaleX: scaleX, y: scaleY))
+            .cropped(to: CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height)))
+        // Draft: the mask is sampling the picture's LUMINANCE and COLOUR, and the
+        // spatial stages move neither meaningfully at this size. Skipping them keeps
+        // this to one cheap pass.
+        let staged = RenderGraph().localStageInput(
+            small, plan: plan, options: RenderGraph.Options(longEdge: Swift.max(width, height),
+                                                            draft: true))
+        return Self.buffer(from: staged, context: context)
     }
 
     /// Long edge a mask raster is computed at. Masks are low-frequency fields; the

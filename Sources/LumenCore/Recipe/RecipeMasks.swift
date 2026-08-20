@@ -62,6 +62,41 @@ public enum MaskKind: String, Codable, Sendable {
     case aiPerson
     case aiLandscape
     case depthRange
+
+    /// True when rasterizing this kind needs the picture, not just geometry.
+    ///
+    /// Stated once, here, because a renderer that fails to supply the stage input does
+    /// not get an error from these components — they return an empty plane, the mask
+    /// silently selects nothing, and `validationError()` has nothing to report because
+    /// the recipe is perfectly valid. That is exactly how the GPU path shipped with
+    /// Luma Range, Colour Range and both Similarity kinds doing nothing at all.
+    public var readsSourceImage: Bool {
+        switch self {
+        case .brush, .linear, .radial:
+            return false
+        case .lumaRange, .colorRange, .similarity, .similarityLine:
+            return true
+        case .aiSubject, .aiSky, .aiBackground, .aiObject, .aiPerson, .aiLandscape,
+             .depthRange:
+            // These read a cached matte rather than the picture. Listed explicitly
+            // rather than caught by a `default`, so adding a kind is a compile error
+            // here instead of a silently empty mask.
+            return false
+        }
+    }
+
+    /// True when this kind needs an AI matte supplied alongside it. Nothing generates
+    /// those yet, which is why the panel files them under "requires a model".
+    public var needsMatte: Bool {
+        switch self {
+        case .brush, .linear, .radial, .lumaRange, .colorRange, .similarity,
+             .similarityLine:
+            return false
+        case .aiSubject, .aiSky, .aiBackground, .aiObject, .aiPerson, .aiLandscape,
+             .depthRange:
+            return true
+        }
+    }
 }
 
 public struct MaskComponent: Codable, Equatable, Sendable {
