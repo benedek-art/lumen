@@ -120,6 +120,14 @@ public struct RenderGraph {
             image = Self.applyFallbackTone(image, plan: plan) ?? image
         }
 
+        // S15b — the local point curve, the second tap (docs/08 §8.4, docs/14). The
+        // rest of a mask's sub-recipe is a scene-referred delta at S11; a curve is a
+        // picture-domain instinct and has to see the formed picture, so it composites
+        // here, through the same alpha S11 used.
+        if !plan.masks.isEmpty && !options.draft {
+            image = applyLocalCurves(image, plan: plan, options: options)
+        }
+
         // Grain lives inside picture formation, in the density domain.
         if let film = plan.filmChain, film.grainAmount > 0, let plate = grainPlate,
            !options.draft {
@@ -525,6 +533,36 @@ public struct RenderGraph {
             filter.inputImage = out.clampedToExtent()
             filter.radius = Float(Num.clamp(-sharpness / 100, 0, 1) * 2.5)
             out = filter.outputImage?.cropped(to: out.extent) ?? out
+        }
+        return out
+    }
+
+    // MARK: - S15b local point curve
+
+    /// Each mask's point curve, composited through that mask's alpha on the formed
+    /// picture (docs/08 §8.4).
+    ///
+    /// Baked as a table over the shaper's axis, exactly like the finish stage above it
+    /// — the values arriving here are display-linear with white at `plan.finishScale`,
+    /// and `LumenLog` is used as an invertible axis for the cube rather than as a
+    /// scene-referred encoding. The table's INPUT is therefore encoded picture, not
+    /// encoded scene, which is why this cannot be folded into `plan.finishLUT`: that
+    /// one is keyed by the scene value and is shared by every pixel, masked or not.
+    func applyLocalCurves(_ image: CIImage, plan: RenderPlan, options: Options) -> CIImage {
+        var out = image
+        for mask in plan.masks {
+            let curve = LocalCurve(curve: mask.adjust.curve, amount: mask.amount,
+                                   white: plan.displayWhite)
+            guard !curve.isIdentity, let alpha = maskImages[mask.id] else { continue }
+            let table = LocalCurvePlan(curve: curve, size: options.lutSize).lut
+            guard let curved = Self.throughShaper(out, { encoded in
+                ColorCube.filter(table, image: encoded)
+            }) else { continue }
+            guard let blended = KernelLibrary.apply(KernelLibrary.blendMask,
+                                                    extent: out.extent,
+                                                    [out, curved, alpha])
+            else { continue }
+            out = blended
         }
         return out
     }
@@ -977,6 +1015,28 @@ public struct RenderGraph {
         filter.extent = image.extent
         guard let output = filter.outputImage else { return nil }
         return readOnePixel(output)
+    }
+}
+
+// MARK: - Local point curve table
+
+/// A mask's point curve as a cube over the shaper's axis.
+///
+/// The axis carries DISPLAY-linear values here, not scene-linear ones: this table is
+/// applied after picture formation, and `LumenLog` is doing nothing but supplying an
+/// invertible, shadow-dense coordinate for the cube — the same job it does for
+/// `finishLUT`'s input. `throughShaper` encodes going in and decodes coming out, so
+/// the picture leaves in the domain it arrived in.
+///
+/// One table per curved mask, and only for masks that have a curve: `LocalCurve`
+/// reports identity for a mask with none, and `applyLocalCurves` never gets here.
+struct LocalCurvePlan {
+    let lut: LUT3D
+
+    init(curve: LocalCurve, size: Int = LUT3D.interactiveSize) {
+        self.lut = LUT3D(size: size) { encoded in
+            LumenLog.encode(curve.apply(LumenLog.decode(encoded)))
+        }
     }
 }
 

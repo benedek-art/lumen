@@ -70,8 +70,21 @@ public enum ReferenceRenderer {
         }
 
         // S11 — local adjustments, blended through each mask's alpha in scene-linear.
+        //
+        // The alphas are rasterized ONCE here rather than inside the stage, because the
+        // local point curve taps again after S14 and has to composite through the very
+        // same alpha. Rasterizing twice would be a guided filter and a distance
+        // transform run twice per mask for one curve.
+        var alphas: [(mask: Mask, alpha: Plane)] = []
         if !plan.masks.isEmpty {
-            image = applyMasks(image, plan: plan, inputs: inputs, space: space)
+            alphas = plan.masks.map { mask in
+                (mask, MaskRaster.combine(mask: mask,
+                                          size: (width: image.width, height: image.height),
+                                          source: image,
+                                          strokeSets: inputs.strokeSets,
+                                          aiMattes: inputs.aiMattes))
+            }
+            image = applyMasks(image, plan: plan, alphas: alphas, space: space)
         }
 
         // S12 — creative sharpening, after local so masked clarity is never
@@ -107,6 +120,17 @@ public enum ReferenceRenderer {
         let finish = plan.finishLUT
         let finishScale = plan.finishScale
         image = image.map { finish.sample(LumenLog.encode($0)) * finishScale }
+
+        // S15b — the local point curve, the second tap (docs/08 §8.4, docs/14). It runs
+        // HERE, on the formed picture, because a curve is a picture-domain instinct:
+        // the same curve applied at S11 would be shaping scene-referred code values,
+        // where the parametric regions do not sit on the tones they are named after.
+        // Same alpha as S11, so the two halves of a mask's sub-recipe select the same
+        // pixels; the blend is in the picture domain because that is where the curve's
+        // output lives.
+        if !alphas.isEmpty {
+            image = applyLocalCurves(image, alphas: alphas, plan: plan, space: space)
+        }
 
         // Grain lives inside picture formation, in the density domain.
         if let film = plan.filmChain, film.grainAmount > 0 {
@@ -145,21 +169,44 @@ public enum ReferenceRenderer {
         return out
     }
 
-    static func applyMasks(_ image: ImageBuffer, plan: RenderPlan, inputs: Inputs,
+    static func applyMasks(_ image: ImageBuffer, plan: RenderPlan,
+                           alphas: [(mask: Mask, alpha: Plane)],
                            space: RGBColorSpace) -> ImageBuffer {
         var out = image
-        for mask in plan.masks {
-            let alpha = MaskRaster.combine(mask: mask,
-                                           size: (width: image.width, height: image.height),
-                                           source: image,
-                                           strokeSets: inputs.strokeSets,
-                                           aiMattes: inputs.aiMattes)
+        for (mask, alpha) in alphas {
             let adjusted = applyLocalAdjust(out, mask: mask, plan: plan, space: space)
             for y in 0..<out.height {
                 for x in 0..<out.width {
                     let a = Num.saturate(alpha[x, y])
                     if a > 0 {
                         out[x, y] = out[x, y].mix(adjusted[x, y], a)
+                    }
+                }
+            }
+        }
+        return out
+    }
+
+    /// The local point curves (docs/08 §8.4), on the formed picture.
+    ///
+    /// One `LocalCurve` per mask that has one, evaluated per pixel and composited
+    /// through that mask's alpha. Masks without a curve cost nothing: `isIdentity`
+    /// skips them before a single pixel is touched, so a photograph with ten masks and
+    /// no curves does not pay for this stage at all.
+    static func applyLocalCurves(_ image: ImageBuffer,
+                                 alphas: [(mask: Mask, alpha: Plane)],
+                                 plan: RenderPlan,
+                                 space: RGBColorSpace) -> ImageBuffer {
+        var out = image
+        for (mask, alpha) in alphas {
+            let curve = LocalCurve(curve: mask.adjust.curve, amount: mask.amount,
+                                   white: plan.displayWhite, space: space)
+            guard !curve.isIdentity else { continue }
+            for y in 0..<out.height {
+                for x in 0..<out.width {
+                    let a = Num.saturate(alpha[x, y])
+                    if a > 0 {
+                        out[x, y] = out[x, y].mix(curve.apply(out[x, y]), a)
                     }
                 }
             }

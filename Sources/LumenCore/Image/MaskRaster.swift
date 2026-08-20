@@ -97,8 +97,8 @@ public enum MaskRaster {
         }
     }
 
-    /// Rasterize every component, fold the stack with `MaskAlgebra`'s semantics, then
-    /// run the refinement chain in `MaskRefine` order:
+    /// Rasterize every component, fold the stack with `MaskAlgebra`'s semantics, apply
+    /// the whole-mask invert, then run the refinement chain in `MaskRefine` order:
     /// guided-filter refine (`feather`) → edge shift (`edge`) → Gaussian softness
     /// (`blur`) → levels remap (`levelsLo`/`levelsHi`/`levelsGamma`).
     ///
@@ -138,7 +138,7 @@ public enum MaskRaster {
             }
         }
 
-        return refined(acc, refine: mask.refine, source: source)
+        return refined(acc, refine: mask.refine, source: source, invert: mask.invert)
     }
 
     /// docs/08 §8.5: "radius ≈ Refine × 2% long edge". At 61 MP (9504 px long edge),
@@ -182,12 +182,17 @@ public enum MaskRaster {
 
     // MARK: - Refinement chain (docs/08 §8.5)
 
-    /// Fixed order, applied to the folded alpha. Whole-mask invert would sit ahead of
-    /// this chain (brief §5.7) but `Mask` ships no invert field, so there is nothing
-    /// to apply here.
-    static func refined(_ alpha: Plane, refine: MaskRefine, source: ImageBuffer?) -> Plane {
+    /// Fixed order, applied to the folded alpha. Whole-mask invert (docs/08 §8.1,
+    /// brief §5.7) sits AHEAD of this chain: the four refinements are shaping the
+    /// selection the user can see, so inverting first is what makes Edge Shift grow
+    /// the region that is now selected rather than the one that no longer is.
+    static func refined(_ alpha: Plane, refine: MaskRefine, source: ImageBuffer?,
+                        invert: Bool = false) -> Plane {
         var a = alpha
         let longEdge = Swift.max(a.width, a.height)
+
+        // 0. Whole-mask invert, before the chain.
+        if invert { a = a.map { 1 - Num.saturate($0.isFinite ? $0 : 0) } }
 
         // 1. Guided-filter refine — edge-aware snap against the stage input's structure.
         let r = refineRadius(feather: refine.feather, longEdge: longEdge)

@@ -12,9 +12,9 @@
 //     the user the wrong word for both.
 //   · A mask runs the local point curve and the local grading wheels — the two tools
 //     Lightroom Classic still lacks inside a mask — so both are visible sections.
-//   · Where the format has no field for a spec'd control (whole-mask invert, linear
-//     Mirror, per-axis colour tolerances, similarity geometry, depth source), the
-//     control is ABSENT rather than invented.
+//   · Where the format has no field for a spec'd control (linear Mirror, per-axis
+//     colour tolerances, similarity geometry, depth source), the control is ABSENT
+//     rather than invented.
 //
 // Every slider is a `LumenSlider`, every edit goes through
 // `updateRecipe(coalescingKey:)` so one drag is one undo step, and every index into
@@ -95,6 +95,17 @@ struct MaskPanel: View {
                             value: maskValue(mask.id, "amount", get: { $0.amount },
                                              set: { $0.amount = Num.clamp($1, 0, 200) }),
                             range: 0...200, defaultValue: 100, step: 1, decimals: 0)
+                // Whole-mask invert (docs/08 §8.1), not the per-component one further
+                // down: this flips the folded stack. It runs BEFORE the refinement
+                // chain, so Refine still snaps to the picture and Edge Shift still
+                // grows what is now selected.
+                LumenToggleRow(title: "Invert mask",
+                               isOn: optionBinding(mask.id, mask.invert,
+                                                   on: { $0.invert = true },
+                                                   off: { $0.invert = false }),
+                               help: "Selects everything this stack does not, after the "
+                                   + "components combine and before Refine, Edge Shift, "
+                                   + "Feather and Levels")
                 HStack(spacing: 4) {
                     smallButton("Duplicate", "plus.square.on.square") { duplicateMask(mask.id) }
                     smallButton("Delete", "trash") { deleteMask(mask.id) }
@@ -483,16 +494,16 @@ struct MaskPanel: View {
                                onReset: { editMask(mask.id, key: nil) { $0.adjust.curve = nil } })
             if curveExpanded {
                 VStack(alignment: .leading, spacing: 2) {
-                    // The controls are absent rather than inert. `LocalAdjust.curve`
-                    // has a wire format and no stage reads it: a local curve has to
-                    // tap after the display transform, next to the global curve, and
-                    // the local stage runs well before that. Offering four sliders
-                    // that move a stored value and change no pixel is worse than
-                    // offering none, because it costs the user the time to find out.
-                    note("A curve per mask — the tool Lightroom still does not put "
-                         + "inside a local adjustment. Not wired yet: it has to tap "
-                         + "after the display transform, alongside the global curve, "
-                         + "and the local stage runs before it. The global curve works.")
+                    // The same editor the global curve uses, pointed at this mask.
+                    // A second, simpler widget here would be two curve UIs that could
+                    // disagree about what the pipeline applies; this one draws
+                    // `CurveStack`'s own evaluation, which is what gets baked.
+                    CurveEditorView(target: .mask(mask.id))
+                    note("A curve per mask — one of the two tools Lightroom still does "
+                         + "not put inside a local adjustment. It taps AFTER the "
+                         + "display transform, alongside the global curve, through this "
+                         + "mask's alpha, so the axis means the same thing here as it "
+                         + "does globally. Amount scales how far it moves the picture.")
                 }
             }
         }
@@ -760,17 +771,6 @@ struct MaskPanel: View {
                 set: { v in editComponent(id, i, key: nil) { $0.invert = v } })
     }
 
-    private func preserveBinding(_ id: String) -> Binding<Bool> {
-        Binding(get: { mask(id)?.adjust.curve?.preserveLuminance ?? true },
-                set: { v in
-                    editMask(id, key: nil) { m in
-                        var c = m.adjust.curve ?? CurveSet()
-                        c.preserveLuminance = v
-                        m.adjust.curve = c
-                    }
-                })
-    }
-
     private func listBinding(_ id: String, _ i: Int, _ key: String,
                              isParts: Bool) -> Binding<Bool> {
         Binding(
@@ -884,19 +884,6 @@ struct MaskPanel: View {
                                      set: { $0.adjust[keyPath: p] =
                                          Num.clamp($1, r.lowerBound, r.upperBound) }),
                     range: r, defaultValue: 0, step: step, decimals: decimals, bipolar: bipolar)
-    }
-
-    private func curveSlider(_ id: String, _ t: String,
-                             _ p: WritableKeyPath<ParametricCurve, Double>) -> some View {
-        LumenSlider(title: t,
-                    value: maskValue(id, "curve." + t,
-                                     get: { $0.adjust.curve?.parametric[keyPath: p] ?? 0 },
-                                     set: { m, v in
-                                         var c = m.adjust.curve ?? CurveSet()
-                                         c.parametric[keyPath: p] = Num.clamp(v, -100, 100)
-                                         m.adjust.curve = c
-                                     }),
-                    range: -100...100, defaultValue: 0, step: 1, decimals: 0)
     }
 
     private func wheelsSlider(_ id: String, _ t: String,

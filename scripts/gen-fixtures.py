@@ -379,9 +379,13 @@ def gen_canonical_fixture():
     c["look"]["filmLab"] = {"stock": "lumen/portra400", "amount": 100, "exposure": 0,
                             "pushPull": 0, "halation": 35,
                             "grain": {"size": 1, "amount": 40}}
+    # `invert` is the WHOLE-MASK invert (docs/08 §8.1), distinct from the per-component
+    # one below it: it flips the folded alpha ahead of the refinement chain. It is
+    # written unconditionally, like `MaskComponent.invert` beside it, because the sparse
+    # form prunes at the recipe level and never descends into the mask array.
     c["masks"] = [{
         "id": "6f000000-0000-0000-0000-00000000la01",
-        "name": "Sky", "enabled": True, "amount": 100,
+        "name": "Sky", "enabled": True, "invert": False, "amount": 100,
         "components": [
             {"op": "add", "kind": "aiSky", "amount": 100, "invert": False,
              "model": "skyseg/1.3"},

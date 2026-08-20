@@ -42,12 +42,25 @@ struct CurveEditorView: View {
 
     @EnvironmentObject var state: AppState
 
+    /// Which curve this editor edits.
+    ///
+    /// The mask case is why this exists: a mask's point curve is the same tool on the
+    /// same axis (docs/08 §8.4 — one of the two things Lightroom still has no local
+    /// answer for), and giving the mask panel a second, simpler curve widget would be
+    /// two editors that could disagree about what the pipeline applies.
+    enum Target: Equatable, Hashable {
+        case global
+        case mask(String)      // the mask's id
+    }
+
     /// The frame's histogram, drawn under the curve. Optional because nothing may have
     /// been rendered yet; nil simply draws no backdrop.
     private let histogram: Histogram?
+    private let target: Target
 
-    init(histogram: Histogram? = nil) {
+    init(histogram: Histogram? = nil, target: Target = .global) {
         self.histogram = histogram
+        self.target = target
     }
 
     /// The six curves, in the order the panel shows them.
@@ -104,8 +117,86 @@ struct CurveEditorView: View {
     private static let hitRadius: CGFloat = 8
     private static let minimumSplitGap: Double = 0.02
 
-    private var binder: RecipeBinder { RecipeBinder(state: state) }
     private var recipe: Recipe { state.currentRecipe }
+
+    // MARK: The curve this editor is pointed at
+
+    /// The stored curve, or an untouched one. A mask stores `nil` until it is edited,
+    /// so that a mask with no curve costs the render nothing — `LocalCurve` reports
+    /// identity on nil and the second tap is skipped entirely.
+    private var curveSet: CurveSet { CurveEditorView.curveSet(in: recipe, target: target) }
+
+    static func curveSet(in recipe: Recipe, target: Target) -> CurveSet {
+        switch target {
+        case .global:
+            return recipe.develop.curve
+        case .mask(let id):
+            return recipe.masks.first(where: { $0.id == id })?.adjust.curve ?? CurveSet()
+        }
+    }
+
+    /// Write a curve edit back, one undo step per coalescing key.
+    ///
+    /// A mask curve returned to its default is stored as nil rather than as a
+    /// default-valued `CurveSet`: the difference is invisible in the render — the
+    /// second tap skips an identity curve — and visible in the panel, where
+    /// "modified" has to mean modified.
+    private func editCurve(_ key: String, _ body: @escaping (inout CurveSet) -> Void) {
+        CurveEditorView.edit(state, target: target, key: key, body)
+    }
+
+    static func edit(_ state: AppState, target: Target, key: String,
+                     _ body: @escaping (inout CurveSet) -> Void) {
+        state.updateRecipe(coalescingKey: key) { document in
+            switch target {
+            case .global:
+                body(&document.develop.curve)
+            case .mask(let id):
+                guard let index = document.masks.firstIndex(where: { $0.id == id })
+                else { return }
+                var set = document.masks[index].adjust.curve ?? CurveSet()
+                body(&set)
+                document.masks[index].adjust.curve = (set == CurveSet()) ? nil : set
+            }
+        }
+    }
+
+    private func curveValue(_ path: WritableKeyPath<CurveSet, Double>,
+                            _ key: String) -> Binding<Double> {
+        let state: AppState = self.state
+        let target: Target = self.target
+        return Binding(
+            get: { CurveEditorView.curveSet(in: state.currentRecipe,
+                                            target: target)[keyPath: path] },
+            set: { v in
+                CurveEditorView.edit(state, target: target, key: key) {
+                    $0[keyPath: path] = v
+                }
+            })
+    }
+
+    private func curveFlag(_ path: WritableKeyPath<CurveSet, Bool>,
+                           _ key: String) -> Binding<Bool> {
+        let state: AppState = self.state
+        let target: Target = self.target
+        return Binding(
+            get: { CurveEditorView.curveSet(in: state.currentRecipe,
+                                            target: target)[keyPath: path] },
+            set: { v in
+                CurveEditorView.edit(state, target: target, key: key) {
+                    $0[keyPath: path] = v
+                }
+            })
+    }
+
+    /// Distinct undo keys per target, so dragging a mask's curve cannot coalesce with
+    /// a drag of the global one.
+    private var keyPrefix: String {
+        switch target {
+        case .global: return "curve."
+        case .mask(let id): return "mask.curve.\(id)."
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -213,23 +304,23 @@ struct CurveEditorView: View {
     private var parametricControls: some View {
         VStack(alignment: .leading, spacing: 2) {
             LumenSlider(title: "Highlights",
-                        value: binder.value(\.develop.curve.parametric.highlights,
-                                            "curve.parametric.highlights"),
+                        value: curveValue(\.parametric.highlights,
+                                          keyPrefix + "parametric.highlights"),
                         range: -100...100, hardRange: nil, defaultValue: 0,
                         step: 1, decimals: 0)
             LumenSlider(title: "Lights",
-                        value: binder.value(\.develop.curve.parametric.lights,
-                                            "curve.parametric.lights"),
+                        value: curveValue(\.parametric.lights,
+                                          keyPrefix + "parametric.lights"),
                         range: -100...100, hardRange: nil, defaultValue: 0,
                         step: 1, decimals: 0)
             LumenSlider(title: "Darks",
-                        value: binder.value(\.develop.curve.parametric.darks,
-                                            "curve.parametric.darks"),
+                        value: curveValue(\.parametric.darks,
+                                          keyPrefix + "parametric.darks"),
                         range: -100...100, hardRange: nil, defaultValue: 0,
                         step: 1, decimals: 0)
             LumenSlider(title: "Shadows",
-                        value: binder.value(\.develop.curve.parametric.shadows,
-                                            "curve.parametric.shadows"),
+                        value: curveValue(\.parametric.shadows,
+                                          keyPrefix + "parametric.shadows"),
                         range: -100...100, hardRange: nil, defaultValue: 0,
                         step: 1, decimals: 0)
             DevelopNote("Drag the three splits along the bottom of the graph to move the "
@@ -242,8 +333,8 @@ struct CurveEditorView: View {
     private var pointControls: some View {
         VStack(alignment: .leading, spacing: 2) {
             LumenToggleRow(title: "Preserve Luminance",
-                           isOn: binder.flag(\.develop.curve.preserveLuminance,
-                                             "curve.preserveLuminance"),
+                           isOn: curveFlag(\.preserveLuminance,
+                                           keyPrefix + "preserveLuminance"),
                            help: "Curve the luminance and carry the chroma ratios, so a "
                                + "contrast curve is not also a saturation boost (D10).")
             DevelopNote("Click to add a point, drag to move it, ⌥-click or right-click "
@@ -253,7 +344,7 @@ struct CurveEditorView: View {
 
     // MARK: Curve evaluation
 
-    private var stack: CurveStack { CurveStack(recipe.develop.curve) }
+    private var stack: CurveStack { CurveStack(curveSet) }
 
     /// The one evaluation the graph draws, matched to the selected curve. Parametric
     /// and Point both show the master curve, because the master *is* the parametric
@@ -291,20 +382,23 @@ struct CurveEditorView: View {
 
     // MARK: Recipe access
 
-    private var pointsKeyPath: WritableKeyPath<Recipe, [[Double]]?>? {
+    /// Which of the five point curves the selector is on, as a key path INTO the curve
+    /// set rather than into the recipe — the same editor now serves the global curve
+    /// and any mask's, and only `curveSet`/`editCurve` know which.
+    private var pointsKeyPath: WritableKeyPath<CurveSet, [[Double]]?>? {
         switch channel {
         case .parametric: return nil
-        case .point: return \Recipe.develop.curve.point
-        case .red: return \Recipe.develop.curve.r
-        case .green: return \Recipe.develop.curve.g
-        case .blue: return \Recipe.develop.curve.b
-        case .luma: return \Recipe.develop.curve.luma
+        case .point: return \CurveSet.point
+        case .red: return \CurveSet.r
+        case .green: return \CurveSet.g
+        case .blue: return \CurveSet.b
+        case .luma: return \CurveSet.luma
         }
     }
 
     private var currentPoints: [CurvePoint] {
         guard let keyPath = pointsKeyPath else { return [] }
-        return CurveEditorView.sanitized(recipe[keyPath: keyPath])
+        return CurveEditorView.sanitized(curveSet[keyPath: keyPath])
     }
 
     private func writePoints(_ points: [CurvePoint]) {
@@ -313,33 +407,29 @@ struct CurveEditorView: View {
         let identity: Bool = points.count == 2
             && abs(points[0].x) < 1e-9 && abs(points[0].y) < 1e-9
             && abs(points[1].x - 1) < 1e-9 && abs(points[1].y - 1) < 1e-9
-        state.updateRecipe(coalescingKey: "curve." + channel.rawValue) { recipe in
-            recipe[keyPath: keyPath] = identity ? nil : raw
+        editCurve(keyPrefix + channel.rawValue) { set in
+            set[keyPath: keyPath] = identity ? nil : raw
         }
     }
 
     private func flattenCurrentCurve() {
         guard let keyPath = pointsKeyPath else { return }
-        state.updateRecipe(coalescingKey: "curve.flatten." + channel.rawValue) { recipe in
-            recipe[keyPath: keyPath] = nil
+        editCurve(keyPrefix + "flatten." + channel.rawValue) { set in
+            set[keyPath: keyPath] = nil
         }
     }
 
     private var currentSplits: [Double] {
-        CurveEditorView.sanitizedSplits(recipe.develop.curve.parametric.splits)
+        CurveEditorView.sanitizedSplits(curveSet.parametric.splits)
     }
 
     private func writeSplits(_ splits: [Double]) {
         let clean: [Double] = CurveEditorView.sanitizedSplits(splits)
-        state.updateRecipe(coalescingKey: "curve.parametric.splits") { recipe in
-            recipe.develop.curve.parametric.splits = clean
-        }
+        editCurve(keyPrefix + "parametric.splits") { $0.parametric.splits = clean }
     }
 
     private func resetParametricRegions() {
-        state.updateRecipe(coalescingKey: "curve.parametric.reset") { recipe in
-            recipe.develop.curve.parametric = ParametricCurve()
-        }
+        editCurve(keyPrefix + "parametric.reset") { $0.parametric = ParametricCurve() }
     }
 
     // MARK: Gesture
