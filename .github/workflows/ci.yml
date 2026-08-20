@@ -171,5 +171,5 @@ jobs:
       # platform symbols used in a file that does not import their module, and members
       # read off a value whose declared type does not have them. It costs seconds and it
       # is the only feedback on the Swift at all when the macOS runner cannot start.
-      - name: Swift surface — symbols, inits, await, members, imports, values
+      - name: Swift surface — symbols, inits, await, members, imports, targets, values, scopes
         run: python3 scripts/check-swift-surface.py

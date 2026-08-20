@@ -291,6 +291,24 @@ def wheel():
     return {"hue": 0, "sat": 0, "lum": 0}
 
 
+def mixer_band():
+    # `core` and `feather` are the per-band arc handles, in degrees either side of
+    # the band centre. The defaults are the engine's own constants, so an untouched
+    # recipe describes the canonical eight-band geometry rather than a second
+    # opinion about it.
+    return {"hue": 0, "sat": 0, "lum": 0,
+            "core": [22.5, 22.5], "feather": [15, 15]}
+
+
+def balance_axis():
+    return {"global": 0, "shadows": 0, "mid": 0, "high": 0}
+
+
+def color_balance():
+    return {"hueShift": 0, "vibrance": 0, "chroma": balance_axis(),
+            "saturation": balance_axis(), "brilliance": balance_axis()}
+
+
 DEFAULT_RECIPE = {
     "pipelineVersion": 1,
     "develop": {
@@ -304,7 +322,7 @@ DEFAULT_RECIPE = {
                                  "shadows": 0, "splits": [0.25, 0.5, 0.75]},
                   "preserveLuminance": True},
         "color": {"vibrance": 0, "saturation": 0, "density": 50, "protectSkin": 70},
-        "mixer": {"bands": [{"hue": 0, "sat": 0, "lum": 0} for _ in range(8)],
+        "mixer": {"bands": [mixer_band() for _ in range(8)],
                   "uniformity": 0},
         "pointColors": [],
         "detail": {"capture": {"auto": True}, "texture": 0, "clarity": 0, "dehaze": 0,
@@ -318,7 +336,8 @@ DEFAULT_RECIPE = {
     },
     "look": {
         "wheels": {"global": wheel(), "shadows": wheel(), "mid": wheel(), "high": wheel(),
-                   "blending": 50, "balance": 0, "pivots": [0.33, 0.67]},
+                   "blending": 50, "balance": 0, "pivots": [0.33, 0.67],
+                   "colorBalance": color_balance()},
         "printerLights": {"master": 0, "r": 0, "g": 0, "b": 0},
         "primaries": {"rHue": 0, "rPurity": 0, "gHue": 0, "gPurity": 0,
                       "bHue": 0, "bPurity": 0, "tintHue": 0, "tintPurity": 0},

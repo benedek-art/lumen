@@ -736,6 +736,46 @@ final class ColorScienceTests: XCTestCase {
         XCTAssertNil(ColorEngine.measureBandMeanHues(greys))
     }
 
+    /// The whole intended wiring, end to end: measure an image, build the stage with the
+    /// measurement, render a pixel. This is the shape `RenderPlan` has to adopt, and the
+    /// test that fails if it adopts it wrongly — the image overload is the one a renderer
+    /// would call, so it is exercised here rather than left to be discovered later.
+    func testMeasuringAnImageDrivesUniformityOnThatImage() {
+        // A sky-like frame: one band's worth of blues scattered ±5°, over a tonal ramp,
+        // with the rest of the frame near-neutral. The scattered mean lands 10° off the
+        // band's canonical centre, which is exactly the case the constant fallback got
+        // wrong. Ten and not twenty on purpose: past about 15° the neighbouring band
+        // starts pulling the other way and the two cancel, which would make the test
+        // pass for the wrong reason.
+        let centre = ColorEngine.bandHueCentres[5]
+        let target = Num.wrapHue(centre + 10)
+        let image = ImageBuffer(width: 64, height: 64) { u, v in
+            guard v < 0.75 else { return RGB(gray: 0.05 + 0.4 * u) }
+            let jitter = (u - 0.5) * 10
+            return OKLabTransform.working.toRGB(
+                OKLCh(L: 0.45 + 0.25 * v, C: 0.11, h: Num.wrapHue(target + jitter)))
+        }
+        guard let means = ColorEngine.measureBandMeanHues(image) else {
+            return XCTFail("measured nothing from a frame that is mostly sky")
+        }
+        XCTAssertLessThan(abs(Num.hueDelta(target, means[5])), 3,
+                          "measured \(means[5])° for a band whose members average "
+                              + "\(target)°")
+
+        var mixer = Mixer()
+        mixer.uniformity = 100
+        let colour = swatch(hue: target)
+        let unmeasured = uniformityEngine(mixer).apply(colour)
+        let measured = uniformityEngine(mixer, means: means).apply(colour)
+        // Unmeasured drags a pixel already sitting on the frame's own mean hue back
+        // toward the fixed band centre; measured leaves it where it is.
+        XCTAssertGreaterThan(abs(Num.hueDelta(target, hue(of: unmeasured))), 4,
+                             "the constant fallback did not misconverge, so this test "
+                                 + "cannot tell the measurement apart from it")
+        XCTAssertLessThan(abs(Num.hueDelta(target, hue(of: measured))), 1,
+                          "the measured mean did not hold the frame's own hue")
+    }
+
     /// The local-mean seam. `apply(_:)` is the flat-neighbourhood case and must stay
     /// bit-exact; handing the kernel a real neighbourhood must change the answer, which
     /// is what proves the parameter is read rather than stored.

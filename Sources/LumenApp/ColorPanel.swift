@@ -601,6 +601,18 @@ struct ColorPanel: View {
 
     static let workingToSRGB: Mat3 = ColorEngine.workingSpace.matrix(to: .srgb)
 
+    /// The ring's wedge colours, computed once.
+    ///
+    /// A hundred and eighty OKLab round trips per redraw is real work to repeat on every
+    /// frame of a slider drag, and the hue circle is a constant — the same reason
+    /// `ribbonWeights` used to be cached before the handles made it a function of the
+    /// recipe. This one genuinely is not.
+    static let ringColors: [Color] = (0..<MixerHueRing.steps).map { step in
+        let a0 = Double(step) / Double(MixerHueRing.steps) * 360
+        let a1 = Double(step + 1) / Double(MixerHueRing.steps) * 360
+        return ColorPanel.hueColor((a0 + a1) / 2)
+    }
+
     /// A chip for a sampled swatch. The sample is scene-linear working RGB, so it gets
     /// a rough encode before it is shown — otherwise every swatch reads as too dark.
     static func chipColor(_ point: PointColor) -> Color {
@@ -634,11 +646,11 @@ struct MixerHueRing: View {
     let onHandleMoved: (MixerArcHandle, Double) -> Void
     let onResetArc: () -> Void
 
-    private static let diameter: CGFloat = 118
-    private static let ringWidth: CGFloat = 13
+    static let diameter: CGFloat = 118
+    static let ringWidth: CGFloat = 13
     /// Steps around the ring. 180 is 2° per wedge — below the width of the thinnest
     /// feather anyone can drag, so the colour never reads as stepped.
-    private static let steps: Int = 180
+    static let steps: Int = 180
 
     /// Which handle the drag grabbed. Decided once, on the first event: re-deciding on
     /// every event let a fast drag hand the pointer to a neighbouring handle halfway
@@ -649,6 +661,7 @@ struct MixerHueRing: View {
         let arcList = arcs
         let index = selected
         let showHandles = !allBands && arcList.indices.contains(index)
+        let palette = ColorPanel.ringColors
 
         return ZStack {
             Canvas { context, size in
@@ -663,7 +676,7 @@ struct MixerHueRing: View {
                 guard inner > 2 else { return }
 
                 // The hue wheel itself, wedge by wedge, in real OKLCh hues.
-                for step in 0..<MixerHueRing.steps {
+                for step in palette.indices {
                     let a0 = Double(step) / Double(MixerHueRing.steps) * 360
                     let a1 = Double(step + 1) / Double(MixerHueRing.steps) * 360
                     var wedge = Path()
@@ -672,7 +685,7 @@ struct MixerHueRing: View {
                     wedge.addLine(to: MixerHueRing.point(centre, outer, a1))
                     wedge.addLine(to: MixerHueRing.point(centre, inner, a1))
                     wedge.closeSubpath()
-                    context.fill(wedge, with: .color(ColorPanel.hueColor((a0 + a1) / 2)))
+                    context.fill(wedge, with: .color(palette[step]))
                 }
 
                 // Every band's centre, as a tick: the eight fixed hues the wire format

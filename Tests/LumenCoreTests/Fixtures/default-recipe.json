@@ -64,41 +64,105 @@
   "mixer": {
    "bands": [
     {
+     "core": [
+      22.5,
+      22.5
+     ],
+     "feather": [
+      15,
+      15
+     ],
      "hue": 0,
      "lum": 0,
      "sat": 0
     },
     {
+     "core": [
+      22.5,
+      22.5
+     ],
+     "feather": [
+      15,
+      15
+     ],
      "hue": 0,
      "lum": 0,
      "sat": 0
     },
     {
+     "core": [
+      22.5,
+      22.5
+     ],
+     "feather": [
+      15,
+      15
+     ],
      "hue": 0,
      "lum": 0,
      "sat": 0
     },
     {
+     "core": [
+      22.5,
+      22.5
+     ],
+     "feather": [
+      15,
+      15
+     ],
      "hue": 0,
      "lum": 0,
      "sat": 0
     },
     {
+     "core": [
+      22.5,
+      22.5
+     ],
+     "feather": [
+      15,
+      15
+     ],
      "hue": 0,
      "lum": 0,
      "sat": 0
     },
     {
+     "core": [
+      22.5,
+      22.5
+     ],
+     "feather": [
+      15,
+      15
+     ],
      "hue": 0,
      "lum": 0,
      "sat": 0
     },
     {
+     "core": [
+      22.5,
+      22.5
+     ],
+     "feather": [
+      15,
+      15
+     ],
      "hue": 0,
      "lum": 0,
      "sat": 0
     },
     {
+     "core": [
+      22.5,
+      22.5
+     ],
+     "feather": [
+      15,
+      15
+     ],
      "hue": 0,
      "lum": 0,
      "sat": 0
@@ -207,6 +271,28 @@
   "wheels": {
    "balance": 0,
    "blending": 50,
+   "colorBalance": {
+    "brilliance": {
+     "global": 0,
+     "high": 0,
+     "mid": 0,
+     "shadows": 0
+    },
+    "chroma": {
+     "global": 0,
+     "high": 0,
+     "mid": 0,
+     "shadows": 0
+    },
+    "hueShift": 0,
+    "saturation": {
+     "global": 0,
+     "high": 0,
+     "mid": 0,
+     "shadows": 0
+    },
+    "vibrance": 0
+   },
    "global": {
     "hue": 0,
     "lum": 0,
