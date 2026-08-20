@@ -112,9 +112,21 @@ These are tracked, not hidden.
   blend, the artifact key, the tile plan and the mask components all exist and are
   tested; no Core ML model is bundled, so the AI mask kinds rasterize to nothing and
   `denoise.mode = .ai` currently falls back to the classical tier.
-- **Tier-1 classical denoise runs in the reference implementation, not yet in the GPU
-  graph.** Apple's decode-stage noise reduction stands in on the live path, driven by
-  the same slider values. `.off` really is off.
+- **Tier-1 classical denoise and capture sharpening exist but are not in the reference
+  renderer's stage list.** Both are implemented and unit-tested in `LumenCore`; what
+  actually runs on the live path is Apple's decode-stage noise reduction and sharpener,
+  driven by the same slider values, so the controls work — but the f32 reference does
+  not model S2/S3/S4, which means the golden suite cannot catch drift in them. `.off`
+  really is off. (An earlier version of this file claimed the reference ran Tier 1. It
+  did not.)
+- **Local noise, moiré, defringe, grain and the local tone curve are not wired.** They
+  have wire formats and no stage reads them, so the mask panel does not show them: a
+  slider that moves a stored value and changes no pixel costs the user the time to find
+  out. The local curve in particular has to tap after the display transform, alongside
+  the global curve, and the local stage runs before it. Everything else the mask panel
+  offers — exposure, contrast, the tone pair, temp, tint, hue, saturation, vibrance,
+  texture, clarity, dehaze, sharpness, point colour — is wired and covered by a test
+  that asserts each one changes the render.
 - **xxh64, not xxh3**, for `recipe_fp` and blob refs (docs/15 says xxh3). The `xxh64:`
   prefix makes the algorithm self-describing, so upgrading later is a migration rather
   than a breakage.

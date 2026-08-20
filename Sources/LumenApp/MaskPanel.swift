@@ -460,23 +460,16 @@ struct MaskPanel: View {
                                onReset: { editMask(mask.id, key: nil) { $0.adjust.curve = nil } })
             if curveExpanded {
                 VStack(alignment: .leading, spacing: 2) {
-                    LumenToggleRow(title: "Local tone curve",
-                                   isOn: optionBinding(mask.id, has,
-                                                       on: { $0.adjust.curve = CurveSet() },
-                                                       off: { $0.adjust.curve = nil }),
-                                   help: "A tone curve that runs only inside this mask")
-                    if has {
-                        curveSlider(mask.id, "Highlights", \.highlights)
-                        curveSlider(mask.id, "Lights", \.lights)
-                        curveSlider(mask.id, "Darks", \.darks)
-                        curveSlider(mask.id, "Shadows", \.shadows)
-                        LumenToggleRow(title: "Preserve luminance", isOn: preserveBinding(mask.id),
-                                       help: "Chroma is held while the curve moves luminance")
-                    } else {
-                        note("A curve per mask — the tool Lightroom still does not put inside "
-                             + "a local adjustment. It taps after the display transform, so it "
-                             + "behaves like the global curve.")
-                    }
+                    // The controls are absent rather than inert. `LocalAdjust.curve`
+                    // has a wire format and no stage reads it: a local curve has to
+                    // tap after the display transform, next to the global curve, and
+                    // the local stage runs well before that. Offering four sliders
+                    // that move a stored value and change no pixel is worse than
+                    // offering none, because it costs the user the time to find out.
+                    note("A curve per mask — the tool Lightroom still does not put "
+                         + "inside a local adjustment. Not wired yet: it has to tap "
+                         + "after the display transform, alongside the global curve, "
+                         + "and the local stage runs before it. The global curve works.")
                 }
             }
         }
@@ -570,15 +563,16 @@ struct MaskPanel: View {
                     adjustSlider(mask.id, "Texture", \.texture, -100...100)
                     adjustSlider(mask.id, "Clarity", \.clarity, -100...100)
                     adjustSlider(mask.id, "Dehaze", \.dehaze, -100...100)
-                    adjustSlider(mask.id, "Grain", \.grainAmount, 0...100, bipolar: false)
                     adjustSlider(mask.id, "Sharpness", \.sharpness, -100...100)
-                    adjustSlider(mask.id, "Noise", \.noise, 0...100, bipolar: false)
-                    adjustSlider(mask.id, "Noise (chroma)", \.noiseChroma, 0...100, bipolar: false)
-                    adjustSlider(mask.id, "Moiré", \.moire, 0...100, bipolar: false)
-                    adjustSlider(mask.id, "Defringe", \.defringe, 0...100, bipolar: false)
                     note("Texture, Clarity and Dehaze reuse the global base–detail "
-                         + "decomposition. Local noise reduction is the classical tier; the "
-                         + "AI denoise splice is global by design.")
+                         + "decomposition; negative Sharpness softens.")
+                    // Not shown: local Noise, Noise (chroma), Moiré, Defringe and
+                    // Grain. Every one of them has a field in the recipe and no stage
+                    // that reads it, and a slider that moves while the picture does
+                    // not is worse than an absent one — it costs the user the time to
+                    // find out. They come back when the stage does.
+                    note("Local noise reduction, moiré, defringe and grain are not "
+                         + "wired yet and are not shown. Use the global controls.")
                 }
             }
         }
