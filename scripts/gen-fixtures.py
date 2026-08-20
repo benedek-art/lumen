@@ -2615,6 +2615,26 @@ def gen_enginemath_fixture():
             chroma.append({"rgb": list(c), "gain": gain,
                            "out": list(shaped_chroma_scale(c, gain))})
 
+    # The same colours through the PUBLIC path — Saturation, including the brightness
+    # rolloff — rather than through the bare chroma scale.
+    #
+    # Without this the Swift replay had to skip every row with gain > 1, because
+    # `ColorEngine.apply` attenuates a push by the rolloff and `shaped_chroma_scale`
+    # does not. Six of fifteen rows were skipped in silence, and of the nine left, three
+    # were an identity compared against an identity — so `sat_compress`'s knee and
+    # ceiling, the only interesting mathematics in the function, were cross-checked
+    # nowhere. Density is 0 so the subtractive blend stays out of it; that path has its
+    # own checks.
+    chroma_push = []
+    for c in ((0.9, 0.2, 0.05), (0.2, 0.5, 0.9), (0.45, 0.40, 0.30),
+              (0.30, 0.31, 0.29), (2.4, 1.2, 0.6)):
+        for saturation in (-100.0, -60.0, -20.0, 20.0, 60.0, 100.0):
+            chroma_push.append({
+                "rgb": list(c),
+                "saturation": saturation,
+                "out": list(vibrance_saturation(c, 0.0, saturation, density=0.0)),
+            })
+
     white_balance = []
     # 5000 and 6500 are here because they are the two the Swift suite anchors against
     # published chromaticities (D50 and D65). Tying exactly those points to the mirror
@@ -2690,6 +2710,7 @@ def gen_enginemath_fixture():
         "displayTransform": display,
         "tone": tone,
         "shapedChromaScale": chroma,
+        "shapedChromaScalePush": chroma_push,
         "whiteBalance": white_balance,
         "perceptual": perceptual,
     }
@@ -2700,7 +2721,7 @@ def gen_enginemath_fixture():
              + sum(len(t["stops"]) for t in tone) + len(chroma)
              + len(white_balance) + len(perceptual)
              + sum(len(f["samples"]) for f in film)
-             + sum(len(g["weights"]) + 1 for g in grade))
+             + sum(len(g["weights"]) + 1 for g in grade) + len(chroma_push))
     print(f"  {total} sampled values across ten engine surfaces")
 
 

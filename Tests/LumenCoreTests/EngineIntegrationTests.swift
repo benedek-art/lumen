@@ -212,6 +212,83 @@ final class EngineIntegrationTests: XCTestCase {
         XCTAssertLessThan(worst, 1e-5, "wavelet reconstruction lost \(worst)")
     }
 
+    /// Level `i` carries structure of roughly `2^(i+1)` px — the docstring's claim, and
+    /// the entire reason Texture and Clarity can be different controls.
+    ///
+    /// The reconstruction test above cannot check this, or anything else about the
+    /// kernel: `details[i] = current − smooth` followed by `current = smooth` makes the
+    /// sum telescope to the input for ANY smoothing operator whatsoever. A wrong
+    /// kernel, the wrong `1 << i` dilation, the wrong level count, even a `b3Spline`
+    /// that returned its input (every detail band zero) — all reconstruct exactly. So
+    /// exact reconstruction says the transform is invertible, and nothing more.
+    ///
+    /// A single spatial frequency in, and the band that holds it must be the band the
+    /// docstring names. Measured against the reference implementation: a 4 px sinusoid
+    /// puts 90% of its energy in level 0, and 8/16/32 px land in levels 1/2/3 with at
+    /// least 3.6× the next-largest band.
+    func testEachWaveletLevelCarriesTheScaleItClaims() {
+        for (period, expectedLevel) in [(4.0, 0), (8.0, 1), (16.0, 2), (32.0, 3)] {
+            var plane = Plane(width: 64, height: 64)
+            for y in 0..<64 {
+                for x in 0..<64 {
+                    plane[x, y] = 0.5 + 0.2 * sin(2 * Double.pi * Double(x) / period)
+                }
+            }
+            let stack = SpatialOps.atrousWavelet(plane, levels: 5)
+            XCTAssertEqual(stack.details.count, 5, "wrong level count")
+
+            // Interior only: the border is clamped, which puts energy at every scale.
+            let energies = stack.details.map { band -> Double in
+                var sum = 0.0
+                for y in 16..<48 {
+                    for x in 16..<48 { sum += band[x, y] * band[x, y] }
+                }
+                return sum
+            }
+            let peak = energies.firstIndex(of: energies.max()!)!
+            XCTAssertEqual(peak, expectedLevel,
+                           "a \(period) px sinusoid landed in level \(peak), not "
+                               + "\(expectedLevel) — energies \(energies)")
+            let runnerUp = energies.enumerated()
+                .filter { $0.offset != peak }.map(\.element).max()!
+            XCTAssertGreaterThan(energies[peak], runnerUp * 3,
+                                 "level \(peak) holds only \(energies[peak]) against "
+                                     + "\(runnerUp) next door — the bands are not "
+                                     + "separating scales")
+        }
+    }
+
+    /// A band gain is a pure coefficient scale — what makes Texture a recombination
+    /// rather than a re-filter. Doubling one band must double exactly that band's
+    /// contribution and leave every other one, and the residual, untouched.
+    func testABandGainScalesOnlyThatBand() {
+        let plane = edgePlane(width: 64, height: 32)
+        let stack = SpatialOps.atrousWavelet(plane, levels: 4)
+        let unit = [Double](repeating: 1, count: stack.details.count)
+
+        var doubled = unit
+        doubled[1] = 2
+        let boosted = SpatialOps.atrousReconstruct(details: stack.details,
+                                                   residual: stack.residual,
+                                                   gains: doubled)
+        var zeroed = unit
+        zeroed[1] = 0
+        let removed = SpatialOps.atrousReconstruct(details: stack.details,
+                                                   residual: stack.residual,
+                                                   gains: zeroed)
+        for y in 0..<plane.height {
+            for x in 0..<plane.width {
+                // boosted − original == original − removed == the band itself.
+                XCTAssertEqual(boosted[x, y] - plane[x, y], stack.details[1][x, y],
+                               accuracy: 1e-5,
+                               "gain 2 on level 1 did not add exactly that band")
+                XCTAssertEqual(plane[x, y] - removed[x, y], stack.details[1][x, y],
+                               accuracy: 1e-5,
+                               "gain 0 on level 1 did not remove exactly that band")
+            }
+        }
+    }
+
     func testUnsharpMaskOfAConstantChangesNothing() {
         let sharpened = SpatialOps.unsharpMask(flatPlane(0.5), sigma: 2,
                                                amount: 1, threshold: 0)

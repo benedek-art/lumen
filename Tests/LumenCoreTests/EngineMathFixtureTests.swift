@@ -134,11 +134,45 @@ final class EngineMathFixtureTests: XCTestCase {
             let expected = RGB(want[0].doubleValue, want[1].doubleValue,
                                want[2].doubleValue)
             // The rolloff attenuates a push, so only the non-positive side is a
-            // like-for-like comparison with the bare chroma scale.
+            // like-for-like comparison with the bare chroma scale. The positive side
+            // is covered by `testSaturationThroughThePublicPathMatchesTheReference`,
+            // which drives the mirror through the same rolloff — before that existed,
+            // these rows were skipped in silence and the test reported success.
             guard gain <= 1 else { continue }
             XCTAssertLessThan(engine.apply(input).maxAbsDifference(expected), 1e-9,
                               "chroma scale diverged for \(input) at gain \(gain)")
         }
+    }
+
+    /// Saturation as the panel exposes it, at both signs.
+    ///
+    /// This is where `satCompress`'s knee and ceiling actually get compared against the
+    /// reference: a push is the only direction that reaches them, and it was the
+    /// direction the bare-chroma-scale rows had to skip.
+    func testSaturationThroughThePublicPathMatchesTheReference() throws {
+        var compared = 0
+        for row in try rows(fixture(), "shapedChromaScalePush") {
+            guard let rgb = row["rgb"] as? [NSNumber], rgb.count == 3,
+                  let want = row["out"] as? [NSNumber], want.count == 3 else {
+                return XCTFail("malformed shapedChromaScalePush row")
+            }
+            let input = RGB(rgb[0].doubleValue, rgb[1].doubleValue, rgb[2].doubleValue)
+            let saturation = double(row, "saturation")
+
+            // Density 0 keeps the subtractive blend out of it, matching the mirror.
+            var adjust = ColorAdjust(density: 0, protectSkin: 0)
+            adjust.saturation = saturation
+            let engine = ColorEngine(mixer: Mixer(), pointColors: [], color: adjust,
+                                     primaries: Primaries(), bw: nil)
+            let expected = RGB(want[0].doubleValue, want[1].doubleValue,
+                               want[2].doubleValue)
+            XCTAssertLessThan(engine.apply(input).maxAbsDifference(expected), 1e-9,
+                              "saturation \(saturation) diverged for \(input)")
+            compared += 1
+        }
+        XCTAssertEqual(compared, 30,
+                       "the push fixture changed size — every row must be compared, "
+                           + "not skipped")
     }
 
     // MARK: - White balance
