@@ -1,0 +1,18 @@
+// A system-library module for sqlite3 on Linux, so LumenCore's catalog can be COMPILED
+// AND TESTED locally instead of only on the macOS runner.
+//
+// `CatalogStore` and every one of its tests sit behind `#if canImport(SQLite3)`, and on
+// Linux that is false — Apple ships an `SQLite3` module, Ubuntu ships a header and a
+// shared object with no modulemap. So the entire catalog, roughly a third of LumenCore,
+// and the whole of `CatalogTests` compiled out silently on the local lane: `swift test`
+// reported green having never built the code. `install-linux-toolchain.sh` claimed
+// coverage it did not have, and this repo has been bitten twice by checks that cannot
+// fail, which is the same shape.
+//
+// Naming the module `SQLite3` is what makes `canImport(SQLite3)` true here, so the same
+// source compiles on both platforms with no new fences.
+module SQLite3 [system] {
+    header "/usr/include/sqlite3.h"
+    link "sqlite3"
+    export *
+}

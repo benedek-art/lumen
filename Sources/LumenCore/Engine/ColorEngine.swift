@@ -343,11 +343,15 @@ public struct ColorEngine: Sendable {
         // `isIdentity` is true. GradeEngine has had the same guard from the start.
         guard !isIdentity else { return c }
         var out: RGB = c
-        // The neighbourhood is measured on the STAGE INPUT and travels unchanged through
-        // the stage — the primaries remap is a matrix, so it maps the mean the same way
-        // it maps the pixel, and applying it to both keeps the deviation honest.
-        let mean: RGB = localMean.isFinite ? applyPrimaries(localMean) : c
+        // The neighbourhood is measured on the STAGE INPUT and travels through the
+        // primaries remap with the pixel — the remap is a matrix, so it maps the mean
+        // the same way it maps the pixel, and remapping only one of the two would put an
+        // artificial deviation between them.
+        let source: RGB = localMean.isFinite ? localMean : c
         out = applyPrimaries(out)
+        // On the flat path this is the same value, and reusing it rather than
+        // recomputing keeps the no-neighbourhood case exactly as cheap as it was.
+        let mean: RGB = source == c ? out : applyPrimaries(source)
         out = applyMixer(out, localMean: mean)
         out = applyPointColors(out, localMean: mean)
         out = applyVibranceSaturation(out)

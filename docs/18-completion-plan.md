@@ -65,10 +65,10 @@ looks like and needs no new UI.
 | Item | Now | Closes it |
 |---|---|---|
 | EXIF into the catalog | 5 → **done** | `CaptureMetadataReader` + backfill pass landed |
-| Preview cache on disk | 12 | `recordPreview`/`preview`/`pruneCache` exist with no callers; every launch re-decodes every thumbnail |
-| Collections / keywords / stacks / versions | 8 | Full store APIs, zero UI callers |
-| Filter bar → SQL | 30 | A 200-line indexed builder sits unused while the bar filters five criteria in memory |
-| Sort orders | 30 | 4 of 12; the other 8 need the metadata that now exists |
+| Preview cache on disk | 12 | STILL NOT WIRED. `ThumbnailLoader` has no injection point and is keyed by URL, so it cannot reach a photo_id; needs ~100 lines across it and AppState. Deliberately not half-shipped: a writer with no reader is more uncalled code, not less |
+| Collections / keywords / stacks | ~~8~~ **done** | Sidebar section, album scoping, target album, keyword add/remove into FTS, stack create/collapse/promote/dissolve. Virtual copies still open: a version is a second edit row and the grid is one cell per URL, so it needs a model change |
+| Filter bar → SQL | ~~30~~ **done** | Whole bar compiles to `PhotoQuery`, with camera/lens/ISO/keyword/stack chips, live facet counts and the All/Any toggle |
+| Sort orders | ~~30~~ **done** | 12 of 12 on real EXIF, ordered in SQL. Two defects found while wiring: `capture_at` alone shuffles a burst (nine frames share a second — now breaks on `capture_subsec`), and the aspect sort was inert because `setMetadata` never maintained `photo.aspect` |
 | Ingest copy engine | 5 | A planning UI with no copier and no hashing anywhere in the repo |
 
 ### Batch 4 — Masking

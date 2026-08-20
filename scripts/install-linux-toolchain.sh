@@ -10,8 +10,15 @@
 # against the wrong rectangle.
 #
 # What this DOES cover: LumenCore. Eighteen thousand lines — the whole colour science,
-# tone, grade, film, detail, denoise, mask algebra, catalog and XMP — plus the ~200
-# tests in LumenCoreTests. It builds in about ten seconds.
+# tone, grade, film, detail, denoise, mask algebra, catalog and XMP — plus the tests in
+# LumenCoreTests. It builds in about ten seconds.
+#
+# The catalog is included only because `Sources/CSQLite3` exists. Apple ships an
+# `SQLite3` module in the SDK; Ubuntu ships a header and a shared object and no
+# modulemap, so `canImport(SQLite3)` was FALSE here and `CatalogStore` and every one of
+# its tests compiled out — `swift test` reported green having never built a third of
+# LumenCore. This script claimed that coverage before the modulemap existed, which is
+# the same shape of failure as a check that cannot fail.
 #
 # What it does NOT cover: LumenPipeline and LumenApp are `#if os(macOS)` and need Core
 # Image, AppKit and SwiftUI. They still need the macOS runner. The mechanical checker

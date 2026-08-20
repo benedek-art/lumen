@@ -80,29 +80,7 @@ struct ColorPanel: View {
 
                 bandSwatches(bands)
 
-                MixerHueRing(arcs: arcs,
-                             selected: index,
-                             allBands: allBands,
-                             onHandleMoved: { handle, degrees in
-                                 moveHandle(index, handle, to: degrees)
-                             },
-                             onResetArc: { resetArc(index) })
-
-                MixerBandRibbon(weights: ColorPanel.ribbonWeights(arcs),
-                                colors: ColorPanel.bandSwatchColors,
-                                selected: selectedBand,
-                                allBands: allBands)
-
-                Text(allBands
-                     ? "All bands move together; the spread between them is preserved."
-                     : "\(ColorPanel.bandName(selectedBand)) — centred on "
-                       + String(format: "%.1f°", ColorPanel.bandCentre(selectedBand))
-                       + " in OKLCh, "
-                       + ColorPanel.arcSummary(arcs, index))
-                    .font(.system(size: 10))
-                    .foregroundStyle(Lumen.secondaryText)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.bottom, 2)
+                bandReach(arcs, index)
 
                 LumenSlider(title: "Hue", value: mixerBinding(.hue),
                             range: -100...100, defaultValue: 0, step: 1, decimals: 0)
@@ -174,6 +152,36 @@ struct ColorPanel: View {
             bands[band].core = MixerBand.defaultCore
             bands[band].feather = MixerBand.defaultFeather
             recipe.develop.mixer.bands = bands
+        }
+    }
+
+    /// Ring, ribbon and the sentence under them — the three views that answer "what does
+    /// this band reach", grouped so `mixerSection`'s builder stays inside its ten-child
+    /// limit and so the three can never be shown without each other.
+    private func bandReach(_ arcs: [ColorEngine.BandArc], _ index: Int) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            MixerHueRing(arcs: arcs,
+                         selected: index,
+                         allBands: allBands,
+                         onHandleMoved: { handle, degrees in
+                             moveHandle(index, handle, to: degrees)
+                         },
+                         onResetArc: { resetArc(index) })
+
+            MixerBandRibbon(weights: ColorPanel.ribbonWeights(arcs),
+                            colors: ColorPanel.bandSwatchColors,
+                            selected: index,
+                            allBands: allBands)
+
+            Text(allBands
+                 ? "All bands move together; the spread between them is preserved."
+                 : "\(ColorPanel.bandName(index)) — centred on "
+                   + String(format: "%.1f°", ColorPanel.bandCentre(index))
+                   + " in OKLCh, " + ColorPanel.arcSummary(arcs, index))
+                .font(.system(size: 10))
+                .foregroundStyle(Lumen.secondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.bottom, 2)
         }
     }
 

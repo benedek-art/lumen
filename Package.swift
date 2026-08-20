@@ -24,8 +24,20 @@ let package = Package(
         .executable(name: "LumenApp", targets: ["LumenApp"]),
     ],
     targets: [
+        // Linux only in practice: on macOS the SDK's own SQLite3 module wins, and this
+        // target simply provides one where the platform does not. It exists so
+        // `canImport(SQLite3)` is true on the local lane, which is what puts the
+        // catalog and its tests under a compiler outside CI.
+        .systemLibrary(name: "CSQLite3", path: "Sources/CSQLite3"),
         .target(
             name: "LumenCore",
+            dependencies: [
+                // Linux only. macOS has SQLite3 in the SDK; without this, Linux does
+                // not, so `canImport(SQLite3)` was false and the entire catalog — plus
+                // every test of it — compiled out of the local lane while `swift test`
+                // reported green.
+                .target(name: "CSQLite3", condition: .when(platforms: [.linux])),
+            ],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         .target(

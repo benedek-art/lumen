@@ -178,31 +178,26 @@ struct LookPanel: View {
                         + "lightness and chroma, and Vibrance spends itself on the "
                         + "colours that have least.")
 
-                balanceAxis("Chroma", \Look.wheels.colorBalance.chroma, "cb.chroma")
-                caption("Colourfulness at constant lightness and hue.")
+                balanceAxis("Chroma", \Look.wheels.colorBalance.chroma, "cb.chroma",
+                            note: "Colourfulness at constant lightness and hue.")
 
                 balanceAxis("Saturation", \Look.wheels.colorBalance.saturation,
-                            "cb.saturation")
-                caption("The colourfulness/lightness ratio, at constant H-K corrected "
-                        + "brightness — the move that does not make a pushed blue read "
-                        + "as if it dimmed.")
+                            "cb.saturation",
+                            note: "The colourfulness/lightness ratio, at constant H-K "
+                                + "corrected brightness — the move that does not make a "
+                                + "pushed blue read as if it dimmed.")
 
+                // A soft warning, not a clamp. darktable's own documentation calls past
+                // ±20 artifact territory, and the honest thing is to say so while still
+                // letting the slider go there.
                 balanceAxis("Brilliance", \Look.wheels.colorBalance.brilliance,
-                            "cb.brilliance")
-                if LookPanel.brillianceIsPushed(grid.brilliance) {
-                    // A soft warning, not a clamp. darktable's own documentation calls
-                    // past ±20 artifact territory, and the honest thing is to say so
-                    // while still letting the slider go there.
-                    Text("Brilliance past ±20 is artifact territory — highlights start "
-                         + "to flatten and shadows to plug.")
-                        .font(.system(size: 10))
-                        .foregroundStyle(Lumen.accent)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.bottom, 4)
-                } else {
-                    caption("H-K corrected brightness at constant ratio: exposure-like, "
-                            + "perceptually scaled.")
-                }
+                            "cb.brilliance",
+                            note: LookPanel.brillianceIsPushed(grid.brilliance)
+                                ? "Past ±20 is artifact territory — highlights start to "
+                                    + "flatten and shadows to plug."
+                                : "H-K corrected brightness at constant ratio: "
+                                    + "exposure-like, perceptually scaled.",
+                            warn: LookPanel.brillianceIsPushed(grid.brilliance))
 
                 caption("The grid grades the same three zones the strip above draws, "
                         + "measured on this stage's input — so opening this disclosure "
@@ -212,32 +207,49 @@ struct LookPanel: View {
     }
 
     /// One axis of the grid: Global on top, then the three zones, in the same order the
-    /// wheels are laid out so the two halves of the panel read the same way.
+    /// wheels are laid out so the two halves of the panel read the same way. The axis
+    /// carries its own note so the disclosure's builder stays inside its ten-child limit.
     private func balanceAxis(_ title: String,
                              _ axis: WritableKeyPath<Look, ColorBalanceAxis>,
-                             _ key: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
+                             _ key: String,
+                             note: String,
+                             warn: Bool = false) -> some View {
+        // Spelled out with explicit types rather than inline `appending(path:)`:
+        // `appending` is overloaded on key-path writability, and letting the result type
+        // be inferred through a function argument is exactly where that resolution gets
+        // ambiguous. There is no Swift compiler on this side of the build for LumenApp.
+        let global: WritableKeyPath<Look, Double> =
+            axis.appending(path: \ColorBalanceAxis.global)
+        let shadows: WritableKeyPath<Look, Double> =
+            axis.appending(path: \ColorBalanceAxis.shadows)
+        let mid: WritableKeyPath<Look, Double> =
+            axis.appending(path: \ColorBalanceAxis.mid)
+        let high: WritableKeyPath<Look, Double> =
+            axis.appending(path: \ColorBalanceAxis.high)
+
+        return VStack(alignment: .leading, spacing: 2) {
             Text(title.uppercased())
                 .font(.system(size: 9, weight: .semibold))
                 .tracking(0.6)
                 .foregroundStyle(Lumen.secondaryText)
                 .padding(.top, 4)
             LumenSlider(title: "Global",
-                        value: bindLook(axis.appending(path: \ColorBalanceAxis.global),
-                                        key: key + ".global"),
+                        value: bindLook(global, key: key + ".global"),
                         range: -100...100, defaultValue: 0, step: 1, decimals: 0)
             LumenSlider(title: "Shadows",
-                        value: bindLook(axis.appending(path: \ColorBalanceAxis.shadows),
-                                        key: key + ".shadows"),
+                        value: bindLook(shadows, key: key + ".shadows"),
                         range: -100...100, defaultValue: 0, step: 1, decimals: 0)
             LumenSlider(title: "Midtones",
-                        value: bindLook(axis.appending(path: \ColorBalanceAxis.mid),
-                                        key: key + ".mid"),
+                        value: bindLook(mid, key: key + ".mid"),
                         range: -100...100, defaultValue: 0, step: 1, decimals: 0)
             LumenSlider(title: "Highlights",
-                        value: bindLook(axis.appending(path: \ColorBalanceAxis.high),
-                                        key: key + ".high"),
+                        value: bindLook(high, key: key + ".high"),
                         range: -100...100, defaultValue: 0, step: 1, decimals: 0)
+            Text(note)
+                .font(.system(size: 10))
+                .foregroundStyle(warn ? Lumen.accent : Lumen.secondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.bottom, 4)
         }
     }
 
