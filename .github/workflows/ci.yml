@@ -53,6 +53,27 @@ jobs:
             | sed 's/^.*error: //' | sort -u | head -40
           exit $status
 
+  # The thing a photographer can actually open. Runs on every push regardless of the
+  # test lane's verdict, because a build you can launch and poke at is how you find
+  # out what the tests are not asking about.
+  app-bundle:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Lumen.app
+        run: scripts/build-app.sh
+      - name: Zip it
+        # Ditto, not zip: `zip` does not preserve the bundle's symlinks or the ad-hoc
+        # signature, and an app that fails Gatekeeper because the archiver mangled it
+        # looks exactly like an app that is broken.
+        run: ditto -c -k --sequesterRsrc --keepParent dist/Lumen.app Lumen.app.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Lumen-app
+          path: Lumen.app.zip
+          retention-days: 30
+
   # Linux lane: regenerate fixtures with the Python reference and fail if the
   # committed fixtures drifted from the verified reference.
   fixtures-linux:

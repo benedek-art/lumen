@@ -141,9 +141,9 @@ public struct RenderPlan: Sendable {
         self.masks = recipe.masks.filter { $0.enabled }
     }
 
-    /// One gamut boundary for the whole process: building it costs ~600 bisections
-    /// and it depends only on the working space, so it is computed once.
-    public static let sharedGamutBoundary = Gamut.Boundary()
+    /// One gamut boundary for the whole process — the same object every other stage
+    /// uses, so nothing can disagree about where the display gamut is.
+    public static var sharedGamutBoundary: Gamut.Boundary { Gamut.sharedBoundary }
 
     // MARK: - Per-pixel reference
 

@@ -210,6 +210,12 @@ public enum LumenUCS {
 
 public enum Gamut {
 
+    /// One boundary for the whole process. Building it is ~600 bisections and it
+    /// depends only on the working space, so every stage that needs to know where the
+    /// display gamut is shares this rather than paying for its own — and, more to the
+    /// point, they all agree on the same answer.
+    public static let sharedBoundary = Gamut.Boundary()
+
     /// Largest chroma at (L, h) that stays inside `space`, found by bisection on the
     /// in-gamut predicate. 24 iterations resolves chroma to ~1e-7 — far below any
     /// visible step, and the result is cached into a per-hue LUT by callers.

@@ -948,7 +948,12 @@ public struct FilmChain: Sendable {
     /// Scene-linear → display-linear. The whole chain, blended against the neutral
     /// rendering by Strength.
     public func apply(_ c: RGB) -> RGB {
-        let base: RGB = neutral.apply(c)
+        // The base rendition is a display transform like any other, so it gets the
+        // display-gamut map that goes with one. It used to be handed no boundary at
+        // all, which was survivable only while the colour stages were clipping
+        // upstream — a scene-referred clip in the wrong place, now removed. At partial
+        // film strength the base is most of what you see.
+        let base: RGB = neutral.apply(c, gamut: Gamut.sharedBoundary)
         guard let s = solved else { return base }
         let scene: RGB = c * pow(2.0, filmExposure)
         let film: RGB = FilmChain.render(scene, s, white: displayWhite, grain: RGB.zero)
