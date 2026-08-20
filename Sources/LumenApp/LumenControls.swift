@@ -205,7 +205,15 @@ struct LumenSlider: View {
 
     private func commitText() {
         isEditingText = false
-        guard let parsed = Double(textValue.trimmingCharacters(in: .whitespaces)) else { return }
+        // `Double("nan")`, `Double("inf")` and `Double("1e999")` all parse, and the
+        // clamp below does NOT filter them: `max(NaN, lo)` is NaN, because every
+        // comparison against NaN is false. A NaN reaching the recipe is not a bad
+        // render, it is data loss — `JSONEncoder` refuses non-conforming floats, so
+        // the canonical JSON collapses to "{}" and that is what gets written to the
+        // sidecar, erasing the photo's edit from the copy that exists to survive
+        // losing the catalog.
+        guard let parsed = Double(textValue.trimmingCharacters(in: .whitespaces)),
+              parsed.isFinite else { return }
         // Typing reaches the hard limit; dragging does not. That asymmetry is what
         // makes soft limits helpful instead of restrictive.
         onEditingChanged?(true)

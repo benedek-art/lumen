@@ -48,7 +48,11 @@ public final class BlobStore: @unchecked Sendable {
         let digest = String(parts[2])
         guard algorithm == "xxh64",
               digest.count == 16,
-              digest.allSatisfy({ $0.isHexDigit && ($0.isNumber || $0.isLowercase) })
+              // `isHexDigit` is Unicode Hex_Digit, which admits fullwidth ０-９ and
+              // ａ-ｆ. Harmless here — neither contains a separator — but the whole
+              // job of this function is refusing input it did not write.
+              digest.allSatisfy({ $0.isASCII && $0.isHexDigit
+                                  && ($0.isNumber || $0.isLowercase) })
         else { return nil }
         return algorithm + "-" + digest + ".blob"
     }

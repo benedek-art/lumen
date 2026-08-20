@@ -86,7 +86,15 @@ public enum XMPSidecar {
             case "<": out += "&lt;"
             case ">": out += "&gt;"
             case "\"": out += "&quot;"
-            default: out.unicodeScalars.append(scalar)
+            // Characters below 0x20 other than tab, newline and carriage return are
+            // illegal in XML 1.0 even as numeric references, so emitting one writes a
+            // sidecar no parser will read back — including this one, on the next
+            // launch. A label is user-editable and a write stamp can come from
+            // another tool, so this is reachable. Dropped rather than escaped,
+            // because there is no legal escape for them.
+            case "\t", "\n", "\r": out.unicodeScalars.append(scalar)
+            default:
+                if scalar.value >= 0x20 { out.unicodeScalars.append(scalar) }
             }
         }
         return out
@@ -142,7 +150,12 @@ private final class SidecarParserDelegate: NSObject, XMLParserDelegate {
         sawAnyField = true
         switch elementName {
         case "xmp:Rating":
-            content.rating = Int(value.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
+            // Clamped at the parse site: this comes from a file another application
+            // wrote, and the star row downstream will be asked to draw whatever it
+            // says. `CatalogStore.setRating` clamps too, but the in-memory PhotoItem
+            // does not, so 999 stars would reach the grid.
+            let parsed = Int(value.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
+            content.rating = Swift.min(Swift.max(parsed, 0), 5)
         case "xmp:Label":
             content.label = value
         case "lumen:pipelineVersion":

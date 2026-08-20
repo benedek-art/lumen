@@ -1265,7 +1265,7 @@ def blob_filename(ref):
     if algorithm != "xxh64" or len(digest) != 16:
         return None
     for ch in digest:
-        if not (ch.isdigit() or ("a" <= ch <= "f")):
+        if not (ch.isascii() and (ch.isdigit() or ("a" <= ch <= "f"))):
             return None
     return algorithm + "-" + digest + ".blob"
 
@@ -1340,6 +1340,8 @@ def gen_spatial_primitive_checks():
         "",
         "blob:xxh64:0123456789abcde\n",
         "blob:xxh64:zzzzzzzzzzzzzzzz",
+        "blob:xxh64:\uff10\uff11\uff12\uff13\uff14\uff15\uff16\uff17"
+        "\uff18\uff19\uff41\uff42\uff43\uff44\uff45\uff46",   # fullwidth hex
         "../../blob:xxh64:0123456789abcdef",
     ]
     for ref in hostile:
@@ -1352,6 +1354,24 @@ def gen_spatial_primitive_checks():
     check(all(("/" not in n and "\\\\" not in n and ".." not in n)
               for n in [blob_filename(good)]),
           "an accepted ref carried path syntax")
+
+    # --- the export subfolder must not escape the chosen directory ---------
+    def sanitize_subfolder(sub):
+        out = []
+        for component in sub.split("/"):
+            cleaned = component.replace(":", "-").strip()
+            if not cleaned or cleaned in (".", ".."):
+                continue
+            out.append(cleaned)
+        return out
+
+    for hostile in ("../../..", "..", "./../etc", "a/../../b", "/etc/passwd",
+                    "//..//..//", "  ..  /x"):
+        parts = sanitize_subfolder(hostile)
+        check(all(p not in (".", "..") and "/" not in p for p in parts),
+              f"subfolder {hostile!r} survived sanitizing as {parts}")
+    check(sanitize_subfolder("Web/2026") == ["Web", "2026"],
+          "an ordinary subfolder was mangled")
 
     print("  constant fixed point, edge preservation, no overshoot, hostile refs refused")
 

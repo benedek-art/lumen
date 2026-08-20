@@ -31,6 +31,11 @@ final class CatalogService: @unchecked Sendable {
     private let queue = DispatchQueue(label: "dev.lumenapp.catalog", qos: .utility)
     private let directory: URL
 
+    /// Called when a write fails. Every failure in here used to go to `NSLog` and
+    /// nowhere else, so a full disk, a read-only volume or a locked database all
+    /// presented as "the edit was applied" until the next launch reverted it.
+    var onFailure: ((String) -> Void)?
+
     /// The payloads a recipe references rather than contains — brush stroke sets. A
     /// recipe stays small and diffable; the forty kilobytes of stylus samples behind
     /// `blob:xxh64:<hash>` live here.
@@ -83,6 +88,8 @@ final class CatalogService: @unchecked Sendable {
             } catch {
                 NSLog("Lumen catalog: folder registration failed — %@",
                       String(describing: error))
+                self.onFailure?("Could not register \(folder.lastPathComponent) "
+                                + "with the catalog — \(error)")
             }
         }
         return result
@@ -124,6 +131,7 @@ final class CatalogService: @unchecked Sendable {
                 try self.store.setLabel(Self.coreLabel(label), photoID: id)
             } catch {
                 NSLog("Lumen catalog: culling write failed — %@", String(describing: error))
+                self.onFailure?("Could not save the flag or rating — \(error)")
             }
             self.enqueueSidecar(
                 for: url, rating: rating,
@@ -135,14 +143,27 @@ final class CatalogService: @unchecked Sendable {
     // MARK: - Recipes
 
     func saveRecipe(_ recipe: Recipe, url: URL, catalogID: Int64?) {
-        let json = (try? CanonicalJSON.canonicalRecipeJSON(recipe)) ?? "{}"
-        let fingerprint = (try? RecipeFingerprint.fingerprint(recipe)) ?? "xxh64:0"
+        // If a recipe cannot be canonicalized, write NOTHING. The previous code fell
+        // back to "{}" and "xxh64:0", which wrote an empty recipe over the sidecar —
+        // turning a render failure into the loss of the user's edit, silently, in the
+        // copy whose entire purpose is to survive losing the catalog. Every such
+        // failure also shared one fingerprint, so they collided in the cache.
+        guard let json = try? CanonicalJSON.canonicalRecipeJSON(recipe),
+              let fingerprint = try? RecipeFingerprint.fingerprint(recipe) else {
+            NSLog("Lumen catalog: refusing to write an uncanonicalizable recipe for %@",
+                  url.lastPathComponent)
+            onFailure?("Could not save the edit for \(url.lastPathComponent) — "
+                       + "it contains a value the recipe format cannot represent")
+            return
+        }
         queue.async {
             if let id = catalogID {
                 do {
                     try self.store.saveRecipe(recipe, photoID: id, isCurrent: true)
                 } catch {
                     NSLog("Lumen catalog: recipe write failed — %@", String(describing: error))
+                    self.onFailure?("Could not save the edit for "
+                                    + "\(url.lastPathComponent) — \(error)")
                 }
             }
             self.enqueueSidecar(for: url, rating: nil, label: nil,

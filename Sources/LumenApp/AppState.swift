@@ -421,6 +421,12 @@ final class AppState: ObservableObject {
             try FileManager.default.createDirectory(at: directory,
                                                     withIntermediateDirectories: true)
             let service = try CatalogService(directory: directory)
+            service.onFailure = { [weak self] message in
+                Task { @MainActor in
+                    self?.catalogStatus = message
+                    self?.statusMessage = message
+                }
+            }
             catalog = service
             catalogStatus = nil
         } catch {

@@ -462,6 +462,15 @@ public struct CatalogMigration: Sendable {
 
 public final class CatalogStore {
 
+    /// Whether a cache-open failure means the file is damaged, as opposed to busy or
+    /// momentarily unavailable. Recreating on anything else destroys a live database.
+    static func indicatesCorruptCache(_ error: SQLiteError) -> Bool {
+        switch error.code {
+        case SQLITE_CORRUPT, SQLITE_NOTADB, SQLITE_FORMAT: return true
+        default: return false
+        }
+    }
+
     // MARK: Stored state
 
     private let db: SQLiteDatabase
@@ -718,12 +727,19 @@ public final class CatalogStore {
         var textIndexAvailable = false
         do {
             textIndexAvailable = try CatalogStore.prepareCacheDatabase(at: resolvedCachePath)
-        } catch {
-            // Missing or corrupt cache -> recreate empty; the workers refill it
-            // (docs/15 §15.2). Losing it costs warm-up time and nothing else.
+        } catch let error as SQLiteError where CatalogStore.indicatesCorruptCache(error) {
+            // Corrupt cache -> recreate empty; the workers refill it (docs/15 §15.2).
+            // Losing it costs warm-up time and nothing else.
+            //
+            // ONLY on corruption. This catch used to be unqualified, so a transient
+            // failure — SQLITE_BUSY against another instance's migration, a WAL
+            // contention error — deleted the cache and its `-wal`/`-shm` out from
+            // under a process that had them open, whose mapped shared memory then
+            // pointed at an unlinked inode. Its writes vanished and it began
+            // reporting a malformed image. Launching Lumen twice against one catalog
+            // was enough. The `-wal` and `-shm` are not deleted at all now: SQLite
+            // recovers them itself, and unlinking them is what did the damage.
             try? FileManager.default.removeItem(atPath: resolvedCachePath)
-            try? FileManager.default.removeItem(atPath: resolvedCachePath + "-wal")
-            try? FileManager.default.removeItem(atPath: resolvedCachePath + "-shm")
             textIndexAvailable = try CatalogStore.prepareCacheDatabase(at: resolvedCachePath)
         }
         self.ftsEnabled = textIndexAvailable
