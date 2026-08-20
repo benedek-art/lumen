@@ -240,7 +240,10 @@ public enum Gamut {
                 let h = Double(hi) * 360.0 / Double(hueSteps)
                 for li in 0..<lightnessSteps {
                     let L = Double(li) / Double(lightnessSteps - 1)
-                    t[hi * lightnessSteps + li] = maxChroma(L: L, hue: h, context: context)
+                    // Qualified: `Boundary` has its own `maxChroma(L:hue:)`, which
+                    // would otherwise shadow the bisection we actually want here.
+                    t[hi * lightnessSteps + li] = Gamut.maxChroma(L: L, hue: h,
+                                                                  context: context)
                 }
             }
             self.table = t

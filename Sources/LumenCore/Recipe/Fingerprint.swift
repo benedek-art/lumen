@@ -95,8 +95,7 @@ public enum XXH64 {
 
     private static func mergeRound(_ acc: UInt64, _ val: UInt64) -> UInt64 {
         let v = round(0, val)
-        var acc = acc ^ v
-        return acc &* prime1 &+ prime4
+        return (acc ^ v) &* prime1 &+ prime4
     }
 
     private static func read64(_ d: [UInt8], _ i: Int) -> UInt64 {

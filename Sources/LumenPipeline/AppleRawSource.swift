@@ -1,20 +1,21 @@
 // AppleRawSource.swift
-// The Apple RAW stage (docs/14 S1–S5, D50): CIRAWFilter wrapped behind the RawSource
-// idea. Phase 1 maps the walking-skeleton sliders onto Apple's own scene-referred
-// controls; Lumen's own stages replace everything downstream of decode in Phase 3.
+// The RAW stage (docs/14 S1, D50): CIRAWFilter behind the RawSource idea, run FLAT.
 //
-// D50 contract honored here:
-//  - decoderVersion pinned on first open and recorded into the recipe
-//  - isDraftModeEnabled + scaleFactor for preview-speed decodes
-//  - degrade gracefully: a file CIRAWFilter refuses must surface as a typed error the
-//    UI turns into "showing embedded preview" — never a crash (docs/13 safety posture).
+// "Flat" is the contract that matters. Apple's display-referred machinery — its tone
+// curve, shadow boost, local tone mapping, gamut mapping — is switched off, because
+// D8 admits exactly one display transform and it is ours. What we take from Apple is
+// the genuinely hard 40%: format decode, demosaic including X-Trans, per-camera colour
+// matrices, embedded lens corrections and highlight recovery. What we do downstream is
+// entirely Lumen's.
 //
-// NOTE (Phase 1 honesty): the highlights/shadows mapping below rides Apple's
-// boostShadowAmount / localToneMapAmount as approximations. They are placeholders for
-// Lumen's own EV-zone engine (docs/04) and are marked for replacement in Phase 3.
+// White balance and exposure are deliberately NOT applied here (docs/14 §2.1.4). The
+// decode always runs at camera-reference WB, which is what keeps dragging the
+// temperature slider from invalidating the decode, the AI-denoise artifact and the
+// retouch cache — the three most expensive things in the app.
 
 #if os(macOS)
 
+import CoreGraphics
 import CoreImage
 import Foundation
 import LumenCore
@@ -30,17 +31,15 @@ public final class AppleRawSource {
     public let url: URL
 
     /// The decoder version actually pinned — persist into recipe.develop.raw.decoderVersion.
-    /// nil when Apple's rawValue for this file's decoder isn't a plain integer
-    /// (some DNG-variant decoders) — the pin still holds on the filter itself.
     public let pinnedDecoderVersion: Int?
 
-    /// As-shot values captured at init so decode() can restore them: the filter
-    /// instance is cached and reused, so every property must be written on every
-    /// decode or previous recipes' values stick (review finding: sticky state).
-    private let asShotTemperature: Float
-    private let asShotTint: Float
+    /// The as-shot neutral, which is what Lumen's own CAT16 white balance adapts FROM.
+    public let asShotTemperature: Double
+    public let asShotTint: Double
+
     private let defaultLuminanceNR: Float
     private let defaultColorNR: Float
+    private let defaultSharpness: Float
 
     public init(url: URL) throws {
         guard FileManager.default.fileExists(atPath: url.path) else {
@@ -52,71 +51,107 @@ public final class AppleRawSource {
         self.url = url
         self.filter = filter
 
-        // Pin the decoder version explicitly (D50): implicit "latest" could shift
-        // under a macOS update and silently change renders. Defensive: if assigning
-        // a version kills the decode (outputImage goes nil), revert — a working
-        // implicit decoder beats a dead pinned one.
+        // Pin the decoder version (D50): an implicit "latest" could shift under a
+        // macOS update and silently change three years of renders. If pinning breaks
+        // this particular file, a working implicit decoder beats a dead pinned one.
         let originalVersion = filter.decoderVersion
         if let newest = filter.supportedDecoderVersions.last {
             filter.decoderVersion = newest
             if filter.outputImage == nil {
-                print("Lumen: decoder pin \(newest.rawValue) broke decode for "
-                      + "\(url.lastPathComponent); reverting to \(originalVersion.rawValue)")
                 filter.decoderVersion = originalVersion
             }
         }
         self.pinnedDecoderVersion = Int(filter.decoderVersion.rawValue.filter(\.isNumber))
 
-        self.asShotTemperature = filter.neutralTemperature
-        self.asShotTint = filter.neutralTint
+        self.asShotTemperature = Double(filter.neutralTemperature)
+        self.asShotTint = Double(filter.neutralTint)
         self.defaultLuminanceNR = filter.luminanceNoiseReductionAmount
         self.defaultColorNR = filter.colorNoiseReductionAmount
+        self.defaultSharpness = filter.sharpnessAmount
     }
 
-    /// Native long edge in pixels — lets callers decode at view resolution
-    /// (scaleFactor) instead of paying for the full sensor on every render.
     public var nativeLongEdge: Double {
         let size = filter.nativeSize
         return Double(max(size.width, size.height))
     }
 
-    /// Configure Apple's stage from the recipe and return the decoded image.
-    /// Every recipe-driven property is written unconditionally (recipe value or
-    /// captured as-shot default) so a cached filter never carries stale state.
-    /// `draft: true` uses the fast decode path for interactive preview rendering.
+    public var nativePixelSize: (width: Int, height: Int) {
+        let size = filter.nativeSize
+        return (Int(size.width), Int(size.height))
+    }
+
+    /// Decode at camera-reference white balance, with Apple's picture-forming stages
+    /// off. `draft` uses the fast path for interactive frames.
     public func decode(recipe: Recipe, draft: Bool, scaleFactor: Double = 1.0) -> CIImage? {
         let dev = recipe.develop
 
         filter.isDraftModeEnabled = draft
-        filter.scaleFactor = Float(scaleFactor)
+        filter.scaleFactor = Float(Num.clamp(scaleFactor, 0.01, 1.0))
 
-        // White balance: recipe Kelvin/tint, or the captured as-shot neutral.
-        filter.neutralTemperature = dev.raw.temp.map(Float.init) ?? asShotTemperature
-        filter.neutralTint = dev.raw.tint.map(Float.init) ?? asShotTint
+        // Camera reference, always. Lumen's WB is a CAT16 adaptation at S6.
+        filter.neutralTemperature = Float(asShotTemperature)
+        filter.neutralTint = Float(asShotTint)
 
-        // Exposure in EV maps directly.
-        filter.exposure = Float(dev.tone.exposure)
+        // Everything display-referred: off. This is the whole point of the contract.
+        filter.boostAmount = 0
+        filter.boostShadowAmount = 0
+        filter.localToneMapAmount = 0
+        filter.isGamutMappingEnabled = false
+        filter.contrastAmount = 0
+        filter.exposure = 0
 
-        // Phase 1 approximations (replaced by Lumen's zone engine in Phase 3):
-        // shadows lift rides Apple's shadow boost; highlight recovery rides the
-        // local tone map amount. Both clamp to Apple's 0…1 ranges.
-        filter.boostShadowAmount =
-            dev.tone.shadows > 0 ? Float(min(dev.tone.shadows / 100.0, 1.0)) : 0
-        filter.localToneMapAmount =
-            dev.tone.highlights < 0 ? Float(min(-dev.tone.highlights / 100.0, 1.0)) : 0
+        // Keep whatever headroom the file carries; scene-referred unboundedness
+        // preserves it all the way to the display transform.
+        filter.extendedDynamicRangeAmount = 1.0
 
-        // NR: mode .off zeroes Apple's noise reduction; otherwise camera defaults.
+        // Capture sharpening rides Apple's at-demosaic sharpener until Lumen's own RL
+        // deconvolution moves into the graph. `auto` keeps the camera default.
+        if dev.detail.capture.auto {
+            filter.sharpnessAmount = defaultSharpness
+        } else {
+            filter.sharpnessAmount = Float(Num.clamp(dev.detail.capture.amount ?? 0, 0, 1))
+        }
+
+        // Noise reduction: Lumen's Tier 1 is the reference implementation and does not
+        // yet run in the GPU graph, so Apple's stage stands in for `.classic`. Tracked
+        // in BUILDING.md; `.off` really is off.
         if dev.denoise.mode == .off {
             filter.luminanceNoiseReductionAmount = 0
             filter.colorNoiseReductionAmount = 0
         } else {
-            filter.luminanceNoiseReductionAmount = defaultLuminanceNR
-            filter.colorNoiseReductionAmount = defaultColorNR
+            let classic = dev.denoise.classic
+            filter.luminanceNoiseReductionAmount =
+                Float(Num.clamp(classic.luma / 100.0, 0, 1))
+            filter.colorNoiseReductionAmount =
+                Float(Num.clamp(classic.chroma / 100.0, 0, 1))
         }
 
         filter.isLensCorrectionEnabled = dev.geometry.lens.profile
 
         return filter.outputImage
+    }
+
+    /// Metadata the develop panel and the catalog both want.
+    public var captureMetadata: CaptureMetadata {
+        CaptureMetadata(asShotTemperature: asShotTemperature,
+                        asShotTint: asShotTint,
+                        decoderVersion: pinnedDecoderVersion,
+                        pixelSize: nativePixelSize)
+    }
+}
+
+public struct CaptureMetadata: Sendable {
+    public let asShotTemperature: Double
+    public let asShotTint: Double
+    public let decoderVersion: Int?
+    public let pixelSize: (width: Int, height: Int)
+
+    public init(asShotTemperature: Double, asShotTint: Double, decoderVersion: Int?,
+                pixelSize: (width: Int, height: Int)) {
+        self.asShotTemperature = asShotTemperature
+        self.asShotTint = asShotTint
+        self.decoderVersion = decoderVersion
+        self.pixelSize = pixelSize
     }
 }
 

@@ -465,7 +465,6 @@ public final class CatalogStore {
     // MARK: Stored state
 
     private let db: SQLiteDatabase
-    private let cacheSchema: String = "cache"
     private let ftsEnabled: Bool
 
     public let path: String
@@ -841,7 +840,7 @@ public final class CatalogStore {
     private func seedMetaIfNeeded() throws {
         let now = CatalogStore.now()
         try db.transaction {
-            if try self.metaValue("catalog_uuid") == nil {
+            if (try self.metaValue("catalog_uuid")) == nil {
                 try self.setMetaValue("catalog_uuid", UUID().uuidString)
                 try self.setMetaValue("created_at", String(now))
             }
@@ -896,14 +895,16 @@ public final class CatalogStore {
             let tables = ["raw_stats", "frame_score", "face", "feature_print",
                           "preview", "artifact"]
             for table in tables {
-                removed += try self.db.run(
+                let deleted = try self.db.run(
                     "DELETE FROM cache.\(table) "
                     + "WHERE photo_id NOT IN (SELECT id FROM main.photo);")
+                removed += deleted
             }
             if self.ftsEnabled {
-                removed += try self.db.run(
+                let deleted = try self.db.run(
                     "DELETE FROM cache.photo_fts "
                     + "WHERE rowid NOT IN (SELECT id FROM main.photo);")
+                removed += deleted
             }
             return removed
         }
@@ -1663,17 +1664,21 @@ public final class CatalogStore {
         var toReclaim = total - maxBytes
         var victims: [PreviewRow] = []
 
+        // Streamed rather than materialized: at 200k photos the level-3 set is large,
+        // and eviction usually stops after a handful of rows.
         for level in [PreviewLevel.oneToOne, PreviewLevel.fit, PreviewLevel.grid] {
             if toReclaim <= 0 { break }
-            let candidates = try allRows(
+            let statement = try db.prepare(
                 "SELECT \(CatalogStore.previewColumns) FROM cache.preview "
-                + "WHERE level = ? ORDER BY last_used_at ASC;",
-                [.int(level.rawValue)], CatalogStore.decodePreview)
-            for row in candidates {
-                if toReclaim <= 0 { break }
+                + "WHERE level = ? ORDER BY last_used_at ASC;")
+            try statement.bind(1, Int64(level.rawValue))
+            while toReclaim > 0 {
+                guard try statement.step() else { break }
+                let row = CatalogStore.decodePreview(statement)
                 victims.append(row)
                 toReclaim -= row.bytes
             }
+            statement.reset()
         }
         if victims.isEmpty { return [] }
 
