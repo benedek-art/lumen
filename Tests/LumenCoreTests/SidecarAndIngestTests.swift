@@ -324,6 +324,47 @@ final class SidecarAndIngestTests: XCTestCase {
         XCTAssertEqual(once, twice, "a second identical update moved the document")
     }
 
+    /// A sidecar written on Windows is CRLF throughout, and Swift holds CRLF as ONE
+    /// `Character` — so `c[i] == "\n"` is false for it. The newline after a removed
+    /// property was therefore left behind, and every update added a blank line: a day
+    /// of culling slowly rewrote a file shared with another application. The inserted
+    /// lines now also use the document's own ending, so a Windows sidecar stays CRLF.
+    func testUpdatingASidecarWithWindowsLineEndingsIsStable() throws {
+        let crlf = "\r\n"
+        let document = [
+            "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">",
+            " <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">",
+            "  <rdf:Description rdf:about=\"\" "
+                + "xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\" "
+                + "xmlns:crs=\"http://ns.adobe.com/camera-raw-settings/1.0/\" "
+                + "crs:Exposure2012=\"+0.85\" xmp:Rating=\"5\">",
+            "   <dc:rights xmlns:dc=\"http://purl.org/dc/elements/1.1/\">Ada</dc:rights>",
+            "  </rdf:Description>",
+            " </rdf:RDF>",
+            "</x:xmpmeta>",
+        ].joined(separator: crlf)
+
+        var content = SidecarContent()
+        content.rating = 3
+        content.flag = .pick
+
+        let once = try XCTUnwrap(XMPSidecar.update(document, with: content))
+        let twice = try XCTUnwrap(XMPSidecar.update(once, with: content))
+        XCTAssertEqual(once, twice,
+                       "a second update moved a CRLF document — repeated culling would "
+                           + "keep rewriting a file Lumen is supposed to leave alone")
+
+        XCTAssertTrue(once.contains("crs:Exposure2012=\"+0.85\""))
+        XCTAssertTrue(once.contains("Ada"))
+        XCTAssertEqual(once.components(separatedBy: "<xmp:Rating>").count - 1, 1)
+        XCTAssertFalse(once.contains("xmp:Rating=\""))
+        // No orphan blank lines: a lone newline pair with nothing between them is the
+        // residue the old code left on every pass.
+        XCTAssertFalse(once.contains(crlf + crlf),
+                       "removing a property left a blank line behind")
+        XCTAssertNotNil(XMPSidecar.parse(once))
+    }
+
     /// Adobe splits a sidecar into several rdf:Description blocks by namespace, so the
     /// rating being replaced is not necessarily in the first one. Missing it would
     /// leave two conflicting ratings in one file.

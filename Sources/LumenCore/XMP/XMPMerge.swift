@@ -25,6 +25,15 @@ import Foundation
 
 public enum XMPMerge {
 
+    /// The line ending this document already uses. Swift holds CRLF as a single
+    /// `Character`, so the first newline found IS the separator, verbatim.
+    static func dominantNewline(_ c: [Character]) -> String {
+        for character in c where character.isNewline {
+            return String(character)
+        }
+        return "\n"
+    }
+
     /// The properties Lumen writes, and therefore the only ones it may remove.
     static func owns(_ name: String) -> Bool {
         if name == "xmp:Rating" || name == "xmp:Label" { return true }
@@ -52,17 +61,30 @@ public enum XMPMerge {
         guard let open = indexOfDescription(chars, from: 0),
               let end = tagEnd(chars, from: open) else { return nil }
 
-        let body = fields.hasSuffix("\n") ? String(fields.dropLast()) : fields
+        // Match the document's own line ending. A sidecar written on Windows is CRLF
+        // throughout, and splicing LF lines into it would rewrite those lines' endings
+        // on the first update and then again on the second — converging, but only after
+        // needlessly touching a file this type exists to leave alone. Writing the
+        // newline the document already uses makes the very first update idempotent and
+        // keeps the file consistent for whatever tool wrote it.
+        let newline = Self.dominantNewline(chars)
+        var body = fields.hasSuffix("\n") ? String(fields.dropLast()) : fields
+        if newline != "\n" {
+            body = body.split(separator: "\n", omittingEmptySubsequences: false)
+                .joined(separator: newline)
+        }
         if isSelfClosing(chars, open: open, end: end) {
             // `<rdf:Description …/>` has to become a container before children fit.
             var opened = String(chars[open..<(end - 2)])
-            while opened.hasSuffix(" ") || opened.hasSuffix("\n") {
+            // Any trailing whitespace, including a CRLF that Swift holds as one
+            // Character — see the note in `stripOwnedElements`.
+            while let last = opened.last, last.isWhitespace {
                 opened = String(opened.dropLast())
             }
-            return String(chars[0..<open]) + opened + ">\n" + body
-                + "\n  </rdf:Description>" + String(chars[end...])
+            return String(chars[0..<open]) + opened + ">" + newline + body
+                + newline + "  </rdf:Description>" + String(chars[end...])
         }
-        return String(chars[0..<end]) + "\n" + body + String(chars[end...])
+        return String(chars[0..<end]) + newline + body + String(chars[end...])
     }
 
     // MARK: - Tag scanning
@@ -239,17 +261,24 @@ public enum XMPMerge {
             }
             // Take the line's indentation and trailing newline with it, so removing a
             // property does not leave a blank line where it used to be.
+            //
+            // `isNewline`, not `== "\n"`, and this is not a stylistic preference. Swift
+            // treats CRLF as ONE Character, so in a sidecar written on Windows the
+            // newline compares unequal to "\n" and was left behind — every update added
+            // a blank line, which meant a day of culling slowly rewrote a file shared
+            // with another application. Idempotency is a property this type claims and
+            // a test asserts; it held only for LF input.
             var lead = open
             var k = open - 1
             var onlyBlanks = true
-            while k >= 0 && c[k] != "\n" {
+            while k >= 0 && !c[k].isNewline {
                 if !c[k].isWhitespace { onlyBlanks = false; break }
                 k -= 1
             }
             if onlyBlanks && k >= 0 { lead = k + 1 }
             var trail = stop
             while trail < c.count && (c[trail] == " " || c[trail] == "\t") { trail += 1 }
-            if trail < c.count && c[trail] == "\n" { trail += 1 }
+            if trail < c.count && c[trail].isNewline { trail += 1 }
 
             c = Array(c[0..<lead]) + Array(c[trail...])
         }

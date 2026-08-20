@@ -45,22 +45,83 @@ if not (ROOT / "Package.swift").exists():
 
 FILES = sorted(ROOT.glob("Sources/**/*.swift")) + sorted(ROOT.glob("Tests/**/*.swift"))
 
-LINE_COMMENT = re.compile(r"//[^\n]*")
-BLOCK_COMMENT = re.compile(r"/\*.*?\*/", re.S)
-MULTILINE_STR = re.compile(r'"""(?:.|\n)*?"""', re.S)
-STRING = re.compile(r'"(?:\\.|[^"\\\n])*"')
+def _scan(text, blank_strings):
+    """Blank out comments — and optionally string bodies — in ONE pass, replacing each
+    character with a space and preserving every newline.
+
+    One pass, not a sequence of regexes, because the two constructs nest into each
+    other and a regex for either alone is wrong in the presence of the other. Stripping
+    comments first ate the `//` inside `"http://www.w3.org/…"`, which truncated the
+    string, desynced every quote after it, and leaked the following identifiers as bare
+    code — a false positive that cost a real investigation. Stripping strings first has
+    the mirror problem: a `"` inside a comment desyncs the strings.
+
+    Preserving length and newlines also keeps reported line numbers exact. The previous
+    version collapsed multi-line strings to two characters, so every line number after
+    one was wrong — which sends you to the wrong place in the file, and a checker that
+    points at innocent code is worse than one that says nothing.
+    """
+    out = list(text)
+    i, n = 0, len(text)
+
+    def blank(start, stop):
+        for k in range(start, stop):
+            if out[k] != "\n":
+                out[k] = " "
+
+    while i < n:
+        two = text[i:i + 2]
+        if two == "//":
+            j = text.find("\n", i)
+            j = n if j == -1 else j
+            blank(i, j)
+            i = j
+        elif two == "/*":
+            # Swift block comments nest.
+            depth, j = 1, i + 2
+            while j < n and depth:
+                if text[j:j + 2] == "/*":
+                    depth += 1
+                    j += 2
+                elif text[j:j + 2] == "*/":
+                    depth -= 1
+                    j += 2
+                else:
+                    j += 1
+            blank(i, j)
+            i = j
+        elif text[i:i + 3] == '"""':
+            j = text.find('"""', i + 3)
+            j = n if j == -1 else j + 3
+            if blank_strings:
+                blank(i, j)
+            i = j
+        elif text[i] == '"':
+            j = i + 1
+            while j < n:
+                if text[j] == "\\":
+                    j += 2
+                    continue
+                if text[j] == '"' or text[j] == "\n":
+                    break
+                j += 1
+            j = min(j + 1, n)
+            if blank_strings:
+                blank(i, j)
+            i = j
+        else:
+            i += 1
+    return "".join(out)
 
 
 def strip_comments(text):
-    """Comments and multi-line strings out; ordinary strings kept as delimiters."""
-    text = BLOCK_COMMENT.sub(" ", text)
-    text = MULTILINE_STR.sub('""', text)
-    return LINE_COMMENT.sub(" ", text)
+    """Comments out; string literals left in place as delimiters."""
+    return _scan(text, blank_strings=False)
 
 
 def strip_all(text):
-    """Also blanks ordinary string bodies, so prose cannot invent symbols."""
-    return STRING.sub('""', strip_comments(text))
+    """Comments AND string bodies out, so prose cannot invent symbols."""
+    return _scan(text, blank_strings=True)
 
 
 # ==========================================================================
