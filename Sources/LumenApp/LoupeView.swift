@@ -70,6 +70,9 @@ final class LoupeViewport: ObservableObject {
     @Published var splitPosition: Double = 0.5
 
     @Published var showCrop: Bool = false
+    /// True while the straighten ruler is armed. It disarms itself when the drag ends,
+    /// so it reads as a tool you fire rather than a mode you have to remember to leave.
+    @Published var showStraighten: Bool = false
     @Published var showReadout: Bool = true
     @Published var maskOverlayOpacity: Double = 0.45
 
@@ -297,7 +300,8 @@ final class PhotoRenderModel: ObservableObject {
               draftLongEdge: Int,
               fullLongEdge: Int,
               strokeSets: [String: BrushStrokeSet] = [:],
-              showingUncropped: Bool = false) async {
+              showingUncropped: Bool = false,
+              softProof: SoftProof? = nil) async {
 
         // New photo: drop the previous photo's pixels rather than showing them under a
         // new filename, and give this one the instant embedded-preview path (Law 11).
@@ -327,7 +331,8 @@ final class PhotoRenderModel: ObservableObject {
                                              maxLongEdge: Swift.max(draftLongEdge, 64),
                                              draft: true, generation: draftGeneration,
                                              strokeSets: strokeSets,
-                                             showingUncropped: showingUncropped)
+                                             showingUncropped: showingUncropped,
+                                             softProof: softProof)
         guard !Task.isCancelled else { return }
         if let draft, draft.generation == latestGeneration {
             apply(draft, url: url)
@@ -349,7 +354,8 @@ final class PhotoRenderModel: ObservableObject {
                                                   maxLongEdge: Swift.max(fullLongEdge, 64),
                                                   draft: false, generation: generation,
                                                   strokeSets: strokeSets,
-                                                  showingUncropped: showingUncropped)
+                                                  showingUncropped: showingUncropped,
+                                                  softProof: softProof)
             guard !Task.isCancelled else { return }
             if let result, result.generation == generation, latestGeneration == generation {
                 apply(result, url: url)
@@ -409,6 +415,11 @@ struct LoupeView: View {
         /// that way until some unrelated edit moved the recipe. This is the same shape
         /// as a fingerprint that omits a field the render reads.
         let strokeRefs: Set<String>
+        /// The proof is not in the recipe — it is a viewing mode — so without it here
+        /// `.task(id:)` would not restart when the proof is switched on, and the key
+        /// would be the same key for two different pictures. That is the same shape as a
+        /// fingerprint that omits a field the render reads.
+        let softProof: SoftProof?
     }
 
     /// Above this we stop asking for more pixels; a real 1:1 on a 45 MP frame is the
@@ -483,7 +494,8 @@ struct LoupeView: View {
             // `.task`'s action is `@Sendable`, so it touches no main-actor state
             // directly: everything goes through the `@MainActor` methods below.
             .task(id: RenderKey(url: photo.id, recipe: recipe, longEdge: longEdge,
-                                strokeRefs: Set(state.strokeSets(for: recipe).keys))) {
+                                strokeRefs: Set(state.strokeSets(for: recipe).keys),
+                                softProof: state.activeSoftProof)) {
                 await renderCurrent(longEdge: longEdge)
             }
             .task(id: BeforeKey(url: photo.id, recipe: beforeRecipe,
@@ -530,7 +542,12 @@ struct LoupeView: View {
                          // WITHOUT its crop, so the rectangle being dragged is drawn
                          // against the frame it is expressed in.
                          showingUncropped: viewport.showCrop
-                             && state.activeSection == .effects)
+                             && state.activeSection == .effects,
+                         // The proof is what the photographer is looking THROUGH; the
+                         // before rendition below deliberately does not get it, because
+                         // a before/after of "proofed vs not" is not the comparison the
+                         // key is for.
+                         softProof: state.activeSoftProof)
     }
 
     /// The before rendition, evaluated through the same pipeline as the edit so the
@@ -639,6 +656,24 @@ struct LoupeView: View {
             if viewport.showCrop && state.activeSection == .effects {
                 CropOverlayView(crop: cropBinding)
                     .frame(width: drawn.width, height: drawn.height)
+
+                // Above the crop rectangle, so the ruler's drag belongs to the ruler
+                // while it is armed. It lives inside the crop tool because that is the
+                // one place the loupe shows the whole straightened frame — a ruler drawn
+                // over an already-cropped picture would be measuring a frame the angle
+                // is not expressed in.
+                if viewport.showStraighten {
+                    StraightenOverlayView(
+                        currentAngle: recipe.develop.geometry.angle,
+                        isFlipped: recipe.develop.geometry.flipH,
+                        onAngle: { angle in
+                            state.updateRecipe(coalescingKey: "straighten") { recipe in
+                                recipe.develop.geometry.angle = angle
+                            }
+                        },
+                        onFinish: { viewport.showStraighten = false })
+                        .frame(width: drawn.width, height: drawn.height)
+                }
             }
 
             // Mask geometry is edited on the image, not in the panel: gradients,

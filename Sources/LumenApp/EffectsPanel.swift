@@ -77,6 +77,10 @@ struct EffectsPanel: View {
     @State private var showDefringe: Bool = false
     @State private var showGrain: Bool = false
 
+    /// The ruler button arms an overlay that lives in the viewer, so this panel needs a
+    /// handle on the same viewport the keymap drives.
+    @ObservedObject private var viewport: LoupeViewport = LoupeViewport.shared
+
     private var binder: RecipeBinder { RecipeBinder(state: state) }
     private var recipe: Recipe { state.currentRecipe }
 
@@ -86,6 +90,8 @@ struct EffectsPanel: View {
             grainSection
             cropSection
             lensSection
+            retouchSection
+            proofSection
         }
     }
 
@@ -188,15 +194,46 @@ struct EffectsPanel: View {
                             value: binder.value(\.develop.geometry.angle, "geometry.angle"),
                             range: -45...45, hardRange: nil, defaultValue: 0,
                             step: 0.1, decimals: 1)
+                rulerRow
                 LumenToggleRow(title: "Flip horizontal",
                                isOn: binder.flag(\.develop.geometry.flipH, "geometry.flipH"),
                                help: "Mirror the frame. Orientation flips with X inside "
                                    + "the crop tool.")
-                DevelopNote("Crop, rotation, perspective and lens distortion compose "
-                            + "into one Lanczos-3 resample that runs last, so every "
-                            + "upstream cache is crop-independent.")
+                DevelopNote("Crop and rotation compose into one Lanczos-3 resample that "
+                            + "runs last, so every upstream cache is crop-independent. "
+                            + "Perspective correction is not implemented: `Upright` is a "
+                            + "wire format with no stage behind it, so there are no "
+                            + "sliders for it here.")
             }
         }
+    }
+
+    /// Arms the ruler and opens the crop tool, which is where it lives — the loupe shows
+    /// the whole straightened frame while R is open, and that is the frame the angle is
+    /// expressed in.
+    ///
+    /// docs/09 binds this to ⌘-drag inside crop mode. It is an explicit arm here instead,
+    /// because a modifier-qualified drag is a gesture nobody can discover and a button
+    /// that says "Ruler" is one they can. The gesture itself is the specced one: drag a
+    /// line, and the frame levels to whichever axis the line is nearer.
+    private var rulerRow: some View {
+        HStack(spacing: 6) {
+            Text("Ruler")
+                .font(.system(size: 11))
+                .foregroundStyle(Lumen.secondaryText)
+                .frame(width: Lumen.labelWidth, alignment: .leading)
+            Button(viewport.showStraighten ? "Drag a line…" : "Straighten by line") {
+                state.showLoupe()
+                viewport.showCrop = true
+                viewport.showStraighten.toggle()
+            }
+            .font(.system(size: 10))
+            .help("Drag along a horizon or a doorframe and the frame levels to whichever "
+                  + "axis that line is nearer. The angle it writes is the one in the "
+                  + "slider above — nothing is hidden behind it.")
+            Spacer()
+        }
+        .frame(height: Lumen.rowHeight)
     }
 
     private var aspectRow: some View {
@@ -384,6 +421,99 @@ struct EffectsPanel: View {
                           set(&defringe, value)
                           recipe.develop.geometry.lens.defringe = defringe
                       })
+    }
+
+    // MARK: Retouch
+
+    /// No controls, on purpose.
+    ///
+    /// `Heal { strokesRef, count }` is declared in the recipe and reaches no stage on any
+    /// path — there is no writer, no blob loader and no renderer for it. A slider that
+    /// stored spots nothing removed would be worse than this note, because absence is
+    /// honest and a dead control is not. The note exists so that somebody looking for the
+    /// spot-removal tool learns it is missing here rather than concluding they cannot
+    /// find it.
+    private var retouchSection: some View {
+        DevelopSection("Retouch", isModified: false, onReset: nil) {
+            DevelopNote("Heal and clone are not implemented. The recipe format reserves "
+                        + "them, and nothing renders them — a file that arrives carrying "
+                        + "healed spots will show every spot still there. There is no "
+                        + "control here rather than one that stores a value no stage "
+                        + "reads.")
+        }
+    }
+
+    // MARK: Soft proof
+
+    /// A viewing mode, not an edit (docs/11), which is why it binds to `AppState` and not
+    /// through `binder` — it changes no recipe, appears in no undo step and is not copied
+    /// with settings.
+    private var proofSection: some View {
+        DevelopSection("Soft Proof", isModified: state.softProof.enabled,
+                       onReset: { state.softProof = SoftProof() }) {
+            VStack(alignment: .leading, spacing: 2) {
+                LumenToggleRow(title: "Soft proof", isOn: $state.softProof.enabled,
+                               help: "⇧S. Renders the picture through the destination "
+                                   + "space so you can see what the delivery will hold.")
+                if state.softProof.enabled {
+                    HStack(spacing: 6) {
+                        Text("Destination")
+                            .font(.system(size: 11))
+                            .foregroundStyle(Lumen.secondaryText)
+                            .frame(width: Lumen.labelWidth, alignment: .leading)
+                        Picker("", selection: $state.softProof.space) {
+                            ForEach(ExportColorSpace.allCases, id: \.self) { space in
+                                Text(space.displayName).tag(space)
+                            }
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                        .controlSize(.small)
+                    }
+                    .frame(height: Lumen.rowHeight)
+
+                    HStack(spacing: 6) {
+                        Text("Intent")
+                            .font(.system(size: 11))
+                            .foregroundStyle(Lumen.secondaryText)
+                            .frame(width: Lumen.labelWidth, alignment: .leading)
+                        LumenSegmented(options: intentOptions,
+                                       selection: $state.softProof.intent)
+                    }
+                    .frame(height: Lumen.rowHeight)
+
+                    LumenToggleRow(title: "Gamut warning",
+                                   isOn: $state.softProof.showGamutWarning,
+                                   help: "Flat grey over every pixel the destination "
+                                       + "cannot store.")
+                    LumenToggleRow(title: "Simulate paper & ink",
+                                   isOn: $state.softProof.simulatePaperWhite,
+                                   help: "Brings white down to a sheet's reflectance and "
+                                       + "black up to the ink's, which is the flatness a "
+                                       + "print has and a screen does not.")
+                    DevelopNote(proofNote)
+                }
+            }
+        }
+    }
+
+    private var intentOptions: [(value: RenderingIntent, label: String)] {
+        [(value: .perceptual, label: "Perceptual"),
+         (value: .relativeColorimetric, label: "Relative")]
+    }
+
+    /// What the proof does and does not tell you. The second half matters: the loupe
+    /// hands SwiftUI an sRGB image, so a destination at least as wide as sRGB looks
+    /// almost the same proofed or not — the warning and the paper simulation are the
+    /// parts that carry information there.
+    private var proofNote: String {
+        "The proof rides in the finish table both render paths apply, so what is on "
+            + "screen is the picture through the destination's primaries. The gamut "
+            + "warning is computed per pixel rather than baked, so its edge is the real "
+            + "gamut boundary. Two limits: the loupe is drawn as an sRGB image, so "
+            + "proofing to a space at least as wide as sRGB changes little on screen "
+            + "beyond the warning and the paper simulation; and there is no ICC profile "
+            + "behind \"paper & ink\" — it uses one documented white and black."
     }
 }
 

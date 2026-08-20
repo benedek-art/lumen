@@ -256,6 +256,16 @@ public struct ExportRecipe: Codable, Equatable, Sendable, Identifiable {
         self.hdr = hdr
     }
 
+    /// The depth the encoder will actually use.
+    ///
+    /// `bitDepth` is only meaningful for the two lossless formats — JPEG and HEIF are
+    /// 8-bit whatever the field says, and the sheet says so — so anything that has to
+    /// reason about the real quantization (the dither, above all) has to ask this rather
+    /// than the stored number.
+    public var effectiveBitDepth: Int {
+        format.supportsSixteenBit && bitDepth >= 16 ? 16 : 8
+    }
+
     /// Target pixel size for a source of the given dimensions, honouring the
     /// no-upscale rule.
     public func targetSize(sourceWidth: Int, sourceHeight: Int) -> (width: Int, height: Int) {

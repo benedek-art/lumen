@@ -668,6 +668,107 @@ struct CropOverlayView: View {
     }
 }
 
+// MARK: - Straighten ruler
+
+/// Drag a line along a horizon or a doorframe; the frame levels to whichever axis that
+/// line is closer to (docs/09 §Straighten / Level).
+///
+/// Before this the Angle slider was the only way in — a number, with nothing to measure
+/// it against. The gesture is one drag, and it ends by writing `geometry.angle` through
+/// the same coalescing key the slider uses, so it is one undo step and not a new grammar.
+///
+/// The arithmetic is `Straighten` in `LumenCore`, not here, because the sign depends on
+/// two things a view cannot check: the frame on screen has ALREADY been rotated by the
+/// angle in the recipe, and a horizontal flip inverts the correction. Both are wrong in
+/// a way that looks almost right — the first drag improves the picture and the second
+/// makes it worse — so the mapping lives where a test can reach it.
+struct StraightenOverlayView: View {
+
+    /// The angle currently in the recipe: the drag is measured on the frame this has
+    /// already been applied to, so it is part of the answer and not just context.
+    let currentAngle: Double
+    let isFlipped: Bool
+    /// Called with the new angle once the drag ends. Nil means the drag was too short to
+    /// carry one, and the right answer to that is to change nothing.
+    let onAngle: (Double) -> Void
+    /// Called when the gesture is over, armed or not, so the tool can put itself away.
+    let onFinish: () -> Void
+
+    @State private var start: CGPoint?
+    @State private var end: CGPoint?
+
+    var body: some View {
+        GeometryReader { proxy in
+            let size = proxy.size
+            ZStack(alignment: .topLeading) {
+                Rectangle()
+                    // Not `.clear`: a fully transparent shape is not hit-testable and the
+                    // drag would fall through to the crop rectangle underneath.
+                    .fill(Lumen.accent.opacity(0.001))
+                    .contentShape(Rectangle())
+                    .gesture(drag(in: size))
+
+                if let start, let end {
+                    Path { path in
+                        path.move(to: start)
+                        path.addLine(to: end)
+                    }
+                    .stroke(Lumen.accent, style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+                    .allowsHitTesting(false)
+
+                    Text(readout(from: start, to: end, in: size))
+                        .font(.system(size: 10, design: .monospaced))
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(Color.black.opacity(0.65))
+                        .foregroundStyle(.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 3))
+                        .position(x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 - 16)
+                        .allowsHitTesting(false)
+                }
+            }
+        }
+    }
+
+    private func drag(in size: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 1)
+            .onChanged { value in
+                if start == nil { start = value.startLocation }
+                end = value.location
+            }
+            .onEnded { value in
+                defer {
+                    start = nil
+                    end = nil
+                    onFinish()
+                }
+                if let next = resolvedAngle(from: value.startLocation,
+                                            to: value.location, in: size) {
+                    onAngle(next)
+                }
+            }
+    }
+
+    private func resolvedAngle(from a: CGPoint, to b: CGPoint,
+                               in size: CGSize) -> Double? {
+        Straighten.angle(current: currentAngle,
+                         dx: Double(b.x - a.x), dy: Double(b.y - a.y),
+                         flipped: isFlipped,
+                         frameLongEdge: Double(Swift.max(size.width, size.height)))
+    }
+
+    /// What the drag would set, shown while it is happening — the ruler sets a visible
+    /// number rather than hiding behind one (docs/09: "auto sets sliders, never hides
+    /// behind them").
+    ///
+    /// Through the same call the commit uses, minimum-drag rule included, so the readout
+    /// cannot promise an angle the release will decline to write.
+    private func readout(from a: CGPoint, to b: CGPoint, in size: CGSize) -> String {
+        guard let next = resolvedAngle(from: a, to: b, in: size) else { return "—" }
+        return String(format: "%+.1f°", next)
+    }
+}
+
 /// The eyedropper's catcher: a transparent sheet over the drawn image that turns one
 /// click into a SOURCE-normalized point.
 ///

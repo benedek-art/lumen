@@ -55,10 +55,15 @@ public final class PipelineRenderer {
 
     /// `showingUncropped` is set while the crop tool is open, so the tool draws its
     /// rectangle against the frame that rectangle is expressed in.
+    ///
+    /// `softProof` is a VIEWING mode, not an edit (docs/11), which is why it arrives
+    /// here as an argument rather than through the recipe: two viewers of the same photo
+    /// may proof to different destinations, and neither is changing the picture.
     public func renderPreview(source: any ImageSource, recipe: Recipe,
                               maxLongEdge: Int, draft: Bool,
                               showingUncropped: Bool = false,
-                              strokeSets: [String: BrushStrokeSet] = [:]) throws -> CGImage {
+                              strokeSets: [String: BrushStrokeSet] = [:],
+                              softProof: SoftProof? = nil) throws -> CGImage {
         // Decode at the target resolution, not the sensor's: a 2560 px preview of a
         // 7000 px raw decodes roughly seven times less data.
         let native = source.nativeLongEdge
@@ -72,7 +77,8 @@ public final class PipelineRenderer {
         let plan = RenderPlan(recipe: recipe,
                               asShotKelvin: source.asShotTemperature,
                               asShotTint: source.asShotTint,
-                              lutSize: draft ? 17 : LUT3D.interactiveSize)
+                              lutSize: draft ? 17 : LUT3D.interactiveSize,
+                              softProof: softProof)
         let graph = makeGraph(plan: plan, decoded: decoded, draft: draft,
                               strokeSets: strokeSets)
         var image = graph.build(decoded, plan: plan,
@@ -127,8 +133,92 @@ public final class PipelineRenderer {
         if let watermark = exportRecipe.watermark, !watermark.text.isEmpty {
             image = Self.applyWatermark(image, watermark)
         }
+        // Last, on the output pixel grid: the dither has to be one output CODE wide, and
+        // a resample after it would average the pattern away.
+        image = Self.applyDither(image, colorSpace: exportRecipe.colorSpace,
+                                 bitDepth: exportRecipe.effectiveBitDepth)
 
         try write(image, to: destination, using: exportRecipe)
+    }
+
+    // MARK: - Dither
+
+    /// Ordered dither, immediately before the encoder quantizes (docs/11 §Format).
+    ///
+    /// There was no dithering anywhere in the repository, and the export sheet said so;
+    /// an 8-bit sky off an f32 pipeline bands, and it bands worst in exactly the frames
+    /// worth delivering. This adds at most half an output code of a tiled 8×8 Bayer
+    /// pattern, which is enough to make the rounding land on the code below or the code
+    /// above in the proportion the true value asks for, so the local mean survives
+    /// quantization instead of stepping.
+    ///
+    /// The amplitude is the part that has to be right, and it is the units bug this
+    /// codebase keeps making: one code is 0.0003 of display white at the bottom of the
+    /// sRGB curve and 0.008 at the top, a factor of 27, so a constant offset would be
+    /// noise in the shadows and nothing at all in the highlights. `Dither.codeStep`
+    /// writes that conversion, and it is baked here as a per-channel table so the GPU
+    /// can fetch it — the same trick every other colour-bearing function in this graph
+    /// uses, and no new kernel.
+    ///
+    /// One approximation, stated: the offset is added in the WORKING primaries and the
+    /// encoder then converts to the destination's, so a saturated colour's dither is
+    /// rotated by that 3×3 and its amplitude scaled by the row norms — of order one, and
+    /// a dither only needs to be about a code wide to break a band.
+    static func applyDither(_ image: CIImage, colorSpace: ExportColorSpace,
+                            bitDepth: Int) -> CIImage {
+        guard Dither.isWorthwhile(bitDepth: bitDepth) else { return image }
+        let extent = image.extent
+        guard extent.width >= 1, extent.height >= 1,
+              extent.width.isFinite, extent.height.isFinite else { return image }
+
+        let transfer = colorSpace.transfer
+        guard let plate = Self.ditherPlate(extent: extent),
+              let steps = ColorCube.filter(DitherStepCube.forTransfer(transfer),
+                                           image: image),
+              let offsets = KernelLibrary.apply(KernelLibrary.multiply, extent: extent,
+                                                [plate, steps])
+        else { return image }
+        return KernelLibrary.apply(KernelLibrary.addGlow, extent: extent,
+                                   [image, offsets, CIVector(x: 1, y: 1, z: 1)]) ?? image
+    }
+
+    /// The 8×8 Bayer cell, tiled over the frame, carrying values in (−0.5, +0.5).
+    ///
+    /// Stored biased into (0, 1) and re-centred by a colour matrix rather than written
+    /// out negative, which is the same convention `grainPlate` uses and for the same
+    /// reason: a bitmap-backed CIImage is a texture, and asking a texture to carry signed
+    /// values is asking a question about formats that does not need asking.
+    static func ditherPlate(extent: CGRect) -> CIImage? {
+        let side = Dither.matrixSide
+        var pixels = [Float](repeating: 1, count: side * side * 4)
+        for y in 0..<side {
+            for x in 0..<side {
+                let v = Float(Dither.offset(x: x, y: y) + 0.5)
+                let i = (y * side + x) * 4
+                pixels[i] = v
+                pixels[i + 1] = v
+                pixels[i + 2] = v
+            }
+        }
+        let data = pixels.withUnsafeBufferPointer { Data(buffer: $0) }
+        let cell = CIImage(bitmapData: data, bytesPerRow: side * 16,
+                           size: CGSize(width: side, height: side),
+                           format: .RGBAf, colorSpace: nil)
+        let tiler = CIFilter.affineTile()
+        tiler.inputImage = cell
+        tiler.transform = .identity
+        guard let tiled = tiler.outputImage?.cropped(to: extent) else { return nil }
+
+        // Back to (−0.5, +0.5). `CIColorMatrix`'s bias is unclamped, which is what lets
+        // the result go negative at all.
+        let centre = CIFilter.colorMatrix()
+        centre.inputImage = tiled
+        centre.rVector = CIVector(x: 1, y: 0, z: 0, w: 0)
+        centre.gVector = CIVector(x: 0, y: 1, z: 0, w: 0)
+        centre.bVector = CIVector(x: 0, y: 0, z: 1, w: 0)
+        centre.aVector = CIVector(x: 0, y: 0, z: 0, w: 1)
+        centre.biasVector = CIVector(x: -0.5, y: -0.5, z: -0.5, w: 0)
+        return centre.outputImage
     }
 
     /// Render the SDR base and the HDR rendition off one shared graph, then derive the
@@ -847,7 +937,8 @@ public final class PipelineRenderer {
     /// two, and a machine whose kernels will not compile still gets correct pixels.
     public func renderReference(source: any ImageSource, recipe: Recipe,
                                 maxLongEdge: Int,
-                                strokeSets: [String: BrushStrokeSet] = [:]) throws -> CGImage {
+                                strokeSets: [String: BrushStrokeSet] = [:],
+                                softProof: SoftProof? = nil) throws -> CGImage {
         let native = source.nativeLongEdge
         let scale = native > 0 ? Swift.min(1.0, Double(maxLongEdge) / native) : 1.0
         guard let decoded = source.decode(recipe: recipe, draft: true,
@@ -858,10 +949,13 @@ public final class PipelineRenderer {
             throw RenderError.renderFailed
         }
         let plan = RenderPlan(recipe: recipe, asShotKelvin: source.asShotTemperature,
-                              asShotTint: source.asShotTint)
+                              asShotTint: source.asShotTint,
+                              softProof: softProof)
         // Stroke sets go in, exactly as they do on the GPU path — a fallback that
         // silently drops every brush mask is not the same picture, and this is the
-        // path that runs when the graph could not be built at all.
+        // path that runs when the graph could not be built at all. The proof goes in for
+        // the same reason: a fallback that quietly stops proofing would tell the user
+        // their picture is deliverable when nothing had checked.
         let rendered = ReferenceRenderer.render(
             buffer, plan: plan,
             inputs: ReferenceRenderer.Inputs(strokeSets: strokeSets))
@@ -920,6 +1014,42 @@ public final class PipelineRenderer {
                        bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue),
                        provider: provider, decode: nil, shouldInterpolate: false,
                        intent: .defaultIntent)
+    }
+}
+
+/// One code-step table per transfer curve, built at most once each.
+///
+/// The table is a per-channel 1-D function carried in a 3-D cube, exactly as
+/// `RenderPlan.toneGainCube32` carries the tone gain — the stock colour-cube filter is
+/// the only table the GPU can fetch, so a 1-D function borrows it. Size 64 rather than
+/// the usual 33 because the function's whole point is the shadows, where sRGB's toe puts
+/// an 8× change of code width inside what would otherwise be a single cell.
+///
+/// Static `let`s rather than a cache with a lock: there are four curves in play across
+/// every destination Lumen writes, Swift builds each of these once and only when it is
+/// first read, and an export that never leaves sRGB never bakes the other three.
+enum DitherStepCube {
+
+    static let srgb = cube(.srgb)
+    static let gamma22 = cube(.gamma22)
+    static let gamma18 = cube(.gamma18)
+    static let rec709 = cube(.rec709)
+
+    static func forTransfer(_ transfer: TransferFunction) -> LUT3D {
+        switch transfer {
+        case .gamma22: return gamma22
+        case .gamma18: return gamma18
+        case .rec709: return rec709
+        default: return srgb
+        }
+    }
+
+    private static func cube(_ transfer: TransferFunction) -> LUT3D {
+        LUT3D(size: 64) { value in
+            RGB(Dither.codeStep(value.r, transfer: transfer, levels: 256),
+                Dither.codeStep(value.g, transfer: transfer, levels: 256),
+                Dither.codeStep(value.b, transfer: transfer, levels: 256))
+        }
     }
 }
 

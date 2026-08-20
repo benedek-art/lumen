@@ -588,6 +588,19 @@ final class AppState: ObservableObject {
     @Published var activeMaskID: String?
     @Published var activeComponentIndex: Int = 0
     @Published var clippingOverlay: ClippingOverlay.Mode?
+    /// The soft proof, which is a VIEWING mode and not an edit (docs/11) — so it lives
+    /// here beside the clipping overlay rather than in the recipe, and switching photos
+    /// or copying settings never carries it along.
+    ///
+    /// `SoftProof` and its gamut test have been in `LumenCore` since the export model
+    /// landed with no caller of any kind. What made it reach pixels is that it now
+    /// travels to `RenderPlan`, which bakes the destination transform into the finish
+    /// table both render paths apply, and to `RenderGraph`'s flag stage.
+    @Published var softProof = SoftProof()
+
+    /// What the renderer should be handed: nil unless proofing is actually on, so a
+    /// disabled proof cannot cost a table bake or bust a render key.
+    var activeSoftProof: SoftProof? { softProof.enabled ? softProof : nil }
     /// Switching a scope on has to fill it. `scheduleScopeRefresh` refuses to work
     /// when both are off, so without this the panel reads "no histogram yet" until the
     /// user happens to touch a slider.

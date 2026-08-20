@@ -101,12 +101,12 @@ looks like and needs no new UI.
 | Item | Now | Closes it |
 |---|---|---|
 | Crop tool | ~~30~~ **done** | `applyGeometry(skipCrop:)` — the loupe shows the uncropped frame while R is open, so the rect is drawn against the frame it is expressed in |
-| Straighten | 45 | Number only — no ruler, no auto |
-| Perspective / Upright | 3 | A `Codable` struct nobody constructs |
-| Heal / clone | 2 | Declared, no writer, no stage. A recipe with `heal.count = 40` renders unchanged and busts every cache |
-| HDR gain map | 15 | Math written and tested behind a hardcoded `false` |
-| Soft proofing | 10 | Engine exists, zero UI callers |
-| Export dithering | 0 | Still no dithering code. The export sheet no longer claims there is |
+| Straighten | ~~45~~ **done** | Ruler shipped: one drag inside the crop tool writes `geometry.angle`, with the sign derived from `applyGeometry` and tested against its forward mapping, flip included. Auto is still absent, and correctly has no button |
+| Perspective / Upright | 3 | Unchanged. A `Codable` struct nobody constructs — it needs a homography, a reference twin and mask reprojection, which is a new stage and not a wiring job. The Crop section now says it is absent |
+| Heal / clone | 2 | Unchanged, and now legible: the Effects panel has a Retouch section with no controls and a note saying heal/clone is not implemented. `heal` still busts the cache on purpose — nothing writes it, so that costs nothing, and stripping it would plant a stale-cache bug for the day the stage lands |
+| HDR gain map | 15 | Unchanged, deliberately. The route is `CGImageDestinationAddAuxiliaryDataInfo` + `kCGImageAuxiliaryDataTypeISOGainMap`; the data description and the ISO metadata cannot be got right without a Mac to open the result on, and a malformed gain map renders WORSE than none |
+| Soft proofing | ~~10~~ **done** | ⇧S and an Effects panel section → `AppState.softProof` → `RenderCoordinator` → `RenderPlan`. The picture half rides in `finishLUT`, which both render paths apply (measured: 0.1343 worst table error with it, 0.1344 without). The flag is a graph stage rather than a table entry, because baking it put its edge 0.017 OKLCh chroma off the boundary and mislabelled 6.0% of a sweep; per-pixel it is 0.0033 and 0.71% |
+| Export dithering | ~~0~~ **done** | Tiled 8×8 ordered dither of at most half an output code, on the output grid immediately before the encoder, amplitude measured against the destination's own transfer curve. 16-bit is left alone. The export sheet says what it does |
 
 ## Order, and why
 

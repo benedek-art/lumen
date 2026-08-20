@@ -269,7 +269,19 @@ These are tracked, not hidden.
   are implemented and tested, and nothing calls them — `export` renders once and emits a
   single rendition. The missing piece is an auxiliary gain-map image attached through
   `CGImageDestination`; `CIContext.write*Representation` takes no metadata argument, so
-  it cannot get there from here. Until then the toggle is inert and `hdrIsWritable`
+  it cannot get there from here.
+
+  **Re-examined for Batch 6, and deliberately left off.** The route exists —
+  `CGImageDestinationAddAuxiliaryDataInfo` with `kCGImageAuxiliaryDataTypeISOGainMap`,
+  which wants the map's pixel data, a `kCGImageAuxiliaryDataInfoDataDescription`
+  describing its pixel format and stride, and ISO 21496-1 parameters as
+  `kCGImageAuxiliaryDataInfoMetadata`. It is not written here because none of those three
+  can be got right without a Mac to open the result on, and a file carrying a
+  *malformed* gain map is strictly worse than one carrying none: an HDR viewer will
+  apply it and render the picture wrong, where today it simply shows the SDR base. That
+  is the "a control that lies is worse than an absent one" rule applied to a file format.
+  The remaining Batch 6 items were finishable without a Mac; this one is not, and the
+  honest score stays where it is. Until then the toggle is inert and `hdrIsWritable`
   says so in one place. It used to be worse than inert: the HDR ceiling reached the
   render plan, put display white at 4.0, and the 8-bit encode then clipped everything
   above diffuse white — so ticking the box threw away exactly the highlight roll-off it
@@ -289,6 +301,52 @@ These are tracked, not hidden.
   drawn against the frame it is expressed in. Orientation and scale still apply,
   because a crop tool on an unstraightened frame asks the user to place a rectangle
   against a picture they are not editing.
+- **The straighten ruler is in; Auto is not.** Straighten used to be a number with
+  nothing to measure it against. `StraightenOverlayView` sits above the crop rectangle
+  while the crop tool is open, and one drag along a horizon or a doorframe writes
+  `geometry.angle` through the same coalescing key the slider uses. The arithmetic is
+  `Straighten` in `LumenCore` rather than in the view, because the sign depends on two
+  things a view cannot check — the frame on screen has ALREADY been rotated by the angle
+  in the recipe, and a horizontal flip inverts the correction — and both are wrong in the
+  way where the first drag improves the picture and the second makes it worse.
+  `Straighten.displayedDirection` is the forward mapping the inverse is tested against.
+  The specced binding is ⌘-drag inside crop mode; it is an explicit "Straighten by line"
+  button instead, because a modifier-qualified drag is a gesture nobody discovers.
+  **Auto-straighten is not implemented** — it wants Vision's horizon request cross-checked
+  against a gradient histogram, and there is no button for it rather than one that guesses.
+- **Soft proofing reaches pixels.** `SoftProof` was a struct with a gamut test and no
+  caller of any kind. It is now a viewing mode on `AppState` (⇧S, or the Effects panel's
+  Soft Proof section), threaded through `RenderCoordinator` into `RenderPlan`, and it
+  splits in two on purpose:
+  - The **picture** half — destination primaries, the intent's gamut map, and the
+    paper-and-ink simulation — is composed onto the end of `finishLUT`, the one object
+    the GPU graph and `ReferenceRenderer` both apply. No new kernel, and it cannot be
+    present on one path and missing from the other. Measured, it costs nothing: worst
+    table-versus-exact error 0.1343 with the proof composed in, against 0.1344 without.
+  - The **gamut flag** is a graph stage, not a table entry, because a trilinear table
+    turns a step function into a ramp. Baked, the flag's edge sat a mean of 0.017 OKLCh
+    chroma from the true boundary and mislabelled 6.0% of a hue/chroma/lightness sweep.
+    Computed per pixel from the unproofed table, that is 0.0033 and 0.71%. The stage
+    needs no new kernel either — `Σ max(v−1,0) + max(−v,0)` in the destination's
+    primaries is two `highlightEnergy` clamps, an `addGlow`, a `luminance` with unit
+    weights, and a scale that saturates `blendMask`'s own clamp into a step.
+
+  One limit worth stating: the loupe is handed an **sRGB** `CGImage`, so proofing to a
+  space at least as wide as sRGB changes little on screen — the flag and the paper
+  simulation are what carry information there. A wider preview surface is the EDR
+  viewport's job. Compare panes do not proof; the loupe does.
+- **8-bit exports are dithered.** There was no dithering code in the repository and the
+  export sheet said so. `PipelineRenderer.applyDither` now adds a tiled 8×8 ordered
+  pattern of at most half an output code immediately before the encoder, after every
+  resample, so a long smooth gradient keeps its local mean instead of stepping. The
+  amplitude is this file's recurring units bug in a new dress: one code is 0.0003 of
+  display white at the bottom of the sRGB curve and 0.008 at the top, so a constant
+  offset would be 27× wrong at one end. `Dither.codeStep` writes the conversion —
+  encode, step half a code either way, decode — against the DESTINATION's own transfer
+  curve, and it is baked into a per-channel table the GPU fetches. 16-bit targets are
+  left alone. One approximation, stated: the offset is added in the working primaries
+  and the encoder converts afterwards, so a saturated colour's dither is rotated by that
+  3×3 — of order one, and a dither only has to be about a code wide to break a band.
 
 ### What the engine, masking, panel and dailies audits found
 
@@ -366,10 +424,15 @@ changed the picture.
   other three are absent rather than shipping them inert. (The panel itself no longer
   missing: it was built in this session, and until then the whole register was
   unreachable.)
-- **Heal/clone does not exist on any path.** `Heal { strokesRef, count }` is declared and
-  wired into `Develop`, and there is no writer, no blob loader and no render stage. A
-  recipe arriving with `heal.count = 40` renders with all forty spots present and nothing
-  says so.
+- **Heal/clone does not exist on any path, and the panel now says so.** `Heal {
+  strokesRef, count }` is declared and wired into `Develop`, and there is no writer, no
+  blob loader and no render stage. A recipe arriving with `heal.count = 40` renders with
+  all forty spots present. The Effects panel carries a Retouch section with no controls
+  and a note saying exactly that, so somebody hunting for spot removal learns it is
+  absent rather than concluding they cannot find it. `heal` deliberately still
+  participates in `renderIdentity`, so it busts the cache: nothing writes it today, so
+  that costs nothing, and stripping it would plant a stale-cache bug for the day a heal
+  stage lands. Perspective/Upright is in the same position and the Crop section says so.
 - **Speed Edit (D44) is not implemented.** Correctly absent from the keyboard reference,
   so nobody is sent looking for it.
 - **The eyedropper is wired; what it feeds is not all verified.** The probe is

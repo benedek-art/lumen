@@ -408,16 +408,29 @@ private struct ExportRecipeEditor: View {
                 .controlSize(.small)
                 .frame(maxWidth: 200)
             }
-            // Both halves of this were false. There is no dithering code in the
-            // repository, and the gamut map is a soft clip to the fixed Rec.2020
-            // working space — the picker above it does not move where that clip
-            // happens.
-            ExportNote("8-bit encodes are quantized without dithering, so banding is "
-                       + "possible in long smooth gradients. Out-of-gamut colour is "
-                       + "soft-clipped to Rec.2020 at the display transform and then "
-                       + "converted by ColorSync; the space picker does not change "
-                       + "where that clip happens.")
+            // The first half of this used to say there was no dithering, which was true
+            // until the ordered dither landed; the second half is still true and still
+            // worth saying, because the space picker does not move where the gamut clip
+            // happens — soft proofing (⇧S) is what shows you that clip.
+            ExportNote(dither8BitNote
+                       + " Out-of-gamut colour is soft-clipped to Rec.2020 at the "
+                       + "display transform and then converted by ColorSync; the space "
+                       + "picker does not change where that clip happens. Press ⇧S in "
+                       + "develop to proof against this space and see what it cannot "
+                       + "hold.")
         }
+    }
+
+    /// Says what the encode actually does with the depth this recipe will use — which
+    /// is not always the depth the field holds, since JPEG and HEIF are 8-bit whatever
+    /// it says.
+    private var dither8BitNote: String {
+        recipe.effectiveBitDepth >= 16
+            ? "16-bit encodes carry codes 257× finer than an 8-bit one, so they are "
+                + "written straight through with no dithering."
+            : "8-bit encodes are dithered with an ordered 8×8 pattern of at most half "
+                + "an output code, measured against this space's own transfer curve, "
+                + "so a long smooth gradient keeps its local mean instead of banding."
     }
 
     // MARK: Size
