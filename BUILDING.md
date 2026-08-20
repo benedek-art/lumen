@@ -119,6 +119,10 @@ These are tracked, not hidden.
   not model S2/S3/S4, which means the golden suite cannot catch drift in them. `.off`
   really is off. (An earlier version of this file claimed the reference ran Tier 1. It
   did not.)
+- **Halation runs only on the GPU path.** `ReferenceRenderer` has no halation stage, so
+  the golden suite cannot compare it against anything — the same shape of gap as
+  capture sharpening and Tier-1 denoise above. What the graph does is checked by eye
+  and by the kernel's own unit tests, not by a reference.
 - **Local noise, moiré, defringe, grain and the local tone curve are not wired.** They
   have wire formats and no stage reads them, so the mask panel does not show them: a
   slider that moves a stored value and changes no pixel costs the user the time to find
