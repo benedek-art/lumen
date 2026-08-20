@@ -374,15 +374,30 @@ public struct DetailEngine: Sendable {
                     let neutral = c * gain
                     let y0 = space.luminance(neutral)
                     let y1 = (y0 - airLuma) / tv + airLuma
-                    // Fade to identity as the luminance approaches zero rather than
-                    // substituting a signed epsilon for it. `y1` is a fixed negative
-                    // number here, so the sign of the substitute alone chose between
-                    // the 0.05 and the 20 clamp — a 400× swing decided by the sign of
-                    // a quantity that is essentially zero. Near-zero LUMINANCE is not
+                    // Trust the luminance ratio only when the luminance is a real
+                    // fraction of the colour's own magnitude.
+                    //
+                    // `y1` is a fixed negative number as `y0` approaches zero, so the
+                    // ratio diverges and its SIGN flips across zero — the 0.05 clamp on
+                    // one side, the 20 clamp on the other. Scaling by it is a 400×
+                    // swing decided by a quantity that is essentially zero. The
+                    // original guard substituted a signed epsilon, which chose a side
+                    // arbitrarily; a first fix faded to identity over an absolute
+                    // window, which was far too narrow for a factor of twenty and still
+                    // stepped.
+                    //
+                    // The measure that works is relative. Near-zero luminance is not
                     // near-zero colour: shadow noise after white balance produces
-                    // triples like (−0.02, +0.009, −0.01) all the time, and those
-                    // pixels became saturated speckles that flickered with the noise.
-                    let trust = Num.smoothstep(0, 1e-5, abs(y0))
+                    // triples like (−0.02, +0.009, −0.01) whose luminance cancels while
+                    // the channels do not, and scaling those by a luminance ratio is
+                    // meaningless — they became saturated speckles that flickered with
+                    // the noise. A saturated blue, by contrast, carries only six percent
+                    // of its peak channel as luminance and must still dehaze fully,
+                    // which is why the window sits an order of magnitude below that.
+                    let magnitude = Swift.max(abs(c.r), Swift.max(abs(c.g), abs(c.b)))
+                    let trust = magnitude > 0
+                        ? Num.smoothstep(0.01, 0.05, abs(y0) / magnitude)
+                        : 0
                     let ratio = y0 != 0 ? Num.clamp(y1 / y0, 0.05, 20) : 1.0
                     out[x, y] = c * Num.mix(1.0, Num.mix(1.0, ratio, trust), a)
                 } else {

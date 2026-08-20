@@ -15,6 +15,12 @@ Mirrored contracts (change BOTH sides together):
   MonotoneCubic.swift   <-> MonotoneCubic
   ZoneWeights.swift     <-> zone_weights / exposure_stops
   MaskAlgebra.swift     <-> mask_combined
+  LUT.swift             <-> lumen_log_encode / lumen_log_decode / tetrahedral
+  ColorEngine.swift     <-> lum_sat_rolloff
+  ToneEngine.swift      <-> contrast_mapped
+  DetailEngine.swift    <-> band_weight / band_center / dehaze_ratio
+  MaskRaster.swift      <-> radial_alpha / edge_engagement
+  DenoiseEngine.swift   <-> vst_inverse_blend
   XMPSidecar.swift      <-> xmp_serialize
   RenameTemplate.swift  <-> rename_render
 """
@@ -683,6 +689,353 @@ def verify_schema():
 
 
 # ---------------------------------------------------------------------------
+# Engine math fixed in this session (mirrors, so the algorithms are checked
+# where Swift cannot run)
+#
+#   LUT.swift          <-> lumen_log_encode / lumen_log_decode / tetrahedral
+#   ColorEngine.swift  <-> lum_sat_rolloff
+#   ToneEngine.swift   <-> contrast_mapped
+#   DetailEngine.swift <-> band_weight / realized_band_weight
+# ---------------------------------------------------------------------------
+
+MID_GREY = 0.18
+MIN_EV = -12.0
+MAX_EV = 12.0
+LOG_RANGE = MAX_EV - MIN_EV
+INV_RANGE = 1.0 / LOG_RANGE
+LINEAR_CUT = MID_GREY * (2.0 ** (MIN_EV + 1.5))
+TOE_SLOPE = INV_RANGE / (LINEAR_CUT * math.log(2.0))
+TOE_OFFSET = 1.5 * INV_RANGE - TOE_SLOPE * LINEAR_CUT
+
+
+def lumen_log_encode(x):
+    if x >= LINEAR_CUT:
+        return (math.log2(x / MID_GREY) - MIN_EV) * INV_RANGE
+    return TOE_SLOPE * x + TOE_OFFSET
+
+
+def lumen_log_decode(y):
+    cut_y = TOE_SLOPE * LINEAR_CUT + TOE_OFFSET
+    if y >= cut_y:
+        return MID_GREY * (2.0 ** (y * LOG_RANGE + MIN_EV))
+    return (y - TOE_OFFSET) / TOE_SLOPE
+
+
+def tetrahedral(size, f, c):
+    """Mirror of LUT3D.sample. `f` maps a grid coordinate triple to a triple."""
+    n = size
+    mx = n - 1
+    fr, fg, fb = [min(max(v, 0.0), 1.0) * mx for v in c]
+    r0, g0, b0 = int(fr), int(fg), int(fb)
+    r0, g0, b0 = min(r0, mx), min(g0, mx), min(b0, mx)
+    r1, g1, b1 = min(r0 + 1, mx), min(g0 + 1, mx), min(b0 + 1, mx)
+    tr, tg, tb = fr - r0, fg - g0, fb - b0
+
+    def at(r, g, b):
+        return f(r / mx, g / mx, b / mx)
+
+    c000 = at(r0, g0, b0)
+    c111 = at(r1, g1, b1)
+
+    def sub(p, q):
+        return tuple(a - b for a, b in zip(p, q))
+
+    def blend(a, b, cc):
+        return tuple(c000[i] + a[i] * tr + b[i] * tg + cc[i] * tb for i in range(3))
+
+    if tr >= tg:
+        if tg >= tb:
+            return blend(sub(at(r1, g0, b0), c000), sub(at(r1, g1, b0), at(r1, g0, b0)),
+                         sub(c111, at(r1, g1, b0)))
+        if tr >= tb:
+            return blend(sub(at(r1, g0, b0), c000), sub(c111, at(r1, g0, b1)),
+                         sub(at(r1, g0, b1), at(r1, g0, b0)))
+        return blend(sub(at(r1, g0, b1), at(r0, g0, b1)), sub(c111, at(r1, g0, b1)),
+                     sub(at(r0, g0, b1), c000))
+    if tb > tg:
+        return blend(sub(c111, at(r0, g1, b1)), sub(at(r0, g1, b1), at(r0, g0, b1)),
+                     sub(at(r0, g0, b1), c000))
+    if tb > tr:
+        return blend(sub(c111, at(r0, g1, b1)), sub(at(r0, g1, b0), c000),
+                     sub(at(r0, g1, b1), at(r0, g1, b0)))
+    return blend(sub(at(r1, g1, b0), at(r0, g1, b0)), sub(at(r0, g1, b0), c000),
+                 sub(c111, at(r1, g1, b0)))
+
+
+SAT_ROLLOFF_LO0, SAT_ROLLOFF_LO1 = 0.02, 0.20
+SAT_ROLLOFF_HI0, SAT_ROLLOFF_HI_WIDTH, SAT_ROLLOFF_FLOOR = 0.86, 0.35, 0.35
+
+
+def smoothstep(a, b, x):
+    if b <= a:
+        return 0.0 if x < a else 1.0
+    t = min(max((x - a) / (b - a), 0.0), 1.0)
+    return t * t * (3 - 2 * t)
+
+
+def lum_sat_rolloff(brightness):
+    if not math.isfinite(brightness):
+        return 0.0
+    u = max(0.0, brightness - SAT_ROLLOFF_HI0) / SAT_ROLLOFF_HI_WIDTH
+    taper = SAT_ROLLOFF_FLOOR + (1 - SAT_ROLLOFF_FLOOR) / (1 + u * u)
+    return smoothstep(SAT_ROLLOFF_LO0, SAT_ROLLOFF_LO1, brightness) * taper
+
+
+CONTRAST_RELAX_START, CONTRAST_RELAX_END = 4.0, 12.0
+
+
+def contrast_mapped(t, contrast, pivot=0.0):
+    if contrast == 0:
+        return t
+    slope = 1 + 0.6 * (contrast / 100.0)
+    d = t - pivot
+    relax = smoothstep(CONTRAST_RELAX_START, CONTRAST_RELAX_END, abs(d))
+    return pivot + d * (slope + (1 - slope) * relax)
+
+
+def band_weight(level, center, half_width):
+    if half_width <= 0:
+        return 0.0
+    d = abs(level - center) / half_width
+    if d >= 1:
+        return 0.0
+    return 0.5 * (1 + math.cos(math.pi * d))
+
+
+def band_center(long_edge):
+    if long_edge <= 0:
+        return 1.0
+    return 1.0 + min(max(math.log2(long_edge / 2560.0), -1.0), 2.0)
+
+
+def gen_engine_checks():
+    print("engine math (shaper / rolloff / contrast / cube / texture) ...")
+
+    # --- the shaper -------------------------------------------------------
+    check(abs(lumen_log_encode(LINEAR_CUT * (1 - 1e-12)) - lumen_log_encode(LINEAR_CUT))
+          < 1e-9, "shaper toe does not meet its log branch")
+    for x in [0.0, 1e-9, 1e-6, LINEAR_CUT * 0.5, LINEAR_CUT, 0.001, 0.18, 1.0, 100.0]:
+        y = lumen_log_encode(x)
+        check(0.0 <= y <= 1.0, f"shaper left the unit domain at {x}: {y}")
+    prev, x = -1e18, 0.0
+    while x < 600:
+        y = lumen_log_encode(x)
+        check(y >= prev - 1e-12, f"shaper reversed at {x}")
+        prev = y
+        x = x + 5e-6 if x < 1e-4 else x * 1.05
+    for y in [0.0, 0.05, 0.25, 0.5, 0.75, 1.0]:
+        check(abs(lumen_log_encode(lumen_log_decode(y)) - y) < 1e-9,
+              f"shaper round trip broke at {y}")
+
+    # --- the saturation rolloff -------------------------------------------
+    for b in [1.0, 1.5, 2.0, 4.0, 20.0]:
+        check(lum_sat_rolloff(b) > 0.2, f"saturation switched off at brightness {b}")
+    check(abs(lum_sat_rolloff(0.5) - 1.0) < 1e-12, "rolloff not full through mid range")
+    check(lum_sat_rolloff(0.0) == 0.0, "rolloff non-zero at true black")
+    prev = lum_sat_rolloff(SAT_ROLLOFF_HI0)
+    x = SAT_ROLLOFF_HI0
+    while x < 30:
+        x += 0.01
+        v = lum_sat_rolloff(x)
+        check(v <= prev + 1e-12, f"rolloff rose at {x}")
+        check(prev - v < 0.02, f"rolloff stepped at {x}")
+        prev = v
+    # C1 at the knee: the taper must leave it with (near) zero slope.
+    h = 1e-5
+    slope = (lum_sat_rolloff(SAT_ROLLOFF_HI0 + h) - lum_sat_rolloff(SAT_ROLLOFF_HI0)) / h
+    check(abs(slope) < 1e-3, f"rolloff has a kink at the knee: slope {slope}")
+
+    # --- contrast ---------------------------------------------------------
+    for c in [-100, -40, 40, 100]:
+        for t in (-MAX_EV, MAX_EV):
+            check(abs(contrast_mapped(t, c) - t) < 1e-9,
+                  f"contrast {c} moved the end of the scale at {t} EV")
+        prev = -1e18
+        t = -14.0
+        while t <= 14:
+            m = contrast_mapped(t, c)
+            check(m >= prev - 1e-9, f"contrast {c} inverted at {t} EV")
+            prev = m
+            t += 0.05
+    for c, expected in [(100, 1.6), (50, 1.3), (-100, 0.4)]:
+        s = (contrast_mapped(0.05, c) - contrast_mapped(-0.05, c)) / 0.1
+        check(abs(s - expected) < 0.01, f"contrast {c} slope at pivot was {s}")
+
+    # --- tetrahedral interpolation keeps the neutral axis -----------------
+    def asym(r, g, b):
+        m = (r + 2 * g + 5 * b) / 8.0
+        base = m * m
+        return (base + (r - m) * 0.75, base + (g - m) * 0.75, base + (b - m) * 0.75)
+
+    for i in range(0, 201):
+        y = i / 200.0
+        out = tetrahedral(17, asym, (y, y, y))
+        check(abs(out[0] - out[1]) < 1e-9 and abs(out[1] - out[2]) < 1e-9,
+              f"cube put a cast on the neutral axis at {y}: {out}")
+        check(abs(out[0] - y * y) < 2e-3, f"neutral value drifted at {y}")
+
+    # --- texture band weights are resolution independent -------------------
+    half_width = 1.6
+    reference = sum(band_weight(l, 0.0, half_width) for l in range(-32, 33))
+    for long_edge in [640, 1280, 2560, 5120, 10240, 20480]:
+        center = band_center(long_edge)
+        realized = sum(band_weight(i, center, half_width) for i in range(5))
+        check(realized > 1e-9, f"no realized band weight at {long_edge}")
+        normalized = sum(band_weight(i, center, half_width) * (reference / realized)
+                         for i in range(5))
+        check(abs(normalized - reference) < 1e-9,
+              f"texture weight not normalized at long edge {long_edge}")
+    # And the un-normalized sums really did differ, or the fix was a no-op.
+    raw = [sum(band_weight(i, band_center(le), half_width) for i in range(5))
+           for le in (1280, 2560)]
+    check(abs(raw[0] - raw[1]) > 0.2,
+          "texture band weights did not actually differ across resolutions")
+
+    print("  shaper, rolloff, contrast, cube neutrality and texture scaling all hold")
+
+
+# ---------------------------------------------------------------------------
+# Spatial + local fixes from this session
+#
+#   MaskRaster.swift    <-> radial_alpha / edge_engagement
+#   DetailEngine.swift  <-> dehaze_ratio
+#   DenoiseEngine.swift <-> vst_inverse_blend
+# ---------------------------------------------------------------------------
+
+def radial_alpha(w, h, cx, cy, rx, ry, rotation_deg, feather, x, y):
+    """Mirror of MaskRaster.radialPlane AFTER the long-edge-units fix."""
+    theta = -rotation_deg * math.pi / 180.0
+    ct, st = math.cos(theta), math.sin(theta)
+    f = min(max(feather, 0.0), 100.0) / 100.0
+    rx_px = max(rx * w, 1e-6)
+    ry_px = max(ry * h, 1e-6)
+    pixel_guard = min(max(1.0 / max(min(rx_px, ry_px), 1.0), 0.0), 1.0)
+    rin = min(max(max(1 - f, pixel_guard), 0.0), 1 - 1e-6)
+
+    long_edge = float(max(w, h))
+    sx, sy = w / long_edge, h / long_edge
+    cxl, cyl = cx * sx, cy * sy
+    rxl, ryl = max(rx * sx, 1e-12), max(ry * sy, 1e-12)
+
+    dv = (y + 0.5) / long_edge - cyl
+    du = (x + 0.5) / long_edge - cxl
+    qx = du * ct - dv * st
+    qy = du * st + dv * ct
+    r = math.hypot(qx / rxl, qy / ryl)
+    if r <= rin:
+        return 1.0
+    if r >= 1:
+        return 0.0
+    return smoothstep(1.0, rin, r)
+
+
+def edge_engagement(shift):
+    return min(max(abs(shift), 0.0), 1.0)
+
+
+def dehaze_ratio(y0, y1, magnitude):
+    """Mirror of the fixed guard in DetailEngine.applyDehaze."""
+    trust = smoothstep(0.01, 0.05, abs(y0) / magnitude) if magnitude > 0 else 0.0
+    ratio = min(max(y1 / y0, 0.05), 20.0) if y0 != 0 else 1.0
+    return 1.0 + (ratio - 1.0) * trust
+
+
+def vst_inverse_blend(algebraic, unbiased, shrinkage):
+    t = min(max(shrinkage, 0.0), 1.0)
+    if t >= 1:
+        return unbiased
+    if t <= 0:
+        return algebraic
+    return algebraic + (unbiased - algebraic) * t
+
+
+def gen_spatial_checks():
+    print("spatial + local math (radial / edge / dehaze / denoise) ...")
+
+    # --- a rotated ellipse must render at the angle it was given ----------
+    # The bug: rotating in normalized coordinates mixed fractions-of-width with
+    # fractions-of-height, so on a 3:2 frame a 45 degree ellipse drew at 33.7.
+    w, h = 300, 200                       # 3:2
+    for wanted in (0.0, 30.0, 45.0, 60.0, 120.0):
+        best, best_r2 = None, -1.0
+        for yy in range(h):
+            for xx in range(w):
+                if radial_alpha(w, h, 0.5, 0.5, 0.20, 0.10, wanted, 0, xx, yy) <= 0:
+                    continue
+                dx = (xx + 0.5) - 0.5 * w
+                dy = (yy + 0.5) - 0.5 * h
+                r2 = dx * dx + dy * dy
+                if r2 > best_r2:
+                    best_r2, best = r2, (dx, dy)
+        # Angle of the farthest covered pixel = the major axis, in pixel space.
+        got = math.degrees(math.atan2(best[1], best[0])) % 180.0
+        want = wanted % 180.0
+        delta = min(abs(got - want), 180 - abs(got - want))
+        check(delta < 4.0,
+              f"radial mask at {wanted} deg rendered at {got:.1f} deg on a 3:2 frame")
+
+    # An unrotated ellipse must still be exactly as wide and tall as asked.
+    covered_x = [xx for xx in range(w)
+                 if radial_alpha(w, h, 0.5, 0.5, 0.20, 0.10, 0, 0, xx, h // 2) > 0]
+    covered_y = [yy for yy in range(h)
+                 if radial_alpha(w, h, 0.5, 0.5, 0.20, 0.10, 0, 0, w // 2, yy) > 0]
+    check(abs(len(covered_x) - 2 * 0.20 * w) < 2,
+          f"unrotated ellipse width wrong: {len(covered_x)} px")
+    check(abs(len(covered_y) - 2 * 0.10 * h) < 2,
+          f"unrotated ellipse height wrong: {len(covered_y)} px")
+
+    # --- the Edge control must ramp in, not switch on ---------------------
+    check(edge_engagement(0.0) == 0.0, "edge engaged at zero shift")
+    prev = 0.0
+    s = 0.0
+    while s <= 2.0:
+        e = edge_engagement(s)
+        check(e - prev < 0.06, f"edge engagement stepped at shift {s}")
+        prev = e
+        s += 0.05
+    check(edge_engagement(1.0) == 1.0, "edge never reaches full engagement")
+
+    # --- dehaze must not swing on the sign of a near-zero luminance -------
+    # y1 is a fixed negative number there; the old code substituted a SIGNED
+    # epsilon for y0, so the sign alone chose between the 0.05 and 20 clamps.
+    y1 = -0.004
+    noise_mag = 0.02                      # the (-0.02, +0.009, -0.01) shadow-noise case
+    left = dehaze_ratio(-1e-7, y1, noise_mag)
+    right = dehaze_ratio(+1e-7, y1, noise_mag)
+    check(abs(left - right) < 0.01,
+          f"dehaze swings across zero luminance: {left} vs {right}")
+    check(abs(dehaze_ratio(0.0, y1, noise_mag) - 1.0) < 1e-12,
+          "dehaze not identity at zero")
+    prev = None
+    v = -1e-4
+    while v <= 1e-4:
+        r = dehaze_ratio(v, y1, noise_mag)
+        if prev is not None:
+            check(abs(r - prev) < 0.02, f"dehaze stepped at luminance {v}")
+        prev = r
+        v += 2e-6
+    # ...and a saturated blue, whose luminance is only six percent of its peak
+    # channel, must still dehaze at full strength rather than being mistaken for
+    # cancelled noise.
+    blue_luma = 0.0593
+    check(abs(dehaze_ratio(blue_luma, blue_luma * 0.7, 1.0) - 0.7) < 0.02,
+          "dehaze stopped working on a saturated blue")
+
+    # --- the denoise inverse blend ----------------------------------------
+    alg, unb = 1.0, 1.0 + 0.25 * 1.024e-2      # pedestal at ISO 102400
+    check(vst_inverse_blend(alg, unb, 0.0) == alg, "blend not algebraic at zero")
+    check(vst_inverse_blend(alg, unb, 1.0) == unb, "blend not unbiased at full")
+    # Luminance 1 gives k/kmax = 4*(0.01^0.7)/4 ~= 0.04, so the first step must
+    # carry about a twenty-fifth of the pedestal, not all of it.
+    first = 4.0 * (0.01 ** 0.7) / 4.0
+    lift = vst_inverse_blend(alg, unb, first) - alg
+    check(lift < (unb - alg) * 0.1,
+          f"first denoise step still carries {lift / (unb - alg):.0%} of the pedestal")
+
+    print("  rotation isotropy, edge ramp, dehaze continuity and denoise blend hold")
+
+
+# ---------------------------------------------------------------------------
 
 def main():
     gen_canonical_fixture()
@@ -693,6 +1046,8 @@ def main():
     gen_xmp_fixture()
     gen_rename_fixture()
     verify_schema()
+    gen_engine_checks()
+    gen_spatial_checks()
     if FAILURES:
         print(f"\n{len(FAILURES)} verification failure(s)")
         sys.exit(1)
