@@ -225,6 +225,186 @@ final class SidecarAndIngestTests: XCTestCase {
         XCTAssertNil(XMPSidecar.parse("<unrelated><xml/></unrelated>"))
     }
 
+    // MARK: - Not destroying other applications' sidecars
+
+    /// A sidecar as Lightroom / Bridge / Camera Raw actually write one: the simple
+    /// properties are ATTRIBUTES on rdf:Description, not child elements. Both forms are
+    /// legal XMP and mean the same thing.
+    private func lightroomSidecar() -> String {
+        """
+        <?xpacket begin="\u{FEFF}" id="W5M0MpCehiHzreSzNTczkc9d"?>
+        <x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="Adobe XMP Core 9.0">
+         <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+          <rdf:Description rdf:about=""
+            xmlns:xmp="http://ns.adobe.com/xap/1.0/"
+            xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+            xmlns:dc="http://purl.org/dc/elements/1.1/"
+            xmlns:aux="http://ns.adobe.com/exif/1.0/aux/"
+            xmp:Rating="4"
+            xmp:Label="Red"
+            xmp:CreateDate="2026-05-01T14:22:03"
+            crs:Version="16.0"
+            crs:Exposure2012="+0.85"
+            crs:Temperature="5450"
+            aux:Lens="EF 35mm f/1.4L II USM">
+           <dc:subject>
+            <rdf:Bag>
+             <rdf:li>wedding</rdf:li>
+             <rdf:li>ceremony</rdf:li>
+            </rdf:Bag>
+           </dc:subject>
+          </rdf:Description>
+         </rdf:RDF>
+        </x:xmpmeta>
+        <?xpacket end="w"?>
+        """
+    }
+
+    /// The reader used to look only at child elements, so every Adobe sidecar parsed to
+    /// "no fields found" and `parse` returned nil. That is what made the writer's
+    /// whole-file replace silently destructive: the merge started from a blank
+    /// document because it could not see the rating that was already there.
+    func testAdobeAttributeFormIsRead() throws {
+        let content = try XCTUnwrap(XMPSidecar.parse(lightroomSidecar()),
+                                    "a Lightroom sidecar parsed to nothing at all")
+        XCTAssertEqual(content.rating, 4)
+        XCTAssertEqual(content.label, "Red")
+    }
+
+    /// The one that matters: updating a foreign sidecar must not delete the develop
+    /// settings, keywords and capture date it carries. This is a data-loss regression,
+    /// not a formatting preference — there is no backup of a sidecar and no undo.
+    func testUpdatingAForeignSidecarKeepsEverythingLumenDoesNotOwn() throws {
+        var content = SidecarContent()
+        content.rating = 2
+        content.flag = .pick
+        content.label = "Blue"
+        let updated = try XCTUnwrap(XMPSidecar.update(lightroomSidecar(), with: content))
+
+        for survivor in ["crs:Exposure2012", "+0.85", "crs:Temperature", "5450",
+                         "crs:Version", "aux:Lens", "EF 35mm f/1.4L II USM",
+                         "xmp:CreateDate", "2026-05-01T14:22:03",
+                         "dc:subject", "wedding", "ceremony"] {
+            XCTAssertTrue(updated.contains(survivor),
+                          "updating the sidecar destroyed \(survivor)")
+        }
+    }
+
+    /// Lumen's own fields have to end up stated exactly once. The old attribute form
+    /// must be gone, not left sitting alongside the new element form — a document that
+    /// asserts a rating twice is one two readers disagree about.
+    func testUpdatingReplacesLumensOwnFieldsRatherThanDuplicatingThem() throws {
+        var content = SidecarContent()
+        content.rating = 2
+        content.label = "Blue"
+        let updated = try XCTUnwrap(XMPSidecar.update(lightroomSidecar(), with: content))
+
+        XCTAssertFalse(updated.contains("xmp:Rating=\""),
+                       "the old attribute-form rating survived alongside the new one")
+        XCTAssertFalse(updated.contains("xmp:Label=\""),
+                       "the old attribute-form label survived alongside the new one")
+        XCTAssertEqual(updated.components(separatedBy: "<xmp:Rating>").count - 1, 1)
+        XCTAssertTrue(updated.contains("<xmp:Rating>2</xmp:Rating>"))
+        XCTAssertTrue(updated.contains("<xmp:Label>Blue</xmp:Label>"))
+
+        let reparsed = try XCTUnwrap(XMPSidecar.parse(updated))
+        XCTAssertEqual(reparsed.rating, 2)
+        XCTAssertEqual(reparsed.label, "Blue")
+    }
+
+    /// Culling a folder writes the sidecar on every keystroke. If each write shifted
+    /// the document, a day's culling would slowly rewrite files the user shares with
+    /// another application.
+    func testUpdatingIsIdempotent() throws {
+        var content = SidecarContent()
+        content.rating = 5
+        content.writeStamp = "2026-08-20T09:00:00Z"
+        let once = try XCTUnwrap(XMPSidecar.update(lightroomSidecar(), with: content))
+        let twice = try XCTUnwrap(XMPSidecar.update(once, with: content))
+        XCTAssertEqual(once, twice, "a second identical update moved the document")
+    }
+
+    /// Adobe splits a sidecar into several rdf:Description blocks by namespace, so the
+    /// rating being replaced is not necessarily in the first one. Missing it would
+    /// leave two conflicting ratings in one file.
+    func testUpdatingClearsLumensFieldsFromEveryDescriptionBlock() throws {
+        let multi = """
+        <x:xmpmeta xmlns:x="adobe:ns:meta/">
+         <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+          <rdf:Description rdf:about="" xmlns:tiff="http://ns.adobe.com/tiff/1.0/" \
+        tiff:Make="Nikon"/>
+          <rdf:Description rdf:about="" xmlns:xmp="http://ns.adobe.com/xap/1.0/" \
+        xmp:Rating="5" xmp:Label="Green"/>
+         </rdf:RDF>
+        </x:xmpmeta>
+        """
+        var content = SidecarContent()
+        content.rating = 1
+        let updated = try XCTUnwrap(XMPSidecar.update(multi, with: content))
+        XCTAssertFalse(updated.contains("xmp:Rating=\"5\""),
+                       "a stale rating survived in a later Description block")
+        XCTAssertFalse(updated.contains("xmp:Label=\"Green\""))
+        XCTAssertTrue(updated.contains("tiff:Make=\"Nikon\""))
+        XCTAssertEqual(updated.components(separatedBy: "<xmp:Rating>").count - 1, 1)
+    }
+
+    /// A self-closing Description carries its properties entirely as attributes and has
+    /// nowhere to put a child element until it is turned into a container.
+    func testUpdatingASelfClosingDescriptionKeepsItsAttributes() throws {
+        let compact = """
+        <x:xmpmeta xmlns:x="adobe:ns:meta/">
+         <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+          <rdf:Description rdf:about="" \
+        xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:Tint="+8"/>
+         </rdf:RDF>
+        </x:xmpmeta>
+        """
+        var content = SidecarContent()
+        content.rating = 3
+        let updated = try XCTUnwrap(XMPSidecar.update(compact, with: content))
+        XCTAssertTrue(updated.contains("crs:Tint=\"+8\""),
+                      "the develop setting was lost converting the tag to a container")
+        XCTAssertTrue(updated.contains("<xmp:Rating>3</xmp:Rating>"))
+        XCTAssertTrue(updated.contains("</rdf:Description>"))
+        XCTAssertNotNil(XMPSidecar.parse(updated),
+                        "the rewritten document no longer parses")
+    }
+
+    /// When the document cannot be edited safely, `update` must say so rather than
+    /// produce something — the caller's only correct response is to leave the file
+    /// alone, and it can only do that if it is told.
+    func testUpdatingRefusesDocumentsItCannotEditSafely() {
+        XCTAssertNil(XMPSidecar.update("", with: SidecarContent()))
+        XCTAssertNil(XMPSidecar.update("just some bytes", with: SidecarContent()))
+        XCTAssertNil(XMPSidecar.update("<rdf:RDF><rdf:Descr", with: SidecarContent()))
+    }
+
+    /// Lumen's own sidecars have to survive the round trip too — the update path is
+    /// what runs on the second and every later write to a photo Lumen created.
+    func testUpdatingLumensOwnSidecarRoundTrips() throws {
+        var first = SidecarContent()
+        first.rating = 3
+        first.flag = .reject
+        first.label = "Yellow"
+        first.recipeJSON = "{\"pipelineVersion\":1}"
+        let document = XMPSidecar.serialize(first)
+
+        var second = SidecarContent()
+        second.rating = 5
+        second.flag = .pick
+        second.label = "Red"
+        second.recipeJSON = "{\"pipelineVersion\":1,\"develop\":{}}"
+        let updated = try XCTUnwrap(XMPSidecar.update(document, with: second))
+
+        let reparsed = try XCTUnwrap(XMPSidecar.parse(updated))
+        XCTAssertEqual(reparsed.rating, 5)
+        XCTAssertEqual(reparsed.flag, .pick)
+        XCTAssertEqual(reparsed.label, "Red")
+        XCTAssertEqual(reparsed.recipeJSON, "{\"pipelineVersion\":1,\"develop\":{}}")
+        XCTAssertFalse(updated.contains("Yellow"), "the previous label was left behind")
+        XCTAssertEqual(updated.components(separatedBy: "<lumen:recipe>").count - 1, 1)
+    }
+
     func testRenameTemplatesMatchReference() throws {
         let fixture = try Fixtures.load("rename", as: RenameFixture.self)
         for c in fixture.cases {

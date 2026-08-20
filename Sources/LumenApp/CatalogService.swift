@@ -285,7 +285,32 @@ final class CatalogService: @unchecked Sendable {
 
         for (url, content) in batch {
             let path = Self.sidecarURL(for: url)
-            let text = XMPSidecar.serialize(content)
+
+            // An existing sidecar is somebody else's document that Lumen is allowed to
+            // add three fields to — NOT a file Lumen owns. `serialize` builds a whole
+            // document from an eight-field struct, so writing it over a sidecar that
+            // came from Lightroom, Bridge, Camera Raw or exiftool deleted every
+            // develop setting, keyword, capture date and colour label in it. That
+            // happened on the first rating keystroke, to photos Lumen had never
+            // rendered, with no backup and no undo.
+            //
+            // So: splice into what is there. If the document cannot be edited safely,
+            // leave it completely alone. The rating is still in the catalog; the
+            // user's work in that file is not recoverable from anywhere.
+            let text: String
+            if let existing = try? String(contentsOf: path, encoding: .utf8),
+               !existing.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                guard let merged = XMPSidecar.update(existing, with: content) else {
+                    NSLog("Lumen: left %@ untouched — it is not a sidecar this "
+                          + "version knows how to edit without losing its contents",
+                          path.lastPathComponent)
+                    continue
+                }
+                text = merged
+            } else {
+                text = XMPSidecar.serialize(content)
+            }
+
             do {
                 // Atomic: a sidecar half-written by a crash is worse than no sidecar.
                 try Data(text.utf8).write(to: path, options: .atomic)

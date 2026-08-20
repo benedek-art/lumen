@@ -109,7 +109,38 @@ public enum XMPSidecar {
 
     // MARK: - Write
 
+    /// Update an existing sidecar's Lumen-owned fields and leave every other byte of
+    /// it alone. `nil` means the document could not be edited safely — the caller must
+    /// then leave the file untouched rather than replacing it (see XMPMerge.swift).
+    ///
+    /// `serialize` alone is only correct for a photo that has NO sidecar yet. Using it
+    /// on an existing file is a whole-file replace, and that is how a folder of
+    /// Lightroom-processed RAWs lost every develop setting and keyword to a single
+    /// press of a rating key.
+    public static func update(_ original: String, with content: SidecarContent) -> String? {
+        XMPMerge.merge(into: original, fields: fieldLines(content),
+                       lumenNamespace: lumenNamespace)
+    }
+
     public static func serialize(_ content: SidecarContent) -> String {
+        """
+        <?xpacket begin="\u{FEFF}" id="W5M0MpCehiHzreSzNTczkc9d"?>
+        <x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="Lumen">
+         <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+          <rdf:Description rdf:about=""
+            xmlns:xmp="http://ns.adobe.com/xap/1.0/"
+            xmlns:lumen="\(lumenNamespace)">
+        \(fieldLines(content))  </rdf:Description>
+         </rdf:RDF>
+        </x:xmpmeta>
+        <?xpacket end="w"?>
+        """
+    }
+
+    /// The child elements Lumen owns, one per line, escaped and ready to splice.
+    /// Shared by `serialize` and `update` so a fresh document and an updated one can
+    /// never disagree about what Lumen writes.
+    static func fieldLines(_ content: SidecarContent) -> String {
         var fields = ""
         fields += "   <xmp:Rating>\(content.rating)</xmp:Rating>\n"
         if content.flag != .none {
@@ -131,18 +162,7 @@ public enum XMPSidecar {
         if let recipe = content.recipeJSON {
             fields += "   <lumen:recipe>\(escapeXML(recipe))</lumen:recipe>\n"
         }
-        return """
-        <?xpacket begin="\u{FEFF}" id="W5M0MpCehiHzreSzNTczkc9d"?>
-        <x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="Lumen">
-         <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
-          <rdf:Description rdf:about=""
-            xmlns:xmp="http://ns.adobe.com/xap/1.0/"
-            xmlns:lumen="\(lumenNamespace)">
-        \(fields)  </rdf:Description>
-         </rdf:RDF>
-        </x:xmpmeta>
-        <?xpacket end="w"?>
-        """
+        return fields
     }
 
     static func escapeXML(_ s: String) -> String {
@@ -202,6 +222,16 @@ private final class SidecarParserDelegate: NSObject, XMLParserDelegate {
     func parser(_ parser: XMLParser, didStartElement elementName: String,
                 namespaceURI: String?, qualifiedName qName: String?,
                 attributes attributeDict: [String: String]) {
+        // XMP carries a simple property EITHER as a child element or as an attribute
+        // on rdf:Description, and the two forms are interchangeable. Lumen writes the
+        // element form; Adobe writes the attribute form. Reading only elements meant
+        // every sidecar from Lightroom, Bridge and Camera Raw parsed to "no fields
+        // found", so `parse` returned nil, the rating and label were invisible, and the
+        // caller started from a blank document — which is what made overwriting one
+        // silently destructive rather than merely lossy.
+        for (key, value) in attributeDict where Self.interesting.contains(key) {
+            absorb(key, value)
+        }
         if Self.interesting.contains(elementName) {
             currentElement = elementName
             buffer = ""
@@ -215,9 +245,15 @@ private final class SidecarParserDelegate: NSObject, XMLParserDelegate {
     func parser(_ parser: XMLParser, didEndElement elementName: String,
                 namespaceURI: String?, qualifiedName qName: String?) {
         guard elementName == currentElement else { return }
-        let value = buffer
+        absorb(elementName, buffer)
+        currentElement = nil
+        buffer = ""
+    }
+
+    /// One field, from whichever form it arrived in.
+    private func absorb(_ name: String, _ value: String) {
         sawAnyField = true
-        switch elementName {
+        switch name {
         case "xmp:Rating":
             // Clamped at the parse site: this comes from a file another application
             // wrote, and the star row downstream will be asked to draw whatever it
@@ -244,7 +280,5 @@ private final class SidecarParserDelegate: NSObject, XMLParserDelegate {
         default:
             break
         }
-        currentElement = nil
-        buffer = ""
     }
 }
