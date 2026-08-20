@@ -43,9 +43,9 @@ looks like and needs no new UI.
 | Item | Now | Closes it |
 |---|---|---|
 | Clarity | 50 | Local Laplacian on the GPU; today it is a guided-filter gain at a coarser radius |
-| Texture | 55 → 70 | Coherence gate shipped (structure tensor). The à-trous band is still a guided-filter approximation |
+| Texture | 55 → 70 | Coherence gate shipped, then corrected: it smoothed the tensor over 4× the reference's radius, squared the eigenvalue ratio, and omitted the strength gate, which between them had it closing on flat skin (0.596 where the reference says 0.000) and opening on edges (0.503 against 0.611). The à-trous band is still a guided-filter approximation |
 | Dehaze colour stability | ~~45~~ **done** | Luminance-ratio recombination shipped; golden asserts 0° hue rotation where the old per-channel form rotated a veiled sky by 13.4° |
-| Sharpen Masking | ~~35~~ **done** | Edge gate from a Sobel structure measure, in the graph |
+| Sharpen Masking | ~~35~~ **done** | Edge gate off the box-smoothed structure tensor, at the reference's radius. The first version read a bare per-pixel Sobel and kept 17.8% of the delta on an edge against the reference's 73.7% — and being per-pixel, it kept a different amount at preview scale than at export scale |
 | Halo Suppression | ~~35~~ **done** | One-sided overshoot clamp, in the graph |
 | Capture sharpening | 25 | `richardsonLucy` + `estimatePSFSigma` have no caller; the toggle scales Apple's demosaic sharpener instead |
 | Vignette | 70 | Reference is frame-centred, GPU is crop-centred; they disagree on any cropped photo and no golden covers it |
