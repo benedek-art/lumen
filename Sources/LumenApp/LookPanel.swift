@@ -423,7 +423,7 @@ struct LookPanel: View {
                     }
 
                     if let stock {
-                        caption(LookPanel.stockCaption(stock, film: film))
+                        caption(LookPanel.stockCaption(stock))
                     } else {
                         caption("\u{201C}\(film.stock)\u{201D} is not a stock this build "
                                 + "ships — the render falls back to the neutral "
@@ -565,7 +565,10 @@ struct LookPanel: View {
             && normalizedPivots(wheels.pivots) == normalizedPivots(GradingWheels.defaultPivots)
     }
 
-    static func stockCaption(_ stock: FilmStock, film: FilmLab) -> String {
+    /// No `film` parameter any more: the only thing it carried was the print
+    /// size, and the caption stopped naming that when it turned out the print
+    /// size cannot change the picture.
+    static func stockCaption(_ stock: FilmStock) -> String {
         var text = stock.name
         if let print = stock.printName {
             text += " → " + print

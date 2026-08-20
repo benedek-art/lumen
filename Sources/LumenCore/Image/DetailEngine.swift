@@ -587,8 +587,9 @@ public struct DetailEngine: Sendable {
         let space = RGBColorSpace.rec2020
 
         // Disclosure defaults (docs/06 §12): Midpoint 50, Feather 50, Highlight 50.
-        let midpoint = DetailEngine.vignetteMidpoint
-        let feather = DetailEngine.vignetteFeather
+        // Midpoint and Feather now live on the type as named constants, because the
+        // GPU stand-in has to start its falloff in the same place; `vignetteInnerRadius`
+        // is what they combine to.
         let protection = 0.5
         let inner = DetailEngine.vignetteInnerRadius
         let outer = 1.0
