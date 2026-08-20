@@ -25,10 +25,27 @@ public struct CurveStack: Sendable {
     private let gCurve: MonotoneCubic?
     private let bCurve: MonotoneCubic?
 
+    /// Whether the baked parametric curve is the identity, decided ONCE.
+    ///
+    /// `LUT1D.isIdentity()` walks all 1024 samples. It was being called from `apply`,
+    /// per pixel, twice — once through `isIdentity` and once directly — so deciding to
+    /// do nothing to an untouched photograph cost 2048 float comparisons per pixel.
+    ///
+    /// Measured on a release build: baking `RenderPlan.finishLUT` at its interactive
+    /// size of 33 took 72.6 ms for a DEFAULT recipe, of which 53.0 ms was this. Since
+    /// `finishLUT` is baked unconditionally on every plan and a plan is built for every
+    /// frame, that was 53 ms of the per-frame budget spent proving a curve nobody had
+    /// touched was still untouched. The whole identity plan drops from 70.3 ms to
+    /// 17.7 ms; the draft plan, which is what a slider drag actually renders, drops
+    /// from 10.1 ms to 2.6 ms.
+    private let parametricIsIdentity: Bool
+
     public init(_ set: CurveSet, encoding: TransferFunction = .srgb) {
         self.set = set
         self.encoding = encoding
-        self.parametric = CurveStack.bakeParametric(set.parametric)
+        let baked = CurveStack.bakeParametric(set.parametric)
+        self.parametric = baked
+        self.parametricIsIdentity = baked.isIdentity()
         self.point = set.point.map { MonotoneCubic(points: $0) }
         self.luma = set.luma.map { MonotoneCubic(points: $0) }
         self.rCurve = set.r.map { MonotoneCubic(points: $0) }
@@ -185,7 +202,7 @@ public struct CurveStack: Sendable {
 
     public var isIdentity: Bool {
         point == nil && luma == nil && rCurve == nil && gCurve == nil && bCurve == nil
-            && parametric.isIdentity()
+            && parametricIsIdentity
     }
 
     /// Apply the whole stack to a display-linear colour, normalized so that
@@ -199,7 +216,7 @@ public struct CurveStack: Sendable {
         // Master curve, luminance-preserving by default: curve the luminance and
         // carry the chroma ratios, which is what stops a contrast curve from also
         // being a saturation boost.
-        if !(point == nil && parametric.isIdentity()) {
+        if !(point == nil && parametricIsIdentity) {
             if set.preserveLuminance {
                 let lum = Num.saturate(space.luminance(e))
                 if lum > 1e-6 {
