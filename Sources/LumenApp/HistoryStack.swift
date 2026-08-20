@@ -61,8 +61,10 @@ final class HistoryStack: ObservableObject {
         if position < steps.count {
             steps.removeSubrange(position...)
         }
+        // A coalescing key is an identity for merging, not prose: falling back to it
+        // put "Undo mask.c.amount.9F3B-…" in the Edit menu.
         steps.append(Step(before: before, after: after, coalescingKey: coalescingKey,
-                          label: label ?? coalescingKey ?? "Edit"))
+                          label: label ?? "Edit"))
         if steps.count > Self.limit {
             steps.removeFirst(steps.count - Self.limit)
         }

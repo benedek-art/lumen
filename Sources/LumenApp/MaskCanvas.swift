@@ -625,8 +625,17 @@ struct MaskCanvas: View {
                       recipe.masks[m].components.indices.contains(index) else { return }
                 recipe.masks[m].components[index] = component
             }
-        case .strokes(let maskID, let index, _, let ref, _):
-            guard let ref = ref else { return }
+        case .strokes(let maskID, let index, _, let ref, let payload):
+            // The reference is only a promise that the bytes exist. Store them first:
+            // a `strokesRef` whose blob was never written is a mask that rasterizes
+            // empty forever, and it survives into the catalog and the sidecar looking
+            // exactly like a mask that works.
+            guard let ref, let payload,
+                  let stored = try? state.catalog?.blobs.store(payload),
+                  stored == ref else {
+                state.statusMessage = "Could not save that stroke — the mask is unchanged"
+                return
+            }
             state.updateRecipe(coalescingKey: nil) { recipe in
                 guard let m = recipe.masks.firstIndex(where: { $0.id == maskID }),
                       recipe.masks[m].components.indices.contains(index) else { return }

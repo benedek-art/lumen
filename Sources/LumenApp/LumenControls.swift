@@ -106,11 +106,16 @@ struct LumenSlider: View {
                     .fill(Lumen.trackColor)
                     .frame(height: 3)
                 // Fill from the default toward the value: the eye reads the deviation,
-                // not the absolute position.
+                // not the absolute position. Where the fill STARTS is the lower of the
+                // two, always — what decides it is where the default sits, not whether
+                // the range straddles zero. Consulting `bipolar` here collapsed to
+                // `min(fraction, fraction)` on every unipolar slider, which drew the
+                // bar starting at the thumb and running away from the default instead
+                // of toward it.
                 Capsule()
                     .fill(Lumen.fillColor.opacity(isModified ? 0.9 : 0.5))
                     .frame(width: max(abs(fraction - zeroFraction) * width, 1), height: 3)
-                    .offset(x: min(fraction, bipolar ? zeroFraction : fraction) * width)
+                    .offset(x: min(fraction, zeroFraction) * width)
                 Circle()
                     .fill(Lumen.primaryText)
                     .frame(width: isDragging ? 11 : 9, height: isDragging ? 11 : 9)

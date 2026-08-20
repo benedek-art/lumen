@@ -65,6 +65,11 @@ final class KeyDispatcher {
             return false
         }
 
+        // A sheet owns every key too. This monitor sits in FRONT of the responder
+        // chain, so without this an X pressed while reading the export sheet rejects
+        // the photo behind it — silently, because the sheet is covering the badge.
+        if state.isPresentingSheet { return false }
+
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         // Command-modified keys are menu territory; leave them alone.
         if flags.contains(.command) { return false }
@@ -152,9 +157,11 @@ final class KeyDispatcher {
 
         // ---- Thumbnail size ----------------------------------------------------
         case "[":
-            state.gridThumbnailSize = max(state.gridThumbnailSize - 24, 80)
+            state.gridThumbnailSize = max(state.gridThumbnailSize - 24,
+                                          AppState.minThumbnailSize)
         case "]":
-            state.gridThumbnailSize = min(state.gridThumbnailSize + 24, 400)
+            state.gridThumbnailSize = min(state.gridThumbnailSize + 24,
+                                          AppState.maxThumbnailSize)
 
         // ---- Hold-key overlays -------------------------------------------------
         case " ":
@@ -187,17 +194,21 @@ final class KeyDispatcher {
         guard let scalars = event.charactersIgnoringModifiers?.unicodeScalars,
               let first = scalars.first else { return nil }
         switch Int(first.value) {
-        case NSRightArrowFunctionKey:
-            state.selectNext()
-            return true
-        case NSLeftArrowFunctionKey:
-            state.selectPrevious()
-            return true
-        case NSDownArrowFunctionKey:
-            state.moveSelection(by: state.viewMode == .grid ? state.gridColumns : 1)
-            return true
-        case NSUpArrowFunctionKey:
-            state.moveSelection(by: state.viewMode == .grid ? -state.gridColumns : -1)
+        case NSRightArrowFunctionKey, NSLeftArrowFunctionKey,
+             NSDownArrowFunctionKey, NSUpArrowFunctionKey:
+            // Zoomed in, the arrows pan the picture. Returning nil hands the event to
+            // the responder chain, where the loupe's own `onMoveCommand` is waiting —
+            // this monitor runs first, so claiming the key here made that pan handler
+            // unreachable code.
+            if state.viewMode == .loupe && state.zoomLevel > 0 { return nil }
+            switch Int(first.value) {
+            case NSRightArrowFunctionKey: state.selectNext()
+            case NSLeftArrowFunctionKey: state.selectPrevious()
+            case NSDownArrowFunctionKey:
+                state.moveSelection(by: state.viewMode == .grid ? state.gridColumns : 1)
+            default:
+                state.moveSelection(by: state.viewMode == .grid ? -state.gridColumns : -1)
+            }
             return true
         case NSDeleteFunctionKey, 0x7F:
             state.setFlag(.rejected)

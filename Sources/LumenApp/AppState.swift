@@ -13,6 +13,7 @@
 #if os(macOS)
 
 import AppKit
+import Combine
 import Foundation
 import LumenCore
 import LumenPipeline
@@ -161,6 +162,40 @@ enum SortOrder: String, CaseIterable, Identifiable, Sendable {
     var id: String { rawValue }
 }
 
+// MARK: - Sheets
+
+enum SheetKind: String, Identifiable, Sendable {
+    case keyReference, export, ingest
+    var id: String { rawValue }
+}
+
+// MARK: - File dates
+
+/// Modification times, remembered. A sort comparator runs O(n log n) times over the
+/// same n files, and stat-ing a network volume that often is how a folder of 5,000
+/// frames stops responding to a menu click.
+final class FileDateCache: @unchecked Sendable {
+    private let lock = NSLock()
+    private var dates: [URL: Date] = [:]
+
+    func date(for url: URL) -> Date {
+        lock.lock()
+        if let hit = dates[url] {
+            lock.unlock()
+            return hit
+        }
+        lock.unlock()
+        let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
+        let date = (attributes?[.creationDate] as? Date)
+            ?? (attributes?[.modificationDate] as? Date)
+            ?? Date.distantPast
+        lock.lock()
+        dates[url] = date
+        lock.unlock()
+        return date
+    }
+}
+
 // MARK: - AppState
 
 @MainActor
@@ -186,14 +221,35 @@ final class AppState: ObservableObject {
     /// Auto-advance after a flag or rating is the culling loop's whole point, and it
     /// is visible and toggleable rather than a hidden preference (D35).
     @Published var autoAdvance = true
+    /// One range, named once. The slider and the [ ] keys disagreeing meant dragging
+    /// to the slider's maximum and then pressing [ snapped the grid down a step.
+    static let minThumbnailSize: Double = 96
+    static let maxThumbnailSize: Double = 512
     @Published var gridThumbnailSize: Double = 160
     @Published var showFilmstrip = true
     /// Published by the grid as it lays out, so ↑/↓ move by a real row rather than by
     /// a guess. Never zero — a divide-by-row-count would be a crash in the key path.
     @Published var gridColumns: Int = 6
-    @Published var showKeyReference = false
-    @Published var showExportSheet = false
-    @Published var showIngestSheet = false
+    /// Which modal is up. Three independent booleans let two of them be true at once,
+    /// which a single presenter cannot honour; these stay as the vocabulary every call
+    /// site already speaks, and all three agree on one source of truth.
+    @Published var activeSheet: SheetKind?
+
+    var showKeyReference: Bool {
+        get { activeSheet == .keyReference }
+        set { activeSheet = newValue ? .keyReference : (showKeyReference ? nil : activeSheet) }
+    }
+    var showExportSheet: Bool {
+        get { activeSheet == .export }
+        set { activeSheet = newValue ? .export : (showExportSheet ? nil : activeSheet) }
+    }
+    var showIngestSheet: Bool {
+        get { activeSheet == .ingest }
+        set { activeSheet = newValue ? .ingest : (showIngestSheet ? nil : activeSheet) }
+    }
+
+    /// True while anything modal is on screen — the bare-key grammar stands down.
+    var isPresentingSheet: Bool { activeSheet != nil }
 
     // MARK: Editor
 
@@ -206,12 +262,18 @@ final class AppState: ObservableObject {
     @Published var activeMaskID: String?
     @Published var activeComponentIndex: Int = 0
     @Published var clippingOverlay: ClippingOverlay.Mode?
-    @Published var showHistogram = true
-    @Published var showScopes = false
+    /// Switching a scope on has to fill it. `scheduleScopeRefresh` refuses to work
+    /// when both are off, so without this the panel reads "no histogram yet" until the
+    /// user happens to touch a slider.
+    @Published var showHistogram = true { didSet { scopesBecameVisible(oldValue) } }
+    @Published var showScopes = false { didSet { scopesBecameVisible(oldValue) } }
     /// The histogram and scopes for the current photo, binned from a small proxy of
     /// the actual composite off the main actor.
     @Published var scopes: ScopeData?
     var scopeGeneration: UInt64 = 0
+    /// Which folder scan is the current one. Opening B while A is still enumerating
+    /// must not let A's results land on top of B's.
+    var scanGeneration: UInt64 = 0
     @Published var zoomLevel: Double = 0        // 0 = fit; otherwise a ratio like 1.0
 
     // MARK: Services
@@ -225,8 +287,18 @@ final class AppState: ObservableObject {
     @Published var isExporting = false
     @Published var exportProgress: Double = 0
 
+    /// `HistoryStack` is its own observable object, and SwiftUI only re-renders a
+    /// view for the object it observes. The Edit menu reads `state.history`, so
+    /// without this the undo item's enablement only refreshed when a recipe happened
+    /// to change on the same tick — correct by accident, and wrong the first time
+    /// history moves on its own.
+    private var historyObserver: AnyCancellable?
+
     init() {
         openCatalog()
+        historyObserver = history.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
     }
 
     // MARK: Derived
@@ -238,7 +310,14 @@ final class AppState: ObservableObject {
         case .filename:
             return filtered.sorted { $0.filename.localizedStandardCompare($1.filename) == .orderedAscending }
         case .captureDate:
-            return filtered   // capture time arrives with the catalog's metadata scan
+            // Until the catalog's metadata scan lands, the file's own modification
+            // time is the closest honest answer. Silently returning the list unsorted
+            // made the menu item look broken rather than approximate.
+            return filtered.sorted {
+                let a = Self.fileDate($0.id), b = Self.fileDate($1.id)
+                if a != b { return a < b }
+                return $0.filename.localizedStandardCompare($1.filename) == .orderedAscending
+            }
         case .rating:
             return filtered.sorted { ($0.rating, $1.filename) > ($1.rating, $0.filename) }
         case .flag:
@@ -246,8 +325,27 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// Everything selected, whether or not the current filter happens to be showing
+    /// it. Deriving this from the filtered list meant narrowing a filter after
+    /// selecting forty frames quietly shrank both the export and the count that
+    /// promised what would be exported.
+    /// Cached so a sort does not stat the same file once per comparison.
+    private static let fileDateCache = FileDateCache()
+
+    static func fileDate(_ url: URL) -> Date {
+        fileDateCache.date(for: url)
+    }
+
     var selectedPhotos: [PhotoItem] {
-        photos.filter { selection.contains($0.id) }
+        allPhotos.filter { selection.contains($0.id) }
+    }
+
+    /// The brush blobs a recipe's masks refer to. A `strokesRef` is a promise that
+    /// bytes exist somewhere; this is where the renderer collects them. Empty when
+    /// there is no catalog, which is honest — with nowhere to have stored strokes,
+    /// there are none to rasterize.
+    func strokeSets(for recipe: Recipe) -> [String: BrushStrokeSet] {
+        catalog?.blobs.strokeSets(for: recipe) ?? [:]
     }
 
     /// What an edit applies to: the whole selection when there is one, otherwise the
@@ -300,10 +398,21 @@ final class AppState: ObservableObject {
         statusMessage = "Scanning…"
 
         let extensions = Self.browsableExtensions
-        Task.detached(priority: .userInitiated) {
+        scanGeneration &+= 1
+        let generation = scanGeneration
+        let catalog = self.catalog
+        Task.detached(priority: .userInitiated) { [weak self] in
             let found = Self.scan(url: url, extensions: extensions)
+            // Registration is thousands of SQL round-trips and a sidecar read per
+            // file. It stays out here, on this thread: it used to run inside the
+            // main-actor hop, which stopped the run loop for the whole of a 5,000
+            // frame card.
+            let stored = catalog?.registerAndLoad(folder: url, files: found) ?? [:]
             await MainActor.run {
-                self.applyScan(found)
+                // Open folder A, then B before A finishes, and A's scan can land
+                // second. The newest folder the user asked for is the one on screen.
+                guard let self, self.scanGeneration == generation else { return }
+                self.applyScan(found, stored: stored)
             }
         }
     }
@@ -323,18 +432,15 @@ final class AppState: ObservableObject {
         return found.sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
     }
 
-    private func applyScan(_ urls: [URL]) {
+    private func applyScan(_ urls: [URL], stored: [URL: CatalogService.StoredState]) {
         var items = urls.map { PhotoItem(id: $0) }
-        if let catalog, let folder = folderURL {
-            let state = catalog.registerAndLoad(folder: folder, files: urls)
-            for i in items.indices {
-                if let stored = state[items[i].id] {
-                    items[i].catalogID = stored.catalogID
-                    items[i].flag = stored.flag
-                    items[i].rating = stored.rating
-                    items[i].label = stored.label
-                    if let recipe = stored.recipe { recipes[items[i].id] = recipe }
-                }
+        for i in items.indices {
+            if let row = stored[items[i].id] {
+                items[i].catalogID = row.catalogID
+                items[i].flag = row.flag
+                items[i].rating = row.rating
+                items[i].label = row.label
+                if let recipe = row.recipe { recipes[items[i].id] = recipe }
             }
         }
         allPhotos = items
@@ -348,25 +454,32 @@ final class AppState: ObservableObject {
     // MARK: Selection
 
     func select(_ photo: PhotoItem, extending: Bool = false, toggling: Bool = false) {
+        let changedPhoto = primarySelection?.id != photo.id
         if toggling {
             if selection.contains(photo.id) {
                 selection.remove(photo.id)
             } else {
                 selection.insert(photo.id)
             }
-            primarySelection = photo
-            return
-        }
-        if extending, let anchor = primarySelection,
-           let from = photos.firstIndex(of: anchor),
-           let to = photos.firstIndex(of: photo) {
+        } else if extending, let anchor = primarySelection,
+                  let from = photos.firstIndex(of: anchor),
+                  let to = photos.firstIndex(of: photo) {
             let range = from <= to ? from...to : to...from
             selection = Set(photos[range].map(\.id))
-            primarySelection = photo
-            return
+        } else {
+            selection = [photo.id]
         }
-        selection = [photo.id]
         primarySelection = photo
+        guard changedPhoto else { return }
+        // Every path lands here, including ⌘-click and ⇧-click, which used to return
+        // early and leave the histogram describing the previous frame.
+        //
+        // Mask selection is per-photo, so it does not travel: mask "c-9F3B" on this
+        // photo is not the same object as mask 1 on the next one, and carrying the
+        // index across would point the on-image handles at a component that is not
+        // there.
+        activeMaskID = nil
+        activeComponentIndex = 0
         scheduleScopeRefresh()
     }
 
@@ -387,24 +500,50 @@ final class AppState: ObservableObject {
     }
 
     func selectAll() { selection = Set(photos.map(\.id)) }
-    func selectNone() { selection = [] }
+
+    /// "None" means none: leaving the primary set would leave one photo still taking
+    /// edits after the user asked for nothing to be selected.
+    func selectNone() {
+        selection = []
+        primarySelection = nil
+        scheduleScopeRefresh()
+    }
 
     // MARK: Culling actions
 
+    /// A cull key is one decision, not one decision per photo. Pressing P on ten
+    /// photos of which three are already picked must leave ten picked — deciding
+    /// per-item toggled the three back off, which is how a pass over a selection ends
+    /// up with holes in it.
     func setFlag(_ flag: PhotoFlag) {
-        mutateTargets { $0.flag = $0.flag == flag ? .none : flag }
-        advanceIfNeeded()
+        let target: PhotoFlag = referenceItem?.flag == flag ? .none : flag
+        let from = cursorIndex
+        mutateTargets { $0.flag = target }
+        advanceIfNeeded(from: from)
     }
 
     func setRating(_ rating: Int) {
         let clamped = Swift.min(Swift.max(rating, 0), 5)
-        mutateTargets { $0.rating = $0.rating == clamped ? 0 : clamped }
-        advanceIfNeeded()
+        let target = referenceItem?.rating == clamped ? 0 : clamped
+        let from = cursorIndex
+        mutateTargets { $0.rating = target }
+        advanceIfNeeded(from: from)
     }
 
     func setLabel(_ label: ColorLabel) {
-        mutateTargets { $0.label = $0.label == label ? .none : label }
-        advanceIfNeeded()
+        let target: ColorLabel = referenceItem?.label == label ? .none : label
+        let from = cursorIndex
+        mutateTargets { $0.label = target }
+        advanceIfNeeded(from: from)
+    }
+
+    private func scopesBecameVisible(_ wasOn: Bool) {
+        if !wasOn { scheduleScopeRefresh() }
+    }
+
+    /// The photo whose current state decides whether a cull key sets or clears.
+    private var referenceItem: PhotoItem? {
+        primarySelection ?? editTargets.first
     }
 
     private func mutateTargets(_ body: (inout PhotoItem) -> Void) {
@@ -419,9 +558,32 @@ final class AppState: ObservableObject {
         }
     }
 
-    private func advanceIfNeeded() {
+    /// Advance from where the cursor WAS. `mutateTargets` may have just made the
+    /// current photo fail the active filter — rejecting under a "Unflagged" filter
+    /// does exactly that — and then it is no longer in `photos` to be found. Looking
+    /// it up afterwards returned nil and sent the cursor to the top of the roll on
+    /// every keystroke.
+    private func advanceIfNeeded(from index: Int?) {
         guard autoAdvance, selection.count <= 1 else { return }
-        selectNext()
+        let list = photos
+        guard !list.isEmpty else { return }
+        guard let current = primarySelection,
+              let found = list.firstIndex(of: current) else {
+            // The photo left the filtered list under us. Its old neighbour is the
+            // honest place to land.
+            if let index {
+                select(list[Swift.min(index, list.count - 1)])
+            }
+            return
+        }
+        guard found + 1 < list.count else { return }
+        select(list[found + 1])
+    }
+
+    /// Where the cursor sits in the list as it stands right now.
+    private var cursorIndex: Int? {
+        guard let current = primarySelection else { return nil }
+        return photos.firstIndex(of: current)
     }
 
     // MARK: Recipes
@@ -468,12 +630,14 @@ final class AppState: ObservableObject {
         guard let step = history.undo() else { return }
         for (url, recipe) in step { recipes[url] = recipe }
         persist(step)
+        scheduleScopeRefresh()
     }
 
     func redo() {
         guard let step = history.redo() else { return }
         for (url, recipe) in step { recipes[url] = recipe }
         persist(step)
+        scheduleScopeRefresh()
     }
 
     // MARK: Copy / paste settings

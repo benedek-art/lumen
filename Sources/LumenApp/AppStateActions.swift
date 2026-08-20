@@ -33,7 +33,8 @@ extension AppState {
                 var probe = recipe
                 probe.develop.tone = Tone()
                 guard let stats = await Self.statistics(url: url, recipe: probe,
-                                                        coordinator: renderCoordinator)
+                                                        coordinator: renderCoordinator,
+                                                        strokeSets: strokeSets(for: probe))
                 else { continue }
                 suggestions[url] = AutoTone.suggest(from: stats)
             }
@@ -65,13 +66,20 @@ extension AppState {
     }
 
     private static func statistics(url: URL, recipe: Recipe,
-                                   coordinator: RenderCoordinator) async -> AutoTone.Statistics? {
+                                   coordinator: RenderCoordinator,
+                                   strokeSets: [String: BrushStrokeSet]
+                                   ) async -> AutoTone.Statistics? {
         // A 512-px proxy is plenty for tonal statistics and costs a fraction of a
-        // full render — Auto must feel instant or nobody presses it twice.
-        guard let result = await coordinator.render(url: url, recipe: recipe,
-                                                    maxLongEdge: 512, draft: true,
-                                                    generation: .max) else { return nil }
-        return histogramStatistics(from: result.image)
+        // full render — Auto must feel instant or nobody presses it twice. One-shot,
+        // so measuring the picture cannot cancel the frame the viewer is drawing.
+        guard let result = await coordinator.renderOneShot(
+            url: url, recipe: recipe, maxLongEdge: 512, draft: true,
+            strokeSets: strokeSets) else { return nil }
+        // Off the main actor for real: `nonisolated` permits being called from
+        // anywhere, it does not move the work, and the caller is a main-actor Task.
+        return await Task.detached(priority: .userInitiated) {
+            histogramStatistics(from: result.image)
+        }.value
     }
 
     /// Log2-luminance histogram of a rendered proxy, in stops around mid-grey.
@@ -117,8 +125,10 @@ extension AppState {
             return
         }
 
-        let jobs = targets.map { photo in
-            (url: photo.id, recipe: recipe(for: photo))
+        let jobs = targets.map { photo -> (url: URL, recipe: Recipe,
+                                           strokes: [String: BrushStrokeSet]) in
+            let r = recipe(for: photo)
+            return (url: photo.id, recipe: r, strokes: strokeSets(for: r))
         }
         isExporting = true
         exportProgress = 0
@@ -138,7 +148,8 @@ extension AppState {
                             withIntermediateDirectories: true)
                         try await renderCoordinator.export(url: job.url, recipe: job.recipe,
                                                            to: destination,
-                                                           exportRecipe: exportRecipe)
+                                                           exportRecipe: exportRecipe,
+                                                           strokeSets: job.strokes)
                     } catch {
                         failures.append(job.url.lastPathComponent + " → " + exportRecipe.name)
                     }

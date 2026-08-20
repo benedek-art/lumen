@@ -37,18 +37,47 @@ actor RenderCoordinator {
     private static let sourceCacheLimit = 12
     private var sourceOrder: [URL] = []
 
+    /// A render that takes part in coalescing: it claims the newest ticket, and any
+    /// request holding an older one is dropped wherever it happens to be.
+    ///
+    /// `generation` must be a real ticket from `RenderGeneration.next()`. A sentinel
+    /// like `.max` would latch `latestGeneration` at the ceiling and every subsequent
+    /// request would compare as stale — one poisoned call and the viewer never updates
+    /// again. Work that must not participate goes through `renderOneShot` instead.
     func render(url: URL, recipe: Recipe, maxLongEdge: Int, draft: Bool,
-                generation: UInt64) async -> RenderResult? {
+                generation: UInt64,
+                strokeSets: [String: BrushStrokeSet] = [:]) async -> RenderResult? {
         latestGeneration = max(latestGeneration, generation)
         // Drop work that is already stale before paying for a decode.
         guard generation >= latestGeneration else { return nil }
+        return await produce(url: url, recipe: recipe, maxLongEdge: maxLongEdge,
+                             draft: draft, generation: generation, coalesced: true,
+                             strokeSets: strokeSets)
+    }
+
+    /// A render nobody else is waiting on — the scope proxy, the Auto-tone probe. It
+    /// neither claims a ticket nor yields to one: the caller has its own supersede
+    /// check, and letting these touch `latestGeneration` would have them cancelling
+    /// the viewer's frames (or, with a sentinel, all of them forever).
+    func renderOneShot(url: URL, recipe: Recipe, maxLongEdge: Int, draft: Bool,
+                       strokeSets: [String: BrushStrokeSet] = [:]) async -> RenderResult? {
+        await produce(url: url, recipe: recipe, maxLongEdge: maxLongEdge,
+                      draft: draft, generation: 0, coalesced: false,
+                      strokeSets: strokeSets)
+    }
+
+    private func produce(url: URL, recipe: Recipe, maxLongEdge: Int, draft: Bool,
+                         generation: UInt64, coalesced: Bool,
+                         strokeSets: [String: BrushStrokeSet]) async -> RenderResult? {
+        func stale() -> Bool { coalesced && generation < latestGeneration }
 
         do {
             let source = try self.source(for: url)
-            guard generation >= latestGeneration else { return nil }
+            guard !stale() else { return nil }
             let image = try renderer.renderPreview(source: source, recipe: recipe,
-                                                   maxLongEdge: maxLongEdge, draft: draft)
-            guard generation >= latestGeneration else { return nil }
+                                                   maxLongEdge: maxLongEdge, draft: draft,
+                                                   strokeSets: strokeSets)
+            guard !stale() else { return nil }
             return RenderResult(image: image, generation: generation, isDraft: draft,
                                 usedEmbeddedPreview: false,
                                 note: KernelLibrary.coreAvailable
@@ -67,18 +96,20 @@ actor RenderCoordinator {
     }
 
     /// Render at full resolution for export. Never coalesced: an export is a promise.
-    func renderFullSize(url: URL, recipe: Recipe) throws -> CGImage {
+    func renderFullSize(url: URL, recipe: Recipe,
+                        strokeSets: [String: BrushStrokeSet] = [:]) throws -> CGImage {
         let source = try self.source(for: url)
         return try renderer.renderPreview(source: source, recipe: recipe,
                                           maxLongEdge: Int(source.nativeLongEdge),
-                                          draft: false)
+                                          draft: false, strokeSets: strokeSets)
     }
 
     func export(url: URL, recipe: Recipe, to destination: URL,
-                exportRecipe: ExportRecipe) throws {
+                exportRecipe: ExportRecipe,
+                strokeSets: [String: BrushStrokeSet] = [:]) throws {
         let source = try self.source(for: url)
         try renderer.export(source: source, recipe: recipe, to: destination,
-                            using: exportRecipe)
+                            using: exportRecipe, strokeSets: strokeSets)
     }
 
     func nativeSize(for url: URL) -> (width: Int, height: Int)? {

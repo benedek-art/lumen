@@ -256,12 +256,14 @@ private struct ComparePane: View {
 
     @MainActor
     private func render(longEdge: Int) async {
+        let recipe = state.recipe(for: photo)
         await model.load(url: photo.id,
-                         recipe: state.recipe(for: photo),
+                         recipe: recipe,
                          coordinator: state.renderCoordinator,
                          thumbnails: state.thumbnails,
                          draftLongEdge: LoupeView.draftLongEdge,
-                         fullLongEdge: longEdge)
+                         fullLongEdge: longEdge,
+                         strokeSets: state.strokeSets(for: recipe))
     }
 
     // MARK: Geometry
@@ -424,12 +426,14 @@ private struct SurveyCell: View {
 
     @MainActor
     private func render(longEdge: Int) async {
+        let recipe = state.recipe(for: photo)
         await model.load(url: photo.id,
-                         recipe: state.recipe(for: photo),
+                         recipe: recipe,
                          coordinator: state.renderCoordinator,
                          thumbnails: state.thumbnails,
                          draftLongEdge: 512,
-                         fullLongEdge: longEdge)
+                         fullLongEdge: longEdge,
+                         strokeSets: state.strokeSets(for: recipe))
     }
 
     private func requestedLongEdge(container: CGSize) -> Int {

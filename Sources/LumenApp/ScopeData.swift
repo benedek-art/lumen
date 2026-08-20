@@ -42,22 +42,33 @@ extension AppState {
         let url = photo.id
         let wantsScopes = showScopes
 
+        let coordinator = renderCoordinator
+        let strokes = strokeSets(for: recipe)
+
         Task { [weak self] in
             try? await Task.sleep(for: AppState.scopeDebounce)
-            guard let self else { return }
-            guard await self.scopeGeneration == generation else { return }
+            guard let self, self.scopeGeneration == generation else { return }
 
-            guard let result = await self.renderCoordinator.render(
+            // One-shot: the scopes must not claim a render ticket. Coalescing exists
+            // to let the newest *viewer* frame win, and a measurement that joined that
+            // race would cancel the frame the user is actually waiting on.
+            guard let result = await coordinator.renderOneShot(
                 url: url, recipe: recipe,
                 maxLongEdge: AppState.scopeProxyLongEdge, draft: true,
-                generation: .max) else { return }
-            guard let buffer = Self.buffer(from: result.image) else { return }
+                strokeSets: strokes) else { return }
+            guard self.scopeGeneration == generation else { return }
 
-            let data = Self.measure(buffer, includeScopes: wantsScopes)
-            await MainActor.run {
-                guard self.scopeGeneration == generation else { return }
-                self.scopes = data
-            }
+            // `Task {}` inside a main-actor method inherits the main actor, and a
+            // `nonisolated` function called from it still runs right here. Binning a
+            // quarter of a million pixels on the main thread is a visible hitch every
+            // time a slider settles, so the arithmetic gets its own thread explicitly.
+            let data = await Task.detached(priority: .utility) { () -> ScopeData? in
+                guard let buffer = AppState.buffer(from: result.image) else { return nil }
+                return AppState.measure(buffer, includeScopes: wantsScopes)
+            }.value
+
+            guard let data, self.scopeGeneration == generation else { return }
+            self.scopes = data
         }
     }
 

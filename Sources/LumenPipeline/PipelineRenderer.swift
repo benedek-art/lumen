@@ -54,7 +54,8 @@ public final class PipelineRenderer {
     // MARK: - Preview
 
     public func renderPreview(source: AppleRawSource, recipe: Recipe,
-                              maxLongEdge: Int, draft: Bool) throws -> CGImage {
+                              maxLongEdge: Int, draft: Bool,
+                              strokeSets: [String: BrushStrokeSet] = [:]) throws -> CGImage {
         // Decode at the target resolution, not the sensor's: a 2560 px preview of a
         // 7000 px raw decodes roughly seven times less data.
         let native = source.nativeLongEdge
@@ -69,7 +70,8 @@ public final class PipelineRenderer {
                               asShotKelvin: source.asShotTemperature,
                               asShotTint: source.asShotTint,
                               lutSize: draft ? 17 : LUT3D.interactiveSize)
-        let graph = makeGraph(plan: plan, extent: decoded.extent, draft: draft)
+        let graph = makeGraph(plan: plan, extent: decoded.extent, draft: draft,
+                              strokeSets: strokeSets)
         var image = graph.build(decoded, plan: plan,
                                 options: RenderGraph.Options(longEdge: longEdge,
                                                              draft: draft))
@@ -86,7 +88,8 @@ public final class PipelineRenderer {
     // MARK: - Export
 
     public func export(source: AppleRawSource, recipe: Recipe, to destination: URL,
-                       using exportRecipe: ExportRecipe) throws {
+                       using exportRecipe: ExportRecipe,
+                       strokeSets: [String: BrushStrokeSet] = [:]) throws {
         guard let decoded = source.decode(recipe: recipe, draft: false) else {
             throw RenderError.decodeFailed
         }
@@ -97,7 +100,8 @@ public final class PipelineRenderer {
                               displayWhiteTarget: exportRecipe.hdr?.whiteTargetPercent,
                               lutSize: LUT3D.exportSize)
 
-        let graph = makeGraph(plan: plan, extent: decoded.extent, draft: false)
+        let graph = makeGraph(plan: plan, extent: decoded.extent, draft: false,
+                              strokeSets: strokeSets)
         var image = graph.build(decoded, plan: plan,
                                 options: RenderGraph.Options(longEdge: longEdge,
                                                              draft: false,
@@ -122,7 +126,9 @@ public final class PipelineRenderer {
     /// Render the SDR base and the HDR rendition off one shared graph, then derive the
     /// gain map from the pair (docs/14 §7: render twice at two peaks, cheaply).
     public func renderHDRPair(source: AppleRawSource, recipe: Recipe,
-                              settings: HDRSettings) throws -> (sdr: CIImage, hdr: CIImage) {
+                              settings: HDRSettings,
+                              strokeSets: [String: BrushStrokeSet] = [:])
+        throws -> (sdr: CIImage, hdr: CIImage) {
         guard let decoded = source.decode(recipe: recipe, draft: false) else {
             throw RenderError.decodeFailed
         }
@@ -138,8 +144,10 @@ public final class PipelineRenderer {
                                  displayWhiteTarget: settings.whiteTargetPercent,
                                  lutSize: LUT3D.exportSize)
 
-        let sdrGraph = makeGraph(plan: sdrPlan, extent: decoded.extent, draft: false)
-        let hdrGraph = makeGraph(plan: hdrPlan, extent: decoded.extent, draft: false)
+        let sdrGraph = makeGraph(plan: sdrPlan, extent: decoded.extent, draft: false,
+                                 strokeSets: strokeSets)
+        let hdrGraph = makeGraph(plan: hdrPlan, extent: decoded.extent, draft: false,
+                                 strokeSets: strokeSets)
         let sdr = Self.applyGeometry(sdrGraph.build(decoded, plan: sdrPlan, options: options),
                                      recipe: recipe)
         let hdr = Self.applyGeometry(hdrGraph.build(decoded, plan: hdrPlan, options: options),
@@ -200,7 +208,8 @@ public final class PipelineRenderer {
     /// the reference implementation and handed in as single-channel images; the grain
     /// plate is generated once per stock and tiled. Leaving either empty is how the
     /// local stage and film grain silently did nothing.
-    private func makeGraph(plan: RenderPlan, extent: CGRect, draft: Bool) -> RenderGraph {
+    private func makeGraph(plan: RenderPlan, extent: CGRect, draft: Bool,
+                           strokeSets: [String: BrushStrokeSet]) -> RenderGraph {
         var graph = RenderGraph()
         guard !draft else { return graph }
 
@@ -215,7 +224,7 @@ public final class PipelineRenderer {
                 let alpha = MaskRaster.combine(mask: mask,
                                                size: (width: width, height: height),
                                                source: nil,
-                                               strokeSets: [:],
+                                               strokeSets: strokeSets,
                                                aiMattes: [:])
                 guard let image = Self.image(from: alpha, targetExtent: extent) else {
                     continue

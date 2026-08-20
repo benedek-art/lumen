@@ -31,6 +31,11 @@ final class CatalogService: @unchecked Sendable {
     private let queue = DispatchQueue(label: "dev.lumenapp.catalog", qos: .utility)
     private let directory: URL
 
+    /// The payloads a recipe references rather than contains — brush stroke sets. A
+    /// recipe stays small and diffable; the forty kilobytes of stylus samples behind
+    /// `blob:xxh64:<hash>` live here.
+    let blobs: BlobStore
+
     /// Sidecar writes coalesce over this window.
     private static let sidecarDebounce: TimeInterval = 2.0
     private var pendingSidecars: [URL: SidecarContent] = [:]
@@ -39,6 +44,8 @@ final class CatalogService: @unchecked Sendable {
 
     init(directory: URL) throws {
         self.directory = directory
+        self.blobs = try BlobStore(
+            directory: directory.appendingPathComponent("blobs", isDirectory: true))
         self.store = try CatalogStore(
             path: directory.appendingPathComponent("lumen.db").path,
             cachePath: directory.appendingPathComponent("cache.db").path)
@@ -118,9 +125,10 @@ final class CatalogService: @unchecked Sendable {
             } catch {
                 NSLog("Lumen catalog: culling write failed — %@", String(describing: error))
             }
-            self.enqueueSidecar(for: url, rating: rating,
-                                label: label == .none ? nil : label.displayName.lowercased(),
-                                recipe: nil)
+            self.enqueueSidecar(
+                for: url, rating: rating,
+                label: .some(label == .none ? nil : label.displayName.lowercased()),
+                recipe: nil)
         }
     }
 
@@ -202,7 +210,11 @@ final class CatalogService: @unchecked Sendable {
 
     // MARK: - Sidecars
 
-    private func enqueueSidecar(for url: URL, rating: Int?, label: String?,
+    /// `label` is double-optional on purpose. `nil` means "this call has nothing to
+    /// say about the label"; `.some(nil)` means "the label was cleared". Collapsing
+    /// the two meant clearing a red label wrote the catalog but left the sidecar
+    /// saying red — and the next scan's merge read the sidecar and put red back.
+    private func enqueueSidecar(for url: URL, rating: Int?, label: String??,
                                 recipe: (json: String, fingerprint: String, version: Int)?) {
         sidecarLock.lock()
         var content = pendingSidecars[url] ?? Self.readSidecar(for: url) ?? SidecarContent()

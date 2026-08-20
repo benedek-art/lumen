@@ -198,7 +198,8 @@ struct FilterBar: View {
             Image(systemName: "square.grid.3x3.fill")
                 .font(.system(size: 9))
                 .foregroundStyle(Lumen.secondaryText)
-            Slider(value: $state.gridThumbnailSize, in: 96...512)
+            Slider(value: $state.gridThumbnailSize,
+                   in: AppState.minThumbnailSize...AppState.maxThumbnailSize)
                 .controlSize(.mini)
                 .tint(Lumen.fillColor)
                 .frame(width: 100)

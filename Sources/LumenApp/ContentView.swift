@@ -39,9 +39,17 @@ struct ContentView: View {
         }
         .frame(minWidth: 1180, minHeight: 720)
         .keyboardGrammar()
-        .sheet(isPresented: $state.showKeyReference) { KeyReferenceSheet() }
-        .sheet(isPresented: $state.showExportSheet) { ExportSheet() }
-        .sheet(isPresented: $state.showIngestSheet) { IngestSheet() }
+        // One presenter, not three: chained `.sheet` modifiers on a single view are
+        // not reliably independent, and "Export silently does nothing because the
+        // keyboard sheet flag is also set" is not a failure anybody would diagnose.
+        .sheet(item: Binding(get: { state.activeSheet },
+                             set: { state.activeSheet = $0 })) { sheet in
+            switch sheet {
+            case .keyReference: KeyReferenceSheet()
+            case .export: ExportSheet()
+            case .ingest: IngestSheet()
+            }
+        }
     }
 
     private var showsDevelopColumn: Bool {

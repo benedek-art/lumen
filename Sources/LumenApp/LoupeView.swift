@@ -296,7 +296,8 @@ final class PhotoRenderModel: ObservableObject {
               coordinator: RenderCoordinator,
               thumbnails: ThumbnailLoader?,
               draftLongEdge: Int,
-              fullLongEdge: Int) async {
+              fullLongEdge: Int,
+              strokeSets: [String: BrushStrokeSet] = [:]) async {
 
         // New photo: drop the previous photo's pixels rather than showing them under a
         // new filename, and give this one the instant embedded-preview path (Law 11).
@@ -324,7 +325,8 @@ final class PhotoRenderModel: ObservableObject {
         latestGeneration = draftGeneration
         let draft = await coordinator.render(url: url, recipe: recipe,
                                              maxLongEdge: Swift.max(draftLongEdge, 64),
-                                             draft: true, generation: draftGeneration)
+                                             draft: true, generation: draftGeneration,
+                                             strokeSets: strokeSets)
         guard !Task.isCancelled else { return }
         if let draft, draft.generation == latestGeneration {
             apply(draft, url: url)
@@ -344,7 +346,8 @@ final class PhotoRenderModel: ObservableObject {
             latestGeneration = generation
             let result = await coordinator.render(url: url, recipe: recipe,
                                                   maxLongEdge: Swift.max(fullLongEdge, 64),
-                                                  draft: false, generation: generation)
+                                                  draft: false, generation: generation,
+                                                  strokeSets: strokeSets)
             guard !Task.isCancelled else { return }
             if let result, result.generation == generation, latestGeneration == generation {
                 apply(result, url: url)
@@ -502,7 +505,8 @@ struct LoupeView: View {
                          coordinator: state.renderCoordinator,
                          thumbnails: state.thumbnails,
                          draftLongEdge: LoupeView.draftLongEdge,
-                         fullLongEdge: longEdge)
+                         fullLongEdge: longEdge,
+                         strokeSets: state.strokeSets(for: recipe))
     }
 
     /// The before rendition, evaluated through the same pipeline as the edit so the
@@ -520,7 +524,8 @@ struct LoupeView: View {
                                coordinator: state.renderCoordinator,
                                thumbnails: nil,
                                draftLongEdge: LoupeView.draftLongEdge,
-                               fullLongEdge: longEdge)
+                               fullLongEdge: longEdge,
+                               strokeSets: state.strokeSets(for: beforeRecipe))
     }
 
     // MARK: Content
@@ -565,6 +570,16 @@ struct LoupeView: View {
         return (mask.id, index, mask.components[index])
     }
 
+    /// The stroke set already stored for a component, or an empty one when there is
+    /// nothing behind its reference yet.
+    private func existingStrokes(_ component: MaskComponent?) -> BrushStrokeSet {
+        guard let ref = component?.strokesRef,
+              let set = state.catalog?.blobs.strokeSet(for: ref) else {
+            return BrushStrokeSet()
+        }
+        return set
+    }
+
     @ViewBuilder
     private func canvas(cg: CGImage, container: CGSize) -> some View {
         let ratio: Double = effectiveRatio(image: cg, container: container)
@@ -598,11 +613,15 @@ struct LoupeView: View {
             // inert unless the masks section is open with a drawable component
             // selected, so it never eats a pan or a click-to-zoom.
             if state.activeSection == .masks, let target = maskEditTarget {
+                // The strokes already on this component have to go IN as well as come
+                // out: the canvas appends to the set it was given, so handing it an
+                // empty one makes every stroke the only stroke.
                 MaskCanvas(imageRect: CGRect(origin: .zero, size: drawn),
                            sourceSize: CGSize(width: cg.width, height: cg.height),
                            maskID: target.maskID,
                            componentIndex: target.index,
-                           component: target.component) { edit in
+                           component: target.component,
+                           strokes: existingStrokes(target.component)) { edit in
                     MaskCanvas.apply(edit, in: state)
                 }
                 .frame(width: drawn.width, height: drawn.height)
