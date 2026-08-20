@@ -495,6 +495,50 @@ final class EngineTests: XCTestCase {
         XCTAssertLessThan(stage.apply(RGB(0.2, 0.3, 0.4)).maxAbsDifference(direct), 1e-12)
     }
 
+    /// Capture sharpening's toggle has to be a toggle.
+    ///
+    /// The RAW stage's two branches were inverted: `auto == false` computed
+    /// `(nil ?? 100) / 100 == 1` and applied the FULL measured strength, so turning
+    /// capture sharpening off rendered the identical picture while the panel printed
+    /// "Capture sharpening is off for this photo". And the Amount override lives inside
+    /// a disclosure the panel shows only when `auto` is true — the branch that never
+    /// read it — so the one control was invisible where it worked and inert where it
+    /// showed.
+    func testCaptureSharpeningStrengthFollowsItsToggleAndItsAmount() {
+        // Off is off. This is the assertion that would have caught it.
+        XCTAssertEqual(CaptureSharpen(auto: false).strengthFraction, 0, accuracy: 1e-12)
+        XCTAssertEqual(CaptureSharpen(auto: false, amount: 150).strengthFraction, 0,
+                       accuracy: 1e-12,
+                       "an amount survived the off switch")
+
+        // On with no override is the measurement itself, unscaled.
+        XCTAssertEqual(CaptureSharpen(auto: true).strengthFraction, 1, accuracy: 1e-12)
+
+        // The override is a PERCENTAGE of the measurement, so it has to be
+        // proportional — this is the half that was read as a 0…1 fraction, which pinned
+        // everything at or above 1 to maximum and made 25 and 150 both "full".
+        XCTAssertEqual(CaptureSharpen(auto: true, amount: 50).strengthFraction, 0.5,
+                       accuracy: 1e-12)
+        XCTAssertEqual(CaptureSharpen(auto: true, amount: 25).strengthFraction, 0.25,
+                       accuracy: 1e-12)
+        XCTAssertEqual(CaptureSharpen(auto: true, amount: 150).strengthFraction, 1.5,
+                       accuracy: 1e-12)
+        XCTAssertNotEqual(CaptureSharpen(auto: true, amount: 25).strengthFraction,
+                          CaptureSharpen(auto: true, amount: 150).strengthFraction)
+
+        // And it is bounded and total: no setting produces a non-finite multiplier.
+        // NaN needs an explicit guard rather than the clamp, because `Num.clamp` is
+        // `min(max(x, lo), hi)` over Swift's generic `Comparable` min/max, and those
+        // propagate NaN — every comparison against it is false, so `max(nan, 0)` is nan
+        // and a slider typo would reach Core Image as `Float.nan`.
+        for amount in [-50.0, 0, 500, .infinity, -.infinity, .nan] {
+            let f = CaptureSharpen(auto: true, amount: amount).strengthFraction
+            XCTAssertTrue(f.isFinite, "amount \(amount) produced \(f)")
+            XCTAssertGreaterThanOrEqual(f, 0)
+            XCTAssertLessThanOrEqual(f, CaptureSharpen.maxStrength)
+        }
+    }
+
     // MARK: - Export
 
     /// The export subfolder is a security boundary: `appendingPathComponent` appends a

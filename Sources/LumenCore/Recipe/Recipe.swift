@@ -346,6 +346,24 @@ public struct CaptureSharpen: Codable, Equatable, Sendable {
     /// The largest multiple of the auto strength the control will apply.
     public static let maxStrength: Double = 1.5
 
+    /// What the measured capture-sharpening strength gets multiplied by.
+    ///
+    /// Here rather than in the RAW stage because the two branches were inverted there
+    /// and nothing could see it: `auto == false` recomputed `100 / 100 == 1` and applied
+    /// the full default strength, so turning capture sharpening off rendered the
+    /// identical picture while the panel said it was off. `auto` is the ON switch.
+    public var strengthFraction: Double {
+        guard auto else { return 0 }
+        // `Num.clamp` is `min(max(x, lo), hi)` on Swift's generic `Comparable` min/max,
+        // which propagate NaN rather than the bound — every comparison against NaN is
+        // false, so `max(nan, 0)` is nan. A NaN here would reach `sharpnessAmount` as
+        // `Float.nan`. Recipes are user-editable and arrive from sidecars other tools
+        // wrote, so this is reachable.
+        let requested = amount ?? 100
+        guard requested.isFinite else { return 1 }
+        return Num.clamp(requested / 100, 0, CaptureSharpen.maxStrength)
+    }
+
     public init(auto: Bool = true, radius: Double? = nil, amount: Double? = nil) {
         self.auto = auto
         self.radius = radius

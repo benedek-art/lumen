@@ -106,16 +106,22 @@ public final class AppleRawSource {
 
         // Capture sharpening rides Apple's at-demosaic sharpener until Lumen's own RL
         // deconvolution moves into the graph. `auto` keeps the camera default.
-        if dev.detail.capture.auto {
-            filter.sharpnessAmount = defaultSharpness
-        } else {
-            // `amount` is a percentage of the auto strength, like every other amount in
-            // the recipe — not a 0…1 fraction. Reading it as a fraction meant any value
-            // at or above 1 pinned this at maximum, so 25 and 150 were both "full".
-            let fraction = Num.clamp((dev.detail.capture.amount ?? 100) / 100,
-                                     0, CaptureSharpen.maxStrength)
-            filter.sharpnessAmount = defaultSharpness * Float(fraction)
-        }
+        // `auto` is the ON switch, not a choice between two strengths. The panel says
+        // so — with it off it prints "Capture sharpening is off for this photo", and
+        // with it on it offers an Overrides disclosure — and the two branches here were
+        // the other way round.
+        //
+        // What that cost: `amount` defaults to nil, so the "manual" branch computed
+        // `clamp(100/100) = 1.0` and multiplied the default strength by exactly one.
+        // Turning capture sharpening OFF rendered pixel-for-pixel the same picture as
+        // leaving it on, while the panel said it was off. And the Amount slider lives
+        // inside `captureOverrides`, which the panel shows only when `auto` is TRUE —
+        // the branch that never read it. The one control was invisible in the state
+        // that used it and useless in the state that showed it.
+        // The mapping itself lives on `CaptureSharpen` so it can be tested; this stage
+        // needs a camera RAW to reach at all.
+        filter.sharpnessAmount = defaultSharpness
+            * Float(dev.detail.capture.strengthFraction)
 
         // Noise reduction: Lumen's Tier 1 is the reference implementation and does not
         // yet run in the GPU graph, so Apple's stage stands in for `.classic`. Tracked
