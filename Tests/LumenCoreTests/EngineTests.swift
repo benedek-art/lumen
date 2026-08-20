@@ -179,13 +179,30 @@ final class EngineTests: XCTestCase {
         XCTAssertLessThan(e.contrastMapped(-2), -2)      // below it, pushed down
     }
 
-    func testContrastRelaxesAtTheExtremes() {
-        let e = ToneEngine(tone: Tone(contrast: 100))
-        // Ten stops from the pivot the slope must be back to 1, or a contrast push
-        // would send deep shadows to negative infinity.
-        let a = e.contrastMapped(-10)
-        let b = e.contrastMapped(-10.1)
-        XCTAssertEqual((a - b) / 0.1, 1.0, accuracy: 0.05)
+    /// Contrast is a *local* slope change around the pivot, and the ends of the scale
+    /// are pinned. That is a stronger promise than "the slope comes back to 1": a
+    /// slope of 1 far out still leaves a constant offset, which at contrast 100 would
+    /// push a highlight three and a half stops up and out of the shaper's domain.
+    /// Pinning the ends means a contrast push can never clip a highlight it was not
+    /// asked to touch, and can never send a deep shadow to negative infinity.
+    func testContrastPinsTheEndsOfTheScale() {
+        for contrast in [-100.0, -40, 40, 100] {
+            let e = ToneEngine(tone: Tone(contrast: contrast))
+            for t in [-LumenLog.maxEV, LumenLog.maxEV] {
+                XCTAssertEqual(e.contrastMapped(t), t, accuracy: 1e-9,
+                               "contrast \(contrast) moved the end of the scale at \(t) EV")
+            }
+        }
+    }
+
+    /// And inside the window it does what the slider says: the slope at the pivot is
+    /// the slope the control promises.
+    func testContrastHitsItsSlopeAtThePivot() {
+        for (contrast, expected) in [(100.0, 1.6), (50.0, 1.3), (-100.0, 0.4)] {
+            let e = ToneEngine(tone: Tone(contrast: contrast))
+            let slope = (e.contrastMapped(0.05) - e.contrastMapped(-0.05)) / 0.1
+            XCTAssertEqual(slope, expected, accuracy: 0.01, "contrast \(contrast)")
+        }
     }
 
     func testExposureIsAnHonestGain() {

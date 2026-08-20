@@ -81,6 +81,52 @@ final class RobustnessTests: XCTestCase {
         XCTAssertEqual(out.width, source.width)
     }
 
+    // MARK: - The cube must not invent a colour cast
+
+    /// A cube is interpolated, so it is allowed to be a little wrong — except on the
+    /// neutral axis, where being a little wrong is a colour cast in a grey sky. The
+    /// tetrahedral sampler makes the diagonal exact by construction; this is the test
+    /// that says so, on a function deliberately built to be asymmetric between the
+    /// channels so trilinear would have no chance of getting it right by luck.
+    func testCubeKeepsTheNeutralAxisExact() {
+        let lut = LUT3D(size: 17) { c in
+            // Neutral in → neutral out, but wildly channel-asymmetric off the diagonal.
+            let m = (c.r + 2 * c.g + 5 * c.b) / 8
+            let spread = RGB(c.r - m, c.g - m, c.b - m)
+            let base = m * m
+            return RGB(base, base, base) + spread * 0.75
+        }
+        for i in 0...200 {
+            let y = Double(i) / 200
+            let out = lut.sample(RGB(gray: y))
+            XCTAssertEqual(out.r, out.g, accuracy: 1e-9, "cast on the neutral axis at \(y)")
+            XCTAssertEqual(out.g, out.b, accuracy: 1e-9, "cast on the neutral axis at \(y)")
+            XCTAssertEqual(out.r, y * y, accuracy: 2e-3, "neutral value drifted at \(y)")
+        }
+    }
+
+    func testCubeReproducesItsOwnGridPointsAndTheIdentity() {
+        let size = 9
+        let lut = LUT3D(size: size) { RGB($0.r * $0.r, $0.g, sqrt($0.b)) }
+        let denom = Double(size - 1)
+        for ri in 0..<size {
+            for gi in 0..<size {
+                for bi in 0..<size {
+                    let c = RGB(Double(ri) / denom, Double(gi) / denom, Double(bi) / denom)
+                    let expected = RGB(c.r * c.r, c.g, sqrt(c.b))
+                    XCTAssertLessThan(lut.sample(c).maxAbsDifference(expected), 1e-6,
+                                      "grid point \(c) did not come back")
+                }
+            }
+        }
+
+        let identity = LUT3D.identity(size: 2)
+        for c in [RGB(0.13, 0.62, 0.91), RGB(0, 1, 0.5), RGB(0.777, 0.777, 0.2)] {
+            XCTAssertLessThan(identity.sample(c).maxAbsDifference(c), 1e-9,
+                              "the identity cube moved \(c)")
+        }
+    }
+
     // MARK: - Untrusted recipes
 
     /// Recipes arrive from sidecars and catalog rows written by other versions and

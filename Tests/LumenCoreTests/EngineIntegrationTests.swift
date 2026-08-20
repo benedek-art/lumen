@@ -428,8 +428,12 @@ final class EngineIntegrationTests: XCTestCase {
         let out = ReferenceRenderer.render(source, plan: plan)
         for x in 0..<out.width {
             let c = out[x, 3]
-            XCTAssertEqual(c.r, c.g, accuracy: 0.002, "grey picked up a cast at \(x)")
-            XCTAssertEqual(c.g, c.b, accuracy: 0.002, "grey picked up a cast at \(x)")
+            // Tight, because the cube samples the diagonal exactly: a neutral input
+            // lands on the shared edge of the six tetrahedra, so only the two neutral
+            // corners contribute. Anything above float noise here means a stage has
+            // started treating one channel differently from the others.
+            XCTAssertEqual(c.r, c.g, accuracy: 1e-5, "grey picked up a cast at \(x): \(c)")
+            XCTAssertEqual(c.g, c.b, accuracy: 1e-5, "grey picked up a cast at \(x): \(c)")
         }
     }
 
@@ -456,18 +460,23 @@ final class EngineIntegrationTests: XCTestCase {
         let plan = RenderPlan(recipe: recipe, lutSize: LUT3D.exportSize)
 
         var worst = 0.0
+        var where_ = ""
         for i in 0...24 {
             let ev = -7 + Double(i) * 0.5
             for hue in stride(from: 0.0, to: 360.0, by: 45.0) {
                 let lch = OKLCh(L: 0.5, C: 0.1, h: hue)
                 let tint = OKLabTransform.working.toRGB(lch)
                 let normalized = tint / Swift.max(tint.maxComponent, 1e-6)
-                let scene = normalized * (0.18 * pow(2, ev))
+                let scene = normalized * (0.18 * pow(2.0, ev))
                 let approximated = plan.referenceColor(scene)
                 let exact = plan.exactColor(scene)
-                worst = Swift.max(worst, approximated.maxAbsDifference(exact))
+                let d = approximated.maxAbsDifference(exact)
+                if d > worst {
+                    worst = d
+                    where_ = "\(ev) EV hue \(hue): scene \(scene) table \(approximated) exact \(exact)"
+                }
             }
         }
-        XCTAssertLessThan(worst, 0.02, "table interpolation error reached \(worst)")
+        XCTAssertLessThan(worst, 0.02, "table interpolation error reached \(worst) at \(where_)")
     }
 }

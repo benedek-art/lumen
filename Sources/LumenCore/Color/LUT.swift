@@ -225,9 +225,42 @@ public struct LUT3D: Equatable, Sendable {
         let c001 = at(r0, g0, b1), c101 = at(r1, g0, b1)
         let c011 = at(r0, g1, b1), c111 = at(r1, g1, b1)
 
-        let c00 = c000.mix(c100, tr), c10 = c010.mix(c110, tr)
-        let c01 = c001.mix(c101, tr), c11 = c011.mix(c111, tr)
-        return c00.mix(c10, tg).mix(c01.mix(c11, tg), tb)
+        // Tetrahedral, not trilinear. The cell is split into six tetrahedra that all
+        // share the main diagonal, so a neutral input — where the three fractions are
+        // equal — interpolates between c000 and c111 alone and nothing else. Both of
+        // those are exact samples of the baked function, and the baked function keeps
+        // a neutral neutral, so grey stays grey by construction.
+        //
+        // Trilinear cannot do that: on the diagonal it also pulls in the six corners
+        // where one channel leads the others, and the display transform is not
+        // symmetric under a channel swap (the gamut inset and outset matrices are
+        // not), so those corners drag a cast into what should be a neutral. It showed
+        // up as ~0.4 of an 8-bit code value on a grey ramp near white — small, but the
+        // exact place a smooth sky would show it, and free to remove.
+        //
+        // Tetrahedral is also the more accurate interpolant in general, which is why
+        // every grading application uses it, and it costs three lerps instead of
+        // seven.
+        func blend(_ a: RGB, _ b: RGB, _ c: RGB) -> RGB {
+            c000 + a * tr + b * tg + c * tb
+        }
+        if tr >= tg {
+            if tg >= tb {                     // tr ≥ tg ≥ tb
+                return blend(c100 - c000, c110 - c100, c111 - c110)
+            } else if tr >= tb {              // tr ≥ tb > tg
+                return blend(c100 - c000, c111 - c101, c101 - c100)
+            } else {                          // tb > tr ≥ tg
+                return blend(c101 - c001, c111 - c101, c001 - c000)
+            }
+        } else {
+            if tb > tg {                      // tb > tg > tr
+                return blend(c111 - c011, c011 - c001, c001 - c000)
+            } else if tb > tr {               // tg ≥ tb > tr
+                return blend(c111 - c011, c010 - c000, c011 - c010)
+            } else {                          // tg > tr ≥ tb
+                return blend(c110 - c010, c010 - c000, c111 - c110)
+            }
+        }
     }
 
     /// Identity cube — the fast path when a recipe has no colour work at all.
