@@ -287,13 +287,14 @@ public struct RenderGraph {
         localDetail.clarity = a.clarity * scale
         localDetail.dehaze = a.dehaze * scale
         if localDetail.texture != 0 || localDetail.clarity != 0 || localDetail.dehaze != 0 {
-            out = applyPresence(out, detail: localDetail, longEdge: longEdge)
+            out = Self.applyPresence(out, detail: localDetail, longEdge: longEdge)
         }
 
         let sharpness = a.sharpness * scale
         if sharpness > 0 {
-            out = applySharpen(out, ManualSharpen(amount: Num.clamp(sharpness, 0, 150)),
-                               longEdge: longEdge)
+            out = Self.applySharpen(out,
+                                    ManualSharpen(amount: Num.clamp(sharpness, 0, 150)),
+                                    longEdge: longEdge)
         } else if sharpness < 0 {
             // Negative Sharpness is a softening; `applySharpen` clamps at zero.
             let filter = CIFilter.gaussianBlur()

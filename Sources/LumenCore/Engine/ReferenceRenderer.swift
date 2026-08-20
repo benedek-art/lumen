@@ -214,7 +214,7 @@ public enum ReferenceRenderer {
                 // contract (it clamps amount at 0). A small Gaussian is what the
                 // control means.
                 let sigma = Num.clamp(-sharpness / 100, 0, 1) * 2.5
-                out = DetailEngine.blur(out, sigma: sigma)
+                out = SpatialOps.gaussianBlur(out, sigma: sigma)
             }
         }
         return out
