@@ -22,7 +22,15 @@ private struct XMPFixture: Decodable {
     }
     struct Case: Decodable {
         let name: String
+        /// What went IN to the serializer.
         let content: Content
+        /// What comes back OUT of the parser, read off the serialized XML by the
+        /// generator rather than assumed. The two differ wherever serialization is
+        /// deliberately lossy: XML 1.0 forbids most control characters even as numeric
+        /// references, so `controlCharacters` writes "bad\u{07}label\0" as "badlabel"
+        /// and no parser can give it back. Not optional — a case that forgets it
+        /// should fail to decode rather than quietly fall back to `content`.
+        let parsed: Content
         let xmp: String
     }
     let cases: [Case]
@@ -89,9 +97,12 @@ final class SidecarAndIngestTests: XCTestCase {
             // being added to this file's decoder, so both XMP tests failed with
             // "serialization drifted" and a wall of near-identical XML — a message that
             // says nothing about which field went missing.
-            XCTAssertEqual(parsed.flag, expectedFlag(c.content),
+            XCTAssertEqual(parsed.flag, expectedFlag(c.parsed),
                            "xmp case \(c.name) lost its flag")
-            XCTAssertEqual(parsed, sidecarContent(c.content), "xmp case \(c.name)")
+            // Against `c.parsed`, not `c.content`. Comparing with `content` demanded
+            // that the writer's sanitisation be lossless, so the one case written to
+            // prove it sanitises was the one case that could never pass.
+            XCTAssertEqual(parsed, sidecarContent(c.parsed), "xmp case \(c.name)")
         }
     }
 

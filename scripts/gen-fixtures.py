@@ -949,6 +949,21 @@ def gen_xmp_fixture():
             rj = desc.find("lumen:recipe", ns)
             check(rj is not None and rj.text == c["content"]["recipeJSON"],
                   f"xmp {c['name']} recipe round-trip")
+
+        # What a parser actually reads back, taken FROM the serialized XML rather
+        # than asserted. For every case but one it equals `content`; for
+        # controlCharacters it cannot, because XML 1.0 forbids those bytes even as
+        # numeric references, so the writer drops them and "bad\x07label\x00" comes
+        # back as "badlabel". The Swift round-trip test compared against `content` for
+        # every case and so demanded that a deliberately lossy sanitisation be
+        # lossless — the one case written to prove the writer sanitises was the one
+        # case that could not pass.
+        label = desc.find("xmp:Label", ns)
+        c["parsed"] = dict(c["content"])
+        c["parsed"]["label"] = label.text if label is not None else None
+        if c["parsed"]["label"] != c["content"]["label"]:
+            print(f"  {c['name']}: label sanitised on write, "
+                  f"{c['content']['label']!r} -> {c['parsed']['label']!r}")
     write_fixture("xmp.json", {"cases": cases})
 
 
