@@ -53,22 +53,145 @@ final class EngineIntegrationTests: XCTestCase {
         XCTAssertEqual(range.max, 0.3, accuracy: 1e-5)
     }
 
-    /// The property the tone stage depends on: smooth inside a surface, sharp across
-    /// an edge. A filter that fails this haloes, which is the exact artefact Lumen's
-    /// tone engine exists to avoid.
-    func testGuidedFilterSmoothsInteriorsAndKeepsEdges() {
-        let plane = edgePlane()
-        let filtered = SpatialOps.guidedFilter(input: plane, guide: plane,
-                                               radius: 4, epsilon: 0.0004)
-        XCTAssertLessThan(filtered[6, 8], 0.32, "dark side lifted")
-        XCTAssertGreaterThan(filtered[42, 8], 0.68, "bright side dropped")
-
-        var interiorVariation = 0.0
-        let reference = filtered[8, 8]
-        for x in 8..<20 {
-            interiorVariation = Swift.max(interiorVariation, abs(filtered[x, 8] - reference))
+    /// A step edge with checkerboard noise on both plateaus, at an amplitude stated as
+    /// a multiple of the filter's own threshold. Built by index rather than through the
+    /// `(u, v)` generator so the reference implementation can construct the identical
+    /// plane and the two can be compared value for value.
+    private func stepWithNoise(amplitude: Double,
+                               width: Int = 48, height: Int = 16) -> Plane {
+        var plane = Plane(width: width, height: height)
+        for y in 0..<height {
+            for x in 0..<width {
+                let base = x < width / 2 ? 0.2 : 0.8
+                plane[x, y] = base + ((x + y) % 2 == 0 ? amplitude : -amplitude)
+            }
         }
-        XCTAssertLessThan(interiorVariation, 0.03, "interior was not smoothed")
+        return plane
+    }
+
+    /// Largest peak-to-peak excursion within either plateau, away from the borders and
+    /// the step — what "smoothed" and "preserved" are both measured as.
+    private func plateauSwing(_ plane: Plane) -> Double {
+        var swing = 0.0
+        for range in [4..<(plane.width / 2 - 6), (plane.width / 2 + 6)..<(plane.width - 4)] {
+            var lo = Double.infinity
+            var hi = -Double.infinity
+            for y in 4..<(plane.height - 4) {
+                for x in range {
+                    lo = Swift.min(lo, plane[x, y])
+                    hi = Swift.max(hi, plane[x, y])
+                }
+            }
+            swing = Swift.max(swing, hi - lo)
+        }
+        return swing
+    }
+
+    private func stepHeight(_ plane: Plane) -> Double {
+        var left = 0.0, right = 0.0, n = 0.0
+        for y in 4..<(plane.height - 4) {
+            for x in 4..<(plane.width / 2 - 6) { left += plane[x, y] }
+            for x in (plane.width / 2 + 6)..<(plane.width - 4) { right += plane[x, y] }
+            n += Double(plane.width / 2 - 10)
+        }
+        return right / n - left / n
+    }
+
+    /// The property the tone stage depends on: smooth inside a surface, sharp across an
+    /// edge. A filter that fails this haloes, which is the exact artefact Lumen's tone
+    /// engine exists to avoid.
+    ///
+    /// Stated as `epsilon`'s documented semantics — it is a VARIANCE threshold in the
+    /// guide's own units, so the filter smooths anything flatter than √ε and keeps
+    /// anything above it — and measured against the input rather than against absolute
+    /// levels. Both halves are needed: "noise was attenuated" alone is satisfied by a
+    /// filter that flattens everything, and "the edge survived" alone is satisfied by a
+    /// filter that does nothing.
+    ///
+    /// The version this replaces asserted absolute levels on a plane whose plateaus were
+    /// already at 0.2 and 0.8 with noise of ±0.02 against a 0.03 tolerance. Every one of
+    /// its three assertions passed on `guidedFilter` returning its input unchanged
+    /// (0.2177 < 0.32, 0.7823 > 0.68, 0.0228 < 0.03) — it certified a filter that could
+    /// have been doing nothing at all, for the four features that depend on this one.
+    func testGuidedFilterSmoothsBelowItsThresholdAndKeepsDetailAbove() {
+        let epsilon = 0.0008
+        let threshold = epsilon.squareRoot()
+
+        let quiet = stepWithNoise(amplitude: threshold / 4)
+        let smoothed = SpatialOps.guidedFilter(input: quiet, guide: quiet,
+                                               radius: 4, epsilon: epsilon)
+        let quietRatio = plateauSwing(smoothed) / plateauSwing(quiet)
+        XCTAssertLessThan(quietRatio, 0.35,
+                          "noise well under √ε survived at \(quietRatio) of its input "
+                              + "swing; an identity filter scores 1.0")
+
+        let loud = stepWithNoise(amplitude: threshold * 3.5)
+        let kept = SpatialOps.guidedFilter(input: loud, guide: loud,
+                                           radius: 4, epsilon: epsilon)
+        let loudRatio = plateauSwing(kept) / plateauSwing(loud)
+        XCTAssertGreaterThan(loudRatio, 0.5,
+                             "detail well over √ε was smoothed away, surviving at only "
+                                 + "\(loudRatio) of its input swing")
+
+        // The edge is the thing neither pass may cost. Measured as the difference of
+        // the plateau means, so noise on either side cancels out of it.
+        for (label, plane) in [("quiet", smoothed), ("loud", kept)] {
+            XCTAssertGreaterThan(stepHeight(plane), 0.48,
+                                 "the \(label) pass smeared the step to "
+                                     + "\(stepHeight(plane)) of 0.6")
+        }
+
+        // No overshoot: the whole reason this is an affine model and not a bilateral.
+        // Only meaningful on the quiet plane, whose input stays inside [0.19, 0.81].
+        let range = smoothed.range
+        XCTAssertGreaterThan(range.min, 0.18, "guided filter undershot the dark plateau")
+        XCTAssertLessThan(range.max, 0.82, "guided filter overshot the bright plateau")
+    }
+
+    /// A constant plane is a fixed point of the box blur at every radius, borders
+    /// included — the exact normalization the whole edge convention rests on, and what
+    /// makes a radius wider than the image degenerate to the mean rather than to a
+    /// darkened frame.
+    func testBoxBlurIsAFixedPointOfAConstantAtEveryRadius() {
+        for radius in [1, 3, 8, 40] {
+            let blurred = SpatialOps.boxBlur(flatPlane(0.37), radius: radius)
+            let range = blurred.range
+            XCTAssertEqual(range.min, 0.37, accuracy: 1e-6,
+                           "constant plane darkened at radius \(radius)")
+            XCTAssertEqual(range.max, 0.37, accuracy: 1e-6,
+                           "constant plane brightened at radius \(radius)")
+        }
+    }
+
+    /// `gaussianBlur` has a real early-out at σ ≤ 0.05, so "returns its input" is a live
+    /// code path rather than a hypothetical — and the mean-preservation test above it
+    /// cannot tell the two apart. An impulse is the cheapest thing that can.
+    func testGaussianBlurActuallyBlurs() {
+        let sigma = 3.0
+        var impulse = Plane(width: 41, height: 41)
+        impulse[20, 20] = 1
+        let blurred = SpatialOps.gaussianBlur(impulse, sigma: sigma)
+
+        // Total energy is preserved — a blur redistributes, it does not consume.
+        // The three box passes span ±7 px, well inside a 41×41 plane, so no energy
+        // leaves the frame and this is an equality rather than a bound.
+        var sum = 0.0
+        for y in 0..<41 { for x in 0..<41 { sum += blurred[x, y] } }
+        XCTAssertEqual(sum, 1.0, accuracy: 1e-5, "the blur lost energy")
+
+        // Measured against the reference implementation rather than guessed: the peak
+        // lands 2.3% under the true Gaussian's 1/(2πσ²), one σ out holds 0.652 of the
+        // peak, and three σ out is exactly zero because the box support ends at 7 px.
+        // Ten percent, 0.4 and 0.05 leave room for the approximation without leaving
+        // room for the identity, which puts 1.0 at the peak and 0 everywhere else.
+        let peak = blurred[20, 20]
+        let ideal = 1 / (2 * Double.pi * sigma * sigma)
+        XCTAssertEqual(peak, ideal, accuracy: ideal * 0.10,
+                       "peak \(peak) is not the \(ideal) a σ=\(sigma) blur gives")
+        XCTAssertGreaterThan(blurred[20 + Int(sigma), 20], peak * 0.4,
+                             "nothing reached one σ out — this is not a σ=3 blur")
+        XCTAssertLessThan(blurred[20 + 3 * Int(sigma), 20], peak * 0.05,
+                          "energy reached three σ out — this is far wider than σ=3")
     }
 
     /// The à-trous stack must reconstruct exactly at unit gains, or every wavelet

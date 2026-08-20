@@ -36,6 +36,7 @@ import math
 import os
 import re
 import sqlite3
+import struct
 import sys
 import xml.etree.ElementTree as ET
 
@@ -1309,6 +1310,20 @@ def gen_display_transform_checks():
 #   BlobStore.swift  <-> blob_filename
 # ---------------------------------------------------------------------------
 
+def f32(v):
+    """Round to single precision, which is what a `Plane` write does.
+
+    SpatialOps' header states the rule as a contract, not an implementation detail:
+    "Maths in Double, storage in f32 … it is the precision the GPU path has, so the
+    golden tolerances mean something." A mirror that carries f64 through a
+    six-blur composition is therefore mirroring a slightly different filter, and the
+    difference lands exactly where the near-zero-variance guard lives — the comment
+    "f32 round-trip can push a near-zero variance slightly negative" describes a
+    branch an f64 mirror can never take.
+    """
+    return struct.unpack("f", struct.pack("f", v))[0]
+
+
 def clamped(p, w, h, x, y):
     return p[min(max(y, 0), h - 1) * w + min(max(x, 0), w - 1)]
 
@@ -1321,17 +1336,17 @@ def box_blur(p, w, h, radius):
     tmp = [0.0] * (w * h)
     for y in range(h):
         s = sum(clamped(p, w, h, k, y) for k in range(-r, r + 1))
-        tmp[y * w] = s / n
+        tmp[y * w] = f32(s / n)
         for x in range(1, w):
             s += clamped(p, w, h, x + r, y) - clamped(p, w, h, x - r - 1, y)
-            tmp[y * w + x] = s / n
+            tmp[y * w + x] = f32(s / n)
     out = [0.0] * (w * h)
     for x in range(w):
         s = sum(clamped(tmp, w, h, x, k) for k in range(-r, r + 1))
-        out[x] = s / n
+        out[x] = f32(s / n)
         for y in range(1, h):
             s += clamped(tmp, w, h, x, y + r) - clamped(tmp, w, h, x, y - r - 1)
-            out[y * w + x] = s / n
+            out[y * w + x] = f32(s / n)
     return out
 
 
@@ -1341,18 +1356,19 @@ def guided_filter(inp, guide, w, h, radius, epsilon):
     eps = max(epsilon, 1e-12)
     mean_i = box_blur(guide, w, h, radius)
     mean_p = box_blur(inp, w, h, radius)
-    corr_i = box_blur([g * g for g in guide], w, h, radius)
-    corr_ip = box_blur([g * p for g, p in zip(guide, inp)], w, h, radius)
+    # `Plane.zip` stores its result, so the products are f32 before they are blurred.
+    corr_i = box_blur([f32(g * g) for g in guide], w, h, radius)
+    corr_ip = box_blur([f32(g * p) for g, p in zip(guide, inp)], w, h, radius)
     a, b = [0.0] * (w * h), [0.0] * (w * h)
     for i in range(w * h):
         var_i = max(corr_i[i] - mean_i[i] * mean_i[i], 0.0)
         cov = corr_ip[i] - mean_i[i] * mean_p[i]
         av = cov / (var_i + eps)
-        a[i] = av
-        b[i] = mean_p[i] - av * mean_i[i]
+        a[i] = f32(av)
+        b[i] = f32(mean_p[i] - av * mean_i[i])
     mean_a = box_blur(a, w, h, radius)
     mean_b = box_blur(b, w, h, radius)
-    return [mean_a[i] * guide[i] + mean_b[i] for i in range(w * h)]
+    return [f32(mean_a[i] * guide[i] + mean_b[i]) for i in range(w * h)]
 
 
 def blob_filename(ref):
@@ -1376,16 +1392,25 @@ def gen_spatial_primitive_checks():
 
     # A constant plane must blur to itself EXACTLY, borders included. The whole
     # edge convention (clamped repeats, divided by the full window) rests on it.
+    #
+    # "Exactly" is against the value a `Plane` can hold, not against the decimal
+    # literal: 0.37 has no exact f32 representation, so a plane filled with it
+    # already holds f32(0.37) before any blur runs. Comparing the output to 0.37
+    # measures the storage format, not the filter.
+    constant = f32(0.37)
     for radius in (1, 3, 8, 40):
-        flat = [0.37] * (w * h)
+        flat = [constant] * (w * h)
         out = box_blur(flat, w, h, radius)
-        check(max(abs(v - 0.37) for v in out) < 1e-12,
+        check(max(abs(v - constant) for v in out) == 0.0,
               f"constant plane did not blur to itself at radius {radius}")
 
-    # A constant plane is a fixed point of the guided filter too.
-    flat = [0.37] * (w * h)
+    # A constant plane is a fixed point of the guided filter too. Not bit-exact here:
+    # cov is 0/(0+eps) through a division, so the affine model reassembles the value
+    # rather than passing it through.
+    flat = [constant] * (w * h)
     gf = guided_filter(flat, flat, w, h, 4, 0.01)
-    check(max(abs(v - 0.37) for v in gf) < 1e-9, "guided filter moved a constant plane")
+    check(max(abs(v - constant) for v in gf) < 1e-7,
+          "guided filter moved a constant plane")
 
     # The defining property, stated the way the docstring states it: epsilon is a
     # VARIANCE threshold in the guide's own units, so the filter smooths anything

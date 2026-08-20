@@ -10,6 +10,9 @@ import XCTest
 private struct XMPFixture: Decodable {
     struct Content: Decodable {
         let rating: Int
+        /// Absent in the fixture for the cases that carry no flag, so it decodes as
+        /// nil rather than requiring `"flag": "none"` in every case.
+        let flag: String?
         let label: String?
         let pipelineVersion: Int
         let recipeFingerprint: String?
@@ -45,8 +48,20 @@ private struct RenameFixture: Decodable {
 
 final class SidecarAndIngestTests: XCTestCase {
 
+    private func expectedFlag(_ c: XMPFixture.Content) -> SidecarFlag {
+        guard let raw = c.flag else { return .none }
+        // Not `?? .none`: an unrecognized string in the fixture is a fixture bug, and
+        // silently reading it as "no flag" would make the flag cases pass while
+        // testing nothing — which is exactly how the missing field went unnoticed.
+        guard let flag = SidecarFlag(rawValue: raw) else {
+            XCTFail("xmp fixture carries an unknown flag: \(raw)")
+            return .none
+        }
+        return flag
+    }
+
     private func sidecarContent(_ c: XMPFixture.Content) -> SidecarContent {
-        SidecarContent(rating: c.rating, label: c.label,
+        SidecarContent(rating: c.rating, flag: expectedFlag(c), label: c.label,
                        pipelineVersion: c.pipelineVersion,
                        recipeFingerprint: c.recipeFingerprint,
                        recipeJSON: c.recipeJSON,
@@ -69,7 +84,32 @@ final class SidecarAndIngestTests: XCTestCase {
                 XCTFail("xmp case \(c.name) failed to parse")
                 continue
             }
+            // The flag is asserted on its own line as well as through Equatable. It was
+            // added to the writer, the reference implementation and the fixture without
+            // being added to this file's decoder, so both XMP tests failed with
+            // "serialization drifted" and a wall of near-identical XML — a message that
+            // says nothing about which field went missing.
+            XCTAssertEqual(parsed.flag, expectedFlag(c.content),
+                           "xmp case \(c.name) lost its flag")
             XCTAssertEqual(parsed, sidecarContent(c.content), "xmp case \(c.name)")
+        }
+    }
+
+    /// Flag and rating are separate axes, which is the entire reason `lumen:flag`
+    /// exists instead of Lightroom's `xmp:Rating = -1` convention: a photo can be four
+    /// stars AND rejected, and writing −1 into the rating would destroy one of them.
+    func testFlagAndRatingSurviveEachOther() {
+        for flag in [SidecarFlag.none, .pick, .reject] {
+            for rating in 0...5 {
+                let content = SidecarContent(rating: rating, flag: flag)
+                guard let parsed = XMPSidecar.parse(XMPSidecar.serialize(content)) else {
+                    return XCTFail("\(flag) at \(rating) stars did not parse back")
+                }
+                XCTAssertEqual(parsed.flag, flag,
+                               "\(rating) stars destroyed the \(flag) flag")
+                XCTAssertEqual(parsed.rating, rating,
+                               "the \(flag) flag destroyed a \(rating)-star rating")
+            }
         }
     }
 
