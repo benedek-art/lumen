@@ -686,6 +686,66 @@ final class EngineTests: XCTestCase {
         }
     }
 
+    // MARK: - Export must never write over something
+
+    /// Export had no collision guard and no overwrite guard, and the encoders truncate.
+    /// Re-exporting into a folder that already held a delivery replaced it silently.
+    func testAFreePathIsUsedUnchanged() {
+        let wanted = URL(fileURLWithPath: "/Export/DSC_0001.jpg")
+        XCTAssertEqual(ExportRecipe.disambiguated(wanted) { _ in false }, wanted)
+    }
+
+    func testATakenPathIsSuffixedRatherThanOverwritten() {
+        let wanted = URL(fileURLWithPath: "/Export/DSC_0001.jpg")
+        let taken: Set<URL> = [wanted]
+        let got = ExportRecipe.disambiguated(wanted) { taken.contains($0) }
+        XCTAssertNotEqual(got, wanted, "the existing delivery would be overwritten")
+        XCTAssertEqual(got, URL(fileURLWithPath: "/Export/DSC_0001-1.jpg"))
+        XCTAssertEqual(got.pathExtension, "jpg", "the format extension was lost")
+    }
+
+    /// Two frames with the same basename in different subfolders resolve to one output
+    /// path, so the run has to keep walking until it finds a free one.
+    func testItWalksPastEveryTakenName() {
+        let wanted = URL(fileURLWithPath: "/Export/DSC_0001.jpg")
+        let taken: Set<URL> = [
+            wanted,
+            URL(fileURLWithPath: "/Export/DSC_0001-1.jpg"),
+            URL(fileURLWithPath: "/Export/DSC_0001-2.jpg"),
+        ]
+        XCTAssertEqual(ExportRecipe.disambiguated(wanted) { taken.contains($0) },
+                       URL(fileURLWithPath: "/Export/DSC_0001-3.jpg"))
+    }
+
+    /// Simulates the export loop itself: same source basename, same recipe, same
+    /// destination folder. Every job must end up somewhere different.
+    func testAWholeRunOfCollidingNamesProducesDistinctFiles() {
+        var claimed: Set<URL> = []
+        var results: [URL] = []
+        for _ in 0..<5 {
+            let path = ExportRecipe.disambiguated(
+                URL(fileURLWithPath: "/Export/DSC_0001.jpg")) { claimed.contains($0) }
+            claimed.insert(path)
+            results.append(path)
+        }
+        XCTAssertEqual(Set(results).count, 5,
+                       "five exports collapsed onto \(Set(results).count) files")
+    }
+
+    /// An extensionless destination must not grow a stray dot.
+    func testDisambiguatingAPathWithNoExtension() {
+        let wanted = URL(fileURLWithPath: "/Export/delivery")
+        let got = ExportRecipe.disambiguated(wanted) { $0 == wanted }
+        XCTAssertEqual(got, URL(fileURLWithPath: "/Export/delivery-1"))
+    }
+
+    /// A name that already contains dots keeps all but the last as part of the stem.
+    func testDisambiguatingKeepsInnerDots() {
+        let wanted = URL(fileURLWithPath: "/Export/shoot.final.tif")
+        let got = ExportRecipe.disambiguated(wanted) { $0 == wanted }
+        XCTAssertEqual(got, URL(fileURLWithPath: "/Export/shoot.final-1.tif"))
+    }
+
     func testResizeNeverUpscalesByDefault() {
         var r = ExportRecipe(name: "t", resizeMode: .longEdge, resizeValue: 4000)
         let size = r.targetSize(sourceWidth: 2000, sourceHeight: 1000)

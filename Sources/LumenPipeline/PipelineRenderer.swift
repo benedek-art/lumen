@@ -113,7 +113,8 @@ public final class PipelineRenderer {
         let target = exportRecipe.targetSize(sourceWidth: Int(extent.width),
                                              sourceHeight: Int(extent.height))
         image = Self.applyGeometry(image, recipe: recipe,
-                                   scaleTo: Swift.max(target.width, target.height))
+                                   scaleTo: Swift.max(target.width, target.height),
+                                   allowUpscale: exportRecipe.allowUpscale)
         image = Self.applyOutputSharpen(image, exportRecipe.sharpen,
                                         resolutionPPI: exportRecipe.resolutionPPI)
         if let watermark = exportRecipe.watermark, !watermark.text.isEmpty {
@@ -354,8 +355,14 @@ public final class PipelineRenderer {
     /// The crop is expressed on the STRAIGHTENED frame, not on the rotated bounding
     /// box: dragging a crop rectangle and then straightening must not slide the
     /// rectangle across the picture.
+    /// `allowUpscale` exists because `scale` was `min(1, …)` unconditionally, which
+    /// made `ExportRecipe.allowUpscale` dead: `targetSize` correctly returned an
+    /// enlarged size and this then refused to reach it. Unticking "Don't enlarge" and
+    /// asking for an 8000 px long edge from a 24 MP file wrote 4000 px, with nothing
+    /// said. A preview never wants enlargement, so the clamp stays the default.
     static func applyGeometry(_ image: CIImage, recipe: Recipe,
-                              scaleTo maxLongEdge: Int? = nil) -> CIImage {
+                              scaleTo maxLongEdge: Int? = nil,
+                              allowUpscale: Bool = false) -> CIImage {
         let geo = recipe.develop.geometry
         var out = image
 
@@ -384,7 +391,10 @@ public final class PipelineRenderer {
         var scale: CGFloat = 1
         if let maxLongEdge {
             let long = Swift.max(target.width, target.height)
-            if long > 0 { scale = Swift.min(1, CGFloat(maxLongEdge) / long) }
+            if long > 0 {
+                let wanted = CGFloat(maxLongEdge) / long
+                scale = allowUpscale ? wanted : Swift.min(1, wanted)
+            }
         }
 
         let combined = orientation.concatenating(
@@ -448,6 +458,11 @@ public final class PipelineRenderer {
 
     // MARK: - Watermark
 
+    /// Rasterization factor for the watermark's glyphs. Named because it has to be
+    /// undone by exactly the same number a few lines later; a mismatch is a silently
+    /// mis-sized mark on a client delivery.
+    static let watermarkSupersample: CGFloat = 2
+
     static func applyWatermark(_ image: CIImage, _ watermark: Watermark) -> CIImage {
         let extent = image.extent
         guard extent.width > 0, extent.height > 0 else { return image }
@@ -471,8 +486,18 @@ public final class PipelineRenderer {
         ]
         let text = NSAttributedString(string: watermark.text, attributes: attributes)
         generator.setValue(text, forKey: "inputText")
-        generator.setValue(2.0, forKey: "inputScaleFactor")
-        guard let rendered = generator.outputImage else { return image }
+
+        // `inputScaleFactor` scales the rasterization, so it is a supersampling knob
+        // and NOT free quality: setting it to 2 and using the result as-is drew the
+        // mark at twice the requested percentage of the long edge — Size 3% put a 6%
+        // mark on the picture. Rasterize at 2× for smoother glyph edges, then scale
+        // back down by exactly the same factor, so the drawn height is the one the
+        // slider asked for.
+        generator.setValue(Self.watermarkSupersample, forKey: "inputScaleFactor")
+        guard let raster = generator.outputImage else { return image }
+        let inverse = 1 / Self.watermarkSupersample
+        let rendered = raster.transformed(
+            by: CGAffineTransform(scaleX: inverse, y: inverse))
 
         let size = rendered.extent
         var x = extent.maxX - size.width - inset

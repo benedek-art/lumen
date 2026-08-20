@@ -556,7 +556,7 @@ private struct ExportRecipeEditor: View {
         VStack(alignment: .leading, spacing: 2) {
             LumenSectionHeader(title: "Watermark")
             LumenToggleRow(title: "Watermark", isOn: watermarkEnabled,
-                           help: "Schema-reserved. The encoder does not composite it yet.")
+                           help: "Composited into every exported file.")
             if recipe.watermark != nil {
                 ExportFieldRow("Text") {
                     ExportTextEntry(text: watermarkValue(\.text), placeholder: "© Your Name")
@@ -575,8 +575,10 @@ private struct ExportRecipeEditor: View {
                 LumenSlider(title: "Inset", value: watermarkValue(\.insetPercent),
                             range: 0...20, defaultValue: 2, step: 0.1, decimals: 1,
                             bipolar: false)
-                ExportNote("Stored with the recipe so nothing migrates when compositing ships "
-                           + "— but v1 writes no mark. This is a plan, not a result.")
+                ExportNote("Drawn into the exported pixels, not into the metadata — an "
+                           + "exported file carries the mark wherever it goes, and the "
+                           + "original is untouched. Size is a percentage of the long "
+                           + "edge, so one setting looks the same on every crop.")
             }
         }
     }

@@ -350,6 +350,44 @@ public struct ExportRecipe: Codable, Equatable, Sendable, Identifiable {
     public static func sanitizedSubfolderPath(_ subfolder: String?) -> String {
         sanitizedSubfolderComponents(subfolder).joined(separator: "/")
     }
+
+    /// A destination that is not already spoken for, suffixing `-1`, `-2`, … until one
+    /// is free. `isTaken` covers both "a file is already there" and "an earlier job in
+    /// this same run claimed it" — the caller has to answer for both, and the injection
+    /// is what lets this be tested without a filesystem.
+    ///
+    /// Export had no guard of either kind. The encoders truncate, so re-exporting into
+    /// a folder that already held a delivery replaced it with no prompt; and because
+    /// the folder scan is recursive while the filename template is built from the
+    /// basename, `day1/DSC_0001.NEF` and `day2/DSC_0001.NEF` resolved to one output
+    /// path. The sheet counted photos × recipes and the status line reported that many
+    /// files exported, so the user was told forty files were written when thirty-eight
+    /// were, and no error was raised.
+    ///
+    /// Suffixing rather than prompting: it is what the platform does, it needs no
+    /// decision from someone who is mid-delivery, and it cannot destroy anything.
+    public static func disambiguated(_ url: URL, isTaken: (URL) -> Bool) -> URL {
+        guard isTaken(url) else { return url }
+        let folder = url.deletingLastPathComponent()
+        let ext = url.pathExtension
+        let stem = url.deletingPathExtension().lastPathComponent
+
+        func candidate(_ suffix: String) -> URL {
+            let named = folder.appendingPathComponent(stem + suffix)
+            return ext.isEmpty ? named : named.appendingPathExtension(ext)
+        }
+
+        var n = 1
+        while n <= 9_999 {
+            let next = candidate("-\(n)")
+            if !isTaken(next) { return next }
+            n += 1
+        }
+        // Ten thousand collisions on one name is not a case worth a nicer answer, but
+        // it is still not a reason to overwrite somebody's file. A name nothing else
+        // will pick beats returning the one we know is taken.
+        return candidate("-" + UUID().uuidString)
+    }
 }
 
 // MARK: - HDR

@@ -137,11 +137,24 @@ extension AppState {
         Task {
             var completed = 0.0
             var failures: [String] = []
+            // Nothing this run writes may land on a path an earlier job claimed or on a
+            // file that was already there. The encoders truncate, so without this a
+            // re-export replaced a delivery and two same-named frames from different
+            // subfolders silently became one file.
+            var claimed: Set<URL> = []
+            var renamed = 0
+            var written = 0
             for job in jobs {
                 for exportRecipe in active {
-                    let destination = Self.destination(directory: directory,
-                                                       source: job.url,
-                                                       recipe: exportRecipe)
+                    let wanted = Self.destination(directory: directory,
+                                                  source: job.url,
+                                                  recipe: exportRecipe)
+                    let destination = ExportRecipe.disambiguated(wanted) { candidate in
+                        claimed.contains(candidate)
+                            || FileManager.default.fileExists(atPath: candidate.path)
+                    }
+                    claimed.insert(destination)
+                    if destination != wanted { renamed += 1 }
                     do {
                         try FileManager.default.createDirectory(
                             at: destination.deletingLastPathComponent(),
@@ -150,6 +163,7 @@ extension AppState {
                                                            to: destination,
                                                            exportRecipe: exportRecipe,
                                                            strokeSets: job.strokes)
+                        written += 1
                     } catch {
                         failures.append(job.url.lastPathComponent + " → " + exportRecipe.name)
                     }
@@ -161,12 +175,17 @@ extension AppState {
             await MainActor.run {
                 self.isExporting = false
                 self.exportProgress = 0
+                // Count what was actually written, not what was planned. The old
+                // message reported photos × recipes whatever happened, so a run that
+                // overwrote two of its own outputs still claimed every file.
+                let renamedNote = renamed == 0 ? ""
+                    : " (\(renamed) renamed to avoid overwriting)"
                 if failures.isEmpty {
-                    self.statusMessage = "Exported \(Int(total)) file"
-                        + (total == 1 ? "" : "s")
+                    self.statusMessage = "Exported \(written) file"
+                        + (written == 1 ? "" : "s") + renamedNote
                 } else {
-                    self.statusMessage = "\(failures.count) export"
-                        + (failures.count == 1 ? "" : "s") + " failed"
+                    self.statusMessage = "Exported \(written) of \(Int(total)) — "
+                        + "\(failures.count) failed" + renamedNote
                 }
             }
         }
