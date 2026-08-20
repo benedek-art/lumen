@@ -289,26 +289,44 @@ public struct RenderGraph {
         // export (docs/14 §6.3).
         let proxy = Self.scaledToProxy(dark)
         let airlight = Self.maximumColor(proxy) ?? RGB(gray: 0.8)
-        let neutral = Swift.max((airlight.r + airlight.g + airlight.b) / 3, 1e-4)
+        let mean = Swift.max((airlight.r + airlight.g + airlight.b) / 3, 1e-4)
 
-        // t = 1 − w·dark/A, refined.
-        let scale = -strength * 0.95 / neutral
+        // t = 1 − w·dark/A, refined. The amount is NOT folded in here any more.
+        //
+        // It used to be — `scale` carried `-strength` — which conflated the estimate
+        // with the strength: the transmission map itself changed shape as the slider
+        // moved, so the recombination could not be the reference's, which takes an
+        // amount-independent transmission and applies the amount at the end. Folding it
+        // in also made the negative branch's transmission the wrong sign entirely.
+        let scale = -0.95 / mean
         let scaled = Self.applyMatrix(dark, Mat3.diagonal(RGB(gray: scale)))
         let biased = Self.addConstant(scaled, 1.0)
         let refined = Self.crossGuidedFilter(input: biased, guide: dark, radius: radius,
                                              epsilon: 0.0025) ?? biased
 
-        // The same base transmission floor the reference uses, rather than 0.1. The
-        // reference ALSO lifts this per pixel toward 0.9 where the frame is bright and
-        // flat — its sky guard — which needs the gradient and log-luminance planes the
-        // kernel is not given, so that part remains reference-only and is listed in
-        // BUILDING.md rather than approximated here.
+        // The same base transmission floor the reference uses. The reference ALSO lifts
+        // it per pixel toward 0.9 where the frame is bright and flat — its sky guard —
+        // which needs the gradient and log-luminance planes the kernel is not given, so
+        // that part stays reference-only and is listed in BUILDING.md.
         let distance = Num.clamp(DetailEngine.dehazeDistance, 0, 100) / 100
         let floorT = Num.mix(0.55, 0.05, distance)
 
-        let a = CIVector(x: neutral, y: neutral, z: neutral)
-        return KernelLibrary.apply(KernelLibrary.dehaze, extent: image.extent,
-                                   [image, refined, a, Float(floorT)]) ?? image
+        // Neutralization gains: after multiplying by these the veil is grey at
+        // `airLuma`, which is what lets a single luminance ratio carry the whole
+        // recombination without touching the colour.
+        let weights = RGBColorSpace.rec2020.luminanceWeights
+        let airLuma = Swift.max(RGBColorSpace.rec2020.luminance(airlight), 1e-5)
+        let gain = RGB(airLuma / Swift.max(airlight.r, 1e-5),
+                       airLuma / Swift.max(airlight.g, 1e-5),
+                       airLuma / Swift.max(airlight.b, 1e-5))
+
+        return KernelLibrary.apply(
+            KernelLibrary.dehaze, extent: image.extent,
+            [image, refined,
+             CIVector(x: gain.r, y: gain.g, z: gain.b),
+             CIVector(x: weights.r, y: weights.g, z: weights.b),
+             CIVector(x: airlight.r, y: airlight.g, z: airlight.b),
+             Float(airLuma), Float(floorT), Float(strength)]) ?? image
     }
 
     // MARK: - S11 local

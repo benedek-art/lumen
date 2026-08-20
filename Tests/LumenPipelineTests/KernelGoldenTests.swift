@@ -27,6 +27,56 @@ final class KernelGoldenTests: XCTestCase {
         .workingFormat: CIFormat.RGBAf,
     ])
 
+    // MARK: - Dehaze must not repaint the sky
+
+    /// Dehaze scales the colour, it does not repaint it.
+    ///
+    /// The shipping kernel used to recombine per channel — `(I − A)/t + A` — which is a
+    /// different scale factor per channel and therefore a hue rotation. Measured
+    /// outside this suite on a veiled blue sky under a warm veil, that form moved the
+    /// hue by 13.4°, which is the magenta cast docs/06 calls impossible by
+    /// construction. It was impossible only on `ReferenceRenderer`, which renders no
+    /// user pixels; this is the path every preview and every export takes.
+    ///
+    /// A single luminance ratio is a pure multiply, so hue survives exactly. The bar is
+    /// 1° rather than 0 because the read-back is f32 through a GPU and the input hues
+    /// are computed in double.
+    func testDehazeDoesNotRotateHue() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+        let width = 32, height = 32
+        // A veiled blue with a gradient, so the dark channel is not constant and the
+        // transmission map has something to vary over.
+        let source = ImageBuffer(width: width, height: height) { u, v in
+            RGB(0.26 + 0.10 * u, 0.34 + 0.06 * v, 0.52 + 0.06 * u)
+        }
+        let input = ciImage(from: source)
+        let output = RenderGraph.applyDehaze(input, amount: 60, longEdge: width)
+
+        guard let before = readBack(input, width: width, height: height),
+              let after = readBack(output, width: width, height: height)
+        else { return XCTFail("dehaze render failed") }
+
+        var worstShift = 0.0
+        var moved = 0.0
+        for y in 0..<height {
+            for x in 0..<width {
+                let a = before[x, y], b = after[x, y]
+                moved = Swift.max(moved, a.maxAbsDifference(b))
+                let ha = OKLabTransform.working.toLCh(a).h
+                let hb = OKLabTransform.working.toLCh(b).h
+                var delta = abs(hb - ha)
+                if delta > 180 { delta = 360 - delta }
+                worstShift = Swift.max(worstShift, delta)
+            }
+        }
+        // It has to have DONE something, or hue preservation is trivially true.
+        XCTAssertGreaterThan(moved, 0.01,
+                             "dehaze changed nothing, so this proves nothing")
+        XCTAssertLessThan(worstShift, 1.0,
+                          "dehaze rotated hue by \(worstShift)° — the recombination is "
+                              + "per-channel again, not a luminance ratio")
+    }
+
     // MARK: - The eyedropper's probe
 
     /// A source that hands back a known picture, so the probe can be asked whether it

@@ -288,6 +288,14 @@ changed the picture.
 
 ### Still open, from those audits
 
+- **Dehaze's sky guard is still reference-only.** The recombination now matches — one
+  luminance ratio rather than a per-channel divide, so a recovered sky keeps its colour
+  (measured: the old form rotated a veiled blue by 13.4°, the new one by 0.00°). What is
+  still missing is the per-pixel transmission floor the reference lifts toward 0.9 where
+  the frame is bright and flat, which needs the structure-tensor gradient and
+  log-luminance planes the kernel is not given. Its absence makes the GPU strip slightly
+  more haze from a clear sky than the reference does; it is not a colour error.
+
 - **A rendered file gets Lumen's display transform on top of the one already baked in.**
   JPEG/HEIC/PNG/TIFF now decode and edit (`RenderedImageSource`), which they could not
   before — the loupe threw `.undecodable` and every develop slider moved a value that

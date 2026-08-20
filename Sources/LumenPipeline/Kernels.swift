@@ -107,15 +107,58 @@ public enum KernelLibrary {
     }
     """
 
-    /// Dehaze recombination: I' = (I − A)/max(t, t0) + A, on the transmission map the
-    /// guided filter refined. `A` arrives already neutralized of its colour cast, which
-    /// is what stops recovered skies from going magenta.
+    /// Dehaze recombination, in the colour-stable form the reference uses.
+    ///
+    /// The old kernel did `I' = (I − A)/max(t, t0) + A` per channel, which is a
+    /// different scale factor for each channel and therefore a hue rotation — exactly
+    /// the magenta sky docs/06 claims is "impossible by construction". It was
+    /// impossible only on `ReferenceRenderer`, which renders no user pixels; every
+    /// preview and every export took the per-channel form.
+    ///
+    /// This scales the colour by a single LUMINANCE ratio, so channel ratios survive
+    /// untouched and a recovered sky comes back the colour it was.
+    ///
+    /// Two guards carried over from the reference, both load-bearing. `trust` is
+    /// RELATIVE, not absolute: shadow noise after white balance makes triples like
+    /// (−0.02, +0.009, −0.01) whose luminance cancels while the channels do not, and
+    /// scaling those by a luminance ratio turns them into saturated speckles that
+    /// flicker with the noise — while a saturated blue carries only six percent of its
+    /// peak channel as luminance and must still dehaze fully. And `ratio` is clamped,
+    /// because y1 is a fixed negative number as y0 approaches zero, so the ratio
+    /// diverges and its sign flips across zero.
+    ///
+    /// Branchless, like every other kernel here: `positive` selects, and the unselected
+    /// branch collapses to the identity on its own because its own amount term is zero.
+    ///
+    /// Still missing versus the reference: the sky guard, which lifts the transmission
+    /// floor toward 0.9 where the frame is bright and flat. It needs the gradient and
+    /// log-luminance planes this kernel is not given. Tracked in BUILDING.md.
     static let dehazeSource = """
-    kernel vec4 lumenDehaze(__sample image, __sample transmission, vec3 airlight,
-                            float floorT) {
-        float t = max(transmission.r, floorT);
-        vec3 recovered = (image.rgb - airlight) / t + airlight;
-        return vec4(recovered, image.a);
+    kernel vec4 lumenDehaze(__sample image, __sample transmission, vec3 gain,
+                            vec3 lumaWeights, vec3 airlight, float airLuma,
+                            float floorT, float amount) {
+        vec3 c = image.rgb;
+        float raw = transmission.r;
+        float t = max(raw, floorT);
+
+        vec3 neutral = c * gain;
+        float y0 = dot(neutral, lumaWeights);
+        float y1 = (y0 - airLuma) / t + airLuma;
+        float magnitude = max(abs(c.r), max(abs(c.g), abs(c.b)));
+        float trust = smoothstep(0.01, 0.05, abs(y0) / max(magnitude, 1e-8));
+        float live = step(1e-9, abs(y0));
+        float denominator = mix(1.0, y0, live);
+        float ratio = clamp(y1 / denominator, 0.05, 20.0);
+        float k = mix(1.0, mix(1.0, ratio, trust), max(amount, 0.0));
+        vec3 lifted = c * k;
+
+        // Adding haze: more of it the FURTHER away the pixel reads, and low
+        // transmission is what "far" looks like without a depth map.
+        float distant = clamp(1.0 - raw, 0.0, 1.0);
+        float s = clamp(-min(amount, 0.0) * distant * 0.9, 0.0, 1.0);
+        vec3 hazed = mix(c, airlight, s);
+
+        return vec4(mix(hazed, lifted, step(0.0, amount)), image.a);
     }
     """
 
