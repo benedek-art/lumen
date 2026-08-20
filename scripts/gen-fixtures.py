@@ -1237,6 +1237,47 @@ def gen_spatial_checks():
     check(abs(dehaze_ratio(blue_luma, blue_luma * 0.7, 1.0) - 0.7) < 0.02,
           "dehaze stopped working on a saturated blue")
 
+    # --- negative Dehaze must put the haze in the DISTANCE -----------------
+    #
+    # It did the opposite. The synthesis branch reused the transmission that
+    # carries the sky guard — a guard whose whole job is to stop the POSITIVE
+    # branch stripping haze out of a sky — so a high floor meant less added haze,
+    # and the control fogged the near subject while leaving the distance clear.
+    # Nothing checked the negative branch at all; every dehaze check above is on
+    # the positive one.
+    def synth_haze(ev, gradient, transmission, amount=-1.0):
+        bright = smoothstep(0.5, 2.0, ev)
+        flat = 1.0 - smoothstep(0.05, 0.35, gradient)
+        skyness = clamp(bright * flat, 0.0, 1.0)
+        distant = max(1 - transmission, skyness)
+        return clamp(-amount * distant * 0.9, 0.0, 1.0)
+
+    scene = [
+        ("clear flat sky", 2.5, 0.00, 0.95),
+        ("hazy distant sky", 1.2, 0.02, 0.55),
+        ("mid grey wall", 0.0, 0.01, 0.90),
+        ("textured foliage", -1.0, 0.50, 0.92),
+        ("dark foreground", -3.0, 0.10, 0.93),
+    ]
+    haze = {name: synth_haze(ev, g, t) for name, ev, g, t in scene}
+    for near in ("mid grey wall", "textured foliage", "dark foreground"):
+        for far in ("clear flat sky", "hazy distant sky"):
+            check(haze[far] > haze[near] + 1e-9,
+                  f"negative Dehaze put {haze[near]:.4f} on {near} and only "
+                  f"{haze[far]:.4f} on {far} — the haze is on the subject, not the "
+                  "distance")
+    # And it has to be a control: more negative, more haze, monotonically.
+    previous = None
+    for step_index in range(0, 101):
+        amount = -step_index / 100
+        value = synth_haze(2.5, 0.0, 0.95, amount)
+        if previous is not None:
+            check(value >= previous - 1e-12,
+                  f"negative Dehaze at {amount} added less haze than at "
+                  f"{amount + 0.01}")
+        previous = value
+    check(synth_haze(2.5, 0.0, 0.95, 0.0) == 0.0, "Dehaze 0 added haze")
+
     # --- the denoise inverse blend ----------------------------------------
     alg, unb = 1.0, 1.0 + 0.25 * 1.024e-2      # pedestal at ISO 102400
     check(vst_inverse_blend(alg, unb, 0.0) == alg, "blend not algebraic at zero")

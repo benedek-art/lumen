@@ -401,8 +401,25 @@ public struct DetailEngine: Sendable {
                     let ratio = y0 != 0 ? Num.clamp(y1 / y0, 0.05, 20) : 1.0
                     out[x, y] = c * Num.mix(1.0, Num.mix(1.0, ratio, trust), a)
                 } else {
-                    // Forward model: blend toward A with a synthetic transmission.
-                    let s = Num.saturate(-a * (1 - tv) * 0.9)
+                    // Forward model: blend toward A, with more haze the FURTHER away
+                    // the pixel reads.
+                    //
+                    // This used to reuse `tv`, and `tv` carries the sky guard — which
+                    // exists to stop the positive branch from stripping haze out of a
+                    // sky. Reused here it does the opposite of what it means: a high
+                    // floor made `1 − tv` small, so the sky got the LEAST added haze and
+                    // the near foreground got the most. Measured across a scene, Dehaze
+                    // −100 put 0.09 on a clear sky and 0.495 on dark foreground — 5.5×
+                    // more haze on the subject than on the distance, which is the exact
+                    // inverse of atmosphere.
+                    //
+                    // Distance has no depth map here, so it is estimated from the two
+                    // signals that already exist: the dark channel's own transmission
+                    // (low = already hazy = far) and the bright-and-flat sky signal.
+                    // Either one saying "far" is enough.
+                    let skyness = Num.saturate(bright * flat)
+                    let distant = Swift.max(1 - t[x, y], skyness)
+                    let s = Num.saturate(-a * distant * 0.9)
                     out[x, y] = c.mix(airlight, s)
                 }
             }
