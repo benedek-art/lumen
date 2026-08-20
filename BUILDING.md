@@ -14,6 +14,14 @@ swift run LumenApp       # launch directly
 scripts/build-app.sh     # or build dist/Lumen.app and `open dist/Lumen.app`
 ```
 
+**Or download it, already built.** Every push builds the bundle on CI and attaches it:
+open the branch's latest run under the repository's **Actions** tab, and take the
+`Lumen-app` artifact from the summary page. Unzip and `open Lumen.app`.
+
+The bundle is signed ad-hoc, not notarized, so the first launch needs the usual
+right-click → **Open** rather than a double-click — macOS refuses an unnotarized app
+opened the normal way, and says so in a dialog that offers no way past it.
+
 The first thing to do is open a folder of your own RAWs (⌘O) and cull it: arrow keys to
 move, `P`/`X`/`U` to flag, `1`–`5` to rate, `6`–`9` to label, `E` for the loupe, `G`
 back to the grid. Press ⌘/ for the full keyboard reference. Then edit one frame and
