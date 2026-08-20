@@ -1,8 +1,24 @@
 name: CI
 
+# PUSH TRIGGER TEMPORARILY DISABLED — 2026-08-20.
+#
+# GitHub stopped allocating runners partway through the session: every run failed
+# in about three seconds with no job ever starting, on the macOS AND the Linux
+# lanes, with empty logs. That is the signature of exhausted Actions minutes or a
+# hit spending limit, not of anything in this repository. Each failure emailed the
+# repository owner, and a burst of pushes turned that into twenty emails about a
+# problem no commit could fix.
+#
+# TO RESTORE once Actions can allocate runners again — raise the spending limit,
+# or make the repository public, or wait for the monthly reset — delete this
+# comment and put back:
+#
+#   push:
+#     branches: ["**"]
+#
+# Until then the workflow still runs on demand from the Actions tab, which costs
+# nothing while it cannot start.
 on:
-  push:
-    branches: ["**"]
   workflow_dispatch:
 
 # One run per branch. macOS runners are scarce and the suite takes ten minutes, so a
