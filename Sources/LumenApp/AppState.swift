@@ -325,14 +325,6 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// Everything selected, whether or not the current filter happens to be showing
-    /// it. Deriving this from the filtered list meant narrowing a filter after
-    /// selecting forty frames quietly shrank both the export and the count that
-    /// promised what would be exported.
-    /// Brush stroke blobs this session has read or written, by reference. Content
-    /// addressed, so an entry is never stale: the name IS the bytes.
-    @Published private var strokeCache: [String: BrushStrokeSet] = [:]
-
     /// Cached so a sort does not stat the same file once per comparison.
     private static let fileDateCache = FileDateCache()
 
@@ -340,9 +332,18 @@ final class AppState: ObservableObject {
         fileDateCache.date(for: url)
     }
 
+    /// Everything selected, whether or not the current filter happens to be showing
+    /// it. Deriving this from the filtered list meant narrowing a filter after
+    /// selecting forty frames quietly shrank both the export and the count that
+    /// promised what would be exported.
     var selectedPhotos: [PhotoItem] {
         allPhotos.filter { selection.contains($0.id) }
     }
+
+    /// Brush stroke blobs this session has read or written, by reference. Content
+    /// addressed, so an entry is never stale: the name IS the bytes.
+    @Published private var strokeCache: [String: BrushStrokeSet] = [:]
+
 
     /// The brush blobs a recipe's masks refer to. A `strokesRef` is a promise that
     /// bytes exist somewhere; these are the bytes.
@@ -394,7 +395,7 @@ final class AppState: ObservableObject {
                 if let set = blobs.strokeSet(for: ref) { loaded[ref] = set }
             }
             guard !loaded.isEmpty else { return }
-            await MainActor.run { [weak self] in
+            await MainActor.run {
                 guard let self else { return }
                 for (ref, set) in loaded { self.strokeCache[ref] = set }
             }

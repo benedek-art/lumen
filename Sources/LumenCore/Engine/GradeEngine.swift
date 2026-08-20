@@ -35,8 +35,6 @@
 
 import Foundation
 
-// MARK: - Gamut boundary cache
-
 // MARK: - Zone windows
 
 /// The two visible pivots of the grading panel, resolved into three weights that sum to

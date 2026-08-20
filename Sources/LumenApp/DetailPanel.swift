@@ -25,7 +25,10 @@ import SwiftUI
 /// full-frame sensor at a good aperture; the amount stand-in is the engine's own
 /// default strength.
 private let captureRadiusStandIn: Double = 0.8
-private let captureAmountStandIn: Double = 50
+// 100, not 50: both readers of `CaptureSharpen.amount` treat nil as 100
+// (`DetailEngine.captureSharpen`, `AppleRawSource`). Showing 50 while auto renders at
+// 100 meant the first nudge of the slider halved the sharpening.
+private let captureAmountStandIn: Double = 100
 
 struct DetailPanel: View {
     @EnvironmentObject var state: AppState

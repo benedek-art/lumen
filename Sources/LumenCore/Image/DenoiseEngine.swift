@@ -319,10 +319,6 @@ public enum VST {
         return (2.0 / a) * u.squareRoot()
     }
 
-    /// Variance-stabilized value → linear value, using the exact unbiased inverse.
-    /// This is the inverse docs/07 mandates; it is deliberately NOT the algebraic inverse,
-    /// so `inverse(forward(x))` differs from `x` by the (small) debiasing term. The
-    /// round-trip identity golden runs against `algebraicInverse`.
     /// The inverse to use when only `shrinkage` of the full denoising strength was
     /// actually applied, 0…1.
     ///
@@ -343,6 +339,10 @@ public enum VST {
                        inverse(y, profile: profile), t)
     }
 
+    /// Variance-stabilized value → linear value, using the exact unbiased inverse.
+    /// This is the inverse docs/07 mandates; it is deliberately NOT the algebraic inverse,
+    /// so `inverse(forward(x))` differs from `x` by the (small) debiasing term. The
+    /// round-trip identity golden runs against `algebraicInverse`.
     public static func inverse(_ y: Double, profile: NoiseProfile) -> Double {
         guard y.isFinite else { return 0 }
         let a = profile.a
