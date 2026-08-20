@@ -53,19 +53,16 @@ blocked by its egress policy. So the verification loop is **GitHub Actions' macO
 runner**: it compiles all four targets and runs both suites there, and the CI log is
 filtered down to deduplicated diagnostics so a round is readable.
 
-> **⚠️ Nothing in this repository has been compiled since 2026-08-20.** Partway through
-> that session GitHub stopped allocating runners — every run failed in about three
-> seconds with no job starting, on the macOS *and* Linux lanes, with empty logs, which
-> is the signature of exhausted Actions minutes or a hit spending limit rather than
-> anything in the code. The push trigger is disabled so the failures stop emailing the
-> owner; `.github/workflows/ci.yml` carries the one-line restore instructions. Until
-> a run succeeds, **treat every commit after that point as unverified by a compiler**:
-> the reasoning below still applies to the design, but "it builds" is currently a
-> claim, not a result. Restoring it needs a spending-limit raise, a public repository,
-> or the monthly reset — none of which a commit can do.
+> **⚠️ A large batch of commits has never been compiled.** Partway through 2026-08-20
+> GitHub stopped allocating runners — every run failed in about three seconds with no
+> job starting, on both lanes, with empty logs, which is the signature of exhausted
+> Actions minutes on a private repository. Roughly seventy commits landed while that
+> held. The repository is public now, so the push trigger is back on and CI runs again;
+> until a run has actually gone green, treat anything from that window as unverified by
+> a compiler.
 >
-> What stands in for it meanwhile: the Python mirror below still executes on every
-> change, and `scripts/check-swift-surface.py` makes four mechanical passes over the
+> What stood in for it meanwhile, and still runs on every push: the Python mirror below,
+> and `scripts/check-swift-surface.py`, which makes four mechanical passes over the
 > whole tree — every capitalized identifier resolves against the declarations in-tree,
 > every `Type(...)` call site matches one of that type's declared initializers, every
 > call to an actor-isolated member is awaited, and every `TypeName.member` names
