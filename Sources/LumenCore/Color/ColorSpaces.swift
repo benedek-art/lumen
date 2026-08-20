@@ -337,42 +337,50 @@ public enum ColorTemperature {
         return Chromaticity.fromUV(u: u, v: v + tint * tintUnitInV)
     }
 
-    /// Inverse: nearest locus temperature and the perpendicular tint offset.
-    /// Uses a coarse-to-fine search in mired space (perceptually even in Kelvin,
-    /// which is why every camera UI steps in mireds under the hood).
+    /// Inverse of `chromaticity(kelvin:tint:)`, and exactly its inverse.
+    ///
+    /// Tint offsets the v coordinate and leaves u alone, so the temperature is
+    /// recovered by matching **u** — not by finding the nearest point on the locus.
+    /// Nearest-point looks equivalent and is not: the locus is curved, so a colour a
+    /// long way off it in v is closest to a *different* temperature than the one it
+    /// came from. At 5500 K with tint −80 that error was 2850 K.
+    ///
+    /// Searched coarse-to-fine in mired space, which is the axis that is perceptually
+    /// even in Kelvin and the reason every camera UI steps in mireds underneath.
     public static func temperatureAndTint(for chroma: Chromaticity) -> (kelvin: Double, tint: Double) {
         let (u, v) = chroma.uv
-        var bestT = 5500.0
-        var bestD = Double.infinity
-        // Mired sweep: 1e6/50000 = 20 to 1e6/2000 = 500.
-        var mired = 20.0
-        while mired <= 500 {
-            let t = 1e6 / mired
-            let (lu, lv) = locus(kelvin: t).uv
-            let d = (lu - u) * (lu - u) + (lv - v) * (lv - v)
-            if d < bestD {
-                bestD = d
-                bestT = t
-            }
-            mired += 0.5
+        let minMired = 1e6 / maxKelvin
+        let maxMired = 1e6 / minKelvin
+
+        func uError(atMired m: Double) -> Double {
+            abs(locus(kelvin: 1e6 / m).uv.u - u)
         }
-        // Refine around the best mired with a finer step.
-        let coarse = 1e6 / bestT
-        var m = Swift.max(20.0, coarse - 1.0)
-        let end = Swift.min(500.0, coarse + 1.0)
-        while m <= end {
-            let t = 1e6 / m
-            let (lu, lv) = locus(kelvin: t).uv
-            let d = (lu - u) * (lu - u) + (lv - v) * (lv - v)
-            if d < bestD {
-                bestD = d
-                bestT = t
+
+        var bestMired = 1e6 / 5500
+        var best = Double.infinity
+        var m = minMired
+        while m <= maxMired {
+            let e = uError(atMired: m)
+            if e < best {
+                best = e
+                bestMired = m
             }
-            m += 0.02
+            m += 0.5
         }
-        let (bu, bv) = locus(kelvin: bestT).uv
-        _ = bu
-        let tint = (v - bv) / tintUnitInV
-        return (Num.clamp(bestT, minKelvin, maxKelvin), Num.clamp(tint, -300, 300))
+
+        var step = 0.25
+        for _ in 0..<12 {
+            let lower = Swift.max(minMired, bestMired - step)
+            let upper = Swift.min(maxMired, bestMired + step)
+            let a = uError(atMired: lower)
+            let b = uError(atMired: upper)
+            if a < best { best = a; bestMired = lower }
+            if b < best { best = b; bestMired = upper }
+            step /= 2
+        }
+
+        let kelvin = 1e6 / bestMired
+        let tint = (v - locus(kelvin: kelvin).uv.v) / tintUnitInV
+        return (Num.clamp(kelvin, minKelvin, maxKelvin), Num.clamp(tint, -300, 300))
     }
 }
