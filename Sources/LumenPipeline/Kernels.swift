@@ -208,6 +208,59 @@ public enum KernelLibrary {
     }
     """
 
+    /// The three products of a structure tensor, packed into one plane so a single box
+    /// blur smooths all of them: (gx², gy², gx·gy).
+    static let structureTensorSource = """
+    kernel vec4 lumenStructureTensor(__sample gx, __sample gy) {
+        float x = gx.r / 8.0;
+        float y = gy.r / 8.0;
+        return vec4(x * x, y * y, x * y, 1.0);
+    }
+    """
+
+    /// Coherence from the blurred tensor: 0 where structure is isotropic (pores, film
+    /// grain, noise-adjacent detail), 1 on a coherent edge (an eyelash, a jawline, a
+    /// horizon).
+    ///
+    /// From the eigenvalues of the 2x2 tensor, ((l1 − l2)/(l1 + l2))², which reduces to
+    /// the form below without ever solving for l1 and l2 separately:
+    ///   l1 − l2 = sqrt((Jxx − Jyy)² + 4·Jxy²)
+    ///   l1 + l2 = Jxx + Jyy
+    ///
+    /// This is what makes NEGATIVE Texture a skin smoother rather than a
+    /// negative-Clarity glow: without the gate it attacks an eyelash as readily as a
+    /// pore, and the face goes waxy while the edges go soft. docs/06 names the gate as
+    /// the whole difference, and the shipping path had neither it nor the bands.
+    static let coherenceSource = """
+    kernel vec4 lumenCoherence(__sample tensor) {
+        float jxx = tensor.r;
+        float jyy = tensor.g;
+        float jxy = tensor.b;
+        float trace = jxx + jyy;
+        float d = jxx - jyy;
+        float spread = sqrt(d * d + 4.0 * jxy * jxy);
+        // A flat region has a trace of essentially zero and no orientation to speak
+        // of, so it must read as ISOTROPIC. Dividing by it would say the opposite.
+        float c = spread / max(trace, 1e-8);
+        c = c * c * step(1e-8, trace);
+        return vec4(vec3(clamp(c, 0.0, 1.0)), 1.0);
+    }
+    """
+
+    /// `detailGain` with a per-pixel gate on the band before it is exponentiated.
+    ///
+    /// The gate multiplies the BAND, not the result: gating the gain afterwards would
+    /// pull the whole multiply toward zero rather than toward one, which darkens
+    /// wherever the gate closes instead of leaving the pixel alone.
+    static let detailGainGatedSource = """
+    kernel vec4 lumenDetailGainGated(__sample hi, __sample lo, __sample gate,
+                                     float k, float useGate) {
+        float open = mix(1.0, 1.0 - clamp(gate.r, 0.0, 1.0), useGate);
+        float g = exp2(k * open * (hi.r - lo.r));
+        return vec4(g, g, g, 1.0);
+    }
+    """
+
     /// a − b on a plane, signed.
     ///
     /// A kernel rather than `CISubtractBlendMode`, because the blend modes are defined
@@ -310,6 +363,9 @@ public enum KernelLibrary {
     public static let detailGain = make(detailGainSource)
     public static let sharpenDelta = make(sharpenDeltaSource)
     public static let subtract = make(subtractSource)
+    public static let structureTensor = make(structureTensorSource)
+    public static let coherence = make(coherenceSource)
+    public static let detailGainGated = make(detailGainGatedSource)
     public static let lumaRatio = make(lumaRatioSource)
     public static let sobelMagnitude = make(sobelMagnitudeSource)
     public static let dehaze = make(dehazeSource)
@@ -332,7 +388,8 @@ public enum KernelLibrary {
             ("blendMask", blendMask), ("grain", grain), ("vignette", vignette),
             ("detailGain", detailGain), ("dehaze", dehaze), ("addGlow", addGlow),
             ("sharpenDelta", sharpenDelta), ("lumaRatio", lumaRatio),
-            ("subtract", subtract),
+            ("subtract", subtract), ("structureTensor", structureTensor),
+            ("coherence", coherence), ("detailGainGated", detailGainGated),
             ("sobelMagnitude", sobelMagnitude),
             ("highlightEnergy", highlightEnergy),
         ]

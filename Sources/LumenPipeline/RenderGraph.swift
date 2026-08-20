@@ -234,10 +234,27 @@ public struct RenderGraph {
 
         if d.texture != 0 {
             let k = d.texture / 100.0 * 0.9 * perStop
-            if let gain = KernelLibrary.apply(KernelLibrary.detailGain,
-                                              extent: out.extent, [lum, baseFine, Float(k)]),
+            // NEGATIVE Texture is gated by local structure and positive Texture is not.
+            // That asymmetry is the whole difference between a skin smoother and a
+            // negative-Clarity glow: ungated, it attacks an eyelash as readily as a
+            // pore, so the face goes waxy while the edges go soft. docs/06 names the
+            // gate as the point of the control and the shipping path did not have it.
+            let gate = d.texture < 0
+                ? Self.coherence(lum, radius: mid)
+                : nil
+            let gained: CIImage?
+            if let gate {
+                gained = KernelLibrary.apply(
+                    KernelLibrary.detailGainGated, extent: out.extent,
+                    [lum, baseFine, gate, Float(k), Float(1.0)])
+            } else {
+                gained = KernelLibrary.apply(KernelLibrary.detailGain,
+                                             extent: out.extent,
+                                             [lum, baseFine, Float(k)])
+            }
+            if let gained,
                let combined = KernelLibrary.apply(KernelLibrary.multiply,
-                                                  extent: out.extent, [out, gain]) {
+                                                  extent: out.extent, [out, gained]) {
                 out = combined
             }
         }
@@ -461,6 +478,30 @@ public struct RenderGraph {
     /// — half of it is the dark side of every edge.
     static func subtract(_ a: CIImage, _ b: CIImage) -> CIImage? {
         KernelLibrary.apply(KernelLibrary.subtract, extent: a.extent, [a, b])
+    }
+
+    /// Structure-tensor coherence: 0 on isotropic texture, 1 on a coherent edge.
+    ///
+    /// `radius` sets the neighbourhood the tensor is averaged over. Too small and every
+    /// pixel looks like an edge because a two-pixel window cannot tell a pore from a
+    /// jawline; the reference uses a mid-scale window and so does this.
+    static func coherence(_ plane: CIImage, radius: Int) -> CIImage? {
+        let horizontal = CIFilter.convolution3X3()
+        horizontal.inputImage = plane.clampedToExtent()
+        horizontal.weights = CIVector(values: [-1, 0, 1, -2, 0, 2, -1, 0, 1], count: 9)
+        horizontal.bias = 0
+        let vertical = CIFilter.convolution3X3()
+        vertical.inputImage = plane.clampedToExtent()
+        vertical.weights = CIVector(values: [-1, -2, -1, 0, 0, 0, 1, 2, 1], count: 9)
+        vertical.bias = 0
+        guard let gx = horizontal.outputImage?.cropped(to: plane.extent),
+              let gy = vertical.outputImage?.cropped(to: plane.extent),
+              let tensor = KernelLibrary.apply(KernelLibrary.structureTensor,
+                                               extent: plane.extent, [gx, gy]),
+              let smoothed = Self.boxBlur(tensor, radius: radius)
+        else { return nil }
+        return KernelLibrary.apply(KernelLibrary.coherence,
+                                   extent: plane.extent, [smoothed])
     }
 
     /// Sobel gradient magnitude, in the units of the plane it is given.
