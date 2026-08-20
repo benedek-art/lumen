@@ -271,17 +271,9 @@ struct DevelopPanel: View {
         case .look:
             LookPanel()
         case .curve:
-            scrollColumn {
-                placeholder("Tone Curve",
-                            "Parametric, point and channel curves evaluate after the "
-                            + "display transform, luminance-preserving by default (D10).")
-            }
+            scrollColumn { CurveEditorView() }
         case .masks:
-            scrollColumn {
-                placeholder("Masks",
-                            "Local adjustments share the presence decomposition rather "
-                            + "than recomputing it, and land in Phase 4.")
-            }
+            MaskPanel()
         }
     }
 
@@ -293,12 +285,6 @@ struct DevelopPanel: View {
             }
             .padding(.horizontal, 10)
             .padding(.bottom, 14)
-        }
-    }
-
-    private func placeholder(_ title: String, _ detail: String) -> some View {
-        DevelopSection(title, isModified: false) {
-            DevelopNote(detail)
         }
     }
 

@@ -247,7 +247,7 @@ struct FilterBar: View {
         if !state.filter.labels.isEmpty {
             let labels = state.filter.labels
                 .sorted { $0.rawValue < $1.rawValue }
-                .map { $0 == .none ? "Unlabelled" : $0.displayName }
+                .map { $0 == ColorLabel.none ? "Unlabelled" : $0.displayName }
             parts.append(labels.joined(separator: " or "))
         }
         if state.filter.rawOnly {
