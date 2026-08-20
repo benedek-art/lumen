@@ -349,21 +349,38 @@ public enum ReferenceRenderer {
     static func applyGrain(_ image: ImageBuffer, film: FilmChain, seed: UInt64,
                            longEdge: Int) -> ImageBuffer {
         let plateSize = 128
-        let plate = FilmGrainProfile.plate(size: plateSize, seed: seed, sigma: 1.0)
-        let scale = Swift.max(film.grain.plateScale(longEdgePixels: longEdge,
-                                                    printSizeInches: film.printLongEdgeInches),
-                              0.5)
+        // One plate per emulsion layer, at that layer's own crystal size.
+        //
+        // The amplitude envelope √(p(1−p)) was already per-channel, but a single noise
+        // value `n` went into all three — which is a luminance overlay wearing film's
+        // envelope, not film. Colour film has three physically separate dye layers with
+        // their own crystals, so their grain is uncorrelated and the blue layer's is
+        // coarsest; `grainSizeScale` has said (0.8, 1.0, 2.0) since the stocks were
+        // authored and `plateScale(…, channel:)` was written to use it and never called.
+        //
+        // `plateSeed(channel:)` collapses to one seed on a monochrome stock, so Tri-X
+        // keeps a single field and cannot acquire coloured speckle.
+        let plates = (0..<3).map {
+            FilmGrainProfile.plate(size: plateSize,
+                                   seed: film.grain.plateSeed(channel: $0, base: seed),
+                                   sigma: 1.0)
+        }
+        let scales = (0..<3).map {
+            Swift.max(film.grain.plateScale(longEdgePixels: longEdge,
+                                            printSizeInches: film.printLongEdgeInches,
+                                            channel: $0), 0.5)
+        }
         var out = image
         let dmax = Swift.max(film.grainDMax, 0.1)
         let amount = film.grainAmount
         for y in 0..<image.height {
             for x in 0..<image.width {
-                let n = FilmGrainProfile.sample(plate, size: plateSize,
-                                                x: Double(x) / scale,
-                                                y: Double(y) / scale)
                 let c = image[x, y]
                 var result = RGB.zero
                 for channel in 0..<3 {
+                    let n = FilmGrainProfile.sample(plates[channel], size: plateSize,
+                                                    x: Double(x) / scales[channel],
+                                                    y: Double(y) / scales[channel])
                     let v = Swift.max(c[channel], 1e-5)
                     let density = -log10(v)
                     let p = Num.saturate(density / dmax)

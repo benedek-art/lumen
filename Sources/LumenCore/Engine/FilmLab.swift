@@ -629,6 +629,11 @@ public struct FilmGrainProfile: Sendable {
     /// Per-channel Dmax — the denominator of `p = D / Dmax`.
     public let dMax: RGB
     public let gateLongEdgeMM: Double
+    /// Carried from the stock so grain can ask whether there are dye layers to be
+    /// grainy independently. A monochrome negative has one emulsion, so its three
+    /// channels must share a single noise field — three independent ones would put
+    /// coloured speckle on a black-and-white photograph.
+    public let monochrome: Bool
 
     public init(stock: FilmStock, size: Double, amount: Double, pushPull: Double) {
         let push: Double = Num.clamp(pushPull, -1, 2)
@@ -641,6 +646,29 @@ public struct FilmGrainProfile: Sendable {
         self.pitchMicrons = Swift.max(stock.grainPitchMicrons * Swift.max(size, 0.05) * pitchScale, 0.1)
         self.dMax = stock.negative.dMax
         self.gateLongEdgeMM = Swift.max(stock.gateLongEdgeMM, 1e-3)
+        self.monochrome = stock.monochrome
+    }
+
+    /// The seed for one emulsion layer's plate.
+    ///
+    /// Colour film's three dye layers are physically separate, with their own crystals,
+    /// so their grain is uncorrelated — that decorrelation is most of what makes film
+    /// grain read as film rather than as a noise overlay laid over the picture, and
+    /// docs/05 says so. Both render paths wrote ONE noise value into all three
+    /// channels, which is a luminance overlay wearing film's amplitude envelope.
+    ///
+    /// A monochrome stock returns the base seed for every channel, so its layers stay
+    /// perfectly correlated and the grain has no colour. `stock.monochrome` is the test
+    /// rather than "are the three grain sizes equal": those coincide for the stocks
+    /// shipped today, but a colour stock whose layers happened to share a crystal size
+    /// would silently lose its chromatic structure under the size test.
+    public func plateSeed(channel: Int,
+                          base: UInt64 = FilmGrainProfile.defaultPlateSeed) -> UInt64 {
+        guard !monochrome else { return base }
+        let i = UInt64(Swift.min(Swift.max(channel, 0), 2))
+        // The golden-ratio constant is the same one the lattice hash uses; the point is
+        // only that three seeds are far apart in the generator's state space.
+        return base &+ i &* 0x9E3779B97F4A7C15
     }
 
     public var isIdentity: Bool { amount <= 0 }

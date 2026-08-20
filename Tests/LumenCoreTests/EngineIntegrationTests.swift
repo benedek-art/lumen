@@ -1061,6 +1061,118 @@ final class EngineIntegrationTests: XCTestCase {
     /// scales the grain up and the print's pixel density down by the same factor — but
     /// it was documented in a comment and asserted nowhere, while the panel shipped a
     /// Print size picker whose caption named the chosen size as though it mattered. A
+    // MARK: - Grain is chromatic, or it is a noise overlay
+
+    /// A colour stock's three layers must grain INDEPENDENTLY.
+    ///
+    /// Both render paths wrote one noise value into all three channels. The amplitude
+    /// envelope √(p(1−p)) was already per-channel, so the result looked plausible — it
+    /// was a luminance overlay wearing film's envelope. Real colour film has three
+    /// separate dye layers with their own crystals, which is why `grainSizeScale` has
+    /// said (0.8, 1.0, 2.0) since the stocks were authored and why
+    /// `plateScale(…, channel:)` existed with no caller.
+    ///
+    /// The measurement is the correlation between channels of what grain ADDED. A shared
+    /// field gives 1.0 by construction; independent fields give something near zero.
+    func testColourStockGrainsEachLayerIndependently() {
+        let stock = FilmStock.portra400
+        let recipe = FilmChain.defaultRecipe(for: stock)
+        let chain = FilmChain(recipe, displayWhite: 1.0)
+
+        // Flat mid-grey: no picture structure, so every difference between channels is
+        // grain and nothing else.
+        let flat = ImageBuffer(width: 96, height: 96) { _, _ in RGB(gray: 0.18) }
+        let grained = ReferenceRenderer.applyGrain(
+            flat, film: chain, seed: FilmGrainProfile.defaultPlateSeed, longEdge: 96)
+
+        var deltas: [[Double]] = [[], [], []]
+        for y in 0..<96 {
+            for x in 0..<96 {
+                let a = flat[x, y], b = grained[x, y]
+                for c in 0..<3 { deltas[c].append(b[c] - a[c]) }
+            }
+        }
+        for c in 0..<3 {
+            let spread = deltas[c].map { $0 * $0 }.reduce(0, +) / Double(deltas[c].count)
+            XCTAssertGreaterThan(spread.squareRoot(), 1e-5,
+                                 "channel \(c) got no grain at all, so this proves nothing")
+        }
+        for (i, j) in [(0, 1), (0, 2), (1, 2)] {
+            let r = Self.correlation(deltas[i], deltas[j])
+            XCTAssertLessThan(abs(r), 0.5,
+                              "channels \(i) and \(j) grain with correlation \(r) — one "
+                                  + "noise field is being written to every layer, which "
+                                  + "is a luminance overlay, not film")
+        }
+    }
+
+    /// A monochrome stock must do the opposite: one emulsion, one field, no colour.
+    ///
+    /// This is the failure the independence above would cause if applied blindly —
+    /// coloured speckle on a black-and-white negative. `plateSeed(channel:)` collapses
+    /// on `stock.monochrome`, and the test is written against the stock's own flag
+    /// rather than against its grain sizes: those coincide today, and a colour stock
+    /// whose layers happened to share a crystal size would lose its chromatic structure
+    /// under a size-based test without anything failing.
+    func testMonochromeStockGrainsAllThreeChannelsTogether() {
+        let stock = FilmStock.triX400
+        XCTAssertTrue(stock.monochrome, "this test needs a monochrome stock")
+        let chain = FilmChain(FilmChain.defaultRecipe(for: stock), displayWhite: 1.0)
+
+        let flat = ImageBuffer(width: 64, height: 64) { _, _ in RGB(gray: 0.18) }
+        let grained = ReferenceRenderer.applyGrain(
+            flat, film: chain, seed: FilmGrainProfile.defaultPlateSeed, longEdge: 64)
+
+        var deltas: [[Double]] = [[], [], []]
+        for y in 0..<64 {
+            for x in 0..<64 {
+                let a = flat[x, y], b = grained[x, y]
+                for c in 0..<3 { deltas[c].append(b[c] - a[c]) }
+            }
+        }
+        let spread = deltas[0].map { $0 * $0 }.reduce(0, +) / Double(deltas[0].count)
+        XCTAssertGreaterThan(spread.squareRoot(), 1e-5,
+                             "the monochrome stock got no grain, so this proves nothing")
+        for (i, j) in [(0, 1), (0, 2), (1, 2)] {
+            XCTAssertGreaterThan(Self.correlation(deltas[i], deltas[j]), 0.99,
+                                 "a monochrome negative grew coloured grain between "
+                                     + "channels \(i) and \(j)")
+        }
+    }
+
+    /// The blue layer's crystals are the coarsest, and the plate scale has to say so.
+    func testBlueLayerGrainIsCoarsestOnAColourStock() {
+        let profile = FilmGrainProfile(stock: FilmStock.portra400, size: 1, amount: 50,
+                                       pushPull: 0)
+        let red = profile.plateScale(longEdgePixels: 4000, printSizeInches: 10, channel: 0)
+        let green = profile.plateScale(longEdgePixels: 4000, printSizeInches: 10, channel: 1)
+        let blue = profile.plateScale(longEdgePixels: 4000, printSizeInches: 10, channel: 2)
+        XCTAssertLessThan(red, green)
+        XCTAssertLessThan(green, blue)
+        // And the three seeds must actually differ, or the sizes are the only thing
+        // separating the layers.
+        let seeds = Set((0..<3).map { profile.plateSeed(channel: $0) })
+        XCTAssertEqual(seeds.count, 3)
+
+        let mono = FilmGrainProfile(stock: FilmStock.triX400, size: 1, amount: 50,
+                                    pushPull: 0)
+        XCTAssertEqual(Set((0..<3).map { mono.plateSeed(channel: $0) }).count, 1)
+    }
+
+    /// Pearson correlation, for the grain tests above.
+    private static func correlation(_ a: [Double], _ b: [Double]) -> Double {
+        let n = Double(Swift.min(a.count, b.count))
+        guard n > 1 else { return 0 }
+        let ma = a.reduce(0, +) / n, mb = b.reduce(0, +) / n
+        var num = 0.0, da = 0.0, db = 0.0
+        for i in 0..<Int(n) {
+            let x = a[i] - ma, y = b[i] - mb
+            num += x * y; da += x * x; db += y * y
+        }
+        let den = (da * db).squareRoot()
+        return den > 1e-18 ? num / den : 0
+    }
+
     /// property this counter-intuitive needs a test, or the next reader "fixes" it.
     func testGrainFollowsTheGateAndTheRenderSizeNotThePrintSize() {
         let profile = FilmGrainProfile(stock: FilmStock.portra400, size: 1, amount: 50,
