@@ -246,8 +246,64 @@ final class EngineIntegrationTests: XCTestCase {
     func testVignetteDarkensTheCornersAndLeavesTheCentre() {
         let source = ImageBuffer(width: 32, height: 32) { _, _ in RGB(gray: 0.5) }
         let out = DetailEngine.vignette(source, ev: -2)
-        XCTAssertEqual(out[16, 16].g, 0.5, accuracy: 0.06, "centre moved")
+
+        // Bit-identical, not "within 12%". The falloff smoothsteps from an inner radius
+        // of 0.375, and `vignette` `continue`s wherever that is zero, so the centre is
+        // literally not written. A 0.06 tolerance on a 0.5 value certified nothing: a
+        // vignette that darkened the ENTIRE frame by 11% passed both assertions.
+        XCTAssertEqual(out[16, 16].g, 0.5, accuracy: 0,
+                       "the centre pixel was touched at all")
         XCTAssertLessThan(out[0, 0].g, 0.4, "corner did not darken")
+
+        // And it is a vignette, not an exposure change: the darkening has to grow
+        // outward from an untouched middle, so the frame's mean must fall while the
+        // inner region stays exactly where it was.
+        for (x, y) in [(16, 16), (14, 16), (16, 18), (18, 14)] {
+            XCTAssertEqual(out[x, y].g, 0.5, accuracy: 0,
+                           "the inner region moved at (\(x), \(y))")
+        }
+        var previous = 0.5
+        for step in 0...15 {
+            let value = out[16 - step, 16 - step].g
+            XCTAssertLessThanOrEqual(value, previous + 1e-9,
+                                     "the vignette brightened on the way to the corner")
+            previous = value
+        }
+        XCTAssertLessThan(out.luminancePlane().mean, source.luminancePlane().mean,
+                          "the vignette did not darken the frame at all")
+    }
+
+    // MARK: - Blob references
+
+    /// The reference gate is untrusted-input handling: a `blob:` ref can arrive from a
+    /// sidecar another tool wrote, and `../../` is a valid string. The reference
+    /// implementation checks fifteen hostile vectors against its mirror of this
+    /// function; until now the Swift it mirrors was checked against none of them.
+    func testBlobReferencesThatWereNotWrittenHereAreRefused() {
+        XCTAssertEqual(BlobStore.filename(for: "blob:xxh64:0123456789abcdef"),
+                       "xxh64-0123456789abcdef.blob", "a valid reference was refused")
+
+        let hostile = [
+            "blob:xxh64:../../../etc/pas",      // right length, path characters
+            "blob:xxh64:0123456789ABCDEF",      // uppercase
+            "blob:xxh64:0123456789abcde",       // short
+            "blob:xxh64:0123456789abcdef0",     // long
+            "blob:xxh64:0123456789abcde/",      // a separator
+            "blob:sha256:0123456789abcdef",     // wrong algorithm
+            "blob:xxh64:0123456789abcde\u{0}",  // NUL
+            "xxh64:0123456789abcdef",           // no scheme
+            "blob:xxh64:",                      // empty digest
+            "blob:xxh64:0123456789abcdef:x",    // extra component
+            "",                                 // empty
+            "blob:xxh64:０１２３４５６７89abcdef", // fullwidth digits: Unicode Hex_Digit
+            "blob:xxh64:0123456789abcd f",     // embedded space
+            "blob:xxh64:0123456789abcd.f",      // a dot
+            "blob::0123456789abcdef",           // empty algorithm
+        ]
+        for ref in hostile {
+            XCTAssertNil(BlobStore.filename(for: ref),
+                         "a hostile reference was turned into a path: \(ref)")
+        }
     }
 
     // MARK: - Denoise
@@ -639,18 +695,78 @@ final class EngineIntegrationTests: XCTestCase {
         }
     }
 
-    func testRenderIsMonotoneInExposure() {
+    /// What the default rendering actually does to a scene, as opposed to what it does
+    /// not do.
+    ///
+    /// The single most basic statement about the picture — mid-grey renders to mid-grey
+    /// — had no CPU test at all: the GPU golden asserts it, but that target is macOS-only
+    /// and skipped without kernels, so on the Linux lane nothing said what any input
+    /// renders to. And "grey stays grey" plus "exposure is monotone" are both satisfied
+    /// by a renderer that returns its input untouched, which is why the anchors below
+    /// come with the compression that distinguishes a picture from a passthrough: an
+    /// identity renderer puts scene white at 5.76, not at 1.
+    func testTheDefaultRenderingPutsTheAnchorsWhereItPromises() {
+        let plan = RenderPlan(recipe: Recipe())
+
+        // Mid-grey → mid-grey, exactly. This is a construction, not a tuning.
+        XCTAssertEqual(plan.exactColor(RGB(gray: 0.18)).g, 0.18, accuracy: 1e-6,
+                       "mid-grey did not land on mid-grey")
+
+        // Scene white — mid-grey + 5 stops, the default white anchor — reaches display
+        // white. An identity renderer would return 5.76 here.
+        let white = plan.exactColor(RGB(gray: 0.18 * pow(2, 5))).g
+        XCTAssertEqual(white, 1.0, accuracy: 0.02,
+                       "the white anchor landed at \(white) instead of display white")
+
+        // Nothing leaves the display range, in either direction, anywhere on the ramp.
+        for ev in stride(from: -12.0, through: 8.0, by: 0.25) {
+            let v = plan.exactColor(RGB(gray: 0.18 * pow(2, ev))).g
+            XCTAssertGreaterThanOrEqual(v, 0, "\(ev) EV rendered below black")
+            XCTAssertLessThanOrEqual(v, 1.0001, "\(ev) EV rendered above display white")
+        }
+    }
+
+    /// Raising Exposure raises the picture — strictly, and by the amount the slider
+    /// claims rather than by any amount at all.
+    ///
+    /// The version this replaces used `XCTAssertGreaterThan(value, previous - 1e-9)`,
+    /// which is satisfied by equality, on a flat 4×4 field with one pixel read. A
+    /// renderer that ignored `develop.tone.exposure` entirely — or ignored its input
+    /// pixel entirely — passed it.
+    func testRaisingExposureRaisesThePictureByTheAmountItClaims() {
         let source = ImageBuffer(width: 4, height: 4) { _, _ in RGB(gray: 0.18) }
         var previous = -Double.infinity
+        var lowest = Double.infinity
+        var highest = -Double.infinity
+
         for ev in stride(from: -3.0, through: 3.0, by: 0.5) {
             var recipe = Recipe()
             recipe.develop.tone.exposure = ev
             let out = ReferenceRenderer.render(source, plan: RenderPlan(recipe: recipe))
             let value = out[2, 2].g
-            XCTAssertGreaterThan(value, previous - 1e-9,
-                                 "raising exposure darkened the image at \(ev) EV")
+            XCTAssertGreaterThan(value, previous + 1e-4,
+                                 "half a stop of Exposure moved the picture by less "
+                                     + "than 1e-4 at \(ev) EV")
             previous = value
+            lowest = Swift.min(lowest, value)
+            highest = Swift.max(highest, value)
         }
+        XCTAssertGreaterThan(highest, lowest * 3,
+                             "six stops of Exposure moved the picture from \(lowest) "
+                                 + "to only \(highest)")
+
+        // And the slider is exposure, not brightness: one stop of it must be
+        // indistinguishable from having photographed twice the light. This is an
+        // equality, so no no-op can satisfy it.
+        let pushed = RenderPlan(recipe: {
+            var r = Recipe()
+            r.develop.tone.exposure = 1
+            return r
+        }()).exactColor(RGB(gray: 0.18))
+        let brighterScene = RenderPlan(recipe: Recipe()).exactColor(RGB(gray: 0.36))
+        XCTAssertLessThan(pushed.maxAbsDifference(brighterScene), 1e-9,
+                          "+1 EV rendered differently from twice the scene light: "
+                              + "\(pushed) vs \(brighterScene)")
     }
 
     /// The tables are an optimization; this bounds what they cost.

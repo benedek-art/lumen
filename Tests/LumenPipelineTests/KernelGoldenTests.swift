@@ -209,31 +209,83 @@ final class KernelGoldenTests: XCTestCase {
 
     // MARK: - Guided filter
 
-    func testGuidedFilterPreservesAStepEdge() throws {
+    /// A hard edge with noise on both sides: a blur smears it, a guided filter keeps
+    /// it. That difference is the entire reason the tone stage uses one.
+    ///
+    /// Measured as a ratio against the input, both directions, for the reason the CPU
+    /// twin of this test carries at length: the absolute-level version passed on
+    /// `guidedSelfFilter` returning its input unchanged, because a plane whose plateaus
+    /// are already 0.2 and 0.8 with ±0.02 of noise satisfies "left < 0.35", "right >
+    /// 0.65" and "variation < 0.02" before any filter runs.
+    func testGuidedFilterSmoothsBelowItsThresholdAndKeepsDetailAbove() throws {
         try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
-        // A hard edge with noise on both sides: a blur smears it, a guided filter
-        // keeps it. That difference is the entire reason the tone stage uses one.
-        let source = ImageBuffer(width: 64, height: 16) { u, v in
-            let base = u < 0.5 ? 0.2 : 0.8
-            let noise = (sin(u * 211) * cos(v * 173)) * 0.02
-            return RGB(gray: base + noise)
-        }
-        let input = ciImage(from: source)
-        guard let filtered = RenderGraph.guidedSelfFilter(input, radius: 4,
-                                                          epsilon: 0.0004),
-              let result = readBack(filtered, width: source.width, height: source.height)
-        else { return XCTFail("guided filter failed") }
+        let epsilon = 0.0008
+        let threshold = epsilon.squareRoot()
 
-        let left = result[8, 8].r
-        let right = result[55, 8].r
-        XCTAssertLessThan(left, 0.35, "dark side lifted — edge was smeared")
-        XCTAssertGreaterThan(right, 0.65, "bright side dropped — edge was smeared")
-        // And it did smooth: the noise amplitude inside a flat region must fall.
-        var variation = 0.0
-        for x in 10..<28 {
-            variation = Swift.max(variation, abs(result[x, 8].r - left))
+        func step(amplitude: Double) -> ImageBuffer {
+            var image = ImageBuffer(width: 64, height: 16)
+            for y in 0..<16 {
+                for x in 0..<64 {
+                    let base = x < 32 ? 0.2 : 0.8
+                    image[x, y] = RGB(gray: base
+                                          + ((x + y) % 2 == 0 ? amplitude : -amplitude))
+                }
+            }
+            return image
         }
-        XCTAssertLessThan(variation, 0.02, "guided filter did not smooth the interior")
+
+        /// Largest excursion within either plateau, away from the borders and the step.
+        func plateauSwing(_ image: ImageBuffer) -> Double {
+            var swing = 0.0
+            for range in [6..<26, 38..<58] {
+                var lo = Double.infinity
+                var hi = -Double.infinity
+                for y in 4..<12 {
+                    for x in range {
+                        lo = Swift.min(lo, image[x, y].r)
+                        hi = Swift.max(hi, image[x, y].r)
+                    }
+                }
+                swing = Swift.max(swing, hi - lo)
+            }
+            return swing
+        }
+
+        func filtered(_ source: ImageBuffer) throws -> ImageBuffer {
+            guard let out = RenderGraph.guidedSelfFilter(ciImage(from: source),
+                                                         radius: 4, epsilon: epsilon),
+                  let result = readBack(out, width: source.width, height: source.height)
+            else { throw XCTSkip("guided filter produced no image") }
+            return result
+        }
+
+        let quiet = step(amplitude: threshold / 4)
+        let smoothed = try filtered(quiet)
+        let quietRatio = plateauSwing(smoothed) / plateauSwing(quiet)
+        XCTAssertLessThan(quietRatio, 0.45,
+                          "noise well under √ε survived at \(quietRatio) of its input "
+                              + "swing; an identity filter scores 1.0")
+
+        let loud = step(amplitude: threshold * 3.5)
+        let kept = try filtered(loud)
+        let loudRatio = plateauSwing(kept) / plateauSwing(loud)
+        XCTAssertGreaterThan(loudRatio, 0.4,
+                             "detail well over √ε was smoothed away, surviving at only "
+                                 + "\(loudRatio) of its input swing")
+
+        // The edge is what neither pass may cost, measured as the difference of the
+        // plateau means so the noise cancels out of it.
+        for (label, image) in [("quiet", smoothed), ("loud", kept)] {
+            var left = 0.0, right = 0.0, n = 0.0
+            for y in 4..<12 {
+                for x in 6..<26 { left += image[x, y].r }
+                for x in 38..<58 { right += image[x, y].r }
+                n += 20
+            }
+            XCTAssertGreaterThan(right / n - left / n, 0.45,
+                                 "the \(label) pass smeared the step to "
+                                     + "\(right / n - left / n) of 0.6")
+        }
     }
 
     // MARK: - The whole graph
