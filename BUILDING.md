@@ -277,11 +277,14 @@ changed the picture.
 
 ### Still open, from those audits
 
-- **The Zones panel has no user interface.** The engine is complete and reaches pixels —
-  `ToneEngine.zonePanelStops` → `bakeGainLUT` → both render paths — but nothing in
-  `LumenApp` ever writes `develop.zones`, and the pivot ticks drawn on the histogram are
-  not draggable. `ZoneAdjust.wheel`, `.sat` and `.falloff` are a wire format no stage
-  reads. So the advanced tonal register docs/04 describes cannot be opened at all.
+- **Per-zone colour, saturation and falloff are a wire format no stage reads.**
+  `ZoneAdjust.wheel`, `.sat` and `.falloff` round-trip through the sidecar and the
+  catalog and change nothing; `zonePanelStops` takes `.ev` alone, and
+  `zonePanelIsIdentity` inspects `.ev` alone, so they do not even force a re-render. The
+  Zones panel shows the exposures and the pivots — which do reach pixels — and says the
+  other three are absent rather than shipping them inert. (The panel itself no longer
+  missing: it was built in this session, and until then the whole register was
+  unreachable.)
 - **Heal/clone does not exist on any path.** `Heal { strokesRef, count }` is declared and
   wired into `Develop`, and there is no writer, no blob loader and no render stage. A
   recipe arriving with `heal.count = 40` renders with all forty spots present and nothing
