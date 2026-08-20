@@ -64,11 +64,37 @@ public enum OKLabTransform {
         0.0329845436, 0.9293118715, 0.0361456387,
         0.0482003018, 0.2643662691, 0.6338517070)
 
-    /// Nonlinear LMS → Lab.
-    public static let lmsToLab = Mat3(
+    /// Nonlinear LMS → Lab, as published.
+    ///
+    /// The `a` row sums to zero to within float noise, but the `b` row sums to
+    /// +3.73e-8 — a rounding artifact of the published constants, not of anything
+    /// this engine does. For an achromatic input the three nonlinear LMS values are
+    /// equal, so each output is that value times its row sum: a neutral therefore
+    /// picks up 3.73e-8 of chroma from `b` alone.
+    ///
+    /// Colorimetrically that is nothing — eight orders of magnitude below anything
+    /// visible. It matters because "a neutral has zero chroma" is a law here rather
+    /// than an approximation, and every hue-selective stage downstream reads a hue
+    /// off that chroma. A hue derived from 4e-8 of chroma is arbitrary, and an
+    /// arbitrary hue feeding a hue-selective gate is the kind of thing that produces
+    /// one wrong pixel in a smooth grey and no explanation for it.
+    public static let lmsToLabPublished = Mat3(
         0.2104542553, 0.7936177850, -0.0040720468,
         1.9779984951, -2.4285922050, 0.4505937099,
         0.0259040371, 0.7827717662, -0.8086757660)
+
+    /// The same matrix with the two chroma rows forced to sum to exactly zero, which
+    /// is what makes the neutral axis exact by construction rather than to within the
+    /// published constants' rounding. The correction is spread over the three
+    /// coefficients of each row and is ~1e-8 in size.
+    public static let lmsToLab: Mat3 = {
+        var rows = lmsToLabPublished.m
+        for row in 1...2 {
+            let share = (rows[row][0] + rows[row][1] + rows[row][2]) / 3
+            for column in 0..<3 { rows[row][column] -= share }
+        }
+        return Mat3(rows)
+    }()
 
     /// Cached matrix pair for one working space, so per-pixel work is two matrix
     /// multiplies and a cube root rather than a chain of derivations.

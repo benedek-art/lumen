@@ -24,6 +24,7 @@ Mirrored contracts (change BOTH sides together):
   DisplayTransform.swift<-> DisplayTransform
   SpatialOps.swift      <-> box_blur / guided_filter
   BlobStore.swift       <-> blob_filename
+  Perceptual.swift      <-> oklab_* / ucs_*
   XMPSidecar.swift      <-> xmp_serialize
   RenameTemplate.swift  <-> rename_render
 """
@@ -1354,6 +1355,186 @@ def gen_spatial_primitive_checks():
 
 
 # ---------------------------------------------------------------------------
+# OKLab and Lumen UCS — the foundation every colour tool sits on
+#
+#   Perceptual.swift <-> oklab_* / ucs_*
+#
+# Three invariants are stated in that file's own comments. All three are the
+# kind that quietly stop holding and take every downstream stage with them.
+# ---------------------------------------------------------------------------
+
+def mat_mul(a, b):
+    return [[sum(a[i][k] * b[k][j] for k in range(3)) for j in range(3)]
+            for i in range(3)]
+
+
+def mat_apply(m, v):
+    return tuple(sum(m[i][j] * v[j] for j in range(3)) for i in range(3))
+
+
+def mat_inverse(m):
+    (a, b, c), (d, e, f), (g, h, i) = m
+    det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g)
+    return [[(e * i - f * h) / det, (c * h - b * i) / det, (b * f - c * e) / det],
+            [(f * g - d * i) / det, (a * i - c * g) / det, (c * d - a * f) / det],
+            [(d * h - e * g) / det, (b * g - a * h) / det, (a * e - b * d) / det]]
+
+
+def rgb_to_xyz(red, green, blue, white):
+    def xyz_of(ch):
+        x, y = ch
+        return (x / y, 1.0, (1 - x - y) / y)
+    r, g, b = xyz_of(red), xyz_of(green), xyz_of(blue)
+    m = [[r[0], g[0], b[0]], [r[1], g[1], b[1]], [r[2], g[2], b[2]]]
+    wx, wy = white
+    w = (wx / wy, 1.0, (1 - wx - wy) / wy)
+    s = mat_apply(mat_inverse(m), w)
+    return [[m[i][j] * s[j] for j in range(3)] for i in range(3)]
+
+
+XYZ_TO_LMS = [[0.8189330101, 0.3618667424, -0.1288597137],
+              [0.0329845436, 0.9293118715, 0.0361456387],
+              [0.0482003018, 0.2643662691, 0.6338517070]]
+LMS_TO_LAB = [[0.2104542553, 0.7936177850, -0.0040720468],
+              [1.9779984951, -2.4285922050, 0.4505937099],
+              [0.0259040371, 0.7827717662, -0.8086757660]]
+# The published b row sums to +3.73e-8 rather than zero, so an achromatic input —
+# whose three nonlinear LMS values are equal — picks up that much chroma from the
+# constants alone. Force both chroma rows to sum to zero, as the Swift does.
+for _row in (1, 2):
+    _share = sum(LMS_TO_LAB[_row]) / 3
+    LMS_TO_LAB[_row] = [v - _share for v in LMS_TO_LAB[_row]]
+
+_REC2020_TO_XYZ = rgb_to_xyz((0.708, 0.292), (0.170, 0.797), (0.131, 0.046),
+                             (0.3127, 0.3290))
+_RGB_TO_LMS = mat_mul(XYZ_TO_LMS, _REC2020_TO_XYZ)
+_WHITE_LMS = mat_apply(_RGB_TO_LMS, (1.0, 1.0, 1.0))
+# The white normalization the Swift applies, for the reason its comment gives.
+_RGB_TO_LMS = [[_RGB_TO_LMS[i][j] / _WHITE_LMS[i] for j in range(3)] for i in range(3)]
+_LMS_TO_RGB = mat_inverse(_RGB_TO_LMS)
+_LAB_TO_LMS = mat_inverse(LMS_TO_LAB)
+
+
+def spow(x, e):
+    return math.copysign(abs(x) ** e, x)
+
+
+def oklab_from_rgb(c):
+    lms = mat_apply(_RGB_TO_LMS, c)
+    n = tuple(spow(v, 1 / 3) for v in lms)
+    return mat_apply(LMS_TO_LAB, n)
+
+
+def oklab_to_rgb(lab):
+    n = mat_apply(_LAB_TO_LMS, lab)
+    return mat_apply(_LMS_TO_RGB, tuple(v ** 3 for v in n))
+
+
+def oklch_from_rgb(c):
+    L, a, b = oklab_from_rgb(c)
+    return L, math.hypot(a, b), math.degrees(math.atan2(b, a)) % 360.0
+
+
+def oklch_to_rgb(L, C, h):
+    t = math.radians(h)
+    return oklab_to_rgb((L, C * math.cos(t), C * math.sin(t)))
+
+
+K_BR = 0.2717 * (6.469 + 6.362 * 160.0 ** 0.4495) / (6.469 + 160.0 ** 0.4495)
+
+
+def hk_q(hue_deg):
+    t = math.radians(hue_deg % 360.0)
+    return (-0.01585 - 0.03017 * math.cos(t) - 0.04556 * math.cos(2 * t)
+            - 0.04256 * math.cos(3 * t) - 0.00295 * math.cos(4 * t)
+            + 0.14592 * math.sin(t) + 0.05084 * math.sin(2 * t)
+            - 0.01900 * math.sin(3 * t) - 0.00764 * math.sin(4 * t))
+
+
+def hk_factor(chroma, hue):
+    s = max(0.0, chroma) * 4.0
+    return 1 + (-0.1340 * hk_q(hue) + 0.0872 * K_BR) * s * 0.1
+
+
+def ucs_from_rgb(c):
+    L, C, h = oklch_from_rgb(c)
+    return L * hk_factor(C, h), C, h
+
+
+def ucs_to_rgb(J, C, h):
+    f = hk_factor(C, h)
+    return oklch_to_rgb(J if f == 0 else J / f, C, h)
+
+
+def ucs_scale_chroma(c, factor):
+    J, C, h = ucs_from_rgb(c)
+    return ucs_to_rgb(J, max(0.0, C * factor), h)
+
+
+def ucs_scale_brightness(c, factor):
+    J, C, h = ucs_from_rgb(c)
+    if J == 0:
+        return c
+    return ucs_to_rgb(J * factor, C * (factor if factor > 0 else 0), h)
+
+
+def gen_perceptual_checks():
+    print("OKLab + Lumen UCS invariants ...")
+
+    # 1. A neutral has EXACTLY zero chroma. The file normalizes the LMS matrix for
+    #    this, because Rec.2020's white and the matrix's own D65 differ in the
+    #    fourth decimal and every colour stage would inherit the error.
+    for v in (1e-4, 0.01, 0.18, 0.5, 1.0, 4.0, 40.0):
+        _, C, _ = oklch_from_rgb((v, v, v))
+        check(C < 1e-12, f"a neutral at {v} carried chroma {C:.3e}")
+    check(hk_factor(0.0, 123.0) == 1.0, "a neutral got an H-K brightness boost")
+
+    # 2. Round trip, including well above display white — this is scene-referred.
+    for c in [(0.18, 0.18, 0.18), (0.9, 0.2, 0.05), (0.02, 0.3, 0.11),
+              (3.2, 1.1, 0.4), (0.001, 0.002, 0.004), (12.0, 9.0, 7.0)]:
+        back = oklab_to_rgb(oklab_from_rgb(c))
+        check(max(abs(x - y) for x, y in zip(back, c)) < 1e-9,
+              f"OKLab round trip lost {c} -> {back}")
+
+    # 3. The two invariants the colour tools rely on:
+    #    a chroma move must not change perceived brightness,
+    #    a brightness move must keep the chroma RATIO (no wash-out).
+    for c in [(0.9, 0.2, 0.05), (0.15, 0.4, 0.2), (0.3, 0.3, 0.9),
+              (2.4, 1.2, 0.6), (0.05, 0.06, 0.05)]:
+        J0, C0, _ = ucs_from_rgb(c)
+        for factor in (0.25, 0.5, 1.5, 3.0):
+            J1, _, _ = ucs_from_rgb(ucs_scale_chroma(c, factor))
+            check(abs(J1 - J0) < 1e-9,
+                  f"scaling chroma by {factor} moved brightness {J0:.6f} -> {J1:.6f}")
+
+            J2, C2, _ = ucs_from_rgb(ucs_scale_brightness(c, factor))
+            check(abs(J2 - J0 * factor) < 1e-9,
+                  f"scaling brightness by {factor} gave {J2:.6f}, wanted {J0 * factor:.6f}")
+            if C0 > 1e-9:
+                check(abs(C2 / J2 - C0 / J0) < 1e-9,
+                      f"brightness by {factor} changed the chroma ratio "
+                      f"{C0 / J0:.6f} -> {C2 / J2:.6f}")
+
+    # 4. Hue is untouched by either move — a saturation slider that rotates hue is
+    #    the classic way this construction goes wrong.
+    for c in [(0.9, 0.2, 0.05), (0.2, 0.5, 0.9), (0.4, 0.6, 0.2)]:
+        _, _, h0 = ucs_from_rgb(c)
+        for factor in (0.3, 2.5):
+            _, _, h1 = ucs_from_rgb(ucs_scale_chroma(c, factor))
+            _, _, h2 = ucs_from_rgb(ucs_scale_brightness(c, factor))
+            for got, what in ((h1, "chroma"), (h2, "brightness")):
+                d = min(abs(got - h0), 360 - abs(got - h0))
+                check(d < 1e-6, f"{what} by {factor} rotated hue by {d:.4f} deg")
+
+    # 5. Scene-referred means unbounded: none of this may fall over above white.
+    for v in (1.0, 8.0, 64.0, 512.0):
+        out = ucs_scale_chroma((v, v * 0.6, v * 0.3), 1.4)
+        check(all(math.isfinite(x) for x in out), f"UCS produced a non-finite at {v}")
+
+    print("  neutrals exact, round trip clean, brightness/chroma/hue invariants hold")
+
+
+# ---------------------------------------------------------------------------
 
 def main():
     gen_canonical_fixture()
@@ -1368,6 +1549,7 @@ def main():
     gen_spatial_checks()
     gen_display_transform_checks()
     gen_spatial_primitive_checks()
+    gen_perceptual_checks()
     if FAILURES:
         print(f"\n{len(FAILURES)} verification failure(s)")
         sys.exit(1)
