@@ -214,10 +214,12 @@ struct EffectsPanel: View {
                     .font(.system(size: 10))
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            // Ratios are measured against the real frame aspect rather than an
-            // assumed 3:2. Free-form dragging is on the image, under R.
-            .help("Standard ratios, centred on the frame. Press R to crop freely on "
-                  + "the image.")
+            // The on-image crop tool is not reachable in this build — `showCrop` has no
+            // writer — so this no longer sends the user looking for it. The ratios here
+            // are the whole crop surface for now, and they are measured against the
+            // real frame aspect rather than an assumed 3:2.
+            .help("Standard ratios, centred on the frame. Free-form dragging on the "
+                  + "image is not in this build.")
         }
         .frame(height: Lumen.rowHeight)
     }
