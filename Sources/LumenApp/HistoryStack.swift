@@ -15,9 +15,29 @@ import LumenCore
 @MainActor
 final class HistoryStack: ObservableObject {
 
+    /// The culling decisions, as one undoable value.
+    struct Culling: Equatable {
+        var flag: PhotoFlag
+        var rating: Int
+        var label: ColorLabel
+    }
+
+    /// What one step can restore for one photo. Each field is optional because a step
+    /// records only what it touched: restoring a rating must not also drag a recipe
+    /// back to whatever it was when the star was pressed.
+    struct PhotoEdit: Equatable {
+        var recipe: Recipe?
+        var culling: Culling?
+
+        init(recipe: Recipe? = nil, culling: Culling? = nil) {
+            self.recipe = recipe
+            self.culling = culling
+        }
+    }
+
     struct Step {
-        let before: [URL: Recipe]
-        let after: [URL: Recipe]
+        let before: [URL: PhotoEdit]
+        let after: [URL: PhotoEdit]
         let coalescingKey: String?
         let label: String
     }
@@ -41,7 +61,7 @@ final class HistoryStack: ObservableObject {
     var undoLabel: String? { canUndo ? steps[position - 1].label : nil }
     var redoLabel: String? { canRedo ? steps[position].label : nil }
 
-    func record(before: [URL: Recipe], after: [URL: Recipe],
+    func record(before: [URL: PhotoEdit], after: [URL: PhotoEdit],
                 coalescingKey: String?, label: String? = nil) {
         let now = Date()
         defer { lastEditTime = now }
@@ -50,9 +70,16 @@ final class HistoryStack: ObservableObject {
            steps[position - 1].coalescingKey == key,
            now.timeIntervalSince(lastEditTime) < Self.coalescingWindow {
             // Extend the open step: keep its original `before`, take the new `after`.
+            // Field-wise, so folding a recipe edit into an open step cannot erase a
+            // culling change already recorded in it for the same photo.
             let open = steps[position - 1]
             var merged = open.after
-            for (url, recipe) in after { merged[url] = recipe }
+            for (url, edit) in after {
+                var combined = merged[url] ?? PhotoEdit()
+                if let recipe = edit.recipe { combined.recipe = recipe }
+                if let culling = edit.culling { combined.culling = culling }
+                merged[url] = combined
+            }
             steps[position - 1] = Step(before: open.before, after: merged,
                                        coalescingKey: key, label: open.label)
             return
@@ -71,14 +98,14 @@ final class HistoryStack: ObservableObject {
         position = steps.count
     }
 
-    func undo() -> [URL: Recipe]? {
+    func undo() -> [URL: PhotoEdit]? {
         guard canUndo else { return nil }
         position -= 1
         lastEditTime = .distantPast      // never coalesce across an undo
         return steps[position].before
     }
 
-    func redo() -> [URL: Recipe]? {
+    func redo() -> [URL: PhotoEdit]? {
         guard canRedo else { return nil }
         let step = steps[position]
         position += 1

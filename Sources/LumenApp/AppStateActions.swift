@@ -43,24 +43,26 @@ extension AppState {
                     self.statusMessage = "Auto could not read those files"
                     return
                 }
-                var before: [URL: Recipe] = [:]
-                var after: [URL: Recipe] = [:]
+                var before: [URL: HistoryStack.PhotoEdit] = [:]
+                var after: [URL: HistoryStack.PhotoEdit] = [:]
+                var applied: [URL: Recipe] = [:]
                 for (url, tone) in suggestions {
                     let old = self.recipes[url] ?? Recipe()
                     var updated = old
                     updated.develop.tone = tone
-                    before[url] = old
-                    after[url] = updated
+                    before[url] = HistoryStack.PhotoEdit(recipe: old)
+                    after[url] = HistoryStack.PhotoEdit(recipe: updated)
+                    applied[url] = updated
                     self.recipes[url] = updated
                 }
                 self.history.record(before: before, after: after, coalescingKey: nil,
                                     label: "Auto Tone")
-                for (url, recipe) in after {
+                for (url, recipe) in applied {
                     let id = self.allPhotos.first(where: { $0.id == url })?.catalogID
                     self.catalog?.saveRecipe(recipe, url: url, catalogID: id)
                 }
-                self.statusMessage = "Auto applied to \(after.count) photo"
-                    + (after.count == 1 ? "" : "s")
+                self.statusMessage = "Auto applied to \(applied.count) photo"
+                    + (applied.count == 1 ? "" : "s")
             }
         }
     }

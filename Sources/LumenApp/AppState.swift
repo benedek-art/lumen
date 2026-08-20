@@ -515,6 +515,16 @@ final class AppState: ObservableObject {
         isScanning = true
         statusMessage = "Scanning…"
 
+        // The undo stack belongs to the folder that produced it. `HistoryStack.clear`
+        // existed and had no callers, and `recipes` was never reset, so opening folder
+        // A, editing a frame, opening folder B and pressing ⌘Z wrote a recipe for a URL
+        // that is no longer in `allPhotos`: no catalog row was found, so the catalog
+        // write was skipped — but the sidecar write was still enqueued, silently
+        // reverting an .xmp next to a photo in a folder that is not open, with nothing
+        // on screen changing to show it.
+        history.clear()
+        recipes = [:]
+
         let extensions = Self.browsableExtensions
         scanGeneration &+= 1
         let generation = scanGeneration
@@ -637,7 +647,7 @@ final class AppState: ObservableObject {
     func setFlag(_ flag: PhotoFlag) {
         let target: PhotoFlag = referenceItem?.flag == flag ? .none : flag
         let from = cursorIndex
-        mutateTargets { $0.flag = target }
+        mutateTargets("Flag") { $0.flag = target }
         advanceIfNeeded(from: from)
     }
 
@@ -645,14 +655,14 @@ final class AppState: ObservableObject {
         let clamped = Swift.min(Swift.max(rating, 0), 5)
         let target = referenceItem?.rating == clamped ? 0 : clamped
         let from = cursorIndex
-        mutateTargets { $0.rating = target }
+        mutateTargets("Rating") { $0.rating = target }
         advanceIfNeeded(from: from)
     }
 
     func setLabel(_ label: ColorLabel) {
         let target: ColorLabel = referenceItem?.label == label ? .none : label
         let from = cursorIndex
-        mutateTargets { $0.label = target }
+        mutateTargets("Label") { $0.label = target }
         advanceIfNeeded(from: from)
     }
 
@@ -665,15 +675,50 @@ final class AppState: ObservableObject {
         primarySelection ?? editTargets.first
     }
 
-    private func mutateTargets(_ body: (inout PhotoItem) -> Void) {
+    private static func culling(of photo: PhotoItem) -> HistoryStack.Culling {
+        HistoryStack.Culling(flag: photo.flag, rating: photo.rating, label: photo.label)
+    }
+
+    /// Apply a culling change to every edit target AND put it on the undo stack.
+    ///
+    /// It was not on the stack at all: flag, rating and label wrote `allPhotos` and the
+    /// catalog directly, and `undo()` only ever restored recipes. Pressing X with two
+    /// hundred photos selected by accident could not be taken back — and ⌘Z did not do
+    /// nothing, it silently undid whatever develop edit happened to be on top of the
+    /// stack, on a possibly different photo. For an app whose highest-frequency job is
+    /// the culling loop, its primary action had no undo.
+    private func mutateTargets(_ label: String, _ body: (inout PhotoItem) -> Void) {
         let targets = Set(editTargets.map(\.id))
         guard !targets.isEmpty else { return }
+        var before: [URL: HistoryStack.PhotoEdit] = [:]
+        var after: [URL: HistoryStack.PhotoEdit] = [:]
         for i in allPhotos.indices where targets.contains(allPhotos[i].id) {
+            let was = Self.culling(of: allPhotos[i])
             body(&allPhotos[i])
+            let now = Self.culling(of: allPhotos[i])
+            guard now != was else { continue }
+            before[allPhotos[i].id] = HistoryStack.PhotoEdit(culling: was)
+            after[allPhotos[i].id] = HistoryStack.PhotoEdit(culling: now)
             catalog?.saveCullingState(allPhotos[i])
             if allPhotos[i].id == primarySelection?.id {
                 primarySelection = allPhotos[i]
             }
+        }
+        guard !after.isEmpty else { return }
+        // No coalescing key: every cull decision is its own step. One keystroke over a
+        // multi-selection is already one step, because it is one `record` call.
+        history.record(before: before, after: after, coalescingKey: nil, label: label)
+    }
+
+    /// Put a culling state back on a photo, wherever it currently sits in the roll.
+    private func restore(_ culling: HistoryStack.Culling, to url: URL) {
+        guard let i = allPhotos.firstIndex(where: { $0.id == url }) else { return }
+        allPhotos[i].flag = culling.flag
+        allPhotos[i].rating = culling.rating
+        allPhotos[i].label = culling.label
+        catalog?.saveCullingState(allPhotos[i])
+        if allPhotos[i].id == primarySelection?.id {
+            primarySelection = allPhotos[i]
         }
     }
 
@@ -720,8 +765,9 @@ final class AppState: ObservableObject {
     func updateRecipe(coalescingKey: String? = nil, _ mutate: (inout Recipe) -> Void) {
         let targets = editTargets
         guard !targets.isEmpty else { return }
-        var before: [URL: Recipe] = [:]
-        var after: [URL: Recipe] = [:]
+        var before: [URL: HistoryStack.PhotoEdit] = [:]
+        var after: [URL: HistoryStack.PhotoEdit] = [:]
+        var changed: [URL: Recipe] = [:]
         var touchedPixels = false
         for photo in targets {
             let old = recipe(for: photo)
@@ -729,13 +775,14 @@ final class AppState: ObservableObject {
             mutate(&updated)
             guard updated != old else { continue }
             if !updated.rendersSameAs(old) { touchedPixels = true }
-            before[photo.id] = old
-            after[photo.id] = updated
+            before[photo.id] = HistoryStack.PhotoEdit(recipe: old)
+            after[photo.id] = HistoryStack.PhotoEdit(recipe: updated)
+            changed[photo.id] = updated
             recipes[photo.id] = updated
         }
         guard !after.isEmpty else { return }
         history.record(before: before, after: after, coalescingKey: coalescingKey)
-        persist(after)
+        persist(changed)
         // Renaming a mask changes the recipe without changing the picture. Re-binning
         // the scopes for it would mean a proxy render per keystroke.
         if touchedPixels { scheduleScopeRefresh() }
@@ -749,18 +796,26 @@ final class AppState: ObservableObject {
         }
     }
 
-    func undo() {
-        guard let step = history.undo() else { return }
-        for (url, recipe) in step { recipes[url] = recipe }
-        persist(step)
-        scheduleScopeRefresh()
-    }
+    func undo() { apply(history.undo()) }
+    func redo() { apply(history.redo()) }
 
-    func redo() {
-        guard let step = history.redo() else { return }
-        for (url, recipe) in step { recipes[url] = recipe }
-        persist(step)
-        scheduleScopeRefresh()
+    /// Put one history step back, restoring only the fields it recorded.
+    private func apply(_ step: [URL: HistoryStack.PhotoEdit]?) {
+        guard let step else { return }
+        var recipeChanges: [URL: Recipe] = [:]
+        var touchedPixels = false
+        for (url, edit) in step {
+            if let recipe = edit.recipe {
+                recipes[url] = recipe
+                recipeChanges[url] = recipe
+                touchedPixels = true
+            }
+            if let culling = edit.culling {
+                restore(culling, to: url)
+            }
+        }
+        persist(recipeChanges)
+        if touchedPixels { scheduleScopeRefresh() }
     }
 
     // MARK: Copy / paste settings
