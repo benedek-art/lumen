@@ -467,8 +467,21 @@ final class EngineIntegrationTests: XCTestCase {
     func testISODefaultsIncreaseWithISO() {
         let low = ISODefaults.classic(forISO: 100)
         let high = ISODefaults.classic(forISO: 12800)
-        XCTAssertGreaterThanOrEqual(high.chroma, low.chroma)
-        XCTAssertGreaterThanOrEqual(high.luma, low.luma)
+        // Strictly greater. `>=` is satisfied by a flat table, and that is not a
+        // hypothetical here: `aiAmountAnchors` IS deliberately flat over part of its
+        // range, so flattening `luminanceAnchors` the same way is a plausible edit this
+        // would have waved through.
+        XCTAssertGreaterThan(high.chroma, low.chroma)
+        XCTAssertGreaterThan(high.luma, low.luma)
+
+        // And the worked example the anchors state: the curve is linear in log2(ISO)
+        // between (400, 0) and (6400, 25), so ISO 3200 sits three quarters of the way
+        // along at 18.75. A number, not a direction.
+        XCTAssertEqual(ISODefaults.luminance(forISO: 3200), 18.75, accuracy: 0.01)
+        // Below the first anchor and above the last, the curve holds rather than
+        // extrapolating into nonsense.
+        XCTAssertEqual(ISODefaults.luminance(forISO: 100), 0, accuracy: 1e-9)
+        XCTAssertEqual(ISODefaults.luminance(forISO: 102400), 40, accuracy: 1e-9)
     }
 
     private func standardDeviation(_ plane: Plane) -> Double {
@@ -665,6 +678,17 @@ final class EngineIntegrationTests: XCTestCase {
         let b = FilmGrainProfile.plate(size: 64, seed: 12345, sigma: 1)
         XCTAssertEqual(a, b, "grain plate is not reproducible")
 
+        // A plate that ignored its seed would also be perfectly reproducible. Two
+        // frames of a burst share everything except the seed, so identical plates mean
+        // identical grain — which reads as a dirty sensor, not as film.
+        let other = FilmGrainProfile.plate(size: 64, seed: 12346, sigma: 1)
+        XCTAssertNotEqual(a, other, "the plate ignored its seed")
+        var differing = 0
+        for (x, y) in zip(a, other) where x != y { differing += 1 }
+        XCTAssertGreaterThan(differing, a.count / 2,
+                             "only \(differing) of \(a.count) samples moved with the "
+                                 + "seed — the plate is barely seeded")
+
         var sum = 0.0
         var sumSquares = 0.0
         for v in a {
@@ -741,6 +765,33 @@ final class EngineIntegrationTests: XCTestCase {
         let blown = ImageBuffer(width: 16, height: 4) { _, _ in RGB(gray: 4.0) }
         let histogram = Histogram.compute(blown, bins: 64)
         XCTAssertGreaterThan(histogram.clippedFraction(.red, end: .high), 0.9)
+        // The negative half, without which a `clippedFraction` returning 1.0
+        // unconditionally passes: a blown frame is not clipped at the BOTTOM.
+        XCTAssertLessThan(histogram.clippedFraction(.red, end: .low), 0.01)
+        XCTAssertEqual(histogram.clippingMask(end: .high), 1 | 2 | 4,
+                       "a blown grey frame must flag all three channels")
+        XCTAssertEqual(histogram.clippingMask(end: .low), 0)
+    }
+
+    /// The other half of the same statement: a well-exposed frame must report nothing
+    /// clipped at either end, and a crushed one must report the low end only. Without
+    /// these, "flags clipping" is satisfied by flagging everything.
+    func testHistogramReportsNoClippingOnAFrameThatIsNotClipped() {
+        let grey = ImageBuffer(width: 16, height: 4) { _, _ in RGB(gray: 0.18) }
+        let histogram = Histogram.compute(grey, bins: 64)
+        for channel in [Histogram.Channel.red, .green, .blue] {
+            XCTAssertLessThan(histogram.clippedFraction(channel, end: .high), 0.01,
+                              "mid-grey reported as blown in \(channel)")
+            XCTAssertLessThan(histogram.clippedFraction(channel, end: .low), 0.01,
+                              "mid-grey reported as crushed in \(channel)")
+        }
+        XCTAssertEqual(histogram.clippingMask(end: .high), 0)
+        XCTAssertEqual(histogram.clippingMask(end: .low), 0)
+
+        let crushed = ImageBuffer(width: 16, height: 4) { _, _ in RGB.zero }
+        let dark = Histogram.compute(crushed, bins: 64)
+        XCTAssertGreaterThan(dark.clippedFraction(.green, end: .low), 0.9)
+        XCTAssertLessThan(dark.clippedFraction(.green, end: .high), 0.01)
     }
 
     func testRawStatisticsRoundTripThroughItsBlob() {
@@ -752,6 +803,55 @@ final class EngineIntegrationTests: XCTestCase {
         }
         XCTAssertEqual(decoded.bins, stats.bins)
         XCTAssertEqual(decoded.sampleCount, stats.sampleCount)
+    }
+
+    /// Every field, with a distinguishable value in each.
+    ///
+    /// The test above compares `bins` and `sampleCount` only, while `encoded()` also
+    /// writes the black level, four per-channel saturation levels, the CFA flag, the
+    /// subsample stride, the analyzer revision and FOUR separate clipped-percentage
+    /// arrays. A decoder reading the percentage block at the wrong offset — swapping
+    /// near-clipped-low for clipped-low, say — passes it. Every value here is distinct
+    /// so a transposition cannot hide behind an equality.
+    func testRawStatisticsBlobCarriesEveryField() {
+        let bins = (0..<(RawStatistics.channelCount * RawStatistics.binCount))
+            .map { UInt32($0 * 3 + 1) }
+        let stats = RawStatistics(bins: bins,
+                                  clippedHighPercent: [1.5, 2.5, 3.5, 4.5],
+                                  nearClippedHighPercent: [5.5, 6.5, 7.5, 8.5],
+                                  clippedLowPercent: [9.5, 10.5, 11.5, 12.5],
+                                  nearClippedLowPercent: [13.5, 14.5, 15.5, 16.5],
+                                  sampleCount: 123_456,
+                                  subsample: 4,
+                                  blackLevel: 512.25,
+                                  saturation: [16383, 16382, 16381, 16380],
+                                  analyzerRevision: 1,
+                                  sourceIsCFA: true)
+        guard let decoded = RawStatistics.decode(stats.encoded()) else {
+            return XCTFail("raw statistics blob did not decode")
+        }
+        XCTAssertEqual(decoded.bins, stats.bins)
+        XCTAssertEqual(decoded.sampleCount, stats.sampleCount)
+        XCTAssertEqual(decoded.subsample, stats.subsample)
+        XCTAssertEqual(decoded.analyzerRevision, stats.analyzerRevision)
+        XCTAssertEqual(decoded.sourceIsCFA, stats.sourceIsCFA)
+        XCTAssertEqual(decoded.blackLevel, stats.blackLevel, accuracy: 1e-4)
+        for channel in 0..<4 {
+            XCTAssertEqual(decoded.saturation[channel], stats.saturation[channel],
+                           accuracy: 1e-4, "saturation \(channel)")
+            XCTAssertEqual(decoded.clippedHighPercent[channel],
+                           stats.clippedHighPercent[channel], accuracy: 1e-4,
+                           "clipped high \(channel)")
+            XCTAssertEqual(decoded.nearClippedHighPercent[channel],
+                           stats.nearClippedHighPercent[channel], accuracy: 1e-4,
+                           "near-clipped high \(channel)")
+            XCTAssertEqual(decoded.clippedLowPercent[channel],
+                           stats.clippedLowPercent[channel], accuracy: 1e-4,
+                           "clipped low \(channel)")
+            XCTAssertEqual(decoded.nearClippedLowPercent[channel],
+                           stats.nearClippedLowPercent[channel], accuracy: 1e-4,
+                           "near-clipped low \(channel)")
+        }
     }
 
     func testClippingOverlayMarksOnlyClippedPixels() {

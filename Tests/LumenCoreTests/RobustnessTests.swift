@@ -505,6 +505,76 @@ final class RobustnessTests: XCTestCase {
                           "the denoise stage moved a pixel at rest")
     }
 
+    // MARK: - Rendering is a pure function
+
+    /// "Rendering is a pure function of (original, recipe, pipelineVersion)" —
+    /// `Recipe.swift`'s opening line, and the premise the entire cache rests on. If it
+    /// is false anywhere, a cached tile and a fresh render disagree and the app shows
+    /// one picture in the grid and a different one in the loupe.
+    ///
+    /// Nothing asserted it. These are the two halves: the same plan twice must be
+    /// bit-identical, and two independently-built plans from equal recipes must agree
+    /// as well — the second is the one that catches state captured at construction,
+    /// which is where a cache key stops meaning what it says.
+    func testTheSameRecipeAlwaysRendersTheSamePixels() {
+        var recipe = Recipe()
+        recipe.develop.tone.exposure = 0.4
+        recipe.develop.tone.contrast = 30
+        recipe.develop.color.saturation = 20
+        recipe.look.wheels.shadows = Wheel(hue: 220, sat: 0.3, lum: -0.2)
+        recipe.look.vignette = -0.8
+        recipe.develop.detail.texture = 25
+
+        let source = ImageBuffer(width: 24, height: 12) { u, v in
+            RGB(0.18 * pow(2, u * 8 - 4), 0.5 * v + 0.02, 1.4 * u * v + 0.01)
+        }
+
+        let plan = RenderPlan(recipe: recipe)
+        let first = ReferenceRenderer.render(source, plan: plan)
+        let again = ReferenceRenderer.render(source, plan: plan)
+        XCTAssertEqual(first.pixels, again.pixels,
+                       "the same plan rendered the same frame differently twice")
+
+        // A separately-constructed plan from an equal recipe. This is what the
+        // fingerprint promises when it is used as a cache key.
+        let copy = recipe
+        XCTAssertEqual(copy, recipe)
+        let rebuilt = ReferenceRenderer.render(source, plan: RenderPlan(recipe: copy))
+        XCTAssertEqual(first.pixels, rebuilt.pixels,
+                       "two plans built from equal recipes rendered differently")
+    }
+
+    /// The contrapositive, which is the half that makes the fingerprint worth having:
+    /// recipes that render the same must share one, and recipes that render differently
+    /// must not. Without the second, a cache key is free to serve the wrong picture.
+    func testTheFingerprintTracksWhetherThePictureChanges() throws {
+        var base = Recipe()
+        base.develop.tone.exposure = 0.4
+
+        // Cosmetics do not change the picture, so they must not change the key —
+        // otherwise renaming a mask throws away every cached render of that photo.
+        var renamed = base
+        renamed.masks = [Mask(id: "a0000000-0000-0000-0000-000000000001", name: "Sky",
+                              enabled: true, amount: 100, components: [],
+                              refine: MaskRefine(), adjust: LocalAdjust())]
+        var renamedAgain = renamed
+        renamedAgain.masks[0].name = "Sky (final)"
+        renamedAgain.masks[0].id = "b0000000-0000-0000-0000-000000000002"
+        XCTAssertEqual(try RecipeFingerprint.fingerprint(renamed),
+                       try RecipeFingerprint.fingerprint(renamedAgain),
+                       "renaming a mask changed the render key")
+        XCTAssertTrue(renamed.rendersSameAs(renamedAgain))
+
+        // Anything that does change the picture must change the key, including a
+        // difference far below what any slider readout would show.
+        var nudged = base
+        nudged.develop.tone.exposure = 0.4000000001
+        XCTAssertNotEqual(try RecipeFingerprint.fingerprint(base),
+                          try RecipeFingerprint.fingerprint(nudged),
+                          "a real difference in exposure did not reach the key")
+        XCTAssertFalse(base.rendersSameAs(nudged))
+    }
+
     // MARK: - Monotonicity across the whole slider
 
     /// A brighter input must never render darker. The contrast relax window used to be
