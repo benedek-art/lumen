@@ -147,6 +147,9 @@ GENERIC_NAME = re.compile(r"\b([A-Z]\w*)\s*(?::|,|$)")
 # not declared in-tree gets reported, so adding a genuinely new platform type means
 # adding it here — which is the point. Single capital letters are generic parameters.
 KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
+    # Dispatch: `LUT3D`'s bake fans slices across cores, and libdispatch is available
+    # on both platforms this builds for.
+    "Dispatch", "DispatchQueue", "DispatchSemaphore", "DispatchGroup",
     # stdlib
     "Int", "Int8", "Int16", "Int32", "Int64", "UInt", "UInt8", "UInt16", "UInt32",
     "UInt64", "Double", "Float", "Float32", "Float64", "Bool", "String", "Substring",

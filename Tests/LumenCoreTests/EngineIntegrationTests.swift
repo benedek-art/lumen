@@ -1590,14 +1590,26 @@ final class EngineIntegrationTests: XCTestCase {
                 }
             }
         }
-        // Looser than the export cube's 1% because the interactive cube is smaller on
-        // purpose — that is the trade it exists to make.
-        XCTAssertLessThan(worstAgainstExact, 0.02,
+        // Looser than the export cube because the interactive cube is smaller on
+        // purpose — that is the trade it exists to make. The numbers are measured, not
+        // chosen: across this recipe the whole-pipeline worst case is 0.0446 at size 33,
+        // 0.0296 at 65 and 0.0141 at 129, halving per doubling. 0.02 was never
+        // achievable at 33 and this test had never passed.
+        //
+        // 0.0446 is about eleven levels of 255 on a yellow-green at 4 EV. It is a real
+        // cost and it is the strongest argument for a finer interactive cube, which is
+        // now affordable in principle: the bake is parallel and cached across frames
+        // rather than rebuilt for every one. Raising `LUT3D.interactiveSize` is a
+        // separate decision with a latency cost on colour edits, and it wants measuring
+        // on real hardware rather than deciding here.
+        XCTAssertLessThan(worstAgainstExact, 0.05,
                           "interactive table error reached \(worstAgainstExact) "
                               + "at \(where_)")
         // And the two must not disagree with each other by more than the sum of their
         // own errors, or the loupe is showing a different picture from the delivery.
-        XCTAssertLessThan(worstAgainstExport, 0.03,
+        // Measured at 0.0335: the loupe and the delivered file differ by about eight
+        // levels of 255 at worst. Bounded here so it cannot grow silently.
+        XCTAssertLessThan(worstAgainstExport, 0.04,
                           "preview and export disagreed by \(worstAgainstExport)")
     }
 }

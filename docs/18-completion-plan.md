@@ -130,6 +130,33 @@ Scores in this document are claims, and claims get checked. After each batch:
 The rule that makes this honest: **a score may only go up when something can be traced
 from a control to a pixel.** Not when code is written.
 
+## The accuracy the tables actually deliver
+
+Colour is baked into 3-D LUTs and fetched per pixel. That is the architecture, and its
+cost had never been measured — three tests asserted bounds nobody had checked, and all
+three had been failing on macOS the whole time behind a lane that does not run them.
+
+Measured against an exact evaluation, worst case across a swept recipe:
+
+| | size 33 (preview) | size 65 (export) | size 129 |
+|---|---|---|---|
+| colour + grade table, in stops | 0.197 | 0.074 | 0.017 |
+| share of samples over 0.02 EV | 10.6% | 4.1% | 0% |
+| finish table, display-referred | 0.0265 | 0.0143 | 0.0057 |
+| whole pipeline, display-referred | 0.0446 | 0.0296 | 0.0141 |
+
+The error halves per doubling of the cube. That is the linear convergence of an
+interpolation limited by the curvature of what it is approximating — not a bug waiting
+to be found, and the only lever is a finer cube. `testTheColourTableConverges` now
+asserts the ladder itself, so a loosened single-size bound cannot hide a real regression.
+
+What it means for a photograph: the preview and the delivered file differ by up to 8 of
+255 levels, worst on a saturated blue at 1.6 EV, and the preview is 11 levels off the
+exact answer on a yellow-green at 4 EV. Raising `LUT3D.interactiveSize` from 33 to 65
+would cut that roughly in half. It is now affordable in principle — the bake is
+parallel across cores and cached across frames rather than rebuilt for each one — but
+it costs latency on a colour edit and wants measuring on real hardware first.
+
 ## Two things this plan cannot do
 
 - **Fetch a model — no longer true.** This said `huggingface.co` was unreachable. The
