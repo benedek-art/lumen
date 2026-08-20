@@ -1442,6 +1442,21 @@ public final class CatalogStore {
         try statement.run()
     }
 
+    /// A batch of metadata in one transaction.
+    ///
+    /// Five thousand individual commits is a minute of fsync; one transaction per few
+    /// hundred rows is milliseconds. Batched here rather than at the call site so the
+    /// database handle stays private and there is one place that knows how wide a
+    /// transaction should be.
+    public func setMetadata(_ batch: [(photoID: Int64, metadata: PhotoMetadata)]) throws {
+        guard !batch.isEmpty else { return }
+        try db.transaction {
+            for entry in batch {
+                try self.setMetadata(entry.metadata, photoID: entry.photoID)
+            }
+        }
+    }
+
     /// Photos no capture time has been read for yet.
     ///
     /// `capture_at IS NULL` is the resume marker rather than a separate "done" column:
@@ -2502,6 +2517,10 @@ public final class CatalogStore {
         throw CatalogError.unavailable
     }
     public func setMetadata(_ metadata: PhotoMetadata, photoID: Int64) throws {
+        throw CatalogError.unavailable
+    }
+
+    public func setMetadata(_ batch: [(photoID: Int64, metadata: PhotoMetadata)]) throws {
         throw CatalogError.unavailable
     }
 

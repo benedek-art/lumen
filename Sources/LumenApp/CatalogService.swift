@@ -103,6 +103,50 @@ final class CatalogService: @unchecked Sendable {
         return result
     }
 
+    /// Fill in capture metadata for photos that have none.
+    ///
+    /// Runs AFTER the grid is on screen and off the main actor, because reading EXIF
+    /// costs a file open per photo and the scan is what stands between the user and
+    /// their first grid — docs/16 gates that under a second for five thousand photos.
+    /// Metadata is what ten of the twelve sort orders, the capture-time grouping, the
+    /// filter chips and duplicate detection all read, and until now nothing wrote it,
+    /// so every one of them was reading NULL.
+    ///
+    /// Interruptible by construction: `capture_at IS NULL` is the resume marker, so
+    /// quitting halfway costs nothing and the next launch continues. Batched into
+    /// transactions of 200 because 5,000 individual commits is a minute of fsync.
+    func backfillMetadata(folder: URL, onProgress: ((Int, Int) -> Void)? = nil) {
+        queue.async { [store, weak self] in
+            do {
+                let folderID = try store.registerFolder(path: folder.path)
+                let pending = try store.photosMissingMetadata(folderID: folderID)
+                guard !pending.isEmpty else { return }
+                var done = 0
+                for chunk in stride(from: 0, to: pending.count, by: 200).map({
+                    Array(pending[$0..<Swift.min($0 + 200, pending.count)])
+                }) {
+                    let read: [(photoID: Int64, metadata: PhotoMetadata)] =
+                        chunk.compactMap { row in
+                            let url = folder.appendingPathComponent(row.filename)
+                            guard let metadata = CaptureMetadataReader.read(url: url)
+                            else { return nil }
+                            return (photoID: row.id, metadata: metadata)
+                        }
+                    try store.setMetadata(read)
+                    done += chunk.count
+                    onProgress?(done, pending.count)
+                }
+            } catch {
+                // Not surfaced to the user: metadata is an enrichment, and a folder
+                // whose EXIF could not be read still browses, culls and edits. Saying
+                // so would be noise on a path nobody asked for.
+                NSLog("Lumen catalog: metadata backfill stopped — %@",
+                      String(describing: error))
+                _ = self
+            }
+        }
+    }
+
     /// Reconcile what the catalog knows with what the sidecar says. The sidecar wins
     /// where the catalog is silent: a photo moved in from another machine, or restored
     /// from a backup, should arrive with its work attached.

@@ -701,6 +701,13 @@ final class AppState: ObservableObject {
                 guard let self, self.scanGeneration == generation else { return }
                 self.applyScan(found, stored: stored)
             }
+            // AFTER the grid, never before it. Reading EXIF is a file open per photo,
+            // and capture time, body, lens and exposure are what ten of the twelve sort
+            // orders and every metadata filter read — until now nothing wrote them, so
+            // all of it was reading NULL. Fire-and-forget on the catalog's own serial
+            // queue: it is an enrichment, it resumes by itself next launch, and nothing
+            // on screen waits for it.
+            catalog?.backfillMetadata(folder: url)
         }
     }
 
