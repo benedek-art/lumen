@@ -586,8 +586,14 @@ struct LoupeView: View {
         return (mask.id, index, mask.components[index])
     }
 
-    /// The stroke set already stored for a component, or an empty one when there is
-    /// nothing behind its reference yet. Memory only — this runs inside `body`.
+    /// The stroke set already stored for a component, or an empty one when the
+    /// component genuinely has no strokes yet.
+    ///
+    /// `AppState.strokeSet(ref:)` now reaches the blob store when memory misses, so an
+    /// empty set here means empty rather than not-yet-loaded. That distinction is the
+    /// whole safety of this call: the canvas APPENDS to what it is given and writes the
+    /// result back, so handing it an empty set for a component that does have strokes
+    /// replaces them all with the next stroke.
     private func existingStrokes(_ component: MaskComponent?) -> BrushStrokeSet {
         state.strokeSet(ref: component?.strokesRef) ?? BrushStrokeSet()
     }
@@ -628,8 +634,16 @@ struct LoupeView: View {
                 // The strokes already on this component have to go IN as well as come
                 // out: the canvas appends to the set it was given, so handing it an
                 // empty one makes every stroke the only stroke.
+                // `sourceSize` is the SOURCE frame, not `cg`. `cg` is the preview,
+                // which the renderer has already cropped and straightened; passing its
+                // extent here told the canvas the crop WAS the whole photo, so every
+                // gesture on a cropped frame was stored against the wrong rectangle.
+                // The geometry goes in alongside it so the canvas can invert exactly
+                // what the renderer applied.
                 MaskCanvas(imageRect: CGRect(origin: .zero, size: drawn),
-                           sourceSize: CGSize(width: cg.width, height: cg.height),
+                           sourceSize: state.primaryFrameSize
+                               ?? CGSize(width: cg.width, height: cg.height),
+                           geometry: recipe.develop.geometry,
                            maskID: target.maskID,
                            componentIndex: target.index,
                            component: target.component,

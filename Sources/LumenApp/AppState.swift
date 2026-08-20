@@ -234,8 +234,8 @@ final class AppState: ObservableObject {
     @Published var primarySelection: PhotoItem? {
         didSet {
             guard primarySelection?.id != oldValue?.id else { return }
-            primaryFrameAspect = nil
-            refreshPrimaryFrameAspect()
+            primaryFrameSize = nil
+            refreshPrimaryFrameSize()
         }
     }
 
@@ -248,9 +248,18 @@ final class AppState: ObservableObject {
     /// portrait rectangle and "16:9" produced 1.58:1; on a portrait-orientation frame
     /// every ratio came out roughly half of what the menu said. The menu then read the
     /// result back through the same assumption and reported it as "Custom".
-    @Published private(set) var primaryFrameAspect: Double?
+    /// Also what the on-image mask tools need: a mask component is stored normalized to
+    /// the source frame, and every gesture arrives in the cropped preview's frame, so
+    /// converting between them needs the source's real pixel extent and not just its
+    /// shape.
+    @Published private(set) var primaryFrameSize: CGSize?
 
-    private func refreshPrimaryFrameAspect() {
+    var primaryFrameAspect: Double? {
+        guard let size = primaryFrameSize, size.height > 0 else { return nil }
+        return Double(size.width / size.height)
+    }
+
+    private func refreshPrimaryFrameSize() {
         guard let url = primarySelection?.id else { return }
         // Off the synchronous path: the first call for a photo opens the file to read
         // its header. For the frame in the loupe the decode is already cached, so this
@@ -263,7 +272,7 @@ final class AppState: ObservableObject {
                   size.width > 0, size.height > 0 else { return }
             // The selection can have moved on across that hop.
             guard self.primarySelection?.id == url else { return }
-            self.primaryFrameAspect = Double(size.width) / Double(size.height)
+            self.primaryFrameSize = CGSize(width: size.width, height: size.height)
         }
     }
 
@@ -468,10 +477,36 @@ final class AppState: ObservableObject {
         return out
     }
 
-    /// A stroke set the app already holds, for the canvas to append to.
+    /// The stroke set behind `ref`, for the canvas to append to.
+    ///
+    /// Cache first, then the blob store — and the disk fallback is the point. This used
+    /// to be cache-only, and the canvas appends to whatever it is handed before writing
+    /// the result back as the component's new strokes. So a cache miss did not mean
+    /// "wait": it meant the next brush stroke replaced every earlier stroke on that
+    /// component with itself, as an ordinary edit, with nothing to indicate it. A miss
+    /// is entirely reachable — `loadStrokeSets` reads on a detached task and gives up
+    /// quietly if the blob is unreadable, so a catalog copied without its blobs, or a
+    /// recipe arriving from another machine, leaves the entry nil forever.
+    ///
+    /// The read is synchronous here on purpose. It happens once per component, the
+    /// payload is a few tens of kilobytes, and the alternative on a miss is losing the
+    /// user's masking. `nil` now means genuinely no strokes, not "not loaded yet".
     func strokeSet(ref: String?) -> BrushStrokeSet? {
         guard let ref else { return nil }
-        return strokeCache[ref]
+        if let cached = strokeCache[ref] { return cached }
+        guard let set = catalog?.blobs.strokeSet(for: ref) else { return nil }
+        strokeCache[ref] = set
+        return set
+    }
+
+    /// Whether every brush blob this component needs is in hand.
+    ///
+    /// `strokeSet(ref:)` returning nil is ambiguous on its own — a component with no
+    /// strokes yet and a component whose bytes cannot be read look the same, and only
+    /// one of those is safe to paint over.
+    func strokesAreResolved(for component: MaskComponent?) -> Bool {
+        guard let ref = component?.strokesRef, !ref.isEmpty else { return true }
+        return strokeSet(ref: ref) != nil
     }
 
     /// Record a set the user just painted. The bytes are already in hand, so this

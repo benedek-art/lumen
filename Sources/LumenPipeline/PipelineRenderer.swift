@@ -428,6 +428,98 @@ public final class PipelineRenderer {
     /// The crop is expressed on the STRAIGHTENED frame, not on the rotated bounding
     /// box: dragging a crop rectangle and then straightening must not slide the
     /// rectangle across the picture.
+    /// The orientation transform `applyGeometry` uses, and the straightened/cropped
+    /// rectangles it derives. Factored out so the INVERSE below is built from the same
+    /// expression rather than a second copy of it that can drift.
+    static func geometryRects(_ geo: Geometry, sourceSize: CGSize)
+        -> (orientation: CGAffineTransform, straightened: CGRect, target: CGRect) {
+        var orientation = CGAffineTransform.identity
+        if geo.flipH { orientation = orientation.scaledBy(x: -1, y: 1) }
+        if geo.angle != 0 { orientation = orientation.rotated(by: -geo.angle * .pi / 180) }
+
+        let extent = CGRect(origin: .zero, size: sourceSize)
+        let straightened = orientation.isIdentity ? extent : extent.applying(orientation)
+        var target = straightened
+        let crop = geo.crop
+        if crop.x != 0 || crop.y != 0 || crop.w != 1 || crop.h != 1,
+           straightened.width > 0, straightened.height > 0 {
+            target = CGRect(x: straightened.origin.x + crop.x * straightened.width,
+                            y: straightened.origin.y
+                                + (1 - crop.y - crop.h) * straightened.height,
+                            width: crop.w * straightened.width,
+                            height: crop.h * straightened.height)
+        }
+        return (orientation, straightened, target)
+    }
+
+    /// A point in the DISPLAYED frame — normalized 0…1, top-left origin, as a view
+    /// hands it over — expressed as the source-normalized coordinate a recipe stores.
+    ///
+    /// The on-image mask tools need this and did not have it. `MaskCanvas` normalized
+    /// every gesture against the drawn preview, which `renderPreview` has already
+    /// cropped and straightened, and then stored the result as if it were
+    /// source-relative. On any cropped photo a gradient or radial was therefore written
+    /// somewhere other than where it was dragged, its handles drew somewhere else
+    /// again, and a brush — whose size is a fraction of the SOURCE long edge — painted
+    /// several times wider than the cursor ring promised. Uncropped photos were
+    /// unaffected, which is why it survived casual use.
+    ///
+    /// Built by inverting the very transform `applyGeometry` applies, rather than by
+    /// re-deriving the mapping: `CGAffineTransform.inverted()` cannot disagree with the
+    /// forward direction about a convention, and getting flip-then-rotate ordering
+    /// subtly wrong in a second implementation is exactly how this kind of bug starts.
+    public static func sourceNormalized(displayedX u: Double, displayedY v: Double,
+                                        geometry: Geometry,
+                                        sourceSize: CGSize) -> CGPoint {
+        guard sourceSize.width > 0, sourceSize.height > 0 else { return .zero }
+        let (orientation, _, target) = geometryRects(geometry, sourceSize: sourceSize)
+        guard target.width > 0, target.height > 0 else { return .zero }
+
+        // Into the straightened frame's coordinates. Core Image extents are bottom-up
+        // and `v` arrives top-down, so the y term flips.
+        let point = CGPoint(x: target.minX + CGFloat(u) * target.width,
+                            y: target.maxY - CGFloat(v) * target.height)
+
+        let inSource = orientation.isIdentity
+            ? point
+            : point.applying(orientation.inverted())
+
+        return CGPoint(x: inSource.x / sourceSize.width,
+                       y: 1 - inSource.y / sourceSize.height)
+    }
+
+    /// The exact inverse of `sourceNormalized`: where a stored source-normalized point
+    /// lands in the displayed frame. Handles and overlays need this so they draw on the
+    /// thing the user dragged.
+    public static func displayedNormalized(sourceX nx: Double, sourceY ny: Double,
+                                           geometry: Geometry,
+                                           sourceSize: CGSize) -> CGPoint {
+        guard sourceSize.width > 0, sourceSize.height > 0 else { return .zero }
+        let (orientation, _, target) = geometryRects(geometry, sourceSize: sourceSize)
+        guard target.width > 0, target.height > 0 else { return .zero }
+
+        let inSource = CGPoint(x: CGFloat(nx) * sourceSize.width,
+                               y: (1 - CGFloat(ny)) * sourceSize.height)
+        let point = orientation.isIdentity ? inSource : inSource.applying(orientation)
+
+        return CGPoint(x: (point.x - target.minX) / target.width,
+                       y: (target.maxY - point.y) / target.height)
+    }
+
+    /// How many displayed pixels one source pixel covers, along the long edge.
+    ///
+    /// The brush's size is stored as a fraction of the source long edge, and the hover
+    /// ring was drawn as that fraction of the DISPLAYED long edge — so on a 0.35 crop
+    /// the ring showed a third of the width the stroke actually painted.
+    public static func displayedPixelsPerSourcePixel(_ geo: Geometry,
+                                                     sourceSize: CGSize,
+                                                     displayedLongEdge: CGFloat) -> CGFloat {
+        let (_, _, target) = geometryRects(geo, sourceSize: sourceSize)
+        let targetLong = Swift.max(target.width, target.height)
+        guard targetLong > 0 else { return 1 }
+        return displayedLongEdge / targetLong
+    }
+
     /// `allowUpscale` exists because `scale` was `min(1, …)` unconditionally, which
     /// made `ExportRecipe.allowUpscale` dead: `targetSize` correctly returned an
     /// enlarged size and this then refused to reach it. Unticking "Don't enlarge" and

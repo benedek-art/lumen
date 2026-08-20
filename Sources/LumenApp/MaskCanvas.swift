@@ -28,6 +28,7 @@ import AppKit
 import CoreGraphics
 import Foundation
 import LumenCore
+import LumenPipeline
 import SwiftUI
 
 // MARK: - Brush settings
@@ -77,12 +78,22 @@ enum MaskCanvasEdit {
 
 // MARK: - Canvas
 
-/// `imageRect` is the photo's drawn rect **in this view's own coordinate space**, and
-/// `sourceSize` is the source image's pixel extent. Both are needed: the rect converts
-/// points, the pixel size fixes the aspect a Shift-constrained circle is round in.
+/// `imageRect` is the photo's drawn rect **in this view's own coordinate space**,
+/// `sourceSize` is the SOURCE image's pixel extent, and `geometry` is the crop,
+/// straighten and flip that sit between them.
+///
+/// All three are needed, and `geometry` used to be missing. What the canvas draws is
+/// the preview, which `renderPreview` has already cropped and straightened; what a mask
+/// component stores is normalized to the SOURCE frame. Without the transform between
+/// them every gesture on a cropped photo was written somewhere other than where it was
+/// made — on a left-half crop of a 6000 px frame, 1500 source pixels away — while the
+/// handles drew somewhere else again and a brush painted several times wider than its
+/// cursor ring. `sourceSize` was also being passed the cropped extent, which broke the
+/// pixel-round guarantee below for the same reason.
 struct MaskCanvas: View {
     let imageRect: CGRect
     let sourceSize: CGSize
+    let geometry: Geometry
     let maskID: String
     let componentIndex: Int
     let component: MaskComponent?
@@ -101,6 +112,7 @@ struct MaskCanvas: View {
 
     init(imageRect: CGRect,
          sourceSize: CGSize,
+         geometry: Geometry,
          maskID: String,
          componentIndex: Int,
          component: MaskComponent?,
@@ -108,6 +120,7 @@ struct MaskCanvas: View {
          commit: @escaping (MaskCanvasEdit) -> Void) {
         self.imageRect = imageRect
         self.sourceSize = sourceSize
+        self.geometry = geometry
         self.maskID = maskID
         self.componentIndex = componentIndex
         self.component = component
@@ -473,9 +486,18 @@ struct MaskCanvas: View {
         stroke(&context, ring, width: 1, alpha: brush.erase ? 0.5 : 0.85)
     }
 
+    /// The cursor ring, in view points.
+    ///
+    /// `brush.size` is a fraction of the SOURCE long edge, so converting it through the
+    /// displayed long edge was only right on an uncropped photo. On a 0.35 crop the
+    /// ring showed about a third of the width the stroke actually painted — the cursor
+    /// promised one brush and the rasterizer used another.
     private var brushDiameter: CGFloat {
-        let long = Swift.max(imageRect.width, imageRect.height)
-        let d = CGFloat(Num.clamp(brush.size, 0.0005, 2)) * long
+        let perSourcePixel = PipelineRenderer.displayedPixelsPerSourcePixel(
+            geometry, sourceSize: sourceSize,
+            displayedLongEdge: Swift.max(imageRect.width, imageRect.height))
+        let sourceLong = Swift.max(sourceSize.width, sourceSize.height)
+        let d = CGFloat(Num.clamp(brush.size, 0.0005, 2)) * sourceLong * perSourcePixel
         return Swift.max(d, 2)
     }
 
@@ -519,14 +541,24 @@ struct MaskCanvas: View {
     /// are both ordinary.
     private func normalized(_ point: CGPoint) -> CGPoint {
         guard imageRect.width > 0, imageRect.height > 0 else { return .zero }
-        let x = Double((point.x - imageRect.minX) / imageRect.width)
-        let y = Double((point.y - imageRect.minY) / imageRect.height)
-        return CGPoint(x: MaskCanvas.coord(x), y: MaskCanvas.coord(y))
+        // View point -> displayed fraction -> SOURCE fraction, through the inverse of
+        // the very transform the renderer applied. See `PipelineRenderer
+        // .sourceNormalized`.
+        let u = Double((point.x - imageRect.minX) / imageRect.width)
+        let v = Double((point.y - imageRect.minY) / imageRect.height)
+        let source = PipelineRenderer.sourceNormalized(displayedX: u, displayedY: v,
+                                                       geometry: geometry,
+                                                       sourceSize: sourceSize)
+        return CGPoint(x: MaskCanvas.coord(Double(source.x)),
+                       y: MaskCanvas.coord(Double(source.y)))
     }
 
     private func viewPoint(_ nx: Double, _ ny: Double) -> CGPoint {
-        CGPoint(x: imageRect.minX + CGFloat(nx) * imageRect.width,
-                y: imageRect.minY + CGFloat(ny) * imageRect.height)
+        let displayed = PipelineRenderer.displayedNormalized(sourceX: nx, sourceY: ny,
+                                                             geometry: geometry,
+                                                             sourceSize: sourceSize)
+        return CGPoint(x: imageRect.minX + displayed.x * imageRect.width,
+                       y: imageRect.minY + displayed.y * imageRect.height)
     }
 
     /// A point at `offset` in the ellipse's own (rotated, per-axis normalized) frame.
