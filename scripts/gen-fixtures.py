@@ -550,7 +550,13 @@ def parametric_delta(x, amounts, centres):
     return s * (4 * x * (1 - x)) * PARAMETRIC_RANGE
 
 
-def parametric_is_monotone(scale, amounts, centres, probes=256):
+# 1024, matching CurveStack.isMonotone. At 256 both sides certified monotonicity on a
+# grid four times coarser than the 1024 the curve is baked on, and the samples in
+# between dipped — six of the nine extreme slider combinations stepped backwards, the
+# worst by 6.8e-7. Probing the bake grid is sufficient as well as necessary, because
+# LUT1D interpolates linearly between stored samples and linear interpolation between
+# non-decreasing samples is non-decreasing.
+def parametric_is_monotone(scale, amounts, centres, probes=1024):
     previous = 0.0
     for i in range(probes + 1):
         x = i / probes
@@ -590,8 +596,16 @@ def gen_parametric_checks():
                 amounts[index] = direction * setting / 100
                 scale = solve_parametric_scale(amounts, centres)
 
-                # 1. The baked curve is monotone in x. This is what the limiter is for.
-                check(parametric_is_monotone(scale, amounts, centres),
+                # 1. The baked curve is monotone in x, checked on the grid it is BAKED
+                # on (1024) rather than on whatever grid the solver happened to use.
+                #
+                # This used to call through with the default, so solver and verifier
+                # always agreed by construction and the check could not fail however
+                # coarse the solver got — which is exactly the bug that reached CI:
+                # the Swift limiter probed 256 while production bakes 1024, and six of
+                # nine extreme settings stepped backwards in between. Pinning the
+                # verification here means coarsening the solver breaks this check.
+                check(parametric_is_monotone(scale, amounts, centres, probes=1024),
                       f"{name} {direction * setting} produced a non-monotone curve")
 
                 # 2. The RESPONSE is monotone in the slider — push it further, get at

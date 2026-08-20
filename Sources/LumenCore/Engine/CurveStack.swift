@@ -91,7 +91,27 @@ public struct CurveStack: Sendable {
         // at 100 where the label promises it.
         func isMonotone(_ scale: Double) -> Bool {
             var previous = 0.0
-            let probes = 256
+            // Probe the grid the curve is actually baked on. This was 256 while
+            // production bakes 1024, so the limiter certified monotonicity on a grid
+            // four times coarser than the one it was asked to guarantee, and the
+            // samples in between dipped: at Highlights −100 / Lights +100 a baked
+            // 512-sample curve stepped backwards by 6.8e-7, and six of the nine
+            // extreme slider combinations did it at all. Raising this to 1024 takes
+            // every one of them to exactly zero while moving the solved scale by
+            // 0.014% — the limiter was already in the right place, it was just
+            // looking at every fourth sample.
+            //
+            // Certifying the grid is sufficient as well as necessary: LUT1D
+            // interpolates linearly between stored samples, and linear interpolation
+            // between non-decreasing samples is non-decreasing. So a curve monotone at
+            // every stored sample is monotone everywhere it will ever be read.
+            //
+            // Fixed at 1024 rather than tied to `size` on purpose. A size-dependent
+            // scale would hand a 512-sample preview and a 1024-sample export different
+            // curves. Every size used is a power-of-two divisor of 1024, so those
+            // grids are subsets of this one and inherit the guarantee; a bake larger
+            // than 1024 would need this raised to match.
+            let probes = 1024
             for i in 0...probes {
                 let x = Double(i) / Double(probes)
                 let y = x + delta(x) * scale

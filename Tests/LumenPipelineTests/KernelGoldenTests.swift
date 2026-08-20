@@ -451,17 +451,29 @@ final class KernelGoldenTests: XCTestCase {
             return moved
         }
 
-        // Texture at +40 is a local-contrast change, not a rounding error. The old
-        // behaviour produced about 0.01 here; the contract is a gain of 2^(0.36·ΔEV)
-        // per stop of fine detail, which on this frame is worth far more than that.
+        // The bar is 0.001, and it is derived rather than picked. This 64x32 frame is
+        // 20 EV across 64 columns, so its fine-detail band measures 9.9e-3 in the
+        // shaper's encoded plane — 0.24 EV. The contract is a gain of 2^(0.36·ΔEV) per
+        // stop, giving 2^0.086 = 1.061, about 6% of local contrast, which on the
+        // mid-tone pixels this frame actually contains is worth ~0.004 of movement.
+        //
+        // 0.02 stood here first and was unreachable: it was written expecting the
+        // 24x units fix to produce a large number, without measuring what the band on
+        // this frame is worth. The three cases the bar has to separate are
+        //   dead stage        exactly 0.0     (a radius CIBoxBlur ignores; this is
+        //                                     what Texture was doing)
+        //   gain in encoded   ~1.5e-4         (the 24x units bug)
+        //   contract honoured ~4e-3
+        // so 0.001 clears the second by 7x and sits 4x under the third. The measured
+        // value is in the message either way, so a miss here is self-diagnosing.
         let texture = movement(from: try render { $0.develop.detail.texture = 40 })
-        XCTAssertGreaterThan(texture, 0.02,
-                             "Texture +40 moved the frame by \(texture) — that is the "
-                                 + "signature of the gain being computed in the "
-                                 + "shaper's encoded units rather than in stops")
+        XCTAssertGreaterThan(texture, 0.001,
+                             "Texture +40 moved the frame by \(texture) — 0.0 means the "
+                                 + "band collapsed, a few e-4 means the gain is being "
+                                 + "computed in the shaper's encoded units, not stops")
 
         let clarity = movement(from: try render { $0.develop.detail.clarity = 30 })
-        XCTAssertGreaterThan(clarity, 0.02,
+        XCTAssertGreaterThan(clarity, 0.001,
                              "Clarity +30 moved the frame by \(clarity)")
 
         let vignette = movement(from: try render { $0.look.vignette = -1.0 })

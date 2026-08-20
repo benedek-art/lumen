@@ -203,8 +203,14 @@ public struct RenderGraph {
 
         // One decomposition, two bands: texture is the fine scale, clarity the mid
         // scale. Both come off guided filters, so neither can halo.
-        let fine = Swift.max(Int(Double(longEdge) * 0.003), 1)
-        let mid = Swift.max(Int(Double(longEdge) * 0.02), 3)
+        // Rounded, not truncated, and floored at 2 like every other radius in this
+        // file. `Int(longEdge * 0.003)` is 0 for any long edge below 334 px — every
+        // thumbnail and grid preview in the app — and the old floor of 1 is the radius
+        // CIBoxBlur ignores, so Texture was inert across that whole range rather than
+        // merely coarse. The tone mask and dehaze already floor at 2 and 3; 1 was the
+        // outlier.
+        let fine = Swift.max(Int((Double(longEdge) * 0.003).rounded()), 2)
+        let mid = Swift.max(Int((Double(longEdge) * 0.02).rounded()), 3)
         guard let baseFine = Self.guidedSelfFilter(lum, radius: fine, epsilon: 0.0008),
               let baseMid = Self.guidedSelfFilter(lum, radius: mid, epsilon: 0.004)
         else { return out }
@@ -520,9 +526,20 @@ public struct RenderGraph {
 
     static func boxBlur(_ image: CIImage, radius: Int) -> CIImage? {
         guard radius > 0 else { return image }
+        // CIBoxBlur returns its input unchanged at radius 1, and a guided filter built
+        // on an identity blur is itself exactly the identity: mean(I) = I makes the
+        // variance zero, the covariance zero, a = 0 and b = I, so a·I + b = I. The
+        // caller then gets its own image back with no error and no diagnostic.
+        //
+        // That is how Texture died. `applyDetailBands` floored its fine radius at 1,
+        // which every render below 334 px landed on, so the fine band was identically
+        // zero and exp2(k·0) = 1 — Texture moved a 64 px frame by exactly 0.0 while
+        // the CPU reference moved it by a measured 5.6e-3 in the encoded plane. The
+        // floor lives here as well as at that call site because no caller can ever
+        // mean "blur by an amount this primitive ignores".
         let filter = CIFilter.boxBlur()
         filter.inputImage = image.clampedToExtent()
-        filter.radius = Float(radius)
+        filter.radius = Float(Swift.max(radius, 2))
         return filter.outputImage?.cropped(to: image.extent)
     }
 

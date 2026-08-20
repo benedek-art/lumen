@@ -106,7 +106,17 @@ final class ColorScienceTests: XCTestCase {
         // floor is genuinely not zero — `(c1)^m2` is about 1e-6, which is the standard's
         // behaviour and not a bug.
         for tf in TransferFunction.allCases {
-            XCTAssertEqual(tf.encode(1), 1, accuracy: 1e-9, "\(tf.rawValue) at white")
+            // HLG gets its own bound, and only at white. Its white point is exact only
+            // to the precision of BT.2100's published `a`: the standard gives
+            // 0.17883277 to eight places, while the value that makes
+            // a·ln(11+4a) − a·ln(4a) + 0.5 come to exactly 1 is 0.178832772656…, so
+            // with the published constant OETF(1) = 1 − 4.93e-9. Reproduced to the last
+            // bit outside this implementation, which is how it was established to be
+            // the standard's rounding rather than an error here. 1e-9 was asking for
+            // more precision than BT.2100 defines; every other curve still holds it.
+            let whiteTolerance = tf == .hlg ? 1e-8 : 1e-9
+            XCTAssertEqual(tf.encode(1), 1, accuracy: whiteTolerance,
+                           "\(tf.rawValue) at white")
             XCTAssertEqual(tf.encode(0), 0, accuracy: 1e-5, "\(tf.rawValue) at black")
         }
 
