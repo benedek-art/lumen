@@ -295,10 +295,14 @@ changed the picture.
   scene-linear values; Point Colour swatches and mask colour samples can only ever be
   seeded at 18% grey, which makes Colour Range, both Similarity kinds and the local
   Colour tint unable to reference a colour the user picked. All now labelled.
-- **The advertised CPU fallback does not exist.** `renderReference` has no caller, the
-  "CPU fallback" badge is attached to GPU-rendered frames, and `coreAvailable` checks 4
-  of 15 kernels — so most kernel failures produce no badge at all, and each stage just
-  returns its input.
+- **A kernel that fails outside the core four degrades one stage silently in EXPORT.**
+  The preview now takes the real CPU fallback when a core kernel is missing, and labels
+  a reduced render with the names of whatever else failed. `export` has no equivalent:
+  it renders through the graph regardless, so a missing `vignette` or `grain` kernel
+  writes a file with that stage absent and nothing said. The pieces to fix it are in
+  place — `renderReference` and `KernelLibrary.unavailableKernels` — but a file is not a
+  preview, and silently substituting the reference renderer mid-export is a decision
+  that wants a Mac to test on first.
 - Creative sharpening is not resolution-scaled, so an export is less sharpened than the
   frame the user judged; `RenderGraph.Options.lutSize` is dead and mask tables run at
   33³ even on export; and the waveform grows blank columns on crops narrower than 256

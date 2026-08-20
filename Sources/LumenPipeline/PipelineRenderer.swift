@@ -767,7 +767,8 @@ public final class PipelineRenderer {
     /// graph. Slower by orders of magnitude and used deliberately: goldens compare the
     /// two, and a machine whose kernels will not compile still gets correct pixels.
     public func renderReference(source: AppleRawSource, recipe: Recipe,
-                                maxLongEdge: Int) throws -> CGImage {
+                                maxLongEdge: Int,
+                                strokeSets: [String: BrushStrokeSet] = [:]) throws -> CGImage {
         let native = source.nativeLongEdge
         let scale = native > 0 ? Swift.min(1.0, Double(maxLongEdge) / native) : 1.0
         guard let decoded = source.decode(recipe: recipe, draft: true,
@@ -779,7 +780,12 @@ public final class PipelineRenderer {
         }
         let plan = RenderPlan(recipe: recipe, asShotKelvin: source.asShotTemperature,
                               asShotTint: source.asShotTint)
-        let rendered = ReferenceRenderer.render(buffer, plan: plan)
+        // Stroke sets go in, exactly as they do on the GPU path — a fallback that
+        // silently drops every brush mask is not the same picture, and this is the
+        // path that runs when the graph could not be built at all.
+        let rendered = ReferenceRenderer.render(
+            buffer, plan: plan,
+            inputs: ReferenceRenderer.Inputs(strokeSets: strokeSets))
         guard let cgImage = Self.cgImage(from: rendered) else {
             throw RenderError.renderFailed
         }

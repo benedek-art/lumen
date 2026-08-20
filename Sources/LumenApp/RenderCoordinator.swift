@@ -74,15 +74,42 @@ actor RenderCoordinator {
         do {
             let source = try self.source(for: url)
             guard !stale() else { return nil }
-            let image = try renderer.renderPreview(source: source, recipe: recipe,
+
+            // The fallback the kernel header promises, actually taken.
+            //
+            // This used to render through the graph unconditionally and then ATTACH a
+            // "CPU fallback" note to the GPU's own output — so when the core kernels
+            // were missing the user got a wrong picture with a label claiming it came
+            // from the reference path. `renderReference` existed the whole time and had
+            // no caller. Without `logEncode` in particular the graph cannot form a
+            // picture at all: S9/S10 is skipped, picture formation is skipped, and even
+            // the fallback tone curve needs it — the output is scene-referred data
+            // presented as a photograph.
+            let image: CGImage
+            let note: String?
+            if KernelLibrary.coreAvailable {
+                image = try renderer.renderPreview(source: source, recipe: recipe,
                                                    maxLongEdge: maxLongEdge, draft: draft,
                                                    strokeSets: strokeSets)
+                // Core kernels present but something else missing: the picture is real,
+                // and some stage of it silently did nothing. Say which.
+                let missing = KernelLibrary.unavailableKernels
+                note = missing.isEmpty
+                    ? nil
+                    : "Reduced — \(missing.count) GPU "
+                        + (missing.count == 1 ? "kernel" : "kernels")
+                        + " unavailable: " + missing.joined(separator: ", ")
+            } else {
+                image = try renderer.renderReference(source: source, recipe: recipe,
+                                                     maxLongEdge: maxLongEdge,
+                                                     strokeSets: strokeSets)
+                note = "CPU fallback — GPU kernels unavailable"
+            }
+
             guard !stale() else { return nil }
             return RenderResult(image: image, generation: generation, isDraft: draft,
                                 usedEmbeddedPreview: false,
-                                note: KernelLibrary.coreAvailable
-                                    ? nil
-                                    : "CPU fallback — GPU kernels unavailable")
+                                note: note)
         } catch {
             // Never leave the viewer empty: fall back to the embedded preview and
             // label it honestly.
