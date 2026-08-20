@@ -449,12 +449,30 @@ public enum KernelLibrary {
     }
     """
 
-    /// One separable pass of the à-trous transform's B3-spline row, `[1,4,6,4,1]/16`.
-    /// The five taps arrive as five translations of the same image, which is what puts
-    /// the "holes" in: level `j` translates by `2^j` instead of by 1.
+    /// One separable pass of the à-trous transform's B3-spline row, `[1,4,6,4,1]/16`,
+    /// with the taps `tap` pixels apart — the "holes" the transform is named for. Level
+    /// `j` passes `tap = 2^j` along one axis.
+    ///
+    /// **A general kernel, not a colour kernel, and that is the whole point.** The first
+    /// version of this passed five translated copies of the image into a `CIColorKernel`
+    /// and let each `__sample` pick up its own offset. A colour kernel's contract is
+    /// that it reads exactly the pixel it is producing — that contract is what lets Core
+    /// Image concatenate a colour kernel with a geometry node and hoist the transform
+    /// out — so handing one five differently-translated inputs is asking it to break its
+    /// own rule. Measured on the macOS runner, the five-level stack built that way
+    /// differed from `ClassicalDenoise.apply` by 71% of the stage's own effect, where the
+    /// numpy model of the same arithmetic agrees to 6e-16 in double and 5e-4 in half.
+    ///
+    /// A general kernel says where it samples, and `roiCallback` tells Core Image how
+    /// much of the input each output tile needs. Nothing is left to infer.
     static let bSpline5Source = """
-    kernel vec4 lumenBSpline5(__sample t0, __sample t1, __sample t2,
-                              __sample t3, __sample t4) {
+    kernel vec4 lumenBSpline5(sampler src, vec2 tap) {
+        vec2 p = destCoord();
+        vec4 t0 = sample(src, samplerTransform(src, p - 2.0 * tap));
+        vec4 t1 = sample(src, samplerTransform(src, p - tap));
+        vec4 t2 = sample(src, samplerTransform(src, p));
+        vec4 t3 = sample(src, samplerTransform(src, p + tap));
+        vec4 t4 = sample(src, samplerTransform(src, p + 2.0 * tap));
         vec3 v = (t0.rgb + t4.rgb + 4.0 * (t1.rgb + t3.rgb) + 6.0 * t2.rgb) / 16.0;
         return vec4(v, t2.a);
     }
@@ -465,8 +483,12 @@ public enum KernelLibrary {
     /// for σ = 1.5 are [1, 1, 1] — and it is a kernel rather than `CIBoxBlur` because
     /// that filter returns its input unchanged at radius 1.
     static let box3Source = """
-    kernel vec4 lumenBox3(__sample t0, __sample t1, __sample t2) {
-        return vec4((t0.rgb + t1.rgb + t2.rgb) / 3.0, t1.a);
+    kernel vec4 lumenBox3(sampler src, vec2 tap) {
+        vec2 p = destCoord();
+        vec4 centre = sample(src, samplerTransform(src, p));
+        vec3 lo = sample(src, samplerTransform(src, p - tap)).rgb;
+        vec3 hi = sample(src, samplerTransform(src, p + tap)).rgb;
+        return vec4((lo + centre.rgb + hi) / 3.0, centre.a);
     }
     """
 
@@ -487,10 +509,14 @@ public enum KernelLibrary {
     /// `1/(2√π·σ_blur)` and the encoded scale on the way in, so the map means the same
     /// thing at every noise level and at every profile.
     static let edgeMapSource = """
-    kernel vec4 lumenEdgeMap(__sample xp, __sample xm, __sample yp, __sample ym,
-                             float lo, float hi) {
-        float gx = (xp.r - xm.r) * 0.5;
-        float gy = (yp.r - ym.r) * 0.5;
+    kernel vec4 lumenEdgeMap(sampler src, float lo, float hi) {
+        vec2 p = destCoord();
+        float xp = sample(src, samplerTransform(src, p + vec2(1.0, 0.0))).r;
+        float xm = sample(src, samplerTransform(src, p - vec2(1.0, 0.0))).r;
+        float yp = sample(src, samplerTransform(src, p + vec2(0.0, 1.0))).r;
+        float ym = sample(src, samplerTransform(src, p - vec2(0.0, 1.0))).r;
+        float gx = (xp - xm) * 0.5;
+        float gy = (yp - ym) * 0.5;
         float e = smoothstep(lo, hi, sqrt(gx * gx + gy * gy));
         return vec4(e, e, e, 1.0);
     }
@@ -554,11 +580,17 @@ public enum KernelLibrary {
                 + " a\(pair.1) = max(a\(pair.0), a\(pair.1)); a\(pair.0) = t;"
         }.joined(separator: "\n    ")
         return """
-        kernel vec4 lumenHotPixel(__sample c, __sample s0, __sample s1, __sample s2,
-                                  __sample s3, __sample s4, __sample s5, __sample s6,
-                                  __sample s7, float k, float shot, float variance) {
-            vec3 a0 = s0.rgb; vec3 a1 = s1.rgb; vec3 a2 = s2.rgb; vec3 a3 = s3.rgb;
-            vec3 a4 = s4.rgb; vec3 a5 = s5.rgb; vec3 a6 = s6.rgb; vec3 a7 = s7.rgb;
+        kernel vec4 lumenHotPixel(sampler src, float k, float shot, float variance) {
+            vec2 p = destCoord();
+            vec3 a0 = sample(src, samplerTransform(src, p + vec2(-1.0, -1.0))).rgb;
+            vec3 a1 = sample(src, samplerTransform(src, p + vec2( 0.0, -1.0))).rgb;
+            vec3 a2 = sample(src, samplerTransform(src, p + vec2( 1.0, -1.0))).rgb;
+            vec3 a3 = sample(src, samplerTransform(src, p + vec2(-1.0,  0.0))).rgb;
+            vec3 a4 = sample(src, samplerTransform(src, p + vec2( 1.0,  0.0))).rgb;
+            vec3 a5 = sample(src, samplerTransform(src, p + vec2(-1.0,  1.0))).rgb;
+            vec3 a6 = sample(src, samplerTransform(src, p + vec2( 0.0,  1.0))).rgb;
+            vec3 a7 = sample(src, samplerTransform(src, p + vec2( 1.0,  1.0))).rgb;
+            vec4 c = sample(src, samplerTransform(src, p));
             vec3 t;
         \(sort)
             vec3 median = (a3 + a4) * 0.5;
@@ -627,13 +659,17 @@ public enum KernelLibrary {
     public static let highlightEnergy = make(highlightEnergySource)
     public static let denoiseForward = make(denoiseForwardSource)
     public static let denoiseInverse = make(denoiseInverseSource)
-    public static let bSpline5 = make(bSpline5Source)
-    public static let box3 = make(box3Source)
     public static let chromaMagnitude = make(chromaMagnitudeSource)
-    public static let edgeMap = make(edgeMapSource)
     public static let denoiseRemoved = make(denoiseRemovedSource)
     public static let mixChroma = make(mixChromaSource)
-    public static let hotPixel = make(hotPixelSource)
+
+    // The four that read a neighbourhood are GENERAL kernels. A colour kernel promises
+    // to read only the pixel it is producing, and Core Image relies on that promise —
+    // so a neighbourhood has to be asked for explicitly, with an ROI to match.
+    public static let bSpline5 = makeGeneral(bSpline5Source)
+    public static let box3 = makeGeneral(box3Source)
+    public static let edgeMap = makeGeneral(edgeMapSource)
+    public static let hotPixel = makeGeneral(hotPixelSource)
 
     /// Every kernel compiled. False means this macOS build rejected the kernel
     /// language and the renderer must use the CPU reference path.
@@ -642,7 +678,7 @@ public enum KernelLibrary {
     /// Names of the kernels that failed, for the diagnostic the UI shows rather than
     /// pretending everything is fine.
     public static var unavailableKernels: [String] {
-        let all: [(String, CIColorKernel?)] = [
+        let all: [(String, CIKernel?)] = [
             ("logEncode", logEncode), ("logDecode", logDecode),
             ("multiply", multiply), ("square", square), ("luminance", luminance),
             ("guidedCoefficients", guidedCoefficients),
@@ -683,12 +719,35 @@ public enum KernelLibrary {
         CIColorKernel(source: source)
     }
 
+    /// A kernel that reads a neighbourhood. Deliberately a different constructor from
+    /// `make`, because the distinction is a contract and not a detail: a `CIColorKernel`
+    /// may read only the pixel it is producing, and Core Image is free to rearrange the
+    /// graph around one on that basis.
+    private static func makeGeneral(_ source: String) -> CIKernel? {
+        CIKernel(source: source)
+    }
+
     // MARK: - Convenience application
 
     public static func apply(_ kernel: CIColorKernel?, extent: CGRect,
                              _ arguments: [Any]) -> CIImage? {
         guard let kernel else { return nil }
         return kernel.apply(extent: extent, arguments: arguments)
+    }
+
+    /// Apply a neighbourhood kernel. `reach` is how far, in pixels, the kernel samples
+    /// away from the pixel it is producing; it becomes the region-of-interest callback,
+    /// which is what Core Image asks in order to render the frame in tiles without a
+    /// seam at every tile boundary. Getting it too small is invisible on a small test
+    /// frame and ruinous on a 45-megapixel export.
+    public static func applyNeighbourhood(_ kernel: CIKernel?, extent: CGRect,
+                                          reach: CGFloat,
+                                          _ arguments: [Any]) -> CIImage? {
+        guard let kernel else { return nil }
+        return kernel.apply(extent: extent,
+                            roiCallback: { _, rect in rect.insetBy(dx: -reach,
+                                                                   dy: -reach) },
+                            arguments: arguments)
     }
 }
 

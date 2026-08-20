@@ -576,6 +576,15 @@ public enum SpatialOps {
 
     /// Separable B3-spline convolution with the taps spread `step` pixels apart — the
     /// "holes" the à-trous transform is named for.
+    ///
+    /// Public because the GPU has a twin of exactly this one step, and a golden that can
+    /// only compare the whole five-level stack reports "the denoise is wrong" when what
+    /// it means is "one tap is in the wrong place". A primitive with a reference is a
+    /// primitive a test can bisect.
+    public static func atrousSmooth(_ plane: Plane, step: Int) -> Plane {
+        b3Spline(plane, step: step)
+    }
+
     private static func b3Spline(_ plane: Plane, step: Int) -> Plane {
         let s = Swift.max(step, 1)
         let w = plane.width
