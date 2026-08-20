@@ -52,9 +52,21 @@ extension AppState {
             // One-shot: the scopes must not claim a render ticket. Coalescing exists
             // to let the newest *viewer* frame win, and a measurement that joined that
             // race would cancel the frame the user is actually waiting on.
+            // NOT draft. Draft mode exists so a full-resolution interactive frame can
+            // skip the expensive spatial stages, and it skips exactly the ones a
+            // photographer watches the scopes for: presence (texture, clarity,
+            // dehaze), every local adjustment, creative sharpening, halation and
+            // grain — and `makeGraph` returns an empty graph outright, so no mask is
+            // even rasterized. Measuring that render meant dragging Clarity changed the
+            // picture without moving the histogram by one bin, while this file's own
+            // header promised the scopes describe the picture you are looking at.
+            //
+            // The proxy is 512 px precisely so the full-quality path is affordable
+            // here; skipping stages to save time on a 512 px frame was buying nothing
+            // and paying for it with a wrong answer.
             guard let result = await coordinator.renderOneShot(
                 url: url, recipe: recipe,
-                maxLongEdge: AppState.scopeProxyLongEdge, draft: true,
+                maxLongEdge: AppState.scopeProxyLongEdge, draft: false,
                 strokeSets: strokes) else { return }
             guard self.scopeGeneration == generation else { return }
 

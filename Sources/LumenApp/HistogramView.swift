@@ -51,7 +51,6 @@ struct HistogramView: View {
         self.histogram = histogram
     }
 
-    @State private var readoutSpace: ReadoutSpace = .srgb255
     @State private var hoverAxis: Double? = nil
     @State private var dragZone: Histogram.ZoneSlider? = nil
     @State private var dragStartValue: Double = 0
@@ -66,7 +65,7 @@ struct HistogramView: View {
         VStack(alignment: .leading, spacing: 4) {
             graph
             readoutLine
-            LumenSegmented(options: spaceOptions, selection: $readoutSpace)
+            LumenSegmented(options: spaceOptions, selection: $state.readoutSpace)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
@@ -149,7 +148,7 @@ struct HistogramView: View {
                 + "   " + HistogramView.format(share, decimals: 1) + "% of pixels"
         }
         if let axis = hoverAxis {
-            return "Level " + HistogramView.format(axis * readoutSpace.fullScale, decimals: 1)
+            return "Level " + HistogramView.format(axis * state.readoutSpace.fullScale, decimals: 1)
         }
         return HistogramView.format(histogram.clippedPercent(.luma, end: .high), decimals: 2)
             + "% white · "
@@ -158,11 +157,11 @@ struct HistogramView: View {
     }
 
     private var secondaryReadout: String {
-        guard let histogram else { return readoutSpace.label }
-        if histogram.transform.space != readoutSpace {
+        guard let histogram else { return state.readoutSpace.label }
+        if histogram.transform.space != state.readoutSpace {
             return "binned in " + histogram.transform.space.rawValue
         }
-        return readoutSpace.label
+        return state.readoutSpace.label
     }
 
     private var spaceOptions: [(value: ReadoutSpace, label: String)] {

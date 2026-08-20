@@ -71,7 +71,6 @@ final class LoupeViewport: ObservableObject {
 
     @Published var showCrop: Bool = false
     @Published var showReadout: Bool = true
-    @Published var readoutSpace: ReadoutSpace = .srgb255
     @Published var maskOverlayOpacity: Double = 0.45
 
     /// Last pointer position in loupe-local points. Not `@Published`: it changes on
@@ -842,7 +841,7 @@ struct LoupeView: View {
             return nil
         }
         return sampler.readout(u: Double(unit.x), v: Double(unit.y),
-                               space: viewport.readoutSpace)
+                               space: state.readoutSpace)
     }
 
     /// Keeps the pill on screen: it rides above-right of the cursor unless that would

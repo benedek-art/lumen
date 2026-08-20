@@ -72,8 +72,12 @@ extension AppState {
         // A 512-px proxy is plenty for tonal statistics and costs a fraction of a
         // full render — Auto must feel instant or nobody presses it twice. One-shot,
         // so measuring the picture cannot cancel the frame the viewer is drawing.
+        // Not draft, for the reason ScopeData.swift gives at its own probe: draft skips
+        // presence, every local adjustment, sharpening, halation and grain, and builds
+        // no mask rasters at all. Auto measuring that render is Auto measuring a
+        // picture nobody is looking at, which is the opposite of the line above.
         guard let result = await coordinator.renderOneShot(
-            url: url, recipe: recipe, maxLongEdge: 512, draft: true,
+            url: url, recipe: recipe, maxLongEdge: 512, draft: false,
             strokeSets: strokeSets) else { return nil }
         // Off the main actor for real: `nonisolated` permits being called from
         // anywhere, it does not move the work, and the caller is a main-actor Task.

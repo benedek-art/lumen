@@ -45,11 +45,13 @@ private let cropAspects: [CropAspect] = [
     CropAspect(name: "16:10", ratio: 16.0 / 10.0),
 ]
 
-/// The frame aspect the ratio menu assumes when the caller does not know the real one.
-/// The crop rectangle is stored normalized to the source frame, so turning "3:2" into
-/// a rectangle needs the frame's own aspect; until the loupe publishes decoded
-/// dimensions, `EffectsPanel(frameAspect:)` defaults to 3:2 — right for most of the
-/// corpus, and visibly wrong rather than silently wrong on anything else.
+/// The frame aspect the ratio menu falls back to before the real one is known.
+///
+/// The crop rectangle is stored normalized to the source frame, so turning "3:2" into a
+/// rectangle needs the frame's own aspect. `AppState.primaryFrameAspect` supplies it
+/// from the decoded dimensions; this covers the moment before that lands, and the case
+/// where there is no selection at all. It is right for most of the corpus and wrong in
+/// a visible way — not the silent way it was wrong when it was the ONLY path.
 private let assumedFrameAspect: Double = 3.0 / 2.0
 
 // MARK: - Effects panel
@@ -57,8 +59,20 @@ private let assumedFrameAspect: Double = 3.0 / 2.0
 struct EffectsPanel: View {
     @EnvironmentObject var state: AppState
 
-    /// Width ÷ height of the decoded frame, when the caller knows it.
+    /// Width ÷ height of the decoded frame, when the caller knows it. Overrides the
+    /// live value from `state` — nothing passes it today, and it exists so the ratio
+    /// maths can be exercised against a frame that is not on screen.
     var frameAspect: Double?
+
+    /// What the ratio menu actually measures against: an explicit override, else the
+    /// primary selection's real decoded aspect, else the 3:2 assumption.
+    ///
+    /// The assumption used to be the only path. `EffectsPanel` is constructed with no
+    /// argument, so `frameAspect` was always nil and every ratio was computed against
+    /// 3:2 — wrong on every 4:3 body and on every portrait-orientation frame.
+    private var effectiveFrameAspect: Double {
+        frameAspect ?? state.primaryFrameAspect ?? assumedFrameAspect
+    }
 
     @State private var showDefringe: Bool = false
     @State private var showGrain: Bool = false
@@ -195,7 +209,7 @@ struct EffectsPanel: View {
     private var currentAspectName: String {
         let crop = recipe.develop.geometry.crop
         if crop == Crop() { return "Original" }
-        let frame = frameAspect ?? assumedFrameAspect
+        let frame = effectiveFrameAspect
         guard crop.h > 0 else { return "Custom" }
         let ratio = (crop.w * frame) / crop.h
         for aspect in cropAspects {
@@ -207,7 +221,7 @@ struct EffectsPanel: View {
     }
 
     private func applyAspect(_ aspect: CropAspect) {
-        let frame = frameAspect ?? assumedFrameAspect
+        let frame = effectiveFrameAspect
         binder.edit("geometry.crop.aspect") { recipe in
             guard let ratio = aspect.ratio, ratio > 0, frame > 0 else {
                 recipe.develop.geometry.crop = Crop()

@@ -231,7 +231,46 @@ final class AppState: ObservableObject {
     @Published var filter = LibraryFilter()
     @Published var sortOrder: SortOrder = .filename
     @Published var selection: Set<URL> = []
-    @Published var primarySelection: PhotoItem?
+    @Published var primarySelection: PhotoItem? {
+        didSet {
+            guard primarySelection?.id != oldValue?.id else { return }
+            primaryFrameAspect = nil
+            refreshPrimaryFrameAspect()
+        }
+    }
+
+    /// Width ÷ height of the primary selection's decoded frame; nil until it is known.
+    ///
+    /// The crop ratio menu cannot work without it. A crop is stored normalized to the
+    /// source frame, so turning "1:1" into a rectangle needs the frame's own aspect —
+    /// and `EffectsPanel` was constructed with no aspect at all, so it always fell back
+    /// to an assumed 3:2. On a Micro-Four-Thirds or any 4:3 body, "1:1" produced an 8:9
+    /// portrait rectangle and "16:9" produced 1.58:1; on a portrait-orientation frame
+    /// every ratio came out roughly half of what the menu said. The menu then read the
+    /// result back through the same assumption and reported it as "Custom".
+    @Published private(set) var primaryFrameAspect: Double?
+
+    private func refreshPrimaryFrameAspect() {
+        guard let url = primarySelection?.id else { return }
+        // Off the synchronous path: the first call for a photo opens the file to read
+        // its header. For the frame in the loupe the decode is already cached, so this
+        // is usually a property read — but selection changes must never wait on it.
+        Task { [weak self] in
+            guard let self else { return }
+            guard let size = self.renderCoordinator.nativeSize(for: url),
+                  size.width > 0, size.height > 0 else { return }
+            guard self.primarySelection?.id == url else { return }
+            self.primaryFrameAspect = Double(size.width) / Double(size.height)
+        }
+    }
+    /// The units the pixel readout speaks, everywhere it appears.
+    ///
+    /// One home, because there were two: the histogram panel's segmented control wrote
+    /// a view-local `@State`, and the loupe's on-image HUD read `LoupeViewport
+    /// .readoutSpace`, which nothing ever assigned. Switching the histogram to % or
+    /// 0–1 left the readout under the cursor in sRGB 0–255 forever.
+    @Published var readoutSpace: ReadoutSpace = .srgb255
+
     @Published var viewMode: ViewMode = .grid
     @Published var statusMessage: String?
     @Published var catalogStatus: String?
