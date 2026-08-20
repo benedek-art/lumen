@@ -472,7 +472,17 @@ final class AppState: ObservableObject {
     /// Nothing produced this before, so `MaskOverlayView` always fell back to a flat
     /// tint over the whole frame — which reads as "this mask selects everything" and
     /// was the app's only way to look at a mask.
-    @Published private(set) var maskOverlayRaster: CGImage?
+    ///
+    /// A `Plane` of numbers rather than a `CGImage`: the six overlay modes composite
+    /// the alpha against the picture per pixel, and the CGImage form was being used as
+    /// a SwiftUI `.mask`, which reads an alpha channel the grey image did not have.
+    @Published private(set) var maskOverlayAlpha: Plane?
+
+    /// Which of the six overlay modes the loupe draws, and in which colour
+    /// (docs/08 §8.6). `⌥O` cycles the mode, `⇧O` the colour, and both are also in
+    /// the mask panel so neither needs a key to be discovered.
+    @Published var maskOverlayMode: MaskOverlay.Mode = .colorOverlay
+    @Published var maskOverlayTint: MaskOverlay.Tint = .red
 
     private var maskOverlayGeneration: Int = 0
 
@@ -483,7 +493,7 @@ final class AppState: ObservableObject {
         maskOverlayGeneration &+= 1
         let generation = maskOverlayGeneration
         guard let maskID = soloMaskOverlay, let photo = primarySelection else {
-            maskOverlayRaster = nil
+            maskOverlayAlpha = nil
             return
         }
         let recipe = recipe(for: photo)
@@ -493,7 +503,43 @@ final class AppState: ObservableObject {
             let raster = await self.renderCoordinator.maskAlpha(
                 url: photo.id, recipe: recipe, maskID: maskID, strokeSets: strokes)
             guard self.maskOverlayGeneration == generation else { return }
-            self.maskOverlayRaster = raster
+            self.maskOverlayAlpha = raster
+        }
+    }
+
+    /// `O`: show or hide the overlay for the mask the panel has selected. With no mask
+    /// selected there is nothing to show, so the key does nothing rather than picking
+    /// a mask on the user's behalf.
+    func toggleMaskOverlay() {
+        if soloMaskOverlay != nil {
+            soloMaskOverlay = nil
+            return
+        }
+        guard let id = activeMaskID ?? currentRecipe.masks.first?.id else { return }
+        soloMaskOverlay = id
+    }
+
+    /// `⌥O` and `⇧O`: cycle the mode and the colour. Cycling either turns the overlay
+    /// ON if it is off — pressing a key that changes how a thing is drawn and seeing
+    /// nothing happen is how a user concludes the key is broken.
+    func cycleMaskOverlayMode() {
+        maskOverlayMode = maskOverlayMode.next
+        if soloMaskOverlay == nil { toggleMaskOverlay() }
+    }
+
+    func cycleMaskOverlayTint() {
+        maskOverlayTint = maskOverlayTint.next
+        if soloMaskOverlay == nil { toggleMaskOverlay() }
+    }
+
+    /// `'`: invert the component the mask panel has selected (docs/08 §8.6).
+    func invertActiveMaskComponent() {
+        guard let id = activeMaskID ?? currentRecipe.masks.first?.id else { return }
+        let index = activeComponentIndex
+        updateRecipe(coalescingKey: nil) { recipe in
+            guard let m = recipe.masks.firstIndex(where: { $0.id == id }),
+                  recipe.masks[m].components.indices.contains(index) else { return }
+            recipe.masks[m].components[index].invert.toggle()
         }
     }
 

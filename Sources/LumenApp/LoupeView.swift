@@ -627,8 +627,15 @@ struct LoupeView: View {
             // The real alpha, not nil. Passing nil made MaskOverlayView fall back to a
             // flat tint over the whole frame, which reads as "this mask selects
             // everything" — and this button is the app's only way to look at a mask.
-            if state.soloMaskOverlay != nil, let raster = state.maskOverlayRaster {
-                MaskOverlayView(raster: raster, opacity: viewport.maskOverlayOpacity)
+            // The sampler goes in too: four of the six modes redraw the UNMASKED
+            // pixels (grey, black or white), which needs the picture.
+            if state.soloMaskOverlay != nil, let alpha = state.maskOverlayAlpha {
+                MaskOverlayView(alpha: alpha, sampler: sampler,
+                                geometry: recipe.develop.geometry,
+                                sourceSize: state.primaryFrameSize
+                                    ?? CGSize(width: cg.width, height: cg.height),
+                                mode: state.maskOverlayMode, tint: state.maskOverlayTint,
+                                strength: viewport.maskOverlayOpacity)
                     .frame(width: drawn.width, height: drawn.height)
             }
 

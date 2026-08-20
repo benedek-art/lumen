@@ -112,6 +112,7 @@ struct MaskPanel: View {
                     Spacer(minLength: 0)
                 }
                 .frame(height: Lumen.rowHeight)
+                overlayControls(mask)
                 note("Amount scales the adjustment deltas, not the alpha: past 100 it "
                      + "amplifies beyond the slider maxima instead of clipping a mask that "
                      + "is already fully opaque.")
@@ -153,6 +154,51 @@ struct MaskPanel: View {
             selectedMaskID = mask.id
             selectedComponent = 0
             selectedSwatch = 0
+        }
+    }
+
+    /// The overlay's mode and colour, in the panel as well as on `⌥O` / `⇧O`. Both
+    /// belong here because a control that only exists as a keystroke is a control most
+    /// people never find — and the six modes are the whole of docs/08 §8.6.
+    private func overlayControls(_ mask: Mask) -> some View {
+        let showing = state.soloMaskOverlay == mask.id
+        return VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
+                Button {
+                    state.soloMaskOverlay = showing ? nil : mask.id
+                } label: {
+                    HStack(spacing: 3) {
+                        Image(systemName: showing ? "eye.fill" : "eye")
+                            .font(.system(size: 9))
+                        Text(showing ? "Overlay on" : "Show overlay").font(.system(size: 10))
+                    }
+                    .padding(.horizontal, 6).padding(.vertical, 3)
+                    .background(showing ? Lumen.fillColor.opacity(0.35) : Lumen.controlBackground)
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(showing ? Lumen.primaryText : Lumen.secondaryText)
+                .help("O shows the overlay for this mask")
+
+                Menu(state.maskOverlayMode.label) {
+                    ForEach(MaskOverlay.Mode.allCases, id: \.self) { m in
+                        Button(m.label) { state.maskOverlayMode = m }
+                    }
+                }
+                .fixedSize()
+                .help("⌥O cycles the six modes")
+
+                Menu(state.maskOverlayTint.label) {
+                    ForEach(MaskOverlay.Tint.allCases, id: \.self) { t in
+                        Button(t.label) { state.maskOverlayTint = t }
+                    }
+                }
+                .fixedSize()
+                .help("⇧O cycles red, green, white and black")
+                Spacer(minLength: 0)
+            }
+            .frame(height: Lumen.rowHeight)
         }
     }
 

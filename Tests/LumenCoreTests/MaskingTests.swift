@@ -250,6 +250,104 @@ final class MaskingTests: XCTestCase {
         }
     }
 
+    // MARK: - Overlays
+
+    /// Each of the six modes has to do the one thing its name promises, at both ends
+    /// of the alpha range. Asserting only "the modes differ" would pass for six
+    /// permutations of the wrong rule.
+    func testEverySixOverlayModeDrawsWhatItsNameSays() {
+        let picture = RGB(0.80, 0.20, 0.20)     // a saturated red, so B&W is visible
+        let tint = MaskOverlay.Tint.green
+        func at(_ mode: MaskOverlay.Mode, _ alpha: Double) -> RGB {
+            MaskOverlay.composite(picture: picture, alpha: alpha, mode: mode,
+                                  tint: tint, strength: 1)
+        }
+        let grey = at(.imageOnBW, 0)
+        // `mix` at t = 1 is `a + (b − a)`, which is b to within an ulp and not bitwise.
+        func same(_ got: RGB, _ want: RGB, _ message: String) {
+            XCTAssertLessThan(got.maxAbsDifference(want), 1e-12, message)
+        }
+
+        // Outside the mask.
+        same(at(.colorOverlay, 0), picture, "Colour Overlay tinted an unmasked pixel")
+        same(at(.colorOnBW, 0), grey, "Colour on B&W left an unmasked pixel in colour")
+        same(at(.imageOnBW, 0), grey, "Image on B&W left an unmasked pixel in colour")
+        same(at(.imageOnBlack, 0), RGB.zero, "Image on Black is not black outside")
+        same(at(.imageOnWhite, 0), RGB.one, "Image on White is not white outside")
+        same(at(.matte, 0), RGB.zero, "the Matte's unselected ground is not black")
+
+        // Inside it.
+        same(at(.colorOverlay, 1), tint.colour, "Colour Overlay did not tint")
+        same(at(.colorOnBW, 1), tint.colour, "Colour on B&W did not tint")
+        same(at(.imageOnBW, 1), picture, "Image on B&W did not show the image")
+        same(at(.imageOnBlack, 1), picture, "Image on Black did not show the image")
+        same(at(.imageOnWhite, 1), picture, "Image on White did not show the image")
+        same(at(.matte, 1), RGB.one, "the Matte's selected ground is not white")
+
+        // The greyscale really is a desaturation of THIS pixel, not a constant.
+        XCTAssertEqual(grey.r, grey.g, accuracy: 1e-12)
+        XCTAssertGreaterThan(grey.r, 0.05)
+        XCTAssertLessThan(grey.r, picture.r)
+
+        // The matte is the ground truth: it reports density, and it does so whatever
+        // the picture underneath is doing.
+        XCTAssertEqual(MaskOverlay.composite(picture: RGB.one, alpha: 0.4, mode: .matte,
+                                             tint: .red).g, 0.4, accuracy: 1e-12)
+    }
+
+    func testOverlayStrengthOnlyWeakensTheTwoTintedModes() {
+        let picture = RGB(0.5, 0.4, 0.3)
+        for mode in MaskOverlay.Mode.allCases {
+            let full = MaskOverlay.composite(picture: picture, alpha: 1, mode: mode,
+                                             tint: .red, strength: 1)
+            let half = MaskOverlay.composite(picture: picture, alpha: 1, mode: mode,
+                                             tint: .red, strength: 0.5)
+            switch mode {
+            case .colorOverlay, .colorOnBW:
+                XCTAssertGreaterThan(full.maxAbsDifference(half), 0.05,
+                                     "\(mode.label) ignored its strength")
+            default:
+                XCTAssertEqual(full.maxAbsDifference(half), 0,
+                               "\(mode.label) was weakened by a strength it must ignore")
+            }
+        }
+    }
+
+    /// The two cycles are the keyboard grammar: `⌥O` walks all six and comes home,
+    /// `⇧O` walks all four. A `next` that skipped or repeated would strand a mode.
+    func testTheOverlayCyclesVisitEveryValueOnce() {
+        var mode = MaskOverlay.Mode.colorOverlay
+        var seenModes: [MaskOverlay.Mode] = []
+        for _ in 0..<MaskOverlay.Mode.allCases.count {
+            seenModes.append(mode)
+            mode = mode.next
+        }
+        XCTAssertEqual(mode, .colorOverlay, "⌥O does not return to where it started")
+        XCTAssertEqual(Set(seenModes).count, MaskOverlay.Mode.allCases.count,
+                       "⌥O visits a mode twice and another never")
+
+        var tint = MaskOverlay.Tint.red
+        var seenTints: [MaskOverlay.Tint] = []
+        for _ in 0..<MaskOverlay.Tint.allCases.count {
+            seenTints.append(tint)
+            tint = tint.next
+        }
+        XCTAssertEqual(tint, .red, "⇧O does not return to where it started")
+        XCTAssertEqual(Set(seenTints).count, MaskOverlay.Tint.allCases.count,
+                       "⇧O visits a colour twice and another never")
+        XCTAssertEqual(seenTints, [.red, .green, .white, .black],
+                       "the colour cycle is not docs/08's order")
+    }
+
+    /// Only the Matte can be drawn without the photograph. Getting this wrong is what
+    /// makes an overlay paint a black frame while the sampler is still being built.
+    func testOnlyTheMatteCanBeDrawnWithoutThePicture() {
+        for mode in MaskOverlay.Mode.allCases {
+            XCTAssertEqual(mode.readsPicture, mode != .matte,
+                           "\(mode.label) disagrees about needing the picture")
+        }
+    }
+
     // MARK: - The format
 
     func testTheInvertFlagSurvivesTheWireFormat() throws {

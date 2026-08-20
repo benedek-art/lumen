@@ -350,8 +350,15 @@ public final class PipelineRenderer {
     /// the displayed preview instead would put a luma-range mask's band in the wrong
     /// place, which is exactly the sort of "close enough" that makes an instrument
     /// worse than useless.
+    ///
+    /// A `Plane`, not a `CGImage`. It used to hand back an 8-bit grey CGImage with
+    /// `CGImageAlphaInfo.none`, which the viewer then used as a SwiftUI `.mask` —
+    /// and a SwiftUI mask reads the ALPHA channel, which on that image is 1
+    /// everywhere. So the overlay was a flat tint over the whole frame a second time,
+    /// by a different route than the first. The six overlay modes need the alpha as
+    /// numbers anyway: `MaskOverlay.composite` mixes the picture with it per pixel.
     public func renderMaskAlpha(source: any ImageSource, recipe: Recipe, maskID: String,
-                                strokeSets: [String: BrushStrokeSet] = [:]) -> CGImage? {
+                                strokeSets: [String: BrushStrokeSet] = [:]) -> Plane? {
         let plan = RenderPlan(recipe: recipe,
                               asShotKelvin: source.asShotTemperature,
                               asShotTint: source.asShotTint)
@@ -371,27 +378,11 @@ public final class PipelineRenderer {
 
         let stage = maskSource(decoded: decoded, plan: plan, width: width,
                                height: height, extent: extent, strokeSets: strokeSets)
-        let alpha = MaskRaster.combine(mask: mask,
-                                       size: (width: width, height: height),
-                                       source: stage,
-                                       strokeSets: strokeSets,
-                                       aiMattes: [:])
-
-        // Eight-bit greyscale is all a mask overlay needs, and it is what
-        // `Image(decorative:)` will mask with.
-        var bytes = [UInt8](repeating: 0, count: width * height)
-        for y in 0..<height {
-            for x in 0..<width {
-                bytes[y * width + x] = UInt8(Num.saturate(alpha[x, y]) * 255)
-            }
-        }
-        guard let provider = CGDataProvider(data: Data(bytes) as CFData),
-              let space = CGColorSpace(name: CGColorSpace.linearGray) else { return nil }
-        return CGImage(width: width, height: height, bitsPerComponent: 8,
-                       bitsPerPixel: 8, bytesPerRow: width, space: space,
-                       bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.none.rawValue),
-                       provider: provider, decode: nil, shouldInterpolate: true,
-                       intent: .defaultIntent)
+        return MaskRaster.combine(mask: mask,
+                                  size: (width: width, height: height),
+                                  source: stage,
+                                  strokeSets: strokeSets,
+                                  aiMattes: [:])
     }
 
     /// The local-stage input, at mask-raster resolution, as an `ImageBuffer`.
