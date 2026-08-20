@@ -77,6 +77,97 @@ final class KernelGoldenTests: XCTestCase {
                               + "per-channel again, not a luminance ratio")
     }
 
+    // MARK: - The GPU grain plate carries three layers, not one grey one
+
+    /// Pearson correlation, for the plate tests below.
+    private func correlation(_ a: [Double], _ b: [Double]) -> Double {
+        let n = Double(Swift.min(a.count, b.count))
+        guard n > 1 else { return 0 }
+        let ma = a.reduce(0, +) / n, mb = b.reduce(0, +) / n
+        var num = 0.0, da = 0.0, db = 0.0
+        for i in 0..<Int(n) {
+            let x = a[i] - ma, y = b[i] - mb
+            num += x * y; da += x * x; db += y * y
+        }
+        let den = (da * db).squareRoot()
+        return den > 1e-18 ? num / den : 0
+    }
+
+    private func plateChannels(_ image: CIImage, width: Int, height: Int)
+        -> [[Double]]? {
+        guard let buffer = readBack(image, width: width, height: height) else { return nil }
+        var out: [[Double]] = [[], [], []]
+        for y in 0..<height {
+            for x in 0..<width {
+                let c = buffer[x, y]
+                out[0].append(Double(c.r)); out[1].append(Double(c.g))
+                out[2].append(Double(c.b))
+            }
+        }
+        return out
+    }
+
+    /// The plate the GPU samples must carry three independent layers on a colour stock.
+    ///
+    /// `lumenGrain` already reads `noise.rgb` per channel — it was being handed a plate
+    /// with the same value written into all three. This is the GPU twin of
+    /// `EngineIntegrationTests.testColourStockGrainsEachLayerIndependently`, and it
+    /// exists because there was no GPU grain golden at all: the reference path could be
+    /// fixed and the shipping path left grey with nothing failing.
+    func testGrainPlateCarriesThreeLayersOnAColourStock() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+        let width = 192, height = 192
+        let extent = CGRect(x: 0, y: 0, width: width, height: height)
+        let chain = FilmChain(FilmChain.defaultRecipe(for: FilmStock.portra400),
+                              displayWhite: 1.0)
+        guard let plate = PipelineRenderer.grainPlate(film: chain, extent: extent),
+              let channels = plateChannels(plate, width: width, height: height)
+        else { return XCTFail("no grain plate") }
+
+        // Each channel has to carry real noise before its independence means anything.
+        for c in 0..<3 {
+            let mean = channels[c].reduce(0, +) / Double(channels[c].count)
+            let variance = channels[c].map { ($0 - mean) * ($0 - mean) }
+                .reduce(0, +) / Double(channels[c].count)
+            XCTAssertGreaterThan(variance.squareRoot(), 1e-4,
+                                 "plate channel \(c) is flat, so this proves nothing")
+        }
+        for (i, j) in [(0, 1), (0, 2), (1, 2)] {
+            let r = correlation(channels[i], channels[j])
+            XCTAssertLessThan(abs(r), 0.6,
+                              "plate channels \(i) and \(j) correlate at \(r) — the GPU "
+                                  + "is still packing one noise field into all three "
+                                  + "layers")
+        }
+    }
+
+    /// And exactly one layer on a monochrome stock: no dye layers, no coloured speckle.
+    func testGrainPlateIsGreyOnAMonochromeStock() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+        let width = 128, height = 128
+        let extent = CGRect(x: 0, y: 0, width: width, height: height)
+        XCTAssertTrue(FilmStock.triX400.monochrome, "this test needs a monochrome stock")
+        let chain = FilmChain(FilmChain.defaultRecipe(for: FilmStock.triX400),
+                              displayWhite: 1.0)
+        guard let plate = PipelineRenderer.grainPlate(film: chain, extent: extent),
+              let channels = plateChannels(plate, width: width, height: height)
+        else { return XCTFail("no grain plate") }
+
+        var worst = 0.0
+        for i in 0..<channels[0].count {
+            worst = Swift.max(worst, abs(channels[0][i] - channels[1][i]))
+            worst = Swift.max(worst, abs(channels[0][i] - channels[2][i]))
+        }
+        XCTAssertLessThan(worst, 1e-5,
+                          "a monochrome stock's plate differs between channels by "
+                              + "\(worst) — its grain would be coloured")
+        let mean = channels[0].reduce(0, +) / Double(channels[0].count)
+        let variance = channels[0].map { ($0 - mean) * ($0 - mean) }
+            .reduce(0, +) / Double(channels[0].count)
+        XCTAssertGreaterThan(variance.squareRoot(), 1e-4,
+                             "the monochrome plate is flat, so this proves nothing")
+    }
+
     // MARK: - Presence must not put a rim on an edge
 
     /// Clarity and Texture must not trench the dark side of an edge.
