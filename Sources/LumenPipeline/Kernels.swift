@@ -1,5 +1,5 @@
 // Kernels.swift
-// The complete custom-shader surface of Lumen's render path: ten small kernels.
+// The complete custom-shader surface of Lumen's render path: fifteen small kernels.
 //
 // That number is the point. Nearly every colour-bearing stage is a pure RGB→RGB
 // function, so the engine evaluates it once in LumenCore's reference implementation
@@ -65,6 +65,24 @@ public enum KernelLibrary {
         float v = max(meanII.r - mi * mi, 0.0);
         float a = v / (v + eps);
         float b = mi * (1.0 - a);
+        return vec4(a, b, 0.0, 1.0);
+    }
+    """
+
+    /// Guided filter, CROSS-guided coefficient step: the filtered signal `p` and the
+    /// guide `I` are different images, so the numerator is the covariance, not the
+    /// variance. Collapsing the two makes `a → 0` in flat regions and the output
+    /// becomes the guide instead of the signal — which is how a refined dehaze
+    /// transmission quietly turns into a dark channel.
+    ///   a = cov(I,p)/(var(I) + eps),  b = mean(p) − a·mean(I)
+    static let guidedCrossCoefficientsSource = """
+    kernel vec4 lumenGuidedCross(__sample meanI, __sample meanII, __sample meanP,
+                                 __sample meanIP, float eps) {
+        float mi = meanI.r;
+        float v = max(meanII.r - mi * mi, 0.0);
+        float cov = meanIP.r - mi * meanP.r;
+        float a = cov / (v + eps);
+        float b = meanP.r - a * mi;
         return vec4(a, b, 0.0, 1.0);
     }
     """
@@ -166,6 +184,7 @@ public enum KernelLibrary {
     public static let square = make(squareSource)
     public static let luminance = make(luminanceSource)
     public static let guidedCoefficients = make(guidedCoefficientsSource)
+    public static let guidedCrossCoefficients = make(guidedCrossCoefficientsSource)
     public static let guidedApply = make(guidedApplySource)
     public static let blendMask = make(blendMaskSource)
     public static let grain = make(grainSource)
@@ -185,7 +204,9 @@ public enum KernelLibrary {
         let all: [(String, CIColorKernel?)] = [
             ("logEncode", logEncode), ("logDecode", logDecode),
             ("multiply", multiply), ("square", square), ("luminance", luminance),
-            ("guidedCoefficients", guidedCoefficients), ("guidedApply", guidedApply),
+            ("guidedCoefficients", guidedCoefficients),
+            ("guidedCrossCoefficients", guidedCrossCoefficients),
+            ("guidedApply", guidedApply),
             ("blendMask", blendMask), ("grain", grain), ("vignette", vignette),
             ("detailGain", detailGain), ("dehaze", dehaze), ("addGlow", addGlow),
             ("highlightEnergy", highlightEnergy),

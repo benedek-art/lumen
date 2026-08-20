@@ -39,7 +39,13 @@ public struct RenderPlan: Sendable {
     public let colorGradeIsIdentity: Bool
 
     // MARK: Stages S14–S15 — picture formation and the curve, log → display-linear
+    ///
+    /// Stored NORMALIZED into [0,1] and paired with `finishScale`. A colour-cube
+    /// filter's domain is the unit cube, and an HDR rendition legitimately reaches
+    /// several times display white; keeping the table normalized and multiplying by a
+    /// scalar afterwards means no highlight can be silently clipped by the table.
     public let finishLUT: LUT3D
+    public let finishScale: Double
 
     // MARK: Display
     public let displayWhite: Double
@@ -115,6 +121,8 @@ public struct RenderPlan: Sendable {
         let curve = CurveStack(develop.curve)
         let boundary = RenderPlan.sharedGamutBoundary
         let white = transform.white
+        let scale = Swift.max(white, 1e-6)
+        self.finishScale = scale
         self.finishLUT = LUT3D(size: lutSize) { encoded in
             let scene = LumenLog.decode(encoded)
             let formed: RGB
@@ -123,7 +131,7 @@ public struct RenderPlan: Sendable {
             } else {
                 formed = transform.apply(scene, gamut: boundary)
             }
-            return curve.apply(formed, white: white, space: space)
+            return curve.apply(formed, white: white, space: space) / scale
         }
 
         // ---- carried through --------------------------------------------------
@@ -153,7 +161,7 @@ public struct RenderPlan: Sendable {
         // The finish table already ENDS in display-linear — encode going in, nothing
         // coming out. Decoding here would exponentiate the table's own interpolation
         // error, which is exactly what it did until a golden caught it.
-        return finishLUT.sample(LumenLog.encode(c))
+        return finishLUT.sample(LumenLog.encode(c)) * finishScale
     }
 
     /// The same function with the LUT stages evaluated exactly rather than sampled —
@@ -181,10 +189,33 @@ public struct RenderPlan: Sendable {
         return CurveStack(develop.curve).apply(formed, white: displayWhite, space: space)
     }
 
-    /// Encode the tone gain as a cube so the GPU can apply it with the stock colour-cube
-    /// filter against the log-encoded mask, with no custom kernel at all.
-    public func toneGainCube(size: Int = 64) -> LUT3D {
-        LUT3D(size: size) { encoded in RGB(gray: toneGainLUT.evaluate(encoded.r)) }
+    /// The largest gain the tone stage produces, so its cube can be stored normalized.
+    public var toneGainScale: Double {
+        var peak = 1.0
+        for v in toneGainLUT.samples { peak = Swift.max(peak, v) }
+        return peak
+    }
+
+    /// The tone gain as a cube the stock colour-cube filter can apply against the
+    /// log-encoded mask — no custom kernel at all. Normalized by `toneGainScale` for
+    /// the same reason the finish table is: a +2 EV shadow lift is a gain of 4, and a
+    /// unit-domain table would quietly clip it to 1.
+    ///
+    /// Built once per plan, not per frame: the cube is a quarter of a million samples
+    /// expressing a one-dimensional function, and rebaking it on every render was pure
+    /// waste.
+    public private(set) lazy var toneGainCubeCached: LUT3D = {
+        let scale = toneGainScale
+        return LUT3D(size: 32) { encoded in
+            RGB(gray: toneGainLUT.evaluate(encoded.r) / scale)
+        }
+    }()
+
+    public func toneGainCube(size: Int = 32) -> LUT3D {
+        let scale = toneGainScale
+        return LUT3D(size: size) { encoded in
+            RGB(gray: toneGainLUT.evaluate(encoded.r) / scale)
+        }
     }
 
     /// True when the whole colour path is a no-op and the renderer can hand the

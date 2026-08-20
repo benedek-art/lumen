@@ -69,16 +69,26 @@ public struct ToneEngine: Sendable {
         return Num.raisedCosine(sin(.pi * (t / lo)))
     }
 
-    /// Contrast: slope around an explicit pivot in log-exposure space, with the
-    /// slope relaxing back to 1 beyond ±4 EV from the pivot so extremes compress
-    /// rather than explode (the toe and shoulder of S14 finish the job).
+    /// Where the slope starts and finishes relaxing back to 1, in stops from the
+    /// pivot. The window has to be this wide: relaxing a slope over a narrow band
+    /// makes the mapping itself non-monotone, because the falling gain beats the
+    /// rising distance. Over 4→8 stops the derivative goes negative at contrast ≈ 85,
+    /// which would render a brighter input darker — an inversion, never a look. Over
+    /// 4→12 the derivative stays positive past contrast 128, with margin.
+    public static let contrastRelaxStartEV: Double = 4
+    public static let contrastRelaxEndEV: Double = 12
+
+    /// Contrast: slope around an explicit pivot in log-exposure space, with the slope
+    /// relaxing back to 1 far from the pivot so extremes compress rather than explode
+    /// (the toe and shoulder of S14 finish the job).
     public func contrastMapped(_ t: Double) -> Double {
         let c = Num.clamp(tone.contrast, -100, 100)
         guard c != 0 else { return t }
         let pivot = Num.clamp(tone.contrastPivot, -4, 4)
         let slope = 1 + 0.6 * (c / 100)
         let d = t - pivot
-        let relax = Num.smoothstep(4, 8, abs(d))
+        let relax = Num.smoothstep(Self.contrastRelaxStartEV, Self.contrastRelaxEndEV,
+                                   abs(d))
         let effective = Num.mix(slope, 1, relax)
         return pivot + d * effective
     }
@@ -95,7 +105,10 @@ public struct ToneEngine: Sendable {
     public func zonePanelStops(_ t: Double) -> Double {
         let ev = [zones.dark.ev, zones.shadow.ev, zones.mid.ev, zones.light.ev, zones.bright.ev]
         guard ev.contains(where: { $0 != 0 }) || zones.global.ev != 0 else { return 0 }
-        return ZoneWeights.exposureStops(x: normalizedAxis(t), pivots: zones.pivots,
+        // Pivots arrive from a sidecar or a catalog row, so their count is untrusted;
+        // `exposureStops` requires one per zone and traps otherwise, in release too.
+        let pivots = zones.pivots.count == ev.count ? zones.pivots : Zones.defaultPivots
+        return ZoneWeights.exposureStops(x: normalizedAxis(t), pivots: pivots,
                                          zoneEV: ev, globalEV: zones.global.ev)
     }
 

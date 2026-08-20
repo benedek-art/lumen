@@ -29,7 +29,6 @@ public enum RenderError: Error {
 public final class PipelineRenderer {
 
     private let context: CIContext
-    private let graph = RenderGraph()
 
     public init() {
         // Extended-range linear Rec.2020: unbounded, so values above display white and
@@ -70,11 +69,11 @@ public final class PipelineRenderer {
                               asShotKelvin: source.asShotTemperature,
                               asShotTint: source.asShotTint,
                               lutSize: draft ? 17 : LUT3D.interactiveSize)
+        let graph = makeGraph(plan: plan, extent: decoded.extent, draft: draft)
         var image = graph.build(decoded, plan: plan,
                                 options: RenderGraph.Options(longEdge: longEdge,
                                                              draft: draft))
-        image = Self.applyGeometry(image, recipe: recipe)
-        image = Self.downscale(image, maxLongEdge: maxLongEdge)
+        image = Self.applyGeometry(image, recipe: recipe, scaleTo: maxLongEdge)
 
         guard let cgImage = context.createCGImage(
             image, from: image.extent, format: .RGBA8,
@@ -98,18 +97,19 @@ public final class PipelineRenderer {
                               displayWhiteTarget: exportRecipe.hdr?.whiteTargetPercent,
                               lutSize: LUT3D.exportSize)
 
+        let graph = makeGraph(plan: plan, extent: decoded.extent, draft: false)
         var image = graph.build(decoded, plan: plan,
                                 options: RenderGraph.Options(longEdge: longEdge,
                                                              draft: false,
                                                              lutSize: LUT3D.exportSize))
-        image = Self.applyGeometry(image, recipe: recipe)
-
         // The render forks at the resize node: everything above is shared across every
         // checked recipe, which is why three recipes cost far less than three exports.
-        let extent = image.extent
+        let cropped = Self.applyGeometry(image, recipe: recipe)
+        let extent = cropped.extent
         let target = exportRecipe.targetSize(sourceWidth: Int(extent.width),
                                              sourceHeight: Int(extent.height))
-        image = Self.resize(image, to: target)
+        image = Self.applyGeometry(image, recipe: recipe,
+                                   scaleTo: Swift.max(target.width, target.height))
         image = Self.applyOutputSharpen(image, exportRecipe.sharpen,
                                         resolutionPPI: exportRecipe.resolutionPPI)
         if let watermark = exportRecipe.watermark, !watermark.text.isEmpty {
@@ -138,9 +138,11 @@ public final class PipelineRenderer {
                                  displayWhiteTarget: settings.whiteTargetPercent,
                                  lutSize: LUT3D.exportSize)
 
-        let sdr = Self.applyGeometry(graph.build(decoded, plan: sdrPlan, options: options),
+        let sdrGraph = makeGraph(plan: sdrPlan, extent: decoded.extent, draft: false)
+        let hdrGraph = makeGraph(plan: hdrPlan, extent: decoded.extent, draft: false)
+        let sdr = Self.applyGeometry(sdrGraph.build(decoded, plan: sdrPlan, options: options),
                                      recipe: recipe)
-        let hdr = Self.applyGeometry(graph.build(decoded, plan: hdrPlan, options: options),
+        let hdr = Self.applyGeometry(hdrGraph.build(decoded, plan: hdrPlan, options: options),
                                      recipe: recipe)
         return (sdr, hdr)
     }
@@ -192,36 +194,153 @@ public final class PipelineRenderer {
         }
     }
 
+    // MARK: - Graph assembly
+
+    /// Build the graph WITH its per-frame inputs. Masks are rasterized on the CPU by
+    /// the reference implementation and handed in as single-channel images; the grain
+    /// plate is generated once per stock and tiled. Leaving either empty is how the
+    /// local stage and film grain silently did nothing.
+    private func makeGraph(plan: RenderPlan, extent: CGRect, draft: Bool) -> RenderGraph {
+        var graph = RenderGraph()
+        guard !draft else { return graph }
+
+        if !plan.masks.isEmpty {
+            // Mask rasters are smooth by construction, so they cost a fraction of the
+            // frame at proxy resolution and upsample without visible error.
+            let long = Swift.max(extent.width, extent.height)
+            let scale = long > 0 ? Swift.min(1.0, CGFloat(Self.maskRasterLongEdge) / long) : 1
+            let width = Swift.max(Int(extent.width * scale), 8)
+            let height = Swift.max(Int(extent.height * scale), 8)
+            for mask in plan.masks {
+                let alpha = MaskRaster.combine(mask: mask,
+                                               size: (width: width, height: height),
+                                               source: nil,
+                                               strokeSets: [:],
+                                               aiMattes: [:])
+                guard let image = Self.image(from: alpha, targetExtent: extent) else {
+                    continue
+                }
+                graph.maskImages[mask.id] = image
+            }
+        }
+
+        if let film = plan.filmChain, film.grainAmount > 0 {
+            graph.grainPlate = Self.grainPlate(film: film, extent: extent)
+        }
+        return graph
+    }
+
+    /// Long edge a mask raster is computed at. Masks are low-frequency fields; the
+    /// guided-filter refinement that makes their edges sharp runs at full resolution
+    /// in the graph, not here.
+    static let maskRasterLongEdge: Int = 1024
+
+    /// A single-channel plane as a grey CIImage stretched over the frame.
+    static func image(from plane: Plane, targetExtent: CGRect) -> CIImage? {
+        var pixels = [Float](repeating: 1, count: plane.width * plane.height * 4)
+        for y in 0..<plane.height {
+            for x in 0..<plane.width {
+                let v = Float(Num.saturate(plane[x, y]))
+                let i = (y * plane.width + x) * 4
+                pixels[i] = v
+                pixels[i + 1] = v
+                pixels[i + 2] = v
+            }
+        }
+        let data = pixels.withUnsafeBufferPointer { Data(buffer: $0) }
+        let image = CIImage(bitmapData: data, bytesPerRow: plane.width * 16,
+                            size: CGSize(width: plane.width, height: plane.height),
+                            format: .RGBAf, colorSpace: nil)
+        guard plane.width > 0, plane.height > 0,
+              targetExtent.width > 0, targetExtent.height > 0 else { return image }
+        let sx = targetExtent.width / CGFloat(plane.width)
+        let sy = targetExtent.height / CGFloat(plane.height)
+        return image.transformed(by: CGAffineTransform(scaleX: sx, y: sy))
+            .transformed(by: CGAffineTransform(translationX: targetExtent.origin.x,
+                                               y: targetExtent.origin.y))
+    }
+
+    /// A tileable unit-variance grain plate, mapped into [0,1] because the kernel
+    /// re-centres it. Deterministic: the same frame grains the same way every render.
+    static func grainPlate(film: FilmChain, extent: CGRect) -> CIImage? {
+        let size = 128
+        let plate = FilmGrainProfile.plate(size: size, seed: 0x5DEECE66D, sigma: 1)
+        var pixels = [Float](repeating: 1, count: size * size * 4)
+        for i in 0..<(size * size) {
+            let v = Float(Num.saturate(Double(plate[i]) * 0.25 + 0.5))
+            pixels[i * 4] = v
+            pixels[i * 4 + 1] = v
+            pixels[i * 4 + 2] = v
+        }
+        let data = pixels.withUnsafeBufferPointer { Data(buffer: $0) }
+        let tile = CIImage(bitmapData: data, bytesPerRow: size * 16,
+                           size: CGSize(width: size, height: size),
+                           format: .RGBAf, colorSpace: nil)
+        let long = Int(Swift.max(extent.width, extent.height))
+        let scale = film.grain.plateScale(longEdgePixels: long,
+                                          printSizeInches: film.printLongEdgeInches)
+        let scaled = tile.transformed(by: CGAffineTransform(scaleX: CGFloat(Swift.max(scale, 0.5)),
+                                                            y: CGFloat(Swift.max(scale, 0.5))))
+        guard let tiler = CIFilter(name: "CIAffineTile") else { return scaled }
+        tiler.setValue(scaled, forKey: kCIInputImageKey)
+        tiler.setValue(NSValue(cgAffineTransform: .identity), forKey: kCIInputTransformKey)
+        return (tiler.outputImage ?? scaled).cropped(to: extent)
+    }
+
     // MARK: - Geometry (S16)
 
-    /// Crop, straighten and flip compose into one transform and one resample. Two
-    /// sequential resamples are two low-pass filters, which is a blur nobody asked for.
-    static func applyGeometry(_ image: CIImage, recipe: Recipe) -> CIImage {
-        var out = image
+    /// Crop, straighten, flip AND the output scale compose into ONE transform and ONE
+    /// resample. Two resamples are two low-pass filters, which is a blur nobody asked
+    /// for (docs/14 §5.8).
+    ///
+    /// The crop is expressed on the STRAIGHTENED frame, not on the rotated bounding
+    /// box: dragging a crop rectangle and then straightening must not slide the
+    /// rectangle across the picture.
+    static func applyGeometry(_ image: CIImage, recipe: Recipe,
+                              scaleTo maxLongEdge: Int? = nil) -> CIImage {
         let geo = recipe.develop.geometry
+        var out = image
 
-        var transform = CGAffineTransform.identity
-        if geo.flipH {
-            transform = transform.scaledBy(x: -1, y: 1)
-        }
-        if geo.angle != 0 {
-            transform = transform.rotated(by: -geo.angle * .pi / 180)
-        }
-        if !transform.isIdentity {
-            out = out.transformed(by: transform)
-        }
+        var orientation = CGAffineTransform.identity
+        if geo.flipH { orientation = orientation.scaledBy(x: -1, y: 1) }
+        if geo.angle != 0 { orientation = orientation.rotated(by: -geo.angle * .pi / 180) }
 
+        // Work out the crop rectangle on the straightened frame first.
+        let straightened = orientation.isIdentity
+            ? out.extent
+            : out.extent.applying(orientation)
+        var target = straightened
         let crop = geo.crop
-        if crop.x != 0 || crop.y != 0 || crop.w != 1 || crop.h != 1 {
-            let e = out.extent
-            guard e.width > 0, e.height > 0 else { return out }
+        if crop.x != 0 || crop.y != 0 || crop.w != 1 || crop.h != 1,
+           straightened.width > 0, straightened.height > 0 {
             // Recipe crop is top-left-origin (image convention); Core Image extents are
             // bottom-up, so the y term flips.
-            let rect = CGRect(x: e.origin.x + crop.x * e.width,
-                              y: e.origin.y + (1 - crop.y - crop.h) * e.height,
-                              width: crop.w * e.width,
-                              height: crop.h * e.height)
-            out = out.cropped(to: rect.intersection(e))
+            target = CGRect(x: straightened.origin.x + crop.x * straightened.width,
+                            y: straightened.origin.y
+                                + (1 - crop.y - crop.h) * straightened.height,
+                            width: crop.w * straightened.width,
+                            height: crop.h * straightened.height)
+        }
+
+        // Fold the output scale into the same transform, so there is one resample.
+        var scale: CGFloat = 1
+        if let maxLongEdge {
+            let long = Swift.max(target.width, target.height)
+            if long > 0 { scale = Swift.min(1, CGFloat(maxLongEdge) / long) }
+        }
+
+        let combined = orientation.concatenating(
+            CGAffineTransform(scaleX: scale, y: scale))
+        if !combined.isIdentity {
+            out = abs(scale - 1) > 0.0001
+                ? scaled(out.transformed(by: orientation), by: scale)
+                : out.transformed(by: combined)
+        }
+
+        let scaledTarget = target.applying(CGAffineTransform(scaleX: scale, y: scale))
+        let clipped = scaledTarget.intersection(out.extent)
+        if !clipped.isNull, clipped.width >= 1, clipped.height >= 1 {
+            out = out.cropped(to: clipped)
         }
         return out.transformed(by: CGAffineTransform(
             translationX: -out.extent.origin.x, y: -out.extent.origin.y))
@@ -344,6 +463,11 @@ public final class PipelineRenderer {
     }
 
     /// Pull a CIImage into the CPU reference's buffer type, in the working space.
+    static func byte(_ v: Double) -> UInt8 {
+        guard v.isFinite else { return 0 }
+        return UInt8(Num.saturate(v) * 255)
+    }
+
     public static func buffer(from image: CIImage, context: CIContext) -> ImageBuffer? {
         let extent = image.extent.integral
         guard extent.width >= 1, extent.height >= 1,
@@ -359,17 +483,23 @@ public final class PipelineRenderer {
         return ImageBuffer(width: width, height: height, pixels: pixels)
     }
 
-    public static func cgImage(from buffer: ImageBuffer) -> CGImage? {
-        // The reference path produces display-linear values; encode once, here.
+    public static func cgImage(from buffer: ImageBuffer,
+                               space: RGBColorSpace = .rec2020) -> CGImage? {
+        // The reference path produces display-linear values in the WORKING space.
+        // Converting the primaries before encoding is what keeps it comparable with
+        // the GPU path; tagging Rec.2020 data as sRGB would leave it oversaturated.
+        let toOutput = space.matrix(to: .srgb)
         var bytes = [UInt8](repeating: 255, count: buffer.width * buffer.height * 4)
         for y in 0..<buffer.height {
             for x in 0..<buffer.width {
-                let c = buffer[x, y]
-                let encoded = TransferFunction.srgb.encode(c.clamped(0, 1))
+                let converted = toOutput.apply(buffer[x, y])
+                let encoded = TransferFunction.srgb.encode(converted.clamped(0, 1))
                 let i = (y * buffer.width + x) * 4
-                bytes[i] = UInt8(Num.saturate(encoded.r) * 255)
-                bytes[i + 1] = UInt8(Num.saturate(encoded.g) * 255)
-                bytes[i + 2] = UInt8(Num.saturate(encoded.b) * 255)
+                // `Num.saturate` propagates NaN, and UInt8(NaN) traps. One poisoned
+                // pixel must not take down an export.
+                bytes[i] = byte(encoded.r)
+                bytes[i + 1] = byte(encoded.g)
+                bytes[i + 2] = byte(encoded.b)
                 bytes[i + 3] = 255
             }
         }

@@ -641,7 +641,9 @@ struct MaskPanel: View {
     }
 
     private func deleteMask(_ id: String) {
-        state.updateRecipe(coalescingKey: nil) { $0.masks.removeAll { $0.id == id } }
+        state.updateRecipe(coalescingKey: nil) { recipe in
+            recipe.masks.removeAll { $0.id == id }
+        }
         if state.soloMaskOverlay == id { state.soloMaskOverlay = nil }
         selectedMaskID = masks.first?.id
         selectedComponent = 0
@@ -715,7 +717,11 @@ struct MaskPanel: View {
     private func optionBinding(_ id: String, _ isOn: Bool, on: @escaping (inout Mask) -> Void,
                                off: @escaping (inout Mask) -> Void) -> Binding<Bool> {
         Binding(get: { isOn },
-                set: { want in editMask(id, key: nil) { m in want ? on(&m) : off(&m) } })
+                set: { want in
+                    editMask(id, key: nil) { m in
+                        if want { on(&m) } else { off(&m) }
+                    }
+                })
     }
 
     private func opBinding(_ id: String, _ i: Int) -> Binding<MaskOp> {

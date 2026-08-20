@@ -82,8 +82,19 @@ public enum OKLabTransform {
             if space.white != WhitePoint.d65 {
                 toXYZ = ChromaticAdaptation.cat16(from: space.white, to: WhitePoint.d65) * toXYZ
             }
-            self.rgbToLMS = xyzToLMS * toXYZ
-            self.lmsToRGB = (xyzToLMS * toXYZ).inverse
+            var toLMS = xyzToLMS * toXYZ
+
+            // Normalize so that RGB(1,1,1) produces equal cone responses. Rec.2020's
+            // white point and the matrix's own D65 differ in the fourth decimal, which
+            // is enough to leave a grey with ~1e-4 of chroma — invisible on its own,
+            // but it means "neutral stays neutral" would be approximately rather than
+            // exactly true, and every colour stage downstream would inherit the error.
+            let white = toLMS.apply(RGB.one)
+            if white.minComponent > 1e-9 {
+                toLMS = Mat3.diagonal(RGB(1 / white.r, 1 / white.g, 1 / white.b)) * toLMS
+            }
+            self.rgbToLMS = toLMS
+            self.lmsToRGB = toLMS.inverse
         }
 
         public func toLab(_ c: RGB) -> OKLab {
@@ -250,6 +261,9 @@ public enum Gamut {
         }
 
         public func maxChroma(L: Double, hue: Double) -> Double {
+            // Guarded for the same reason the tables are: a non-finite coordinate
+            // would reach `Int()` and trap rather than merely look wrong.
+            guard L.isFinite, hue.isFinite else { return 0 }
             let h = Num.wrapHue(hue) / 360 * Double(hueSteps)
             let h0 = Int(h) % hueSteps
             let h1 = (h0 + 1) % hueSteps

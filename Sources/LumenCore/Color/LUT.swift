@@ -35,7 +35,13 @@ public enum LumenLog: Sendable {
     public static let linearCut: Double = midGrey * pow(2, minEV + 1.5)
 
     public static let toeSlope: Double = invRange / (linearCut * log(2.0))
-    public static let toeOffset: Double = (minEV + 1.5) * invRange - toeSlope * linearCut
+    /// The toe must MEET the log branch at the crossover. The encoded value there is
+    /// `(log2(cut/grey) − minEV)·invRange = 1.5·invRange`, so the offset is measured
+    /// from 1.5 stops, not from `minEV + 1.5`. Getting that wrong shifts the whole toe
+    /// down by half the domain: encode and decode stay each other's inverse, so a
+    /// round-trip test still passes, while every value below the crossover — and every
+    /// negative — lands outside [0,1] and is clamped to index 0 by the cube stages.
+    public static let toeOffset: Double = 1.5 * invRange - toeSlope * linearCut
 
     @inlinable public static func encode(_ x: Double) -> Double {
         if x >= linearCut {
@@ -109,6 +115,11 @@ public struct LUT1D: Equatable, Sendable {
 
     @inlinable public func evaluate(_ x: Double) -> Double {
         let n = samples.count
+        // Scene-referred data legitimately carries values above 1 and below 0, and a
+        // matrix with negative off-diagonals turns an infinity into a NaN. `saturate`
+        // does not sanitise one — every comparison against NaN is false — so it would
+        // reach `Int()` and trap. Non-finite means "no information": read index 0.
+        if !x.isFinite { return samples[0] }
         if x <= 0 { return samples[0] }
         if x >= 1 { return samples[n - 1] }
         let p = x * Double(n - 1)
@@ -191,9 +202,14 @@ public struct LUT3D: Equatable, Sendable {
     @inlinable public func sample(_ c: RGB) -> RGB {
         let n = size
         let maxIndex = n - 1
-        let fr = Num.saturate(c.r) * Double(maxIndex)
-        let fg = Num.saturate(c.g) * Double(maxIndex)
-        let fb = Num.saturate(c.b) * Double(maxIndex)
+        // Same reasoning as LUT1D.evaluate: a NaN survives `saturate` and traps at
+        // `Int()`. One poisoned pixel must not take down a render.
+        func coordinate(_ v: Double) -> Double {
+            v.isFinite ? Num.saturate(v) * Double(maxIndex) : 0
+        }
+        let fr = coordinate(c.r)
+        let fg = coordinate(c.g)
+        let fb = coordinate(c.b)
         let r0 = Swift.min(Int(fr), maxIndex), r1 = Swift.min(r0 + 1, maxIndex)
         let g0 = Swift.min(Int(fg), maxIndex), g1 = Swift.min(g0 + 1, maxIndex)
         let b0 = Swift.min(Int(fb), maxIndex), b1 = Swift.min(b0 + 1, maxIndex)

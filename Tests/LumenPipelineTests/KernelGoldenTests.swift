@@ -42,11 +42,17 @@ final class KernelGoldenTests: XCTestCase {
     /// A synthetic scene-referred frame: a log-spaced luminance ramp crossed with a
     /// hue sweep, covering 20 stops and the saturated corners where colour maths
     /// misbehaves.
-    private func testImage(width: Int = 64, height: Int = 16) -> ImageBuffer {
-        ImageBuffer(width: width, height: height) { u, v in
+    ///
+    /// Deliberately ROW-INVARIANT — every row is identical. Core Image's origin is
+    /// bottom-left and ImageBuffer's is top-left, and rather than encode a guess about
+    /// where the flip lands into a dozen numeric comparisons, the comparisons are made
+    /// immune to it. `testCropUsesImageCoordinates` is the single place the convention
+    /// is asserted, and it asserts it directly.
+    private func testImage(width: Int = 64, height: Int = 8) -> ImageBuffer {
+        ImageBuffer(width: width, height: height) { u, _ in
             let ev = -14 + u * 20
-            let level = 0.18 * pow(2, ev)
-            let hue = v * 360
+            let level = 0.18 * pow(2.0, ev)
+            let hue = u * 720
             let lch = OKLCh(L: 0.5, C: 0.12, h: hue)
             let tint = OKLabTransform.working.toRGB(lch)
             let normalized = tint / Swift.max(tint.maxComponent, 1e-6)
@@ -64,6 +70,10 @@ final class KernelGoldenTests: XCTestCase {
     }
 
     private func readBack(_ image: CIImage, width: Int, height: Int) -> ImageBuffer? {
+        // A stage that changed the extent must fail loudly rather than have this read
+        // some arbitrary corner of it.
+        XCTAssertEqual(image.extent.width, CGFloat(width), accuracy: 0.5)
+        XCTAssertEqual(image.extent.height, CGFloat(height), accuracy: 0.5)
         var pixels = [Float](repeating: 0, count: width * height * 4)
         let bounds = CGRect(x: image.extent.origin.x, y: image.extent.origin.y,
                             width: CGFloat(width), height: CGFloat(height))
@@ -75,22 +85,23 @@ final class KernelGoldenTests: XCTestCase {
         return ImageBuffer(width: width, height: height, pixels: pixels)
     }
 
-    /// Core Image's origin is bottom-left and ImageBuffer's is top-left, so a
-    /// round trip through a filter comes back flipped. Comparing statistics that do
-    /// not depend on row order keeps these tests about the maths.
-    private func compareIgnoringRowOrder(_ a: ImageBuffer, _ b: ImageBuffer,
-                                         tolerance: Double, label: String) {
+    /// Compare two buffers pixel for pixel. Safe against the origin convention only
+    /// because every test frame here is row-invariant; see `testImage`.
+    private func compare(_ a: ImageBuffer, _ b: ImageBuffer,
+                         tolerance: Double, label: String) {
         XCTAssertEqual(a.width, b.width, label)
         XCTAssertEqual(a.height, b.height, label)
         guard a.width == b.width, a.height == b.height else { return }
         var worst = 0.0
+        var worstAt = (0, 0)
         for y in 0..<a.height {
             for x in 0..<a.width {
-                let flipped = b[x, b.height - 1 - y]
-                worst = Swift.max(worst, a[x, y].maxAbsDifference(flipped))
+                let d = a[x, y].maxAbsDifference(b[x, y])
+                if d > worst { worst = d; worstAt = (x, y) }
             }
         }
-        XCTAssertLessThan(worst, tolerance, "\(label): worst difference \(worst)")
+        XCTAssertLessThan(worst, tolerance,
+                          "\(label): worst difference \(worst) at \(worstAt)")
     }
 
     // MARK: - Shaper
@@ -105,7 +116,7 @@ final class KernelGoldenTests: XCTestCase {
         else { return XCTFail("render failed") }
 
         let expected = source.map { LumenLog.encode($0) }
-        compareIgnoringRowOrder(expected, result, tolerance: 2e-4, label: "logEncode")
+        compare(expected, result, tolerance: 2e-4, label: "logEncode")
     }
 
     func testLogRoundTripThroughBothKernels() throws {
@@ -125,7 +136,7 @@ final class KernelGoldenTests: XCTestCase {
         for y in 0..<source.height {
             for x in 0..<source.width {
                 let a = source[x, y]
-                let b = result[x, source.height - 1 - y]
+                let b = result[x, y]
                 for channel in 0..<3 {
                     let reference = abs(a[channel])
                     guard reference > 1e-5 else { continue }
@@ -149,8 +160,10 @@ final class KernelGoldenTests: XCTestCase {
                 Num.saturate(c.g * c.g),
                 Num.saturate(1 - c.b))
         }
-        let source = ImageBuffer(width: 32, height: 8) { u, v in
-            RGB(u, v, (u + v) / 2)
+        // Row-invariant, but with three independent functions of u so a transposed or
+        // mis-strided upload cannot pass by symmetry.
+        let source = ImageBuffer(width: 64, height: 4) { u, _ in
+            RGB(u, u * u, 1 - u)
         }
         let input = ciImage(from: source)
         guard let mapped = ColorCube.filter(lut, image: input),
@@ -158,7 +171,7 @@ final class KernelGoldenTests: XCTestCase {
         else { return XCTFail("cube filter failed") }
 
         let expected = source.map { lut.sample($0) }
-        compareIgnoringRowOrder(expected, result, tolerance: 3e-3, label: "CIColorCube")
+        compare(expected, result, tolerance: 3e-3, label: "CIColorCube")
     }
 
     // MARK: - Multiply and blend
@@ -248,9 +261,7 @@ final class KernelGoldenTests: XCTestCase {
         var worst = 0.0
         for y in 0..<source.height {
             for x in 0..<source.width {
-                let a = reference[x, y]
-                let b = gpu[x, source.height - 1 - y]
-                worst = Swift.max(worst, a.maxAbsDifference(b))
+                worst = Swift.max(worst, reference[x, y].maxAbsDifference(gpu[x, y]))
             }
         }
         // Display-referred output in 0…1; 2% is the declared tolerance for the

@@ -204,7 +204,14 @@ final class ColorScienceTests: XCTestCase {
             x = x < 1e-4 ? x + 1e-5 : x * 1.1
         }
         XCTAssertEqual(LumenLog.encode(0.18), 0.5, accuracy: 1e-9)
-        XCTAssertLessThanOrEqual(LumenLog.encode(0), 0.01)
+        // Zero must land just inside the domain, not below it: everything under the
+        // crossover would otherwise be clamped to index 0 by the cube stages.
+        XCTAssertGreaterThan(LumenLog.encode(0), 0)
+        XCTAssertLessThan(LumenLog.encode(0), 0.01)
+        // And the toe must MEET the log branch — no step at the crossover.
+        let cut = LumenLog.linearCut
+        XCTAssertEqual(LumenLog.encode(cut * (1 - 1e-9)), LumenLog.encode(cut),
+                       accuracy: 1e-6, "the shaper is discontinuous at its crossover")
     }
 
     func testLUT1DEvaluatesAndBakes() {

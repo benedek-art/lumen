@@ -92,10 +92,19 @@ public struct RenderGraph {
             image = applyHalation(image, film: film, longEdge: options.longEdge)
         }
 
-        // S14 + S15 — picture formation and the curve, as one table.
-        image = Self.throughShaperToDisplay(image) { encoded in
+        // S14 + S15 — picture formation and the curve, as one table. The table is
+        // normalized, so display white comes back through a matrix; that keeps an HDR
+        // rendition's highlights out of the cube's unit domain entirely.
+        if let formed = Self.throughShaperToDisplay(image, { encoded in
             ColorCube.filter(plan.finishLUT, image: encoded)
-        } ?? image
+        }) {
+            image = Self.applyMatrix(formed, Mat3.diagonal(RGB(gray: plan.finishScale)))
+        } else {
+            // Picture formation failing is not a stage to skip: handing back
+            // scene-referred data as if it were a picture is worse than any fallback.
+            // Apply the transform's own curve through a 1-D cube instead.
+            image = Self.applyFallbackTone(image, plan: plan) ?? image
+        }
 
         // Grain lives inside picture formation, in the density domain.
         if let film = plan.filmChain, film.grainAmount > 0, let plate = grainPlate,
@@ -131,9 +140,13 @@ public struct RenderGraph {
         // Exposure moves — the exposure-independent property the tone equalizer needs.
         let radius = Swift.max(Int(Double(options.longEdge) * 0.02), 2)
         let mask = Self.guidedSelfFilter(lum, radius: radius, epsilon: 0.004) ?? lum
-        guard let gain = ColorCube.filter(plan.toneGainCube(), image: mask) else {
+        guard let normalized = ColorCube.filter(plan.toneGainCube(), image: mask) else {
             return image
         }
+        // The cube stores gains normalized into the unit domain; the scale comes back
+        // as a matrix multiply, so a +2 EV shadow lift cannot be clipped by the table.
+        let gain = Self.applyMatrix(normalized,
+                                    Mat3.diagonal(RGB(gray: plan.toneGainScale)))
         return KernelLibrary.apply(KernelLibrary.multiply, extent: image.extent,
                                    [image, gain]) ?? image
     }
@@ -197,18 +210,20 @@ public struct RenderGraph {
         }
         guard let dark = Self.channelMinimum(darkRGB) else { return image }
 
-        // Airlight estimate: the brightest region of the dark channel. Averaging the
-        // whole frame is a coarse stand-in for the top-0.1% search the reference does;
-        // it is computed once per render and frozen, which is what tiled export needs.
-        let airlight = Self.averageColor(image) ?? RGB(gray: 0.8)
+        // Airlight: averaged over the DARK CHANNEL, not the image — a frame average is
+        // dominated by midtones and lands far below the true airlight, which sends the
+        // transmission negative. Measured on a proxy and frozen for the render, which
+        // is also what the proxy-field rule requires for tiled export (docs/14 §6.3).
+        let proxy = Self.scaledToProxy(dark)
+        let airlight = Self.averageColor(proxy) ?? RGB(gray: 0.8)
         let neutral = Swift.max((airlight.r + airlight.g + airlight.b) / 3, 1e-4)
 
         // t = 1 − w·dark/A, refined.
         let scale = -strength * 0.95 / neutral
         let scaled = Self.applyMatrix(dark, Mat3.diagonal(RGB(gray: scale)))
         let biased = Self.addConstant(scaled, 1.0)
-        let refined = Self.guidedFilter(input: biased, guide: dark, radius: radius,
-                                        epsilon: 0.0025) ?? biased
+        let refined = Self.crossGuidedFilter(input: biased, guide: dark, radius: radius,
+                                             epsilon: 0.0025) ?? biased
 
         let a = CIVector(x: neutral, y: neutral, z: neutral)
         return KernelLibrary.apply(KernelLibrary.dehaze, extent: image.extent,
@@ -296,7 +311,9 @@ public struct RenderGraph {
         for sigma in profile.sigmasInPixels {
             let blur = CIFilter.gaussianBlur()
             blur.inputImage = energy.clampedToExtent()
-            blur.radius = Float(Swift.max(sigma, 0.5))
+            // The profile carries standard deviations; CIGaussianBlur wants a support
+            // radius. Three sigmas covers ~99.7% of the kernel.
+            blur.radius = Float(Swift.max(sigma * 3, 0.5))
             guard let blurred = blur.outputImage?.cropped(to: image.extent) else { continue }
             let scaled = Self.applyMatrix(blurred, Mat3.diagonal(RGB(gray: weight)))
             if let existing = glow {
@@ -369,6 +386,59 @@ public struct RenderGraph {
     static func guidedSelfFilter(_ image: CIImage, radius: Int,
                                  epsilon: Double) -> CIImage? {
         guidedFilter(input: image, guide: image, radius: radius, epsilon: epsilon)
+    }
+
+    /// The cross-guided filter: `input` and `guide` are different images, so the
+    /// numerator is the covariance of the two, not the variance of the guide. Using the
+    /// self-guided coefficients here drives `a` toward zero in flat regions and returns
+    /// the GUIDE instead of the filtered signal.
+    static func crossGuidedFilter(input: CIImage, guide: CIImage, radius: Int,
+                                  epsilon: Double) -> CIImage? {
+        guard let squared = KernelLibrary.apply(KernelLibrary.square,
+                                                extent: guide.extent, [guide]),
+              let product = KernelLibrary.apply(KernelLibrary.multiply,
+                                                extent: guide.extent, [guide, input]),
+              let meanI = boxBlur(guide, radius: radius),
+              let meanII = boxBlur(squared, radius: radius),
+              let meanP = boxBlur(input, radius: radius),
+              let meanIP = boxBlur(product, radius: radius),
+              let coefficients = KernelLibrary.apply(
+                KernelLibrary.guidedCrossCoefficients, extent: guide.extent,
+                [meanI, meanII, meanP, meanIP, Float(epsilon)]),
+              let meanCoefficients = boxBlur(coefficients, radius: radius)
+        else { return nil }
+        return KernelLibrary.apply(KernelLibrary.guidedApply, extent: guide.extent,
+                                   [meanCoefficients, guide])
+    }
+
+    /// Reduce an image to a small proxy before measuring a global statistic, so the
+    /// measurement costs a thumbnail rather than a frame.
+    static func scaledToProxy(_ image: CIImage, longEdge: Int = 256) -> CIImage {
+        let extent = image.extent
+        let current = Swift.max(extent.width, extent.height)
+        guard current > CGFloat(longEdge), current > 0 else { return image }
+        let filter = CIFilter.lanczosScaleTransform()
+        filter.inputImage = image
+        filter.scale = Float(CGFloat(longEdge) / current)
+        filter.aspectRatio = 1
+        return filter.outputImage ?? image
+    }
+
+    /// What picture formation degrades to when the table stage cannot run: the
+    /// transform's own scalar curve, applied per channel through a small cube on the
+    /// log axis. Less accurate than the real stage, still a picture.
+    static func applyFallbackTone(_ image: CIImage, plan: RenderPlan) -> CIImage? {
+        let transform = plan.displayTransform
+        let scale = Swift.max(transform.white, 1e-6)
+        let cube = LUT3D(size: 17) { encoded in
+            RGB(transform.tone(LumenLog.decode(encoded.r)) / scale,
+                transform.tone(LumenLog.decode(encoded.g)) / scale,
+                transform.tone(LumenLog.decode(encoded.b)) / scale)
+        }
+        guard let encoded = KernelLibrary.apply(KernelLibrary.logEncode,
+                                                extent: image.extent, [image]),
+              let mapped = ColorCube.filter(cube, image: encoded) else { return nil }
+        return applyMatrix(mapped, Mat3.diagonal(RGB(gray: scale)))
     }
 
     static func guidedFilter(input: CIImage, guide: CIImage, radius: Int,

@@ -257,6 +257,12 @@ public struct ColorEngine: Sendable {
     /// → Mixer → Point Colour → Vibrance/Saturation → B&W → always-on soft gamut clip.
     public func apply(_ c: RGB) -> RGB {
         guard c.isFinite else { return c }
+        // A stage that does nothing must do NOTHING. Without this the always-on soft
+        // gamut clip below still ran on a default recipe, compressing the chroma of
+        // any saturated or above-white value — a scene-referred clamp inside a no-op,
+        // and a disagreement with `RenderPlan`, which swaps the whole stage out when
+        // `isIdentity` is true. GradeEngine has had the same guard from the start.
+        guard !isIdentity else { return c }
         var out: RGB = c
         out = applyPrimaries(out)
         out = applyMixer(out)

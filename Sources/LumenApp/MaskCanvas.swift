@@ -128,7 +128,7 @@ struct MaskCanvas: View {
 
     var body: some View {
         Canvas { context, _ in
-            guard let component, isLive else { return }
+            guard let component = component, isLive else { return }
             switch component.kind {
             case .linear, .similarityLine:
                 drawLine(&context, component)
@@ -157,7 +157,8 @@ struct MaskCanvas: View {
     /// edited in the panel and by the sampler, and the overlay must pass their clicks
     /// through to the viewer rather than swallowing them.
     private var isLive: Bool {
-        guard imageRect.width > 1, imageRect.height > 1, let component else { return false }
+        guard imageRect.width > 1, imageRect.height > 1,
+              let component = component else { return false }
         switch component.kind {
         case .linear, .similarityLine, .radial, .brush: return true
         default: return false
@@ -165,7 +166,7 @@ struct MaskCanvas: View {
     }
 
     private var helpText: String {
-        guard let component else { return "" }
+        guard let component = component else { return "" }
         switch component.kind {
         case .linear, .similarityLine:
             return "Drag to place the gradient; Shift constrains it to 0/90°."
@@ -184,7 +185,7 @@ struct MaskCanvas: View {
     private var dragGesture: some Gesture {
         DragGesture(minimumDistance: 0)
             .onChanged { value in
-                guard let component else { return }
+                guard let component = component else { return }
                 switch component.kind {
                 case .linear, .similarityLine:
                     dragLine(value, component, ended: false)
@@ -197,7 +198,7 @@ struct MaskCanvas: View {
                 }
             }
             .onEnded { value in
-                guard let component else { return }
+                guard let component = component else { return }
                 switch component.kind {
                 case .linear, .similarityLine:
                     dragLine(value, component, ended: true)
@@ -217,13 +218,21 @@ struct MaskCanvas: View {
     private func dragLine(_ value: DragGesture.Value, _ component: MaskComponent,
                           ended: Bool) {
         let line = MaskCanvas.line(component)
-        if mode == .idle {
+        // The handle is decided once, on mouse-down, and carried in a local as well as in
+        // `mode`: reading @State back inside the same event would be a bet this does not
+        // need to take.
+        let handle: Int
+        var updated: [Double]
+        if case .line(let existing) = mode {
+            handle = existing
+            updated = originLine.count == 4 ? originLine : line
+        } else {
+            handle = lineHandle(at: value.startLocation, line: line)
+            updated = line
             originLine = line
-            mode = .line(handle: lineHandle(at: value.startLocation, line: line))
+            mode = .line(handle: handle)
         }
-        guard case .line(let handle) = mode else { return }
 
-        var updated = originLine.count == 4 ? originLine : line
         let current = value.location
         switch handle {
         case 0:
@@ -279,16 +288,22 @@ struct MaskCanvas: View {
         let centre = MaskCanvas.pair(component.center, fallback: [0.5, 0.5])
         let radii = MaskCanvas.pair(component.radii, fallback: [0.25, 0.25])
         let rotation = component.rotation ?? 0
-        if mode == .idle {
+        let handle: Int
+        var nextCentre: [Double]
+        var nextRadii: [Double]
+        if case .radial(let existing) = mode {
+            handle = existing
+            nextCentre = originCenter.count == 2 ? originCenter : centre
+            nextRadii = originRadii.count == 2 ? originRadii : radii
+        } else {
+            handle = radialHandle(at: value.startLocation, centre: centre, radii: radii,
+                                  rotation: rotation)
+            nextCentre = centre
+            nextRadii = radii
             originCenter = centre
             originRadii = radii
-            mode = .radial(handle: radialHandle(at: value.startLocation, centre: centre,
-                                                radii: radii, rotation: rotation))
+            mode = .radial(handle: handle)
         }
-        guard case .radial(let handle) = mode else { return }
-
-        var nextCentre = originCenter.count == 2 ? originCenter : centre
-        var nextRadii = originRadii.count == 2 ? originRadii : radii
 
         switch handle {
         case 0:
@@ -354,33 +369,35 @@ struct MaskCanvas: View {
     // MARK: Brush
 
     private func dragBrush(_ value: DragGesture.Value, ended: Bool) {
-        if mode != .brush {
+        // The whole stroke accumulates locally; nothing reaches the recipe until mouse-up,
+        // so a stroke is one undo step and a mouse-moved event is not a recipe write.
+        let isNew = mode != .brush
+        let started: Date = isNew ? Date() : (strokeStarted ?? Date())
+        var points: [BrushPoint] = isNew ? [] : livePoints
+        if isNew {
             mode = .brush
-            livePoints = []
-            strokeStarted = Date()
+            strokeStarted = started
         }
         let n = normalized(value.location)
-        let elapsed = strokeStarted.map { Date().timeIntervalSince($0) } ?? 0
-        let milliseconds = Int(Num.clamp(elapsed * 1000, 0, 3_600_000))
-        let point = BrushPoint(x: Double(n.x), y: Double(n.y), pressure: 1,
-                               t: milliseconds)
+        let ms = Int(Num.clamp(Date().timeIntervalSince(started) * 1000, 0, 3_600_000))
+        let point = BrushPoint(x: Double(n.x), y: Double(n.y), pressure: 1, t: ms)
         // Sub-pixel resampling is the rasterizer's job (arc-length Catmull-Rom); the
-        // recorder only needs to drop duplicate events.
-        if let last = livePoints.last {
+        // recorder only drops events that did not move.
+        var accept = true
+        if let last = points.last {
             let dx = (last.x - point.x) * Double(imageRect.width)
             let dy = (last.y - point.y) * Double(imageRect.height)
-            if (dx * dx + dy * dy) < 0.25 && !ended { return }
+            accept = ended || (dx * dx + dy * dy) >= 0.25
         }
-        livePoints.append(point)
+        if accept { points.append(point) }
+        livePoints = points
 
         guard ended else { return }
-        defer {
-            livePoints = []
-            strokeStarted = nil
-        }
-        guard !livePoints.isEmpty else { return }
+        livePoints = []
+        strokeStarted = nil
+        guard !points.isEmpty else { return }
         var set = strokes
-        set.strokes.append(brush.stroke(points: livePoints))
+        set.strokes.append(brush.stroke(points: points))
         let payload = try? set.encode()
         let ref = payload.map { BrushStrokeSet.blobRef(for: $0) }
         commit(.strokes(maskID: maskID, index: componentIndex, strokes: set,
@@ -448,7 +465,7 @@ struct MaskCanvas: View {
                            style: StrokeStyle(lineWidth: diameter, lineCap: .round,
                                               lineJoin: .round))
         }
-        guard let hover else { return }
+        guard let hover = hover else { return }
         let rect = CGRect(x: hover.x - diameter / 2, y: hover.y - diameter / 2,
                           width: diameter, height: diameter)
         var ring = Path()
@@ -585,7 +602,7 @@ struct MaskCanvas: View {
     }
 
     static func pair(_ values: [Double]?, fallback: [Double]) -> [Double] {
-        guard let values, values.count == 2,
+        guard let values = values, values.count == 2,
               values.allSatisfy({ $0.isFinite }) else { return fallback }
         return values
     }
@@ -609,7 +626,7 @@ struct MaskCanvas: View {
                 recipe.masks[m].components[index] = component
             }
         case .strokes(let maskID, let index, _, let ref, _):
-            guard let ref else { return }
+            guard let ref = ref else { return }
             state.updateRecipe(coalescingKey: nil) { recipe in
                 guard let m = recipe.masks.firstIndex(where: { $0.id == maskID }),
                       recipe.masks[m].components.indices.contains(index) else { return }
