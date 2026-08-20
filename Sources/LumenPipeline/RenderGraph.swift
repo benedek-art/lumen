@@ -831,8 +831,6 @@ public struct RenderGraph {
         return filter.outputImage ?? image
     }
 
-    /// One average colour for the whole frame. Used for statistics that must be
-    /// frozen across tiles (docs/14 §6.3's proxy-field rule).
     /// One context for the one-pixel statistics readbacks, not one per call.
     ///
     /// `averageColor` built a fresh `CIContext` every time, and it is called once per
@@ -849,6 +847,8 @@ public struct RenderGraph {
         return RGB(Double(pixel[0]), Double(pixel[1]), Double(pixel[2]))
     }
 
+    /// One average colour for the whole frame. Used for statistics that must be
+    /// frozen across tiles (docs/14 §6.3's proxy-field rule).
     static func averageColor(_ image: CIImage) -> RGB? {
         let filter = CIFilter.areaAverage()
         filter.inputImage = image
@@ -857,26 +857,26 @@ public struct RenderGraph {
         return readOnePixel(output)
     }
 
-    /// The brightest value in `image`. Used on an already-downsampled proxy, which is
-    /// what makes it a robust high percentile rather than a single hot pixel: each
-    /// proxy pixel is the mean of a block of the original.
     /// The mean of a masked image's alpha — the fraction of pixels the mask kept.
+    ///
+    /// Its own read rather than `readOnePixel`, which returns an `RGB` and therefore
+    /// throws away the only channel this cares about.
     static func averageAlpha(_ image: CIImage) -> Double? {
         let filter = CIFilter.areaAverage()
         filter.inputImage = image
         filter.extent = image.extent
         guard let output = filter.outputImage else { return nil }
         var pixel = [Float](repeating: 0, count: 4)
-        pixel.withUnsafeMutableBytes { raw in
-            guard let base = raw.baseAddress else { return }
-            context.render(output, toBitmap: base, rowBytes: 16,
-                           bounds: CGRect(x: 0, y: 0, width: 1, height: 1),
-                           format: .RGBAf, colorSpace: nil)
-        }
+        statisticsContext.render(output, toBitmap: &pixel, rowBytes: 16,
+                                 bounds: CGRect(x: 0, y: 0, width: 1, height: 1),
+                                 format: .RGBAf, colorSpace: nil)
         let value = Double(pixel[3])
         return value.isFinite ? value : nil
     }
 
+    /// The brightest value in `image`. Used on an already-downsampled proxy, which is
+    /// what makes it a robust high percentile rather than a single hot pixel: each
+    /// proxy pixel is the mean of a block of the original.
     static func maximumColor(_ image: CIImage) -> RGB? {
         let filter = CIFilter.areaMaximum()
         filter.inputImage = image
