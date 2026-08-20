@@ -552,6 +552,19 @@ struct LoupeView: View {
         return beforeModel.image
     }
 
+    /// The mask component the on-image canvas should edit, if any. Nil whenever the
+    /// selection is stale — a mask deleted from under the canvas must make it inert,
+    /// not make it index into nothing.
+    private var maskEditTarget: (maskID: String, index: Int, component: MaskComponent?)? {
+        guard let id = state.activeMaskID,
+              let mask = recipe.masks.first(where: { $0.id == id }) else { return nil }
+        let index = state.activeComponentIndex
+        guard mask.components.indices.contains(index) else {
+            return (mask.id, 0, nil)
+        }
+        return (mask.id, index, mask.components[index])
+    }
+
     @ViewBuilder
     private func canvas(cg: CGImage, container: CGSize) -> some View {
         let ratio: Double = effectiveRatio(image: cg, container: container)
@@ -578,6 +591,21 @@ struct LoupeView: View {
             if viewport.showCrop {
                 CropOverlayView(crop: cropBinding)
                     .frame(width: drawn.width, height: drawn.height)
+            }
+
+            // Mask geometry is edited on the image, not in the panel: gradients,
+            // radials and brush strokes are placed where they land. The canvas is
+            // inert unless the masks section is open with a drawable component
+            // selected, so it never eats a pan or a click-to-zoom.
+            if state.activeSection == .masks, let target = maskEditTarget {
+                MaskCanvas(imageRect: CGRect(origin: .zero, size: drawn),
+                           sourceSize: CGSize(width: cg.width, height: cg.height),
+                           maskID: target.maskID,
+                           componentIndex: target.index,
+                           component: target.component) { edit in
+                    MaskCanvas.apply(edit, in: state)
+                }
+                .frame(width: drawn.width, height: drawn.height)
             }
         }
         .frame(width: drawn.width, height: drawn.height)

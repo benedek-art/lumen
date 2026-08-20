@@ -200,6 +200,10 @@ final class AppState: ObservableObject {
     @Published var activeSection: PanelSection = .basic
     @Published var showBefore = false
     @Published var soloMaskOverlay: String?
+    /// Which mask and component the panel has selected. Published because the on-image
+    /// canvas edits geometry and lives in the viewer, not the panel.
+    @Published var activeMaskID: String?
+    @Published var activeComponentIndex: Int = 0
     @Published var clippingOverlay: ClippingOverlay.Mode?
     @Published var showHistogram = true
     @Published var showScopes = false

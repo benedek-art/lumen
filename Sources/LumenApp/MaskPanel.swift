@@ -35,8 +35,17 @@ struct MaskPanel: View {
     /// canvas share one store rather than inventing a component field.
     @ObservedObject private var brush: MaskBrushStore = MaskBrushStore.shared
 
-    @State private var selectedMaskID: String? = nil
-    @State private var selectedComponent: Int = 0
+    /// Selection lives in `AppState`, not in this view: the on-image canvas edits
+    /// gradient and brush geometry from the viewer, and it has to know which component
+    /// the panel is pointing at. Computed rather than `@State` so there is one copy.
+    private var selectedMaskID: String? {
+        get { state.activeMaskID }
+        nonmutating set { state.activeMaskID = newValue }
+    }
+    private var selectedComponent: Int {
+        get { state.activeComponentIndex }
+        nonmutating set { state.activeComponentIndex = newValue }
+    }
     @State private var selectedSwatch: Int = 0
     @State private var componentsExpanded: Bool = true
     @State private var refineExpanded: Bool = true
