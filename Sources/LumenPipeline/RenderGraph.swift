@@ -304,8 +304,33 @@ public struct RenderGraph {
         // single hot pixel cannot define the airlight. Measured on a proxy and frozen
         // for the render, which is also what the proxy-field rule requires for tiled
         // export (docs/14 §6.3).
+        // He et al.'s definition, which the reference implements: the airlight is the
+        // colour of the SOURCE IMAGE where the dark channel is brightest — not the dark
+        // channel's own maximum.
+        //
+        // Taking the dark channel's maximum returns a GREY, because the dark channel is
+        // a per-pixel channel minimum and `CIMinimumComponent` emits greyscale. So the
+        // neutralisation gains below came out (1,1,1) on every frame, and the step the
+        // dehaze kernel calls load-bearing — "the veil is white-balanced away, which is
+        // what stops magenta skies at the algorithm level" — was an identity multiply.
+        // Negative Dehaze was worse: it blends toward the airlight, so it painted GREY
+        // fog. Measured against the reference on a hazy scene, a sky pixel lost 0.16
+        // scene-linear in blue, about a fifth of it, and desaturated instead of hazing.
+        //
+        // The masked mean comes out of two area averages: the kernel zeroes everything
+        // below the threshold and carries the selection in alpha, so sum(rgb)/N divided
+        // by sum(alpha)/N is the mean over the selected pixels alone.
         let proxy = Self.scaledToProxy(dark)
-        let airlight = Self.maximumColor(proxy) ?? RGB(gray: 0.8)
+        let imageProxy = Self.scaledToProxy(image)
+        let brightest = Self.maximumColor(proxy)?.maxComponent ?? 0.8
+        var airlight = RGB(gray: 0.8)
+        if let masked = KernelLibrary.apply(
+            KernelLibrary.thresholdMask, extent: imageProxy.extent,
+            [imageProxy, proxy, Float(brightest * 0.99)]),
+           let sums = Self.averageColor(masked),
+           let weight = Self.averageAlpha(masked), weight > 1e-6 {
+            airlight = RGB(sums.r / weight, sums.g / weight, sums.b / weight)
+        }
         let mean = Swift.max((airlight.r + airlight.g + airlight.b) / 3, 1e-4)
 
         // t = 1 − w·dark/A, refined. The amount is NOT folded in here any more.
@@ -810,6 +835,23 @@ public struct RenderGraph {
     /// The brightest value in `image`. Used on an already-downsampled proxy, which is
     /// what makes it a robust high percentile rather than a single hot pixel: each
     /// proxy pixel is the mean of a block of the original.
+    /// The mean of a masked image's alpha — the fraction of pixels the mask kept.
+    static func averageAlpha(_ image: CIImage) -> Double? {
+        let filter = CIFilter.areaAverage()
+        filter.inputImage = image
+        filter.extent = image.extent
+        guard let output = filter.outputImage else { return nil }
+        var pixel = [Float](repeating: 0, count: 4)
+        pixel.withUnsafeMutableBytes { raw in
+            guard let base = raw.baseAddress else { return }
+            context.render(output, toBitmap: base, rowBytes: 16,
+                           bounds: CGRect(x: 0, y: 0, width: 1, height: 1),
+                           format: .RGBAf, colorSpace: nil)
+        }
+        let value = Double(pixel[3])
+        return value.isFinite ? value : nil
+    }
+
     static func maximumColor(_ image: CIImage) -> RGB? {
         let filter = CIFilter.areaMaximum()
         filter.inputImage = image

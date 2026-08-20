@@ -1464,11 +1464,23 @@ public final class CatalogStore {
     /// that at under a second for five thousand photos. Everything here is nullable and
     /// stays null until something fills it, which is what makes the pass interruptible.
     public func setMetadata(_ metadata: PhotoMetadata, photoID: Int64) throws {
+        // `aspect` is a derived column, and it was derived in exactly one place: the
+        // scan-time upsert, which has never seen a width or a height — those arrive
+        // here, minutes later, from EXIF. So every photo the backfill filled in kept
+        // `aspect = NULL`, and the aspect-ratio sort ordered the whole roll by NULL,
+        // i.e. by row id, i.e. it silently did nothing. Maintained here, next to the
+        // two columns it is computed from, so the two cannot disagree.
+        let aspect: Double? = {
+            guard let width = metadata.width, let height = metadata.height,
+                  height > 0 else { return nil }
+            return Double(width) / Double(height)
+        }()
         let statement = try db.prepare("""
             UPDATE photo SET capture_at = ?, capture_subsec = ?, camera = ?,
                              camera_serial = ?, lens = ?, iso = ?, shutter_s = ?,
                              aperture = ?, focal_mm = ?, width = ?, height = ?,
-                             orientation = ?, gps_lat = ?, gps_lon = ?
+                             orientation = ?, gps_lat = ?, gps_lon = ?,
+                             aspect = COALESCE(?, aspect)
             WHERE id = ?;
             """)
         let values: [SQLiteValue] = [
@@ -1486,6 +1498,7 @@ public final class CatalogStore {
             .optionalInt(metadata.orientation),
             .optionalReal(metadata.gpsLatitude),
             .optionalReal(metadata.gpsLongitude),
+            .optionalReal(aspect),
             .integer(photoID),
         ]
         for (offset, value) in values.enumerated() {

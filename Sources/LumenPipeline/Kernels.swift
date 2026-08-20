@@ -261,6 +261,16 @@ public enum KernelLibrary {
     }
     """
 
+    /// Keep the pixels where a plane is at or above a threshold, zero elsewhere, and
+    /// carry the selection weight in alpha so a masked mean can be recovered from two
+    /// area averages.
+    static let thresholdMaskSource = """
+    kernel vec4 lumenThresholdMask(__sample image, __sample plane, float threshold) {
+        float keep = step(threshold, plane.r);
+        return vec4(image.rgb * keep, keep);
+    }
+    """
+
     /// a − b on a plane, signed.
     ///
     /// A kernel rather than `CISubtractBlendMode`, because the blend modes are defined
@@ -377,6 +387,7 @@ public enum KernelLibrary {
     public static let detailGain = make(detailGainSource)
     public static let sharpenDelta = make(sharpenDeltaSource)
     public static let subtract = make(subtractSource)
+    public static let thresholdMask = make(thresholdMaskSource)
     public static let structureTensor = make(structureTensorSource)
     public static let coherence = make(coherenceSource)
     public static let detailGainGated = make(detailGainGatedSource)
@@ -402,7 +413,8 @@ public enum KernelLibrary {
             ("blendMask", blendMask), ("grain", grain), ("vignette", vignette),
             ("detailGain", detailGain), ("dehaze", dehaze), ("addGlow", addGlow),
             ("sharpenDelta", sharpenDelta), ("lumaRatio", lumaRatio),
-            ("subtract", subtract), ("structureTensor", structureTensor),
+            ("subtract", subtract), ("thresholdMask", thresholdMask),
+            ("structureTensor", structureTensor),
             ("coherence", coherence), ("detailGainGated", detailGainGated),
             ("sobelMagnitude", sobelMagnitude),
             ("highlightEnergy", highlightEnergy),

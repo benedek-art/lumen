@@ -212,14 +212,18 @@ final class CatalogTests: XCTestCase {
             return try store.photos(matching: query, folderID: folderID).map(\.id)
         }
 
-        XCTAssertEqual(try order(.captureTime), ids.reversed(),
+        XCTAssertEqual(try order(.captureTime), Array(ids.reversed()),
                        "capture time did not order by capture_at")
         XCTAssertEqual(try order(.filename), ids)
         XCTAssertEqual(try order(.rating, ascending: false).first, ids[3])
         XCTAssertEqual(try order(.rating).first, ids[1],
                        "an unrated photo should sort below a 1-star one")
-        // Aspect: three 3:2 frames and one square, so the square leads ascending.
+        // Aspect: three 3:2 frames and one square, so the square leads ascending. This
+        // is the assertion that catches `aspect` never being recomputed when EXIF
+        // arrives — with it NULL for every row the sort degrades to row id and passes
+        // nothing.
         XCTAssertEqual(try order(.aspectRatio).first, ids[3])
+        XCTAssertEqual(try store.photo(id: ids[0])?.aspect, 1.5)
         store.close()
     }
 
