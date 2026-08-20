@@ -28,6 +28,7 @@ struct LoupeView: View {
     @State private var renderedFor: URL?      // which photo `rendered` belongs to
     @State private var isEmbeddedFallback = false
     @State private var isUnreadable = false
+    @State private var lastRenderError: String?
     @FocusState private var focused: Bool
 
     var body: some View {
@@ -50,14 +51,24 @@ struct LoupeView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            if isEmbeddedFallback && renderedFor == photo.id {
-                Text("EMBEDDED PREVIEW")
-                    .font(.caption2.bold())
-                    .padding(4)
-                    .background(.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 4))
-                    .foregroundStyle(.yellow)
-                    .padding(8)
+            VStack(alignment: .leading, spacing: 4) {
+                if isEmbeddedFallback && renderedFor == photo.id {
+                    Text("EMBEDDED PREVIEW")
+                        .font(.caption2.bold())
+                        .padding(4)
+                        .background(.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 4))
+                        .foregroundStyle(.yellow)
+                }
+                if let lastRenderError {
+                    // Honest errors (docs/12): name the cause, never fail silently.
+                    Text(lastRenderError)
+                        .font(.caption2)
+                        .padding(4)
+                        .background(.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 4))
+                        .foregroundStyle(.red)
+                }
             }
+            .padding(8)
         }
         .focusable()
         .focused($focused)
@@ -86,6 +97,7 @@ struct LoupeView: View {
             renderedFor = nil
             isEmbeddedFallback = false
             isUnreadable = false
+            lastRenderError = nil
             if let thumb = await state.thumbnails.load(url: url, maxPixel: 1600),
                let cg = thumb.cgImage(forProposedRect: nil, context: nil, hints: nil) {
                 guard !Task.isCancelled else { return }
@@ -94,6 +106,11 @@ struct LoupeView: View {
                 isEmbeddedFallback = true
             }
         }
+
+        // Settle debounce: during a slider drag each tick cancels the previous task
+        // here, so at most one real render dispatches per pause — no queue storm.
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        guard !Task.isCancelled else { return }
 
         let result = await RenderCoordinator.shared.render(
             url: url, recipe: recipe, maxLongEdge: 2560)
@@ -104,7 +121,12 @@ struct LoupeView: View {
             renderedFor = url
             isEmbeddedFallback = false
             isUnreadable = false
-        case .failure:
+            lastRenderError = nil
+        case .failure(let error):
+            if error is CancellationError { return }  // superseded, not failed
+            let message = "RAW render failed: \(error)"
+            print("Lumen: \(message) [\(url.lastPathComponent)]")
+            lastRenderError = message
             // Keep the embedded preview + badge when we have one; otherwise say so
             // honestly instead of spinning forever (docs/12: honest errors).
             if renderedFor == url, rendered != nil {
@@ -125,6 +147,10 @@ actor RenderCoordinator {
     private var sources: [URL: AppleRawSource] = [:]
 
     func render(url: URL, recipe: Recipe, maxLongEdge: Int) -> Result<CGImage, Error> {
+        // Actor calls run in the caller's task context: when a slider drag has
+        // already superseded this request, its task is cancelled — bail before the
+        // expensive decode instead of burying the queue in stale renders.
+        if Task.isCancelled { return .failure(CancellationError()) }
         do {
             let source: AppleRawSource
             if let cached = sources[url] {

@@ -53,14 +53,19 @@ public final class AppleRawSource {
         self.filter = filter
 
         // Pin the decoder version explicitly (D50): implicit "latest" could shift
-        // under a macOS update and silently change renders. supportedDecoderVersions
-        // is ordered oldest→newest; take the newest and ACTUALLY assign it.
+        // under a macOS update and silently change renders. Defensive: if assigning
+        // a version kills the decode (outputImage goes nil), revert — a working
+        // implicit decoder beats a dead pinned one.
+        let originalVersion = filter.decoderVersion
         if let newest = filter.supportedDecoderVersions.last {
             filter.decoderVersion = newest
-            self.pinnedDecoderVersion = Int(newest.rawValue.filter(\.isNumber))
-        } else {
-            self.pinnedDecoderVersion = nil
+            if filter.outputImage == nil {
+                print("Lumen: decoder pin \(newest.rawValue) broke decode for "
+                      + "\(url.lastPathComponent); reverting to \(originalVersion.rawValue)")
+                filter.decoderVersion = originalVersion
+            }
         }
+        self.pinnedDecoderVersion = Int(filter.decoderVersion.rawValue.filter(\.isNumber))
 
         self.asShotTemperature = filter.neutralTemperature
         self.asShotTint = filter.neutralTint
