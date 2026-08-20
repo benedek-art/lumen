@@ -236,6 +236,9 @@ public struct GradeEngine: Sendable {
     private let midTint: WheelTint
     private let highTint: WheelTint
 
+    /// See `solveLumScale`.
+    public let lumScale: Double
+
     public init(wheels: GradingWheels,
                 printerLights: PrinterLights,
                 whiteAnchorEV: Double = 5.0,
@@ -247,10 +250,62 @@ public struct GradeEngine: Sendable {
         self.windows = ZoneWindows(wheels: wheels,
                                    whiteAnchorEV: whiteAnchorEV,
                                    blackAnchorEV: blackAnchorEV)
-        self.globalTint = WheelTint(wheels.global)
-        self.shadowTint = WheelTint(wheels.shadows)
-        self.midTint = WheelTint(wheels.mid)
-        self.highTint = WheelTint(wheels.high)
+        let g = WheelTint(wheels.global)
+        let sh = WheelTint(wheels.shadows)
+        let mid = WheelTint(wheels.mid)
+        let hi = WheelTint(wheels.high)
+        self.globalTint = g
+        self.shadowTint = sh
+        self.midTint = mid
+        self.highTint = hi
+        self.lumScale = GradeEngine.solveLumScale(
+            windows: self.windows, shadows: sh.stops, mid: mid.stops, high: hi.stops)
+    }
+
+    /// What the ZONE-weighted lightness contribution is multiplied by so the grade
+    /// cannot invert the tone response. 1 at every default, and at most real settings.
+    ///
+    /// Each wheel's Luminance is ±0.5 stops, so a shadow wheel at +1 against a
+    /// highlight wheel at −1 asks brightness to fall by a full stop across the
+    /// crossfade. How steep that fall is depends on the crossfade's WIDTH, and
+    /// Blending drives the width: at Blending 0 the half-width collapses to the
+    /// 0.05 EV floor, a fall of one stop in a tenth of a stop of input. The composed
+    /// slope reached −6.9. A brighter pixel rendered darker than a dimmer one, in
+    /// bands, across the whole zone boundary.
+    ///
+    /// The same failure as the Highlights slider's, and the same solve: everything
+    /// else in the response is fixed and the zone term is linear in the scale, so one
+    /// pass over the axis gives the largest safe multiplier in closed form. Blending 0
+    /// keeps meaning "as hard a crossover as the tone response allows" rather than
+    /// "hard enough to fold".
+    static func solveLumScale(windows: ZoneWindows, shadows: Double, mid: Double,
+                              high: Double) -> Double {
+        guard shadows != 0 || mid != 0 || high != 0 else { return 1 }
+        let span = windows.spanEV
+        // Step from the narrowest feature, not from a round number. The crossfade
+        // half-width shrinks with Blending, and a fixed step walks straight over a
+        // narrow one and reports a slope far gentler than the real peak — which is
+        // exactly the failure being solved for, so sampling it coarsely produces a
+        // scale that still inverts.
+        let narrowest = Swift.min(windows.shadowHalfWidth, windows.highlightHalfWidth)
+        let step = Num.clamp(narrowest / 8, 1e-4, 0.01)
+        let margin = 0.05
+        var scale = 1.0
+        var x = 0.0
+        while x < 1 {
+            let a = Swift.min(x + step, 1)
+            func stops(_ position: Double) -> Double {
+                let w = windows.weights(atNormalized: position)
+                return w.shadows * shadows + w.mid * mid + w.high * high
+            }
+            // Per EV: the axis is normalized, so one unit of x is `span` stops.
+            let slope = (stops(a) - stops(x)) / ((a - x) * span)
+            if slope < 0 {
+                scale = Swift.min(scale, Swift.max((1 - margin) / -slope, 0))
+            }
+            x = a
+        }
+        return Num.clamp(scale, 0, 1)
     }
 
     // MARK: Zones
@@ -318,10 +373,11 @@ public struct GradeEngine: Sendable {
             + w.shadows * shadowTint.a + w.mid * midTint.a + w.high * highTint.a
         let db: Double = globalTint.b
             + w.shadows * shadowTint.b + w.mid * midTint.b + w.high * highTint.b
-        let stops: Double = Num.clamp(
-            globalTint.stops
-                + w.shadows * shadowTint.stops + w.mid * midTint.stops + w.high * highTint.stops,
-            -2, 2)
+        // Global rides on top of the partition and contributes no slope, so it is
+        // outside the monotonicity scale; the zone-weighted part is inside it.
+        let zoned: Double = (w.shadows * shadowTint.stops + w.mid * midTint.stops
+            + w.high * highTint.stops) * lumScale
+        let stops: Double = Num.clamp(globalTint.stops + zoned, -2, 2)
 
         var out: RGB = c
 

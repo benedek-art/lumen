@@ -14,6 +14,7 @@ Mirrored contracts (change BOTH sides together):
   CanonicalJSON.swift   <-> canonical_number / canonical_serialize / sparse / merge
   MonotoneCubic.swift   <-> MonotoneCubic
   ZoneWeights.swift     <-> zone_weights / exposure_stops
+  GradeEngine.swift     <-> ZoneWindows / solve_lum_scale
   MaskAlgebra.swift     <-> mask_combined
   LUT.swift             <-> lumen_log_encode / lumen_log_decode / tetrahedral
   ColorEngine.swift     <-> lum_sat_rolloff / vibrance_saturation
@@ -2003,6 +2004,125 @@ def gen_colour_stage_checks():
 
 
 # ---------------------------------------------------------------------------
+# The grading wheels' zone windows
+#
+#   GradeEngine.swift <-> ZoneWindows / solve_lum_scale
+# ---------------------------------------------------------------------------
+
+LUM_RANGE_STOPS = 0.5
+NOMINAL_HALF_WIDTH_EV = 1.5
+MINIMUM_HALF_WIDTH_EV = 0.05
+MINIMUM_PIVOT_GAP = 0.02
+BALANCE_RANGE_EV = 2.0
+
+
+class ZoneWindows:
+    def __init__(self, pivots=(0.33, 0.67), blending=50.0, balance=0.0,
+                 white_anchor_ev=5.0, black_anchor_ev=-9.0):
+        span = max(white_anchor_ev - black_anchor_ev, 1e-3)
+        self.span_ev = span
+        p0, p1 = sorted((min(max(pivots[0], 0.0), 1.0), min(max(pivots[1], 0.0), 1.0)))
+        if p1 - p0 < MINIMUM_PIVOT_GAP:
+            c = (p0 + p1) / 2
+            p0, p1 = c - MINIMUM_PIVOT_GAP / 2, c + MINIMUM_PIVOT_GAP / 2
+        shift = (min(max(balance, -100.0), 100.0) / 100) * BALANCE_RANGE_EV / span
+        ps, ph = p0 + shift, p1 + shift
+        max_half = (ph - ps) / 2
+        requested = NOMINAL_HALF_WIDTH_EV * (min(max(blending, 0.0), 100.0) / 50) / span
+        floor_half = min(MINIMUM_HALF_WIDTH_EV / span, max_half)
+        half = min(max(requested, floor_half), max_half)
+        self.half_width = half
+        self.shadow_crossfade = [ps - half, ps + half]
+        self.highlight_crossfade = [ph - half, ph + half]
+
+    def weights(self, x):
+        xs = min(max(x, 0.0), 1.0)
+        s = zone_weights(xs, self.shadow_crossfade)[0]
+        h = zone_weights(xs, self.highlight_crossfade)[1]
+        return s, max(0.0, 1 - s - h), h
+
+
+def solve_lum_scale(windows, shadows, mid, high):
+    if shadows == 0 and mid == 0 and high == 0:
+        return 1.0
+    # Step from the narrowest feature: a fixed step walks over a narrow crossfade
+    # and reports a gentler slope than the real peak, producing a scale that still
+    # inverts. That is exactly what this first did.
+    span = windows.span_ev
+    step = min(max(windows.half_width / 8, 1e-4), 0.01)
+    margin, scale = 0.05, 1.0
+
+    def stops(p):
+        s, m, h = windows.weights(p)
+        return s * shadows + m * mid + h * high
+
+    x = 0.0
+    while x < 1:
+        a = min(x + step, 1.0)
+        slope = (stops(a) - stops(x)) / ((a - x) * span)
+        if slope < 0:
+            scale = min(scale, max((1 - margin) / -slope, 0.0))
+        x = a
+    return min(max(scale, 0.0), 1.0)
+
+
+def gen_grade_checks():
+    print("grading wheels: zone windows and monotonicity ...")
+
+    # Weights are a partition of unity everywhere, never negative.
+    for blending in (0.0, 25.0, 50.0, 100.0):
+        for balance in (-100.0, 0.0, 100.0):
+            w = ZoneWindows(blending=blending, balance=balance)
+            x = 0.0
+            while x <= 1.0:
+                s, m, h = w.weights(x)
+                check(min(s, m, h) >= -1e-12,
+                      f"negative zone weight at x={x:.3f} (blend {blending}, bal {balance})")
+                check(abs(s + m + h - 1) < 1e-9,
+                      f"zone weights sum to {s + m + h:.6f} at x={x:.3f}")
+                x += 0.002
+
+    # The failure this found: at Blending 0 the crossfade collapses to the 0.05 EV
+    # floor, and a shadow wheel at +1 against a highlight wheel at −1 asks brightness
+    # to fall a full stop across a tenth of a stop of input.
+    hard = ZoneWindows(blending=0.0)
+    unscaled = solve_lum_scale(hard, LUM_RANGE_STOPS, 0.0, -LUM_RANGE_STOPS)
+    check(unscaled < 0.2,
+          f"the hard-crossover case did not need scaling ({unscaled:.3f}) — "
+          "the test no longer covers what it was written for")
+
+    # With the scale applied, the composed response is monotone at every setting.
+    for blending in (0.0, 10.0, 50.0, 100.0):
+        for sh_lum, mid_lum, hi_lum in ((1.0, 0.0, -1.0), (-1.0, 0.0, 1.0),
+                                        (1.0, -1.0, 1.0), (0.6, 0.0, -0.6)):
+            w = ZoneWindows(blending=blending)
+            sh, md, hi = (LUM_RANGE_STOPS * sh_lum, LUM_RANGE_STOPS * mid_lum,
+                          LUM_RANGE_STOPS * hi_lum)
+            scale = solve_lum_scale(w, sh, md, hi)
+            prev, x = -1e18, 0.0
+            while x <= 1.0:
+                t = -9.0 + x * w.span_ev
+                s_w, m_w, h_w = w.weights(x)
+                out = t + (s_w * sh + m_w * md + h_w * hi) * scale
+                check(out >= prev - 1e-9,
+                      f"grade inverted at x={x:.3f} (blend {blending}, "
+                      f"wheels {sh_lum}/{mid_lum}/{hi_lum}, scale {scale:.3f})")
+                prev = out
+                x += 0.002
+
+    # And the default settings must not be scaled at all, or the fix has quietly
+    # weakened the control everywhere instead of only where it had to.
+    default = ZoneWindows()
+    for sh_lum, hi_lum in ((0.5, -0.5), (1.0, 0.0), (0.0, -1.0)):
+        scale = solve_lum_scale(default, LUM_RANGE_STOPS * sh_lum, 0.0,
+                                LUM_RANGE_STOPS * hi_lum)
+        check(scale > 0.999,
+              f"default blending scaled wheels {sh_lum}/{hi_lum} to {scale:.3f}")
+
+    print("  partition of unity, and no grade setting can invert the tone response")
+
+
+# ---------------------------------------------------------------------------
 
 def gen_enginemath_fixture():
     """Sampled outputs of every engine mirror above, for the Swift to replay.
@@ -2109,6 +2229,7 @@ def main():
     gen_white_balance_checks()
     gen_tone_checks()
     gen_colour_stage_checks()
+    gen_grade_checks()
     gen_enginemath_fixture()
     if FAILURES:
         print(f"\n{len(FAILURES)} verification failure(s)")
