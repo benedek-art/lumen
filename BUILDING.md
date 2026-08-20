@@ -428,9 +428,10 @@ changed the picture.
   preview, and silently substituting the reference renderer mid-export is a decision
   that wants a Mac to test on first.
 - Creative sharpening is not resolution-scaled, so an export is less sharpened than the
-  frame the user judged; `RenderGraph.Options.lutSize` is dead and mask tables run at
-  33³ even on export; and the waveform grows blank columns on crops narrower than 256
-  proxy pixels.
+  frame the user judged; a mask's COLOUR table still runs at 33³ even on export
+  (`RenderGraph.Options.lutSize` has one reader now — the local curve's table, which
+  does take the export size); and the waveform grows blank columns on crops narrower
+  than 256 proxy pixels.
 
 ### What the fourth audit found
 
