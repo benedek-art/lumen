@@ -295,11 +295,6 @@ changed the picture.
   scene-linear values; Point Colour swatches and mask colour samples can only ever be
   seeded at 18% grey, which makes Colour Range, both Similarity kinds and the local
   Colour tint unable to reference a colour the user picked. All now labelled.
-- **The histogram draws the zone windows on the wrong axis.** Pivots are normalized
-  positions on the scene-EV axis; the histogram plots them on the display-encoded axis,
-  so the ticks sit up to 88 code values from where the zone system puts them. Today that
-  only misreports the "% of pixels" figure; it becomes a real editing error the moment
-  the pivots are made draggable.
 - **The advertised CPU fallback does not exist.** `renderReference` has no caller, the
   "CPU fallback" badge is attached to GPU-rendered frames, and `coreAvailable` checks 4
   of 15 kernels — so most kernel failures produce no badge at all, and each stage just

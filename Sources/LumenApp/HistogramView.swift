@@ -196,7 +196,21 @@ struct HistogramView: View {
     // MARK: Zones
 
     private var zones: [Histogram.Zone] {
-        Histogram.zoneBoundaries(pivots: state.currentRecipe.develop.zones.pivots)
+        // The histogram's OWN pivots, not `develop.zones.pivots`.
+        //
+        // These five zones are named after the six-slider register — Blacks, Shadows,
+        // Exposure, Highlights, Whites — and dragging in one scrubs that tone slider.
+        // The Zones panel's pivots describe something else entirely: five different
+        // zones, on the normalized SCENE-EV axis, driving per-zone exposures. Feeding
+        // them in here conflated two registers and put the windows on the wrong axis
+        // as well — the histogram's axis is display-encoded, so a pivot at 0.5 scene EV
+        // was drawn where the display value is 0.5, which is about two stops away.
+        // Moving a zone pivot in the Zones panel silently moved where the histogram
+        // thought "Blacks" was.
+        //
+        // Fixed positions on the histogram's own axis are what the drag needs, and the
+        // Zones panel draws its register on the correct axis itself.
+        Histogram.zoneBoundaries()
     }
 
     private var hoverZone: Histogram.ZoneSlider? {
