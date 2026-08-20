@@ -120,12 +120,12 @@ jobs:
         # and is six orders of magnitude below anything a real change produces.
         run: python3 scripts/gen-fixtures.py --check
 
-      # Five mechanical passes over the Swift, on the lane that has no Swift. Not a
+      # Six mechanical passes over the Swift, on the lane that has no Swift. Not a
       # type checker and no substitute for the macOS build — it catches undeclared
       # identifiers, call sites whose labels match no declared initializer, actor
       # members called without await, TypeName.member references naming nothing, and
-      # platform symbols used in a file that does not import their module. It costs
-      # seconds and it is the only feedback on the Swift at all when the macOS runner
-      # cannot start.
-      - name: Swift surface — symbols, init labels, actor await, members, imports
+      # platform symbols used in a file that does not import their module, and members
+      # read off a value whose declared type does not have them. It costs seconds and it
+      # is the only feedback on the Swift at all when the macOS runner cannot start.
+      - name: Swift surface — symbols, inits, await, members, imports, values
         run: python3 scripts/check-swift-surface.py

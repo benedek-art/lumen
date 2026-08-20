@@ -721,6 +721,188 @@ def pass_module_imports():
     return False
 
 
+
+
+# ==========================================================================
+# Pass 6 — member access on a value whose type is written down
+# ==========================================================================
+#
+# Pass 4 checks `TypeName.member`. This checks `value.member`, for the one case where
+# the value's type is knowable without inference: it was declared with an explicit
+# annotation, in the same function.
+#
+# That gap is not theoretical. `photo.url` reached a compiler and cost a CI round —
+# `PhotoItem.id` IS the URL and the type has no `url` member — from a parameter
+# declared `on photo: PhotoItem` three lines above the use.
+#
+# Deliberately narrow, because the alternative is type inference:
+#   - only parameters and `let`/`var` with an explicit `: TypeName`
+#   - only types declared in-tree, so the member list is complete (extensions included)
+#   - protocols are skipped: a value typed as one may be used at its concrete type
+#   - a type that inherits or conforms to anything is skipped, because members can come
+#     from a superclass or a protocol extension this script does not resolve
+# The type is captured WITH its dots. A nested name like `ClippingOverlay.Mode` that
+# the pattern could not see used to leave the value looking unambiguously typed as
+# whatever it was annotated somewhere else in the file — which is how `mode` read as a
+# `BeforeAfterMode` at a line where it was a `ClippingOverlay.Mode`. Dotted names are
+# recorded so uniqueness fails, then skipped as unresolvable.
+ANNOTATED = re.compile(
+    r"(?:^|[(,\s])(?:let\s+|var\s+)?([a-z_]\w*)\s*:\s*([A-Z][\w.]*)\??\s*(?=[,)={\n])")
+USE = re.compile(r"(?<![\w.])([a-z_]\w*)\??\.([a-zA-Z_]\w*)")
+
+# A name bound anywhere by INFERENCE is not reliably the type it was annotated with
+# somewhere else in the same file. Both false positives the first version produced were
+# exactly this: `GeometryReader { geometry in }` is a GeometryProxy colliding with a
+# `let geometry: Geometry` property, and `var c = m.adjust.curve ?? CurveSet()` is a
+# CurveSet colliding with a `c: MaskComponent` parameter. Per-file scoping is what makes
+# this pass simple; this is the price, and refusing the ambiguous names is cheaper than
+# parsing scopes.
+INFERRED = re.compile(r"(?:^|[^\w.])(?:let|var)\s+([a-z_]\w*)\s*=")
+CLOSURE_ARG = re.compile(r"[{(]\s*((?:[a-z_]\w*\s*,\s*)*[a-z_]\w*)\s+in\b")
+
+# Members every value effectively has, or that are not member lookups at all.
+VALUE_UNIVERSAL = {
+    "self", "init", "map", "flatMap", "compactMap", "filter", "reduce", "forEach",
+    "first", "last", "count", "isEmpty", "sorted", "reversed", "contains", "append",
+    "description", "hashValue", "rawValue", "hash", "encode", "decode", "utf8",
+    "isFinite", "isNaN", "rounded", "magnitude", "indices", "enumerated", "joined",
+    "prefix", "suffix", "dropFirst", "dropLast", "min", "max", "keys", "values",
+    "insert", "remove", "removeAll", "sort", "allSatisfy", "firstIndex", "lastIndex",
+    "split", "trimmingCharacters", "lowercased", "uppercased", "replacingOccurrences",
+    "hasPrefix", "hasSuffix", "components", "withUnsafeBytes", "withUnsafeMutableBytes",
+}
+
+
+def _type_index():
+    """type -> members, plus what kind it is and whether it inherits/conforms."""
+    members, kinds, conforms = {}, {}, {}
+    for path in FILES:
+        text = strip_comments(path.read_text())
+        for m in TYPE_BLOCK.finditer(text):
+            name = m.group(2).split(".")[-1]
+            body = brace_body(text, m.end() - 1)
+            kind = m.group(1)
+            header = text[m.start():m.end()].split("{")[0]
+            if kind != "extension":
+                kinds[name] = kind
+                # The `:` list is conformances and, for a class, possibly a superclass.
+                # Skipping every type that has one threw out nearly all of Swift —
+                # PhotoItem is `: Identifiable, Hashable, Sendable`, which is why the
+                # first version of this pass missed the very bug it was written for.
+                # Resolve the list instead: in-tree names contribute their members
+                # below, and the standard protocols contribute names that live in
+                # VALUE_UNIVERSAL. Only an UNKNOWN parent is a reason to give up.
+                after = header.split(":", 1)[1] if ":" in header else ""
+                parents = [p.strip().split("<")[0]
+                           for p in after.split(",") if p.strip()]
+                conforms[name] = [p for p in parents if p and p[0].isupper()]
+            found = set()
+            for pattern in MEMBER_OF_BODY:
+                found |= set(pattern.findall(body))
+            if kind in ("enum", "extension"):
+                for line in CASE_LINE.findall(body):
+                    for part in line.split(","):
+                        hit = re.match(r"^\s*(\w+)", part)
+                        if hit:
+                            found.add(hit.group(1))
+            members.setdefault(name, set()).update(found)
+
+    # A conformer gets whatever an in-tree protocol's extensions gave it. Resolved to a
+    # fixed point so a chain of in-tree protocols does not need ordering.
+    for _ in range(4):
+        for name, parents in conforms.items():
+            for parent in parents:
+                if parent in members:
+                    members.setdefault(name, set()).update(members[parent])
+    return members, kinds, conforms
+
+
+FUNC_HEAD = re.compile(r"\b(?:func\s+\w+|init)\s*(?:<[^<>]*>)?\s*\(")
+
+
+def _function_scopes(text):
+    """(offset, text) for each function, signature included so parameters are in scope.
+
+    Per FUNCTION, not per file. Per-file scoping looked simpler and was useless exactly
+    where it mattered: in a thousand-line view model a common name like `photo` is bound
+    by inference somewhere, so the rule that refuses ambiguous names refused all of
+    them, and the pass reported a clean tree while being structurally unable to see the
+    bug it was written for.
+    """
+    for m in FUNC_HEAD.finditer(text):
+        depth, i, n = 0, m.end() - 1, len(text)
+        while i < n:
+            if text[i] == "(":
+                depth += 1
+            elif text[i] == ")":
+                depth -= 1
+                if depth == 0:
+                    break
+            i += 1
+        brace = text.find("{", i)
+        if brace == -1 or i >= n:
+            continue
+        # A `{` too far past the signature is a different construct (a computed
+        # property, a trailing closure on a default value) rather than this body.
+        if text.count("\n", i, brace) > 3:
+            continue
+        body = brace_body(text, brace)
+        yield m.start(), text[m.start():brace] + body
+
+
+def pass_value_members():
+    members, kinds, conforms = _type_index()
+    problems = []
+    for path in FILES:
+        text = strip_all(path.read_text())
+        for offset, scope in _function_scopes(text):
+            seen = {}
+            for m in ANNOTATED.finditer(scope):
+                seen.setdefault(m.group(1), set()).add(m.group(2))
+            ambiguous = set(INFERRED.findall(scope))
+            for m in CLOSURE_ARG.finditer(scope):
+                for part in m.group(1).split(","):
+                    ambiguous.add(part.strip())
+            typed = {}
+            for name, names in seen.items():
+                if len(names) != 1 or name in ambiguous:
+                    continue
+                tname = next(iter(names))
+                if "." in tname or tname not in members or tname not in kinds:
+                    continue
+                if kinds[tname] == "protocol":
+                    continue
+                if any(p not in members and p not in KNOWN
+                       for p in conforms.get(tname, [])):
+                    continue
+                typed[name] = tname
+            if not typed:
+                continue
+            for m in USE.finditer(scope):
+                name, member = m.group(1), m.group(2)
+                tname = typed.get(name)
+                if tname is None or member in VALUE_UNIVERSAL:
+                    continue
+                if member in members.get(tname, set()):
+                    continue
+                line = text.count("\n", 0, offset + m.start()) + 1
+                problems.append((path.relative_to(ROOT).as_posix(), line,
+                                 name, tname, member))
+
+    # One report per site: a name used twice in one scope is one mistake.
+    problems = sorted(set(problems))
+    if not problems:
+        print(f"values:   every member read off an explicitly typed value exists "
+              f"({len(members)} types indexed)")
+        return True
+    print(f"values:   {len(problems)} members read off a value whose type does not "
+          f"have them\n")
+    for path, line, name, tname, member in problems[:25]:
+        print(f"  {name}.{member:<22} {name} is {tname}, which has no {member}"
+              f"   {path}:{line}")
+    return False
+
+
 if __name__ == "__main__":
     ok = pass_symbols()
     print()
@@ -731,4 +913,6 @@ if __name__ == "__main__":
     ok = pass_members() and ok
     print()
     ok = pass_module_imports() and ok
+    print()
+    ok = pass_value_members() and ok
     sys.exit(0 if ok else 1)
