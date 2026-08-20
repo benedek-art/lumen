@@ -18,9 +18,20 @@ scripts/build-app.sh     # or build dist/Lumen.app and `open dist/Lumen.app`
 open the branch's latest run under the repository's **Actions** tab, and take the
 `Lumen-app` artifact from the summary page. Unzip and `open Lumen.app`.
 
-The bundle is signed ad-hoc, not notarized, so the first launch needs the usual
-right-click → **Open** rather than a double-click — macOS refuses an unnotarized app
-opened the normal way, and says so in a dialog that offers no way past it.
+**Then clear the quarantine flag, or it will not open.** A bundle that arrives through
+a download carries `com.apple.quarantine`, and quarantine plus an ad-hoc signature
+reports as *"Lumen is damaged and can't be opened. You should move it to the Trash"* —
+which is a lie, and which right-click → **Open** does **not** get past. Run this once:
+
+```sh
+xattr -dr com.apple.quarantine Lumen.app
+open Lumen.app
+```
+
+A bundle you built yourself with `scripts/build-app.sh` never left the machine, so it
+has no quarantine flag; there, right-click → **Open** on the first launch is enough.
+This paragraph exists because the failure looks exactly like a broken build, and the
+first thing anybody would conclude from that dialog is that the app does not work.
 
 The first thing to do is open a folder of your own RAWs (⌘O) and cull it: arrow keys to
 move, `P`/`X`/`U` to flag, `1`–`5` to rate, `6`–`9` to label, `E` for the loupe, `G`
