@@ -142,17 +142,10 @@ public struct ToneEngine: Sendable {
         return Self.softLimited(raw, cap: Num.clamp(cap, 0, 1))
     }
 
-    /// Exact below `zonalKnee × cap`, then approaching `cap` asymptotically. Strictly
-    /// increasing in `amount` everywhere, which is the property the hard clip lost.
+    /// Exact below `zonalKnee × cap`, then approaching `cap` asymptotically. Shared with
+    /// the grading wheels, which hit the identical problem.
     static func softLimited(_ amount: Double, cap: Double) -> Double {
-        guard amount.isFinite else { return 0 }
-        guard cap < 1 else { return amount }
-        guard cap > 0 else { return 0 }
-        let u = abs(amount) / cap
-        let knee = Self.zonalKnee
-        guard u > knee else { return amount }
-        let eased = knee + (1 - knee) * (1 - exp(-(u - knee) / (1 - knee)))
-        return amount < 0 ? -eased * cap : eased * cap
+        Num.softLimit(amount, cap: cap, knee: Self.zonalKnee)
     }
 
     private init(tone: Tone, zones: Zones,

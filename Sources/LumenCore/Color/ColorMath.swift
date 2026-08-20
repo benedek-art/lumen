@@ -171,6 +171,52 @@ public enum Num {
 
     @inlinable public static func saturate(_ x: Double) -> Double { clamp(x, 0, 1) }
 
+    /// Ease `amount` onto `cap` instead of clipping at it.
+    ///
+    /// Exact while `|amount|` is below `knee × cap`, then approaching `cap`
+    /// asymptotically — so the result is STRICTLY increasing in `amount` everywhere,
+    /// which is the property a hard `min(amount, cap)` loses.
+    ///
+    /// This exists because two engines solve a monotonicity cap that is inversely
+    /// proportional to the slider, which makes `slider × cap` constant once it binds.
+    /// Clipping there leaves the top of the control applying one identical value:
+    /// Highlights was dead from 57 to 100, and the grading wheels' Luminance ring was
+    /// dead over 80% of its range at low Blending. A dead control that still moves is
+    /// worse than a shorter one, because nothing tells the photographer it stopped.
+    @inlinable public static func softLimit(_ amount: Double, cap: Double,
+                                            knee: Double = 0.8) -> Double {
+        guard amount.isFinite else { return 0 }
+        guard cap.isFinite, cap > 0 else { return 0 }
+        // `|amount|` can never exceed the cap here, so there is nothing to ease.
+        guard cap < 1 else { return amount }
+        let eased = softKnee(abs(amount) / cap, knee: knee) * cap
+        return amount < 0 ? -eased : eased
+    }
+
+    /// The knee itself, on a quantity normalized so that 1 is the limit: identity below
+    /// `knee`, then approaching 1 without reaching it. Strictly increasing on [0, ∞).
+    ///
+    /// Exposed separately because the two callers normalize differently. `softLimit`
+    /// divides an amount by its cap; the grading wheels already hold the reciprocal —
+    /// their solved scale IS `1 / deflection` in units of the largest safe deflection —
+    /// so they need the knee without the cap comparison wrapped around it.
+    @inlinable public static func softKnee(_ u: Double, knee: Double = 0.8) -> Double {
+        guard u.isFinite, u > 0 else { return 0 }
+        let k = clamp(knee, 0.01, 0.99)
+        guard u > k else { return u }
+        // `1 − (1−k)·(k/u)^q` with `q = k/(1−k)`, which is the exponent that makes the
+        // slope match 1 at the knee, so the join is C¹.
+        //
+        // A power tail rather than an exponential one, because the exponential
+        // saturates in DOUBLE PRECISION long before the control runs out: at Blending 0
+        // the grading wheels' deflection reaches 16× the cap, and `1 − e^(−76)` is
+        // exactly 1. The power form still gains 1.9e-5 between 8× and 16×, which is the
+        // difference between a control that keeps responding and one that is dead again
+        // at the far end for a subtler reason than before.
+        let q = k / (1 - k)
+        return 1 - (1 - k) * pow(k / u, q)
+    }
+
     @inlinable public static func mix(_ a: Double, _ b: Double, _ t: Double) -> Double {
         a + (b - a) * t
     }

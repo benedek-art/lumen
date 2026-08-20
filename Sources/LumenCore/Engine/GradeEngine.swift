@@ -290,7 +290,11 @@ public struct GradeEngine: Sendable {
         let narrowest = Swift.min(windows.shadowHalfWidth, windows.highlightHalfWidth)
         let step = Num.clamp(narrowest / 8, 1e-4, 0.01)
         let margin = 0.05
-        var scale = 1.0
+        // Unbounded, so a gentle setting reports the cap it is genuinely far below
+        // rather than a flat 1. The knee below needs that headroom: clamping here
+        // first put every unlimited setting at exactly the knee's engagement point,
+        // which made the multiplier step from 1 to 0.918 the instant limiting began.
+        var scale = Double.infinity
         var x = 0.0
         while x < 1 {
             let a = Swift.min(x + step, 1)
@@ -305,7 +309,22 @@ public struct GradeEngine: Sendable {
             }
             x = a
         }
-        return Num.clamp(scale, 0, 1)
+        guard scale.isFinite, scale > 0 else { return 1 }
+
+        // Ease onto the cap rather than clipping at it, for the same reason
+        // `ToneEngine` does. The cap is inversely proportional to the wheel deflection,
+        // so `deflection × cap` is constant once it binds — and clipping there left the
+        // Luminance ring applying ONE identical value over most of its travel. Measured
+        // at Blending 0: ±0.20, ±0.50 and ±1.00 all produced 0.060681385, equal to
+        // 1e-12. Eighty percent of the control, dead.
+        //
+        // `1/scale` is the deflection in units of the largest safe one, so easing that
+        // and dividing back out gives a multiplier whose PRODUCT with the deflection is
+        // strictly increasing. Below the knee it is exactly 1, so ordinary settings are
+        // untouched — a fix that quietly weakened every wheel to protect one setting
+        // would be its own bug.
+        let normalized = 1 / scale
+        return Swift.min(Num.softKnee(normalized) / normalized, 1)
     }
 
     // MARK: Zones

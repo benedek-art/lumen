@@ -1451,7 +1451,7 @@
       "halfWidth": 0.0035714285714285718,
       "highLum": -1.0,
       "highlightPivot": 0.5271428571428571,
-      "lumScale": 0.12136277004618516,
+      "lumScale": 0.12136061320908206,
       "midLum": 0.0,
       "shadowPivot": 0.18714285714285717,
       "shadowsLum": 1.0,
@@ -1597,7 +1597,7 @@
       "halfWidth": 0.0035714285714285718,
       "highLum": 0.6,
       "highlightPivot": 0.5271428571428571,
-      "lumScale": 0.1348475222735421,
+      "lumScale": 0.13484386965096914,
       "midLum": -0.3,
       "shadowPivot": 0.18714285714285717,
       "shadowsLum": 0.6,
@@ -1743,7 +1743,7 @@
       "halfWidth": 0.0035714285714285718,
       "highLum": -1.0,
       "highlightPivot": 0.67,
-      "lumScale": 0.12136277004613104,
+      "lumScale": 0.12136061320902794,
       "midLum": 0.0,
       "shadowPivot": 0.33,
       "shadowsLum": 1.0,
@@ -1889,7 +1889,7 @@
       "halfWidth": 0.0035714285714285718,
       "highLum": 0.6,
       "highlightPivot": 0.67,
-      "lumScale": 0.1348475222735408,
+      "lumScale": 0.13484386965096784,
       "midLum": -0.3,
       "shadowPivot": 0.33,
       "shadowsLum": 0.6,
@@ -2035,7 +2035,7 @@
       "halfWidth": 0.0035714285714285718,
       "highLum": -1.0,
       "highlightPivot": 0.7557142857142858,
-      "lumScale": 0.12136277004609841,
+      "lumScale": 0.12136061320899533,
       "midLum": 0.0,
       "shadowPivot": 0.4157142857142857,
       "shadowsLum": 1.0,
@@ -2181,7 +2181,7 @@
       "halfWidth": 0.0035714285714285718,
       "highLum": 0.6,
       "highlightPivot": 0.7557142857142858,
-      "lumScale": 0.13484752227353952,
+      "lumScale": 0.13484386965096656,
       "midLum": -0.3,
       "shadowPivot": 0.4157142857142857,
       "shadowsLum": 0.6,
@@ -2327,7 +2327,7 @@
       "halfWidth": 0.021428571428571432,
       "highLum": -1.0,
       "highlightPivot": 0.5271428571428571,
-      "lumScale": 0.7281766202771476,
+      "lumScale": 0.711405054963449,
       "midLum": 0.0,
       "shadowPivot": 0.18714285714285717,
       "shadowsLum": 1.0,
@@ -2473,7 +2473,7 @@
       "halfWidth": 0.021428571428571432,
       "highLum": 0.6,
       "highlightPivot": 0.5271428571428571,
-      "lumScale": 0.80977960570921,
+      "lumScale": 0.7812547065374523,
       "midLum": -0.3,
       "shadowPivot": 0.18714285714285717,
       "shadowsLum": 0.6,
@@ -2619,7 +2619,7 @@
       "halfWidth": 0.021428571428571432,
       "highLum": -1.0,
       "highlightPivot": 0.67,
-      "lumScale": 0.7281766202771401,
+      "lumScale": 0.7114050549634424,
       "midLum": 0.0,
       "shadowPivot": 0.33,
       "shadowsLum": 1.0,
@@ -2765,7 +2765,7 @@
       "halfWidth": 0.021428571428571432,
       "highLum": 0.6,
       "highlightPivot": 0.67,
-      "lumScale": 0.8090851336412663,
+      "lumScale": 0.780682340514037,
       "midLum": -0.3,
       "shadowPivot": 0.33,
       "shadowsLum": 0.6,
@@ -2911,7 +2911,7 @@
       "halfWidth": 0.021428571428571432,
       "highLum": -1.0,
       "highlightPivot": 0.7557142857142858,
-      "lumScale": 0.7281766202771393,
+      "lumScale": 0.7114050549634415,
       "midLum": 0.0,
       "shadowPivot": 0.4157142857142857,
       "shadowsLum": 1.0,
@@ -3057,7 +3057,7 @@
       "halfWidth": 0.021428571428571432,
       "highLum": 0.6,
       "highlightPivot": 0.7557142857142858,
-      "lumScale": 0.8090851336412663,
+      "lumScale": 0.780682340514037,
       "midLum": -0.3,
       "shadowPivot": 0.4157142857142857,
       "shadowsLum": 0.6,
@@ -19072,7 +19072,7 @@
     },
     {
       "contrast": 0.0,
-      "effectiveHighlights": -0.5577804597954416,
+      "effectiveHighlights": -0.5515210179280718,
       "effectiveShadows": 0.8,
       "highlights": -80.0,
       "shadows": 80.0,
@@ -19095,11 +19095,11 @@
         },
         {
           "t": 1.0,
-          "value": -0.7096656640164811
+          "value": -0.7017017583414624
         },
         {
           "t": 3.0,
-          "value": -1.1089802968965161
+          "value": -1.096535261258251
         },
         {
           "t": 5.0,
@@ -19109,7 +19109,7 @@
     },
     {
       "contrast": 60.0,
-      "effectiveHighlights": -0.7568942928691914,
+      "effectiveHighlights": -0.7474525693848385,
       "effectiveShadows": 1.0,
       "highlights": -100.0,
       "shadows": 100.0,
@@ -19132,11 +19132,11 @@
         },
         {
           "t": 1.0,
-          "value": -0.6029987596487142
+          "value": -0.5909860280294664
         },
         {
           "t": 3.0,
-          "value": -0.42485884344744873
+          "value": -0.40608678872768955
         },
         {
           "t": 5.0,
@@ -19146,7 +19146,7 @@
     },
     {
       "contrast": -40.0,
-      "effectiveHighlights": 0.42260931739945395,
+      "effectiveHighlights": 0.4173609618652805,
       "effectiveShadows": -0.5,
       "highlights": 50.0,
       "shadows": -50.0,
@@ -19169,11 +19169,11 @@
         },
         {
           "t": 1.0,
-          "value": 0.2976870354365295
+          "value": 0.29100953777639327
         },
         {
           "t": 3.0,
-          "value": 0.12023274399529393
+          "value": 0.10979795235587242
         },
         {
           "t": 5.0,

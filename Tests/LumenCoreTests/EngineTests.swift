@@ -531,7 +531,8 @@ final class EngineTests: XCTestCase {
         // `min(max(x, lo), hi)` over Swift's generic `Comparable` min/max, and those
         // propagate NaN — every comparison against it is false, so `max(nan, 0)` is nan
         // and a slider typo would reach Core Image as `Float.nan`.
-        for amount in [-50.0, 0, 500, .infinity, -.infinity, .nan] {
+        let hostileAmounts: [Double] = [-50, 0, 500, .infinity, -.infinity, .nan]
+        for amount in hostileAmounts {
             let f = CaptureSharpen(auto: true, amount: amount).strengthFraction
             XCTAssertTrue(f.isFinite, "amount \(amount) produced \(f)")
             XCTAssertGreaterThanOrEqual(f, 0)

@@ -200,7 +200,11 @@ final class CanonicalJSONTests: XCTestCase {
         }
         for v in values {
             let text = CanonicalJSON.canonicalNumber(v)
-            XCTAssertEqual(Double(text), v, "canonicalNumber lost \(v) — wrote \(text)")
+            guard let parsed = Double(text) else {
+                XCTFail("canonicalNumber wrote \(text) for \(v), which is not a number")
+                continue
+            }
+            XCTAssertEqual(parsed, v, "canonicalNumber lost \(v) — wrote \(text)")
         }
     }
 

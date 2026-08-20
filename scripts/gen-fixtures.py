@@ -1968,6 +1968,30 @@ DEFAULT_BLACK_ANCHOR_EV = -9.0
 ZONAL_KNEE = 0.8
 
 
+def soft_knee(u, knee=0.8):
+    """Mirror of Num.softKnee: identity below `knee`, then a C1 power tail toward 1.
+
+    A power tail, not an exponential one: the exponential reaches exactly 1.0 in
+    double precision by u ~ 8, and the grading wheels' deflection reaches 16x the
+    cap at Blending 0 — so it would be dead again at the far end."""
+    if not math.isfinite(u) or u <= 0:
+        return 0.0
+    k = min(max(knee, 0.01), 0.99)
+    if u <= k:
+        return u
+    return 1 - (1 - k) * (k / u) ** (k / (1 - k))
+
+
+def soft_limit(amount, cap, knee=0.8):
+    """Mirror of Num.softLimit."""
+    if not math.isfinite(amount) or not math.isfinite(cap) or cap <= 0:
+        return 0.0
+    if cap >= 1:
+        return amount
+    eased = soft_knee(abs(amount) / cap, knee) * cap
+    return -eased if amount < 0 else eased
+
+
 def soft_limited(amount, cap):
     """Exact below ZONAL_KNEE x cap, then approaching cap without reaching it —
     strictly increasing in `amount`, which the hard clip was not."""
@@ -1980,8 +2004,7 @@ def soft_limited(amount, cap):
     u = abs(amount) / cap
     if u <= ZONAL_KNEE:
         return amount
-    eased = ZONAL_KNEE + (1 - ZONAL_KNEE) * (1 - math.exp(-(u - ZONAL_KNEE) / (1 - ZONAL_KNEE)))
-    return -eased * cap if amount < 0 else eased * cap
+    return soft_limit(amount, cap, ZONAL_KNEE)
 
 
 def raised_cosine(t):
@@ -2391,7 +2414,7 @@ def solve_lum_scale(windows, shadows, mid, high):
     # inverts. That is exactly what this first did.
     span = windows.span_ev
     step = min(max(windows.half_width / 8, 1e-4), 0.01)
-    margin, scale = 0.05, 1.0
+    margin, scale = 0.05, math.inf
 
     def stops(p):
         s, m, h = windows.weights(p)
@@ -2404,7 +2427,13 @@ def solve_lum_scale(windows, shadows, mid, high):
         if slope < 0:
             scale = min(scale, max((1 - margin) / -slope, 0.0))
         x = a
-    return min(max(scale, 0.0), 1.0)
+    if not math.isfinite(scale) or scale <= 0:
+        return 1.0
+    # Ease onto the cap rather than clip at it — see GradeEngine.solveLumScale. The
+    # cap is inversely proportional to the deflection, so clipping left the Luminance
+    # ring applying one identical value over 80% of its travel at Blending 0.
+    normalized = 1 / scale
+    return min(soft_knee(normalized) / normalized, 1.0)
 
 
 def gen_grade_checks():
@@ -2460,7 +2489,30 @@ def gen_grade_checks():
         check(scale > 0.999,
               f"default blending scaled wheels {sh_lum}/{hi_lum} to {scale:.3f}")
 
+    # --- the Luminance ring must keep doing more, at every Blending ----------
+    #
+    # It did not. Capping hard at the monotonicity limit left the ring applying
+    # ONE identical value over most of its travel: at Blending 0, lum +-0.20,
+    # +-0.50 and +-1.00 all produced 0.060681385, equal to 1e-12. Eighty percent
+    # of the control, dead. The check above tests `scale > 0.999` at DEFAULT
+    # blending only — the one setting where nothing was wrong.
+    for blending in (0.0, 5.0, 10.0, 20.0, 50.0, 100.0):
+        w = ZoneWindows(blending=blending)
+        previous = None
+        for step_index in range(1, 41):
+            lum = step_index / 40
+            scale = solve_lum_scale(w, LUM_RANGE_STOPS * lum, 0.0,
+                                    -LUM_RANGE_STOPS * lum)
+            applied = LUM_RANGE_STOPS * lum * scale
+            if previous is not None:
+                check(applied > previous + 1e-9,
+                      f"the Luminance ring at {lum:.3f} (blending {blending}) applied "
+                      f"{applied:.9f}, no more than {previous:.9f} at "
+                      f"{(step_index - 1) / 40:.3f} — the control is dead here")
+            previous = applied
+
     print("  partition of unity, and no grade setting can invert the tone response")
+    print("  and the Luminance ring keeps doing more at every Blending")
 
 
 # ---------------------------------------------------------------------------
