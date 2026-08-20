@@ -696,6 +696,170 @@ final class RobustnessTests: XCTestCase {
         XCTAssertTrue(degenerate.isFinite, "a black swatch produced \(degenerate)")
     }
 
+    // MARK: - The whole pipeline, everything on
+
+    /// A recipe with every stage active, through the full reference renderer.
+    ///
+    /// The suite is thick with per-stage contracts and thin on integration: ten tests
+    /// call `ReferenceRenderer.render`, and each turns on one or two things. Nothing
+    /// asked what happens when tone, colour, grade, presence, a mask, a film stock,
+    /// halation, grain and a vignette are all live on the same frame — which is the
+    /// only configuration a photographer working a real edit ever produces.
+    ///
+    /// Nothing here is a tolerance to tune. Every assertion is a property that must
+    /// hold for ANY correct render, so this cannot rot into a golden that gets
+    /// regenerated when it fails.
+    private func everythingRecipe() -> Recipe {
+        var recipe = Recipe()
+        recipe.develop.tone.exposure = 0.35
+        recipe.develop.tone.contrast = 30
+        recipe.develop.tone.highlights = -60
+        recipe.develop.tone.shadows = 45
+        recipe.develop.tone.whites = 20
+        recipe.develop.tone.blacks = -15
+        recipe.develop.raw.temp = 6200
+        recipe.develop.raw.tint = 6
+        recipe.develop.color.saturation = 18
+        recipe.develop.color.vibrance = 25
+        recipe.develop.detail.texture = 30
+        recipe.develop.detail.clarity = 20
+        recipe.develop.detail.dehaze = 15
+        recipe.develop.detail.sharpen = ManualSharpen(amount: 60, radius: 1.2, detail: 40)
+        recipe.look.wheels.shadows = Wheel(hue: 220, sat: 0.25, lum: -0.15)
+        recipe.look.wheels.high = Wheel(hue: 40, sat: 0.20, lum: 0.10)
+        recipe.look.printerLights = PrinterLights(master: 2, r: -1, g: 0, b: 1)
+        recipe.look.vignette = -0.9
+        recipe.look.filmLab = FilmLab(stock: "lumen/portra400", amount: 70, pushPull: 0.5,
+                                      halation: 40,
+                                      grain: FilmGrain(size: 1.2, amount: 55))
+
+        var luma = MaskComponent(op: .add, kind: .lumaRange)
+        luma.lo = 0.3
+        luma.hi = 0.8
+        luma.smooth = 60
+        var adjust = LocalAdjust()
+        adjust.exposure = -0.4
+        adjust.sat = 20
+        adjust.clarity = 15
+        recipe.masks = [Mask(id: "e0000000-0000-0000-0000-000000000001",
+                             name: "Midtones", enabled: true, amount: 90,
+                             components: [luma],
+                             // Every term in the refine chain is scaled by the long
+                             // edge — the guided-filter radius is Feather × 2% of it and
+                             // rounds to an integer, the blur σ is Blur × 1% of it and
+                             // has to clear 0.05. On a small frame that means modest
+                             // settings round away to nothing: at 40 px, Feather 20 is
+                             // radius 0 and Blur 10 is σ = 0.04, so the whole chain is
+                             // an identity and "turning refine off changes nothing"
+                             // would be a fact about the test frame, not the code.
+                             // These three all engage at `everythingSource`'s size.
+                             refine: MaskRefine(feather: 50, edge: 10, blur: 20),
+                             adjust: adjust)]
+        return recipe
+    }
+
+    private func everythingSource() -> ImageBuffer {
+        // Structure at several scales so presence, sharpening and the mask all have
+        // something to act on, and a wide luminance range so the tone stack is
+        // exercised across its whole domain.
+        ImageBuffer(width: 64, height: 44) { u, v in
+            let ev = -7 + u * 12
+            let level = 0.18 * pow(2, ev)
+            let fine = 1 + 0.10 * sin(u * 90) * cos(v * 70)
+            let coarse = 1 + 0.20 * sin(u * 7 + v * 5)
+            return RGB(level * fine * coarse,
+                       level * fine * (1.9 - 0.9 * v),
+                       level * coarse * (0.6 + 0.5 * v))
+        }
+    }
+
+    func testTheWholePipelineWithEveryStageOnProducesASanePicture() {
+        let source = everythingSource()
+        let plan = RenderPlan(recipe: everythingRecipe())
+        let out = ReferenceRenderer.render(source, plan: plan)
+
+        XCTAssertEqual(out.width, source.width)
+        XCTAssertEqual(out.height, source.height)
+
+        var lowest = Double.infinity
+        var highest = -Double.infinity
+        for y in 0..<out.height {
+            for x in 0..<out.width {
+                let c = out[x, y]
+                XCTAssertTrue(c.isFinite,
+                              "the composed render produced \(c) at (\(x), \(y))")
+                for channel in 0..<3 {
+                    lowest = Swift.min(lowest, c[channel])
+                    highest = Swift.max(highest, c[channel])
+                }
+            }
+        }
+        // Display-referred output. Grain rides on top of picture formation, so a small
+        // overshoot above white is legal; a large one means a stage escaped its domain.
+        XCTAssertGreaterThanOrEqual(lowest, -0.01,
+                                    "the composed render went to \(lowest), below black")
+        XCTAssertLessThanOrEqual(highest, 1.15,
+                                 "the composed render reached \(highest), far above "
+                                     + "display white")
+        // And it is a picture, not a flat field: a 12-stop ramp has to survive as one.
+        XCTAssertGreaterThan(highest - lowest, 0.3,
+                             "the composed render spans only \(highest - lowest)")
+    }
+
+    /// Every stage in that recipe has to contribute. Turning any ONE of them off must
+    /// change the result — otherwise it is riding along doing nothing, which is exactly
+    /// the failure mode that put four mask kinds, three sharpening sliders and a film
+    /// print-size picker into the audit backlog.
+    func testEveryStageInTheFullRecipeChangesTheResult() {
+        let source = everythingSource()
+        let full = ReferenceRenderer.render(source, plan: RenderPlan(recipe: everythingRecipe()))
+
+        func worstDifference(_ mutate: (inout Recipe) -> Void) -> Double {
+            var recipe = everythingRecipe()
+            mutate(&recipe)
+            let other = ReferenceRenderer.render(source, plan: RenderPlan(recipe: recipe))
+            var worst = 0.0
+            for y in 0..<full.height {
+                for x in 0..<full.width {
+                    worst = Swift.max(worst, full[x, y].maxAbsDifference(other[x, y]))
+                }
+            }
+            return worst
+        }
+
+        let stages: [(String, (inout Recipe) -> Void)] = [
+            ("exposure", { $0.develop.tone.exposure = 0 }),
+            ("contrast", { $0.develop.tone.contrast = 0 }),
+            ("highlights", { $0.develop.tone.highlights = 0 }),
+            ("shadows", { $0.develop.tone.shadows = 0 }),
+            ("whites", { $0.develop.tone.whites = 0 }),
+            ("blacks", { $0.develop.tone.blacks = 0 }),
+            ("white balance", { $0.develop.raw.temp = 5500; $0.develop.raw.tint = 0 }),
+            ("saturation", { $0.develop.color.saturation = 0 }),
+            ("vibrance", { $0.develop.color.vibrance = 0 }),
+            ("texture", { $0.develop.detail.texture = 0 }),
+            ("clarity", { $0.develop.detail.clarity = 0 }),
+            ("dehaze", { $0.develop.detail.dehaze = 0 }),
+            ("sharpening", { $0.develop.detail.sharpen = ManualSharpen() }),
+            ("shadow wheel", { $0.look.wheels.shadows = Wheel() }),
+            ("highlight wheel", { $0.look.wheels.high = Wheel() }),
+            ("printer lights", { $0.look.printerLights = PrinterLights() }),
+            ("vignette", { $0.look.vignette = 0 }),
+            ("film stock", { $0.look.filmLab = nil }),
+            ("film strength", { $0.look.filmLab?.amount = 0 }),
+            ("halation", { $0.look.filmLab?.halation = 0 }),
+            ("grain", { $0.look.filmLab?.grain.amount = 0 }),
+            ("the mask", { $0.masks = [] }),
+            ("the mask's amount", { $0.masks[0].amount = 0 }),
+            ("the mask's refine", { $0.masks[0].refine = MaskRefine() }),
+        ]
+        for (name, mutate) in stages {
+            XCTAssertGreaterThan(worstDifference(mutate), 1e-6,
+                                 "turning off \(name) changed nothing — it is not "
+                                     + "reaching the picture")
+        }
+    }
+
     // MARK: - Monotonicity across the whole slider
 
     /// A brighter input must never render darker. The contrast relax window used to be
