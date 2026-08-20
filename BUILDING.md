@@ -56,8 +56,22 @@ Three layers of checking, in order of strength:
    anchors mid-grey and stays monotone; tile plans cover the frame exactly; every Auto
    output lands inside its slider's range. These survive refactors that change numbers.
 3. **The Linux fixture lane** regenerates `Tests/LumenCoreTests/Fixtures` with
-   `scripts/gen-fixtures.py` — an executable mirror of the canonical-JSON, curve, zone,
-   mask-algebra, XMP and schema logic — and fails if the committed fixtures drifted.
+   `scripts/gen-fixtures.py` and fails if the committed fixtures drifted. That script
+   began as a mirror of the canonical-JSON, curve, zone, mask-algebra, XMP and schema
+   logic; it now also executes an independent implementation of most of the engine —
+   the shaper, the display transform, the tone and grade solvers, the parametric curve,
+   the colour stage, the guided filter, the radial mask, and the whole film chain — and
+   asserts properties on it that no Swift test can reach from a machine with no
+   toolchain. `enginemath.json` then carries its sampled outputs back for
+   `EngineMathFixtureTests` to replay, which is what ties the two implementations
+   together rather than letting the mirror stay green while the Swift drifts.
+
+   Two lessons are baked into how those checks are written, both learned the hard way:
+   **a check must be able to fail** — several were rewritten after a wrong
+   implementation was substituted and they passed anyway, one of them a pure algebraic
+   tautology — and **two implementations agreeing is worth nothing if both are asked
+   the wrong question**, which is how a mask falloff that had been reduced to a hard
+   edge survived in both the Swift and its mirror.
 
 **A failing `LumenCoreTests` fixture test means the Swift diverged from the verified
 reference — fix the Swift, not the fixture.** Change a fixture only for an intentional
@@ -110,8 +124,18 @@ These are tracked, not hidden.
   implemented and tested; the HDR *viewport* is not.
 - **AI denoise and AI masks are modelled but not wired to models.** The cached-splice
   blend, the artifact key, the tile plan and the mask components all exist and are
-  tested; no Core ML model is bundled, so the AI mask kinds rasterize to nothing and
-  `denoise.mode = .ai` currently falls back to the classical tier.
+  tested; no Core ML model is bundled, so the six AI mask kinds and Depth Range
+  rasterize to nothing, and `denoise.mode = .ai` drives the decoder's own noise
+  reduction from its Amount slider as a stand-in. `MaskKind.needsMatte` names the kinds
+  that are waiting on a model, in one place, so the gap stays legible.
+
+  Until recently that gap was much wider than it looked: the renderer rasterized every
+  mask with no source image, so **Luma Range, Colour Range and both Similarity kinds
+  also selected nothing** — on every preview and every export, with no badge, because a
+  recipe with no source is not invalid. Linear, Radial and a plain brush were the only
+  kinds that worked. The mask Refine slider and the brush Automask toggle died on the
+  same argument. Fixed, and `MaskKind.readsSourceImage` now states which kinds need the
+  picture so a renderer cannot quietly fail to supply it again.
 - **Tier-1 classical denoise and capture sharpening exist but are not in the reference
   renderer's stage list.** Both are implemented and unit-tested in `LumenCore`; what
   actually runs on the live path is Apple's decode-stage noise reduction and sharpener,
@@ -119,10 +143,9 @@ These are tracked, not hidden.
   not model S2/S3/S4, which means the golden suite cannot catch drift in them. `.off`
   really is off. (An earlier version of this file claimed the reference ran Tier 1. It
   did not.)
-- **Halation runs only on the GPU path.** `ReferenceRenderer` has no halation stage, so
-  the golden suite cannot compare it against anything — the same shape of gap as
-  capture sharpening and Tier-1 denoise above. What the graph does is checked by eye
-  and by the kernel's own unit tests, not by a reference.
+- **Halation now runs on both paths** and the golden suite compares them. It used to be
+  GPU-only, which meant the slider did nothing on every headless render and any golden
+  that set it diverged.
 - **Local noise, moiré, defringe, grain and the local tone curve are not wired.** They
   have wire formats and no stage reads them, so the mask panel does not show them: a
   slider that moves a stored value and changes no pixel costs the user the time to find
@@ -130,7 +153,14 @@ These are tracked, not hidden.
   the global curve, and the local stage runs before it. Everything else the mask panel
   offers — exposure, contrast, the tone pair, temp, tint, hue, saturation, vibrance,
   texture, clarity, dehaze, sharpness, point colour — is wired and covered by a test
-  that asserts each one changes the render.
+  that asserts each one changes the render. Two caveats that test did not have and now
+  does: **Point Colour** was declared identity on the GPU path and did nothing inside a
+  mask there, and the local **Colour tint** was missing from the reference renderer, so
+  each path silently dropped one control the other applied. Both now go through one
+  shared implementation. **Whites and Blacks inside a mask do nothing on their own** —
+  they move the tone engine's anchors, and a mask has no display transform for those
+  anchors to feed, so they only reshape where Highlights and Shadows act. The panel
+  says so.
 - **A lot of the catalog schema has no app behind it yet.** The tables, indices and
   `CatalogStore` API exist and are tested, and nothing in the app calls them: the
   preview/artifact cache (so thumbnails re-decode from the embedded JPEG on every
@@ -144,6 +174,14 @@ These are tracked, not hidden.
   right order, but it means a schema tour overstates what the app does.
 - **`quickCheck()` and `integrityCheck()` are documented as running on every open.**
   They have no callers, so a corrupt catalog is discovered when a query throws.
+- **Sharpening's Masking and Halo Suppression, and Hot Pixels, are reference-only.**
+  All three are implemented and unit-tested in `LumenCore`; none has an equivalent on
+  the shipping path, because a stock unsharp mask takes a radius and an intensity and
+  the classical denoise engine is not in the graph. Detail DOES reach the GPU, as the
+  unsharp radius it stands in for. The panels name which is which.
+- **Remove chromatic aberration and the whole Defringe group are not wired.** Seven
+  controls in the Effects panel with a wire format and no reader; `lens.profile` is the
+  one thing in that section that is genuinely consumed, at decode. The panel says so.
 - **xxh64, not xxh3**, for `recipe_fp` and blob refs (docs/15 says xxh3). The `xxh64:`
   prefix makes the algorithm self-describing, so upgrading later is a migration rather
   than a breakage.
