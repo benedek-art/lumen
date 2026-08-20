@@ -169,6 +169,94 @@ final class KernelGoldenTests: XCTestCase {
                              "the monochrome plate is flat, so this proves nothing")
     }
 
+    // MARK: - A mask, through the graph that ships
+
+    /// The shipping path's local stages, with a real mask, against the reference.
+    ///
+    /// An independent audit found that NOTHING in this suite put a mask through
+    /// `RenderGraph`. `applyLocal`, `applyLocalCurves`, `LocalCurvePlan`, `maskImages`
+    /// and the orientation of a mask raster in Core Image's y-up space were
+    /// collectively unasserted: delete the local-curve call in the graph and the whole
+    /// suite stayed green while every preview and every export silently lost the second
+    /// tap. Whole-mask invert escaped only because it lives in `MaskRaster.combine`,
+    /// which the CPU tests cover — which is why it scored 70 and the curve did not.
+    ///
+    /// This is the missing test. A linear gradient mask so the alpha varies across the
+    /// frame — a uniform one would pass for a mask that selects everything, which is a
+    /// failure this project has shipped — carrying both a scene-referred exposure lift
+    /// and a display-referred point curve, which are the two taps that run at different
+    /// stages and could not be told apart by a single-tap test.
+    func testAMaskReachesPixelsThroughTheGraph() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+        let width = 64, height = 32
+        let source = texturedTestImage(width: width, height: height)
+
+        var mask = Mask(id: "m1", name: "grad")
+        var component = MaskComponent(op: .add, kind: .linear)
+        // A left-to-right ramp: alpha 0 at x = 0, alpha 1 at x = width.
+        component.line = [0, 0.5, 1, 0.5]
+        mask.components = [component]
+        mask.adjust.exposure = 1.0
+        mask.adjust.curve = CurveSet(point: [[0, 0], [0.5, 0.68], [1, 1]])
+
+        var recipe = Recipe()
+        recipe.masks = [mask]
+        let plan = RenderPlan(recipe: recipe, lutSize: LUT3D.exportSize)
+
+        // Rasterize exactly as `PipelineRenderer.makeGraph` does, then hand the graph
+        // the same alpha the reference will fold.
+        let alpha = MaskRaster.combine(mask: mask, size: (width: width, height: height))
+        guard let alphaImage = PipelineRenderer.image(
+            from: alpha, targetExtent: CGRect(x: 0, y: 0, width: width, height: height))
+        else { return XCTFail("no mask alpha") }
+
+        var graph = RenderGraph()
+        graph.maskImages[mask.id] = alphaImage
+        let output = graph.build(ciImage(from: source), plan: plan,
+                                 options: RenderGraph.Options(longEdge: width,
+                                                              draft: false))
+        guard let gpu = readBack(output, width: width, height: height) else {
+            return XCTFail("graph render failed")
+        }
+        let reference = ReferenceRenderer.render(source, plan: plan)
+
+        // Plain render, so "the mask did something" is measured against no mask at all
+        // rather than against the input.
+        let plainPlan = RenderPlan(recipe: Recipe(), lutSize: LUT3D.exportSize)
+        guard let plain = readBack(
+            RenderGraph().build(ciImage(from: source), plan: plainPlan,
+                                options: RenderGraph.Options(longEdge: width,
+                                                             draft: false)),
+            width: width, height: height) else { return XCTFail("plain render failed") }
+
+        var worst = 0.0
+        var worstAt = (0, 0)
+        for y in 0..<height {
+            for x in 0..<width {
+                let d = reference[x, y].maxAbsDifference(gpu[x, y])
+                if d > worst { worst = d; worstAt = (x, y) }
+            }
+        }
+        XCTAssertLessThan(worst, 0.06,
+                          "the masked graph diverged from the reference by \(worst) at "
+                              + "\(worstAt)")
+
+        // The mask has to have a GRADIENT, or a mask that selects everything — or
+        // nothing — passes the comparison above by rendering the same wrong picture on
+        // both paths.
+        let row = height / 2
+        let leftMoved = plain[2, row].maxAbsDifference(gpu[2, row])
+        let rightMoved = plain[width - 3, row].maxAbsDifference(gpu[width - 3, row])
+        XCTAssertGreaterThan(rightMoved, 0.02,
+                             "the selected end of the mask moved by \(rightMoved) — the "
+                                 + "local stages are not reaching pixels through the "
+                                 + "graph at all")
+        XCTAssertGreaterThan(rightMoved, leftMoved * 3,
+                             "the mask moved the unselected end by \(leftMoved) against "
+                                 + "\(rightMoved) at the selected end — the alpha is "
+                                 + "flat, or upside down, or the raster is mirrored")
+    }
+
     // MARK: - Presence must not put a rim on an edge
 
     /// Clarity and Texture must not trench the dark side of an edge.
