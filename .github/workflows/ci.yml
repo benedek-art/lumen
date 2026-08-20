@@ -5,6 +5,13 @@ on:
     branches: ["**"]
   workflow_dispatch:
 
+# One run per branch. macOS runners are scarce and the suite takes ten minutes, so a
+# burst of pushes queues rounds whose answers nobody will read by the time they land —
+# and the newest push, the only one that matters, waits behind all of them.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # The real thing: compile every target and RUN the suites on macOS. The engine's
   # goldens run first so their signal survives churn in the app layer.
