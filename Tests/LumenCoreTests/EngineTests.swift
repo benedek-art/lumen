@@ -540,6 +540,43 @@ final class EngineTests: XCTestCase {
         }
     }
 
+    /// Detail has to reach the GPU sharpener, and it can only reach it as a radius.
+    ///
+    /// `CIUnsharpMask` takes a radius and an intensity. The graph passed `sharpen.radius`
+    /// straight through, so Detail — a live slider in the panel, correctly implemented
+    /// in the reference renderer — was read by nothing at all on the shipping path.
+    /// Detail weights the two finest wavelet bands there, which is the same statement
+    /// as "sharpen at a smaller scale", so a radius is an honest carrier for it.
+    func testSharpeningDetailReachesTheRadiusItStandsInFor() {
+        // Detail 0 leaves the Radius slider exactly where the user put it.
+        for radius in [0.5, 1.0, 2.0, 3.0] {
+            XCTAssertEqual(ManualSharpen(radius: radius, detail: 0).unsharpRadius,
+                           radius, accuracy: 1e-12)
+        }
+        // And more Detail means a smaller radius, strictly, at every base radius.
+        for radius in [0.5, 1.0, 2.0, 3.0] {
+            var previous = Double.infinity
+            for detail in stride(from: 0.0, through: 100.0, by: 5) {
+                let value = ManualSharpen(radius: radius, detail: detail).unsharpRadius
+                XCTAssertLessThan(value, previous,
+                                  "Detail \(detail) at radius \(radius) did not "
+                                      + "sharpen finer than \(detail - 5) did")
+                previous = value
+            }
+            // Half the base radius at the top of the slider.
+            XCTAssertEqual(ManualSharpen(radius: radius, detail: 100).unsharpRadius,
+                           radius * 0.5, accuracy: 1e-12)
+        }
+        // Total: no setting escapes what the filter accepts, including hostile input.
+        for radius in [-1.0, 0, 99, .infinity, .nan] {
+            for detail in [-50.0, 0, 500, .infinity, .nan] {
+                let value = ManualSharpen(radius: radius, detail: detail).unsharpRadius
+                XCTAssertTrue(value.isFinite && value >= 0.2 && value <= 5,
+                              "radius \(radius) detail \(detail) gave \(value)")
+            }
+        }
+    }
+
     // MARK: - Export
 
     /// The export subfolder is a security boundary: `appendingPathComponent` appends a

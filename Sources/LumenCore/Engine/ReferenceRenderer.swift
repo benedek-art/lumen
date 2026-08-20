@@ -81,9 +81,18 @@ public enum ReferenceRenderer {
                                               decomposition: node)
         }
 
-        // S13 — vignette in scene-linear, before picture formation.
+        // S13 — vignette in scene-linear, then halation: the lens vignettes the light
+        // before it strikes the film, and the film base reflects what arrives.
         if plan.vignetteEV != 0 {
             image = DetailEngine.vignette(image, ev: plan.vignetteEV)
+        }
+        // Halation was in the GPU graph and MISSING here, so the Halation slider did
+        // nothing on the reference path — every headless render, every machine whose
+        // kernels will not compile — and any golden comparing the two diverged wherever
+        // it was set. `HalationProfile` already carried everything needed; only the
+        // stage was absent.
+        if let film = plan.filmChain, film.halationAmount > 0 {
+            image = applyHalation(image, film: film, longEdge: longEdge)
         }
 
         // S14 + S15 — picture formation and the curve. The table ends in
@@ -273,6 +282,46 @@ public enum ReferenceRenderer {
         }
 
         public func apply(_ c: RGB) -> RGB { isIdentity ? c : matrix.apply(c) }
+    }
+
+    /// Halation: the highlight energy that passes through the emulsion, scatters off
+    /// the film base and comes back — three bounces at geometrically spaced radii,
+    /// decaying each time, because the base is not a single-scale scatterer.
+    ///
+    /// The stage order matters and is the graph's: this runs on scene-linear data after
+    /// the vignette and before picture formation. `HalationProfile` owns the physics;
+    /// this owns the blurs and the accumulation, which is the same split the GPU path
+    /// uses.
+    static func applyHalation(_ image: ImageBuffer, film: FilmChain,
+                              longEdge: Int) -> ImageBuffer {
+        // The same accessor the graph uses, so the two stages cannot be handed
+        // different profiles for the same recipe.
+        let profile = film.halation(longEdgePixels: longEdge)
+        guard profile.strengths.maxComponent > 0 else { return image }
+
+        let energy = image.map { profile.highlightEnergy($0) }
+        var glow = ImageBuffer(width: image.width, height: image.height)
+        var weight = 1.0
+        var contributed = false
+        for sigma in profile.sigmasInPixels where sigma > 0 {
+            let blurred = SpatialOps.gaussianBlur(energy, sigma: sigma)
+            for y in 0..<glow.height {
+                for x in 0..<glow.width {
+                    glow[x, y] = glow[x, y] + blurred[x, y] * weight
+                }
+            }
+            contributed = true
+            weight *= profile.decay
+        }
+        guard contributed else { return image }
+
+        var out = image
+        for y in 0..<out.height {
+            for x in 0..<out.width {
+                out[x, y] = profile.combine(image[x, y], blurred: glow[x, y])
+            }
+        }
+        return out
     }
 
     static func applyGrain(_ image: ImageBuffer, film: FilmChain, seed: UInt64,

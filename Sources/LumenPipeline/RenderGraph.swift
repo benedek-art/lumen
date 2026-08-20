@@ -324,7 +324,12 @@ public struct RenderGraph {
                              longEdge: Int) -> CIImage {
         let filter = CIFilter.unsharpMask()
         filter.inputImage = image.clampedToExtent()
-        filter.radius = Float(Num.clamp(sharpen.radius, 0.2, 5))
+        // `unsharpRadius`, not `radius`: Detail was read by nothing here while the
+        // panel shipped it as a live slider, and a radius is the one thing a stock
+        // unsharp mask can honestly carry it in. Masking and halo suppression have no
+        // expression in this filter and are still unimplemented on this path — see the
+        // note on `ManualSharpen.unsharpRadius`.
+        filter.radius = Float(sharpen.unsharpRadius)
         filter.intensity = Float(Num.clamp(sharpen.amount / 100.0, 0, 1.5))
         return filter.outputImage?.cropped(to: image.extent) ?? image
     }

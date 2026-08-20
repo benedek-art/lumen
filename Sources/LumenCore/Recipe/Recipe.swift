@@ -388,6 +388,29 @@ public struct ManualSharpen: Codable, Equatable, Sendable {
         self.masking = masking
         self.haloSuppression = haloSuppression
     }
+
+    /// The radius a stock unsharp mask should use to stand in for `radius` + `detail`.
+    ///
+    /// The GPU path sharpens with `CIUnsharpMask`, which takes a radius and an
+    /// intensity and nothing else — so `detail`, `masking` and `haloSuppression` were
+    /// read by NOTHING there, while the panel shipped all three as live sliders and the
+    /// reference implementation applied all three correctly.
+    ///
+    /// Detail is the one of the three a radius can honestly carry: on the reference
+    /// path it weights the two finest wavelet bands, which is the same statement as
+    /// "sharpen at a smaller scale". So Detail 100 pulls the radius toward its floor
+    /// and Detail 0 leaves it where the Radius slider put it. Masking and halo
+    /// suppression have no expression in a stock unsharp mask at all — an edge gate and
+    /// an asymmetric overshoot clamp are per-pixel decisions the filter does not offer.
+    /// Those two remain unimplemented on the GPU path, which the panel now says rather
+    /// than implying otherwise.
+    public var unsharpRadius: Double {
+        let base = Num.clamp(radius.isFinite ? radius : 1.0, 0.5, 3.0)
+        let fine = Num.clamp(detail.isFinite ? detail : 0, 0, 100) / 100
+        // Toward half the base radius at Detail 100 — the finest band the reference
+        // weights is about one octave below the nominal one.
+        return Num.clamp(base * (1 - 0.5 * fine), 0.2, 5)
+    }
 }
 
 /// Two-tier denoise (D26). `ai` results are cached artifacts, never files (docs/07).
