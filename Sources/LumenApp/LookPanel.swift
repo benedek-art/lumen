@@ -405,6 +405,11 @@ struct LookPanel: View {
                                                 set: { $0.amount = Num.clamp($1, 0, 100) }),
                                 range: 0...100, defaultValue: 100, step: 1, decimals: 0,
                                 bipolar: false)
+                    LumenSlider(title: "Film Exposure",
+                                value: bindFilm("film.exposure",
+                                                get: { $0.exposure },
+                                                set: { $0.exposure = Num.clamp($1, -2, 3) }),
+                                range: -2...3, defaultValue: 0, step: 0.25, decimals: 2)
                     LumenSlider(title: "Push / Pull",
                                 value: bindFilm("film.push",
                                                 get: { $0.pushPull },

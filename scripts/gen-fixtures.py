@@ -357,8 +357,9 @@ def gen_canonical_fixture():
     c["look"]["wheels"]["shadows"] = {"hue": 18, "sat": 0.06, "lum": -0.04}
     c["look"]["printerLights"]["master"] = 3
     c["look"]["printerLights"]["r"] = -1
-    c["look"]["filmLab"] = {"stock": "lumen/portra400", "amount": 100, "pushPull": 0,
-                            "halation": 35, "grain": {"size": 1, "amount": 40}}
+    c["look"]["filmLab"] = {"stock": "lumen/portra400", "amount": 100, "exposure": 0,
+                            "pushPull": 0, "halation": 35,
+                            "grain": {"size": 1, "amount": 40}}
     c["masks"] = [{
         "id": "6f000000-0000-0000-0000-00000000la01",
         "name": "Sky", "enabled": True, "amount": 100,

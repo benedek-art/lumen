@@ -112,7 +112,13 @@ public struct RenderPlan: Sendable {
 
         let chain: FilmChain?
         if let film = look.filmLab, film.amount > 0, FilmStock.named(film.stock) != nil {
-            chain = FilmChain(film, displayWhite: transform.white)
+            // `FilmChain(_:displayWhite:)` is the convenience initializer, and it
+            // delegates with `filmExposure: 0`. Using it here pinned Film Exposure to
+            // zero on every render in the app: the engine honours the value, clamps it
+            // to −2…+3 and threads it through the whole chain, and nothing outside a
+            // test ever passed one.
+            chain = FilmChain(film, filmExposure: film.exposure,
+                              displayWhite: transform.white)
         } else {
             chain = nil
         }

@@ -150,16 +150,25 @@ public struct PrinterLights: Codable, Equatable, Sendable {
 public struct FilmLab: Codable, Equatable, Sendable {
     public var stock: String        // e.g. "lumen/portra400"
     public var amount: Double       // 0…100 blend with the neutral rendering
+    /// Pre-curve exposure INTO the stock, −2…+3 EV. Not the same control as Develop's
+    /// Exposure: the characteristic curves live in log exposure, so shifting the scene
+    /// along that axis moves it into a different part of the stock's latitude — the
+    /// pastel highlights of an overexposed negative, the thick shadows of a pulled one.
+    /// docs/05 calls this the thing no preset pack can express, and it is exactly why
+    /// it cannot be emulated by putting Exposure ahead of the film stage.
+    public var exposure: Double
     public var pushPull: Double     // −1…+2 stops (couples curve+grain+crossover, docs/05)
     public var halation: Double     // 0…100
     public var grain: FilmGrain
     public var printSize: String?   // grain anchor, e.g. "8x10"; nil = long-edge default
 
-    public init(stock: String, amount: Double = 100, pushPull: Double = 0,
+    public init(stock: String, amount: Double = 100, exposure: Double = 0,
+                pushPull: Double = 0,
                 halation: Double = 0, grain: FilmGrain = FilmGrain(),
                 printSize: String? = nil) {
         self.stock = stock
         self.amount = amount
+        self.exposure = exposure
         self.pushPull = pushPull
         self.halation = halation
         self.grain = grain
