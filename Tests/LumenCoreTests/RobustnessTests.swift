@@ -577,6 +577,78 @@ final class RobustnessTests: XCTestCase {
         XCTAssertFalse(base.rendersSameAs(nudged))
     }
 
+    // MARK: - A slider must keep doing more, and must not move another slider
+
+    /// Two properties the monotonicity limiter broke while fixing an inversion.
+    ///
+    /// The first version solved ONE scale over the whole zonal sum and clipped hard at
+    /// it. Highlights' window lives above mid-grey and Shadows' below — disjoint — so
+    /// the constraint that binds is always in one of them, and multiplying the sum cut
+    /// the other one down with it: Highlights at −100 turned Shadows +60 into an
+    /// effective +33.8, which made the Highlights slider's meaning depend on Shadows,
+    /// Contrast and Whites. And the hard clip left 43 of the top 44 settings of
+    /// Highlights applying one identical value.
+    ///
+    /// Every assertion that existed still passed, because they check fixed points,
+    /// anchor geometry and monotonicity in x — all of which a slider that returns zero
+    /// also satisfies.
+    func testHighlightsAndShadowsKeepDoingMoreAndLeaveEachOtherAlone() {
+        for contrast in [0.0, -60, 60] {
+            for direction in [1.0, -1.0] {
+                var previousHigh = -1.0
+                var previousLow = -1.0
+                for setting in 0...100 {
+                    let amount = direction * Double(setting)
+                    let high = abs(ToneEngine(tone: Tone(contrast: contrast,
+                                                         highlights: amount))
+                        .effectiveHighlights)
+                    let low = abs(ToneEngine(tone: Tone(contrast: contrast,
+                                                        shadows: amount))
+                        .effectiveShadows)
+                    if setting >= 2 {
+                        XCTAssertGreaterThan(
+                            high, previousHigh,
+                            "Highlights \(amount) at contrast \(contrast) applied no "
+                                + "more than \(amount - direction) did")
+                        XCTAssertGreaterThan(
+                            low, previousLow,
+                            "Shadows \(amount) at contrast \(contrast) applied no more "
+                                + "than \(amount - direction) did")
+                    }
+                    previousHigh = high
+                    previousLow = low
+                }
+            }
+        }
+
+        // Independence. The windows share no domain, so there is no honest reason for
+        // one to move the other.
+        for contrast in [0.0, -60, 60] {
+            for whites in [0.0, 100] {
+                let alone = ToneEngine(tone: Tone(contrast: contrast, shadows: 60,
+                                                  whites: whites)).effectiveShadows
+                for highlights in [-100.0, -50, 50, 100] {
+                    let together = ToneEngine(tone: Tone(contrast: contrast,
+                                                         highlights: highlights,
+                                                         shadows: 60, whites: whites))
+                        .effectiveShadows
+                    XCTAssertEqual(together, alone, accuracy: 1e-12,
+                                   "Highlights \(highlights) moved Shadows +60 from "
+                                       + "\(alone) to \(together)")
+                }
+            }
+        }
+
+        // And the limiter is not touching ordinary settings: below the knee the slider
+        // is applied exactly, or the fix has weakened the control everywhere to buy
+        // safety at one end.
+        for setting in [10.0, 25, 40] {
+            XCTAssertEqual(ToneEngine(tone: Tone(highlights: -setting))
+                .effectiveHighlights, -setting / 100, accuracy: 1e-12,
+                "Highlights −\(setting) was already being limited")
+        }
+    }
+
     // MARK: - Monotonicity across the whole slider
 
     /// A brighter input must never render darker. The contrast relax window used to be

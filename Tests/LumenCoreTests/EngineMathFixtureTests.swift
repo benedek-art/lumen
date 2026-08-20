@@ -106,10 +106,14 @@ final class EngineMathFixtureTests: XCTestCase {
             let label = "hi \(tone.highlights) sh \(tone.shadows) contrast \(tone.contrast)"
 
             // The monotonicity solve is the interesting one: it is a numerical
-            // search, so a mismatch means the two searches disagree rather than
-            // that one arithmetic expression was mistyped.
-            XCTAssertEqual(engine.zonalScale, double(row, "zonalScale"), accuracy: 1e-9,
-                           "zonal scale diverged for \(label)")
+            // search per window, so a mismatch means the two searches disagree rather
+            // than that one arithmetic expression was mistyped.
+            XCTAssertEqual(engine.effectiveHighlights,
+                           double(row, "effectiveHighlights"), accuracy: 1e-9,
+                           "applied highlights diverged for \(label)")
+            XCTAssertEqual(engine.effectiveShadows,
+                           double(row, "effectiveShadows"), accuracy: 1e-9,
+                           "applied shadows diverged for \(label)")
 
             guard let stops = row["stops"] as? [[String: Any]] else {
                 return XCTFail("tone row carried no stops for \(label)")

@@ -1965,6 +1965,25 @@ DEFAULT_WHITE_ANCHOR_EV = 5.0
 DEFAULT_BLACK_ANCHOR_EV = -9.0
 
 
+ZONAL_KNEE = 0.8
+
+
+def soft_limited(amount, cap):
+    """Exact below ZONAL_KNEE x cap, then approaching cap without reaching it —
+    strictly increasing in `amount`, which the hard clip was not."""
+    if not math.isfinite(amount):
+        return 0.0
+    if cap >= 1:
+        return amount
+    if cap <= 0:
+        return 0.0
+    u = abs(amount) / cap
+    if u <= ZONAL_KNEE:
+        return amount
+    eased = ZONAL_KNEE + (1 - ZONAL_KNEE) * (1 - math.exp(-(u - ZONAL_KNEE) / (1 - ZONAL_KNEE)))
+    return -eased * cap if amount < 0 else eased * cap
+
+
 def raised_cosine(t):
     u = min(max(t, 0.0), 1.0)
     return 0.5 * (1 - math.cos(math.pi * u))
@@ -1982,30 +2001,41 @@ class ToneEngine:
         b = min(max(blacks, -100.0), 100.0) / 100
         self.white_anchor_ev = DEFAULT_WHITE_ANCHOR_EV - WHITE_BLACK_RANGE_EV * w
         self.black_anchor_ev = DEFAULT_BLACK_ANCHOR_EV - WHITE_BLACK_RANGE_EV * b
-        self.zonal_scale = self._solve_zonal_scale()
+        self.effective_highlights = self._solve_effective("highlights")
+        self.effective_shadows = self._solve_effective("shadows")
 
     def _zonal_stops(self, t):
         s = 0.0
-        if self.highlights != 0:
-            s += self.highlights * HL_SH_RANGE_EV * self.highlight_weight(t)
-        if self.shadows != 0:
-            s += self.shadows * HL_SH_RANGE_EV * self.shadow_weight(t)
+        if self.effective_highlights != 0:
+            s += self.effective_highlights * HL_SH_RANGE_EV * self.highlight_weight(t)
+        if self.effective_shadows != 0:
+            s += self.effective_shadows * HL_SH_RANGE_EV * self.shadow_weight(t)
         return s
 
-    def _solve_zonal_scale(self):
-        if self.highlights == 0 and self.shadows == 0:
-            return 1.0
-        step, margin, scale = 0.02, 0.02, 1.0
-        t = self.black_anchor_ev
-        while t <= self.white_anchor_ev:
+    def _solve_effective(self, window):
+        """Per window, then eased onto the cap. See ToneEngine.solveEffective — a
+        single scale over the SUM coupled two sliders whose windows are disjoint, so
+        Highlights at −100 cut a Shadows setting of +60 down to +33.8; and a hard cap
+        left the top 43% of Highlights applying one identical value."""
+        raw = self.highlights if window == "highlights" else self.shadows
+        if raw == 0:
+            return 0.0
+        step, margin, cap = 0.02, 0.02, 1.0
+        t = 0.0 if window == "highlights" else self.black_anchor_ev
+        through = self.white_anchor_ev if window == "highlights" else 0.0
+        while t <= through:
             a = t + step
             fixed = (contrast_mapped(a, self.contrast, self.pivot)
                      - contrast_mapped(t, self.contrast, self.pivot)) / step
-            zonal = (self._zonal_stops(a) - self._zonal_stops(t)) / step
-            if zonal < 0:
-                scale = min(scale, max((fixed - margin) / -zonal, 0.0))
+            if window == "highlights":
+                dw = self.highlight_weight(a) - self.highlight_weight(t)
+            else:
+                dw = self.shadow_weight(a) - self.shadow_weight(t)
+            contribution = dw / step * HL_SH_RANGE_EV * (-1 if raw < 0 else 1)
+            if contribution < 0:
+                cap = min(cap, max((fixed - margin) / -contribution, 0.0))
             t += step
-        return min(max(scale, 0.0), 1.0)
+        return soft_limited(raw, min(max(cap, 0.0), 1.0))
 
     @property
     def exposure_gain(self):
@@ -2024,7 +2054,7 @@ class ToneEngine:
         return raised_cosine(math.sin(math.pi * (t / lo)))
 
     def stops(self, t):
-        s = self._zonal_stops(t) * self.zonal_scale
+        s = self._zonal_stops(t)   # already carries the solved amounts
         s += contrast_mapped(t, self.contrast, self.pivot) - t
         return s
 
@@ -2107,7 +2137,50 @@ def gen_tone_checks():
                 check(abs(dt.tone(MID_GREY * tone.gain(0.0)) - MID_GREY) < 2e-3,
                       "a default recipe did not land mid-grey on 0.18")
 
+    # --- the sliders must keep doing more, and must not move each other ------
+    #
+    # Neither property was checked, and both were false. A single scale over the
+    # whole zonal SUM coupled two disjoint windows, so Highlights at -100 cut a
+    # Shadows setting of +60 down to an effective +33.8; and capping hard left
+    # Highlights 57..100 all applying one identical value, dead over the top 43%
+    # of the control. Every assertion above passes for a Highlights slider that
+    # returns zero always, which is why neither showed up.
+    for slider in ("highlights", "shadows"):
+        for direction in (1, -1):
+            for contrast in (0.0, -60.0, 60.0):
+                previous = None
+                for setting in range(0, 101):
+                    kw = {slider: direction * setting, "contrast": contrast}
+                    e = ToneEngine(**kw)
+                    applied = abs(e.effective_highlights if slider == "highlights"
+                                  else e.effective_shadows)
+                    if previous is not None:
+                        check(applied >= previous - 1e-12,
+                              f"{slider} at {direction * setting} (contrast {contrast}) "
+                              f"applied LESS than at {direction * (setting - 1)}: "
+                              f"{applied:.6f} vs {previous:.6f}")
+                        check(setting < 2 or applied > previous + 1e-9,
+                              f"{slider} at {direction * setting} (contrast {contrast}) "
+                              f"applied exactly what {direction * (setting - 1)} did "
+                              f"({applied:.9f}) — the control is dead here")
+                    previous = applied
+
+    # Moving one must not move the other. Their windows are disjoint, so there is
+    # no honest reason for it, and the shared scale was doing it.
+    for contrast in (0.0, -60.0, 60.0):
+        for whites in (0.0, 100.0):
+            baseline = ToneEngine(shadows=60, contrast=contrast,
+                                  whites=whites).effective_shadows
+            for h in (-100.0, -50.0, 50.0, 100.0):
+                got = ToneEngine(shadows=60, highlights=h, contrast=contrast,
+                                 whites=whites).effective_shadows
+                check(abs(got - baseline) < 1e-12,
+                      f"Highlights {h} moved Shadows +60 from {baseline:.6f} to "
+                      f"{got:.6f} (contrast {contrast}, whites {whites})")
+
     print("  zonal fixed points, anchor geometry, and a monotone composed picture")
+    print("  every setting of Highlights and Shadows applies more than the last, "
+          "and neither moves the other")
 
 
 # ---------------------------------------------------------------------------
@@ -2740,7 +2813,8 @@ def gen_enginemath_fixture():
                      (50.0, -50.0, -40.0)):
         e = ToneEngine(highlights=h, shadows=sh, contrast=c)
         entry = {"highlights": h, "shadows": sh, "contrast": c,
-                 "zonalScale": e.zonal_scale, "stops": []}
+                 "effectiveHighlights": e.effective_highlights,
+                 "effectiveShadows": e.effective_shadows, "stops": []}
         for t in (-8.0, -4.0, -1.0, 0.0, 1.0, 3.0, 5.0):
             entry["stops"].append({"t": t, "value": e.stops(t)})
         tone.append(entry)

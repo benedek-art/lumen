@@ -37,10 +37,15 @@ public struct ToneEngine: Sendable {
     public static let defaultWhiteAnchorEV: Double = 5.0
     public static let defaultBlackAnchorEV: Double = -9.0
 
-    /// What the Highlights and Shadows contributions are multiplied by so the tone
-    /// response cannot invert. 1 whenever the sliders are already safe, which is
-    /// almost always.
-    public let zonalScale: Double
+    /// What the Highlights slider actually applies, normalized to −1…1.
+    ///
+    /// Equal to `highlights / 100` until the monotonicity limit binds, then approaching
+    /// that limit smoothly. Exposed so the panel can show the applied value the way it
+    /// shows a resolved denoise default — a slider whose top half does nothing is bad,
+    /// and a slider whose top half does nothing *silently* is worse.
+    public let effectiveHighlights: Double
+    /// The same for Shadows. Solved separately, because the two windows are disjoint.
+    public let effectiveShadows: Double
 
     public init(tone: Tone = Tone(), zones: Zones = Zones()) {
         self.tone = tone
@@ -51,8 +56,10 @@ public struct ToneEngine: Sendable {
         let lo = Self.defaultBlackAnchorEV - Self.whiteBlackRangeEV * blacks
         self.whiteAnchorEV = hi
         self.blackAnchorEV = lo
-        self.zonalScale = Self.solveZonalScale(tone: tone, whiteAnchorEV: hi,
-                                               blackAnchorEV: lo)
+        self.effectiveHighlights = Self.solveEffective(
+            .highlights, tone: tone, whiteAnchorEV: hi, blackAnchorEV: lo)
+        self.effectiveShadows = Self.solveEffective(
+            .shadows, tone: tone, whiteAnchorEV: hi, blackAnchorEV: lo)
     }
 
     /// The largest multiple of the Highlights/Shadows contribution that keeps
@@ -70,55 +77,105 @@ public struct ToneEngine: Sendable {
     /// the same window is nearly twice as wide, so its slope is 0.97 and it inverts
     /// only once Blacks pulls the anchor in.
     ///
-    /// Rather than shrink the range for everybody, this solves for the largest scale
-    /// that stays monotone. Every contribution but the zonal one is fixed, and the
-    /// zonal one is linear in the scale, so one pass over the domain gives it in
-    /// closed form. At every default and most real settings it returns 1.
-    static func solveZonalScale(tone: Tone, whiteAnchorEV: Double,
-                                blackAnchorEV: Double) -> Double {
-        let h = Num.clamp(tone.highlights, -100, 100) / 100
-        let sh = Num.clamp(tone.shadows, -100, 100) / 100
-        guard h != 0 || sh != 0 else { return 1 }
+    /// Rather than shrink the range for everybody, this solves for the largest amount
+    /// that stays monotone, and eases the slider onto it.
+    ///
+    /// PER WINDOW, and that matters. A single scale over the whole zonal sum was the
+    /// first version of this, and it coupled two sliders that share no domain:
+    /// Highlights' window lives above mid-grey and Shadows' below, so the constraint
+    /// that binds is always in one of them — and multiplying the sum then cut the
+    /// *other* one down with it. Highlights at −100 turned a Shadows setting of +60
+    /// into an effective +33.8, and Contrast and Whites moved the same lever, so the
+    /// Highlights slider's meaning depended on three other sliders. Shadows' own cap at
+    /// the defaults is exactly 1.0 — it was never the one at risk.
+    ///
+    /// SOFT, and that matters too. Capping hard at the limit made the top of the slider
+    /// dead: the cap at the defaults is 0.563, so 57 through 100 all applied exactly
+    /// 0.563 — identical to the last bit, over the top 43% of the control. The knee is
+    /// exact up to 80% of the cap (slider 45 at the defaults) and then approaches it
+    /// without reaching it, so every setting is distinct, the response never falls, and
+    /// 100 is the strongest setting. It costs at most 7% against the old hard clip, and
+    /// only between 45 and 100 where the old behaviour was a flat line anyway.
+    enum ZonalWindow { case highlights, shadows }
 
-        let probe = ToneEngine(tone: tone, zones: Zones(), zonalScale: 1)
+    /// Fraction of the cap below which the slider is applied exactly.
+    static let zonalKnee: Double = 0.8
+
+    static func solveEffective(_ window: ZonalWindow, tone: Tone,
+                               whiteAnchorEV: Double,
+                               blackAnchorEV: Double) -> Double {
+        let raw = Num.clamp(window == .highlights ? tone.highlights : tone.shadows,
+                            -100, 100) / 100
+        guard raw != 0 else { return 0 }
+
+        let probe = ToneEngine(tone: tone, zones: Zones(),
+                               effectiveHighlights: 0, effectiveShadows: 0)
         let step = 0.02
         let margin = 0.02
-        var scale = 1.0
-        var t = blackAnchorEV
-        while t <= whiteAnchorEV {
+        // Each window's own domain. They meet only at mid-grey, where both weights are
+        // zero, so nothing is missed by splitting the sweep here.
+        let from = window == .highlights ? 0.0 : blackAnchorEV
+        let through = window == .highlights ? whiteAnchorEV : 0.0
+
+        var cap = 1.0
+        var t = from
+        while t <= through {
             let a = t + step
-            // `t + stops(t)` is `contrastMapped(t) + scale·zonal(t) + zonePanel(t)`,
-            // so the slope splits into a part the scale does not touch and a part
-            // that is linear in it. The Zones panel is deliberately outside this
-            // guarantee: it is the explicit power tool, and clamping it would be
-            // taking away the thing it is for.
+            // `t + stops(t)` is `contrastMapped(t) + zonal(t) + zonePanel(t)`, so the
+            // slope splits into a part this amount does not touch and a part linear in
+            // it. The Zones panel is deliberately outside the guarantee: it is the
+            // explicit power tool, and clamping it would be taking away the thing it
+            // is for.
             let fixedSlope = (probe.contrastMapped(a) - probe.contrastMapped(t)) / step
-            let zonal = (probe.zonalStops(a) - probe.zonalStops(t)) / step
-            if zonal < 0 {
-                scale = Swift.min(scale, Swift.max((fixedSlope - margin) / -zonal, 0))
+            let weight = window == .highlights
+                ? (probe.highlightWeight(a) - probe.highlightWeight(t))
+                : (probe.shadowWeight(a) - probe.shadowWeight(t))
+            let unit = weight / step * Self.highlightShadowRangeEV
+            // `unit` is the slope this window contributes per unit of amount. Only the
+            // direction that fights the identity's rise can invert anything.
+            let contribution = unit * (raw < 0 ? -1 : 1)
+            if contribution < 0 {
+                cap = Swift.min(cap, Swift.max((fixedSlope - margin) / -contribution, 0))
             }
             t += step
         }
-        return Num.clamp(scale, 0, 1)
+        return Self.softLimited(raw, cap: Num.clamp(cap, 0, 1))
     }
 
-    private init(tone: Tone, zones: Zones, zonalScale: Double) {
+    /// Exact below `zonalKnee × cap`, then approaching `cap` asymptotically. Strictly
+    /// increasing in `amount` everywhere, which is the property the hard clip lost.
+    static func softLimited(_ amount: Double, cap: Double) -> Double {
+        guard amount.isFinite else { return 0 }
+        guard cap < 1 else { return amount }
+        guard cap > 0 else { return 0 }
+        let u = abs(amount) / cap
+        let knee = Self.zonalKnee
+        guard u > knee else { return amount }
+        let eased = knee + (1 - knee) * (1 - exp(-(u - knee) / (1 - knee)))
+        return amount < 0 ? -eased * cap : eased * cap
+    }
+
+    private init(tone: Tone, zones: Zones,
+                 effectiveHighlights: Double, effectiveShadows: Double) {
         self.tone = tone
         self.zones = zones
         let whites = Num.clamp(tone.whites, -100, 100) / 100
         let blacks = Num.clamp(tone.blacks, -100, 100) / 100
         self.whiteAnchorEV = Self.defaultWhiteAnchorEV - Self.whiteBlackRangeEV * whites
         self.blackAnchorEV = Self.defaultBlackAnchorEV - Self.whiteBlackRangeEV * blacks
-        self.zonalScale = zonalScale
+        self.effectiveHighlights = effectiveHighlights
+        self.effectiveShadows = effectiveShadows
     }
 
-    /// The Highlights + Shadows contribution alone, before `zonalScale`.
+    /// The Highlights + Shadows contribution, at the amounts actually applied.
     func zonalStops(_ t: Double) -> Double {
         var s = 0.0
-        let h = Num.clamp(tone.highlights, -100, 100) / 100
-        let sh = Num.clamp(tone.shadows, -100, 100) / 100
-        if h != 0 { s += h * Self.highlightShadowRangeEV * highlightWeight(t) }
-        if sh != 0 { s += sh * Self.highlightShadowRangeEV * shadowWeight(t) }
+        if effectiveHighlights != 0 {
+            s += effectiveHighlights * Self.highlightShadowRangeEV * highlightWeight(t)
+        }
+        if effectiveShadows != 0 {
+            s += effectiveShadows * Self.highlightShadowRangeEV * shadowWeight(t)
+        }
         return s
     }
 
@@ -192,7 +249,8 @@ public struct ToneEngine: Sendable {
     /// The six sliders and the Zones panel compose by summing their stop fields —
     /// one engine, two registers, never two parallel tools.
     public func stops(at t: Double) -> Double {
-        var s = zonalStops(t) * zonalScale
+        // `zonalStops` already carries the solved amounts, per window.
+        var s = zonalStops(t)
         s += contrastMapped(t) - t
         s += zonePanelStops(t)
         return s
