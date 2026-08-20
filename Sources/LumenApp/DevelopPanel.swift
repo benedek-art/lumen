@@ -278,6 +278,8 @@ struct DevelopPanel: View {
         switch state.activeSection {
         case .basic:
             scrollColumn { BasicPanel() }
+        case .zones:
+            scrollColumn { ZonesPanel() }
         case .detail:
             scrollColumn { DetailPanel() }
         case .effects:

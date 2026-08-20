@@ -860,6 +860,101 @@ final class RobustnessTests: XCTestCase {
         }
     }
 
+    // MARK: - The Zones register
+
+    /// Each zone moves its OWN pivot and nobody else's.
+    ///
+    /// This is the contract the Zones panel is built on: five named zones over a
+    /// partition of unity, so lifting Shadows by a stop lifts the shadows by a stop and
+    /// leaves the midtones exactly where they were. Worth asserting because the panel
+    /// did not exist until now — the engine was complete, tested at the weight level,
+    /// and unreachable, so nothing had ever checked the register end to end.
+    func testEachZoneMovesItsOwnPivotAndNoOther() {
+        let names = ["dark", "shadow", "mid", "light", "bright"]
+        let paths: [WritableKeyPath<Zones, ZoneAdjust>] = [
+            \.dark, \.shadow, \.mid, \.light, \.bright,
+        ]
+        let pivots = Zones.defaultPivots
+
+        for (index, path) in paths.enumerated() {
+            var zones = Zones()
+            zones[keyPath: path].ev = 1
+            let engine = ToneEngine(tone: Tone(), zones: zones)
+
+            for (other, pivot) in pivots.enumerated() {
+                // The pivot is a position on the normalized axis; the engine takes EV.
+                let ev = engine.blackAnchorEV
+                    + pivot * (engine.whiteAnchorEV - engine.blackAnchorEV)
+                let stops = engine.zonePanelStops(ev)
+                if other == index {
+                    XCTAssertEqual(stops, 1, accuracy: 1e-9,
+                                   "\(names[index]) at +1 EV moved its own pivot by "
+                                       + "\(stops) rather than a stop")
+                } else {
+                    XCTAssertEqual(stops, 0, accuracy: 1e-9,
+                                   "\(names[index]) at +1 EV moved the \(names[other]) "
+                                       + "pivot by \(stops)")
+                }
+            }
+        }
+    }
+
+    /// Global is a flat trim, not a zone: the same number everywhere on the axis.
+    func testTheGlobalZoneTrimIsFlat() {
+        var zones = Zones()
+        zones.global.ev = 0.5
+        let engine = ToneEngine(tone: Tone(), zones: zones)
+        for step in 0...40 {
+            let t = Double(step) / 40
+            let ev = engine.blackAnchorEV
+                + t * (engine.whiteAnchorEV - engine.blackAnchorEV)
+            XCTAssertEqual(engine.zonePanelStops(ev), 0.5, accuracy: 1e-9,
+                           "the global trim varied along the axis at t = \(t)")
+        }
+    }
+
+    /// Dragging a pivot moves where that zone acts — the reason the strip has handles.
+    func testMovingAPivotMovesWhereTheZoneActs() {
+        func peak(_ pivots: [Double]) -> Double {
+            var zones = Zones(pivots: pivots)
+            zones.mid.ev = 1
+            let engine = ToneEngine(tone: Tone(), zones: zones)
+            var best = 0.0
+            var bestAt = 0.0
+            for step in 0...200 {
+                let t = Double(step) / 200
+                let ev = engine.blackAnchorEV
+                    + t * (engine.whiteAnchorEV - engine.blackAnchorEV)
+                let stops = engine.zonePanelStops(ev)
+                if stops > best { best = stops; bestAt = t }
+            }
+            return bestAt
+        }
+        XCTAssertEqual(peak(Zones.defaultPivots), 0.5, accuracy: 0.01)
+        XCTAssertEqual(peak([0.08, 0.25, 0.62, 0.75, 0.92]), 0.62, accuracy: 0.01,
+                       "moving the midtone pivot did not move where the zone peaks")
+    }
+
+    /// A zone edit has to reach the picture, not just the engine — the failure that
+    /// kept the whole register invisible was that nothing wrote `develop.zones`.
+    func testAZoneLiftChangesTheRenderedPicture() {
+        let source = everythingSource()
+        var recipe = Recipe()
+        let plain = ReferenceRenderer.render(source, plan: RenderPlan(recipe: recipe))
+
+        recipe.develop.zones.shadow.ev = 1.0
+        let lifted = ReferenceRenderer.render(source, plan: RenderPlan(recipe: recipe))
+
+        var worst = 0.0
+        for y in 0..<plain.height {
+            for x in 0..<plain.width {
+                worst = Swift.max(worst, plain[x, y].maxAbsDifference(lifted[x, y]))
+            }
+        }
+        XCTAssertGreaterThan(worst, 1e-4,
+                             "a +1 EV shadow zone changed the render by \(worst)")
+    }
+
     // MARK: - Monotonicity across the whole slider
 
     /// A brighter input must never render darker. The contrast relax window used to be

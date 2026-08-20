@@ -124,6 +124,7 @@ enum ViewMode: String, Sendable {
 /// default; depth is one disclosure away (D3).
 enum PanelSection: String, CaseIterable, Identifiable, Sendable {
     case basic = "Basic"
+    case zones = "Zones"
     case curve = "Curve"
     case color = "Color"
     case detail = "Detail"
@@ -136,6 +137,7 @@ enum PanelSection: String, CaseIterable, Identifiable, Sendable {
     var symbolName: String {
         switch self {
         case .basic: return "slider.horizontal.3"
+        case .zones: return "square.stack.3d.down.right"
         case .curve: return "point.topleft.down.curvedto.point.bottomright.up"
         case .color: return "paintpalette"
         case .detail: return "wand.and.rays"
