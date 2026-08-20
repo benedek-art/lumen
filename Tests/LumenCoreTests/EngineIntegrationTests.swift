@@ -1232,31 +1232,58 @@ final class EngineIntegrationTests: XCTestCase {
     }
 
     /// The tables are an optimization; this bounds what they cost.
-    func testBakedTablesTrackTheExactEvaluation() {
+    /// What the tables cost at the size the user is actually LOOKING at.
+    ///
+    /// This used to duplicate `testExportTableErrorStaysUnderOnePercent` — same shape,
+    /// same export cube, a weaker recipe and a 2% tolerance against that one's 1%. It
+    /// could not fail unless the tighter one already had, which makes it dead weight.
+    ///
+    /// The uncovered question is the interactive cube, which is smaller and therefore
+    /// interpolates more coarsely, and which is what the loupe and the grid are drawn
+    /// from. Two things have to hold: the preview's own error against the exact
+    /// evaluation is bounded, and the preview agrees with the export closely enough
+    /// that what the photographer approves is what gets delivered.
+    func testTheInteractiveTableAgreesWithTheExportOne() {
         var recipe = Recipe()
         recipe.develop.tone.contrast = 30
         recipe.develop.color.saturation = 20
         recipe.look.wheels.shadows = Wheel(hue: 220, sat: 0.3, lum: 0)
-        let plan = RenderPlan(recipe: recipe, lutSize: LUT3D.exportSize)
+        let preview = RenderPlan(recipe: recipe, lutSize: LUT3D.interactiveSize)
+        let export = RenderPlan(recipe: recipe, lutSize: LUT3D.exportSize)
 
-        var worst = 0.0
+        var worstAgainstExact = 0.0
+        var worstAgainstExport = 0.0
         var where_ = ""
         for i in 0...24 {
             let ev = -7 + Double(i) * 0.5
             for hue in stride(from: 0.0, to: 360.0, by: 45.0) {
-                let lch = OKLCh(L: 0.5, C: 0.1, h: hue)
-                let tint = OKLabTransform.working.toRGB(lch)
-                let normalized = tint / Swift.max(tint.maxComponent, 1e-6)
-                let scene = normalized * (0.18 * pow(2.0, ev))
-                let approximated = plan.referenceColor(scene)
-                let exact = plan.exactColor(scene)
-                let d = approximated.maxAbsDifference(exact)
-                if d > worst {
-                    worst = d
-                    where_ = "\(ev) EV hue \(hue): scene \(scene) table \(approximated) exact \(exact)"
+                for chroma in [0.02, 0.10, 0.20] {
+                    let tint = OKLabTransform.working.toRGB(
+                        OKLCh(L: 0.5, C: chroma, h: hue))
+                    let normalized = tint / Swift.max(tint.maxComponent, 1e-6)
+                    let scene = normalized * (0.18 * pow(2.0, ev))
+                    let exact = preview.exactColor(scene)
+                    let previewed = preview.referenceColor(scene)
+                    let exported = export.referenceColor(scene)
+                    let d = previewed.maxAbsDifference(exact)
+                    if d > worstAgainstExact {
+                        worstAgainstExact = d
+                        where_ = "\(ev) EV hue \(hue) C \(chroma): scene \(scene) "
+                            + "preview \(previewed) exact \(exact)"
+                    }
+                    worstAgainstExport = Swift.max(
+                        worstAgainstExport, previewed.maxAbsDifference(exported))
                 }
             }
         }
-        XCTAssertLessThan(worst, 0.02, "table interpolation error reached \(worst) at \(where_)")
+        // Looser than the export cube's 1% because the interactive cube is smaller on
+        // purpose — that is the trade it exists to make.
+        XCTAssertLessThan(worstAgainstExact, 0.02,
+                          "interactive table error reached \(worstAgainstExact) "
+                              + "at \(where_)")
+        // And the two must not disagree with each other by more than the sum of their
+        // own errors, or the loupe is showing a different picture from the delivery.
+        XCTAssertLessThan(worstAgainstExport, 0.03,
+                          "preview and export disagreed by \(worstAgainstExport)")
     }
 }

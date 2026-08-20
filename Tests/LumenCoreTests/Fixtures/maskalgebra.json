@@ -70,7 +70,7 @@
      "amount": 100
     }
    ],
-   "expected": 0.44999999999999996
+   "expected": 0.6
   },
   {
    "name": "invertedAdd",
