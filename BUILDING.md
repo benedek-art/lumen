@@ -282,6 +282,18 @@ changed the picture.
 
 ### Still open, from those audits
 
+- **A rendered file gets Lumen's display transform on top of the one already baked in.**
+  JPEG/HEIC/PNG/TIFF now decode and edit (`RenderedImageSource`), which they could not
+  before — the loupe threw `.undecodable` and every develop slider moved a value that
+  reached no pixels. Colour handling is Core Image's: the file's profile converts into
+  the linear Rec.2020 working space, which puts mid-grey at 0.18 by construction, so the
+  scene-referred stages are dimensionally correct. What cannot be recovered is headroom
+  and the curve the file already carries, so S14 applies a second tone mapping. The
+  Linear render preset is the honest setting for such a file and nothing picks it
+  automatically — a source that rewrote the user's recipe would be worse than one that
+  renders what the recipe says. Their Temp/Tint are relative to a 5500 K reference
+  rather than a camera neutral, which is docs/04's stated fallback.
+
 - **Per-zone colour, saturation and falloff are a wire format no stage reads.**
   `ZoneAdjust.wheel`, `.sat` and `.falloff` round-trip through the sidecar and the
   catalog and change nothing; `zonePanelStops` takes `.ev` alone, and

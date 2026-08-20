@@ -53,7 +53,7 @@ public final class PipelineRenderer {
 
     // MARK: - Preview
 
-    public func renderPreview(source: AppleRawSource, recipe: Recipe,
+    public func renderPreview(source: any ImageSource, recipe: Recipe,
                               maxLongEdge: Int, draft: Bool,
                               strokeSets: [String: BrushStrokeSet] = [:]) throws -> CGImage {
         // Decode at the target resolution, not the sensor's: a 2560 px preview of a
@@ -87,10 +87,10 @@ public final class PipelineRenderer {
 
     // MARK: - Export
 
-    public func export(source: AppleRawSource, recipe: Recipe, to destination: URL,
+    public func export(source: any ImageSource, recipe: Recipe, to destination: URL,
                        using exportRecipe: ExportRecipe,
                        strokeSets: [String: BrushStrokeSet] = [:]) throws {
-        guard let decoded = source.decode(recipe: recipe, draft: false) else {
+        guard let decoded = source.decode(recipe: recipe, draft: false, scaleFactor: 1.0) else {
             throw RenderError.decodeFailed
         }
         let longEdge = Int(Swift.max(decoded.extent.width, decoded.extent.height))
@@ -129,11 +129,11 @@ public final class PipelineRenderer {
 
     /// Render the SDR base and the HDR rendition off one shared graph, then derive the
     /// gain map from the pair (docs/14 §7: render twice at two peaks, cheaply).
-    public func renderHDRPair(source: AppleRawSource, recipe: Recipe,
+    public func renderHDRPair(source: any ImageSource, recipe: Recipe,
                               settings: HDRSettings,
                               strokeSets: [String: BrushStrokeSet] = [:])
         throws -> (sdr: CIImage, hdr: CIImage) {
-        guard let decoded = source.decode(recipe: recipe, draft: false) else {
+        guard let decoded = source.decode(recipe: recipe, draft: false, scaleFactor: 1.0) else {
             throw RenderError.decodeFailed
         }
         let longEdge = Int(Swift.max(decoded.extent.width, decoded.extent.height))
@@ -346,7 +346,7 @@ public final class PipelineRenderer {
     /// the displayed preview instead would put a luma-range mask's band in the wrong
     /// place, which is exactly the sort of "close enough" that makes an instrument
     /// worse than useless.
-    public func renderMaskAlpha(source: AppleRawSource, recipe: Recipe, maskID: String,
+    public func renderMaskAlpha(source: any ImageSource, recipe: Recipe, maskID: String,
                                 strokeSets: [String: BrushStrokeSet] = [:]) -> CGImage? {
         let plan = RenderPlan(recipe: recipe,
                               asShotKelvin: source.asShotTemperature,
@@ -766,7 +766,7 @@ public final class PipelineRenderer {
     /// Render through the pure-Swift reference implementation instead of the GPU
     /// graph. Slower by orders of magnitude and used deliberately: goldens compare the
     /// two, and a machine whose kernels will not compile still gets correct pixels.
-    public func renderReference(source: AppleRawSource, recipe: Recipe,
+    public func renderReference(source: any ImageSource, recipe: Recipe,
                                 maxLongEdge: Int,
                                 strokeSets: [String: BrushStrokeSet] = [:]) throws -> CGImage {
         let native = source.nativeLongEdge

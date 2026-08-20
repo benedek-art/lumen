@@ -29,7 +29,7 @@ struct RenderResult: @unchecked Sendable {
 actor RenderCoordinator {
 
     private let renderer = PipelineRenderer()
-    private var sources: [URL: AppleRawSource] = [:]
+    private var sources: [URL: any ImageSource] = [:]
     private var latestGeneration: UInt64 = 0
 
     /// Bounded so a fast scroll through a folder cannot pin a hundred decoded RAWs in
@@ -160,13 +160,20 @@ actor RenderCoordinator {
 
     // MARK: - Sources
 
-    private func source(for url: URL) throws -> AppleRawSource {
+    /// Picks the decoder by extension rather than by trying one and catching, because
+    /// `CIRAWFilter(imageURL:)` is not documented to refuse a JPEG — it may return a
+    /// filter that produces something, and a rendered file quietly run through the RAW
+    /// stage would be wrong in ways nobody could see from the picture.
+    private func source(for url: URL) throws -> any ImageSource {
         if let cached = sources[url] {
             sourceOrder.removeAll { $0 == url }
             sourceOrder.append(url)
             return cached
         }
-        let created = try AppleRawSource(url: url)
+        let extensionName = url.pathExtension.lowercased()
+        let created: any ImageSource = PhotoFormats.rendered.contains(extensionName)
+            ? try RenderedImageSource(url: url)
+            : try AppleRawSource(url: url)
         sources[url] = created
         sourceOrder.append(url)
         while sourceOrder.count > Self.sourceCacheLimit, let oldest = sourceOrder.first {
@@ -180,7 +187,7 @@ actor RenderCoordinator {
         if let raw = error as? RawSourceError {
             switch raw {
             case .unreadable: return "file unreadable"
-            case .undecodable: return "no RAW decoder for this file"
+            case .undecodable: return "this file could not be decoded"
             }
         }
         return "render failed"

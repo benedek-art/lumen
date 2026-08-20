@@ -25,7 +25,7 @@ public enum RawSourceError: Error {
     case undecodable(URL)
 }
 
-public final class AppleRawSource {
+public final class AppleRawSource: ImageSource {
 
     private let filter: CIRAWFilter
     public let url: URL
