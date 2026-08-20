@@ -239,6 +239,85 @@ final class EngineTests: XCTestCase {
         XCTAssertLessThanOrEqual(suggestion.exposure, 5)
     }
 
+    /// A histogram piled into a range of bins, on the −12…+12 EV axis over 128 bins.
+    private func autoHistogram(_ range: Range<Int>) -> [Double] {
+        var bins = [Double](repeating: 0, count: 128)
+        for i in range { bins[i] = 100 }
+        return bins
+    }
+
+    /// `AutoTone.suggest` has five guarded branches. Two tests covered it: one asserted
+    /// `exposure` only, the other asserted ranges — which `Tone()` satisfies. Deleting
+    /// the highlights, shadows, whites/blacks and contrast blocks outright left both
+    /// green, nothing ever set `faceMeanEV` so the face path and `contrastPivot` were
+    /// dead, and nothing checked that Auto pulls an overexposed frame DOWN.
+    ///
+    /// Every expected value below was computed by simulating the function against the
+    /// same histogram, so these are what it does, not what it ought to do.
+    func testAutoDrivesEveryBranchItHas() {
+        // Blown: exposure pulls down to its limit and Highlights goes to full recovery.
+        let blown = AutoTone.suggest(from: AutoTone.Statistics(
+            histogram: autoHistogram(100..<126)))
+        XCTAssertEqual(blown.exposure, -5, accuracy: 0.1,
+                       "Auto did not pull an overexposed frame down")
+        XCTAssertEqual(blown.highlights, -100, accuracy: 0.1,
+                       "Auto did not recover blown highlights")
+
+        // A frame spanning the whole axis: both ends need work and the endpoints do
+        // not, which is the case that separates the four branches from one another.
+        let wide = AutoTone.suggest(from: AutoTone.Statistics(
+            histogram: autoHistogram(10..<121)))
+        XCTAssertEqual(wide.highlights, -100, accuracy: 0.1)
+        XCTAssertEqual(wide.shadows, 100, accuracy: 0.1,
+                       "Auto did not lift buried shadows")
+        XCTAssertEqual(wide.whites, 0, accuracy: 0.1,
+                       "Auto opened the endpoints on a frame that already spans them")
+        XCTAssertEqual(wide.blacks, 0, accuracy: 0.1)
+        XCTAssertEqual(wide.contrast, 0, accuracy: 0.1,
+                       "Auto added contrast to a frame that is not compressed")
+
+        // A flat scene: the endpoints open and contrast comes up, gently.
+        let flat = AutoTone.suggest(from: AutoTone.Statistics(
+            histogram: autoHistogram(60..<68)))
+        XCTAssertEqual(flat.whites, 50.08, accuracy: 0.1,
+                       "Auto did not open the whites on a flat scene")
+        XCTAssertEqual(flat.blacks, -41.73, accuracy: 0.1,
+                       "Auto did not open the blacks on a flat scene")
+        XCTAssertEqual(flat.contrast, 31.1, accuracy: 0.1,
+                       "Auto did not add contrast to a compressed midtone")
+        XCTAssertLessThanOrEqual(flat.contrast, 40,
+                                 "Auto that shouts is Auto the user turns off")
+
+        // With a face, exposure anchors on the face rather than the median, and the
+        // contrast pivot moves off zero — the whole face-weighted path, which nothing
+        // had ever exercised because no test set `faceMeanEV`.
+        let face = AutoTone.suggest(from: AutoTone.Statistics(
+            histogram: autoHistogram(60..<69), faceMeanEV: -2.0))
+        XCTAssertEqual(face.exposure, 1.65, accuracy: 0.1,
+                       "Auto did not place the face at its target")
+        XCTAssertEqual(face.contrastPivot, -0.35, accuracy: 0.1,
+                       "the contrast pivot ignored the face")
+        // Without a face the pivot stays at zero.
+        XCTAssertEqual(AutoTone.suggest(from: AutoTone.Statistics(
+            histogram: autoHistogram(60..<69))).contrastPivot, 0, accuracy: 1e-12)
+    }
+
+    /// An empty or degenerate histogram must produce a usable suggestion rather than a
+    /// NaN that reaches a slider.
+    func testAutoSurvivesADegenerateHistogram() {
+        for bins in [[Double](repeating: 0, count: 128), [], [1.0]] {
+            let t = AutoTone.suggest(from: AutoTone.Statistics(histogram: bins))
+            for (name, value) in [("exposure", t.exposure), ("contrast", t.contrast),
+                                  ("highlights", t.highlights), ("shadows", t.shadows),
+                                  ("whites", t.whites), ("blacks", t.blacks),
+                                  ("pivot", t.contrastPivot)] {
+                XCTAssertTrue(value.isFinite,
+                              "\(name) came back \(value) for a \(bins.count)-bin "
+                                  + "histogram")
+            }
+        }
+    }
+
     func testAutoStaysInsideEverySliderRange() {
         for seed in 0..<12 {
             var bins = [Double](repeating: 0, count: 128)

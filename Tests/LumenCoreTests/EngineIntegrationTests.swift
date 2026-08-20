@@ -289,6 +289,63 @@ final class EngineIntegrationTests: XCTestCase {
         }
     }
 
+    /// Sharpening has to sharpen, and its threshold has to keep it off the noise.
+    ///
+    /// The constant-plane test below cannot see either: `d = v − blurred` is identically
+    /// zero on a constant, so the output equals the input by construction whatever the
+    /// blur does or does not do — and it only reads `.mean`, so even a mean-preserving
+    /// scramble passes.
+    ///
+    /// Numbers measured against the reference implementation: a step of 0.42 becomes
+    /// 0.76 at amount 1, and ±0.01 plateau noise doubles to 0.04 with the gate open but
+    /// stays at 0.02 with the threshold at 0.05 — which is the entire point of the
+    /// threshold, and the difference between sharpening a photo and sharpening grain.
+    func testUnsharpMaskSharpensEdgesAndItsThresholdSparesNoise() {
+        var plane = Plane(width: 48, height: 16)
+        for y in 0..<16 {
+            for x in 0..<48 {
+                let base = x < 24 ? 0.3 : 0.7
+                plane[x, y] = base + ((x + y) % 2 == 0 ? 0.01 : -0.01)
+            }
+        }
+        func stepContrast(_ p: Plane) -> Double {
+            var lo = Double.infinity, hi = -Double.infinity
+            for y in 4..<12 {
+                for x in 20..<28 { lo = Swift.min(lo, p[x, y]); hi = Swift.max(hi, p[x, y]) }
+            }
+            return hi - lo
+        }
+        func plateauRipple(_ p: Plane) -> Double {
+            var lo = Double.infinity, hi = -Double.infinity
+            for y in 4..<12 {
+                for x in 4..<18 { lo = Swift.min(lo, p[x, y]); hi = Swift.max(hi, p[x, y]) }
+            }
+            return hi - lo
+        }
+
+        let open = SpatialOps.unsharpMask(plane, sigma: 2, amount: 1, threshold: 0)
+        XCTAssertGreaterThan(stepContrast(open), stepContrast(plane) * 1.5,
+                             "sharpening did not increase contrast across the step")
+        XCTAssertGreaterThan(plateauRipple(open), plateauRipple(plane) * 1.5,
+                             "with the gate open, sharpening should amplify the noise "
+                                 + "too — if it does not, the gate is stuck shut")
+
+        let gated = SpatialOps.unsharpMask(plane, sigma: 2, amount: 1, threshold: 0.05)
+        XCTAssertGreaterThan(stepContrast(gated), stepContrast(plane) * 1.5,
+                             "the threshold suppressed the edge as well as the noise")
+        XCTAssertEqual(plateauRipple(gated), plateauRipple(plane), accuracy: 1e-4,
+                       "the threshold did not spare noise below it")
+
+        // Amount 0 and sigma 0 are both documented early-outs, so bit-exact — compared
+        // as stored values rather than through a tolerance, which is the whole claim.
+        XCTAssertEqual(
+            SpatialOps.unsharpMask(plane, sigma: 2, amount: 0, threshold: 0).values,
+            plane.values, "amount 0 was not an exact identity")
+        XCTAssertEqual(
+            SpatialOps.unsharpMask(plane, sigma: 0, amount: 1, threshold: 0).values,
+            plane.values, "sigma 0 was not an exact identity")
+    }
+
     func testUnsharpMaskOfAConstantChangesNothing() {
         let sharpened = SpatialOps.unsharpMask(flatPlane(0.5), sigma: 2,
                                                amount: 1, threshold: 0)
