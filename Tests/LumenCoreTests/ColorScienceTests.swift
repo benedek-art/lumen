@@ -348,4 +348,82 @@ final class ColorScienceTests: XCTestCase {
         XCTAssertEqual(Num.hueDelta(350, 10), 20, accuracy: 1e-9)
         XCTAssertEqual(Num.hueDelta(10, 350), -20, accuracy: 1e-9)
     }
+    // MARK: - The skin line must actually be on skin
+
+    /// sRGB swatches spanning the range of human skin, as 0–255 triples.
+    private static let skinSwatches: [(name: String, rgb: (Int, Int, Int))] = [
+        ("very light", (247, 214, 193)),
+        ("light",      (233, 190, 164)),
+        ("medium",     (209, 163, 127)),
+        ("tan",        (172, 130,  92)),
+        ("brown",      (140, 100,  70)),
+        ("dark",       ( 95,  65,  47)),
+        ("Macbeth light skin", (200, 148, 127)),
+    ]
+
+    private func working(_ rgb8: (Int, Int, Int)) -> RGB {
+        let encoded = RGB(Double(rgb8.0) / 255, Double(rgb8.1) / 255, Double(rgb8.2) / 255)
+        let linear = TransferFunction.srgb.decode(encoded)
+        return RGBColorSpace.srgb.matrix(to: .rec2020).apply(linear)
+    }
+
+    /// The property `skinLineDegrees` exists to deliver, pinned instead of its value —
+    /// so re-deriving the constant later is checked against what it is FOR.
+    ///
+    /// At the old 33° every one of these scored zero: the constant was the I-bar
+    /// measured from +b while both consumers read it from +a. `Protect Skin` therefore
+    /// attenuated reds and left faces at full strength, which is the exact inverse of
+    /// what the control says it does — and it is on by default at 70.
+    func testSkinWeightActuallyScoresSkin() {
+        for (name, rgb8) in Self.skinSwatches {
+            let weight = ColorEngine.skinWeight(working(rgb8))
+            // 0.2 rather than something higher because the Macbeth light-skin patch
+            // sits at ~43°, which is outside the nominal ±10° half-width and scores
+            // ~0.23 in the band's rolloff. That is a fact about the band WIDTH, not the
+            // line — the other six swatches score 0.51 to 1.0 — and widening the band
+            // to flatter this test would be tuning the instrument to the measurement.
+            XCTAssertGreaterThan(weight, 0.2,
+                                 "\(name) skin scored \(weight) on the skin line — "
+                                     + "Protect Skin would not protect it")
+        }
+    }
+
+    /// The discrimination, which is the part that actually matters and which no single
+    /// threshold captures: every skin tone must outscore every saturated red by a clear
+    /// margin. At the old constant this was inverted — brick scored 1.000 and every
+    /// skin tone scored 0.000.
+    func testEverySkinToneOutscoresEverySaturatedRed() {
+        let reds = [("pure red", (255, 0, 0)), ("fire engine", (206, 32, 41)),
+                    ("brick", (178, 74, 56))]
+        for (skinName, skinRGB) in Self.skinSwatches {
+            let skin = ColorEngine.skinWeight(working(skinRGB))
+            for (redName, redRGB) in reds {
+                let red = ColorEngine.skinWeight(working(redRGB))
+                XCTAssertGreaterThan(skin, red + 0.15,
+                                     "\(skinName) scored \(skin) but \(redName) "
+                                         + "scored \(red) — the skin line is not on skin")
+            }
+        }
+    }
+
+    /// The other half of the contract: saturated reds and oranges are not skin. Without
+    /// this, moving the line to satisfy the test above could be done by widening the
+    /// band until it covers everything.
+    func testSkinWeightRejectsSaturatedReds() {
+        for (name, rgb8) in [("pure red", (255, 0, 0)),
+                             ("fire engine", (206, 32, 41)),
+                             ("brick", (178, 74, 56))] {
+            let weight = ColorEngine.skinWeight(working(rgb8))
+            XCTAssertLessThan(weight, 0.2,
+                              "\(name) scored \(weight) as skin")
+        }
+    }
+
+    /// A neutral has no hue to be on any line, whatever the line is.
+    func testSkinWeightIgnoresNeutrals() {
+        for grey in [0.05, 0.18, 0.5, 0.9] {
+            XCTAssertEqual(ColorEngine.skinWeight(RGB(gray: grey)), 0, accuracy: 1e-9)
+        }
+    }
+
 }

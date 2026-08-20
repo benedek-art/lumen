@@ -132,7 +132,28 @@ public struct ColorEngine: Sendable {
     /// of ethnicity (blood and melanin fix the hue; luminance is what varies) —
     /// transported into the OKLab a/b plane. Golden-locked constant, never re-derived at
     /// runtime, because the vectorscope graticule and the Skin tools must agree exactly.
-    public static let skinLineDegrees: Double = 33.0
+    ///
+    /// **Measured from +a**, which is the frame both consumers read it in:
+    /// `skinWeight` compares it against `OKLCh.h`, and the scope's graticule plots it
+    /// with `OKLab.hue`. It was 33.0, which is this same line measured from **+b** —
+    /// the traditional vectorscope orientation with the yellow–blue axis horizontal.
+    /// `Vectorscope`'s header already recorded that mismatch and left it unresolved
+    /// because both consumers had to move together; this is that move.
+    ///
+    /// What 33° cost, and why it was not merely cosmetic: `skinWeight` scored **zero**
+    /// on every representative skin tone and a high weight on brick and fire-engine
+    /// red. So `Protect Skin` — which defaults to 70 and says it "attenuates both
+    /// sliders inside the skin-tone band" — held back reds at full strength while
+    /// letting Saturation and Vibrance hit faces unattenuated. The exact inverse of the
+    /// control's stated job, on by default, on every photo with a person in it.
+    ///
+    /// The value is corroborated two independent ways, which matters because it is a
+    /// number this project treats as golden: `Vectorscope.deriveSkinToneLineDegrees`
+    /// re-derives the I-bar through the working space and documents ≈56.4°, and the
+    /// measured OKLCh hues of real skin in that same space run 43°–63° with a centroid
+    /// near 55°. `testSkinWeightActuallyScoresSkin` pins the behaviour rather than the
+    /// number, so a future re-derivation is checked against what the constant is FOR.
+    public static let skinLineDegrees: Double = 56.4
     /// Half-width, matching the UI's literal "±10°" label.
     public static let skinBandDegrees: Double = 10.0
 
