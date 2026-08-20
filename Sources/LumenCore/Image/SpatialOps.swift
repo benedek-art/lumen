@@ -115,6 +115,9 @@ public enum SpatialOps {
     /// is the correct behaviour for a σ smaller than one pixel.
     public static func boxRadiiForGaussian(sigma: Double) -> [Int] {
         let n = 3.0
+        // A non-finite sigma would carry straight through to `Int(floor(wIdeal))` and
+        // trap. Nothing shipped reaches it today; the contract is that nothing traps.
+        guard sigma.isFinite else { return [0, 0, 0] }
         let s = Swift.max(sigma, 0.0)
         let wIdeal = ((12.0 * s * s / n) + 1.0).squareRoot()
         var wl = Int(floor(wIdeal))
@@ -333,13 +336,18 @@ public enum SpatialOps {
 
         var sum = RGB.zero
         var n = 0.0
-        if hi - lo > 1e-9 {
+        if hi - lo > 1e-9, (hi - lo).isFinite {
             // Histogram instead of a sort: 4M elements, one pass, no allocation storm.
             let bins = 1024
             var hist = [Double](repeating: 0, count: bins)
             let scale = Double(bins) / (hi - lo)
             for v in dc.values {
-                let raw = Int((Double(v) - lo) * scale)
+                // Clamp in Double BEFORE converting. `Plane.range` drops NaN but
+                // carries ±Inf through, and one infinity makes this product NaN for
+                // the pixel that holds it — or, if the infinity is negative, for every
+                // pixel. `Int(nan)` traps, and it traps before the clamp below runs.
+                let t = (Double(v) - lo) * scale
+                let raw = t.isFinite ? Int(Num.clamp(t, 0, Double(bins - 1))) : bins - 1
                 hist[Swift.min(Swift.max(raw, 0), bins - 1)] += 1
             }
             let target = Double(dc.values.count) * fraction

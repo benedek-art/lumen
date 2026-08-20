@@ -360,9 +360,17 @@ public struct DetailEngine: Sendable {
                     let neutral = c * gain
                     let y0 = space.luminance(neutral)
                     let y1 = (y0 - airLuma) / tv + airLuma
-                    let denom = abs(y0) > 1e-6 ? y0 : (y0 < 0 ? -1e-6 : 1e-6)
-                    let ratio = Num.clamp(y1 / denom, 0.05, 20)
-                    out[x, y] = c * Num.mix(1.0, ratio, a)
+                    // Fade to identity as the luminance approaches zero rather than
+                    // substituting a signed epsilon for it. `y1` is a fixed negative
+                    // number here, so the sign of the substitute alone chose between
+                    // the 0.05 and the 20 clamp — a 400× swing decided by the sign of
+                    // a quantity that is essentially zero. Near-zero LUMINANCE is not
+                    // near-zero colour: shadow noise after white balance produces
+                    // triples like (−0.02, +0.009, −0.01) all the time, and those
+                    // pixels became saturated speckles that flickered with the noise.
+                    let trust = Num.smoothstep(0, 1e-5, abs(y0))
+                    let ratio = y0 != 0 ? Num.clamp(y1 / y0, 0.05, 20) : 1.0
+                    out[x, y] = c * Num.mix(1.0, Num.mix(1.0, ratio, trust), a)
                 } else {
                     // Forward model: blend toward A with a synthetic transmission.
                     let s = Num.saturate(-a * (1 - tv) * 0.9)
@@ -401,7 +409,7 @@ public struct DetailEngine: Sendable {
         } else {
             sigma = SpatialOps.estimatePSFSigma(lum)
         }
-        let strength = Num.clamp((params.amount ?? 100) / 100, 0, 1.5)
+        let strength = Num.clamp((params.amount ?? 100) / 100, 0, CaptureSharpen.maxStrength)
         guard strength > 0 else { return image }
 
         // docs/06 §11.1: 8 iterations by default.
@@ -416,9 +424,14 @@ public struct DetailEngine: Sendable {
             for x in 0..<w {
                 let base = lum[x, y]
                 guard base > 1e-6 else { continue }
+                // Strength scales the CORRECTION, not the mix fraction. Folding it
+                // into a saturated mix meant everything above 100 pinned at 1 wherever
+                // the edge gate was open — which is every edge, the only place this
+                // stage does anything — so the upper half of the range was inert.
                 let ratio = Num.clamp(sharpened[x, y] / base, 0.25, 4)
                 let g = Num.smoothstep(0.02, 0.12, gate[x, y])
-                let k = Num.mix(1.0, ratio, Num.saturate(strength * g))
+                let scaled = 1 + (ratio - 1) * strength
+                let k = Num.mix(1.0, Num.clamp(scaled, 0.25, 4), g)
                 if k != 1 { out[x, y] = image[x, y] * k }
             }
         }

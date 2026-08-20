@@ -758,8 +758,12 @@ public struct FilmGrainProfile: Sendable {
     public static func sample(_ values: [Float], size: Int, x: Double, y: Double) -> Double {
         let n: Int = Swift.max(size, 1)
         guard values.count >= n * n, x.isFinite, y.isFinite else { return 0 }
-        let fx: Double = x - (x / Double(n)).rounded(.down) * Double(n)
-        let fy: Double = y - (y / Double(n)).rounded(.down) * Double(n)
+        // Clamp in Double before converting: past 2^53 the modulo loses all precision
+        // and leaves `fx` outside [0, n), which `Int()` would take before the clamp.
+        let fx: Double = Num.clamp(x - (x / Double(n)).rounded(.down) * Double(n),
+                                   0, Double(n) - 1e-9)
+        let fy: Double = Num.clamp(y - (y / Double(n)).rounded(.down) * Double(n),
+                                   0, Double(n) - 1e-9)
         let x0: Int = Swift.min(Swift.max(Int(fx), 0), n - 1)
         let y0: Int = Swift.min(Swift.max(Int(fy), 0), n - 1)
         let x1: Int = (x0 + 1) % n
@@ -964,7 +968,10 @@ public struct FilmChain: Sendable {
     /// point the image module uses, one plate value per channel, unit variance.
     /// Grain is *never* applied in display RGB (docs/14 §5.7).
     public func applyWithGrain(_ c: RGB, densityNoise: RGB) -> RGB {
-        let base: RGB = neutral.apply(c)
+        // Same boundary as `apply`. Without it the two disagreed on any out-of-gamut
+        // colour, and at strength 0 — where both are supposed to be identity — they
+        // returned different pixels.
+        let base: RGB = neutral.apply(c, gamut: Gamut.sharedBoundary)
         guard let s = solved else { return base }
         let scene: RGB = c * pow(2.0, filmExposure)
         let film: RGB = FilmChain.render(scene, s, white: displayWhite, grain: densityNoise)

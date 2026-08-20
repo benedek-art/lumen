@@ -109,7 +109,12 @@ public final class AppleRawSource {
         if dev.detail.capture.auto {
             filter.sharpnessAmount = defaultSharpness
         } else {
-            filter.sharpnessAmount = Float(Num.clamp(dev.detail.capture.amount ?? 0, 0, 1))
+            // `amount` is a percentage of the auto strength, like every other amount in
+            // the recipe — not a 0…1 fraction. Reading it as a fraction meant any value
+            // at or above 1 pinned this at maximum, so 25 and 150 were both "full".
+            let fraction = Num.clamp((dev.detail.capture.amount ?? 100) / 100,
+                                     0, CaptureSharpen.maxStrength)
+            filter.sharpnessAmount = defaultSharpness * Float(fraction)
         }
 
         // Noise reduction: Lumen's Tier 1 is the reference implementation and does not

@@ -314,7 +314,16 @@ public struct Detail: Codable, Equatable, Sendable {
 public struct CaptureSharpen: Codable, Equatable, Sendable {
     public var auto: Bool
     public var radius: Double?      // manual override; nil = auto-estimated
-    public var amount: Double?      // manual strength override; nil = auto
+    /// Manual strength override as a PERCENTAGE, 0…150, matching `ManualSharpen.amount`
+    /// and every other amount in the recipe. `nil` = auto, which means 100.
+    ///
+    /// It has to be written down because the two readers disagreed: the engine divided
+    /// by 100 while the RAW stage read the same number as a 0…1 fraction, so a recipe
+    /// saying 25 meant a quarter to one of them and full strength to the other.
+    public var amount: Double?
+
+    /// The largest multiple of the auto strength the control will apply.
+    public static let maxStrength: Double = 1.5
 
     public init(auto: Bool = true, radius: Double? = nil, amount: Double? = nil) {
         self.auto = auto

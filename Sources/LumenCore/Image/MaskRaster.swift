@@ -351,13 +351,25 @@ public enum MaskRaster {
         let pixelGuard = Num.saturate(1.0 / Swift.max(Swift.min(rxPx, ryPx), 1))
         let rin = Num.clamp(Swift.max(1 - f, pixelGuard), 0, 1 - 1e-6)
 
+        // Rotate in long-edge units, for the reason `linearPlane` gives above: pixels
+        // are square and normalized coordinates are not, so a rotation matrix applied
+        // to (fraction of width, fraction of height) mixes two different units. On a
+        // 3:2 frame a 45° ellipse rendered at 33.7°, with the wrong eccentricity too.
+        // Centre and radii are normalized per-axis by the wire format, so they convert
+        // the same way — and at rotation 0 this is arithmetically identical to what it
+        // replaces.
+        let long = Double(Swift.max(w, h))
+        let sx = Double(w) / long, sy = Double(h) / long
+        let cxL = cx * sx, cyL = cy * sy
+        let rxL = Swift.max(rx * sx, 1e-12), ryL = Swift.max(ry * sy, 1e-12)
+
         for y in 0..<h {
-            let dv = (Double(y) + 0.5) / Double(h) - cy
+            let dv = (Double(y) + 0.5) / long - cyL
             for x in 0..<w {
-                let du = (Double(x) + 0.5) / Double(w) - cx
+                let du = (Double(x) + 0.5) / long - cxL
                 let qx = du * ct - dv * st
                 let qy = du * st + dv * ct
-                let nx = qx / rx, ny = qy / ry
+                let nx = qx / rxL, ny = qy / ryL
                 let r = (nx * nx + ny * ny).squareRoot()
                 if r <= rin {
                     p[x, y] = 1
@@ -474,8 +486,11 @@ public enum MaskRaster {
         var p = Plane(width: w, height: h)
         guard let src = source, let samples = c.samples, !samples.isEmpty else { return p }
         let context = OKLabTransform.working
+        // Capped like `colorRangePlane`: the picker offers 8, but `samples` arrives
+        // from a sidecar and the loop below is O(W·H·N) with two `exp` per sample. Ten
+        // thousand samples against a 45 MP frame is not slow, it is a hang.
         var refs: [OKLab] = []
-        for s in samples where s.count >= 3 {
+        for s in samples.prefix(8) where s.count >= 3 {
             if s[0].isFinite && s[1].isFinite && s[2].isFinite {
                 refs.append(context.toLab(RGB(s[0], s[1], s[2])))
             }
