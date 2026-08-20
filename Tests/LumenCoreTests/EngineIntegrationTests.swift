@@ -307,16 +307,95 @@ final class EngineIntegrationTests: XCTestCase {
         }
     }
 
-    func testFilmChainIsMonotone() {
+    /// Brighter scene, brighter picture — in every channel, at every setting the Film
+    /// Lab panel can reach.
+    ///
+    /// This is the same rule that ToneEngine's Highlights and GradeEngine's colour
+    /// wheels each broke independently: a gain applied through a tonal *window* can
+    /// out-run the underlying slope inside that window and hand back a stretch of ramp
+    /// that runs backwards, so a brighter subject prints darker. Film's windowed gains
+    /// are the crossover tints — a density offset in the shadows, another in the
+    /// highlights — and push/pull, which steepens the gammas with deliberate per-channel
+    /// divergence. Nothing couples any of those to the curve's slope, so the safety is
+    /// arithmetic (the tints are worth a few hundredths of a density unit against a
+    /// negative spanning two) rather than enforced. Arithmetic changes when someone
+    /// tunes a stock; this notices.
+    ///
+    /// Per channel, not just green: the tints and the push divergence are per-channel by
+    /// construction, so red and blue are exactly where an inversion would appear first
+    /// and the old green-only ramp was blind to it.
+    func testNoStockEverPrintsABrighterSceneDarker() {
         for stock in FilmStock.all {
-            let chain = FilmChain(FilmChain.defaultRecipe(for: stock), displayWhite: 1.0)
-            var previous = -Double.infinity
-            for i in 0...40 {
-                let ev = -8 + Double(i) * 0.4
-                let out = chain.apply(RGB(gray: 0.18 * pow(2, ev)))
-                XCTAssertGreaterThanOrEqual(out.g, previous - 1e-6,
-                                            "\(stock.name) inverted at \(ev) EV")
-                previous = out.g
+            for push in [-1.0, -0.5, 0.0, 1.0, 2.0] {
+                for exposure in [-2.0, 0.0, 1.5, 3.0] {
+                    // Strength is a straight mix against the neutral rendering, which is
+                    // monotone in its own right, so a monotone chain stays monotone at
+                    // every blend — 100 and one partial value is enough to catch a mix
+                    // that is not the convex combination it claims to be.
+                    for amount in [100.0, 45.0] {
+                        var recipe = FilmChain.defaultRecipe(for: stock)
+                        recipe.pushPull = push
+                        recipe.amount = amount
+                        let chain = FilmChain(recipe, filmExposure: exposure,
+                                              displayWhite: 1.0)
+                        let label = "\(stock.name) push \(push) film-exposure \(exposure)"
+                            + " strength \(amount)"
+
+                        var previous = RGB(gray: -Double.infinity)
+                        // −10…+8 EV in fifth-stop steps: past the toe at one end and
+                        // well past the shoulder at the other, finely enough that a
+                        // reversal inside a crossover window cannot fall between samples.
+                        for i in 0...90 {
+                            let ev = -10 + Double(i) * 0.2
+                            let out = chain.apply(RGB(gray: 0.18 * pow(2, ev)))
+                            for channel in 0..<3 {
+                                XCTAssertGreaterThanOrEqual(
+                                    out[channel], previous[channel] - 1e-9,
+                                    "\(label) inverted in channel \(channel) at \(ev) EV")
+                            }
+                            previous = out
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Strength is a blend, so it has to travel the whole way from the neutral rendering
+    /// to the film one without overshooting either end — the mix that makes the
+    /// monotonicity argument above hold has to actually be a mix.
+    func testFilmStrengthStaysBetweenTheTwoRenderingsItBlends() {
+        for stock in FilmStock.all {
+            var full = FilmChain.defaultRecipe(for: stock)
+            full.amount = 100
+            var off = FilmChain.defaultRecipe(for: stock)
+            off.amount = 0
+
+            let filmChain = FilmChain(full, displayWhite: 1.0)
+            let neutralChain = FilmChain(off, displayWhite: 1.0)
+            // Built once per stock, not once per sample: constructing a chain runs the
+            // calibration bisection, which is the expensive part of the whole suite.
+            let blends: [(Double, FilmChain)] = [0.0, 25.0, 50.0, 75.0, 100.0].map {
+                var recipe = full
+                recipe.amount = $0
+                return ($0, FilmChain(recipe, displayWhite: 1.0))
+            }
+
+            for ev in stride(from: -6.0, through: 5.0, by: 0.5) {
+                let scene = RGB(gray: 0.18 * pow(2, ev))
+                let film = filmChain.apply(scene)
+                let neutral = neutralChain.apply(scene)
+                for (amount, chain) in blends {
+                    let out = chain.apply(scene)
+                    for channel in 0..<3 {
+                        let lo = Swift.min(film[channel], neutral[channel]) - 1e-9
+                        let hi = Swift.max(film[channel], neutral[channel]) + 1e-9
+                        XCTAssertTrue(out[channel] >= lo && out[channel] <= hi,
+                                      "\(stock.name) at strength \(amount), \(ev) EV, "
+                                          + "channel \(channel): \(out[channel]) is "
+                                          + "outside [\(lo), \(hi)]")
+                    }
+                }
             }
         }
     }

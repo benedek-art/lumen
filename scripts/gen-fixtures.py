@@ -865,6 +865,12 @@ SAT_ROLLOFF_LO0, SAT_ROLLOFF_LO1 = 0.02, 0.20
 SAT_ROLLOFF_HI0, SAT_ROLLOFF_HI_WIDTH, SAT_ROLLOFF_FLOOR = 0.86, 0.35, 0.35
 
 
+def clamp(v, lo, hi):
+    """`Num.clamp`. Spelled out rather than nested min/max so the mirror reads like
+    the Swift it mirrors."""
+    return lo if v < lo else (hi if v > hi else v)
+
+
 def smoothstep(a, b, x):
     if b <= a:
         return 0.0 if x < a else 1.0
@@ -2236,6 +2242,302 @@ def gen_grade_checks():
 
 
 # ---------------------------------------------------------------------------
+# The Film Lab chain (Sources/LumenCore/Engine/FilmLab.swift), on the grey axis.
+#
+# Why this is here. Two engines shipped with the same latent bug: a gain applied
+# through a tonal WINDOW out-runs the underlying slope inside that window, and the
+# ramp turns over — a brighter subject renders darker. ToneEngine's Highlights and
+# GradeEngine's colour wheels each did it, independently, and each is now solved
+# against its own slope. Film has windowed gains too — the crossover tints, weighted
+# by a smoothstep of tonal position, plus push/pull steepening the gammas with
+# per-channel divergence — and nothing couples any of them to the curve.
+#
+# Analysis said film is safe by a wide margin: the tints are hundredths of a density
+# unit against a negative spanning two. Analysis is what said the other two were fine.
+# So the chain is mirrored here and the ramp is walked.
+# ---------------------------------------------------------------------------
+
+MID_GREY_ANCHOR = 0.7447274948966939      # = −log10(0.18)
+FILM_PUSH_DIVERGENCE = (0.03, 0.0, -0.03)
+FILM_LUMA = tuple(_REC2020_TO_XYZ[1])     # the Y row: Rec.2020 luminance weights
+
+
+class FilmStage:
+    """One characteristic curve with its per-channel constants resolved."""
+
+    def __init__(self, gamma, d_min, d_max, log_offset, rising, anchor):
+        self.d_min = list(d_min)
+        self.d_max = list(d_max)
+        self.delta = [max(d_max[i] - d_min[i], 1e-6) for i in range(3)]
+        self.k = [max(gamma[i], 0.02) / (0.25 * self.delta[i]) for i in range(3)]
+        self.offset = [log_offset[i] + anchor for i in range(3)]
+        self.rising = rising
+        self.white_t = [10.0 ** -d_min[i] for i in range(3)]
+        self.black_t = [10.0 ** -d_max[i] for i in range(3)]
+
+    def response(self, e):
+        """(density, tone) — tone is the sigmoid itself, which rises with exposure
+        for a negative and for a transparency alike, so the crossover weights read
+        the same way on both."""
+        density, tone = [0.0] * 3, [0.0] * 3
+        for i in range(3):
+            x = clamp(self.k[i] * (math.log10(max(e[i], 1e-12)) + self.offset[i]),
+                      -60, 60)
+            s = 1.0 / (1.0 + math.exp(-x))
+            tone[i] = s
+            density[i] = self.d_min[i] + self.delta[i] * (s if self.rising else 1.0 - s)
+        return density, tone
+
+
+def film_coupling_matrix(interlayer, coupler):
+    """DIR inhibition + masking-coupler residue as one 3×3. Unit row sums, so a
+    neutral density triple survives exactly and the grey calibration cannot be
+    disturbed by colour couplers."""
+    a = clamp(interlayer, 0, 0.6)
+    b = clamp(coupler, -0.5, 0.5)
+    third = 1.0 / 3.0
+    diagonal = 1.0 + a * (1.0 - third)
+    off = -a * third
+    k = b * 0.5
+    return [[diagonal, off - k, off + k],
+            [off + k, diagonal, off - k],
+            [off - k, off + k, diagonal]]
+
+
+class SolvedFilmChain:
+    pass
+
+
+def film_render(scene, s, white):
+    """Negative → couplers → crossover → transmittance → print → paper white.
+    Grain is omitted: it enters in density from a plate the chain does not own, and
+    is zero on every path this file checks."""
+    e = [max(scene[i], 0.0) for i in range(3)]
+    if s.monochrome:
+        y = sum(FILM_LUMA[i] * e[i] for i in range(3))
+        e = [max(y, 0.0)] * 3
+    e = [e[i] * s.film_gain[i] for i in range(3)]
+
+    density, tone_triple = s.negative.response(e)
+    d = mat_apply(s.coupling, density)
+
+    tone = sum(tone_triple) / 3.0
+    shadow_weight = 1.0 - smoothstep(0.0, 0.6, tone)
+    highlight_weight = smoothstep(0.4, 1.0, tone)
+    d = [d[i] + s.shadow_tint[i] * shadow_weight
+         + s.highlight_tint[i] * highlight_weight for i in range(3)]
+
+    t = [10.0 ** -d[i] for i in range(3)]
+
+    if s.print_stage is not None:
+        print_exposure = [t[i] * s.print_gain[i] for i in range(3)]
+        print_density, _ = s.print_stage.response(print_exposure)
+        final_t = [10.0 ** -print_density[i] for i in range(3)]
+        last = s.print_stage
+    else:
+        final_t = t
+        last = s.negative
+
+    out = [0.0] * 3
+    for i in range(3):
+        span = last.white_t[i] - last.black_t[i]
+        v = 0.0 if abs(span) < 1e-12 else (final_t[i] - last.black_t[i]) / span
+        out[i] = clamp(v, 0, 1) * white
+    return out
+
+
+def film_bisect(target, lo, hi, steps, f):
+    a, b = lo, hi
+    fa, fb = f(a), f(b)
+    if not (math.isfinite(fa) and math.isfinite(fb)):
+        return 0.0
+    increasing = fb >= fa
+    if increasing:
+        if target <= fa:
+            return a
+        if target >= fb:
+            return b
+    else:
+        if target >= fa:
+            return a
+        if target <= fb:
+            return b
+    for _ in range(steps):
+        m = 0.5 * (a + b)
+        fm = f(m)
+        if not math.isfinite(fm):
+            return m
+        if (increasing and fm < target) or (not increasing and fm > target):
+            a = m
+        else:
+            b = m
+    return 0.5 * (a + b)
+
+
+def film_solve_gains(s, white):
+    """Per-channel calibration gain so scene mid-grey lands on display mid-grey in
+    every channel. The print gain is downstream of every channel-mixing step so one
+    sweep is exact; a transparency's gain is scene-side and the couplers mix after
+    it, so the sweeps iterate."""
+    grey = [0.18, 0.18, 0.18]
+    target = 0.18 * white
+    use_print = s.print_stage is not None
+    for _ in range(6):
+        for i in range(3):
+            def probe(log_gain, i=i):
+                g = 2.0 ** log_gain
+                saved = list(s.print_gain), list(s.film_gain)
+                if use_print:
+                    s.print_gain[i] = g
+                else:
+                    s.film_gain[i] = g
+                out = film_render(grey, s, white)[i]
+                s.print_gain, s.film_gain = saved
+                return out
+            g = 2.0 ** film_bisect(target, -14, 14, 52, probe)
+            if use_print:
+                s.print_gain[i] = g
+            else:
+                s.film_gain[i] = g
+    return s
+
+
+def film_chain(stock, push=0.0, white=1.0):
+    push = clamp(push, -1, 2)
+    gamma = [max(stock["gamma"][i] * (1.0 + 0.18 * push * (1.0 + FILM_PUSH_DIVERGENCE[i])),
+                 0.02) for i in range(3)]
+
+    s = SolvedFilmChain()
+    s.negative = FilmStage(gamma, stock["dMin"], stock["dMax"], stock["logOffset"],
+                           stock["kind"] == "negative", MID_GREY_ANCHOR)
+    # The print's own log-exposure origin is absorbed by the calibration gain, so its
+    # anchor is 0 and only its gamma and density span carry character.
+    s.print_stage = (None if stock["print"] is None
+                     else FilmStage(stock["print"]["gamma"], stock["print"]["dMin"],
+                                    stock["print"]["dMax"], (0.0, 0.0, 0.0), True, 0.0))
+    s.coupling = film_coupling_matrix(stock["interlayer"], stock["coupler"])
+    s.shadow_tint = [stock["shadowTint"][i] + stock["pushTint"][i] * push
+                     for i in range(3)]
+    s.highlight_tint = list(stock["highlightTint"])
+    s.film_gain = [1.0, 1.0, 1.0]
+    s.print_gain = [1.0, 1.0, 1.0]
+    s.monochrome = stock["monochrome"]
+    return film_solve_gains(s, white)
+
+
+# The launch six, transcribed from FilmStock.all.
+FILM_STOCKS = {
+    "lumen/portra400": dict(
+        kind="negative", monochrome=False,
+        gamma=(0.545, 0.550, 0.560), dMin=(0.06, 0.14, 0.22), dMax=(2.06, 2.14, 2.22),
+        logOffset=(0.000, 0.000, -0.010),
+        print=dict(gamma=(2.48, 2.48, 2.48), dMin=(0.05, 0.06, 0.07),
+                   dMax=(2.15, 2.20, 2.25)),
+        shadowTint=(0.015, 0.005, -0.015), highlightTint=(-0.005, 0.000, 0.010),
+        pushTint=(-0.020, 0.010, 0.025), interlayer=0.14, coupler=0.05),
+    "lumen/gold200": dict(
+        kind="negative", monochrome=False,
+        gamma=(0.605, 0.590, 0.578), dMin=(0.06, 0.14, 0.22), dMax=(2.06, 2.14, 2.22),
+        logOffset=(0.012, 0.000, -0.016),
+        print=dict(gamma=(2.52, 2.50, 2.48), dMin=(0.05, 0.06, 0.07),
+                   dMax=(2.10, 2.15, 2.20)),
+        shadowTint=(0.020, 0.006, -0.022), highlightTint=(0.022, 0.010, -0.020),
+        pushTint=(-0.018, 0.012, 0.026), interlayer=0.18, coupler=0.09),
+    "lumen/ektar100": dict(
+        kind="negative", monochrome=False,
+        gamma=(0.665, 0.665, 0.670), dMin=(0.06, 0.14, 0.22), dMax=(2.06, 2.14, 2.22),
+        logOffset=(-0.006, 0.000, 0.006),
+        print=dict(gamma=(2.50, 2.50, 2.50), dMin=(0.05, 0.05, 0.06),
+                   dMax=(2.20, 2.24, 2.28)),
+        shadowTint=(-0.008, 0.000, 0.012), highlightTint=(0.004, 0.000, 0.002),
+        pushTint=(-0.015, 0.008, 0.020), interlayer=0.26, coupler=0.06),
+    "lumen/trix400": dict(
+        kind="negative", monochrome=True,
+        gamma=(0.620, 0.620, 0.620), dMin=(0.10, 0.10, 0.10), dMax=(2.10, 2.10, 2.10),
+        logOffset=(0.0, 0.0, 0.0),
+        print=dict(gamma=(2.35, 2.35, 2.35), dMin=(0.06, 0.06, 0.06),
+                   dMax=(2.20, 2.20, 2.20)),
+        shadowTint=(0.0, 0.0, 0.0), highlightTint=(0.0, 0.0, 0.0),
+        pushTint=(0.0, 0.0, 0.0), interlayer=0.0, coupler=0.0),
+    "lumen/velvia50": dict(
+        kind="reversal", monochrome=False,
+        gamma=(1.720, 1.750, 1.800), dMin=(0.12, 0.14, 0.16), dMax=(3.40, 3.45, 3.50),
+        logOffset=(0.004, 0.000, -0.004),
+        print=None,
+        shadowTint=(0.020, 0.000, -0.020), highlightTint=(-0.008, 0.000, 0.006),
+        pushTint=(0.014, -0.004, -0.012), interlayer=0.30, coupler=0.04),
+    "lumen/cine250d": dict(
+        kind="negative", monochrome=False,
+        gamma=(0.500, 0.505, 0.510), dMin=(0.10, 0.20, 0.30), dMax=(2.00, 2.10, 2.20),
+        logOffset=(0.000, 0.000, 0.008),
+        print=dict(gamma=(2.62, 2.62, 2.62), dMin=(0.06, 0.06, 0.07),
+                   dMax=(2.60, 2.65, 2.70)),
+        shadowTint=(-0.010, 0.000, 0.014), highlightTint=(0.008, 0.004, -0.006),
+        pushTint=(-0.016, 0.010, 0.024), interlayer=0.20, coupler=0.07),
+}
+
+FILM_PUSH_SETTINGS = (-1.0, -0.5, 0.0, 1.0, 2.0)
+FILM_EXPOSURE_SETTINGS = (-2.0, 0.0, 1.5, 3.0)
+
+
+def gen_film_checks():
+    print("film chain: mid-grey anchor and monotonicity ...")
+
+    for name, stock in sorted(FILM_STOCKS.items()):
+        for push in FILM_PUSH_SETTINGS:
+            chain = film_chain(stock, push=push)
+
+            # Mid-grey lands on mid-grey in every channel, by construction rather
+            # than by tuning — that is what the gain solve is for.
+            anchor = film_render([0.18, 0.18, 0.18], chain, 1.0)
+            for i in range(3):
+                check(abs(anchor[i] - 0.18) < 1e-6,
+                      f"{name} at push {push} put mid-grey at {anchor[i]:.9f} "
+                      f"in channel {i}")
+
+            for exposure in FILM_EXPOSURE_SETTINGS:
+                gain = 2.0 ** exposure
+                previous = [-1e30] * 3
+                for step in range(91):
+                    ev = -10 + step * 0.2
+                    scene = [0.18 * (2.0 ** ev) * gain] * 3
+                    out = film_render(scene, chain, 1.0)
+                    for i in range(3):
+                        check(out[i] >= previous[i] - 1e-9,
+                              f"{name} inverted in channel {i} at {ev:+.1f} EV "
+                              f"(push {push}, film exposure {exposure}): "
+                              f"{previous[i]:.12f} → {out[i]:.12f}")
+                    previous = out
+
+    # The ramp has to actually move, or "monotone" is satisfied by a flat line and
+    # the sweep above proves nothing. Measured across the stock's own useful range,
+    # not the clipped ends.
+    for name, stock in sorted(FILM_STOCKS.items()):
+        chain = film_chain(stock)
+        low = film_render([0.18 * 2 ** -3] * 3, chain, 1.0)
+        high = film_render([0.18 * 2 ** 2] * 3, chain, 1.0)
+        check(high[1] - low[1] > 0.3,
+              f"{name} spans only {high[1] - low[1]:.4f} from −3 to +2 EV")
+
+    # Crossover is supposed to be a colour, not a tone: it must not be strong enough
+    # to matter to the shape of the curve. This is the margin the analysis claimed,
+    # asserted rather than assumed — if a stock is ever authored with tints an order
+    # of magnitude larger, the monotonicity sweep above may still pass while the
+    # chain has stopped being safe by construction.
+    for name, stock in sorted(FILM_STOCKS.items()):
+        span = max(stock["dMax"][i] - stock["dMin"][i] for i in range(3))
+        for push in FILM_PUSH_SETTINGS:
+            swing = max(abs(stock["shadowTint"][i] + stock["pushTint"][i] * push)
+                        + abs(stock["highlightTint"][i]) for i in range(3))
+            check(swing < 0.05 * span,
+                  f"{name} crossover swings {swing:.4f} density at push {push}, "
+                  f"which is {swing / span:.1%} of its {span:.2f} span")
+
+    print("  6 stocks × 5 push settings × 4 film exposures: "
+          "grey anchored, no inversion")
+
+
+# ---------------------------------------------------------------------------
 
 def gen_enginemath_fixture():
     """Sampled outputs of every engine mirror above, for the Swift to replay.
@@ -2301,10 +2603,27 @@ def gen_enginemath_fixture():
         L, C, hh = oklch_from_rgb(c)
         perceptual.append({"rgb": list(c), "L": L, "C": C, "h": hh})
 
+    # Film: the grey ramp through every stock at its default push, plus the two push
+    # extremes on one colour stock and one transparency, since push is where the
+    # per-channel divergence lives.
+    film = []
+    for name in sorted(FILM_STOCKS):
+        pushes = [0.0]
+        if name in ("lumen/gold200", "lumen/velvia50"):
+            pushes = [-1.0, 0.0, 2.0]
+        for push in pushes:
+            chain = film_chain(FILM_STOCKS[name], push=push)
+            samples = []
+            for ev in (-8.0, -5.0, -3.0, -1.0, 0.0, 1.0, 2.5, 4.0, 6.0):
+                out = film_render([0.18 * 2.0 ** ev] * 3, chain, 1.0)
+                samples.append({"ev": ev, "out": out})
+            film.append({"stock": name, "push": push, "samples": samples})
+
     payload = {
         "_comment": "Generated by scripts/gen-fixtures.py. The Swift replays these; "
                     "a mismatch means the implementation and its executable mirror "
                     "have drifted.",
+        "film": film,
         "shaper": shaper,
         "saturationRolloff": rolloff,
         "contrast": contrast,
@@ -2319,8 +2638,9 @@ def gen_enginemath_fixture():
         f.write("\n")
     total = (len(shaper) + len(rolloff) + len(contrast) + len(display)
              + sum(len(t["stops"]) for t in tone) + len(chroma)
-             + len(white_balance) + len(perceptual))
-    print(f"  {total} sampled values across eight engine surfaces")
+             + len(white_balance) + len(perceptual)
+             + sum(len(f["samples"]) for f in film))
+    print(f"  {total} sampled values across nine engine surfaces")
 
 
 # ---------------------------------------------------------------------------
@@ -2343,6 +2663,7 @@ def main():
     gen_tone_checks()
     gen_colour_stage_checks()
     gen_grade_checks()
+    gen_film_checks()
     gen_enginemath_fixture()
     if FAILURES:
         print(f"\n{len(FAILURES)} verification failure(s)")

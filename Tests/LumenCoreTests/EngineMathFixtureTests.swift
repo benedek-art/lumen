@@ -162,6 +162,47 @@ final class EngineMathFixtureTests: XCTestCase {
         }
     }
 
+    // MARK: - The film chain
+
+    /// The grey ramp through every stock, against the mirror that walks it for
+    /// inversions on the Linux lane.
+    ///
+    /// At Strength 100 `apply` is the chain and nothing else — the mix against the
+    /// neutral rendering has weight 1 — so this compares like with like without the
+    /// mirror needing a display transform of its own.
+    func testFilmChainMatchesTheReference() throws {
+        for row in try rows(fixture(), "film") {
+            guard let id = row["stock"] as? String, let stock = FilmStock.named(id) else {
+                return XCTFail("fixture names a stock that does not exist: "
+                                   + String(describing: row["stock"]))
+            }
+            var recipe = FilmChain.defaultRecipe(for: stock)
+            recipe.amount = 100
+            recipe.pushPull = double(row, "push")
+            let chain = FilmChain(recipe, displayWhite: 1.0)
+
+            guard let samples = row["samples"] as? [[String: Any]] else {
+                return XCTFail("film row for \(id) carried no samples")
+            }
+            for sample in samples {
+                guard let want = sample["out"] as? [NSNumber], want.count == 3 else {
+                    return XCTFail("malformed film sample for \(id)")
+                }
+                let ev = double(sample, "ev")
+                let out = chain.apply(RGB(gray: 0.18 * pow(2, ev)))
+                let expected = RGB(want[0].doubleValue, want[1].doubleValue,
+                                   want[2].doubleValue)
+                // Looser than the algebraic surfaces above on purpose: the calibration
+                // gain is found by bisection, so the two implementations agree to the
+                // search's own resolution rather than to the arithmetic's.
+                XCTAssertLessThan(out.maxAbsDifference(expected), 1e-7,
+                                  "film chain diverged for \(id) at push "
+                                      + "\(recipe.pushPull), \(ev) EV: "
+                                      + "\(out) vs \(expected)")
+            }
+        }
+    }
+
     // MARK: - OKLab
 
     func testPerceptualMatchesTheReference() throws {
