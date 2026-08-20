@@ -417,26 +417,56 @@ final class KernelGoldenTests: XCTestCase {
         XCTAssertLessThan(worst, 0.25,
                           "the spatial path diverged by \(worst) at \(worstAt)")
 
-        // And the stages actually ran: turning them off must move the picture, or this
-        // test is comparing two copies of the colour path and would pass with every
-        // spatial kernel unwired.
-        let plainPlan = RenderPlan(recipe: Recipe(), lutSize: LUT3D.exportSize)
-        guard let plain = readBack(
-            RenderGraph().build(ciImage(from: source), plan: plainPlan,
-                                options: RenderGraph.Options(longEdge: 64, draft: false)),
-            width: source.width, height: source.height) else {
-            return XCTFail("plain render failed")
-        }
-        var moved = 0.0
-        for y in 0..<source.height {
-            for x in 0..<source.width {
-                moved = Swift.max(moved, plain[x, y].maxAbsDifference(gpu[x, y]))
+        // And each stage actually ran — measured ONE AT A TIME.
+        //
+        // This used to turn all three on together and assert that something moved. The
+        // −1 EV vignette alone cleared that bar by a wide margin, so texture and clarity
+        // could be completely unwired and the assertion still passed. They were not
+        // unwired, but they were computing their gain on the shaper's encoded plane
+        // instead of in stops — a factor of twenty-four — and this is the test that was
+        // supposed to notice. A check that a group of stages did *something* is not a
+        // check on any one of them.
+        func render(_ mutate: (inout Recipe) -> Void) throws -> ImageBuffer {
+            var r = Recipe()
+            mutate(&r)
+            let p = RenderPlan(recipe: r, lutSize: LUT3D.exportSize)
+            guard let out = readBack(
+                RenderGraph().build(ciImage(from: source), plan: p,
+                                    options: RenderGraph.Options(longEdge: 64,
+                                                                 draft: false)),
+                width: source.width, height: source.height) else {
+                throw XCTSkip("render failed")
             }
+            return out
         }
-        XCTAssertGreaterThan(moved, 0.05,
-                             "texture, clarity and a −1 EV vignette changed the frame "
-                                 + "by only \(moved) — the spatial stages are not "
-                                 + "running")
+
+        let plain = try render { _ in }
+        func movement(from other: ImageBuffer) -> Double {
+            var moved = 0.0
+            for y in 0..<source.height {
+                for x in 0..<source.width {
+                    moved = Swift.max(moved, plain[x, y].maxAbsDifference(other[x, y]))
+                }
+            }
+            return moved
+        }
+
+        // Texture at +40 is a local-contrast change, not a rounding error. The old
+        // behaviour produced about 0.01 here; the contract is a gain of 2^(0.36·ΔEV)
+        // per stop of fine detail, which on this frame is worth far more than that.
+        let texture = movement(from: try render { $0.develop.detail.texture = 40 })
+        XCTAssertGreaterThan(texture, 0.02,
+                             "Texture +40 moved the frame by \(texture) — that is the "
+                                 + "signature of the gain being computed in the "
+                                 + "shaper's encoded units rather than in stops")
+
+        let clarity = movement(from: try render { $0.develop.detail.clarity = 30 })
+        XCTAssertGreaterThan(clarity, 0.02,
+                             "Clarity +30 moved the frame by \(clarity)")
+
+        let vignette = movement(from: try render { $0.look.vignette = -1.0 })
+        XCTAssertGreaterThan(vignette, 0.05,
+                             "a −1 EV vignette moved the frame by \(vignette)")
     }
 
     func testMidGreyLandsWhereTheTransformPromises() throws {

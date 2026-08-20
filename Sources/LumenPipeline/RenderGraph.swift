@@ -176,12 +176,26 @@ public struct RenderGraph {
                               longEdge: Int) -> CIImage {
         var out = image
 
+        // Texture → Clarity → Dehaze, matching `DetailEngine.apply`. Dehaze used to run
+        // FIRST here, so with any two of the three set the two paths rendered different
+        // pixels by construction: dehaze is a contrast expansion, and expanding before
+        // versus after the two detail gains is not the same operation. The reference is
+        // the contract, so the graph follows it rather than the other way round.
+        guard d.texture != 0 || d.clarity != 0 || d.dehaze != 0 else { return out }
+
+        if d.texture != 0 || d.clarity != 0, let lum = Self.logLuminance(out) {
+            out = Self.applyDetailBands(out, detail: d, lum: lum, longEdge: longEdge)
+        }
         if d.dehaze != 0 {
             out = Self.applyDehaze(out, amount: d.dehaze, longEdge: longEdge)
         }
+        return out
+    }
 
-        guard d.texture != 0 || d.clarity != 0 else { return out }
-        guard let lum = Self.logLuminance(out) else { return out }
+    /// The two detail-band gains, off one decomposition of `lum`.
+    private static func applyDetailBands(_ image: CIImage, detail d: Detail,
+                                         lum: CIImage, longEdge: Int) -> CIImage {
+        var out = image
 
         // One decomposition, two bands: texture is the fine scale, clarity the mid
         // scale. Both come off guided filters, so neither can halo.
@@ -191,8 +205,25 @@ public struct RenderGraph {
               let baseMid = Self.guidedSelfFilter(lum, radius: mid, epsilon: 0.004)
         else { return out }
 
+        // `k` is a gain exponent PER STOP, and the plane these bands come off is
+        // `logLuminance` — which is `LumenLog.encode`d, not EV. The encoding squeezes a
+        // 24-stop domain into [0,1], so one stop of local detail arrives as 1/24 of a
+        // unit and `exp2(k · Δ)` was computing a gain of `2^(k·ΔEV/24)`.
+        //
+        // What that cost: Texture at +100 moved local contrast by 2.6% where the
+        // reference implementation, whose delta is explicitly `deltaEV`, moves it by
+        // 100%. The two most-used presence sliders in the app were, on every preview
+        // and every export, doing about one twenty-fifth of what they said — and the
+        // one test that turns these stages on also sets a −1 EV vignette and asserts
+        // only that *something* moved, so it passed either way.
+        //
+        // Converting the coefficient is exact rather than approximate: the encoding is
+        // affine in EV above its toe, so `k · range` reproduces `2^(k·ΔEV)` to 1.6e-14
+        // across the whole 0.05–4 EV band.
+        let perStop = LumenLog.range
+
         if d.texture != 0 {
-            let k = d.texture / 100.0 * 0.9
+            let k = d.texture / 100.0 * 0.9 * perStop
             if let gain = KernelLibrary.apply(KernelLibrary.detailGain,
                                               extent: out.extent, [lum, baseFine, Float(k)]),
                let combined = KernelLibrary.apply(KernelLibrary.multiply,
@@ -201,7 +232,7 @@ public struct RenderGraph {
             }
         }
         if d.clarity != 0 {
-            let k = d.clarity / 100.0 * 1.1
+            let k = d.clarity / 100.0 * 1.1 * perStop
             if let gain = KernelLibrary.apply(KernelLibrary.detailGain,
                                               extent: out.extent,
                                               [baseFine, baseMid, Float(k)]),
@@ -229,12 +260,25 @@ public struct RenderGraph {
         }
         guard let dark = Self.channelMinimum(darkRGB) else { return image }
 
-        // Airlight: averaged over the DARK CHANNEL, not the image — a frame average is
-        // dominated by midtones and lands far below the true airlight, which sends the
-        // transmission negative. Measured on a proxy and frozen for the render, which
-        // is also what the proxy-field rule requires for tiled export (docs/14 §6.3).
+        // Airlight: the BRIGHTEST region of the dark channel, which is He et al.'s
+        // definition and what `SpatialOps.estimateAirlight(topFraction: 0.001)` does on
+        // the reference path.
+        //
+        // This used to be the dark channel's MEAN. The comment was right that a frame
+        // average is wrong and switching to the dark channel helped, but a mean of the
+        // dark channel is still roughly half the true airlight — and it divides the
+        // transmission, so `t = 1 − w·dark/A` collapsed. With the floor at 0.1 the
+        // recombination was then free to amplify by 10×: Dehaze +20 pushed part of the
+        // frame above scene white, and +50 put a fifth of it on the clamp. The
+        // reference renders the same recipe with no clipping at all.
+        //
+        // Taking the maximum of the PROXY rather than of the full-resolution plane is
+        // what keeps this robust: each proxy pixel is already the mean of a block, so a
+        // single hot pixel cannot define the airlight. Measured on a proxy and frozen
+        // for the render, which is also what the proxy-field rule requires for tiled
+        // export (docs/14 §6.3).
         let proxy = Self.scaledToProxy(dark)
-        let airlight = Self.averageColor(proxy) ?? RGB(gray: 0.8)
+        let airlight = Self.maximumColor(proxy) ?? RGB(gray: 0.8)
         let neutral = Swift.max((airlight.r + airlight.g + airlight.b) / 3, 1e-4)
 
         // t = 1 − w·dark/A, refined.
@@ -244,9 +288,17 @@ public struct RenderGraph {
         let refined = Self.crossGuidedFilter(input: biased, guide: dark, radius: radius,
                                              epsilon: 0.0025) ?? biased
 
+        // The same base transmission floor the reference uses, rather than 0.1. The
+        // reference ALSO lifts this per pixel toward 0.9 where the frame is bright and
+        // flat — its sky guard — which needs the gradient and log-luminance planes the
+        // kernel is not given, so that part remains reference-only and is listed in
+        // BUILDING.md rather than approximated here.
+        let distance = Num.clamp(DetailEngine.dehazeDistance, 0, 100) / 100
+        let floorT = Num.mix(0.55, 0.05, distance)
+
         let a = CIVector(x: neutral, y: neutral, z: neutral)
         return KernelLibrary.apply(KernelLibrary.dehaze, extent: image.extent,
-                                   [image, refined, a, Float(0.1)]) ?? image
+                                   [image, refined, a, Float(floorT)]) ?? image
     }
 
     // MARK: - S11 local
@@ -535,17 +587,39 @@ public struct RenderGraph {
 
     /// One average colour for the whole frame. Used for statistics that must be
     /// frozen across tiles (docs/14 §6.3's proxy-field rule).
+    /// One context for the one-pixel statistics readbacks, not one per call.
+    ///
+    /// `averageColor` built a fresh `CIContext` every time, and it is called once per
+    /// frame from `applyDehaze` — so dragging any slider on a photo with Dehaze set
+    /// spun up a new Metal context per frame. Creating a context is expensive by
+    /// design; it is the object you are supposed to keep.
+    private static let statisticsContext = CIContext(options: [.workingColorSpace: NSNull()])
+
+    private static func readOnePixel(_ image: CIImage) -> RGB? {
+        var pixel = [Float](repeating: 0, count: 4)
+        statisticsContext.render(image, toBitmap: &pixel, rowBytes: 16,
+                                 bounds: CGRect(x: 0, y: 0, width: 1, height: 1),
+                                 format: .RGBAf, colorSpace: nil)
+        return RGB(Double(pixel[0]), Double(pixel[1]), Double(pixel[2]))
+    }
+
     static func averageColor(_ image: CIImage) -> RGB? {
         let filter = CIFilter.areaAverage()
         filter.inputImage = image
         filter.extent = image.extent
         guard let output = filter.outputImage else { return nil }
-        var pixel = [Float](repeating: 0, count: 4)
-        let context = CIContext(options: [.workingColorSpace: NSNull()])
-        context.render(output, toBitmap: &pixel, rowBytes: 16,
-                       bounds: CGRect(x: 0, y: 0, width: 1, height: 1),
-                       format: .RGBAf, colorSpace: nil)
-        return RGB(Double(pixel[0]), Double(pixel[1]), Double(pixel[2]))
+        return readOnePixel(output)
+    }
+
+    /// The brightest value in `image`. Used on an already-downsampled proxy, which is
+    /// what makes it a robust high percentile rather than a single hot pixel: each
+    /// proxy pixel is the mean of a block of the original.
+    static func maximumColor(_ image: CIImage) -> RGB? {
+        let filter = CIFilter.areaMaximum()
+        filter.inputImage = image
+        filter.extent = image.extent
+        guard let output = filter.outputImage else { return nil }
+        return readOnePixel(output)
     }
 }
 
