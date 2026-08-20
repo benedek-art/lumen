@@ -212,10 +212,35 @@ struct DetailPanel: View {
 
     // MARK: Noise reduction
 
-    /// The ISO this photo was shot at, as the catalog read it. nil for a rendered file
-    /// or before the metadata backfill has reached it.
+    /// The ISO the DENOISE PROFILE will actually be resolved against, which is not the
+    /// same as the ISO the file records.
+    ///
+    /// `AppState.startingRecipe` applies the ISO table only to non-rendered files: a
+    /// camera JPEG has already been denoised in-body and its pixels no longer follow any
+    /// sensor noise model this table knows. `ImageSource` agrees and reports `iso: nil`
+    /// for a rendered source, so the render itself uses the base-ISO profile.
+    ///
+    /// This read the catalog's ISO for every format, and `CaptureMetadataReader` fills
+    /// that from any file ImageIO can open. So on a JPEG shot at ISO 3200 the panel said
+    /// "Adjusted from the ISO 3200 defaults" and badged an untouched photo "Manual", the
+    /// section showed its modified dot, double-clicking Luminance wrote 18.75 — a value
+    /// `startingRecipe` had just decided this file must not get — and those numbers were
+    /// then applied against the ISO 100 profile anyway. Every JPEG, HEIC and TIFF in the
+    /// library, wrong in four places at once.
     private var captureISO: Double? {
+        guard let photo = state.primarySelection,
+              !PhotoFormats.isRendered(photo.id) else { return nil }
+        return photo.iso.map { Double($0) }
+    }
+
+    /// The ISO the FILE records, whether or not the profile uses it. Only for saying so.
+    private var recordedISO: Double? {
         state.primarySelection?.iso.map { Double($0) }
+    }
+
+    /// Whether this photo is one the ISO table deliberately skips.
+    private var isRenderedFile: Bool {
+        state.primarySelection.map { PhotoFormats.isRendered($0.id) } ?? false
     }
 
     /// What an unedited frame at this ISO starts on — the same resolution
@@ -242,6 +267,16 @@ struct DetailPanel: View {
                 LumenBadge(text: recipe.develop.denoise == isoDefault ? "Auto" : "Manual")
             }
             .frame(height: Lumen.rowHeight)
+        } else if isRenderedFile, let iso = recordedISO {
+            // The file HAS an ISO. Saying "no ISO recorded" here would be a second lie
+            // on top of the one this branch exists to stop.
+            DevelopNote("This file records ISO \(Int(iso)), but it is already a rendered "
+                        + "picture — the camera denoised it, so the sensor noise model "
+                        + "does not describe these pixels. These start flat and the "
+                        + "profile is the base one.")
+        } else if isRenderedFile {
+            DevelopNote("A rendered file: the camera has already denoised it, so these "
+                        + "start at the flat defaults rather than at a profiled guess.")
         } else {
             DevelopNote("No ISO recorded for this file, so these start at the flat "
                         + "defaults rather than at a profiled guess.")

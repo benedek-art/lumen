@@ -130,6 +130,43 @@ Scores in this document are claims, and claims get checked. After each batch:
 The rule that makes this honest: **a score may only go up when something can be traced
 from a control to a pixel.** Not when code is written.
 
+## What an independent audit found
+
+An agent that wrote none of this traced every claimed-done item from control to
+pixel against the four conditions. **Thirteen of sixteen claims held. Three did
+not**, and they are recorded here rather than quietly fixed, because the pattern
+matters more than the individual bugs — every one is a shape this project has
+shipped before.
+
+| Claim | Audited | Why |
+|---|---|---|
+| Tier-1 denoise sliders | 70 as wiring, **not as behaviour** | The controls reach the shader's uniforms. But every behavioural proof of what a slider DOES is against `ClassicalDenoise.apply`, the reference that renders no user pixels; the two goldens binding the GPU stage to it were red on macOS |
+| ISO-adaptive defaults | 60, not 70 | See below |
+| Local point curve | 65, not 70 | The shipping half has no test. Delete the call in `RenderGraph` and the whole suite stays green while every preview and export loses the second tap |
+| Vision person matte | 30 | Ten inert checkboxes, and the one Vision kind whose editor never showed its status |
+
+**The ISO badge lied to every JPEG owner.** `startingRecipe` applies the ISO table
+only to non-rendered files — a camera JPEG is already denoised and its pixels do
+not follow the sensor model. The panel read the catalog's ISO for every format, so
+on a JPEG shot at ISO 3200 it said "Adjusted from the ISO 3200 defaults", badged
+an untouched photo "Manual", showed the section's modified dot, and made
+double-clicking Luminance write 18.75 — a value the app had just decided that file
+must not get — which was then applied against the ISO 100 profile anyway. Wrong in
+four places at once, on every JPEG, HEIC and TIFF in the library.
+
+**Sixteen controls stored values nothing read.** Ten person parts and six landscape
+classes, with a caption saying parts were "synthesised from the person matte".
+Nothing synthesised anything: `personParts` and `classes` had writers, a
+declaration, and no reader anywhere. Shipped inside the batch whose headline claim
+was that the AI roster is now honest. Removed — absence is honest.
+
+**The gap this exposes in the test suite:** there is no test anywhere that puts a
+mask through `RenderGraph`. `applyLocalCurves`, `LocalCurvePlan`, `applyLocal`,
+`maskImages`, and the orientation of a mask raster in Core Image's y-up space are
+collectively unasserted. Whole-mask invert escapes only because it lives in
+`MaskRaster.combine`, which the CPU tests do cover — which is exactly why it scores
+70 and the local curve does not.
+
 ## The accuracy the tables actually deliver
 
 Colour is baked into 3-D LUTs and fetched per pixel. That is the architecture, and its

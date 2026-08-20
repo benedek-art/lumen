@@ -327,13 +327,42 @@ struct MaskPanel: View {
             }
         case .similarity:
             similarityParameters(id, i, c)
+        // People and Landscape shipped sixteen checkboxes between them — ten person
+        // parts, six landscape classes — that wrote `personParts` and `classes`, and
+        // NOTHING read either field. The caption said parts were "synthesised from the
+        // person matte"; nothing synthesised anything. Per-person chips and the nine
+        // parts need a face-landmark pass and a per-person matte the wire format cannot
+        // express yet, and Landscape needs a model that does not ship.
+        //
+        // docs/18: a control that stores a value nothing reads is worse than an absent
+        // one, because absence is honest. So the checkboxes are gone and the note says
+        // what the component actually selects. Both now route through `modelNote`, which
+        // is what makes a row that has run and found nothing say so — People was the one
+        // Vision kind whose editor skipped it, so a People mask could never show
+        // NOTHING FOUND however long you waited.
         case .aiPerson:
-            checkboxList(id, i, MaskPanel.personParts, isParts: true,
-                         caption: "Parts are synthesised from the person matte.")
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Entire Person, for everyone in the frame.")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                Text("Per-person selection and the nine body parts need a "
+                     + "face-landmark pass and a per-person matte the recipe format "
+                     + "cannot express yet, so they are not offered.")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.tertiary)
+                modelNote(c)
+            }
         case .aiLandscape:
-            checkboxList(id, i, MaskPanel.landscapeClasses, isParts: false,
-                         caption: "Six classes, deliberately: snow is a luminance range "
-                                + "intersected with this mask, not a seventh class.")
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Selects nothing yet — Lumen ships no landscape model.")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                Text("The six classes are designed and specified; the class toggles "
+                     + "are not shown because nothing would read them.")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.tertiary)
+                modelNote(c)
+            }
         case .aiObject:
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
@@ -410,19 +439,6 @@ struct MaskPanel: View {
             .help("Remove the last sample")
         }
         .frame(height: Lumen.rowHeight)
-    }
-
-    private func checkboxList(_ id: String, _ i: Int,
-                              _ entries: [(key: String, label: String)],
-                              isParts: Bool, caption: String) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(entries.indices), id: \.self) { e in
-                LumenToggleRow(title: entries[e].label,
-                               isOn: listBinding(id, i, entries[e].key, isParts: isParts),
-                               help: "Include this in the mask")
-            }
-            note(caption)
-        }
     }
 
     /// What is actually happening to this component's matte.
@@ -852,27 +868,6 @@ struct MaskPanel: View {
                 set: { v in editComponent(id, i, key: nil) { $0.invert = v } })
     }
 
-    private func listBinding(_ id: String, _ i: Int, _ key: String,
-                             isParts: Bool) -> Binding<Bool> {
-        Binding(
-            get: {
-                let c = component(id, i)
-                return (isParts ? c?.personParts : c?.classes)?.contains(key) ?? false
-            },
-            set: { want in
-                editComponent(id, i, key: nil) { c in
-                    var list = (isParts ? c.personParts : c.classes) ?? []
-                    if want {
-                        if !list.contains(key) { list.append(key) }
-                    } else {
-                        list.removeAll { $0 == key }
-                    }
-                    let stored: [String]? = list.isEmpty ? nil : list
-                    if isParts { c.personParts = stored } else { c.classes = stored }
-                }
-            })
-    }
-
     private func brushValue(_ p: ReferenceWritableKeyPath<MaskBrushStore, Double>) -> Binding<Double> {
         let store = brush
         return Binding(get: { store[keyPath: p] }, set: { v in store[keyPath: p] = v })
@@ -1134,18 +1129,6 @@ struct MaskPanel: View {
 
     /// The nine person parts plus Entire Person (the default), and the six landscape
     /// classes — exactly the sets the spec fixes.
-    static let personParts: [(key: String, label: String)] = [
-        ("entirePerson", "Entire Person"), ("faceSkin", "Face Skin"),
-        ("bodySkin", "Body Skin"), ("eyebrows", "Eyebrows"), ("eyeSclera", "Eye Sclera"),
-        ("irisPupil", "Iris & Pupil"), ("lips", "Lips"), ("teeth", "Teeth"),
-        ("hair", "Hair"), ("clothes", "Clothes"),
-    ]
-
-    static let landscapeClasses: [(key: String, label: String)] = [
-        ("sky", "Sky"), ("water", "Water"), ("vegetation", "Vegetation"),
-        ("mountains", "Mountains"), ("architecture", "Architecture"), ("ground", "Ground"),
-    ]
-
     /// A component that already satisfies `validationError()` wherever the format lets
     /// one: a new mask should render something the moment it is created.
     static func makeComponent(kind: MaskKind, op: MaskOp) -> MaskComponent {
@@ -1176,11 +1159,12 @@ struct MaskPanel: View {
             c.depthLo = 0
             c.depthHi = 1
             c.smooth = 50
-        case .aiPerson:
-            c.personParts = ["entirePerson"]
-        case .aiLandscape:
-            c.classes = ["sky"]
-        case .aiSubject, .aiSky, .aiBackground, .aiObject:
+        // `personParts` and `classes` are deliberately left nil. Nothing reads them,
+        // so seeding them wrote a value into every new component that no stage would
+        // ever consult — and made a mask's stored form claim a selection it does not
+        // have.
+        case .aiPerson, .aiLandscape,
+             .aiSubject, .aiSky, .aiBackground, .aiObject:
             break
         }
         return c

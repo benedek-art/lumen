@@ -74,7 +74,11 @@ final class LoupeViewport: ObservableObject {
     /// so it reads as a tool you fire rather than a mode you have to remember to leave.
     @Published var showStraighten: Bool = false
     @Published var showReadout: Bool = true
-    @Published var maskOverlayOpacity: Double = 0.45
+    /// Overlay tint strength. A `let`, not a `@Published var`: nothing ever set it, so
+    /// it was a constant wearing a setting's clothes — observable state that could not
+    /// be observed to change, in a batch whose thesis was reachability. If it becomes
+    /// adjustable it goes back to being published, with a control that writes it.
+    static let maskOverlayOpacity: Double = 0.45
 
     /// Last pointer position in loupe-local points. Not `@Published`: it changes on
     /// every mouse move and nothing should redraw because of it. The zoom verbs read
@@ -660,7 +664,7 @@ struct LoupeView: View {
                                 sourceSize: state.primaryFrameSize
                                     ?? CGSize(width: cg.width, height: cg.height),
                                 mode: state.maskOverlayMode, tint: state.maskOverlayTint,
-                                strength: viewport.maskOverlayOpacity)
+                                strength: LoupeViewport.maskOverlayOpacity)
                     .frame(width: drawn.width, height: drawn.height)
             }
 
