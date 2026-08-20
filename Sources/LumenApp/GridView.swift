@@ -1,83 +1,259 @@
 // GridView.swift
-// The contact sheet, embedded previews only (Law 14). Selection follows clicks and
-// arrow keys; double-click or E enters the loupe.
+// The contact sheet: the view the app is judged by, because it is the one a
+// photographer stares at for an hour after a shoot. Embedded previews only (Law 14),
+// cells sized by the thumbnail slider, badges read straight off the in-memory index.
+//
+// The scroll path is the budget (docs/10 §10.2: 8.3 ms/frame at 120 Hz, 5,000 cells),
+// so a cell is deliberately dull: a rectangle, one image, a text line and at most
+// three badge glyphs. No spinner (the progress ladder says nothing under a second),
+// no per-cell timer, no shadow, no blur, no gradient, no view that animates on its
+// own. A cell asks the loader one synchronous question — "have you got it?" — and
+// otherwise waits in a structured task that dies with the cell when it scrolls away.
+//
+// This file also hosts `PhotoCell`, which the filmstrip reuses: the strip is a
+// one-row grid backed by the same thumbnail cache, never a second preview system
+// (docs/12 §B1).
+//
+// Keyboard: only the geometric arrow moves live here, because only the grid knows
+// how many columns a row has. The letter grammar belongs to the keymap.
 
 #if os(macOS)
 
 import AppKit
+import CoreGraphics
 import SwiftUI
 
 struct GridView: View {
     @EnvironmentObject var state: AppState
     @FocusState private var focused: Bool
 
-    private let columns = [GridItem(.adaptive(minimum: 160, maximum: 220), spacing: 8)]
+    private let spacing: CGFloat = 10
 
     var body: some View {
-        ScrollView {
-            LazyVGrid(columns: columns, spacing: 8) {
-                ForEach(state.photos) { photo in
-                    GridCell(photo: photo, isSelected: state.selected == photo)
-                        .onTapGesture(count: 2) {
-                            state.selected = photo
-                            state.isLoupeVisible = true
+        let photos = state.photos
+        let side = CGFloat(state.gridThumbnailSize)
+        // Retina: ask for twice the point size, then let the loader snap to a cache level.
+        let pixels = Int(side * 2)
+        let columns = [GridItem(.adaptive(minimum: side, maximum: side), spacing: spacing)]
+
+        GeometryReader { geometry in
+            ScrollViewReader { proxy in
+                ScrollView(.vertical) {
+                    LazyVGrid(columns: columns, spacing: spacing) {
+                        ForEach(photos) { photo in
+                            PhotoCell(photo: photo,
+                                      side: side,
+                                      pixels: pixels,
+                                      isSelected: state.selection.contains(photo.id),
+                                      isPrimary: state.primarySelection?.id == photo.id,
+                                      showsCaption: side >= 110,
+                                      loader: state.thumbnails)
+                                .onTapGesture(count: 2) {
+                                    state.select(photo)
+                                    state.showLoupe()
+                                }
+                                .simultaneousGesture(TapGesture().onEnded {
+                                    selectFromClick(photo, state: state)
+                                })
                         }
-                        .simultaneousGesture(TapGesture().onEnded {
-                            state.selected = photo
-                        })
+                    }
+                    .padding(spacing)
+                }
+                .background(Lumen.viewerBackground)
+                .focusable()
+                .focused($focused)
+                .onAppear {
+                    focused = true
+                    state.thumbnails.prefetch(around: state.primarySelection?.id,
+                                              in: photos.map(\.id), size: pixels)
+                }
+                .onMoveCommand { direction in
+                    let row = columnCount(width: geometry.size.width, side: side)
+                    switch direction {
+                    case .left: state.selectPrevious()
+                    case .right: state.selectNext()
+                    case .up: state.moveSelection(by: -row)
+                    case .down: state.moveSelection(by: row)
+                    default: break
+                    }
+                }
+                .onChange(of: state.primarySelection?.id) { _, id in
+                    guard let id else { return }
+                    proxy.scrollTo(id, anchor: .center)
+                    state.thumbnails.prefetch(around: id, in: photos.map(\.id), size: pixels)
                 }
             }
-            .padding(8)
         }
-        .focusable()
-        .focused($focused)
-        .onAppear { focused = true }   // arrow keys must work without a Tab first
-        .onMoveCommand { direction in
-            switch direction {
-            case .left: state.selectPrevious()
-            case .right: state.selectNext()
-            default: break
+        .overlay(emptyState(count: photos.count))
+    }
+
+    private func columnCount(width: CGFloat, side: CGFloat) -> Int {
+        let usable = width - spacing * 2 + spacing
+        guard side > 0, usable > 0 else { return 1 }
+        return max(1, Int(usable / (side + spacing)))
+    }
+
+    @ViewBuilder
+    private func emptyState(count: Int) -> some View {
+        if count == 0 {
+            VStack(spacing: 8) {
+                Text(emptyMessage)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Lumen.secondaryText)
+                if state.filter.isActive {
+                    Button("Clear Filter") { state.filter = LibraryFilter() }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 11))
+                        .foregroundStyle(Lumen.primaryText)
+                }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Lumen.viewerBackground)
+        }
+    }
+
+    private var emptyMessage: String {
+        if state.isScanning { return "Scanning…" }
+        if state.filter.isActive { return "No photos match this filter" }
+        return "Open a folder of RAW files to begin"
+    }
+}
+
+// MARK: - Click grammar
+
+/// Click, ⇧-click, ⌘-click — shared by the grid and the filmstrip so the two cannot
+/// drift apart. Modifiers are read from the current event rather than from separate
+/// modifier-qualified gestures, which keeps one tap handler on the cell.
+@MainActor
+func selectFromClick(_ photo: PhotoItem, state: AppState) {
+    let flags = NSEvent.modifierFlags
+    if flags.contains(.command) {
+        state.select(photo, toggling: true)
+    } else if flags.contains(.shift) {
+        state.select(photo, extending: true)
+    } else {
+        state.select(photo)
+    }
+}
+
+// MARK: - Cell
+
+/// One contact-sheet cell. Value-typed inputs only: it never reads AppState, so a
+/// rating written three cells away does not invalidate the whole sheet.
+struct PhotoCell: View {
+    let photo: PhotoItem
+    let side: CGFloat
+    let pixels: Int
+    let isSelected: Bool
+    let isPrimary: Bool
+    var showsCaption: Bool = true
+    let loader: ThumbnailLoader
+
+    @State private var image: CGImage?
+
+    private var wellHeight: CGFloat { showsCaption ? side * 0.76 : side }
+
+    private var hasBadges: Bool {
+        photo.flag != .none || photo.rating > 0 || photo.label != .none
+    }
+
+    private var borderColor: Color {
+        if isPrimary { return Lumen.primaryText }
+        if isSelected { return Lumen.fillColor }
+        return Lumen.separator
+    }
+
+    var body: some View {
+        VStack(spacing: 3) {
+            well
+            if showsCaption {
+                Text(photo.filename)
+                    .font(.system(size: 10))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .foregroundStyle(isPrimary ? Lumen.primaryText : Lumen.secondaryText)
+                    .frame(width: side)
+            }
+        }
+        .frame(width: side)
+        .contentShape(Rectangle())
+        .task(id: CellRequest(url: photo.id, pixels: pixels)) {
+            await loadThumbnail()
+        }
+    }
+
+    private var well: some View {
+        ZStack {
+            Rectangle()
+                .fill(Lumen.controlBackground)
+            if let image {
+                Image(decorative: image, scale: 1, orientation: .up)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    // A rejected frame reads as rejected without leaving the sheet.
+                    .opacity(photo.flag == .rejected ? 0.4 : 1)
+            }
+        }
+        // 120 ms, first appearance only (docs/10 §10.2): never a white flash.
+        .animation(.easeOut(duration: 0.12), value: image == nil)
+        .frame(width: side, height: wellHeight)
+        .clipShape(RoundedRectangle(cornerRadius: 3))
+        .overlay(alignment: .bottom) {
+            if hasBadges { badges }
+        }
+        .overlay(
+            RoundedRectangle(cornerRadius: 3)
+                .strokeBorder(borderColor, lineWidth: isPrimary ? 2 : 1)
+        )
+    }
+
+    private var badges: some View {
+        HStack(spacing: 3) {
+            if photo.flag != .none {
+                Image(systemName: photo.flag.symbolName)
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(photo.flag == .picked ? Color.white : Lumen.secondaryText)
+            }
+            if photo.rating > 0 { stars }
+            Spacer(minLength: 0)
+            if photo.label != .none {
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(photo.label.color)
+                    .frame(width: 12, height: 7)
+            }
+        }
+        .padding(.horizontal, 4)
+        .padding(.vertical, 3)
+        .frame(width: side)
+        .background(Color.black.opacity(0.45))
+    }
+
+    private var stars: some View {
+        HStack(spacing: 1) {
+            ForEach(1...5, id: \.self) { index in
+                Image(systemName: "star.fill")
+                    .font(.system(size: 7))
+                    .foregroundStyle(index <= photo.rating ? Color.white : Lumen.trackColor)
+            }
+        }
+    }
+
+    private func loadThumbnail() async {
+        if let hit = await loader.thumbnail(for: photo.id, size: pixels) {
+            if image !== hit { image = hit }
+            return
+        }
+        if let loaded = await loader.image(for: photo.id, size: pixels) {
+            image = loaded
         }
     }
 }
 
-private struct GridCell: View {
-    @EnvironmentObject var state: AppState
-    let photo: PhotoItem
-    let isSelected: Bool
-
-    @State private var thumbnail: NSImage?
-
-    var body: some View {
-        VStack(spacing: 4) {
-            ZStack {
-                Rectangle()
-                    .fill(Color(nsColor: .init(white: 0.12, alpha: 1)))
-                if let thumbnail {
-                    Image(nsImage: thumbnail)
-                        .resizable()
-                        .scaledToFit()
-                } else {
-                    ProgressView()
-                        .controlSize(.small)
-                }
-            }
-            .frame(height: 140)
-            .clipShape(RoundedRectangle(cornerRadius: 4))
-            .overlay(
-                RoundedRectangle(cornerRadius: 4)
-                    .stroke(isSelected ? Color.accentColor : .clear, lineWidth: 3)
-            )
-            Text(photo.filename)
-                .font(.caption2)
-                .lineLimit(1)
-                .foregroundStyle(isSelected ? Color.accentColor : .secondary)
-        }
-        .task(id: photo.id) {
-            thumbnail = await state.thumbnails.load(url: photo.id)
-        }
-    }
+/// `.task` identity for a cell's pixels: the same photo at a new thumbnail size is a
+/// new request, the same photo at the same size is not.
+private struct CellRequest: Equatable {
+    let url: URL
+    let pixels: Int
 }
 
 #endif

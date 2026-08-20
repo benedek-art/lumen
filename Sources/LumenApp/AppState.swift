@@ -171,6 +171,11 @@ final class AppState: ObservableObject {
     @Published var autoAdvance = true
     @Published var gridThumbnailSize: Double = 160
     @Published var showFilmstrip = true
+    /// Published by the grid as it lays out, so ↑/↓ move by a real row rather than by
+    /// a guess. Never zero — a divide-by-row-count would be a crash in the key path.
+    @Published var gridColumns: Int = 6
+    @Published var showKeyReference = false
+    @Published var showExportSheet = false
 
     // MARK: Editor
 

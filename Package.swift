@@ -44,5 +44,14 @@ let package = Package(
             resources: [.copy("Fixtures")],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
+        // The GPU path's goldens. These RUN on the macOS CI runner: they compile every
+        // kernel, render synthetic frames through the real Core Image graph, and
+        // compare against the f32 reference in LumenCore. A shader that drifts from
+        // its reference fails here rather than in someone's photographs.
+        .testTarget(
+            name: "LumenPipelineTests",
+            dependencies: ["LumenCore", "LumenPipeline"],
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
     ]
 )

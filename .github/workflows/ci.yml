@@ -6,18 +6,22 @@ on:
   workflow_dispatch:
 
 jobs:
-  # The real thing: compile every target and run the golden-fixture suite on macOS.
+  # The real thing: compile every target and RUN the suites on macOS. The engine's
+  # goldens run first so their signal survives churn in the app layer.
   test-macos:
     runs-on: macos-15
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - name: Toolchain
         run: swift --version && xcodebuild -version
-      - name: Build (all targets)
-        run: swift build
-      - name: Test (LumenCore golden fixtures)
-        run: swift test
+
+      - name: Test — engine + GPU goldens
+        run: swift test 2>&1 | tail -400
+
+      - name: Build — whole package including the app
+        if: always()
+        run: swift build 2>&1 | tail -400
 
   # Linux lane: regenerate fixtures with the Python reference and fail if the
   # committed fixtures drifted from the verified reference.

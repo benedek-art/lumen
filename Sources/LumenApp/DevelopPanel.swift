@@ -1,122 +1,429 @@
 // DevelopPanel.swift
-// Phase-1 develop panel: the walking-skeleton slider set (docs/16 Phase 1) bound to
-// the real Recipe model — exposure (EV), WB Kelvin/tint, highlights/shadows, NR
-// toggle — plus JPEG export. Slider ranges are the docs/04 contract; the full
-// slider-contract ergonomics (D45) arrive with the real panel system in Phase 3.
+// The develop column: a section switcher, the active section's scrollable stack of
+// panels, and a footer of the four gestures that operate on the whole recipe.
+//
+// Three rules this file exists to enforce:
+//   · Every edit goes through `AppState.updateRecipe(coalescingKey:)` with a key that
+//     names the control, so one drag is one undo step (docs/12 §12.10) and no panel
+//     has to implement coalescing itself.
+//   · Every slider is a `LumenSlider`. The slider contract (D45) lives in exactly one
+//     place, and a panel that hand-rolls a row is a bug the user feels before they can
+//     name it.
+//   · A section that is at its defaults says so, and a section that is not offers to
+//     put it back. "What did I change?" is answerable at a glance, not from memory.
+//
+// The panel edits `AppState.editTargets` — the whole selection when there is one —
+// while it *displays* `primarySelection`'s values, which is what makes adjusting 40
+// frames feel like adjusting one.
 
 #if os(macOS)
 
-import AppKit
+import Foundation
 import LumenCore
-import LumenPipeline
 import SwiftUI
+
+// MARK: - Recipe binding
+
+/// The one way a panel reaches into a recipe. Every binding produced here routes its
+/// setter through `updateRecipe(coalescingKey:)`, so the coalescing key is impossible
+/// to forget: you cannot make a binding without naming the control.
+///
+/// Optional recipe fields (`RawParams.temp`, `CaptureSharpen.radius`, …) mean "let the
+/// stage decide" rather than "zero". A slider cannot show "no value", so the `orAuto:`
+/// overload takes the value the UI stands in while the field is nil; the first move
+/// writes a concrete number and the panel offers an explicit way back to nil.
+@MainActor
+struct RecipeBinder {
+    let state: AppState
+
+    /// A plain numeric field.
+    func value(_ path: WritableKeyPath<Recipe, Double>, _ key: String) -> Binding<Double> {
+        let state = self.state
+        return Binding(
+            get: { state.currentRecipe[keyPath: path] },
+            set: { newValue in
+                state.updateRecipe(coalescingKey: key) { $0[keyPath: path] = newValue }
+            })
+    }
+
+    /// An optional numeric field, shown as `auto` while it is nil.
+    func value(_ path: WritableKeyPath<Recipe, Double?>, _ key: String,
+               orAuto auto: Double) -> Binding<Double> {
+        let state = self.state
+        return Binding(
+            get: { state.currentRecipe[keyPath: path] ?? auto },
+            set: { newValue in
+                state.updateRecipe(coalescingKey: key) { $0[keyPath: path] = newValue }
+            })
+    }
+
+    func flag(_ path: WritableKeyPath<Recipe, Bool>, _ key: String) -> Binding<Bool> {
+        let state = self.state
+        return Binding(
+            get: { state.currentRecipe[keyPath: path] },
+            set: { newValue in
+                state.updateRecipe(coalescingKey: key) { $0[keyPath: path] = newValue }
+            })
+    }
+
+    func choice<T: Equatable>(_ path: WritableKeyPath<Recipe, T>, _ key: String) -> Binding<T> {
+        let state = self.state
+        return Binding(
+            get: { state.currentRecipe[keyPath: path] },
+            set: { newValue in
+                state.updateRecipe(coalescingKey: key) { $0[keyPath: path] = newValue }
+            })
+    }
+
+    /// For the handful of fields that live behind an optional struct (`Look.filmLab`,
+    /// `LensCorrections.defringe`), where a writable key path cannot reach.
+    func custom(_ key: String,
+                get: @escaping (Recipe) -> Double,
+                set: @escaping (inout Recipe, Double) -> Void) -> Binding<Double> {
+        let state = self.state
+        return Binding(
+            get: { get(state.currentRecipe) },
+            set: { newValue in
+                state.updateRecipe(coalescingKey: key) { set(&$0, newValue) }
+            })
+    }
+
+    func customFlag(_ key: String,
+                    get: @escaping (Recipe) -> Bool,
+                    set: @escaping (inout Recipe, Bool) -> Void) -> Binding<Bool> {
+        let state = self.state
+        return Binding(
+            get: { get(state.currentRecipe) },
+            set: { newValue in
+                state.updateRecipe(coalescingKey: key) { set(&$0, newValue) }
+            })
+    }
+
+    /// A whole-subtree write (a preset, a reset), recorded as one step.
+    func edit(_ key: String, _ mutate: @escaping (inout Recipe) -> Void) {
+        state.updateRecipe(coalescingKey: key, mutate)
+    }
+}
+
+// MARK: - Section scaffolding
+
+/// A titled group of rows. Carries the modified marker, the Reset affordance, and the
+/// "nothing changed here" badge that makes a clean section legible at a glance.
+struct DevelopSection<Content: View>: View {
+    private let title: String
+    private let isModified: Bool
+    private let onReset: (() -> Void)?
+    private let content: Content
+
+    init(_ title: String, isModified: Bool, onReset: (() -> Void)? = nil,
+         @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.isModified = isModified
+        self.onReset = onReset
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
+                LumenSectionHeader(title: title, isExpanded: nil,
+                                   isModified: isModified, onReset: onReset)
+                if !isModified {
+                    LumenBadge(text: "Default")
+                }
+            }
+            content
+        }
+    }
+}
+
+/// Depth is one disclosure away (D3): the row everybody uses stays on the surface and
+/// the parameter that earns its keep once a month sits behind a chevron.
+struct DevelopDisclosure<Content: View>: View {
+    private let title: String
+    @Binding private var isExpanded: Bool
+    private let content: Content
+
+    init(_ title: String, isExpanded: Binding<Bool>, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self._isExpanded = isExpanded
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            LumenSectionHeader(title: title, isExpanded: $isExpanded)
+            if isExpanded {
+                content
+                    .padding(.leading, 8)
+            }
+        }
+    }
+}
+
+/// A short explanatory line. Panels use it to say what an engine is doing rather than
+/// leaving the user to infer it from a slider name.
+struct DevelopNote: View {
+    private let text: String
+
+    init(_ text: String) {
+        self.text = text
+    }
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 10))
+            .foregroundStyle(Lumen.secondaryText)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.vertical, 2)
+    }
+}
+
+// MARK: - Develop panel
 
 struct DevelopPanel: View {
     @EnvironmentObject var state: AppState
-    let photo: PhotoItem
 
-    @State private var exportMessage: String?
+    /// The photo whose name the header shows. Values come from
+    /// `state.primarySelection` and edits land on `state.editTargets`, so this is a
+    /// label, never an edit target.
+    var photo: PhotoItem?
+
+    private var binder: RecipeBinder { RecipeBinder(state: state) }
+    private var subject: PhotoItem? { photo ?? state.primarySelection }
 
     var body: some View {
-        let recipe = state.recipe(for: photo)
-
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                Text(photo.filename)
-                    .font(.headline)
-                    .lineLimit(1)
-
-                Group {
-                    slider("Exposure", value: recipe.develop.tone.exposure,
-                           range: -5...5, format: "%+.2f EV") { v, r in
-                        r.develop.tone.exposure = v
+        VStack(spacing: 0) {
+            header
+            Divider().overlay(Lumen.separator)
+            sectionSwitcher
+            Divider().overlay(Lumen.separator)
+            if state.editTargets.isEmpty {
+                emptyState
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 2) {
+                        sectionContent
                     }
-                    slider("Temp", value: recipe.develop.raw.temp ?? 5500,
-                           range: 2000...50000, format: "%.0f K") { v, r in
-                        r.develop.raw.temp = v
-                    }
-                    slider("Tint", value: recipe.develop.raw.tint ?? 0,
-                           range: -150...150, format: "%+.0f") { v, r in
-                        r.develop.raw.tint = v
-                    }
-                    slider("Highlights", value: recipe.develop.tone.highlights,
-                           range: -100...100, format: "%+.0f") { v, r in
-                        r.develop.tone.highlights = v
-                    }
-                    slider("Shadows", value: recipe.develop.tone.shadows,
-                           range: -100...100, format: "%+.0f") { v, r in
-                        r.develop.tone.shadows = v
-                    }
+                    .padding(.horizontal, 10)
+                    .padding(.bottom, 12)
                 }
+            }
+            Divider().overlay(Lumen.separator)
+            footer
+        }
+        .frame(width: Lumen.panelWidth)
+        .background(Lumen.panelBackground)
+        .foregroundStyle(Lumen.primaryText)
+    }
 
-                Toggle("Noise reduction", isOn: Binding(
-                    get: { state.recipe(for: photo).develop.denoise.mode != .off },
-                    set: { on in
-                        state.updateRecipe(for: photo) {
-                            $0.develop.denoise.mode = on ? .classic : .off
-                        }
-                    }))
+    // MARK: Header
 
-                Button("Reset") {
-                    state.updateRecipe(for: photo) { $0 = Recipe() }
-                }
+    private var header: some View {
+        HStack(spacing: 6) {
+            Text(subject?.filename ?? "No photo")
+                .font(.system(size: 11, weight: .medium))
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer()
+            if state.editTargets.count > 1 {
+                LumenBadge(text: "\(state.editTargets.count) photos", emphasized: true)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+    }
 
-                Divider()
+    // MARK: Section switcher
 
+    private var sectionSwitcher: some View {
+        HStack(spacing: 0) {
+            ForEach(PanelSection.allCases) { section in
                 Button {
-                    exportCurrent()
+                    state.activeSection = section
                 } label: {
-                    Label("Export JPEG…", systemImage: "square.and.arrow.up")
+                    Image(systemName: section.symbolName)
+                        .font(.system(size: 12))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 6)
+                        .background(state.activeSection == section
+                                    ? Lumen.fillColor.opacity(0.30) : Color.clear)
+                        .foregroundStyle(state.activeSection == section
+                                         ? Lumen.primaryText : Lumen.secondaryText)
+                        .contentShape(Rectangle())
                 }
-                if let exportMessage {
-                    Text(exportMessage)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
+                .buttonStyle(.plain)
+                .help(section.rawValue)
             }
-            .padding()
+        }
+        .padding(.horizontal, 4)
+        .padding(.vertical, 2)
+    }
+
+    @ViewBuilder
+    private var sectionContent: some View {
+        switch state.activeSection {
+        case .basic:
+            BasicPanel()
+        case .detail:
+            DetailPanel()
+        case .effects:
+            EffectsPanel()
+        case .curve:
+            placeholder("Tone Curve",
+                        "Parametric, point and channel curves evaluate after the "
+                        + "display transform, luminance-preserving by default (D10).")
+        case .color:
+            placeholder("Colour",
+                        "Vibrance and Saturation live in Basic. The colour mixer, "
+                        + "point colour and grading wheels arrive with Phase 6.")
+        case .masks:
+            placeholder("Masks",
+                        "Local adjustments share the presence decomposition rather "
+                        + "than recomputing it, and land in Phase 4.")
+        case .look:
+            placeholder("Look",
+                        "The portable creative subtree — render preset, film stock, "
+                        + "grade — is what Copy Look carries across a shoot (D4).")
         }
     }
 
-    private func slider(_ label: String, value: Double,
-                        range: ClosedRange<Double>, format: String,
-                        apply: @escaping (Double, inout Recipe) -> Void) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack {
-                Text(label).font(.caption)
-                Spacer()
-                Text(String(format: format, value))
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
-            }
-            Slider(value: Binding(
-                get: { value },
-                set: { v in state.updateRecipe(for: photo) { apply(v, &$0) } }
-            ), in: range)
+    private func placeholder(_ title: String, _ detail: String) -> some View {
+        DevelopSection(title, isModified: false) {
+            DevelopNote(detail)
         }
     }
 
-    private func exportCurrent() {
-        let panel = NSSavePanel()
-        panel.nameFieldStringValue =
-            photo.id.deletingPathExtension().lastPathComponent + ".jpg"
-        guard panel.runModal() == .OK, let destination = panel.url else { return }
+    private var emptyState: some View {
+        VStack(spacing: 6) {
+            Image(systemName: "slider.horizontal.below.rectangle")
+                .font(.system(size: 22))
+            Text("Select a photo to develop")
+                .font(.system(size: 11))
+        }
+        .foregroundStyle(Lumen.secondaryText)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
 
-        let recipe = state.recipe(for: photo)
-        let url = photo.id
-        exportMessage = "Exporting…"
-        Task {
-            let result = await RenderCoordinator.shared.export(
-                url: url, recipe: recipe, to: destination,
-                settings: ExportSettings(jpegQuality: 0.9, maxLongEdge: nil))
-            await MainActor.run {
-                switch result {
-                case .success: exportMessage = "Exported \(destination.lastPathComponent)"
-                case .failure(let error): exportMessage = "Export failed: \(error)"
-                }
+    // MARK: Footer
+
+    private var footer: some View {
+        VStack(spacing: 4) {
+            HStack(spacing: 4) {
+                DevelopFooterButton(title: "Auto", systemImage: "wand.and.stars",
+                                    help: "Set the six tone sliders from the scene "
+                                        + "statistics (⌘U). Every value stays visible "
+                                        + "and individually revertable.",
+                                    action: applyAutoTone)
+                DevelopFooterButton(title: "Reset", systemImage: "arrow.uturn.backward",
+                                    help: "Return every setting to its default",
+                                    action: { state.resetSettings() })
+                    .disabled(!isRecipeModified)
+                DevelopFooterButton(title: "Undo", systemImage: "arrow.uturn.left",
+                                    help: state.history.undoLabel.map { "Undo \($0)" }
+                                        ?? "Nothing to undo",
+                                    action: { state.undo() })
+                    .disabled(!state.history.canUndo)
+                DevelopFooterButton(title: "Redo", systemImage: "arrow.uturn.right",
+                                    help: state.history.redoLabel.map { "Redo \($0)" }
+                                        ?? "Nothing to redo",
+                                    action: { state.redo() })
+                    .disabled(!state.history.canRedo)
+            }
+            HStack(spacing: 4) {
+                DevelopFooterButton(title: "Copy", systemImage: "doc.on.doc",
+                                    help: "Copy all develop settings",
+                                    action: { state.copySettings() })
+                DevelopFooterButton(title: "Paste", systemImage: "doc.on.clipboard",
+                                    help: "Paste develop settings onto the selection",
+                                    action: { state.pasteSettings() })
+                DevelopFooterButton(title: "Copy Look", systemImage: "photo.stack",
+                                    help: "Copy only the portable creative subtree — "
+                                        + "grade, film stock, render preset (D4)",
+                                    action: { state.copyLook() })
+                DevelopFooterButton(title: "Paste Look", systemImage: "photo.stack.fill",
+                                    help: "Apply the copied Look, leaving each photo's "
+                                        + "own white balance and exposure alone",
+                                    action: { state.pasteLook() })
             }
         }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+    }
+
+    private var isRecipeModified: Bool {
+        let current = state.currentRecipe
+        return current != Recipe(pipelineVersion: current.pipelineVersion)
+    }
+
+    // MARK: Auto
+
+    /// Auto is a discrete action that writes ordinary slider positions (D11): after it
+    /// runs, every value is visible, arguable and revertable, and history holds it as
+    /// one step.
+    private func applyAutoTone() {
+        let suggested = AutoTone.suggest(from: Self.referenceStatistics())
+        binder.edit("tone.auto") { recipe in
+            recipe.develop.tone.exposure = suggested.exposure
+            recipe.develop.tone.contrast = suggested.contrast
+            recipe.develop.tone.contrastPivot = suggested.contrastPivot
+            recipe.develop.tone.highlights = suggested.highlights
+            recipe.develop.tone.shadows = suggested.shadows
+            recipe.develop.tone.whites = suggested.whites
+            recipe.develop.tone.blacks = suggested.blacks
+        }
+        state.statusMessage = "Accepted: Auto settings"
+    }
+
+    /// Auto is specified to run on the log-luminance histogram of the **cropped**
+    /// region of the ~1 MP scope proxy, face-weighted (docs/04 §14.2). Nothing
+    /// publishes that histogram to the main actor yet, so until the render coordinator
+    /// does, Auto runs against a neutral reference distribution: a Gaussian of
+    /// log-luminance centred one stop under mid-grey with a ±3 EV spread. The call
+    /// shape is the real one — swapping in the live statistics is a one-line change
+    /// here and nothing else in the panel moves.
+    private static func referenceStatistics() -> AutoTone.Statistics {
+        let bins = 128
+        let minEV = -12.0
+        let maxEV = 12.0
+        var histogram = [Double](repeating: 0, count: bins)
+        for i in 0..<bins {
+            let t = Double(i) / Double(bins - 1)
+            let ev = minEV + (maxEV - minEV) * t
+            let d = (ev + 1.0) / 3.0
+            histogram[i] = exp(-0.5 * d * d)
+        }
+        return AutoTone.Statistics(histogram: histogram, minEV: minEV, maxEV: maxEV,
+                                   faceMeanEV: nil)
+    }
+}
+
+// MARK: - Footer button
+
+private struct DevelopFooterButton: View {
+    let title: String
+    let systemImage: String
+    let help: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 2) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 11))
+                Text(title)
+                    .font(.system(size: 9))
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 5)
+            .background(Lumen.controlBackground)
+            .foregroundStyle(Lumen.primaryText)
+            .clipShape(RoundedRectangle(cornerRadius: 4))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
     }
 }
 
