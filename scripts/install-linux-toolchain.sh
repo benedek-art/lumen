@@ -20,6 +20,16 @@
 # LumenCore. This script claimed that coverage before the modulemap existed, which is
 # the same shape of failure as a check that cannot fail.
 #
+# Three tests fail HERE and pass on macOS, and they are not worth chasing:
+# RobustnessTests.testEachTableTracksItsOwnExactEvaluationSeparately,
+# testExportTableErrorStaysUnderOnePercent, and
+# EngineIntegrationTests.testTheInteractiveTableAgreesWithTheExportOne. All three
+# measure how far a baked LUT lands from an exact evaluation, so they are sensitive to
+# the last bits of exp/log/pow — and glibc dispatches those to FMA variants by CPU while
+# Apple's libm does not. Confirmed by running the same commit on both: green on the
+# macOS runner, red here, same numbers every time. The macOS lane is the gate for the
+# Swift suite; this toolchain is for compiling and for everything else.
+#
 # What it does NOT cover: LumenPipeline and LumenApp are `#if os(macOS)` and need Core
 # Image, AppKit and SwiftUI. They still need the macOS runner. The mechanical checker
 # (scripts/check-swift-surface.py) remains the only local feedback on those, which is
