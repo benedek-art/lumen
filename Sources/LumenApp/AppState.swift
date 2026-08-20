@@ -228,6 +228,7 @@ struct LibraryFilter: Equatable, Sendable {
     /// renders differently.
     var edited: Bool? = nil
     var cameras: Set<String> = []
+    var lenses: Set<String> = []
     var isoBands: Set<ISOBand> = []
     var stackState: StackFilter = .any
     var keywords: Set<String> = []
@@ -237,7 +238,7 @@ struct LibraryFilter: Equatable, Sendable {
     /// them — it has no camera, no ISO and no stack table — so the bar hides these
     /// chips rather than offering controls that would quietly do nothing.
     var usesCatalogOnlyCriteria: Bool {
-        edited != nil || !cameras.isEmpty || !isoBands.isEmpty
+        edited != nil || !cameras.isEmpty || !lenses.isEmpty || !isoBands.isEmpty
             || stackState != .any || !keywords.isEmpty
     }
 
@@ -283,6 +284,7 @@ struct LibraryFilter: Equatable, Sendable {
         if rawOnly { query.fileTypes = PhotoFormats.raw.sorted() }
         query.edited = edited
         query.cameras = cameras.sorted()
+        query.lenses = lenses.sorted()
         query.keywords = keywords.sorted()
         if !isoBands.isEmpty {
             // One chip, so one predicate: the union of the lit bands. Two adjacent
@@ -422,10 +424,18 @@ final class AppState: ObservableObject {
     /// something writes `capture_at`: before the EXIF backfill landed this key meant
     /// the file's modification time, which is when the card was copied.
     @Published var sortOrder: SortOrder = .captureTime {
-        didSet { if sortOrder != oldValue { refreshLibraryQuery() } }
+        didSet {
+            guard sortOrder != oldValue else { return }
+            refreshLibraryQuery()
+            saveSourceState()
+        }
     }
     @Published var sortAscending: Bool = true {
-        didSet { if sortAscending != oldValue { refreshLibraryQuery() } }
+        didSet {
+            guard sortAscending != oldValue else { return }
+            refreshLibraryQuery()
+            saveSourceState()
+        }
     }
     @Published var selection: Set<URL> = []
     @Published var primarySelection: PhotoItem? {
@@ -524,7 +534,9 @@ final class AppState: ObservableObject {
     /// to the slider's maximum and then pressing [ snapped the grid down a step.
     static let minThumbnailSize: Double = 96
     static let maxThumbnailSize: Double = 512
-    @Published var gridThumbnailSize: Double = 160
+    @Published var gridThumbnailSize: Double = 160 {
+        didSet { scheduleSourceStateSave() }
+    }
     @Published var showFilmstrip = true
     /// Published by the grid as it lays out, so ↑/↓ move by a real row rather than by
     /// a guess. Never zero — a divide-by-row-count would be a crash in the key path.
@@ -706,6 +718,14 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// Everything selected, whether or not the current filter happens to be showing
+    /// it. Deriving this from the filtered list meant narrowing a filter after
+    /// selecting forty frames quietly shrank both the export and the count that
+    /// promised what would be exported.
+    var selectedPhotos: [PhotoItem] {
+        allPhotos.filter { selection.contains($0.id) }
+    }
+
     // MARK: The library query
 
     /// What the catalog's query returned, in its order, or nil when there is nothing to
@@ -748,6 +768,22 @@ final class AppState: ObservableObject {
                 if let id = item.catalogID { byID[id] = item.id }
             }
             self.libraryOrder = rows.compactMap { byID[$0.id] } + strays.map(\.id)
+            self.reportAlbumScope()
+        }
+    }
+
+    /// An album is a source that spans folders, and only one folder is open at a time.
+    /// Saying so beats an album row that reads 40 opening a grid of 6 with no
+    /// explanation anywhere on screen.
+    private func reportAlbumScope() {
+        guard let albumID = selectedCollectionID,
+              let album = collections.first(where: { $0.id == albumID }) else { return }
+        let shown = libraryOrder?.count ?? 0
+        if shown < album.count {
+            statusMessage = "\(album.name): \(shown) of \(album.count) — the rest are "
+                + "in folders that are not open"
+        } else {
+            statusMessage = "\(album.name): \(shown) photo" + (shown == 1 ? "" : "s")
         }
     }
 
@@ -764,6 +800,59 @@ final class AppState: ObservableObject {
         refreshLibraryQuery()
     }
 
+    // MARK: Per-source view state (docs/10 §10.2)
+
+    /// Sort key, direction and thumbnail size belong to the source, not to the app: a
+    /// wedding folder wants capture time and big cells, an archive folder wants file
+    /// name and small ones, and re-choosing on every visit is the friction the spec
+    /// calls out. `source_state` has held these columns since migration 2 with nothing
+    /// reading or writing them.
+    private var sourceKey: String? { folderURL.map { "folder:" + $0.path } }
+
+    /// True while the stored state is being applied, so restoring it does not
+    /// immediately write it back.
+    private var isRestoringSourceState = false
+    private var sourceStateSaveTask: Task<Void, Never>?
+
+    private func loadSourceState() {
+        guard let catalog, let key = sourceKey else { return }
+        Task { [weak self] in
+            guard let stored = await catalog.sourceState(key) else { return }
+            guard let self, self.sourceKey == key else { return }
+            self.isRestoringSourceState = true
+            if let order = SortOrder.allCases.first(where: {
+                $0.sortKey.rawValue == stored.sortKey
+            }) {
+                self.sortOrder = order
+            }
+            self.sortAscending = stored.ascending
+            self.gridThumbnailSize = Swift.min(
+                Swift.max(Double(stored.thumbnailSize), AppState.minThumbnailSize),
+                AppState.maxThumbnailSize)
+            self.isRestoringSourceState = false
+        }
+    }
+
+    private func saveSourceState() {
+        guard !isRestoringSourceState, let catalog, let key = sourceKey else { return }
+        let value = CatalogService.SourceViewState(sortKey: sortOrder.sortKey.rawValue,
+                                                  ascending: sortAscending,
+                                                  thumbnailSize: Int(gridThumbnailSize))
+        Task { await catalog.setSourceState(key, value) }
+    }
+
+    /// The thumbnail slider emits a value per pixel of drag. Writing each one is a
+    /// database transaction per frame of a gesture; the size the drag settles on is the
+    /// only one worth keeping.
+    private func scheduleSourceStateSave() {
+        sourceStateSaveTask?.cancel()
+        sourceStateSaveTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 800_000_000)
+            guard !Task.isCancelled else { return }
+            self?.saveSourceState()
+        }
+    }
+
     // MARK: Albums, keywords and stacks
 
     /// True when there is a database behind the app. Everything in this section writes
@@ -773,8 +862,9 @@ final class AppState: ObservableObject {
 
     @Published private(set) var collections: [CollectionItem] = []
     @Published private(set) var keywordVocabulary: [LibraryFacet] = []
-    /// The camera bodies present in this source, most-used first.
+    /// The camera bodies and lenses present in this source, most-used first.
     @Published private(set) var cameraChoices: [LibraryFacet] = []
+    @Published private(set) var lensChoices: [LibraryFacet] = []
     /// The keywords on the photo under the cursor, for the sidebar's token row.
     @Published private(set) var primaryKeywords: [String] = []
     /// The stack the photo under the cursor belongs to, if any.
@@ -790,18 +880,23 @@ final class AppState: ObservableObject {
             collections = []
             keywordVocabulary = []
             cameraChoices = []
+            lensChoices = []
             return
         }
         Task { [weak self] in
             let albums = await catalog.collections()
             let keywords = await catalog.allKeywords()
             let cameras = await catalog.facets(.camera, folderPath: folder.path)
+            let lenses = await catalog.facets(.lens, folderPath: folder.path)
             guard let self else { return }
             self.collections = albums
             self.keywordVocabulary = keywords.map {
                 LibraryFacet(name: $0.value, count: $0.count)
             }
             self.cameraChoices = cameras.map {
+                LibraryFacet(name: $0.value, count: $0.count)
+            }
+            self.lensChoices = lenses.map {
                 LibraryFacet(name: $0.value, count: $0.count)
             }
         }
@@ -966,14 +1061,6 @@ final class AppState: ObservableObject {
             self.refreshPrimaryLibraryDetail()
             if self.filter.stackState == .collapsedTops { self.refreshLibraryQuery() }
         }
-    }
-
-    /// Everything selected, whether or not the current filter happens to be showing
-    /// it. Deriving this from the filtered list meant narrowing a filter after
-    /// selecting forty frames quietly shrank both the export and the count that
-    /// promised what would be exported.
-    var selectedPhotos: [PhotoItem] {
-        allPhotos.filter { selection.contains($0.id) }
     }
 
     /// Brush stroke blobs this session has read or written, by reference. Content
@@ -1203,6 +1290,7 @@ final class AppState: ObservableObject {
             loadStrokeSets(for: recipe)
         }
         // The grid's order and membership are the catalog's answer from here on.
+        loadSourceState()
         refreshLibraryQuery()
         refreshLibrarySections()
         isScanning = false

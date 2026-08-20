@@ -53,9 +53,11 @@ public protocol ImageSource: AnyObject {
 /// RAW arrives scene-referred and unbounded; a JPEG is clipped at display white and has
 /// a tone curve applied once already, so Lumen's display transform is a *second* one.
 /// The honest setting for such a file is the Linear render preset, which exists for
-/// exactly this reason (docs/04's escape hatch). Nothing here silently picks it — a
-/// source that quietly rewrote the user's recipe would be worse than one that renders
-/// what the recipe says.
+/// exactly this reason (docs/04's escape hatch). This TYPE does not pick it — a source
+/// that rewrote a recipe would be reaching well outside its job — but `AppState
+/// .startingRecipe(for:)` does, for any file `PhotoFormats.isRendered` recognises, so an
+/// unedited JPEG opens on Linear rather than on a second S-curve. A starting point, not
+/// a lock: the picker still offers the other four and a saved recipe wins.
 public final class RenderedImageSource: ImageSource {
 
     public let url: URL

@@ -9,7 +9,7 @@
 //     they will not trust.
 //   · Every chip compiles to an indexed SQL predicate (docs/10 §10.8). This bar used to
 //     filter five criteria with a linear scan of the roll while a 200-line query
-//     builder sat in `CatalogStore` with no callers — which is why camera, ISO,
+//     builder sat in `CatalogStore` with no callers — which is why camera, lens, ISO,
 //     keyword, stack state and "edited" could not exist here at all.
 //   · Auto-advance is a visible toggle, never a hidden preference and never Caps-Lock
 //     folklore (D35, docs/10 §10.4.1).
@@ -17,8 +17,10 @@
 // The one rule that shapes what is on screen: a chip the running configuration cannot
 // honour is not drawn. Without a catalog the app filters in memory over `PhotoItem`,
 // which knows a photo's flag, rating, label, name and extension and nothing else — so
-// in that mode the metadata group is replaced by a line saying why. A lit chip that
-// silently does nothing is worse than an absent one.
+// in that mode the metadata chips are not drawn at all, the sort menu greys out the
+// keys that need columns only the catalog has and says so next to each, and the summary
+// row reads "filtering in memory, without the catalog". A lit chip that silently does
+// nothing is worse than an absent one.
 //
 // Chrome here is zero-chroma (Law 7). The only hues are the colour-label swatches,
 // which cannot be told apart without them, and they are the same values the cell
@@ -145,26 +147,24 @@ struct FilterBar: View {
     private var editedChip: some View {
         chip(title: editedTitle, systemImage: "pencil",
              count: nil, isOn: state.filter.edited != nil) {
-            switch state.filter.edited {
-            case nil: state.filter.edited = true
-            case .some(true): state.filter.edited = false
-            case .some(false): state.filter.edited = nil
+            if state.filter.edited == nil {
+                state.filter.edited = true
+            } else if state.filter.edited == true {
+                state.filter.edited = false
+            } else {
+                state.filter.edited = nil
             }
         }
         .help("Edited / untouched / any")
     }
 
     private var editedTitle: String {
-        switch state.filter.edited {
-        case nil: return "Edited"
-        case .some(true): return "Edited"
-        case .some(false): return "Untouched"
-        }
+        state.filter.edited == false ? "Untouched" : "Edited"
     }
 
-    /// Camera, ISO, keyword and stack state behind one menu. They belong in the bar by
-    /// docs/10 §10.8, and they do not fit in it as five more visible groups — a strip
-    /// that wraps is a strip that stops being readable at a glance.
+    /// Camera, lens, ISO, keyword and stack state behind one menu. They belong in the
+    /// bar by docs/10 §10.8, and they do not fit in it as five more visible groups — a
+    /// strip that wraps is a strip that stops being readable at a glance.
     private var metadataMenu: some View {
         Menu {
             Section("Camera") {
@@ -179,6 +179,22 @@ struct FilterBar: View {
                             Label("\(camera.name)  (\(camera.count))", systemImage: "checkmark")
                         } else {
                             Text("\(camera.name)  (\(camera.count))")
+                        }
+                    }
+                }
+            }
+            Section("Lens") {
+                if state.lensChoices.isEmpty {
+                    Text("No lens has been read yet")
+                }
+                ForEach(state.lensChoices) { lens in
+                    Button {
+                        toggle(&state.filter.lenses, lens.name)
+                    } label: {
+                        if state.filter.lenses.contains(lens.name) {
+                            Label("\(lens.name)  (\(lens.count))", systemImage: "checkmark")
+                        } else {
+                            Text("\(lens.name)  (\(lens.count))")
                         }
                     }
                 }
@@ -236,12 +252,12 @@ struct FilterBar: View {
             }
         }
         .fixedSize()
-        .help("Camera, ISO, keyword and stack state")
+        .help("Camera, lens, ISO, keyword and stack state")
     }
 
     private var metadataTitle: String {
-        var lit = state.filter.cameras.count + state.filter.isoBands.count
-            + state.filter.keywords.count
+        var lit = state.filter.cameras.count + state.filter.lenses.count
+            + state.filter.isoBands.count + state.filter.keywords.count
         if state.filter.stackState != .any { lit += 1 }
         return lit == 0 ? "Metadata" : "Metadata (\(lit))"
     }
@@ -256,13 +272,20 @@ struct FilterBar: View {
         .help("All: every criterion must match. Any: one is enough.")
     }
 
+    /// What the text chip searches, which is not the same in both modes: with a catalog
+    /// it is the FTS index over filename, extension, camera, lens, job and keywords;
+    /// without one it is the filename in memory. Saying so in the placeholder is the
+    /// cheapest possible way to stop the field lying about its reach.
+    private var textPlaceholder: String {
+        state.isLibraryQueryLive ? "Name, camera, keyword" : "File name"
+    }
+
     private var textFilter: some View {
         HStack(spacing: 3) {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 9))
                 .foregroundStyle(Lumen.secondaryText)
-            TextField(state.isLibraryQueryLive ? "Name, camera, keyword" : "File name",
-                      text: $state.filter.text)
+            TextField(textPlaceholder, text: $state.filter.text)
                 .textFieldStyle(.plain)
                 .font(.system(size: 11))
                 .foregroundStyle(Lumen.primaryText)
@@ -447,6 +470,9 @@ struct FilterBar: View {
         }
         if !state.filter.cameras.isEmpty {
             parts.append(state.filter.cameras.sorted().joined(separator: " or "))
+        }
+        if !state.filter.lenses.isEmpty {
+            parts.append(state.filter.lenses.sorted().joined(separator: " or "))
         }
         if !state.filter.isoBands.isEmpty {
             let bands = ISOBand.allCases

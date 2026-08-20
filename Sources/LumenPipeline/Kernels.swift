@@ -336,13 +336,27 @@ public enum KernelLibrary {
     /// Vignette as an EV multiply in scene-linear (docs/14 §2.1.11: the lens vignettes
     /// the light before it reaches the film, so this belongs upstream of the curve and
     /// gets highlight-priority behaviour free from the transform's shoulder).
+    /// The vignette, with the highlight protection the reference has and this kernel
+    /// did not.
+    ///
+    /// `DetailEngine.vignette` blends the burn back toward identity above half the
+    /// default scene white, at the documented Highlights-50 disclosure default — it is
+    /// what keeps a burn off a bright sky while it still shapes the corners. Without
+    /// it, a corner containing a window or a specular took the full amount: measured
+    /// against the reference, a corner at or above 5.76 scene-linear got −1.000 EV here
+    /// against the reference's −0.500, and at the slider's −3.0 floor that is a 2.8x
+    /// difference in gain between the picture the user sees and the one the reference
+    /// renders. The panel note quotes the protection as if it were applied.
     static let vignetteSource = """
     kernel vec4 lumenVignette(__sample image, vec2 centre, vec2 invRadius, float ev,
-                              float feather) {
+                              float feather, vec3 lumaWeights, float threshold,
+                              float protection) {
         vec2 d = (destCoord() - centre) * invRadius;
         float r = length(d);
         float t = smoothstep(1.0 - feather, 1.0, r);
-        float gain = exp2(ev * t);
+        float lum = dot(image.rgb, lumaWeights);
+        float protect = protection * smoothstep(threshold, threshold * 2.0, lum);
+        float gain = exp2(ev * t * (1.0 - protect));
         return vec4(image.rgb * gain, image.a);
     }
     """

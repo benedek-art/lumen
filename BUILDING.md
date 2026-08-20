@@ -43,7 +43,7 @@ export it (⌘E).
 | Target | Contents | Platforms |
 |---|---|---|
 | `LumenCore` | The whole engine as pure Swift: colour science, the display transform, tone, curves, colour and grade, the film chain, spatial filters, denoise, mask rasterization, scopes, the SQLite catalog, the recipe format. No UI, no Apple-only frameworks. | macOS + Linux |
-| `LumenPipeline` | The Core Image render path: fourteen small kernels, the graph, the RAW stage, export. No AppKit, no SwiftUI — deliberately, so it stays testable headless. | macOS |
+| `LumenPipeline` | The Core Image render path: twenty-two small kernels, the graph, the RAW stage, export. No AppKit, no SwiftUI — deliberately, so it stays testable headless. | macOS |
 | `LumenApp` | The SwiftUI application. | macOS |
 
 ## How this code was verified
@@ -159,7 +159,7 @@ S15 curve    ┘        one 3-D table, log domain in, display-linear out
 S16 geometry          crop ∘ rotate, one resample
 ```
 
-The custom-shader surface is therefore fourteen small kernels
+The custom-shader surface is therefore twenty-two small kernels
 (`Sources/LumenPipeline/Kernels.swift`) — the log shaper, image-by-image arithmetic for
 the guided filter, mask compositing, grain, vignette, dehaze and halation. Everything
 else is a stock filter or a table.
@@ -400,11 +400,15 @@ all absent, crop ratios were computed against an assumed 3:2 on every camera, th
 watermark panel said it composited nothing while the encoder composited it at twice the
 requested size, brush masks were missing from the first render of every photo, and
 nothing ran at quit so the last two seconds of culling never reached disk.
-- **Sharpening's Masking and Halo Suppression, and Hot Pixels, are reference-only.**
-  All three are implemented and unit-tested in `LumenCore`; none has an equivalent on
-  the shipping path, because a stock unsharp mask takes a radius and an intensity and
-  the classical denoise engine is not in the graph. Detail DOES reach the GPU, as the
-  unsharp radius it stands in for. The panels name which is which.
+- **Hot Pixels reaches no path at all.** It used to be listed here as
+  "reference-only", and the panel said so too — both were wrong in the same way:
+  `ClassicalDenoise` has no caller anywhere in `Sources/`, reference included, so the
+  slider has never had a consumer. An honesty note that is itself false is worse than
+  none, and this one survived two audits by sounding like a disclosure.
+
+  Sharpening's Masking and Halo Suppression are no longer on this list: both reach the
+  GPU as arguments to `KernelLibrary.sharpenDelta`, and Detail reaches it as its own
+  argument rather than folded into a radius.
 - **Remove chromatic aberration and the whole Defringe group are not wired.** Seven
   controls in the Effects panel with a wire format and no reader; `lens.profile` is the
   one thing in that section that is genuinely consumed, at decode. The panel says so.

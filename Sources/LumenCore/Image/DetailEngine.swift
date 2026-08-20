@@ -574,6 +574,10 @@ public struct DetailEngine: Sendable {
     /// against this path's 0.375.
     public static let vignetteMidpoint: Double = 0.5
     public static let vignetteFeather: Double = 0.5
+    /// Highlights disclosure default (docs/06 §12), named for the same reason the two
+    /// above are: the GPU kernel has to use the same number. It did not use one at all
+    /// — bright corners took the full burn there and half of it here.
+    public static let vignetteHighlightProtection: Double = 0.5
     /// Where the falloff starts, on the normalized radius whose 1 is the frame corner.
     public static var vignetteInnerRadius: Double {
         Num.clamp(vignetteMidpoint * (1 - 0.5 * vignetteFeather), 0, 0.98)
@@ -590,7 +594,7 @@ public struct DetailEngine: Sendable {
         // Midpoint and Feather now live on the type as named constants, because the
         // GPU stand-in has to start its falloff in the same place; `vignetteInnerRadius`
         // is what they combine to.
-        let protection = 0.5
+        let protection = DetailEngine.vignetteHighlightProtection
         let inner = DetailEngine.vignetteInnerRadius
         let outer = 1.0
         // Default scene white is mid-grey + 5 stops (ToneEngine.defaultWhiteAnchorEV).

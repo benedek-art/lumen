@@ -408,8 +408,15 @@ private struct ExportRecipeEditor: View {
                 .controlSize(.small)
                 .frame(maxWidth: 200)
             }
-            ExportNote("8-bit encodes are dithered out of the f32 pipeline, and the gamut "
-                       + "map runs hue-preserving into the destination space.")
+            // Both halves of this were false. There is no dithering code in the
+            // repository, and the gamut map is a soft clip to the fixed Rec.2020
+            // working space — the picker above it does not move where that clip
+            // happens.
+            ExportNote("8-bit encodes are quantized without dithering, so banding is "
+                       + "possible in long smooth gradients. Out-of-gamut colour is "
+                       + "soft-clipped to Rec.2020 at the display transform and then "
+                       + "converted by ColorSync; the space picker does not change "
+                       + "where that clip happens.")
         }
     }
 

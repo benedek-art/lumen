@@ -255,8 +255,11 @@ struct MaskPanel: View {
                 bandSlider(id, i, "Near", isLow: true, depth: true)
                 bandSlider(id, i, "Far", isLow: false, depth: true)
                 optionalSlider(id, i, "Smoothness", \.smooth, 0...100, 50)
-                note("Relative depth, near = 0. Embedded depth is used when the file has "
-                     + "it; otherwise it is estimated in the background.")
+                // Nothing estimates depth and nothing reads embedded depth:
+                // `aiMattes` is a literal empty dictionary at both call sites, so this
+                // component rasterizes to an empty plane and selects nothing.
+                note("No depth source in this build — embedded depth is not read and no "
+                     + "estimator ships, so this component renders empty.")
             }
         case .colorRange:
             VStack(alignment: .leading, spacing: 2) {
@@ -453,7 +456,17 @@ struct MaskPanel: View {
                                    isOn: optionBinding(mask.id, hasTint,
                                                        on: { $0.adjust.colorTint = [0.5, 0.5, 0.5] },
                                                        off: { $0.adjust.colorTint = nil }),
-                                   help: "Colorize the masked area; the eyedropper sets the swatch")
+                                   // There is no swatch control and no PickTarget
+                                   // writes colorTint, so the target is always the
+                                   // hardcoded mid-grey below. Against a grey target
+                                   // `applyColorTint` preserves luminance while mixing
+                                   // toward neutral — it DESATURATES. The control does
+                                   // change the picture, in the opposite direction to
+                                   // its name.
+                                   help: "Not wired yet: with no picker the target is "
+                                       + "mid-grey, so this desaturates toward neutral "
+                                       + "rather than tinting. Use a mask Point Colour "
+                                       + "swatch instead.")
                     if hasTint {
                         adjustSlider(mask.id, "Tint strength", \.colorTintStrength, 0...100,
                                      bipolar: false)
@@ -966,8 +979,8 @@ struct MaskPanel: View {
             }
         }
         .fixedSize()
-        .help("Every component type. The AI kinds run a model in the background and land as "
-              + "a cached matte.")
+        .help("Every component type. The AI kinds need a model that is not bundled "
+              + "yet — adding one now produces an empty mask.")
     }
 
     private func smallButton(_ title: String, _ systemImage: String,

@@ -292,6 +292,7 @@ final class CatalogTests: XCTestCase {
         for (offset, id) in ids.enumerated() {
             try store.setMetadata(
                 PhotoMetadata(camera: offset < 3 ? "Sony A7 IV" : "Nikon Z8",
+                              lens: offset == 0 ? "FE 35mm F1.4 GM" : "FE 85mm F1.4 GM",
                               iso: [100, 6400, 12_800, 200][offset]),
                 photoID: id)
         }
@@ -314,10 +315,17 @@ final class CatalogTests: XCTestCase {
         both.matchAny = true
         XCTAssertEqual(try store.countPhotos(matching: both, folderID: folderID), 3)
 
+        var wideOpen = PhotoQuery()
+        wideOpen.lenses = ["FE 35mm F1.4 GM"]
+        XCTAssertEqual(try store.photos(matching: wideOpen, folderID: folderID).map(\.id),
+                       [ids[0]])
+
         // The chip's own menu: values with live counts, most-used first.
         let cameras = try store.facetCounts(.camera, folderID: folderID)
         XCTAssertEqual(cameras.first, FacetValue(value: "Sony A7 IV", count: 3))
         XCTAssertEqual(cameras.count, 2)
+        XCTAssertEqual(try store.facetCounts(.lens, folderID: folderID).first,
+                       FacetValue(value: "FE 85mm F1.4 GM", count: 3))
         store.close()
     }
 

@@ -436,4 +436,329 @@ final class ColorScienceTests: XCTestCase {
         }
     }
 
+    // MARK: - The advanced grading grid (D15)
+    //
+    // `ColorBalanceGrid` was written, tested for its own arithmetic, and referenced by
+    // nothing: no wire format, no panel, no stage. These tests are the ones that can
+    // fail if the wiring is removed again — they assert that the grid reaches a pixel
+    // through the stage the renderer actually bakes, not that its algebra is correct.
+
+    private func grade(_ mutate: (inout ColorBalanceParams) -> Void) -> GradeEngine {
+        var wheels = GradingWheels()
+        mutate(&wheels.colorBalance)
+        return GradeEngine(wheels: wheels, printerLights: PrinterLights())
+    }
+
+    func testColorBalanceGridReachesPixelsThroughTheGrade() {
+        let colour = RGB(0.30, 0.14, 0.10)
+
+        let flat = GradeEngine(wheels: GradingWheels(), printerLights: PrinterLights())
+        XCTAssertTrue(flat.isIdentity)
+        XCTAssertEqual(flat.apply(colour).maxAbsDifference(colour), 0, accuracy: 0,
+                       "an untouched grade is not a bit-exact no-op")
+
+        let pushed = grade { $0.chroma.global = 60 }
+        XCTAssertFalse(pushed.isIdentity,
+                       "a grade whose only move is the grid declared itself identity — "
+                           + "RenderPlan would swap a two-point identity cube in for it")
+        XCTAssertGreaterThan(pushed.apply(colour).maxAbsDifference(colour), 1e-3,
+                             "the grid did not reach the pixel")
+    }
+
+    /// Through `RenderPlan`, which is what the shipping path actually evaluates: the
+    /// baked S9+S10 table and the exact reference must both carry the grid.
+    func testColorBalanceGridSurvivesTheBake() {
+        var recipe = Recipe()
+        recipe.look.wheels.colorBalance.brilliance.global = 35
+        let plan = RenderPlan(recipe: recipe)
+        XCTAssertFalse(plan.colorGradeIsIdentity,
+                       "the colour+grade table was swapped for an identity cube")
+
+        let scene = RGB(0.22, 0.12, 0.30)
+        let base = RenderPlan(recipe: Recipe())
+        XCTAssertGreaterThan(plan.exactColor(scene).maxAbsDifference(base.exactColor(scene)),
+                             1e-3, "the exact path ignores the grid")
+        XCTAssertGreaterThan(
+            plan.referenceColor(scene).maxAbsDifference(base.referenceColor(scene)),
+            1e-3, "the baked table ignores the grid")
+    }
+
+    /// The grid grades ZONES, and the zones are the ones the strip above the wheels
+    /// draws. A shadow-only push must leave a highlight alone.
+    func testGridAxesAreZoneSelective() {
+        // Placed by tonal position, not by eye: the default pivots sit at 0.33/0.67 on
+        // a −9…+5 EV axis, so these land squarely inside the shadow and highlight
+        // windows rather than in a crossfade.
+        let shadow = RGB(0.0016, 0.0014, 0.0019)     // ≈ −6.9 EV
+        let highlight = RGB(1.40, 1.30, 1.50)        // ≈ +2.9 EV
+        let engine = grade { $0.brilliance.shadows = 60 }
+
+        func relativeMove(_ c: RGB) -> Double {
+            engine.apply(c).maxAbsDifference(c) / Swift.max(c.maxComponent, 1e-9)
+        }
+        XCTAssertGreaterThan(relativeMove(shadow), 0.1, "the shadow zone was not graded")
+        XCTAssertLessThan(relativeMove(highlight), 1e-6,
+                          "a shadow-only Brilliance push reached the highlights")
+    }
+
+    /// Three intents, not three volumes of one. A naive HSL model collapses chroma,
+    /// saturation and brilliance into a single chroma multiply; this is the test that
+    /// the H-K solves in `ColorBalanceGrid` are still doing their separate jobs.
+    func testChromaSaturationAndBrillianceAreThreeDifferentMoves() {
+        // A saturated red rather than a muted one: chroma and saturation differ by the
+        // lightness the ratio move carries with it, so the gap is proportional to C/L
+        // and a near-neutral would make the test pass on float noise.
+        let colour = RGB(0.90, 0.10, 0.05)
+        func out(_ path: WritableKeyPath<ColorBalanceParams, ColorBalanceAxis>) -> RGB {
+            var wheels = GradingWheels()
+            wheels.colorBalance[keyPath: path].global = 40
+            return GradeEngine(wheels: wheels,
+                               printerLights: PrinterLights()).apply(colour)
+        }
+        let chroma = out(\ColorBalanceParams.chroma)
+        let saturation = out(\ColorBalanceParams.saturation)
+        let brilliance = out(\ColorBalanceParams.brilliance)
+        XCTAssertGreaterThan(chroma.maxAbsDifference(saturation), 1e-3)
+        XCTAssertGreaterThan(chroma.maxAbsDifference(brilliance), 1e-3)
+        XCTAssertGreaterThan(saturation.maxAbsDifference(brilliance), 1e-3)
+    }
+
+    /// A mask's Amount scales the grid, including its hue shift. Without this a mask at
+    /// Amount 0 would fade every other local adjustment to nothing and leave its grid
+    /// pushing at full strength — the bug `PointColor.scalingShift` exists to fix, one
+    /// disclosure lower down.
+    func testMaskAmountScalesTheGrid() {
+        var wheels = GradingWheels()
+        wheels.colorBalance.chroma.global = 80
+        wheels.colorBalance.hueShift = 40
+        let colour = RGB(0.30, 0.14, 0.10)
+
+        let off = GradeEngine(wheels: wheels.scalingShift(by: 0),
+                              printerLights: PrinterLights())
+        XCTAssertTrue(off.isIdentity, "a mask at Amount 0 still carried a live grid")
+        XCTAssertEqual(off.apply(colour).maxAbsDifference(colour), 0, accuracy: 0)
+
+        let half = GradeEngine(wheels: wheels.scalingShift(by: 0.5),
+                               printerLights: PrinterLights())
+        let full = GradeEngine(wheels: wheels, printerLights: PrinterLights())
+        XCTAssertLessThan(half.apply(colour).maxAbsDifference(colour),
+                          full.apply(colour).maxAbsDifference(colour),
+                          "Amount 0.5 was not weaker than Amount 1")
+    }
+
+    func testGridOnlyGradeIsNotNeutral() {
+        var wheels = GradingWheels()
+        XCTAssertTrue(wheels.isNeutral)
+        wheels.colorBalance.vibrance = 25
+        XCTAssertFalse(wheels.isNeutral,
+                       "LocalPlan would give this mask a two-point identity table")
+    }
+
+    // MARK: - Band geometry: the four ring handles (D13)
+
+    private static func flatBands(core: [Double], feather: [Double]) -> [MixerBand] {
+        var bands = [MixerBand](repeating: MixerBand(), count: ColorEngine.bandCount)
+        for i in bands.indices {
+            bands[i].core = core
+            bands[i].feather = feather
+        }
+        return bands
+    }
+
+    /// The default geometry must be exactly what the canonical band model always was —
+    /// adding handles is not allowed to change a single existing recipe's rendering.
+    func testDefaultGeometryReproducesTheCanonicalBands() {
+        let arcs = ColorEngine.bandArcs(
+            [MixerBand](repeating: MixerBand(), count: ColorEngine.bandCount))
+        XCTAssertEqual(arcs, ColorEngine.canonicalArcs)
+        for step in 0..<720 {
+            let hue = Double(step) / 2
+            let canonical = ColorEngine.bandWeights(hue: hue)
+            let viaArcs = ColorEngine.bandWeights(hue: hue, arcs: arcs)
+            for i in 0..<ColorEngine.bandCount {
+                XCTAssertEqual(canonical[i], viaArcs[i], accuracy: 1e-15,
+                               "band \(i) at \(hue)°")
+            }
+        }
+    }
+
+    func testWireDefaultsMatchTheEngineGeometry() {
+        XCTAssertEqual(MixerBand.defaultCore,
+                       [ColorEngine.bandCoreDegrees, ColorEngine.bandCoreDegrees])
+        XCTAssertEqual(MixerBand.defaultFeather,
+                       [ColorEngine.bandFeatherDegrees, ColorEngine.bandFeatherDegrees])
+    }
+
+    /// Anything a decoded file can say resolves to a legal arc. `bandArcs` is the only
+    /// place this is enforced, and everything downstream assumes it.
+    func testBandArcsSanitizeAnythingAFileCanSay() {
+        var bands = [MixerBand](repeating: MixerBand(), count: ColorEngine.bandCount)
+        bands[0].core = [0, 0]
+        bands[0].feather = [0, 0]
+        bands[1].core = [1000, .nan]
+        bands[1].feather = [.infinity, -5]
+        bands[2].core = []
+        bands[2].feather = [7]
+        for arc in ColorEngine.bandArcs(bands) {
+            for core in [arc.coreBelow, arc.coreAbove] {
+                XCTAssertGreaterThanOrEqual(core, ColorEngine.bandCoreMinDegrees)
+                XCTAssertLessThanOrEqual(core, ColorEngine.bandCoreMaxDegrees)
+            }
+            XCTAssertGreaterThanOrEqual(arc.coreBelow + arc.featherBelow,
+                                        ColorEngine.bandMinReachDegrees - 1e-9)
+            XCTAssertGreaterThanOrEqual(arc.coreAbove + arc.featherAbove,
+                                        ColorEngine.bandMinReachDegrees - 1e-9)
+        }
+    }
+
+    /// The invariant the min-reach clamp exists for: `bandWeights` has a degenerate
+    /// branch that hands one band the entire weight, and that branch is a hard edge —
+    /// the one artifact this band model is built not to have. With every band shrunk to
+    /// its legal minimum, adjacent bands must still overlap at every midpoint, so the
+    /// branch stays unreachable from the ring.
+    func testShrunkBandsStillOverlapEverywhere() {
+        let arcs = ColorEngine.bandArcs(
+            Self.flatBands(core: [ColorEngine.bandCoreMinDegrees,
+                                  ColorEngine.bandCoreMinDegrees],
+                           feather: [ColorEngine.bandFeatherMinDegrees,
+                                     ColorEngine.bandFeatherMinDegrees]))
+        for i in 0..<ColorEngine.bandCount {
+            let midpoint = ColorEngine.bandHueCentres[i]
+                + ColorEngine.bandSpacingDegrees / 2
+            let w = ColorEngine.bandWeights(hue: midpoint, arcs: arcs)
+            let next = (i + 1) % ColorEngine.bandCount
+            XCTAssertGreaterThan(w[i], 0, "band \(i) fell off its own midpoint")
+            XCTAssertGreaterThan(w[next], 0, "band \(next) fell off the midpoint below it")
+            XCTAssertEqual(w.reduce(0, +), 1, accuracy: 1e-12)
+        }
+    }
+
+    func testCoreCentreIsTheMidpointOfTheInnerHandles() {
+        var bands = [MixerBand](repeating: MixerBand(), count: ColorEngine.bandCount)
+        bands[5].core = [5, 40]
+        let arc = ColorEngine.bandArcs(bands)[5]
+        XCTAssertEqual(Num.hueDelta(ColorEngine.bandHueCentres[5], arc.coreCentre),
+                       17.5, accuracy: 1e-9)
+    }
+
+    // MARK: - Uniformity: the target, and the neighbourhood
+
+    /// A saturated colour at a chosen hue, for driving the Mixer.
+    private func swatch(hue: Double, C: Double = 0.10, L: Double = 0.55) -> RGB {
+        OKLabTransform.working.toRGB(OKLCh(L: L, C: C, h: hue))
+    }
+
+    private func hue(of c: RGB) -> Double { OKLabTransform.working.toLCh(c).h }
+
+    private func uniformityEngine(_ mixer: Mixer,
+                                  means: [Double]? = nil) -> ColorEngine {
+        ColorEngine(mixer: mixer, pointColors: [], color: ColorAdjust(),
+                    primaries: Primaries(), bw: nil, bandMeanHues: means)
+    }
+
+    /// `bandTargetHue`'s fallback used to be a hard-coded band centre, which made
+    /// Uniformity a pull toward eight fixed hues that no control could move. It is now
+    /// the midpoint of the band's own core arc — the same number at the default
+    /// geometry, and a user-writable one after that.
+    func testUniformityConvergesOnTheCoreArcNotAFixedCentre() {
+        let centre = ColorEngine.bandHueCentres[5]           // Blue
+        let colour = swatch(hue: centre)
+
+        var mixer = Mixer()
+        mixer.uniformity = 100
+        let plain = uniformityEngine(mixer)
+        XCTAssertEqual(Num.hueDelta(centre, hue(of: plain.apply(colour))), 0,
+                       accuracy: 0.5,
+                       "a colour already at the band's target was moved anyway")
+
+        var reshaped = mixer
+        reshaped.bands[5].core = [5, 40]                     // core midpoint +17.5°
+        let engine = uniformityEngine(reshaped)
+        let moved = Num.hueDelta(centre, hue(of: engine.apply(colour)))
+        XCTAssertEqual(moved, 17.5, accuracy: 1.5,
+                       "Uniformity ignored the band's own core arc")
+    }
+
+    /// The writer `bandMeanHues` never had. Before this the field was read at
+    /// `bandTargetHue` and assigned `nil` in `init`, so these two engines were the same
+    /// engine and no measurement could change a pixel.
+    func testMeasuredMeanHueDrivesUniformity() {
+        let centre = ColorEngine.bandHueCentres[5]
+        let colour = swatch(hue: centre)
+        var mixer = Mixer()
+        mixer.uniformity = 100
+
+        let unmeasured = uniformityEngine(mixer)
+        var means = ColorEngine.bandHueCentres
+        means[5] = Num.wrapHue(centre + 20)
+        let measured = uniformityEngine(mixer, means: means)
+
+        XCTAssertEqual(Num.hueDelta(centre, hue(of: unmeasured.apply(colour))), 0,
+                       accuracy: 0.5)
+        XCTAssertEqual(Num.hueDelta(centre, hue(of: measured.apply(colour))), 20,
+                       accuracy: 1.5,
+                       "the measured mean hue is still not read by anything")
+    }
+
+    /// Hue wraps, and an arithmetic mean of 350° and 10° is 180° — the opposite colour.
+    /// The measurement is a chroma-weighted CIRCULAR mean for exactly this reason.
+    func testMeasuredMeanHueIsCircular() {
+        let colours = [swatch(hue: 350), swatch(hue: 10)]
+        guard let means = ColorEngine.measureBandMeanHues(colours) else {
+            return XCTFail("measured nothing from two saturated colours")
+        }
+        let magenta = means[7]        // the band whose core spans the 0° wrap
+        XCTAssertLessThan(abs(Num.hueDelta(0, magenta)), 10,
+                          "the mean of 350° and 10° landed at \(magenta)°")
+        XCTAssertGreaterThan(abs(Num.hueDelta(180, magenta)), 90,
+                             "the mean wrapped to the opposite colour")
+    }
+
+    /// The measurement is chroma-weighted, so a frame that is mostly grey does not drag
+    /// a band's mean anywhere: a near-neutral pixel's hue is numerically noise.
+    func testMeasuredMeanHueIgnoresNeutrals() {
+        var colours: [RGB] = []
+        for i in 0..<80 {
+            colours.append(swatch(hue: 225 + Double(i % 9) - 4))
+        }
+        for i in 0..<2000 { colours.append(RGB(gray: 0.05 + Double(i % 20) / 40)) }
+        guard let means = ColorEngine.measureBandMeanHues(colours) else {
+            return XCTFail("measured nothing")
+        }
+        XCTAssertLessThan(abs(Num.hueDelta(225, means[5])), 3,
+                          "two thousand greys moved the blue band's mean to \(means[5])°")
+    }
+
+    /// Nothing to measure is `nil`, not "measured as grey" — the caller has to be able
+    /// to tell the difference or it will converge a frame onto an invented hue.
+    func testMeasuringAnAchromaticFrameReportsNothing() {
+        let greys = (0..<50).map { RGB(gray: 0.02 + Double($0) / 50) }
+        XCTAssertNil(ColorEngine.measureBandMeanHues(greys))
+    }
+
+    /// The local-mean seam. `apply(_:)` is the flat-neighbourhood case and must stay
+    /// bit-exact; handing the kernel a real neighbourhood must change the answer, which
+    /// is what proves the parameter is read rather than stored.
+    func testVarianceKernelReadsTheLocalMeanItIsGiven() {
+        let centre = ColorEngine.bandHueCentres[5]
+        let colour = swatch(hue: centre)
+        var mixer = Mixer()
+        mixer.uniformity = 100
+        let engine = uniformityEngine(mixer)
+
+        XCTAssertEqual(engine.apply(colour).maxAbsDifference(
+                           engine.apply(colour, localMean: colour)),
+                       0, accuracy: 0,
+                       "the one-argument apply is not the flat-neighbourhood case")
+
+        // A neighbourhood sitting 20° off the pixel: compressing toward the band's
+        // target now moves the pixel by the NEIGHBOURHOOD's deviation, not its own,
+        // which is the whole difference between evening out a blotch and flattening a
+        // texture.
+        let neighbourhood = swatch(hue: centre + 20)
+        let out = engine.apply(colour, localMean: neighbourhood)
+        XCTAssertEqual(Num.hueDelta(centre, hue(of: out)), -20, accuracy: 1.5,
+                       "the local mean was ignored")
+    }
+
 }

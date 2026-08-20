@@ -446,8 +446,9 @@ public struct ManualSharpen: Codable, Equatable, Sendable {
     /// path it weights the two finest wavelet bands, which is the same statement as
     /// "sharpen at a smaller scale". So Detail 100 pulls the radius toward its floor
     /// and Detail 0 leaves it where the Radius slider put it. Masking and halo
-    /// suppression have no expression in a stock unsharp mask at all — an edge gate and
+    /// suppression had no expression in a stock unsharp mask at all — an edge gate and
     /// an asymmetric overshoot clamp are per-pixel decisions the filter does not offer.
+    /// All three reach the GPU as their own kernel arguments now.
     ///
     /// Kept only as the FALLBACK radius. The GPU path now sharpens the way the
     /// reference does — a log-luminance delta with a real edge gate and a one-sided

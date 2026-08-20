@@ -348,15 +348,17 @@ public struct StackRow: Equatable, Sendable {
 /// The columns the metadata chips enumerate. An enum rather than a string, because the
 /// value is interpolated into SQL: a chip that took a column name from anywhere else
 /// would be an injection point, and there is no such thing as a trusted string here.
+///
+/// Two cases, not four. `ext` is already the RAW-only chip's job, and `job` has no
+/// writer anywhere in the app — a chip enumerating it would be permanently empty, which
+/// is the inert control this whole pass exists to remove.
 public enum PhotoFacet: String, Sendable, CaseIterable {
-    case camera, lens, fileType, job
+    case camera, lens
 
     var column: String {
         switch self {
         case .camera: return "camera"
         case .lens: return "lens"
-        case .fileType: return "ext"
-        case .job: return "job"
         }
     }
 }
@@ -1766,11 +1768,6 @@ public final class CatalogStore {
 
     // MARK: - Stacks
 
-    public func stacks() throws -> [StackRow] {
-        try allRows("SELECT \(CatalogStore.stackColumns) FROM stack ORDER BY id;",
-                    [], CatalogStore.decodeStack)
-    }
-
     /// The stack one photo belongs to, if any. `stack_member.photo_id` is UNIQUE, so
     /// this is a single index lookup and a photo is in at most one stack.
     public func stack(containing photoID: Int64) throws -> StackRow? {
@@ -1812,9 +1809,8 @@ public final class CatalogStore {
 
     /// Distinct values of one metadata column with live counts, most-used first.
     ///
-    /// Index-backed by the `photo_camera` / `photo_lens` / `photo_ext` / `photo_job`
-    /// indexes migration 2 adds, so a chip menu on a 100k catalog is a scan of the
-    /// index rather than of the table.
+    /// Index-backed by the `photo_camera` / `photo_lens` indexes migration 2 adds, so a
+    /// chip menu on a 100k catalog is a scan of the index rather than of the table.
     public func facetCounts(_ facet: PhotoFacet, folderID: Int64? = nil,
                             limit: Int = 200) throws -> [FacetValue] {
         var parameters: [SQLiteValue] = []
@@ -2753,7 +2749,6 @@ public final class CatalogStore {
     public func removeKeyword(_ name: String, photoIDs: [Int64]) throws {
         throw CatalogError.unavailable
     }
-    public func stacks() throws -> [StackRow] { throw CatalogError.unavailable }
     public func stack(containing photoID: Int64) throws -> StackRow? {
         throw CatalogError.unavailable
     }

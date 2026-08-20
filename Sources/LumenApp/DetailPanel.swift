@@ -57,10 +57,14 @@ struct DetailPanel: View {
                 LumenToggleRow(title: "Capture sharpening",
                                isOn: binder.flag(\.develop.detail.capture.auto,
                                                  "detail.capture.auto"),
-                               help: "Richardson–Lucy deconvolution at a radius "
-                                   + "measured from adjacent unclipped Bayer greens — "
-                                   + "this exposure, this lens, this aperture, no lens "
-                                   + "database.")
+                               // The RL story is docs/06's, and RL does not run:
+                               // `DetailEngine.captureSharpen` has no caller. Saying so
+                               // here rather than selling the algorithm the panel wishes
+                               // it were running.
+                               help: "Scales the decoder's own at-demosaic sharpener. "
+                                   + "Lumen's measured-PSF deconvolution is written and "
+                                   + "tested but not in the render path yet, so there "
+                                   + "is no per-frame radius measurement in this build.")
                 if recipe.develop.detail.capture.auto {
                     captureOverrides
                 } else {
@@ -253,8 +257,11 @@ struct DetailPanel: View {
                 // Hot Pixels is implemented in `ClassicalDenoise` and that engine does
                 // not run in the graph, so this slider has no consumer on the shipping
                 // path. Said plainly rather than left to look live.
-                DevelopNote("Hot Pixels applies on the reference renderer only; the "
-                            + "decode stage standing in for Classic has no equivalent.")
+                // This said "applies on the reference renderer only", which was
+                // itself false: `ClassicalDenoise` has no caller on ANY path, reference
+                // included. An honesty note that is wrong is worse than none.
+                DevelopNote("Hot Pixels reaches no render path in this build — the "
+                            + "engine behind it has no caller yet.")
             }
         case .ai:
             VStack(alignment: .leading, spacing: 2) {
@@ -262,9 +269,14 @@ struct DetailPanel: View {
                             value: binder.value(\.develop.denoise.amount, "denoise.amount"),
                             range: 0...100, hardRange: nil, defaultValue: 50,
                             step: 1, decimals: 0, bipolar: false)
-                DevelopNote("The AI pass is a cached artefact, never a new file on disk, "
-                            + "and Amount blends it after it computes — so the slider "
-                            + "stays instant once the pass has run.")
+                // Describes a Tier 2 that does not exist, and gets the
+                // performance backwards: Amount feeds `Denoise.appleStandIn`, which is
+                // part of the decode cache key, so dragging it forces a full
+                // re-demosaic — the opposite of instant.
+                DevelopNote("No AI model ships yet. Amount drives the decoder's own "
+                            + "denoise as a stand-in, and because that is part of the "
+                            + "decode, dragging it re-decodes the frame rather than "
+                            + "blending a cached result.")
                 // Until Tier 2 exists, Amount drives the decoder's own denoise. That is
                 // a stand-in and worth saying: what it must NOT do is what it did
                 // before, which was drive nothing while the two hidden Classic sliders

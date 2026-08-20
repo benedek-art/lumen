@@ -258,15 +258,6 @@ final class CatalogService: @unchecked Sendable {
         }
     }
 
-    /// The number a chip shows. Same predicates, same indexes as the query itself, so a
-    /// count can never disagree with the list it labels.
-    func count(matching query: PhotoQuery, folderPath: String?) async -> Int {
-        await onQueue("chip count", fallback: 0) { store in
-            let folderID = try folderPath.flatMap { try store.folder(path: $0)?.id }
-            return try store.countPhotos(matching: query, folderID: folderID)
-        }
-    }
-
     /// The values a metadata chip offers, with live counts.
     func facets(_ facet: PhotoFacet, folderPath: String?) async -> [FacetValue] {
         await onQueue("metadata chip values", fallback: []) { store in
@@ -282,13 +273,15 @@ final class CatalogService: @unchecked Sendable {
     /// opens can never report different numbers.
     func collections() async -> [CollectionItem] {
         await onQueue("album list", fallback: []) { store in
-            try store.collections().map { album in
+            var out: [CollectionItem] = []
+            for album in try store.collections() {
                 var query = PhotoQuery()
                 query.albumID = album.id
-                return CollectionItem(id: album.id, name: album.name,
-                                      count: try store.countPhotos(matching: query),
-                                      isTarget: album.isTarget)
+                let count = try store.countPhotos(matching: query)
+                out.append(CollectionItem(id: album.id, name: album.name,
+                                          count: count, isTarget: album.isTarget))
             }
+            return out
         }
     }
 
@@ -307,7 +300,6 @@ final class CatalogService: @unchecked Sendable {
     func setTargetCollection(_ albumID: Int64) async {
         await onQueue("target album", fallback: ()) { try $0.setTargetCollection(albumID) }
     }
-
 
     func addToCollection(_ albumID: Int64, photoIDs: [Int64]) async {
         await onQueue("album membership", fallback: ()) {
@@ -340,6 +332,37 @@ final class CatalogService: @unchecked Sendable {
     func removeKeyword(_ name: String, photoIDs: [Int64]) async {
         await onQueue("keyword write", fallback: ()) {
             try $0.removeKeyword(name, photoIDs: photoIDs)
+        }
+    }
+
+    // MARK: - Per-source view state
+
+    /// What a source remembers about how it was being looked at (docs/10 §10.2: sort
+    /// key and direction are per-source memory, not one global setting). A struct
+    /// rather than the store's tuple so it can cross the queue as a `Sendable` value.
+    struct SourceViewState: Sendable {
+        var sortKey: String
+        var ascending: Bool
+        var thumbnailSize: Int
+    }
+
+    func sourceState(_ key: String) async -> SourceViewState? {
+        await onQueue("view state", fallback: nil) { (store: CatalogStore) -> SourceViewState? in
+            guard let stored = try store.sourceState(key) else { return nil }
+            return SourceViewState(sortKey: stored.sortKey, ascending: stored.ascending,
+                                   thumbnailSize: stored.thumbPx)
+        }
+    }
+
+    func setSourceState(_ key: String, _ value: SourceViewState) async {
+        await onQueue("view state", fallback: ()) {
+            // `filterJSON` stays nil: the filter bar's state is deliberately NOT
+            // restored. A grid that comes back empty because yesterday's chips are
+            // still lit is the single most-complained-about behaviour in the app this
+            // one is trying to be better than.
+            try $0.setSourceState(key, sortKey: value.sortKey,
+                                  ascending: value.ascending,
+                                  thumbPx: value.thumbnailSize, filterJSON: nil)
         }
     }
 
@@ -379,7 +402,6 @@ final class CatalogService: @unchecked Sendable {
     func dissolveStack(id: Int64) async {
         await onQueue("unstack", fallback: ()) { try $0.dissolveStack(id: id) }
     }
-
 
     // MARK: - Enum bridging
 

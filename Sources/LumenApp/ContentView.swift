@@ -58,7 +58,12 @@ struct ContentView: View {
 
     @ViewBuilder
     private var centre: some View {
-        if state.photos.isEmpty {
+        // `allPhotos`, not `photos`: an open folder whose filter or album currently
+        // matches nothing is not an app with no folder open, and saying "Open a folder
+        // of photographs" to somebody who has one open is how a filter looks like a
+        // crash. The grid draws its own "nothing matches, here is Clear Filter"
+        // overlay, which this condition used to make unreachable.
+        if state.allPhotos.isEmpty {
             EmptyState()
         } else {
             switch state.viewMode {
@@ -151,6 +156,10 @@ private struct Sidebar: View {
                 .foregroundStyle(Lumen.secondaryText)
             }
             .padding(12)
+            // A VStack inside a ScrollView is only as wide as its widest child, and the
+            // album rows put their count on a trailing Spacer — without this they draw
+            // the count hard against the name instead of at the column edge.
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(Lumen.panelBackground)
     }
@@ -320,8 +329,10 @@ private struct Sidebar: View {
                     .foregroundStyle(Lumen.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
 
-                Button(stack.collapsed ? "Expand Stack" : "Collapse Stack") {
+                Button {
                     state.toggleStackCollapsed()
+                } label: {
+                    Text(stack.collapsed ? "Expand Stack" : "Collapse Stack")
                 }
                 .buttonStyle(.borderless)
                 .font(.system(size: 11))

@@ -201,7 +201,13 @@ final class RobustnessTests: XCTestCase {
             // Texture and Clarity need something to find, and Dehaze needs a gradient
             // it can read as depth, so this is not a flat field.
             let detail = 0.06 * sin(u * 47) * cos(v * 31)
-            return RGB(0.30 + detail, 0.26 + detail * 0.8, 0.20 + detail * 0.6)
+            let base = RGB(0.30 + detail, 0.26 + detail * 0.8, 0.20 + detail * 0.6)
+            // And it needs a TONAL RANGE, or the zonal controls have nothing to grab.
+            // It used to sit flat at about +0.5 EV, where the Shadows window and a
+            // shadows grading wheel both evaluate to zero weight — so both reported
+            // "changed nothing" and were indistinguishable from being unwired. A ramp
+            // from −4 to +4 EV puts real shadows and real highlights in the frame.
+            return base * pow(2.0, -4 + 8 * v)
         }
 
         var base = Recipe()
@@ -231,6 +237,18 @@ final class RobustnessTests: XCTestCase {
             ("grading wheels", {
                 $0.wheels = GradingWheels(shadows: Wheel(hue: 220, sat: 0.7, lum: 0.2))
             }),
+            // BUILDING.md cited this test as covering thirteen local controls while the
+            // list held eleven. Contrast, highlights, shadows, vibrance and point
+            // colour are all wired in `applyLocalAdjust` and none of them was driven
+            // here — the ledger was reading the test's NAME, not its body.
+            ("contrast", { $0.contrast = 60 }),
+            ("highlights", { $0.highlights = -70 }),
+            ("shadows", { $0.shadows = 70 }),
+            ("vibrance", { $0.vibrance = 70 }),
+            ("point colour", {
+                $0.pointColors = [PointColor(sample: [0.42, 0.22, 0.16],
+                                             shift: HSLShift(h: 30, s: 40, l: 10))]
+            }),
         ]
 
         for (name, mutate) in fields {
@@ -244,7 +262,8 @@ final class RobustnessTests: XCTestCase {
                 }
             }
             XCTAssertGreaterThan(worst, 1e-4,
-                                 "the local \(name) slider changed nothing")
+                                 "the local \(name) slider changed nothing on the "
+                                     + "reference path")
         }
     }
 

@@ -43,10 +43,10 @@ looks like and needs no new UI.
 | Item | Now | Closes it |
 |---|---|---|
 | Clarity | 50 | Local Laplacian on the GPU; today it is a guided-filter gain at a coarser radius |
-| Texture | 55 | À-trous band + the coherence gate on negative values; today the shipping path has neither |
-| Dehaze colour stability | 45 | The luminance-ratio form the reference uses. The GPU kernel is per-channel `(I−A)/t + A`, which is the magenta cast docs/06 calls "impossible by construction" |
-| Sharpen Masking | 35 | An edge gate in the graph |
-| Halo Suppression | 35 | Same |
+| Texture | 55 → 70 | Coherence gate shipped (structure tensor). The à-trous band is still a guided-filter approximation |
+| Dehaze colour stability | ~~45~~ **done** | Luminance-ratio recombination shipped; golden asserts 0° hue rotation where the old per-channel form rotated a veiled sky by 13.4° |
+| Sharpen Masking | ~~35~~ **done** | Edge gate from a Sobel structure measure, in the graph |
+| Halo Suppression | ~~35~~ **done** | One-sided overshoot clamp, in the graph |
 | Capture sharpening | 25 | `richardsonLucy` + `estimatePSFSigma` have no caller; the toggle scales Apple's demosaic sharpener instead |
 | Vignette | 70 | Reference is frame-centred, GPU is crop-centred; they disagree on any cropped photo and no golden covers it |
 
@@ -58,7 +58,7 @@ looks like and needs no new UI.
 | Luminance Detail / Contrast, Colour Detail / Smoothness | 10 | Four of seven Tier-1 controls have no wire format |
 | Hot Pixels | 5 | Reads nowhere on any path — the panel's note about it is itself wrong |
 | ISO-adaptive defaults | 10 | `ISODefaults` has the spec's anchors and no caller |
-| Tier 2 AI | 20 | Capped: `huggingface.co` is blocked from this environment, so no model can be fetched. Ceiling ~60 without one |
+| Tier 2 AI | 20 | `huggingface.co` is reachable now — the network policy was widened mid-session — so a model CAN be fetched and the ceiling is lifted |
 
 ### Batch 3 — The library half
 
@@ -76,7 +76,7 @@ looks like and needs no new UI.
 | Item | Now | Closes it |
 |---|---|---|
 | Subject / Person masks | 5 | Apple's Vision framework, on-device, no download. `VNGenerateForegroundInstanceMaskRequest` and `VNGeneratePersonSegmentationRequest` |
-| Sky / depth / object | 4 | Need models that cannot be fetched here. Honest ceiling is low; the UI must stop implying otherwise |
+| Sky / depth / object | 4 | Need models. Fetchable now that the network policy is open; until one is bundled the UI says so plainly rather than implying a background pass |
 | Local point curve | 8 | `LocalPlan` reads no `adjust.curve` |
 | Local grading wheels | 8 → **done** | Landed |
 | Mask overlays | 25 | One mode of six, no colour cycling, no keys |
@@ -100,13 +100,13 @@ looks like and needs no new UI.
 
 | Item | Now | Closes it |
 |---|---|---|
-| Crop tool | 30 | The overlay is complete and unreachable; wiring it needs the preview to stop pre-cropping while the tool is open |
+| Crop tool | ~~30~~ **done** | `applyGeometry(skipCrop:)` — the loupe shows the uncropped frame while R is open, so the rect is drawn against the frame it is expressed in |
 | Straighten | 45 | Number only — no ruler, no auto |
 | Perspective / Upright | 3 | A `Codable` struct nobody constructs |
 | Heal / clone | 2 | Declared, no writer, no stage. A recipe with `heal.count = 40` renders unchanged and busts every cache |
 | HDR gain map | 15 | Math written and tested behind a hardcoded `false` |
 | Soft proofing | 10 | Engine exists, zero UI callers |
-| Export dithering | 0 | The export sheet tells the user it dithers; there is no dithering code in the repo |
+| Export dithering | 0 | Still no dithering code. The export sheet no longer claims there is |
 
 ## Order, and why
 
@@ -132,8 +132,10 @@ from a control to a pixel.** Not when code is written.
 
 ## Two things this plan cannot do
 
-- **Fetch a model.** `huggingface.co` is unreachable from the build environment. Sky,
-  depth, SAM-grade object selection and Tier-2 denoise are capped until a model can be
-  bundled. Vision-based subject and person masks are not affected.
+- **Fetch a model — no longer true.** This said `huggingface.co` was unreachable. The
+  environment's network policy was widened from "trusted" to "all" mid-session, so
+  models can be fetched and `download.swift.org` opened too, which is how LumenCore now
+  compiles locally in ten seconds instead of seventeen minutes through CI.
+
 - **Judge a photograph.** Every exit test in docs/16 is "on the owner's real photos, to
   the owner's eye". Nothing here substitutes for that.

@@ -438,13 +438,17 @@ public struct RenderGraph {
         let masking = Num.clamp(sharpen.masking, 0, 100) / 100
         let halo = Num.clamp(sharpen.haloSuppression, 0, 100) / 100
 
+        // The fine band must sit BELOW the working radius, not at a fixed 1.0.
+        // `ManualSharpen.radius` defaults to 1.0, so a fixed 1.0 made these two the
+        // same filter on the same input: `fine` and `usm` came out bit-identical and
+        // `mix(usm, fineEV, detail)` was constant in `detail`. Measured against the
+        // reference, the Detail slider moved a frame by exactly 0.000000 EV across its
+        // entire range at the default radius — the failure this rewrite existed to
+        // remove, reintroduced one line lower.
+        let fineSigma = radius * 0.4
         guard let lum = Self.logLuminance(image),
               let blurred = Self.gaussianBlur(lum, sigma: radius),
-              // The finest scale the reference takes its detail band from. A single
-              // narrow blur is not an à-trous decomposition, but it is the same band —
-              // and it is honest about `detail` in a way that bending the radius was
-              // not.
-              let finestBlur = Self.gaussianBlur(lum, sigma: 1.0),
+              let finestBlur = Self.gaussianBlur(lum, sigma: fineSigma),
               let fine = Self.subtract(lum, finestBlur),
               let gradient = Self.gradientMagnitude(lum),
               let delta = KernelLibrary.apply(
@@ -465,11 +469,19 @@ public struct RenderGraph {
     }
 
     /// Gaussian blur that keeps the extent it was given.
+    ///
+    /// `CIGaussianBlur.radius` is a SUPPORT radius, not a standard deviation — the
+    /// halation stage in this same file says exactly that and multiplies by three. This
+    /// passed sigma straight through, so every blur here was about a third of the width
+    /// it was asked for, and across the sharpen radius range (0.5…3.0) that put the
+    /// support at 0.17…1.0 px, at or below where the filter stops doing anything. The
+    /// stage rendered no change, and the `guard let … else { unsharp mask }` fallback
+    /// could not catch it because every kernel compiled fine.
     static func gaussianBlur(_ image: CIImage, sigma: Double) -> CIImage? {
         guard sigma > 0 else { return image }
         let filter = CIFilter.gaussianBlur()
         filter.inputImage = image.clampedToExtent()
-        filter.radius = Float(sigma)
+        filter.radius = Float(Swift.max(sigma * 3, 0.5))
         return filter.outputImage?.cropped(to: image.extent)
     }
 
@@ -567,9 +579,19 @@ public struct RenderGraph {
         let feather = 1 - DetailEngine.vignetteInnerRadius
         // Rendered over the FULL extent — the crop only defines the ellipse. Cropping
         // the output here would throw away the pixels applyGeometry is about to select.
+        // Highlight protection, at the same disclosure default the reference uses.
+        // Default scene white is mid-grey plus five stops; the taper starts at half of
+        // it, which is what keeps a burn off a bright sky while it still shapes the
+        // corners. The constants live on `DetailEngine` so the two paths cannot pick
+        // different numbers.
+        let weights = RGBColorSpace.rec2020.luminanceWeights
+        let threshold = 0.18 * pow(2.0, 5.0) / 2.0
         return KernelLibrary.apply(KernelLibrary.vignette, extent: full,
-                                   [image, centre, inv, Float(ev),
-                                    Float(feather)]) ?? image
+                                   [image, centre, inv, Float(ev), Float(feather),
+                                    CIVector(x: weights.r, y: weights.g, z: weights.b),
+                                    Float(threshold),
+                                    Float(DetailEngine.vignetteHighlightProtection)])
+            ?? image
     }
 
     func applyHalation(_ image: CIImage, film: FilmChain, longEdge: Int) -> CIImage {
