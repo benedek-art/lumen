@@ -122,8 +122,12 @@ struct BasicPanel: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .help("White balance preset — any manual move reads as Custom")
 
-            // Disabled, so the action is empty rather than dead code that cannot run.
-            Button {} label: {
+            Button {
+                // The catcher lives on the loupe, so arm it and go there. Pressing it
+                // again disarms rather than stacking a second pick.
+                state.isPickingNeutral.toggle()
+                if state.isPickingNeutral { state.showLoupe() }
+            } label: {
                 Image(systemName: "eyedropper")
                     .font(.system(size: 11))
                     .padding(.horizontal, 5)
@@ -134,16 +138,14 @@ struct BasicPanel: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            // Honest about not working. The solver exists and is correct
-            // (`WhiteBalanceEngine.neutralizing`) and has no caller: it needs a
-            // WORKING-SPACE sample — scene-linear, after S6 — and the only thing the
-            // app can sample is the display-referred preview, which has been through
-            // the whole tone and display transform. Wiring it means a new probe through
-            // the renderer, not a click handler. Until then the button must not imply
-            // that clicking the image does something.
-            .help("Not wired in this build — the neutral solver has no way to sample "
-                  + "scene-linear values yet. Use the presets or the Temp/Tint sliders.")
-            .disabled(true)
+            // The probe this needed is `PipelineRenderer.sampleSceneLinear`: it reads
+            // the DECODED frame, before any of Lumen's stages, which is the one tap
+            // whose meaning does not shift when a slider moves. Sampling after white
+            // balance would make the picked neutral depend on the white balance it is
+            // being used to compute.
+            .help(state.isPickingNeutral
+                  ? "Click a neutral in the picture — or press again to cancel."
+                  : "Click something grey in the picture and Temp/Tint solve for it.")
         }
         .frame(height: Lumen.rowHeight)
     }

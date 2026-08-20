@@ -158,6 +158,47 @@ actor RenderCoordinator {
         sourceOrder.removeAll { $0 == url }
     }
 
+    /// One scene-linear sample, for the eyedroppers.
+    ///
+    /// Lives on the actor because the decoded source does, and it reuses the same
+    /// bounded cache the renders use — picking on a photo you are already looking at
+    /// costs no decode at all.
+    func sampleSceneLinear(url: URL, recipe: Recipe,
+                           sourceX: Double, sourceY: Double) -> RGB? {
+        guard let source = try? self.source(for: url) else { return nil }
+        return renderer.sampleSceneLinear(source: source, recipe: recipe,
+                                          sourceX: sourceX, sourceY: sourceY)
+    }
+
+    /// Sample a point and solve the Temp/Tint that make it neutral.
+    ///
+    /// The whole solve happens here rather than in the app because everything it needs
+    /// is on this side of the actor: the sample, and the as-shot neutral it has to be
+    /// measured against. Handing the caller a bare RGB would have meant exporting the
+    /// capture metadata too, and then two places would have to agree about what the
+    /// sample means.
+    ///
+    /// `neutralizing` expects a value with the CURRENT white balance already applied —
+    /// it inverts that matrix internally to recover the decoded value — so the sample
+    /// goes through `wb.matrix` on the way in. The round trip is deliberate and exact:
+    /// it keeps this call correct without depending on the solver's internals.
+    func solveNeutral(url: URL, recipe: Recipe,
+                      sourceX: Double, sourceY: Double) -> (kelvin: Double, tint: Double)? {
+        guard let source = try? self.source(for: url),
+              let sample = renderer.sampleSceneLinear(source: source, recipe: recipe,
+                                                     sourceX: sourceX, sourceY: sourceY),
+              sample.isFinite, sample.maxComponent > 1e-9
+        else { return nil }
+        let wb = WhiteBalanceEngine(asShotKelvin: source.asShotTemperature,
+                                    asShotTint: source.asShotTint,
+                                    targetKelvin: recipe.develop.raw.temp,
+                                    targetTint: recipe.develop.raw.tint)
+        return WhiteBalanceEngine.neutralizing(sample: wb.matrix.apply(sample),
+                                               asShotKelvin: source.asShotTemperature,
+                                               asShotTint: source.asShotTint,
+                                               current: wb)
+    }
+
     // MARK: - Sources
 
     /// Picks the decoder by extension rather than by trying one and catching, because

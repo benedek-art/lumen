@@ -544,6 +544,70 @@ public final class PipelineRenderer {
     /// re-deriving the mapping: `CGAffineTransform.inverted()` cannot disagree with the
     /// forward direction about a convention, and getting flip-then-rotate ordering
     /// subtly wrong in a second implementation is exactly how this kind of bug starts.
+    /// One scene-linear sample off the decoded frame, at a SOURCE-normalized point.
+    ///
+    /// This is the probe the white-balance solver has been waiting for. The only thing
+    /// the app could sample was the displayed proxy — 8-bit sRGB, after tone mapping
+    /// and the display transform — and `WhiteBalanceEngine.neutralizing` needs a value
+    /// from before any of that. Everything colour-driven in the app has been stuck on
+    /// the same hole: Point Colour, Colour Range masks, both Similarity kinds and the
+    /// local colour tint all seed their samples with a hard-coded 18% grey.
+    ///
+    /// Deliberately taps the DECODED image, before Lumen's own stages. That is what the
+    /// neutral solver wants, and it is the one tap whose meaning does not change when
+    /// the user moves a slider — sampling after white balance would make the picked
+    /// neutral depend on the white balance it is being used to compute.
+    ///
+    /// Cheap despite decoding at full resolution: Core Image is lazy, so rendering a
+    /// five-pixel-square bounds computes that region and its filter support, not the
+    /// frame. The square is an average because a single pixel of a real photograph is
+    /// noise — the same reason every other editor's eyedropper samples an area.
+    public func sampleSceneLinear(source: any ImageSource, recipe: Recipe,
+                                  sourceX: Double, sourceY: Double,
+                                  radius: Int = 2) -> RGB? {
+        guard let decoded = source.decode(recipe: recipe, draft: false, scaleFactor: 1.0)
+        else { return nil }
+        let extent = decoded.extent
+        guard extent.width >= 1, extent.height >= 1 else { return nil }
+
+        // Core Image extents are bottom-up; the caller's y is top-down.
+        let px = extent.minX + Num.clamp(sourceX, 0, 1) * extent.width
+        let py = extent.minY + (1 - Num.clamp(sourceY, 0, 1)) * extent.height
+
+        let side = CGFloat(Swift.max(radius, 0) * 2 + 1)
+        let wanted = CGRect(x: (px - CGFloat(radius)).rounded(.down),
+                            y: (py - CGFloat(radius)).rounded(.down),
+                            width: side, height: side)
+        let clipped = wanted.intersection(extent)
+        guard !clipped.isNull else { return nil }
+        let width = Int(clipped.width.rounded(.down))
+        let height = Int(clipped.height.rounded(.down))
+        guard width > 0, height > 0 else { return nil }
+        let rect = CGRect(x: clipped.origin.x, y: clipped.origin.y,
+                          width: CGFloat(width), height: CGFloat(height))
+
+        // Read back in the working space, so what comes out is the same linear
+        // Rec.2020 the graph operates in rather than anything display-referred.
+        guard let working = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)
+        else { return nil }
+        var pixels = [Float](repeating: 0, count: width * height * 4)
+        pixels.withUnsafeMutableBytes { raw in
+            guard let base = raw.baseAddress else { return }
+            context.render(decoded, toBitmap: base, rowBytes: width * 16,
+                           bounds: rect, format: .RGBAf, colorSpace: working)
+        }
+
+        var sumR = 0.0, sumG = 0.0, sumB = 0.0
+        for i in 0..<(width * height) {
+            sumR += Double(pixels[i * 4])
+            sumG += Double(pixels[i * 4 + 1])
+            sumB += Double(pixels[i * 4 + 2])
+        }
+        let count = Double(width * height)
+        let mean = RGB(sumR / count, sumG / count, sumB / count)
+        return mean.isFinite ? mean : nil
+    }
+
     public static func sourceNormalized(displayedX u: Double, displayedY v: Double,
                                         geometry: Geometry,
                                         sourceSize: CGSize) -> CGPoint {

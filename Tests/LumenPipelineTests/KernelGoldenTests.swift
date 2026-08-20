@@ -27,6 +27,79 @@ final class KernelGoldenTests: XCTestCase {
         .workingFormat: CIFormat.RGBAf,
     ])
 
+    // MARK: - The eyedropper's probe
+
+    /// A source that hands back a known picture, so the probe can be asked whether it
+    /// reads the pixel it was pointed at.
+    private final class StubSource: ImageSource {
+        let url = URL(fileURLWithPath: "/dev/null")
+        let asShotTemperature: Double = 5500
+        let asShotTint: Double = 0
+        private let image: CIImage
+        init(_ image: CIImage) { self.image = image }
+        var nativePixelSize: (width: Int, height: Int) {
+            (Int(image.extent.width), Int(image.extent.height))
+        }
+        var nativeLongEdge: Double { Double(max(image.extent.width, image.extent.height)) }
+        func decode(recipe: Recipe, draft: Bool, scaleFactor: Double) -> CIImage? { image }
+        var captureMetadata: CaptureMetadata {
+            CaptureMetadata(asShotTemperature: asShotTemperature, asShotTint: asShotTint,
+                            decoderVersion: nil, pixelSize: nativePixelSize)
+        }
+    }
+
+    /// The probe must read the pixel it was pointed at.
+    ///
+    /// Asserted against `readBack` rather than against an absolute idea of "top",
+    /// deliberately. Core Image extents are bottom-up while the UI hands down a
+    /// top-down fraction, and `CIImage(bitmapData:)`'s row order is a third convention
+    /// again — a probe with the flip missing returns a perfectly plausible colour, just
+    /// the one mirrored about the centre line, which on a photograph reads as "the
+    /// eyedropper is a bit inaccurate" rather than as a bug. Comparing against the same
+    /// read-back path every golden in this file already trusts pins the probe to the
+    /// convention the renderer actually uses, instead of to one I asserted.
+    func testTheSceneProbeReadsThePointItWasGiven() throws {
+        // Every pixel distinct in both axes, so a swap or a flip cannot coincide.
+        let width = 16, height = 16
+        let source = ImageBuffer(width: width, height: height) { u, v in
+            RGB(0.1 + 0.8 * u, 0.5, 0.1 + 0.8 * v)
+        }
+        let stub = StubSource(ciImage(from: source))
+        let renderer = PipelineRenderer()
+        guard let expected = readBack(ciImage(from: source), width: width, height: height)
+        else { return XCTFail("read-back failed") }
+
+        for (px, py) in [(3, 2), (12, 4), (8, 8), (2, 13), (14, 15)] {
+            let u = (Double(px) + 0.5) / Double(width)
+            let v = (Double(py) + 0.5) / Double(height)
+            guard let sample = renderer.sampleSceneLinear(source: stub, recipe: Recipe(),
+                                                          sourceX: u, sourceY: v,
+                                                          radius: 0)
+            else { return XCTFail("no sample at \(px),\(py)") }
+            let want = expected[px, py]
+            XCTAssertEqual(sample.r, want.r, accuracy: 0.02,
+                           "probe read the wrong COLUMN at \(px),\(py): "
+                               + "got \(sample) want \(want)")
+            XCTAssertEqual(sample.b, want.b, accuracy: 0.02,
+                           "probe read the wrong ROW at \(px),\(py) — the vertical "
+                               + "flip is wrong: got \(sample) want \(want)")
+        }
+    }
+
+    /// Out-of-frame requests clamp; they do not crash and do not return garbage.
+    func testTheSceneProbeSurvivesTheCorners() throws {
+        let source = ImageBuffer(width: 8, height: 8) { _, _ in RGB(gray: 0.25) }
+        let stub = StubSource(ciImage(from: source))
+        let renderer = PipelineRenderer()
+        for (x, y) in [(0.0, 0.0), (1.0, 1.0), (0.0, 1.0), (1.0, 0.0), (-1.0, 2.0)] {
+            guard let sample = renderer.sampleSceneLinear(source: stub, recipe: Recipe(),
+                                                          sourceX: x, sourceY: y)
+            else { return XCTFail("no sample at \(x),\(y)") }
+            XCTAssertTrue(sample.isFinite, "non-finite sample at \(x),\(y)")
+            XCTAssertEqual(sample.g, 0.25, accuracy: 0.02, "wrong value at \(x),\(y)")
+        }
+    }
+
     // MARK: - Availability
 
     /// The load-bearing environment check. If this fails, the app still renders — via

@@ -308,10 +308,19 @@ changed the picture.
   says so.
 - **Speed Edit (D44) is not implemented.** Correctly absent from the keyboard reference,
   so nobody is sent looking for it.
-- **There is no eyedropper anywhere.** The white-balance solver has no way to sample
-  scene-linear values; Point Colour swatches and mask colour samples can only ever be
-  seeded at 18% grey, which makes Colour Range, both Similarity kinds and the local
-  Colour tint unable to reference a colour the user picked. All now labelled.
+- **Only white balance has an eyedropper so far.** The probe exists now —
+  `PipelineRenderer.sampleSceneLinear` reads the DECODED frame, before any of Lumen's
+  stages, which is the one tap whose meaning does not shift when a slider moves
+  (sampling after white balance would make the picked neutral depend on the white
+  balance it is being used to compute). `RenderCoordinator.solveNeutral` does the whole
+  sample-and-solve on the actor, because the as-shot neutral the sample must be measured
+  against lives beside the source. It is cheap despite decoding at full resolution:
+  Core Image is lazy, so a five-pixel-square read computes that region and its filter
+  support, not the frame.
+
+  Still seeded at 18% grey, because each needs its own catcher and its own meaning for
+  "the colour here": Point Colour swatches, Colour Range, both Similarity kinds, and the
+  local Colour tint. The hard part is done; what is left is per-consumer wiring.
 - **A kernel that fails outside the core four degrades one stage silently in EXPORT.**
   The preview now takes the real CPU fallback when a core kernel is missing, and labels
   a reduced render with the names of whatever else failed. `export` has no equivalent:

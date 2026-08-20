@@ -359,6 +359,10 @@ final class AppState: ObservableObject {
     @Published var recipes: [URL: Recipe] = [:]
     @Published var activeSection: PanelSection = .basic
     @Published var showBefore = false
+    /// True while the loupe is waiting for the user to click a neutral. The picker
+    /// overlay only exists when this is set, so it can never eat a pan or a
+    /// click-to-zoom the rest of the time.
+    @Published var isPickingNeutral = false
     /// Which mask the loupe is showing as an overlay, if any. Setting it rasterizes
     /// that mask's alpha.
     @Published var soloMaskOverlay: String? {
@@ -883,6 +887,36 @@ final class AppState: ObservableObject {
 
     /// Every edit goes through here so history, persistence and the sidecar all see
     /// it. `coalescingKey` lets a slider drag collapse into one undo step.
+    /// Pick a neutral off the frame: sample it scene-linear, solve the Temp/Tint that
+    /// make it grey, and write them.
+    ///
+    /// The solve is one actor call because everything it needs — the decoded pixel and
+    /// the as-shot neutral to measure it against — lives beside the source. The write
+    /// goes through `updateRecipe`, so a picked neutral is one undo step and one
+    /// history entry, exactly like dragging the sliders it moves.
+    func pickNeutral(on photo: PhotoItem, sourceX: Double, sourceY: Double) {
+        let current = recipe(for: photo)
+        let url = photo.url
+        Task {
+            let solved = await renderCoordinator.solveNeutral(
+                url: url, recipe: current, sourceX: sourceX, sourceY: sourceY)
+            isPickingNeutral = false
+            guard let solved else {
+                // Naming the reason, because "nothing happened" after a deliberate
+                // click is the worst thing this could do. Black clipped shadows have
+                // no chromaticity to neutralise and never will.
+                statusMessage = "Too dark there to read a neutral — try a lit grey."
+                return
+            }
+            updateRecipe { recipe in
+                recipe.develop.raw.temp = solved.kelvin
+                recipe.develop.raw.tint = solved.tint
+            }
+            statusMessage = String(format: "Neutral picked — %.0f K, tint %.0f",
+                                   solved.kelvin, solved.tint)
+        }
+    }
+
     func updateRecipe(coalescingKey: String? = nil, _ mutate: (inout Recipe) -> Void) {
         let targets = editTargets
         guard !targets.isEmpty else { return }

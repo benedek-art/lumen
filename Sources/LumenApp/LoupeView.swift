@@ -655,6 +655,21 @@ struct LoupeView: View {
                 }
                 .frame(width: drawn.width, height: drawn.height)
             }
+
+            // Last in the stack so it sits above the mask canvas and the crop tool:
+            // while a pick is in flight the click belongs to the eyedropper and to
+            // nothing else. `sourceSize` is the SOURCE frame for the same reason the
+            // canvas needs it — `cg` has already been cropped and straightened.
+            if state.isPickingNeutral {
+                NeutralPickerOverlay(
+                    sourceSize: state.primaryFrameSize
+                        ?? CGSize(width: cg.width, height: cg.height),
+                    geometry: recipe.develop.geometry
+                ) { sourceX, sourceY in
+                    state.pickNeutral(on: photo, sourceX: sourceX, sourceY: sourceY)
+                }
+                .frame(width: drawn.width, height: drawn.height)
+            }
         }
         .frame(width: drawn.width, height: drawn.height)
         .offset(offset)

@@ -24,6 +24,7 @@ import AppKit
 import CoreGraphics
 import Foundation
 import LumenCore
+import LumenPipeline
 import SwiftUI
 
 // MARK: - Before / after
@@ -664,6 +665,55 @@ struct CropOverlayView: View {
     private func clamp01(_ v: Double) -> Double {
         guard v.isFinite else { return 0 }
         return Swift.min(Swift.max(v, 0), 1)
+    }
+}
+
+/// The eyedropper's catcher: a transparent sheet over the drawn image that turns one
+/// click into a SOURCE-normalized point.
+///
+/// It exists only while a pick is actually in flight, which is the whole reason it can
+/// be a full-bleed hit target — the rest of the time there is nothing here to eat a pan
+/// or a click-to-zoom.
+///
+/// The conversion is the same inverse `MaskCanvas` uses, and for the same reason: the
+/// picture on screen has already been cropped and straightened by the renderer, so a
+/// point in view coordinates is not a point in the source frame. Sampling the displayed
+/// position directly would read the wrong pixel on every cropped or rotated photo, and
+/// read it plausibly enough that nobody would notice.
+struct NeutralPickerOverlay: View {
+
+    let sourceSize: CGSize
+    let geometry: Geometry
+    let onPick: (Double, Double) -> Void
+
+    var body: some View {
+        GeometryReader { proxy in
+            Rectangle()
+                // Not `.clear`: a fully transparent shape is not hit-testable, and the
+                // click would fall through to the pan gesture underneath.
+                .fill(Lumen.accent.opacity(0.001))
+                .overlay(
+                    Rectangle()
+                        .strokeBorder(Lumen.accent.opacity(0.7), lineWidth: 2)
+                        .allowsHitTesting(false)
+                )
+                .contentShape(Rectangle())
+                .gesture(
+                    // minimumDistance 0 so a plain click registers; `onEnded` rather
+                    // than `onChanged` so a press that turns into a drag still resolves
+                    // to one sample at the point it was released.
+                    DragGesture(minimumDistance: 0).onEnded { value in
+                        let size = proxy.size
+                        guard size.width > 0, size.height > 0 else { return }
+                        let u = Double(value.location.x / size.width)
+                        let v = Double(value.location.y / size.height)
+                        let source = PipelineRenderer.sourceNormalized(
+                            displayedX: u, displayedY: v,
+                            geometry: geometry, sourceSize: sourceSize)
+                        onPick(Double(source.x), Double(source.y))
+                    }
+                )
+        }
     }
 }
 
