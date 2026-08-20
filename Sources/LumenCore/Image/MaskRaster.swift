@@ -245,7 +245,15 @@ public enum MaskRaster {
         guard edge.isFinite else { return a }
         let e = Num.clamp(edge, -50, 50)
         let shift = (e / 50) * 0.01 * Double(longEdge)
-        if abs(shift) < 0.5 { return a }
+        // Blend the reconstruction in over the first pixel of shift rather than
+        // switching it on. On a 2560-px frame a shift of half a pixel is Edge ≈ 0.98,
+        // so the old threshold made Edge 0 → 1 a visible jump: the reconstruction does
+        // not shift the existing alpha, it rebuilds one from the signed distance and a
+        // single global ramp width, which only reproduces a mask that was already a
+        // uniform linear ramp. For a Gaussian-blurred edge the profile differs by
+        // ~0.1 alpha across the transition band, and that arrived all at once.
+        let engagement = Num.saturate(abs(shift))
+        guard engagement > 0 else { return a }
 
         let w = a.width, h = a.height
         let n = w * h
@@ -294,7 +302,8 @@ public enum MaskRaster {
             let phi = inside
                 ? -(dToOutside[i].squareRoot() - 0.5)
                 : (dToInside[i].squareRoot() - 0.5)
-            out.values[i] = Float(Num.saturate(0.5 + (shift - phi) / rampWidth))
+            let rebuilt = Num.saturate(0.5 + (shift - phi) / rampWidth)
+            out.values[i] = Float(Num.mix(Double(a.values[i]), rebuilt, engagement))
         }
         return out
     }

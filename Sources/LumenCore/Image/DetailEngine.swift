@@ -229,9 +229,23 @@ public struct DetailEngine: Sendable {
         let center = bandCenter(width: w, height: h)
         let halfWidth = 1.6
 
+        // Normalize by the weight the window ACTUALLY realizes. The band centre
+        // tracks resolution correctly, but the window is truncated at level 0, so a
+        // preview whose centre sits at level 0 keeps only the levels above it. The
+        // weights summed to 1.617 at 2560 px and 1.309 at 1280 px, which made the same
+        // Texture setting 19 % weaker in a fit view than in the export — a scale
+        // honesty failure, and this stage's whole claim is scale honesty.
+        var realized = 0.0
+        for i in 0..<d.details.count {
+            realized += bandWeight(level: i, center: center, halfWidth: halfWidth)
+        }
+        guard realized > 1e-9 else { return image }
+        let normalization = referenceBandWeight(halfWidth: halfWidth) / realized
+
         var delta = Plane(width: w, height: h)
         for i in 0..<d.details.count {
             let weight = bandWeight(level: i, center: center, halfWidth: halfWidth)
+                * normalization
             if weight <= 0 { continue }
             let band = fit(d.details[i], width: w, height: h)
             for y in 0..<h {
@@ -821,6 +835,19 @@ public struct DetailEngine: Sendable {
         let longEdge = Double(Swift.max(width, height))
         guard longEdge > 0 else { return 1.0 }
         return 1.0 + Num.clamp(log2(longEdge / 2560.0), -1.0, 2.0)
+    }
+
+    /// Total weight an UNTRUNCATED window carries — what the normalization above
+    /// restores every realized window to, so a given Texture setting means the same
+    /// amount of texture at every resolution.
+    private static func referenceBandWeight(halfWidth: Double) -> Double {
+        var total = 0.0
+        var level = -32
+        while level <= 32 {
+            total += bandWeight(level: level, center: 0, halfWidth: halfWidth)
+            level += 1
+        }
+        return total
     }
 
     /// Raised-cosine window over scale index: 1 at the centre, 0 at the band edges, with a
