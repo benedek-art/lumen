@@ -39,8 +39,26 @@ export it (⌘E).
 
 There is no Swift toolchain on the machine this was written on, and swift.org is
 blocked by its egress policy. So the verification loop is **GitHub Actions' macOS
-runner**: every push compiles all four targets and runs both suites there, and the CI
-log is filtered down to deduplicated diagnostics so a round is readable.
+runner**: it compiles all four targets and runs both suites there, and the CI log is
+filtered down to deduplicated diagnostics so a round is readable.
+
+> **⚠️ Nothing in this repository has been compiled since 2026-08-20.** Partway through
+> that session GitHub stopped allocating runners — every run failed in about three
+> seconds with no job starting, on the macOS *and* Linux lanes, with empty logs, which
+> is the signature of exhausted Actions minutes or a hit spending limit rather than
+> anything in the code. The push trigger is disabled so the failures stop emailing the
+> owner; `.github/workflows/ci.yml` carries the one-line restore instructions. Until
+> a run succeeds, **treat every commit after that point as unverified by a compiler**:
+> the reasoning below still applies to the design, but "it builds" is currently a
+> claim, not a result. Restoring it needs a spending-limit raise, a public repository,
+> or the monthly reset — none of which a commit can do.
+>
+> What stands in for it meanwhile: the Python mirror below still executes on every
+> change, and two mechanical passes over the whole tree — every capitalized identifier
+> resolved against the declarations in-tree, and all 1,128 `Type(...)` call sites
+> checked against that type's declared initializers, both verified able to fail by
+> substituting wrong code. Those catch renames, typos and reshaped initializers. They
+> do not catch type errors, and they are not a compiler.
 
 Three layers of checking, in order of strength:
 
@@ -174,6 +192,57 @@ These are tracked, not hidden.
   right order, but it means a schema tour overstates what the app does.
 - **`quickCheck()` and `integrityCheck()` are documented as running on every open.**
   They have no callers, so a corrupt catalog is discovered when a query throws.
+- **HDR export writes no gain map.** `renderHDRPair` and the whole `GainMap` relation
+  are implemented and tested, and nothing calls them — `export` renders once and emits a
+  single rendition. The missing piece is an auxiliary gain-map image attached through
+  `CGImageDestination`; `CIContext.write*Representation` takes no metadata argument, so
+  it cannot get there from here. Until then the toggle is inert and `hdrIsWritable`
+  says so in one place. It used to be worse than inert: the HDR ceiling reached the
+  render plan, put display white at 4.0, and the 8-bit encode then clipped everything
+  above diffuse white — so ticking the box threw away exactly the highlight roll-off it
+  was meant to preserve.
+- **Export metadata is subtract-only.** Strip GPS, EXIF, Camera serial and Keywords now
+  remove what they name, which is reliable whichever way the encoder treats the property
+  dictionary. Nothing *adds* a field: Copyright and Contact are stored with the recipe
+  and never written, for the same `CGImageDestination` reason as the gain map. The panel
+  says so. Before this the entire section had no reader at all.
+- **The on-image crop tool does not exist.** `LoupeViewport.showCrop` has no writer, and
+  unlike `beforeMode` — which was in the same state and now has its `Y` / `⇧Y` / `⌥Y`
+  keys — it cannot simply be given one: `renderPreview` applies the crop before
+  returning the image, so `CropOverlayView`, whose rect is normalized to the *source*
+  frame, would draw a second inset crop over an already-cropped picture. Wiring a key to
+  it would produce a tool that draws the wrong rectangle. The ratio menu is the whole
+  crop surface for now, and it says so.
+
+### What the fourth audit found
+
+An adversarial pass over the catalog, export, XMP, HDR and app layers — everything
+outside the engine — found twenty-one defects. All are fixed; four were data loss and
+are worth naming, because they are the class this project cares most about.
+
+Opening a folder of RAWs that had been through Lightroom and pressing one rating key
+**replaced that photo's `.xmp` with Lumen's eight fields and nothing else** — every
+`crs:` develop setting, every keyword, the capture date and the colour label gone, on a
+photo Lumen had not even rendered. Two defects compounded: the reader only understood
+the element form, so every Adobe sidecar (which uses the attribute form) parsed to
+"nothing found", and the writer replaced the whole file. `XMPMerge` now splices only
+the fields Lumen owns and leaves the file alone entirely when it cannot do that safely.
+
+A photo's catalog identity was its **basename**, while the folder scan is recursive and
+`photo` is `UNIQUE(folder_id, filename)` — so `day1/DSC_0001.NEF` and
+`day2/DSC_0001.NEF` were one row, and editing both left only the second. A **RAW and its
+JPEG shared one sidecar path**, so on a RAW+JPEG card each overwrote the other's recipe.
+And **export had no overwrite or collision guard at all**, silently replacing a previous
+delivery while the status line reported every file as written.
+
+The rest were controls that could not work or did not describe themselves: culling had
+no undo (and ⌘Z silently undid an unrelated develop edit instead), the undo stack
+outlived its folder and wrote into the previous one's sidecars, the scopes and Auto Tone
+measured a draft render with presence, local adjustments, sharpening, halation and grain
+all absent, crop ratios were computed against an assumed 3:2 on every camera, the
+watermark panel said it composited nothing while the encoder composited it at twice the
+requested size, brush masks were missing from the first render of every photo, and
+nothing ran at quit so the last two seconds of culling never reached disk.
 - **Sharpening's Masking and Halo Suppression, and Hot Pixels, are reference-only.**
   All three are implemented and unit-tested in `LumenCore`; none has an equivalent on
   the shipping path, because a stock unsharp mask takes a radius and an intensity and
