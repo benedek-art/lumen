@@ -119,16 +119,36 @@ public enum MaskKind: String, Codable, Sendable {
         }
     }
 
-    /// True when this kind needs an AI matte supplied alongside it. Nothing generates
-    /// those yet, which is why the panel files them under "requires a model".
-    public var needsMatte: Bool {
+    /// True when this kind needs an AI matte supplied alongside it.
+    public var needsMatte: Bool { matteProvider != .none }
+
+    /// WHERE that matte can come from, which is not the same question and used to be
+    /// conflated with it — the panel filed all seven under "requires a model" when
+    /// three of them are served by an OS framework that needs no download at all.
+    public enum MatteProvider: String, Sendable {
+        /// Rasterized from geometry or from the picture; no matte involved.
+        case none
+        /// Apple's Vision framework: on-device, no download, no bundled weights.
+        case vision
+        /// A Core ML model that is not bundled. These render empty and say so.
+        case model
+    }
+
+    public var matteProvider: MatteProvider {
         switch self {
         case .brush, .linear, .radial, .lumaRange, .colorRange, .similarity,
              .similarityLine:
-            return false
-        case .aiSubject, .aiSky, .aiBackground, .aiObject, .aiPerson, .aiLandscape,
-             .depthRange:
-            return true
+            return .none
+        case .aiSubject, .aiBackground, .aiPerson:
+            // Foreground instances and person instances both come out of Vision.
+            // Background is deliberately the COMPLEMENT of the subject rather than a
+            // second model: two models can disagree, and a complement cannot
+            // (docs/08 §8.3).
+            return .vision
+        case .aiSky, .aiObject, .aiLandscape, .depthRange:
+            // Sky segmentation, SAM and Depth Anything. None is bundled; the panel
+            // says so rather than implying a pass that is not running.
+            return .model
         }
     }
 }

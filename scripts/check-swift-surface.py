@@ -200,6 +200,16 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     "RGBAf", "RGBAh", "RGBA8", "RGBA16",
     "CoreText", "CTFontCreateWithName",
     "CVPixelBuffer", "IOSurface", "OSStatus",
+    # Vision + CoreVideo: the subject / person mattes (docs/08 §8.8). Listed
+    # individually rather than by prefix, so a typo in a request's name is still a
+    # failure here; the prefixes below are what make the IMPORT check work.
+    "Vision", "VNImageRequestHandler", "VNGenerateForegroundInstanceMaskRequest",
+    "VNGeneratePersonSegmentationRequest", "VNInstanceMaskObservation",
+    "VNPixelBufferObservation", "VNObservation", "VNRequest",
+    "CoreVideo", "CVPixelBufferGetWidth", "CVPixelBufferGetHeight",
+    "CVPixelBufferGetPixelFormatType", "CVPixelBufferGetBytesPerRow",
+    "CVPixelBufferGetBaseAddress", "CVPixelBufferLockBaseAddress",
+    "CVPixelBufferUnlockBaseAddress", "CVPixelBufferLockFlags",
     # Metal
     "MTLDevice", "MTLTexture", "MTLCommandQueue", "MTLPixelFormat",
     "MTLCreateSystemDefaultDevice",
@@ -665,6 +675,11 @@ MODULE_PREFIXES = {
                 "CGImageDestination", "kCGImageDestination"),
     "CoreImage": ("CI", "kCI"),
     "Metal": ("MTL",),
+    # `VN` is unambiguous — nothing else in this tree or in the SDKs it uses starts
+    # with it. CoreVideo gets the two long prefixes rather than a bare `CV`, which
+    # would swallow ordinary words the same way a bare `CG` would.
+    "Vision": ("VN",),
+    "CoreVideo": ("CVPixelBuffer", "kCVPixelFormatType"),
 }
 
 # `import CoreImage.CIFilterBuiltins` imports CoreImage. Submodule paths count.

@@ -250,6 +250,65 @@ final class MaskingTests: XCTestCase {
         }
     }
 
+    // MARK: - Where a matte comes from
+
+    /// The panel, the generator and the "requires a model" copy all read this one
+    /// property, so it is the single place the roster can be wrong. Three kinds are
+    /// served by Vision on the machine, four are waiting on a model, and the seven
+    /// non-AI kinds need no matte at all.
+    func testEveryKindAgreesAboutWhereItsMatteComesFrom() {
+        let vision: Set<MaskKind> = [.aiSubject, .aiBackground, .aiPerson]
+        let model: Set<MaskKind> = [.aiSky, .aiObject, .aiLandscape, .depthRange]
+
+        for kind in [MaskKind.brush, .linear, .radial, .lumaRange, .colorRange,
+                     .similarity, .similarityLine, .aiSubject, .aiSky, .aiBackground,
+                     .aiObject, .aiPerson, .aiLandscape, .depthRange] {
+            let expected: MaskKind.MatteProvider
+            if vision.contains(kind) {
+                expected = .vision
+            } else if model.contains(kind) {
+                expected = .model
+            } else {
+                expected = .none
+            }
+            XCTAssertEqual(kind.matteProvider, expected,
+                           "\(kind.rawValue) claims the wrong matte source")
+            // The older question has to stay consistent with the newer one, or the
+            // panel and the rasterizer disagree about which kinds are waiting.
+            XCTAssertEqual(kind.needsMatte, expected != .none,
+                           "\(kind.rawValue): needsMatte and matteProvider disagree")
+        }
+    }
+
+    /// Whatever the provider, a component whose matte is missing selects NOTHING — it
+    /// never falls back to selecting everything, which is the failure that would ship a
+    /// whole-frame adjustment as if it were a subject mask.
+    func testAKindWaitingOnAMatteSelectsNothing() {
+        for kind in [MaskKind.aiSubject, .aiSky, .aiBackground, .aiObject, .aiPerson,
+                     .aiLandscape] {
+            var component = MaskComponent(op: .add, kind: kind)
+            component.prompt = [[0.5, 0.5]]      // so aiObject validates
+            let alpha = MaskRaster.combine(mask: Mask(components: [component]),
+                                           size: (width: 16, height: 12))
+            XCTAssertEqual(alpha.range.max, 0, accuracy: 1e-12,
+                           "\(kind.rawValue) selected something with no matte supplied")
+        }
+    }
+
+    /// And when a matte IS supplied it is used, at whatever size the raster wants.
+    func testASuppliedMatteReachesTheMask() {
+        var matte = Plane(width: 8, height: 8)
+        for y in 0..<8 {
+            for x in 0..<4 { matte[x, y] = 1 }
+        }
+        let component = MaskComponent(op: .add, kind: .aiSubject)
+        let alpha = MaskRaster.combine(mask: Mask(components: [component]),
+                                       size: (width: 32, height: 32),
+                                       aiMattes: [MaskKind.aiSubject.rawValue: matte])
+        XCTAssertGreaterThan(alpha[2, 16], 0.99, "the matte's left half did not select")
+        XCTAssertLessThan(alpha[29, 16], 0.01, "the matte's right half selected anyway")
+    }
+
     // MARK: - Overlays
 
     /// Each of the six modes has to do the one thing its name promises, at both ends

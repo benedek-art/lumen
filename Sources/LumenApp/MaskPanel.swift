@@ -425,11 +425,46 @@ struct MaskPanel: View {
         }
     }
 
+    /// What is actually happening to this component's matte.
+    ///
+    /// This used to read "Computed in the background once the model is available" for
+    /// all seven AI kinds, which implied a background pass that did not exist — and it
+    /// said it about Subject and People too, which need no model at all. Each row now
+    /// states its own case.
     private func modelNote(_ c: MaskComponent) -> some View {
-        HStack(spacing: 6) {
-            LumenBadge(text: c.model ?? "MODEL NEEDED", emphasized: c.model == nil)
-            Text(c.model == nil ? "Computed in the background once the model is available."
-                                : "Cached at generation resolution; refine carries it up.")
+        let status = state.matteStatus(for: c.kind)
+        let badge: String
+        let text: String
+        switch status {
+        case .ready:
+            badge = c.model ?? "VISION"
+            text = "Computed on this Mac by Apple's Vision framework, cached at 1024 px; "
+                + "Refine carries the edge up to full resolution."
+        case .working:
+            badge = "VISION"
+            text = "Computing on this Mac — no download, no model. The mask is empty "
+                + "until it lands, and the picture stays editable meanwhile."
+        case .notFound:
+            badge = "NOTHING FOUND"
+            text = c.kind == .aiPerson
+                ? "Vision found no person in this frame. Try a brush, or Subject."
+                : "Vision found no clear subject in this frame. Try a brush, or a "
+                    + "Similarity Point on what you meant."
+        case .needsModel:
+            badge = "MODEL NEEDED"
+            text = "No model for this is bundled and nothing computes it, so this "
+                + "component selects nothing at all. Subject, Background and People "
+                + "work today; this one does not."
+        case .notNeeded:
+            badge = c.model ?? ""
+            text = ""
+        }
+        return HStack(spacing: 6) {
+            if !badge.isEmpty {
+                LumenBadge(text: badge,
+                           emphasized: status == .needsModel || status == .notFound)
+            }
+            Text(text)
                 .font(.system(size: 10)).foregroundStyle(Lumen.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -1000,9 +1035,14 @@ struct MaskPanel: View {
                     Button(MaskPanel.kindName(k)) { action(k) }
                 }
             }
-            Section("AI — requires a model") {
-                ForEach(MaskPanel.aiKinds, id: \.self) { k in
-                    Button(MaskPanel.kindName(k) + "  ·  model") { action(k) }
+            Section("AI — on this Mac") {
+                ForEach(MaskPanel.visionKinds, id: \.self) { k in
+                    Button(MaskPanel.kindName(k)) { action(k) }
+                }
+            }
+            Section("AI — needs a model Lumen does not ship") {
+                ForEach(MaskPanel.modelKinds, id: \.self) { k in
+                    Button(MaskPanel.kindName(k) + "  ·  empty") { action(k) }
                 }
             }
         } label: {
@@ -1012,8 +1052,10 @@ struct MaskPanel: View {
             }
         }
         .fixedSize()
-        .help("Every component type. The AI kinds need a model that is not bundled "
-              + "yet — adding one now produces an empty mask.")
+        .help("Every component type. Subject, Background and People are computed on "
+              + "this Mac by Vision, with no download; Sky, Object and Landscape need "
+              + "a model that is not bundled, and adding one of those produces an "
+              + "empty mask.")
     }
 
     private func smallButton(_ title: String, _ systemImage: String,
@@ -1052,6 +1094,16 @@ struct MaskPanel: View {
                                          .similarityLine, .depthRange]
     static let aiKinds: [MaskKind] = [.aiSubject, .aiSky, .aiBackground, .aiObject,
                                       .aiPerson, .aiLandscape]
+
+    /// The menu splits the AI roster by what actually computes it, rather than filing
+    /// all of it under "requires a model": three come out of Vision on this Mac with no
+    /// download, and the rest select nothing at all until a model is bundled. Both
+    /// lists are derived from `MaskKind.matteProvider`, so a kind cannot end up in the
+    /// wrong one.
+    /// (Depth Range is not in either list: it lives under Range, where its own row
+    /// already says no depth source ships.)
+    static let visionKinds: [MaskKind] = aiKinds.filter { $0.matteProvider == .vision }
+    static let modelKinds: [MaskKind] = aiKinds.filter { $0.matteProvider == .model }
 
     static func kindName(_ kind: MaskKind) -> String {
         switch kind {

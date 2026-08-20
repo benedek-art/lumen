@@ -213,12 +213,31 @@ These are tracked, not hidden.
   draft decode, coordinator actor, one graph for preview and export — is the real
   architecture; only the view swaps when the EDR viewport lands. HDR *export* maths is
   implemented and tested; the HDR *viewport* is not.
-- **AI denoise and AI masks are modelled but not wired to models.** The cached-splice
-  blend, the artifact key, the tile plan and the mask components all exist and are
-  tested; no Core ML model is bundled, so the six AI mask kinds and Depth Range
-  rasterize to nothing, and `denoise.mode = .ai` drives the decoder's own noise
-  reduction from its Amount slider as a stand-in. `MaskKind.needsMatte` names the kinds
-  that are waiting on a model, in one place, so the gap stays legible.
+- **Three AI mask kinds now compute; four still wait on a model.** Subject, Background
+  and People come out of Apple's Vision framework — on-device, no download, no licence
+  ledger — through `VisionMattes` and the `VisionMatteWorker` actor, which is
+  deliberately not the render actor: the coordinator suspends rather than blocks while
+  a matte is computed, and frames keep being drawn from the cache. Background is the
+  COMPLEMENT of the subject rather than a second request, as docs/08 §8.3 requires.
+  The segmenter sees a NEUTRAL rendition of the file, uncropped and unrotated, so the
+  matte neither moves when the exposure does nor lands in the wrong frame; it caches
+  per file in `PipelineRenderer`, bounded like the source cache, and export generates
+  it inline rather than delivering a file with the mask contributing nothing.
+  Sky, Object, Landscape and Depth Range have no model bundled and rasterize to
+  nothing; `MaskKind.matteProvider` says which is which in one place, and the panel
+  reads it — the roster is split into "on this Mac" and "needs a model Lumen does not
+  ship", and a component whose pass has run and found nothing says so instead of
+  looking like one still working.
+
+  **Not verified on hardware.** Nothing in this file's Vision path has run on a Mac
+  yet: the mask's ORIENTATION in particular is argued from convention (a CGImage's row
+  0 is the top, Vision returns a buffer in the same order, and `Plane` is top-down too)
+  rather than observed. If a subject mask comes out mirrored vertically, that is the
+  line to look at, and it is a one-line fix.
+
+- **AI denoise is modelled but not wired to a model.** The cached-splice blend, the
+  artifact key and the tile plan all exist and are tested; `denoise.mode = .ai` drives
+  the decoder's own noise reduction from its Amount slider as a stand-in.
 
   Until recently that gap was much wider than it looked: the renderer rasterized every
   mask with no source image, so **Luma Range, Colour Range and both Similarity kinds
@@ -237,11 +256,15 @@ These are tracked, not hidden.
 - **Halation now runs on both paths** and the golden suite compares them. It used to be
   GPU-only, which meant the slider did nothing on every headless render and any golden
   that set it diverged.
-- **Local noise, moiré, defringe, grain and the local tone curve are not wired.** They
-  have wire formats and no stage reads them, so the mask panel does not show them: a
-  slider that moves a stored value and changes no pixel costs the user the time to find
-  out. The local curve in particular has to tap after the display transform, alongside
-  the global curve, and the local stage runs before it. Everything else the mask panel
+- **Local noise, moiré, defringe and grain are not wired.** They have wire formats and
+  no stage reads them, so the mask panel does not show them: a slider that moves a
+  stored value and changes no pixel costs the user the time to find out. The local
+  tone curve was on this list and is off it: it taps AFTER the display transform,
+  alongside the global curve and through the same pre-geometry mask alpha, on both
+  render paths (`LocalCurve` is the one implementation; `applyLocalCurves` is the stage
+  on each side). Baking it into the local stage's table instead would have been the
+  units mistake above in a new costume — a control denominated on the display's encoded
+  axis evaluated against a scene-referred plane. Everything else the mask panel
   offers — exposure, contrast, the tone pair, temp, tint, hue, saturation, vibrance,
   texture, clarity, dehaze, sharpness, point colour — is wired and covered by a test
   that asserts each one changes the render. Two caveats that test did not have and now
@@ -318,7 +341,12 @@ canvas appends to the set it is handed, and that came from the memory cache alon
 miss meant the next stroke replaced an hour of masking with itself. **Brush Automask**
 was dead on the shipping path, and the **mask overlay** — the app's only way to LOOK at
 a mask — always drew a flat tint over the whole frame, which reads as "this mask selects
-everything".
+everything". The overlay was fixed twice: the first fix produced a real alpha and then
+handed it over as a grey `CGImage` with no alpha channel, which SwiftUI's `.mask`
+promptly read as "opaque everywhere" and drew the same flat tint by a second route. It
+now carries the alpha as numbers and composites all six of docs/08 §8.6's modes against
+the sampled picture, through the geometry inverse, so it lands where the mask is on a
+cropped frame too.
 
 **Protect Skin protected everything except skin.** `skinLineDegrees` was the NTSC I-bar
 measured from +b while both consumers read it from +a, so `skinWeight` scored zero on

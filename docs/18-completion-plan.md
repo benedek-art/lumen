@@ -75,13 +75,13 @@ looks like and needs no new UI.
 
 | Item | Now | Closes it |
 |---|---|---|
-| Subject / Person masks | 5 | Apple's Vision framework, on-device, no download. `VNGenerateForegroundInstanceMaskRequest` and `VNGeneratePersonSegmentationRequest` |
-| Sky / depth / object | 4 | Need models. Fetchable now that the network policy is open; until one is bundled the UI says so plainly rather than implying a background pass |
-| Local point curve | 8 | `LocalPlan` reads no `adjust.curve` |
+| Subject / Person masks | 5 → **landed, unverified on hardware** | Vision's foreground-instance and person-segmentation requests, on a worker actor that is not the render actor, cached per file, generated inline for export. Background is the subject's complement. What is NOT verified: none of it has run on a Mac, and the buffer's orientation is argued from convention rather than observed |
+| Sky / depth / object | 4 → **the UI is honest** | Still no models and still empty masks — but the roster is split into "on this Mac" and "needs a model Lumen does not ship", and a row that has run and found nothing says so rather than looking like one still working. `MaskKind.matteProvider` is the single source both read |
+| Local point curve | 8 → **done** | Second tap after the display transform on both paths (`LocalCurve` / `applyLocalCurves`), through the same mask alpha; the mask panel shows the real curve editor, retargeted |
 | Local grading wheels | 8 → **done** | Landed |
-| Mask overlays | 25 | One mode of six, no colour cycling, no keys |
-| Async mask lifecycle + raster cache | 10 | Rasters recompute synchronously every frame; the `artifact` table is built and unused |
-| Whole-mask invert | 0 | No wire format at all |
+| Mask overlays | 25 → **done** | Six modes, four colours, `O` / `⇧O` / `⌥O` / `'`, panel menus as well as keys, composited against the sampled picture through the geometry inverse. The one mode that existed was also still drawing a flat tint: a grey CGImage used as a SwiftUI `.mask` has alpha 1 everywhere |
+| Async mask lifecycle + raster cache | 10 → 25 | The AI mattes now have the lifecycle: a worker actor off the render path, a bounded per-file cache, one pass per file whatever it finds, invalidated with the source. The vector rasters still recompute per frame and the `artifact` table is still unused, so this is not closed |
+| Whole-mask invert | 0 → **done** | `Mask.invert`, applied to the folded alpha ahead of the refinement chain, in `MaskRaster.combine` so all three consumers get it |
 
 ### Batch 5 — Colour depth
 

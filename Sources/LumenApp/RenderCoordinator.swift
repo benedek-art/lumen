@@ -131,6 +131,7 @@ actor RenderCoordinator {
     func renderFullSize(url: URL, recipe: Recipe,
                         strokeSets: [String: BrushStrokeSet] = [:]) throws -> CGImage {
         let source = try self.source(for: url)
+        generateMattesNow(source: source, recipe: recipe)
         return try renderer.renderPreview(source: source, recipe: recipe,
                                           maxLongEdge: Int(source.nativeLongEdge),
                                           draft: false, strokeSets: strokeSets)
@@ -140,8 +141,25 @@ actor RenderCoordinator {
                 exportRecipe: ExportRecipe,
                 strokeSets: [String: BrushStrokeSet] = [:]) throws {
         let source = try self.source(for: url)
+        generateMattesNow(source: source, recipe: recipe)
         try renderer.export(source: source, recipe: recipe, to: destination,
                             using: exportRecipe, strokeSets: strokeSets)
+    }
+
+    /// The matte pass, run INLINE, for the delivery paths.
+    ///
+    /// Everywhere else it is asynchronous because a frame must not wait for it. An
+    /// export is the opposite promise: a file that quietly comes out with the Subject
+    /// mask contributing nothing — because it happened to be a photo the viewer had
+    /// never opened, or a batch of two hundred — is exactly the silent-empty-mask
+    /// failure this project has already shipped twice. A second per photo is the right
+    /// price for the file being the picture.
+    private func generateMattesNow(source: any ImageSource, recipe: Recipe) {
+        let wanted = VisionMattes.kinds(in: recipe)
+        guard !wanted.isEmpty, !renderer.hasAttemptedMattes(for: source.url) else { return }
+        guard let picture = renderer.matteSourceImage(source: source) else { return }
+        renderer.storeMattes(VisionMattes.generate(image: picture, kinds: wanted),
+                             for: source.url)
     }
 
     /// One mask's alpha, for the loupe's overlay. Small by construction — the raster is
@@ -153,6 +171,27 @@ actor RenderCoordinator {
                                         maskID: maskID, strokeSets: strokeSets)
     }
 
+    /// Generate the Vision mattes this recipe's masks need, if they are not cached
+    /// already, and return every kind the file now has one for (docs/08 §8.7).
+    ///
+    /// Never blocks a render. The segmentation runs on `VisionMatteWorker`, a
+    /// different actor, so the `await` below SUSPENDS this one — frames keep being
+    /// drawn from the cache while a matte is computed, which is the whole of the §8.7
+    /// contract and the thing LrC's masking is most criticised for missing.
+    ///
+    /// One pass per file: the result is stored even when it is empty, so a photograph
+    /// with no subject in it is not re-segmented on every slider move.
+    func ensureMattes(url: URL, recipe: Recipe) async -> Set<String> {
+        let wanted = VisionMattes.kinds(in: recipe)
+        guard !wanted.isEmpty else { return [] }
+        if renderer.hasAttemptedMattes(for: url) { return renderer.matteKinds(for: url) }
+        guard let source = try? self.source(for: url),
+              let picture = renderer.matteSourceImage(source: source) else { return [] }
+        let produced = await VisionMatteWorker.shared.mattes(image: picture, kinds: wanted)
+        renderer.storeMattes(produced, for: url)
+        return renderer.matteKinds(for: url)
+    }
+
     func nativeSize(for url: URL) -> (width: Int, height: Int)? {
         guard let source = try? self.source(for: url) else { return nil }
         return source.nativePixelSize
@@ -161,6 +200,8 @@ actor RenderCoordinator {
     func invalidate(url: URL) {
         sources.removeValue(forKey: url)
         sourceOrder.removeAll { $0 == url }
+        // The matte was computed from this file's pixels, so it goes with them.
+        renderer.forgetMattes(for: url)
     }
 
     /// One scene-linear sample, for the eyedroppers.
