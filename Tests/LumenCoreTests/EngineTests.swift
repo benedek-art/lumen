@@ -20,9 +20,9 @@ final class EngineTests: XCTestCase {
             // Mid-grey → 0.18 display-linear, exactly, at every preset.
             XCTAssertEqual(t.tone(0.18), 0.18, accuracy: 1e-9, preset)
             // The white anchor → display white.
-            XCTAssertEqual(t.tone(0.18 * pow(2, 5)), t.white, accuracy: 1e-9, preset)
+            XCTAssertEqual(t.tone(0.18 * pow(2.0, 5.0)), t.white, accuracy: 1e-9, preset)
             // The black anchor → the black floor.
-            XCTAssertEqual(t.tone(0.18 * pow(2, -9)), t.black, accuracy: 1e-9, preset)
+            XCTAssertEqual(t.tone(0.18 * pow(2.0, -9.0)), t.black, accuracy: 1e-9, preset)
             // Zero and negative scene values cannot produce anything below the floor.
             XCTAssertEqual(t.tone(0), t.black, accuracy: 1e-12, preset)
         }
@@ -82,7 +82,7 @@ final class EngineTests: XCTestCase {
         let ta = DisplayTransform(a), tb = DisplayTransform(b)
         // Somewhere off the pivot the two curves must differ visibly, or the control
         // is decorative.
-        let x = 0.18 * pow(2, -3)
+        let x = 0.18 * pow(2.0, -3.0)
         XCTAssertGreaterThan(abs(ta.tone(x) - tb.tone(x)), 0.005)
     }
 
@@ -158,7 +158,7 @@ final class EngineTests: XCTestCase {
         pushed.applyAnchors(to: &params2)
         let b = DisplayTransform(params2)
 
-        let highlight = 0.18 * pow(2, 3)
+        let highlight = 0.18 * pow(2.0, 3.0)
         XCTAssertGreaterThan(b.tone(highlight), a.tone(highlight))
     }
 
