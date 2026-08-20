@@ -16,7 +16,7 @@ Mirrored contracts (change BOTH sides together):
   ZoneWeights.swift     <-> zone_weights / exposure_stops
   MaskAlgebra.swift     <-> mask_combined
   LUT.swift             <-> lumen_log_encode / lumen_log_decode / tetrahedral
-  ColorEngine.swift     <-> lum_sat_rolloff
+  ColorEngine.swift     <-> lum_sat_rolloff / vibrance_saturation
   ToneEngine.swift      <-> contrast_mapped / ToneEngine
   DetailEngine.swift    <-> band_weight / band_center / dehaze_ratio
   MaskRaster.swift      <-> radial_alpha / edge_engagement
@@ -1842,6 +1842,167 @@ def gen_tone_checks():
 
 
 # ---------------------------------------------------------------------------
+# Vibrance / Saturation — the stage `lumSatRolloff` actually feeds
+#
+#   ColorEngine.swift <-> vibrance_saturation
+#
+# Mirrored with protectSkin = 0 so the skin gate stays out of it; the gate is a
+# multiplier on both amounts and is tested by its own fixtures.
+# ---------------------------------------------------------------------------
+
+SAT_KNEE_CHROMA, SAT_CEILING_CHROMA = 0.18, 0.34
+LOW_CHROMA_LO, LOW_CHROMA_HI = 0.05, 0.25
+DENSITY_GAMMA_RANGE = 1.0
+
+
+def sat_compress(chroma):
+    if chroma <= SAT_KNEE_CHROMA:
+        return chroma
+    room = SAT_CEILING_CHROMA - SAT_KNEE_CHROMA
+    return SAT_CEILING_CHROMA - room * math.exp(-(chroma - SAT_KNEE_CHROMA) / room)
+
+
+def low_chroma(chroma):
+    return 1 - smoothstep(LOW_CHROMA_LO, LOW_CHROMA_HI, chroma)
+
+
+def shaped_chroma_scale(c, gain):
+    J, C, h = ucs_from_rgb(c)
+    base = max(0.0, C)
+    g = max(0.0, gain)
+    reference = sat_compress(base)
+    new_c = sat_compress(base * g) * base / reference if reference > 1e-12 else base * g
+    return ucs_to_rgb(J, max(0.0, new_c), h)
+
+
+def subtractive_push(c, amount):
+    if amount <= 0:
+        return c
+    norm = max(c)
+    if norm <= 1e-9 or not math.isfinite(norm):
+        return c
+    gamma = 1 + amount * DENSITY_GAMMA_RANGE
+    return tuple(spow(v / norm, gamma) * norm for v in c)
+
+
+def vibrance_saturation(c, vibrance=0.0, saturation=0.0, density=50.0):
+    vib = min(max(vibrance, -100.0), 100.0) / 100
+    sat = min(max(saturation, -100.0), 100.0) / 100
+    if vib == 0 and sat == 0:
+        return c
+    J, C, _ = ucs_from_rgb(c)
+    rolloff = lum_sat_rolloff(J)
+    vib_amount = (vib * rolloff if vib >= 0 else vib) * low_chroma(C)
+    sat_amount = sat * rolloff if sat >= 0 else sat
+
+    mid = shaped_chroma_scale(c, 1 + vib_amount) if vib_amount != 0 else c
+    if sat_amount == 0:
+        return mid
+    additive = shaped_chroma_scale(mid, 1 + sat_amount)
+    if sat_amount <= 0:
+        return additive
+    d = min(max(density, 0.0), 100.0) / 100
+    if d <= 0:
+        return additive
+    sub = subtractive_push(mid, sat_amount)
+    return tuple(a + (s - a) * d for a, s in zip(additive, sub))
+
+
+def gen_colour_stage_checks():
+    print("vibrance / saturation over the exposure range ...")
+
+    samples = [(0.9, 0.2, 0.05), (0.2, 0.5, 0.9), (0.45, 0.40, 0.30),
+               (0.30, 0.31, 0.29), (0.7, 0.7, 0.1)]
+
+    # Doing nothing must do NOTHING — bit-exact, at every brightness.
+    for c in samples:
+        for ev in (-6.0, 0.0, 3.0, 8.0):
+            scaled = tuple(v * 2 ** ev for v in c)
+            out = vibrance_saturation(scaled, 0, 0)
+            check(max(abs(a - b) for a, b in zip(out, scaled)) == 0,
+                  f"an identity colour stage moved {scaled}")
+
+    # Saturation −100 must reach a true neutral everywhere, including the
+    # highlights the rolloff used to switch off in. The negative side is
+    # deliberately NOT tapered, which is what makes B&W reachable.
+    for c in samples:
+        for ev in (-4.0, 0.0, 2.5, 6.0):
+            scaled = tuple(v * 2 ** ev for v in c)
+            _, C, _ = oklch_from_rgb(vibrance_saturation(scaled, 0, -100))
+            check(C < 1e-6, f"saturation −100 left {C:.2e} of chroma at {ev} EV")
+
+    # The fix from earlier today, in the stage that actually uses it: a push must
+    # still do something above display white, where the rolloff used to be zero.
+    for ev in (0.0, 2.5, 4.0, 6.0):
+        c = tuple(v * 2 ** ev for v in (0.45, 0.34, 0.22))
+        _, before, _ = oklch_from_rgb(c)
+        _, after, _ = oklch_from_rgb(vibrance_saturation(c, 0, 60))
+        check(after > before * 1.05,
+              f"saturation +60 barely moved chroma at {ev} EV: "
+              f"{before:.4f} -> {after:.4f}")
+
+    # Monotone in the slider, at every brightness.
+    for ev in (-3.0, 0.0, 3.0):
+        c = tuple(v * 2 ** ev for v in (0.45, 0.34, 0.22))
+        prev = -1.0
+        for value in range(-100, 101, 5):
+            _, C, _ = oklch_from_rgb(vibrance_saturation(c, 0, float(value)))
+            check(C >= prev - 1e-9,
+                  f"saturation {value} gave less chroma than {value - 5} at {ev} EV")
+            prev = C
+
+    # ...and smooth in exposure. This is the property the display-referred
+    # threshold broke: a stage that changes behaviour at a particular brightness
+    # puts an edge across a gradient.
+    for sat in (30.0, 60.0, 100.0):
+        unit = (0.45, 0.34, 0.22)
+        prev = None
+        ev = -5.0
+        while ev <= 8.0:
+            scale = 2 ** ev
+            out = vibrance_saturation(tuple(v * scale for v in unit), 0, sat)
+            response = tuple(v / scale for v in out)
+            if prev is not None:
+                step = max(abs(a - b) for a, b in zip(response, prev))
+                check(step < 0.02,
+                      f"saturation {sat} stepped at {ev} EV: {step:.4f}")
+            prev = response
+            ev += 0.05
+
+    # An untouched colour is still an exact fixed point, and a colour already past
+    # the compression knee still resists a push — the two properties the increment
+    # form was written for, which the ratio form has to keep.
+    for c in samples:
+        out = shaped_chroma_scale(c, 1.0)
+        check(max(abs(a - b) for a, b in zip(out, c)) < 1e-12,
+              f"gain 1 moved {c}")
+    _, saturated, _ = oklch_from_rgb((0.95, 0.05, 0.02))
+    _, pushed, _ = oklch_from_rgb(shaped_chroma_scale((0.95, 0.05, 0.02), 4.0))
+    check(pushed < saturated * 1.5,
+          f"an already-saturated colour did not resist: {saturated:.3f} -> {pushed:.3f}")
+    check(pushed > saturated, "an already-saturated colour could not be pushed at all")
+
+    # Vibrance is chroma-weighted: it must move a muted colour more than a
+    # saturated one. That is the whole difference from Saturation.
+    muted, vivid = (0.31, 0.30, 0.29), (0.9, 0.15, 0.05)
+    for c, name in ((muted, "muted"), (vivid, "vivid")):
+        _, before, _ = oklch_from_rgb(c)
+        _, after, _ = oklch_from_rgb(vibrance_saturation(c, 80, 0))
+        rel = (after - before) / max(before, 1e-9)
+        if name == "muted":
+            check(rel > 0.3, f"vibrance barely moved a muted colour: {rel:.1%}")
+        else:
+            check(rel < 0.05, f"vibrance treated a vivid colour like saturation: {rel:.1%}")
+
+    # Nothing may fall over on unbounded input.
+    for v in (1.0, 32.0, 1024.0):
+        out = vibrance_saturation((v, v * 0.6, v * 0.3), 50, 50)
+        check(all(math.isfinite(x) for x in out), f"colour stage non-finite at {v}")
+
+    print("  identity exact, B&W reachable, pushes survive the highlights, no steps")
+
+
+# ---------------------------------------------------------------------------
 
 def main():
     gen_canonical_fixture()
@@ -1859,6 +2020,7 @@ def main():
     gen_perceptual_checks()
     gen_white_balance_checks()
     gen_tone_checks()
+    gen_colour_stage_checks()
     if FAILURES:
         print(f"\n{len(FAILURES)} verification failure(s)")
         sys.exit(1)

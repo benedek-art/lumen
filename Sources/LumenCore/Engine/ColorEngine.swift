@@ -743,14 +743,33 @@ public struct ColorEngine: Sendable {
         return additive.mix(subtractive, density)
     }
 
-    /// Scale chroma in Lumen UCS — holding H-K-corrected perceived brightness and hue —
-    /// with the sat-vs-sat curve applied to the increment rather than to the level.
+    /// Scale chroma in Lumen UCS — holding H-K-corrected perceived brightness and hue
+    /// — with the sat-vs-sat curve applied as a RATIO against the untouched colour's
+    /// own compressed chroma.
+    ///
+    /// It used to apply as an increment: `base + (compress(base·gain) − compress(base))`.
+    /// That makes an untouched colour an exact fixed point, which is the property it
+    /// was written for, and it does reach zero for anything under the compression
+    /// knee. Above the knee it does not: at gain 0 it leaves `base − compress(base)`,
+    /// which is 0.10 of chroma at base 0.40 and 0.66 at base 1.0. Since OKLab chroma
+    /// scales as the cube root of exposure, a colour six stops up carries four times
+    /// the chroma of the same colour at mid-grey — so Saturation at −100 left more and
+    /// more colour behind the brighter the pixel was, in flat contradiction of the
+    /// range comment on the slider and of `true B&W at −100`.
+    ///
+    /// The ratio form keeps every property the increment form had and fixes that one.
+    /// Gain 1 returns `base` exactly, so an untouched colour is still a fixed point.
+    /// Gain 0 returns exactly zero at every chroma. It is monotone and smooth in gain
+    /// with no branch at 1. And a colour already past the knee still resists: as gain
+    /// grows the result approaches `ceiling · base / compress(base)`, which for a
+    /// colour at 0.5 is 0.535 — it can be pushed, barely, which is the point.
     private func shapedChromaScale(_ c: RGB, gain: Double) -> RGB {
         var u = LumenUCS.fromRGB(c, context: context)
         guard u.C.isFinite, u.J.isFinite else { return c }
         let base = Swift.max(0, u.C)
-        let target = base * Swift.max(0, gain)
-        u.C = Swift.max(0, base + (Self.satCompress(target) - Self.satCompress(base)))
+        let g = Swift.max(0, gain)
+        let reference = Self.satCompress(base)
+        u.C = reference > 1e-12 ? Self.satCompress(base * g) * base / reference : base * g
         let out = LumenUCS.toRGB(u, context: context)
         return out.isFinite ? out : c
     }
