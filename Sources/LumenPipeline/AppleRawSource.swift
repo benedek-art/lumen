@@ -82,8 +82,43 @@ public final class AppleRawSource: ImageSource {
 
     /// Decode at camera-reference white balance, with Apple's picture-forming stages
     /// off. `draft` uses the fast path for interactive frames.
+    /// What the decode actually depends on. Everything else in a recipe happens
+    /// downstream of it.
+    ///
+    /// This is D48/D49's prefix reuse applied at the most expensive prefix there is.
+    /// Dragging Exposure changes none of these, and without this the demosaic ran again
+    /// for every frame of the drag — on a 45MP RAW that is the whole cost of the
+    /// interaction, repeated, to produce an identical image each time.
+    private struct DecodeKey: Equatable {
+        let draft: Bool
+        let scaleFactor: Double
+        let captureStrength: Double
+        let luminanceNR: Double
+        let colorNR: Double
+        let lensProfile: Bool
+    }
+
+    private var cachedKey: DecodeKey?
+    private var cachedImage: CIImage?
+
     public func decode(recipe: Recipe, draft: Bool, scaleFactor: Double = 1.0) -> CIImage? {
         let dev = recipe.develop
+
+        let standIn = dev.denoise.appleStandIn
+        let key = DecodeKey(draft: draft,
+                            scaleFactor: Num.clamp(scaleFactor, 0.01, 1.0),
+                            captureStrength: dev.detail.capture.strengthFraction,
+                            luminanceNR: standIn.luma,
+                            colorNR: standIn.chroma,
+                            lensProfile: dev.geometry.lens.profile)
+        // Core Image is lazy, so the cached value is a recipe rather than pixels — but
+        // it is a recipe bound to the filter's CURRENT settings, which is exactly why
+        // it can only be reused when nothing the filter reads has changed. The source
+        // lives inside an actor, so there is no window where another caller mutates the
+        // filter between the check and the use.
+        if let cachedKey, cachedKey == key, let cachedImage {
+            return cachedImage
+        }
 
         filter.isDraftModeEnabled = draft
         filter.scaleFactor = Float(Num.clamp(scaleFactor, 0.01, 1.0))
@@ -139,7 +174,10 @@ public final class AppleRawSource: ImageSource {
 
         filter.isLensCorrectionEnabled = dev.geometry.lens.profile
 
-        return filter.outputImage
+        let image = filter.outputImage
+        cachedKey = image == nil ? nil : key
+        cachedImage = image
+        return image
     }
 
     /// Metadata the develop panel and the catalog both want.

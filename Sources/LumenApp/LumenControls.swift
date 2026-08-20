@@ -111,6 +111,11 @@ struct LumenSlider: View {
         .frame(height: Lumen.rowHeight)
     }
 
+    /// How close to the thumb counts as grabbing it rather than pressing the track.
+    /// Wider than the thumb is drawn, because the thing being aimed at is small and the
+    /// penalty for missing it is the value jumping.
+    static let grabRadius: CGFloat = 11
+
     private var track: some View {
         GeometryReader { geometry in
             let width = geometry.size.width
@@ -154,14 +159,39 @@ struct LumenSlider: View {
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { drag in
+                        // RELATIVE from where the drag began, not absolute from the
+                        // cursor. Absolute positioning means the value snaps to
+                        // wherever you touch the track, so there is no such thing as
+                        // picking up the thumb — every adjustment starts by throwing
+                        // the value somewhere else, and a small correction near the end
+                        // of a slider is impossible because the last few pixels are the
+                        // last few percent. `dragStartValue` was already being captured
+                        // here and then never read, which is the shape of an intention
+                        // that did not land.
+                        //
+                        // Grab the thumb and it moves with the cursor. Press the track
+                        // and the value jumps there once, then moves with the cursor
+                        // from there — the jump is what makes a click on the track do
+                        // something, and anchoring afterwards is what stops it fighting
+                        // you for the rest of the gesture.
                         if !isDragging {
                             isDragging = true
-                            dragStartValue = value
+                            let thumbX = CGFloat(fraction) * width
+                            let grabbedThumb =
+                                abs(drag.startLocation.x - thumbX) <= LumenSlider.grabRadius
+                            if grabbedThumb {
+                                dragStartValue = value
+                            } else {
+                                let start = width > 0 ? drag.startLocation.x / width : 0
+                                dragStartValue = snap(clamped(
+                                    range.lowerBound + Double(start) * span))
+                                value = dragStartValue
+                            }
                             onEditingChanged?(true)
                         }
-                        let fraction = width > 0 ? drag.location.x / width : 0
-                        let raw = range.lowerBound + Double(fraction) * span
-                        value = snap(clamped(raw))
+                        let travelled = drag.location.x - drag.startLocation.x
+                        let deltaFraction = width > 0 ? Double(travelled / width) : 0
+                        value = snap(clamped(dragStartValue + deltaFraction * span))
                     }
                     .onEnded { _ in
                         isDragging = false

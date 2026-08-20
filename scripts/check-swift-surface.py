@@ -239,6 +239,8 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     "SQLite3", "SQLITE_OK", "SQLITE_NULL", "SQLITE_MISUSE", "SQLITE_CORRUPT",
     "SQLITE_NOTADB", "SQLITE_FORMAT", "SQLITE_OPEN_READWRITE", "SQLITE_OPEN_CREATE",
     "SQLITE_OPEN_FULLMUTEX", "SQLITE_ERROR", "SQLITE_ROW", "SQLITE_DONE",
+    # ImageIO
+    "ImageIO", "CGImageSourceCopyPropertiesAtIndex",
     "CChar", "UTF8", "NSNull",
     # this package's own modules
     "LumenCore", "LumenPipeline", "LumenApp",
@@ -656,6 +658,11 @@ def pass_members():
 # nothing about it, rather than saying something false.
 MODULE_PREFIXES = {
     "SQLite3": ("SQLITE_", "sqlite3"),
+    # `CGImageSource`/`kCGImageProperty` are ImageIO, not CoreGraphics, and are
+    # unambiguous where bare `CG` is not — CGFloat and CGRect arrive with Foundation,
+    # which is why the plain prefix is deliberately absent below.
+    "ImageIO": ("CGImageSource", "kCGImageProperty", "kCGImageSource",
+                "CGImageDestination", "kCGImageDestination"),
     "CoreImage": ("CI", "kCI"),
     "Metal": ("MTL",),
 }

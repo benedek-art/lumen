@@ -13,6 +13,7 @@
 import CoreGraphics
 import CoreImage
 import Foundation
+import ImageIO
 import LumenCore
 import LumenPipeline
 

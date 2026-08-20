@@ -913,15 +913,35 @@ final class AppState: ObservableObject {
     // MARK: Recipes
 
     func recipe(for photo: PhotoItem) -> Recipe {
-        recipes[photo.id] ?? Recipe()
+        recipes[photo.id] ?? AppState.startingRecipe(for: photo.id)
+    }
+
+    /// What an unedited photo starts as, which is not the same for every file.
+    ///
+    /// A camera RAW arrives scene-referred and unbounded, and Lumen's display transform
+    /// is the ONLY tone mapping it will ever get — that is the point of running Apple's
+    /// stage flat. A JPEG, HEIC or TIFF has already been through one: it is clipped at
+    /// display white and carries a manufacturer's S-curve. Handing it the default
+    /// sigmoid applies a SECOND, which crushes the blacks, hardens the highlights and
+    /// makes an ordinary photograph look worse than the file you opened.
+    ///
+    /// So a rendered file starts on the Linear preset, which docs/04 §6.1 put there as
+    /// exactly this escape hatch. It is a starting point and not a lock: the preset
+    /// picker still offers the other four, and any recipe the user has saved wins over
+    /// this entirely.
+    static func startingRecipe(for url: URL) -> Recipe {
+        var recipe = Recipe()
+        if PhotoFormats.isRendered(url) {
+            recipe.look.render.preset = "Linear"
+        }
+        return recipe
     }
 
     var currentRecipe: Recipe {
         primarySelection.map(recipe(for:)) ?? Recipe()
     }
 
-    /// Every edit goes through here so history, persistence and the sidecar all see
-    /// it. `coalescingKey` lets a slider drag collapse into one undo step.
+
     /// The grey a colour-driven mask component is born with, so it is a valid
     /// component before anything has been picked. Named because two places have to
     /// agree it is a placeholder rather than a choice.

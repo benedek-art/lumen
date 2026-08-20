@@ -1405,6 +1405,64 @@ public final class CatalogStore {
         try setFlag(flag, photoIDs: [photoID])
     }
 
+    /// Capture metadata, filled in by a background pass after the grid is already up.
+    ///
+    /// Not part of `scan`, deliberately. Reading EXIF costs a file open per photo, and
+    /// the scan is what stands between the user and their first grid — docs/16 gates
+    /// that at under a second for five thousand photos. Everything here is nullable and
+    /// stays null until something fills it, which is what makes the pass interruptible.
+    public func setMetadata(_ metadata: PhotoMetadata, photoID: Int64) throws {
+        let statement = try db.prepare("""
+            UPDATE photo SET capture_at = ?, capture_subsec = ?, camera = ?,
+                             camera_serial = ?, lens = ?, iso = ?, shutter_s = ?,
+                             aperture = ?, focal_mm = ?, width = ?, height = ?,
+                             orientation = ?, gps_lat = ?, gps_lon = ?
+            WHERE id = ?;
+            """)
+        let values: [SQLiteValue] = [
+            .optionalInteger(metadata.captureAt),
+            .optionalInt(metadata.captureSubsec),
+            .optionalText(metadata.camera),
+            .optionalText(metadata.cameraSerial),
+            .optionalText(metadata.lens),
+            .optionalInt(metadata.iso),
+            .optionalReal(metadata.shutterSeconds),
+            .optionalReal(metadata.aperture),
+            .optionalReal(metadata.focalMM),
+            .optionalInt(metadata.width),
+            .optionalInt(metadata.height),
+            .optionalInt(metadata.orientation),
+            .optionalReal(metadata.gpsLatitude),
+            .optionalReal(metadata.gpsLongitude),
+            .integer(photoID),
+        ]
+        for (offset, value) in values.enumerated() {
+            try statement.bind(offset + 1, value)
+        }
+        try statement.run()
+    }
+
+    /// Photos no capture time has been read for yet.
+    ///
+    /// `capture_at IS NULL` is the resume marker rather than a separate "done" column:
+    /// a photo genuinely without a capture time is re-read next launch, which costs one
+    /// file open and is cheaper than a column that can disagree with the file.
+    public func photosMissingMetadata(folderID: Int64, limit: Int = 5000) throws
+        -> [(id: Int64, filename: String)] {
+        let statement = try db.prepare("""
+            SELECT id, filename FROM photo
+            WHERE folder_id = ? AND capture_at IS NULL AND missing = 0
+            ORDER BY id LIMIT ?;
+            """)
+        try statement.bind(1, SQLiteValue.integer(folderID))
+        try statement.bind(2, SQLiteValue.int(limit))
+        var out: [(id: Int64, filename: String)] = []
+        while try statement.step() {
+            out.append((id: statement.int(0), filename: statement.string(1) ?? ""))
+        }
+        return out
+    }
+
     public func setRating(_ rating: Int, photoID: Int64) throws {
         try setRating(rating, photoIDs: [photoID])
     }
@@ -2443,6 +2501,15 @@ public final class CatalogStore {
     public func setFlag(_ flag: PhotoFlag, photoID: Int64) throws {
         throw CatalogError.unavailable
     }
+    public func setMetadata(_ metadata: PhotoMetadata, photoID: Int64) throws {
+        throw CatalogError.unavailable
+    }
+
+    public func photosMissingMetadata(folderID: Int64, limit: Int = 5000) throws
+        -> [(id: Int64, filename: String)] {
+        throw CatalogError.unavailable
+    }
+
     public func setRating(_ rating: Int, photoID: Int64) throws {
         throw CatalogError.unavailable
     }
