@@ -527,6 +527,54 @@ final class EngineIntegrationTests: XCTestCase {
         }
     }
 
+    /// Tile, transform, stitch — and get the frame back.
+    ///
+    /// `coversExactly` checks the PLAN's arithmetic by counting hits, which is a sound
+    /// and independent check, but "overlap-discard bugs, the classic silent export
+    /// corrupter" is about `stitch`, where the apron is actually thrown away. That
+    /// function had no test at all. Feeding an identity transform through the whole
+    /// cycle is the shape of the real failure: an off-by-one in the valid region shows
+    /// up as a seam of stale or duplicated pixels, which is invisible in any assertion
+    /// about the plan.
+    func testTilingATransformAndStitchingReturnsTheFrame() {
+        for (w, h) in [(1000, 700), (61, 37), (300, 512), (129, 129)] {
+            // A gradient with a per-pixel component, so a pixel taken from the wrong
+            // tile cannot coincidentally hold the right value.
+            let source = ImageBuffer(width: w, height: h) { u, v in
+                RGB(u, v, (u * 7).truncatingRemainder(dividingBy: 1))
+            }
+            let plan = TilePlan(width: w, height: h, tile: 128, overlap: 24)
+            XCTAssertFalse(plan.tiles.isEmpty, "\(w)×\(h) produced no tiles")
+
+            // Crop each tile out, pass it through an identity, and hand it back.
+            var pieces: [(rect: TileRect, pixels: ImageBuffer)] = []
+            for rect in plan.tiles {
+                var tile = ImageBuffer(width: rect.width, height: rect.height)
+                for y in 0..<rect.height {
+                    for x in 0..<rect.width {
+                        tile[x, y] = source.clampedSample(rect.x + x, rect.y + y)
+                    }
+                }
+                pieces.append((rect, tile))
+            }
+            let stitched = TilePlan.stitch(pieces, width: w, height: h)
+            XCTAssertEqual(stitched.pixels, source.pixels,
+                           "stitching \(plan.tiles.count) tiles did not reproduce "
+                               + "the \(w)×\(h) frame")
+        }
+    }
+
+    /// A tile whose extent does not match its rect is dropped rather than read out of
+    /// bounds — the shape a resize bug or a truncated Neural Engine result arrives in.
+    func testStitchRefusesATileThatIsTheWrongSize() {
+        let plan = TilePlan(width: 200, height: 150, tile: 128, overlap: 24)
+        guard let first = plan.tiles.first else { return XCTFail("no tiles") }
+        let wrong = ImageBuffer(width: first.width + 3, height: first.height)
+        let out = TilePlan.stitch([(first, wrong)], width: 200, height: 150)
+        XCTAssertEqual(out.width, 200)
+        XCTAssertEqual(out.height, 150)
+    }
+
     func testISODefaultsIncreaseWithISO() {
         let low = ISODefaults.classic(forISO: 100)
         let high = ISODefaults.classic(forISO: 12800)
