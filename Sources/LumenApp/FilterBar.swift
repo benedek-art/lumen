@@ -1,15 +1,24 @@
 // FilterBar.swift
-// The grid's filter, sort and view controls in one strip. Two things here are
+// The grid's filter, sort and view controls in one strip. Three things here are
 // product decisions rather than layout:
 //
 //   · The boolean grammar is made legible (D39). Values inside a group OR — two flag
-//     chips lit means "picked or rejected" — and the groups AND with each other. The
-//     model already implements it; the bar's job is to make a photographer able to
-//     read what they have asked for, which is why the second row spells the active
-//     query back out as a sentence instead of leaving it implied by lit chips.
+//     chips lit means "picked or rejected" — and the groups AND with each other unless
+//     the All/Any toggle says otherwise. The sentence in the second row spells the
+//     active query back out, because a query a photographer cannot read is a query
+//     they will not trust.
+//   · Every chip compiles to an indexed SQL predicate (docs/10 §10.8). This bar used to
+//     filter five criteria with a linear scan of the roll while a 200-line query
+//     builder sat in `CatalogStore` with no callers — which is why camera, ISO,
+//     keyword, stack state and "edited" could not exist here at all.
 //   · Auto-advance is a visible toggle, never a hidden preference and never Caps-Lock
-//     folklore (D35, docs/10 §10.4.1). It is the switch that decides what a cull
-//     keystroke does next, so it is on screen with its state showing.
+//     folklore (D35, docs/10 §10.4.1).
+//
+// The one rule that shapes what is on screen: a chip the running configuration cannot
+// honour is not drawn. Without a catalog the app filters in memory over `PhotoItem`,
+// which knows a photo's flag, rating, label, name and extension and nothing else — so
+// in that mode the metadata group is replaced by a line saying why. A lit chip that
+// silently does nothing is worse than an absent one.
 //
 // Chrome here is zero-chroma (Law 7). The only hues are the colour-label swatches,
 // which cannot be told apart without them, and they are the same values the cell
@@ -34,9 +43,15 @@ struct FilterBar: View {
                 labelGroup
                 separator
                 rawOnlyChip
+                if state.isLibraryQueryLive {
+                    editedChip
+                    metadataMenu
+                    matchToggle
+                }
                 textFilter
                 Spacer(minLength: 8)
                 sortMenu
+                directionButton
                 autoAdvanceToggle
                 sizeSlider
             }
@@ -61,10 +76,13 @@ struct FilterBar: View {
         HStack(spacing: 3) {
             groupLabel("Flag")
             chip(title: "Pick", systemImage: "flag.fill",
+                 count: flagCount(.picked),
                  isOn: state.filter.flags.contains(.picked)) { toggleFlag(.picked) }
             chip(title: "Reject", systemImage: "xmark",
+                 count: flagCount(.rejected),
                  isOn: state.filter.flags.contains(.rejected)) { toggleFlag(.rejected) }
             chip(title: "Unflagged", systemImage: nil,
+                 count: flagCount(.none),
                  isOn: state.filter.flags.contains(.none)) { toggleFlag(.none) }
         }
     }
@@ -85,7 +103,7 @@ struct FilterBar: View {
                                          ? Lumen.primaryText : Lumen.trackColor)
                 }
                 .buttonStyle(.plain)
-                .help("Rating \(value) or better")
+                .help("Rating \(value) or better — \(ratingCount(value)) photos")
             }
         }
     }
@@ -108,17 +126,134 @@ struct FilterBar: View {
                         )
                 }
                 .buttonStyle(.plain)
-                .help(label.displayName)
+                .help("\(label.displayName) — \(labelCount(label)) photos")
             }
-            chip(title: "Unlabelled", systemImage: nil,
+            chip(title: "Unlabelled", systemImage: nil, count: labelCount(.none),
                  isOn: state.filter.labels.contains(.none)) { toggleLabel(.none) }
         }
     }
 
     private var rawOnlyChip: some View {
-        chip(title: "RAW only", systemImage: nil, isOn: state.filter.rawOnly) {
+        chip(title: "RAW only", systemImage: nil, count: nil, isOn: state.filter.rawOnly) {
             state.filter.rawOnly.toggle()
         }
+    }
+
+    /// Three states, not two: any / edited / untouched. `photo.edited` is maintained in
+    /// the same transaction as the recipe and is true only when the recipe actually
+    /// renders differently, so "untouched" means the photograph, not the row.
+    private var editedChip: some View {
+        chip(title: editedTitle, systemImage: "pencil",
+             count: nil, isOn: state.filter.edited != nil) {
+            switch state.filter.edited {
+            case nil: state.filter.edited = true
+            case .some(true): state.filter.edited = false
+            case .some(false): state.filter.edited = nil
+            }
+        }
+        .help("Edited / untouched / any")
+    }
+
+    private var editedTitle: String {
+        switch state.filter.edited {
+        case nil: return "Edited"
+        case .some(true): return "Edited"
+        case .some(false): return "Untouched"
+        }
+    }
+
+    /// Camera, ISO, keyword and stack state behind one menu. They belong in the bar by
+    /// docs/10 §10.8, and they do not fit in it as five more visible groups — a strip
+    /// that wraps is a strip that stops being readable at a glance.
+    private var metadataMenu: some View {
+        Menu {
+            Section("Camera") {
+                if state.cameraChoices.isEmpty {
+                    Text("No camera has been read yet")
+                }
+                ForEach(state.cameraChoices) { camera in
+                    Button {
+                        toggle(&state.filter.cameras, camera.name)
+                    } label: {
+                        if state.filter.cameras.contains(camera.name) {
+                            Label("\(camera.name)  (\(camera.count))", systemImage: "checkmark")
+                        } else {
+                            Text("\(camera.name)  (\(camera.count))")
+                        }
+                    }
+                }
+            }
+            Section("ISO") {
+                ForEach(ISOBand.allCases) { band in
+                    Button {
+                        toggle(&state.filter.isoBands, band)
+                    } label: {
+                        if state.filter.isoBands.contains(band) {
+                            Label(band.rawValue, systemImage: "checkmark")
+                        } else {
+                            Text(band.rawValue)
+                        }
+                    }
+                }
+            }
+            Section("Keyword") {
+                if state.keywordVocabulary.isEmpty {
+                    Text("No keywords yet")
+                }
+                ForEach(state.keywordVocabulary) { keyword in
+                    Button {
+                        toggle(&state.filter.keywords, keyword.name)
+                    } label: {
+                        if state.filter.keywords.contains(keyword.name) {
+                            Label("\(keyword.name)  (\(keyword.count))",
+                                  systemImage: "checkmark")
+                        } else {
+                            Text("\(keyword.name)  (\(keyword.count))")
+                        }
+                    }
+                }
+            }
+            Section("Stacks") {
+                ForEach(StackFilter.allCases) { option in
+                    Button {
+                        state.filter.stackState = option
+                    } label: {
+                        if state.filter.stackState == option {
+                            Label(option.rawValue, systemImage: "checkmark")
+                        } else {
+                            Text(option.rawValue)
+                        }
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 3) {
+                Image(systemName: "camera.aperture")
+                    .font(.system(size: 9))
+                Text(metadataTitle)
+                    .font(.system(size: 10))
+                    .lineLimit(1)
+            }
+        }
+        .fixedSize()
+        .help("Camera, ISO, keyword and stack state")
+    }
+
+    private var metadataTitle: String {
+        var lit = state.filter.cameras.count + state.filter.isoBands.count
+            + state.filter.keywords.count
+        if state.filter.stackState != .any { lit += 1 }
+        return lit == 0 ? "Metadata" : "Metadata (\(lit))"
+    }
+
+    /// The All/Any toggle. All = the criteria AND, which is what every other filter bar
+    /// does; Any = they OR, which is the query LR cannot express (D39).
+    private var matchToggle: some View {
+        chip(title: state.filter.matchAny ? "Any" : "All", systemImage: nil,
+             count: nil, isOn: state.filter.matchAny) {
+            state.filter.matchAny.toggle()
+        }
+        .help("All: every criterion must match. Any: one is enough.")
     }
 
     private var textFilter: some View {
@@ -126,11 +261,12 @@ struct FilterBar: View {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 9))
                 .foregroundStyle(Lumen.secondaryText)
-            TextField("File name", text: $state.filter.text)
+            TextField(state.isLibraryQueryLive ? "Name, camera, keyword" : "File name",
+                      text: $state.filter.text)
                 .textFieldStyle(.plain)
                 .font(.system(size: 11))
                 .foregroundStyle(Lumen.primaryText)
-                .frame(width: 120)
+                .frame(width: 130)
             if !state.filter.text.isEmpty {
                 Button {
                     state.filter.text = ""
@@ -157,11 +293,12 @@ struct FilterBar: View {
                     state.sortOrder = order
                 } label: {
                     if order == state.sortOrder {
-                        Label(order.rawValue, systemImage: "checkmark")
+                        Label(sortTitle(order), systemImage: "checkmark")
                     } else {
-                        Text(order.rawValue)
+                        Text(sortTitle(order))
                     }
                 }
+                .disabled(unavailableReason(order) != nil)
             }
         } label: {
             HStack(spacing: 3) {
@@ -174,6 +311,48 @@ struct FilterBar: View {
         }
         .fixedSize()
         .help("Sort order")
+    }
+
+    /// A disabled key says what it is waiting for. An ordering that silently does
+    /// nothing is the failure mode this whole file is written against.
+    private func sortTitle(_ order: SortOrder) -> String {
+        guard let reason = unavailableReason(order) else { return order.rawValue }
+        return "\(order.rawValue) — \(reason)"
+    }
+
+    private func unavailableReason(_ order: SortOrder) -> String? {
+        if !state.isLibraryQueryLive && !order.worksFromMemory {
+            return "needs the catalog"
+        }
+        switch order {
+        case .sharpness, .aesthetic:
+            // `cache.frame_score` has no writer anywhere in the repo: the culling
+            // analysis pass of docs/10 §10.6 is not built. Sorting by it would order
+            // every photo by NULL and look like the menu item did nothing.
+            return SortOrder.scoreSortsPending
+        case .userOrder:
+            // `ap.position` only exists inside an album; outside one the builder falls
+            // back to added order, which is a different sort wearing this one's name.
+            return state.selectedCollectionID == nil ? "drag to reorder inside an album" : nil
+        default:
+            return nil
+        }
+    }
+
+    private var directionButton: some View {
+        Button {
+            state.sortAscending.toggle()
+        } label: {
+            Image(systemName: state.sortAscending ? "arrow.up" : "arrow.down")
+                .font(.system(size: 9))
+                .foregroundStyle(Lumen.primaryText)
+                .padding(.horizontal, 5)
+                .padding(.vertical, 3)
+                .background(Lumen.controlBackground)
+                .clipShape(RoundedRectangle(cornerRadius: 4))
+        }
+        .buttonStyle(.plain)
+        .help(state.sortAscending ? "Ascending" : "Descending")
     }
 
     private var autoAdvanceToggle: some View {
@@ -214,7 +393,7 @@ struct FilterBar: View {
 
     private var summaryRow: some View {
         HStack(spacing: 8) {
-            Text(state.filter.isActive ? summary : "No filter — showing every photo")
+            Text(state.filter.isActive ? summary : noFilterText)
                 .font(.system(size: 10))
                 .foregroundStyle(state.filter.isActive ? Lumen.primaryText : Lumen.secondaryText)
                 .lineLimit(1)
@@ -228,12 +407,21 @@ struct FilterBar: View {
                     .buttonStyle(.plain)
                     .font(.system(size: 10))
                     .foregroundStyle(Lumen.primaryText)
+                    // docs/10 §10.8: one key back to everything.
+                    .keyboardShortcut("\\", modifiers: [.command])
+                    .help("Clear the filter (⌘\\)")
             }
         }
     }
 
-    /// The active query written out. "or" inside a criterion, "and" between them —
-    /// the sentence is the documentation.
+    private var noFilterText: String {
+        state.isLibraryQueryLive
+            ? "No filter — showing every photo"
+            : "No filter — filtering in memory, without the catalog"
+    }
+
+    /// The active query written out. "or" inside a criterion, and between criteria
+    /// whatever the Match toggle says — the sentence is the documentation.
     private var summary: String {
         var parts: [String] = []
         if !state.filter.flags.isEmpty {
@@ -254,24 +442,58 @@ struct FilterBar: View {
         if state.filter.rawOnly {
             parts.append("RAW only")
         }
-        if !state.filter.text.isEmpty {
-            parts.append("name contains \"\(state.filter.text)\"")
+        if let edited = state.filter.edited {
+            parts.append(edited ? "edited" : "untouched")
         }
-        return parts.joined(separator: "  and  ")
+        if !state.filter.cameras.isEmpty {
+            parts.append(state.filter.cameras.sorted().joined(separator: " or "))
+        }
+        if !state.filter.isoBands.isEmpty {
+            let bands = ISOBand.allCases
+                .filter { state.filter.isoBands.contains($0) }
+                .map { "ISO " + $0.rawValue }
+            parts.append(bands.joined(separator: " or "))
+        }
+        if !state.filter.keywords.isEmpty {
+            parts.append(state.filter.keywords.sorted().joined(separator: " or "))
+        }
+        if state.filter.stackState != .any {
+            parts.append(state.filter.stackState.rawValue.lowercased())
+        }
+        if !state.filter.text.isEmpty {
+            parts.append("matching \"\(state.filter.text)\"")
+        }
+        let glue = state.filter.matchAny ? "  or  " : "  and  "
+        return parts.joined(separator: glue)
     }
 
+    /// Read off the grid itself rather than counted separately, so the number and the
+    /// contact sheet under it can never disagree — the old version re-ran the whole
+    /// in-memory predicate on every keystroke to produce a second answer.
     private var countText: String {
         let total = state.allPhotos.count
-        guard state.filter.isActive else { return "\(total) photos" }
-        return "\(matchCount) of \(total)"
+        guard state.filter.isActive || state.selectedCollectionID != nil else {
+            return "\(total) photos"
+        }
+        return "\(state.photos.count) of \(total)"
     }
 
-    /// Counted rather than read off `state.photos`, which would sort the library on
-    /// every keystroke in the text field.
-    private var matchCount: Int {
-        var count = 0
-        for photo in state.allPhotos where state.filter.matches(photo) { count += 1 }
-        return count
+    // MARK: Counts
+
+    // Flag, rating and label counts come from the roll in memory, which holds the
+    // culling state a keystroke has already written. Asking the catalog would be one
+    // round trip per chip per keystroke to arrive at the same number one frame later.
+
+    private func flagCount(_ flag: PhotoFlag) -> Int {
+        state.allPhotos.reduce(0) { $0 + ($1.flag == flag ? 1 : 0) }
+    }
+
+    private func ratingCount(_ minimum: Int) -> Int {
+        state.allPhotos.reduce(0) { $0 + ($1.rating >= minimum ? 1 : 0) }
+    }
+
+    private func labelCount(_ label: ColorLabel) -> Int {
+        state.allPhotos.reduce(0) { $0 + ($1.label == label ? 1 : 0) }
     }
 
     private static func flagName(_ flag: PhotoFlag) -> String {
@@ -300,6 +522,14 @@ struct FilterBar: View {
         }
     }
 
+    private func toggle<T: Hashable>(_ set: inout Set<T>, _ value: T) {
+        if set.contains(value) {
+            set.remove(value)
+        } else {
+            set.insert(value)
+        }
+    }
+
     // MARK: Pieces
 
     private var separator: some View {
@@ -317,6 +547,7 @@ struct FilterBar: View {
 
     private func chip(title: String,
                       systemImage: String?,
+                      count: Int?,
                       isOn: Bool,
                       action: @escaping () -> Void) -> some View {
         Button(action: action) {
@@ -328,6 +559,11 @@ struct FilterBar: View {
                 Text(title)
                     .font(.system(size: 10))
                     .lineLimit(1)
+                if let count, count > 0 {
+                    Text("\(count)")
+                        .font(.system(size: 9, design: .monospaced))
+                        .foregroundStyle(Lumen.secondaryText)
+                }
             }
             .padding(.horizontal, 6)
             .padding(.vertical, 3)

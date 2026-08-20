@@ -327,6 +327,52 @@ public struct CollectionRow: Equatable, Sendable {
     }
 }
 
+/// The `stack` table: burst / bracket grouping with a pick on top (docs/10 §10.2).
+/// `collapsed` arrives in migration 2 — collapse state is per stack and persisted,
+/// because a card that re-expands 400 stacks on every launch is a card nobody stacks.
+public struct StackRow: Equatable, Sendable {
+    public var id: Int64
+    public var origin: String
+    public var pickPhotoID: Int64?
+    public var collapsed: Bool
+
+    public init(id: Int64 = 0, origin: String = "manual",
+                pickPhotoID: Int64? = nil, collapsed: Bool = true) {
+        self.id = id
+        self.origin = origin
+        self.pickPhotoID = pickPhotoID
+        self.collapsed = collapsed
+    }
+}
+
+/// The columns the metadata chips enumerate. An enum rather than a string, because the
+/// value is interpolated into SQL: a chip that took a column name from anywhere else
+/// would be an injection point, and there is no such thing as a trusted string here.
+public enum PhotoFacet: String, Sendable, CaseIterable {
+    case camera, lens, fileType, job
+
+    var column: String {
+        switch self {
+        case .camera: return "camera"
+        case .lens: return "lens"
+        case .fileType: return "ext"
+        case .job: return "job"
+        }
+    }
+}
+
+/// One value of a metadata chip and how many photos carry it — the live counts docs/10
+/// §10.8 asks for ("Sony A7 IV (1,203)").
+public struct FacetValue: Equatable, Sendable {
+    public var value: String
+    public var count: Int
+
+    public init(value: String, count: Int) {
+        self.value = value
+        self.count = count
+    }
+}
+
 // MARK: - Scan reconciliation
 
 /// One file as the directory listing found it (docs/15 §15.9: the diff key is
@@ -722,6 +768,10 @@ public final class CatalogStore {
 
     private static let albumColumns: String = """
     id, parent_id, name, kind, query, position, scope, scope_id, is_target, pinned
+    """
+
+    private static let stackColumns: String = """
+    stack.id, stack.origin, stack.pick_photo_id, stack.collapsed
     """
 
     // MARK: - Open
@@ -1683,6 +1733,106 @@ public final class CatalogStore {
                     [.integer(photoID)], { $0.string(0) ?? "" })
     }
 
+    /// Every keyword in the catalog with how many photos carry it — the sidebar's
+    /// list and the keyword chip's live counts read the same rows.
+    public func allKeywords() throws -> [FacetValue] {
+        try allRows("""
+        SELECT k.name, COUNT(pk.photo_id) FROM keyword k
+          LEFT JOIN photo_keyword pk ON pk.keyword_id = k.id
+         GROUP BY k.id ORDER BY k.name;
+        """, []) { FacetValue(value: $0.string(0) ?? "", count: Int($0.int(1))) }
+    }
+
+    /// Detaches a keyword from photos without deleting the keyword itself: a shoot
+    /// vocabulary is worth keeping even when the last photo using a term is untagged.
+    public func removeKeyword(_ name: String, photoIDs: [Int64]) throws {
+        if photoIDs.isEmpty { return }
+        try db.transaction {
+            guard let keywordID = try self.db.scalarInt(
+                "SELECT id FROM keyword WHERE name = ? LIMIT 1;", [.text(name)])
+            else { return }
+            let statement = try self.db.prepare(
+                "DELETE FROM photo_keyword WHERE photo_id = ? AND keyword_id = ?;")
+            for photoID in photoIDs {
+                statement.reset()
+                try statement.bind(1, photoID)
+                try statement.bind(2, keywordID)
+                try statement.run()
+            }
+            statement.reset()
+            for photoID in photoIDs { try self.reindexText(photoID: photoID) }
+        }
+    }
+
+    // MARK: - Stacks
+
+    public func stacks() throws -> [StackRow] {
+        try allRows("SELECT \(CatalogStore.stackColumns) FROM stack ORDER BY id;",
+                    [], CatalogStore.decodeStack)
+    }
+
+    /// The stack one photo belongs to, if any. `stack_member.photo_id` is UNIQUE, so
+    /// this is a single index lookup and a photo is in at most one stack.
+    public func stack(containing photoID: Int64) throws -> StackRow? {
+        try firstRow("SELECT \(CatalogStore.stackColumns) FROM stack "
+                     + "JOIN stack_member sm ON sm.stack_id = stack.id "
+                     + "WHERE sm.photo_id = ? LIMIT 1;",
+                     [.integer(photoID)], CatalogStore.decodeStack)
+    }
+
+    public func stackMembers(stackID: Int64) throws -> [Int64] {
+        try allRows("SELECT photo_id FROM stack_member WHERE stack_id = ? "
+                    + "ORDER BY position, photo_id;",
+                    [.integer(stackID)], { $0.int(0) })
+    }
+
+    /// Promote a member to the pick — the frame the collapsed stack shows (`⇧S`).
+    /// Refuses a photo that is not in the stack rather than pointing the stack at a
+    /// thumbnail from somewhere else in the library.
+    public func setStackPick(_ photoID: Int64, stackID: Int64) throws {
+        guard (try db.scalarInt(
+            "SELECT 1 FROM stack_member WHERE stack_id = ? AND photo_id = ? LIMIT 1;",
+            [.integer(stackID), .integer(photoID)])) != nil else {
+            throw CatalogError.invalid("photo \(photoID) is not in stack \(stackID)")
+        }
+        try db.run("UPDATE stack SET pick_photo_id = ? WHERE id = ?;",
+                   [.integer(photoID), .integer(stackID)])
+    }
+
+    /// Unstack (`⇧⌘G`): the grouping goes, the photographs stay. Nothing here touches
+    /// `photo`, which is the whole reason stacking is safe to try on a real card.
+    public func dissolveStack(id: Int64) throws {
+        try db.transaction {
+            try self.db.run("DELETE FROM stack_member WHERE stack_id = ?;", [.integer(id)])
+            try self.db.run("DELETE FROM stack WHERE id = ?;", [.integer(id)])
+        }
+    }
+
+    // MARK: - Metadata chip values
+
+    /// Distinct values of one metadata column with live counts, most-used first.
+    ///
+    /// Index-backed by the `photo_camera` / `photo_lens` / `photo_ext` / `photo_job`
+    /// indexes migration 2 adds, so a chip menu on a 100k catalog is a scan of the
+    /// index rather than of the table.
+    public func facetCounts(_ facet: PhotoFacet, folderID: Int64? = nil,
+                            limit: Int = 200) throws -> [FacetValue] {
+        var parameters: [SQLiteValue] = []
+        var scope = "WHERE photo.\(facet.column) IS NOT NULL AND photo.missing = 0"
+        if let folderID = folderID {
+            scope += " AND photo.folder_id = ?"
+            parameters.append(.integer(folderID))
+        }
+        parameters.append(.int(limit))
+        return try allRows("""
+        SELECT photo.\(facet.column), COUNT(*) FROM photo
+        \(scope)
+        GROUP BY photo.\(facet.column)
+        ORDER BY COUNT(*) DESC, photo.\(facet.column)
+        LIMIT ?;
+        """, parameters) { FacetValue(value: $0.string(0) ?? "", count: Int($0.int(1))) }
+    }
+
     // MARK: - Per-source view state (G24)
 
     public func sourceState(_ key: String) throws
@@ -2173,6 +2323,17 @@ public final class CatalogStore {
     /// last in both directions: unscored items land at the end, unlabeled (§6.2).
     private static func orderClause(_ query: PhotoQuery, hasAlbum: Bool) -> String {
         let direction = query.ascending ? "ASC" : "DESC"
+
+        // Nine frames a second all carry the same whole second, so ordering a burst by
+        // `capture_at` alone hands them back in whatever order the index walked — which
+        // is `photo.id`, i.e. scan order, i.e. filename order, i.e. right by luck on one
+        // card and wrong on the next. EXIF SubsecTimeOriginal is what separates them,
+        // and `PhotoMetadata` has been reading it all along with nothing sorting by it.
+        if query.sortKey == .captureTime {
+            return "ORDER BY (photo.capture_at IS NULL), photo.capture_at \(direction), "
+                + "COALESCE(photo.capture_subsec, 0) \(direction), photo.id \(direction)"
+        }
+
         let expression: String
         switch query.sortKey {
         case .captureTime: expression = "photo.capture_at"
@@ -2349,6 +2510,13 @@ public final class CatalogStore {
                       scopeID: s.optionalInt(7),
                       isTarget: s.bool(8),
                       pinned: s.bool(9))
+    }
+
+    private static func decodeStack(_ s: SQLiteStatement) -> StackRow {
+        StackRow(id: s.int(0),
+                 origin: s.string(1) ?? "manual",
+                 pickPhotoID: s.optionalInt(2),
+                 collapsed: s.bool(3))
     }
 
     // MARK: - Small utilities
@@ -2581,6 +2749,25 @@ public final class CatalogStore {
         throw CatalogError.unavailable
     }
     public func keywords(photoID: Int64) throws -> [String] { throw CatalogError.unavailable }
+    public func allKeywords() throws -> [FacetValue] { throw CatalogError.unavailable }
+    public func removeKeyword(_ name: String, photoIDs: [Int64]) throws {
+        throw CatalogError.unavailable
+    }
+    public func stacks() throws -> [StackRow] { throw CatalogError.unavailable }
+    public func stack(containing photoID: Int64) throws -> StackRow? {
+        throw CatalogError.unavailable
+    }
+    public func stackMembers(stackID: Int64) throws -> [Int64] {
+        throw CatalogError.unavailable
+    }
+    public func setStackPick(_ photoID: Int64, stackID: Int64) throws {
+        throw CatalogError.unavailable
+    }
+    public func dissolveStack(id: Int64) throws { throw CatalogError.unavailable }
+    public func facetCounts(_ facet: PhotoFacet, folderID: Int64? = nil,
+                            limit: Int = 200) throws -> [FacetValue] {
+        throw CatalogError.unavailable
+    }
 
     public func sourceState(_ key: String) throws
         -> (sortKey: String, ascending: Bool, thumbPx: Int, filterJSON: String?)? {

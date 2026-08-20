@@ -231,6 +231,17 @@ public struct GradeEngine: Sendable {
     public let windows: ZoneWindows
     public let context: OKLabTransform.Context
 
+    /// The advanced disclosure, built from `wheels.colorBalance` against the SAME
+    /// windows the four wheels grade through.
+    ///
+    /// Held here — rather than left for a caller to construct — because that is what
+    /// puts it on the shipping path with no other change: `RenderPlan` bakes
+    /// `grade.apply(color.apply(scene))` into the S9+S10 table, `RenderGraph`'s
+    /// `LocalPlan` bakes the same call per mask, and both inherited the grid the moment
+    /// `apply` started running it. A version that made the grid a separate object for
+    /// the renderer to remember to call is how it stayed uncalled for a year.
+    public let colorBalance: ColorBalanceGrid
+
     private let globalTint: WheelTint
     private let shadowTint: WheelTint
     private let midTint: WheelTint
@@ -250,6 +261,9 @@ public struct GradeEngine: Sendable {
         self.windows = ZoneWindows(wheels: wheels,
                                    whiteAnchorEV: whiteAnchorEV,
                                    blackAnchorEV: blackAnchorEV)
+        self.colorBalance = ColorBalanceGrid(params: wheels.colorBalance,
+                                             windows: self.windows,
+                                             context: context)
         let g = WheelTint(wheels.global)
         let sh = WheelTint(wheels.shadows)
         let mid = WheelTint(wheels.mid)
@@ -369,24 +383,37 @@ public struct GradeEngine: Sendable {
 
     // MARK: Identity
 
-    /// True when the four wheels are all at rest, which lets the renderer skip the
-    /// stage entirely rather than round-tripping 45 megapixels through OKLab for
-    /// nothing. Printer lights are not consulted: they are a different stage.
+    /// True when the four wheels AND the advanced grid are all at rest, which lets the
+    /// renderer skip the stage entirely rather than round-tripping 45 megapixels through
+    /// OKLab for nothing. Printer lights are not consulted: they are a different stage.
+    ///
+    /// The grid belongs in this test for the same reason `pointColors` belongs in
+    /// `LocalPlan`'s: `RenderPlan` swaps a two-point identity cube in when this is true,
+    /// so a grade whose only move is +40 Brilliance would have declared itself a no-op
+    /// and rendered its input.
     public var isIdentity: Bool {
-        globalTint.isNeutral && shadowTint.isNeutral && midTint.isNeutral && highTint.isNeutral
+        globalTint.isNeutral && shadowTint.isNeutral && midTint.isNeutral
+            && highTint.isNeutral && colorBalance.isIdentity
     }
 
     // MARK: Apply
 
-    /// The wheels, at one pixel. Zone weights come from the INPUT pixel's tonal
-    /// position (invariant 4), the tint is a constant-luminance translation in OKLab,
-    /// the lightness move is a perceptual gain in UCS, and the stage closes on the
-    /// no gamut clip — see below.
+    /// The wheels and the advanced grid, at one pixel. Zone weights come from the INPUT
+    /// pixel's tonal position (invariant 4), the tint is a constant-luminance
+    /// translation in OKLab, the lightness move is a perceptual gain in UCS, and the
+    /// stage closes on the no gamut clip — see below.
+    ///
+    /// Order: wheels first, grid second, exactly as the panel stacks them — the grid is
+    /// the disclosure that opens BELOW the wheels, and reading the panel top to bottom
+    /// has to be reading the pixel's history. Both read `t` from the same stage-input
+    /// measurement, so opening the disclosure never moves the zones the wheels are
+    /// already grading against.
     public func apply(_ c: RGB) -> RGB {
         guard !isIdentity else { return c }
         guard c.isFinite else { return c }
 
-        let w: (shadows: Double, mid: Double, high: Double) = zoneWeights(at: tonalAxis(of: c))
+        let t: Double = tonalAxis(of: c)
+        let w: (shadows: Double, mid: Double, high: Double) = zoneWeights(at: t)
 
         let da: Double = globalTint.a
             + w.shadows * shadowTint.a + w.mid * midTint.a + w.high * highTint.a
@@ -414,6 +441,16 @@ public struct GradeEngine: Sendable {
         // linear multiply through a display-referred curve does.
         if stops != 0 {
             out = LumenUCS.scaleBrightness(out, by: pow(2.0, stops), context: context)
+        }
+
+        // The advanced disclosure: master hue rotation and vibrance, then
+        // chroma / saturation / brilliance spread over the same three zones. `t` is the
+        // STAGE-INPUT tonal position, which is why the grid takes it as an argument
+        // rather than measuring it off `out` — a Brilliance push that re-measured its
+        // own zone would walk the pixel up the tonal axis and out of the window that
+        // selected it.
+        if !colorBalance.isIdentity {
+            out = colorBalance.apply(out, at: t)
         }
 
         guard out.isFinite else { return c }
@@ -457,14 +494,30 @@ public struct ColorBalanceAxis: Codable, Equatable, Sendable {
     }
 
     public var isZero: Bool { global == 0 && shadows == 0 && mid == 0 && high == 0 }
+
+    /// This axis at a fraction of its strength — what a mask's Amount does to it.
+    /// Every field is a MAGNITUDE in percent, so all four scale.
+    public func scaled(by scale: Double) -> ColorBalanceAxis {
+        ColorBalanceAxis(global: global * scale, shadows: shadows * scale,
+                         mid: mid * scale, high: high * scale)
+    }
 }
 
 /// The chroma / saturation / brilliance × (global, shadows, mid, high) grid that opens
 /// below the four wheels — one disclosure of the grade panel, never a second tool (D3).
 ///
-/// Not in the Recipe yet (docs/05 §D15's advanced grid is a pipelineVersion-gated format
-/// addition); defined here so wiring it into `GradingWheels` later is a field, not a
-/// redesign. Defaults are all zero, so an added field costs nothing on the wire.
+/// It lives on the wire as `look.wheels.colorBalance` (and inside a mask's own grade,
+/// via `LocalAdjust.wheels`), which is the reason it is on `GradingWheels` rather than
+/// beside it: the grid grades against the SAME visible pivots as the wheels, so a format
+/// that could carry one without the other would be a format that can describe a grid
+/// with no zones. Every field defaults to zero, so the sparse serializer prunes the
+/// whole subtree out of an untouched recipe and adding it changed no fingerprint.
+///
+/// This struct and `ColorBalanceGrid` below were written, tested and referenced by
+/// NOTHING for the whole of the project's life — roughly 180 lines of correct H-K
+/// quadratic solves with no wire format, no panel and no stage. The cost was not the
+/// dead code; it was that docs/05's headline claim over Lightroom ("the advanced grid
+/// simply has no LR equivalent") was false in the shipping build.
 public struct ColorBalanceParams: Codable, Equatable, Sendable {
 
     /// Master hue rotation, −180…+180 degrees, at constant lightness and chroma.
@@ -492,6 +545,30 @@ public struct ColorBalanceParams: Codable, Equatable, Sendable {
         self.chroma = chroma
         self.saturation = saturation
         self.brilliance = brilliance
+    }
+
+    /// True when every control in the disclosure is at rest. Read by
+    /// `GradingWheels.isNeutral` — which is what `LocalPlan` and the panel's "modified"
+    /// dot consult — so a recipe whose only grade is a grid move is NOT identity and
+    /// still gets a table baked for it.
+    public var isZero: Bool {
+        hueShift == 0 && vibrance == 0
+            && chroma.isZero && saturation.isZero && brilliance.isZero
+    }
+
+    /// The grid at a fraction of its strength — a mask's Amount, applied.
+    ///
+    /// `hueShift` scales here even though `Wheel.hue` deliberately does not, and the
+    /// difference is not an inconsistency: a wheel's hue is the DIRECTION of a tint
+    /// whose magnitude is `sat`, so scaling it rotates the grade instead of weakening
+    /// it. This hue shift is itself the magnitude — rotating by 0° is the identity — so
+    /// half a mask must be half the rotation.
+    public func scaled(by scale: Double) -> ColorBalanceParams {
+        ColorBalanceParams(hueShift: hueShift * scale,
+                           vibrance: vibrance * scale,
+                           chroma: chroma.scaled(by: scale),
+                           saturation: saturation.scaled(by: scale),
+                           brilliance: brilliance.scaled(by: scale))
     }
 }
 
@@ -535,10 +612,7 @@ public struct ColorBalanceGrid: Sendable {
     }
 
     /// True when every control in the disclosure is at rest.
-    public var isIdentity: Bool {
-        params.hueShift == 0 && params.vibrance == 0
-            && params.chroma.isZero && params.saturation.isZero && params.brilliance.isZero
-    }
+    public var isIdentity: Bool { params.isZero }
 
     /// Slope of the H-K brightness factor in chroma: `brightnessFactor(C, h) = 1 + m·C`
     /// for `C ≥ 0`. Kept as a derivation of Perceptual.swift's own coefficients rather

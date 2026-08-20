@@ -181,19 +181,75 @@ enum PanelSection: String, CaseIterable, Identifiable, Sendable {
 
 // MARK: - Filtering
 
+/// ISO as a chip: bands rather than a free-form pair of numbers, because the question
+/// a photographer actually asks a filter is "show me the clean ones" or "show me the
+/// ones that will need denoise", and because a band is one click.
+enum ISOBand: String, CaseIterable, Identifiable, Sendable {
+    case upTo400 = "≤ 400"
+    case to1600 = "401–1600"
+    case to6400 = "1601–6400"
+    case above6400 = "≥ 6401"
+
+    var id: String { rawValue }
+
+    var range: ClosedRange<Int> {
+        switch self {
+        case .upTo400: return 0...400
+        case .to1600: return 401...1600
+        case .to6400: return 1601...6400
+        case .above6400: return 6401...4_000_000
+        }
+    }
+}
+
+/// The stack-state chip (docs/10 §10.2): everything, one row per collapsed stack, or
+/// only the frames that were never grouped.
+enum StackFilter: String, CaseIterable, Identifiable, Sendable {
+    case any = "All frames"
+    case collapsedTops = "Collapsed stacks"
+    case unstacked = "Unstacked only"
+
+    var id: String { rawValue }
+}
+
 struct LibraryFilter: Equatable, Sendable {
     /// Criteria OR within themselves and AND across themselves — the day-one rule
-    /// (D39). An empty set means "no constraint from this criterion".
+    /// (D39). An empty set means "no constraint from this criterion". `matchAny` is
+    /// the bar's All/Any toggle and flips the join BETWEEN criteria, never within one.
     var flags: Set<PhotoFlag> = []
     var minRating: Int = 0
     var labels: Set<ColorLabel> = []
     var text: String = ""
     var rawOnly: Bool = false
 
-    var isActive: Bool {
-        !flags.isEmpty || minRating > 0 || !labels.isEmpty || !text.isEmpty || rawOnly
+    /// nil = no constraint, true = has an edit that changes the picture, false = as
+    /// shot. Reads `photo.edited`, which `saveRecipe` maintains in the same transaction
+    /// as the recipe — no join, no parse, and true only when the recipe actually
+    /// renders differently.
+    var edited: Bool? = nil
+    var cameras: Set<String> = []
+    var isoBands: Set<ISOBand> = []
+    var stackState: StackFilter = .any
+    var keywords: Set<String> = []
+    var matchAny: Bool = false
+
+    /// The criteria that only exist in SQL. The memory fallback cannot evaluate any of
+    /// them — it has no camera, no ISO and no stack table — so the bar hides these
+    /// chips rather than offering controls that would quietly do nothing.
+    var usesCatalogOnlyCriteria: Bool {
+        edited != nil || !cameras.isEmpty || !isoBands.isEmpty
+            || stackState != .any || !keywords.isEmpty
     }
 
+    var isActive: Bool {
+        !flags.isEmpty || minRating > 0 || !labels.isEmpty || !text.isEmpty || rawOnly
+            || usesCatalogOnlyCriteria
+    }
+
+    /// The memory path, used only when there is no catalog to ask. It answers the five
+    /// criteria a `PhotoItem` can answer and is deliberately not extended past them:
+    /// a filter that silently ignores a lit chip is the failure this file exists to
+    /// avoid, which is why the bar hides those chips in this mode instead.
     func matches(_ photo: PhotoItem) -> Bool {
         if !flags.isEmpty && !flags.contains(photo.flag) { return false }
         if photo.rating < minRating { return false }
@@ -203,15 +259,142 @@ struct LibraryFilter: Equatable, Sendable {
             && !photo.filename.localizedCaseInsensitiveContains(text) { return false }
         return true
     }
+
+    /// The bar, compiled. Every chip becomes an indexed predicate in `CatalogStore`'s
+    /// builder — which was 200 lines of correct, tested SQL with no caller at all while
+    /// this struct filtered five criteria with a linear scan of the roll.
+    func query(sort: SortOrder, ascending: Bool, albumID: Int64?) -> PhotoQuery {
+        var query = PhotoQuery()
+        query.flags = flags.map(CatalogService.coreFlag)
+        if minRating > 0 {
+            query.rating = minRating
+            query.ratingComparison = .atLeast
+        }
+        for label in labels {
+            if let core = CatalogService.coreLabel(label) {
+                query.labels.append(core)
+            } else {
+                // `.none` in the app's vocabulary is "unlabelled", which is a NULL in
+                // the catalog's and therefore its own predicate — `label IN (…)` can
+                // never match a NULL.
+                query.includeUnlabeled = true
+            }
+        }
+        if rawOnly { query.fileTypes = PhotoFormats.raw.sorted() }
+        query.edited = edited
+        query.cameras = cameras.sorted()
+        query.keywords = keywords.sorted()
+        if !isoBands.isEmpty {
+            // One chip, so one predicate: the union of the lit bands. Two adjacent
+            // bands are a contiguous range; two far-apart ones widen it, which is the
+            // honest reading of "OR within a criterion" for a numeric column.
+            let low = isoBands.map { $0.range.lowerBound }.min() ?? 0
+            let high = isoBands.map { $0.range.upperBound }.max() ?? 0
+            query.isoRange = low...high
+        }
+        switch stackState {
+        case .any: query.stackState = .any
+        case .collapsedTops: query.stackState = .collapsedTopsOnly
+        case .unstacked: query.stackState = .unstacked
+        }
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        query.text = trimmed.isEmpty ? nil : trimmed
+        query.matchAny = matchAny
+        query.albumID = albumID
+        // The grid shows files that are on the disk. Rows for frames that have gone
+        // offline keep their edits and stay findable, but putting them in the contact
+        // sheet would put cells in it that cannot be opened.
+        query.includeMissing = false
+        query.sortKey = sort.sortKey
+        query.ascending = ascending
+        return query
+    }
 }
 
+/// The twelve sort keys docs/10 §10.2 specifies, one per `PhotoQuery.SortKey`.
+///
+/// Four of them used to exist, and "capture time" was the file's modification time —
+/// which is the time the card was copied, not the time the shutter opened, and on a
+/// re-copied card is simply today. Everything here now orders in SQL over the EXIF the
+/// backfill pass writes.
 enum SortOrder: String, CaseIterable, Identifiable, Sendable {
-    case filename = "File name"
-    case captureDate = "Capture time"
+    case captureTime = "Capture time"
+    case addedOrder = "Added order"
+    case editTime = "Edit time"
     case rating = "Rating"
     case flag = "Flag"
+    case label = "Label"
+    case filename = "File name"
+    case fileType = "File type"
+    case aspectRatio = "Aspect ratio"
+    case userOrder = "User order"
+    case sharpness = "Sharpness score"
+    case aesthetic = "Aesthetic score"
 
     var id: String { rawValue }
+
+    var sortKey: PhotoQuery.SortKey {
+        switch self {
+        case .captureTime: return .captureTime
+        case .addedOrder: return .addedOrder
+        case .editTime: return .editTime
+        case .rating: return .rating
+        case .flag: return .flag
+        case .label: return .label
+        case .filename: return .filename
+        case .fileType: return .fileType
+        case .aspectRatio: return .aspectRatio
+        case .userOrder: return .userOrder
+        case .sharpness: return .sharpness
+        case .aesthetic: return .aesthetic
+        }
+    }
+
+    /// The keys a roll of `PhotoItem`s can order on its own, for the sessions where the
+    /// catalog would not open. The rest need columns only the catalog has.
+    var worksFromMemory: Bool {
+        switch self {
+        case .filename, .rating, .flag, .label: return true
+        default: return false
+        }
+    }
+
+    /// Why this key is not offered right now, or nil when it is live. Shown next to the
+    /// disabled item in the menu: an ordering that silently does nothing is worse than
+    /// one that says what it is waiting for.
+    static let scoreSortsPending =
+        "waiting on the culling analysis pass, which does not run yet"
+}
+
+// MARK: - Library sections
+
+/// One album as the sidebar shows it. A view-shaped value rather than `CollectionRow`,
+/// so the sidebar never has to know a database row exists — and so the membership
+/// count travels with the name instead of being a second query per row.
+struct CollectionItem: Identifiable, Equatable, Sendable {
+    let id: Int64
+    var name: String
+    var count: Int
+    var isTarget: Bool
+}
+
+/// One value a metadata chip offers — a keyword, a camera body — and how many photos
+/// carry it. The live counts docs/10 §10.8 asks for ("Sony A7 IV (1,203)"), computed by
+/// the same indexes the chip's predicate uses, so the number and the result agree.
+struct LibraryFacet: Identifiable, Equatable, Sendable {
+    var name: String
+    var count: Int
+
+    var id: String { name }
+}
+
+/// The stack the photo under the cursor is in, as the sidebar needs it.
+struct StackSummary: Equatable, Sendable {
+    var id: Int64
+    var memberCount: Int
+    var collapsed: Bool
+    /// True when this photo is the frame a collapsed stack shows.
+    var isPick: Bool
 }
 
 // MARK: - Sheets
@@ -219,33 +402,6 @@ enum SortOrder: String, CaseIterable, Identifiable, Sendable {
 enum SheetKind: String, Identifiable, Sendable {
     case keyReference, export, ingest
     var id: String { rawValue }
-}
-
-// MARK: - File dates
-
-/// Modification times, remembered. A sort comparator runs O(n log n) times over the
-/// same n files, and stat-ing a network volume that often is how a folder of 5,000
-/// frames stops responding to a menu click.
-final class FileDateCache: @unchecked Sendable {
-    private let lock = NSLock()
-    private var dates: [URL: Date] = [:]
-
-    func date(for url: URL) -> Date {
-        lock.lock()
-        if let hit = dates[url] {
-            lock.unlock()
-            return hit
-        }
-        lock.unlock()
-        let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
-        let date = (attributes?[.creationDate] as? Date)
-            ?? (attributes?[.modificationDate] as? Date)
-            ?? Date.distantPast
-        lock.lock()
-        dates[url] = date
-        lock.unlock()
-        return date
-    }
 }
 
 // MARK: - AppState
@@ -261,14 +417,23 @@ final class AppState: ObservableObject {
 
     @Published var folderURL: URL?
     @Published private(set) var allPhotos: [PhotoItem] = []
-    @Published var filter = LibraryFilter()
-    @Published var sortOrder: SortOrder = .filename
+    @Published var filter = LibraryFilter() { didSet { filterOrSortChanged(oldValue) } }
+    /// Capture time is the default docs/10 §10.2 asks for. It is only honest now that
+    /// something writes `capture_at`: before the EXIF backfill landed this key meant
+    /// the file's modification time, which is when the card was copied.
+    @Published var sortOrder: SortOrder = .captureTime {
+        didSet { if sortOrder != oldValue { refreshLibraryQuery() } }
+    }
+    @Published var sortAscending: Bool = true {
+        didSet { if sortAscending != oldValue { refreshLibraryQuery() } }
+    }
     @Published var selection: Set<URL> = []
     @Published var primarySelection: PhotoItem? {
         didSet {
             guard primarySelection?.id != oldValue?.id else { return }
             primaryFrameSize = nil
             refreshPrimaryFrameSize()
+            refreshPrimaryLibraryDetail()
         }
     }
 
@@ -495,32 +660,312 @@ final class AppState: ObservableObject {
     // MARK: Derived
 
     /// The photos actually on screen, after filtering and sorting.
+    ///
+    /// The order comes from SQL when there is a catalog to ask, and the *contents* of
+    /// each cell come from `allPhotos`, which is the copy a cull keystroke has already
+    /// updated. Reading the badges out of the query result instead would make every
+    /// rating lag by one database round trip.
     var photos: [PhotoItem] {
-        let filtered = filter.isActive ? allPhotos.filter(filter.matches) : allPhotos
-        switch sortOrder {
-        case .filename:
-            return filtered.sorted { $0.filename.localizedStandardCompare($1.filename) == .orderedAscending }
-        case .captureDate:
-            // Until the catalog's metadata scan lands, the file's own modification
-            // time is the closest honest answer. Silently returning the list unsorted
-            // made the menu item look broken rather than approximate.
-            return filtered.sorted {
-                let a = Self.fileDate($0.id), b = Self.fileDate($1.id)
-                if a != b { return a < b }
-                return $0.filename.localizedStandardCompare($1.filename) == .orderedAscending
-            }
-        case .rating:
-            return filtered.sorted { ($0.rating, $1.filename) > ($1.rating, $0.filename) }
-        case .flag:
-            return filtered.sorted { $0.flag.rawValue > $1.flag.rawValue }
+        guard let order = libraryOrder else { return memoryOrdered() }
+        var byURL = [URL: PhotoItem](minimumCapacity: allPhotos.count)
+        for item in allPhotos { byURL[item.id] = item }
+        let ordered = order.compactMap { byURL[$0] }
+        guard sortOrder == .filename else { return ordered }
+        // SQLite orders TEXT by bytes, so `DSC_10` sorts before `DSC_9`. Every camera
+        // this will meet zero-pads its counter, which is why the two agree almost
+        // always — but "almost" is how a frame ends up in the wrong place in a contact
+        // sheet, and Finder-order is what a photographer means by file name.
+        return ordered.sorted {
+            let comparison = $0.filename.localizedStandardCompare($1.filename)
+            return sortAscending ? comparison == .orderedAscending
+                                 : comparison == .orderedDescending
         }
     }
 
-    /// Cached so a sort does not stat the same file once per comparison.
-    private static let fileDateCache = FileDateCache()
+    /// The path for a session with no catalog: filter and sort the roll in memory.
+    ///
+    /// Deliberately narrow. It answers only the keys a `PhotoItem` can answer, and the
+    /// filter bar hides the chips and sort keys it cannot honour while this is what is
+    /// running — an app that silently ignores a lit chip is worse than one that admits
+    /// the catalog is gone.
+    private func memoryOrdered() -> [PhotoItem] {
+        let filtered = filter.isActive ? allPhotos.filter(filter.matches) : allPhotos
+        let ascending = sortAscending
+        func by(_ ordered: Bool) -> Bool { ascending ? ordered : !ordered }
+        switch sortOrder {
+        case .rating:
+            return filtered.sorted { by($0.rating < $1.rating) }
+        case .flag:
+            return filtered.sorted { by($0.flag.rawValue < $1.flag.rawValue) }
+        case .label:
+            return filtered.sorted { by($0.label.rawValue < $1.label.rawValue) }
+        default:
+            return filtered.sorted {
+                by($0.filename.localizedStandardCompare($1.filename) == .orderedAscending)
+            }
+        }
+    }
 
-    static func fileDate(_ url: URL) -> Date {
-        fileDateCache.date(for: url)
+    // MARK: The library query
+
+    /// What the catalog's query returned, in its order, or nil when there is nothing to
+    /// ask — no catalog, no folder, or the first query has not come back yet.
+    @Published private(set) var libraryOrder: [URL]?
+
+    /// True while the grid is being decided by SQL. The filter bar reads this to know
+    /// which chips it is allowed to offer.
+    var isLibraryQueryLive: Bool { libraryOrder != nil }
+
+    private var libraryQueryGeneration: UInt64 = 0
+
+    /// Which album is the source, or nil for the whole open folder.
+    @Published var selectedCollectionID: Int64? {
+        didSet { if selectedCollectionID != oldValue { refreshLibraryQuery() } }
+    }
+
+    /// Re-run the grid query. Cheap enough to call on every chip, keystroke and cull
+    /// decision: it is one indexed statement on the catalog's own serial queue, and a
+    /// generation stamp drops anything that lands after a newer request.
+    func refreshLibraryQuery() {
+        guard let catalog, let folder = folderURL else {
+            libraryOrder = nil
+            return
+        }
+        libraryQueryGeneration &+= 1
+        let generation = libraryQueryGeneration
+        let query = filter.query(sort: sortOrder, ascending: sortAscending,
+                                 albumID: selectedCollectionID)
+        // Photos the catalog has no row for cannot be ordered by it. There should be
+        // none — registration runs before the grid appears — but a photograph silently
+        // missing from a contact sheet is the worst failure this app has, so any stray
+        // is kept, filtered in memory, and put at the end rather than dropped.
+        let strays = allPhotos.filter { $0.catalogID == nil && filter.matches($0) }
+        Task { [weak self] in
+            let rows = await catalog.photos(matching: query, folderPath: folder.path)
+            guard let self, self.libraryQueryGeneration == generation else { return }
+            var byID = [Int64: URL](minimumCapacity: self.allPhotos.count)
+            for item in self.allPhotos {
+                if let id = item.catalogID { byID[id] = item.id }
+            }
+            self.libraryOrder = rows.compactMap { byID[$0.id] } + strays.map(\.id)
+        }
+    }
+
+    /// A recipe write moves `photo.edited` and `edit.updated_at`, which only two things
+    /// read: the edited chip and the edit-time sort. Re-querying on every slider drag
+    /// otherwise would put a database round trip inside the develop loop.
+    private func refreshLibraryQueryIfEditStateShows() {
+        guard filter.edited != nil || sortOrder == .editTime else { return }
+        refreshLibraryQuery()
+    }
+
+    private func filterOrSortChanged(_ oldValue: LibraryFilter) {
+        guard filter != oldValue else { return }
+        refreshLibraryQuery()
+    }
+
+    // MARK: Albums, keywords and stacks
+
+    /// True when there is a database behind the app. Everything in this section writes
+    /// to it and nothing else, so the sidebar hides the whole group when it is false
+    /// rather than offering buttons that would be swallowed.
+    var isCatalogAvailable: Bool { catalog != nil }
+
+    @Published private(set) var collections: [CollectionItem] = []
+    @Published private(set) var keywordVocabulary: [LibraryFacet] = []
+    /// The camera bodies present in this source, most-used first.
+    @Published private(set) var cameraChoices: [LibraryFacet] = []
+    /// The keywords on the photo under the cursor, for the sidebar's token row.
+    @Published private(set) var primaryKeywords: [String] = []
+    /// The stack the photo under the cursor belongs to, if any.
+    @Published private(set) var primaryStack: StackSummary?
+
+    var targetCollection: CollectionItem? { collections.first(where: \.isTarget) }
+
+    /// Reload the sidebar's library lists. Called when the folder changes and after
+    /// anything that could change membership — never on a timer, because a list that
+    /// refreshes on its own while you are reading it is its own kind of wrong.
+    func refreshLibrarySections() {
+        guard let catalog, let folder = folderURL else {
+            collections = []
+            keywordVocabulary = []
+            cameraChoices = []
+            return
+        }
+        Task { [weak self] in
+            let albums = await catalog.collections()
+            let keywords = await catalog.allKeywords()
+            let cameras = await catalog.facets(.camera, folderPath: folder.path)
+            guard let self else { return }
+            self.collections = albums
+            self.keywordVocabulary = keywords.map {
+                LibraryFacet(name: $0.value, count: $0.count)
+            }
+            self.cameraChoices = cameras.map {
+                LibraryFacet(name: $0.value, count: $0.count)
+            }
+        }
+        refreshPrimaryLibraryDetail()
+    }
+
+    /// The keywords and stack of the photo under the cursor.
+    func refreshPrimaryLibraryDetail() {
+        guard let catalog, let photoID = primarySelection?.catalogID else {
+            primaryKeywords = []
+            primaryStack = nil
+            return
+        }
+        Task { [weak self] in
+            let words = await catalog.keywords(photoID: photoID)
+            let stack = await catalog.stack(containing: photoID)
+            var summary: StackSummary?
+            if let stack {
+                let members = await catalog.stackMembers(stackID: stack.id)
+                summary = StackSummary(id: stack.id, memberCount: members.count,
+                                       collapsed: stack.collapsed,
+                                       isPick: stack.pickPhotoID == photoID)
+            }
+            guard let self, self.primarySelection?.catalogID == photoID else { return }
+            self.primaryKeywords = words
+            self.primaryStack = summary
+        }
+    }
+
+    func createCollection(named name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let catalog, !trimmed.isEmpty else { return }
+        Task { [weak self] in
+            _ = await catalog.createCollection(name: trimmed)
+            guard let self else { return }
+            self.statusMessage = "Album \"\(trimmed)\" created"
+            self.refreshLibrarySections()
+        }
+    }
+
+    func setTargetCollection(_ albumID: Int64) {
+        guard let catalog else { return }
+        Task { [weak self] in
+            await catalog.setTargetCollection(albumID)
+            self?.refreshLibrarySections()
+        }
+    }
+
+    /// `B` in docs/10 §10.9 — gather while culling. The target album is the scratch pad
+    /// every shoot ends up needing; any album can be designated.
+    func addSelectionToTargetCollection() {
+        let ids = editTargets.compactMap(\.catalogID)
+        guard let catalog, !ids.isEmpty else { return }
+        guard let target = targetCollection else {
+            statusMessage = "No target album yet — make one in the sidebar first"
+            return
+        }
+        Task { [weak self] in
+            await catalog.addToCollection(target.id, photoIDs: ids)
+            guard let self else { return }
+            self.statusMessage = "Added \(ids.count) photo"
+                + (ids.count == 1 ? "" : "s") + " to \(target.name)"
+            self.refreshLibrarySections()
+            // The grid is showing that album: what it holds just changed.
+            if self.selectedCollectionID == target.id { self.refreshLibraryQuery() }
+        }
+    }
+
+    func removeSelectionFromCollection(_ albumID: Int64) {
+        let ids = editTargets.compactMap(\.catalogID)
+        guard let catalog, !ids.isEmpty else { return }
+        Task { [weak self] in
+            await catalog.removeFromCollection(albumID, photoIDs: ids)
+            guard let self else { return }
+            self.refreshLibrarySections()
+            if self.selectedCollectionID == albumID { self.refreshLibraryQuery() }
+        }
+    }
+
+    func addKeyword(_ name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let ids = editTargets.compactMap(\.catalogID)
+        guard let catalog, !trimmed.isEmpty, !ids.isEmpty else { return }
+        Task { [weak self] in
+            await catalog.addKeyword(trimmed, photoIDs: ids)
+            guard let self else { return }
+            self.statusMessage = "Keyworded \(ids.count) photo"
+                + (ids.count == 1 ? "" : "s") + " \"\(trimmed)\""
+            self.refreshLibrarySections()
+            // The keyword is also a filter chip and a text-index term.
+            if !self.filter.keywords.isEmpty || !self.filter.text.isEmpty {
+                self.refreshLibraryQuery()
+            }
+        }
+    }
+
+    func removeKeyword(_ name: String) {
+        let ids = editTargets.compactMap(\.catalogID)
+        guard let catalog, !ids.isEmpty else { return }
+        Task { [weak self] in
+            await catalog.removeKeyword(name, photoIDs: ids)
+            guard let self else { return }
+            self.refreshLibrarySections()
+            if !self.filter.keywords.isEmpty { self.refreshLibraryQuery() }
+        }
+    }
+
+    /// `⌘G` — group a burst or a bracket into one decision unit. The frame under the
+    /// cursor becomes the pick, which is the frame a collapsed stack shows.
+    func stackSelection() {
+        let targets = selection.count > 1 ? selectedPhotos : []
+        let ids = targets.compactMap(\.catalogID)
+        guard let catalog, ids.count > 1 else {
+            statusMessage = "Select two or more photos to stack them"
+            return
+        }
+        let pick = primarySelection?.catalogID
+        Task { [weak self] in
+            _ = await catalog.createStack(photoIDs: ids, pickPhotoID: pick)
+            guard let self else { return }
+            self.statusMessage = "Stacked \(ids.count) frames"
+            self.refreshPrimaryLibraryDetail()
+            self.refreshLibraryQuery()
+        }
+    }
+
+    /// `⇧⌘G` — the grouping goes, the photographs stay.
+    func unstackSelection() {
+        guard let catalog, let stack = primaryStack else {
+            statusMessage = "That photo is not in a stack"
+            return
+        }
+        Task { [weak self] in
+            await catalog.dissolveStack(id: stack.id)
+            guard let self else { return }
+            self.statusMessage = "Unstacked"
+            self.refreshPrimaryLibraryDetail()
+            self.refreshLibraryQuery()
+        }
+    }
+
+    /// Collapse or expand the stack under the cursor. Visible in the grid through the
+    /// "Collapsed stacks" chip, which is what turns 3,000 frames into 400 decisions.
+    func toggleStackCollapsed() {
+        guard let catalog, let stack = primaryStack else { return }
+        Task { [weak self] in
+            await catalog.setStackCollapsed(!stack.collapsed, stackID: stack.id)
+            guard let self else { return }
+            self.refreshPrimaryLibraryDetail()
+            if self.filter.stackState == .collapsedTops { self.refreshLibraryQuery() }
+        }
+    }
+
+    /// Promote the frame under the cursor to its stack's pick.
+    func promoteStackPick() {
+        guard let catalog, let stack = primaryStack,
+              let photoID = primarySelection?.catalogID else { return }
+        Task { [weak self] in
+            await catalog.setStackPick(photoID, stackID: stack.id)
+            guard let self else { return }
+            self.statusMessage = "Stack pick set"
+            self.refreshPrimaryLibraryDetail()
+            if self.filter.stackState == .collapsedTops { self.refreshLibraryQuery() }
+        }
     }
 
     /// Everything selected, whether or not the current filter happens to be showing
@@ -670,6 +1115,11 @@ final class AppState: ObservableObject {
         folderURL = url
         selection = []
         primarySelection = nil
+        // The previous folder's query answer describes photographs that are no longer
+        // on screen. Nil means "ask again"; leaving it would show the old roll's order
+        // over the new roll's contents for as long as the scan takes.
+        libraryOrder = nil
+        selectedCollectionID = nil
         viewMode = .grid
         isScanning = true
         statusMessage = "Scanning…"
@@ -707,7 +1157,18 @@ final class AppState: ObservableObject {
             // all of it was reading NULL. Fire-and-forget on the catalog's own serial
             // queue: it is an enrichment, it resumes by itself next launch, and nothing
             // on screen waits for it.
-            catalog?.backfillMetadata(folder: url)
+            catalog?.backfillMetadata(folder: url) { done, total in
+                // The default sort is capture time and the grid is already up, ordered
+                // on rows whose `capture_at` is still NULL. Re-asking when the last
+                // batch lands is what turns the EXIF pass into something the user can
+                // see; without it the frames only fall into shooting order on the next
+                // launch, which reads as the sort having ignored them.
+                guard done >= total else { return }
+                Task { @MainActor [weak self] in
+                    guard let self, self.folderURL == url else { return }
+                    self.refreshLibraryQuery()
+                }
+            }
         }
     }
 
@@ -741,6 +1202,9 @@ final class AppState: ObservableObject {
         for recipe in recipes.values where !recipe.masks.isEmpty {
             loadStrokeSets(for: recipe)
         }
+        // The grid's order and membership are the catalog's answer from here on.
+        refreshLibraryQuery()
+        refreshLibrarySections()
         isScanning = false
         statusMessage = "\(items.count) photo\(items.count == 1 ? "" : "s")"
         if primarySelection == nil, let first = photos.first {
@@ -875,6 +1339,12 @@ final class AppState: ObservableObject {
         // No coalescing key: every cull decision is its own step. One keystroke over a
         // multi-selection is already one step, because it is one `record` call.
         history.record(before: before, after: after, coalescingKey: nil, label: label)
+        // A rejected frame under a "Picked" chip has just left the grid, and only the
+        // catalog knows it: the badge lives in `allPhotos`, the membership does not.
+        if filter.isActive || sortOrder == .rating || sortOrder == .flag
+            || sortOrder == .label {
+            refreshLibraryQuery()
+        }
     }
 
     /// Put a culling state back on a photo, wherever it currently sits in the roll.
@@ -1090,6 +1560,7 @@ final class AppState: ObservableObject {
             let id = allPhotos.first(where: { $0.id == url })?.catalogID
             catalog.saveRecipe(recipe, url: url, catalogID: id)
         }
+        refreshLibraryQueryIfEditStateShows()
     }
 
     // MARK: Shutdown and maintenance

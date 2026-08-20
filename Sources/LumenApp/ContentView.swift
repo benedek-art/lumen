@@ -79,55 +79,79 @@ struct ContentView: View {
 
 // MARK: - Sidebar
 
+/// Sources on the left: the open folder, the culling counts, and — new — the three
+/// catalog structures that had complete store APIs and no way in from the app at all:
+/// albums, keywords and stacks.
+///
+/// The keyboard verbs are Command-modified rather than the bare `B` / `S` / `⇧S` that
+/// docs/10 §10.9 specifies. The bare-key dispatcher in Keymap.swift already spends
+/// those two letters on the Basic panel and the scopes, and moving them is a change to
+/// the culling grammar that belongs in one deliberate pass over the whole keymap, not
+/// as a side effect of giving albums a sidebar. `⌘B`, `⌘G`, `⇧⌘G` and `⌘K` are free,
+/// they are attached to visible controls, and every one of them is disabled — visibly —
+/// when there is nothing for it to act on.
 private struct Sidebar: View {
     @EnvironmentObject var state: AppState
 
+    @State private var newAlbumName: String = ""
+    @State private var newKeyword: String = ""
+    @FocusState private var keywordFieldFocused: Bool
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Button {
-                state.chooseFolder()
-            } label: {
-                Label("Open Folder…", systemImage: "folder")
-                    .font(.system(size: 12))
-            }
-            .buttonStyle(.borderless)
-
-            if let folder = state.folderURL {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(folder.lastPathComponent)
-                        .font(.system(size: 12, weight: .semibold))
-                        .lineLimit(1)
-                    Text(folder.deletingLastPathComponent().path)
-                        .font(.system(size: 10))
-                        .foregroundStyle(Lumen.secondaryText)
-                        .lineLimit(2)
-                        .truncationMode(.head)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 10) {
+                Button {
+                    state.chooseFolder()
+                } label: {
+                    Label("Open Folder…", systemImage: "folder")
+                        .font(.system(size: 12))
                 }
+                .buttonStyle(.borderless)
+
+                if let folder = state.folderURL {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(folder.lastPathComponent)
+                            .font(.system(size: 12, weight: .semibold))
+                            .lineLimit(1)
+                        Text(folder.deletingLastPathComponent().path)
+                            .font(.system(size: 10))
+                            .foregroundStyle(Lumen.secondaryText)
+                            .lineLimit(2)
+                            .truncationMode(.head)
+                    }
+                }
+
+                Divider().overlay(Lumen.separator)
+
+                counts
+
+                if state.isCatalogAvailable {
+                    Divider().overlay(Lumen.separator)
+                    albums
+                    Divider().overlay(Lumen.separator)
+                    keywords
+                    Divider().overlay(Lumen.separator)
+                    stacks
+                }
+
+                if let catalogStatus = state.catalogStatus {
+                    Text(catalogStatus)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Button {
+                    state.showKeyReference = true
+                } label: {
+                    Label("Keyboard", systemImage: "keyboard")
+                        .font(.system(size: 11))
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(Lumen.secondaryText)
             }
-
-            Divider().overlay(Lumen.separator)
-
-            counts
-
-            Spacer()
-
-            if let catalogStatus = state.catalogStatus {
-                Text(catalogStatus)
-                    .font(.system(size: 10))
-                    .foregroundStyle(.orange)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            Button {
-                state.showKeyReference = true
-            } label: {
-                Label("Keyboard", systemImage: "keyboard")
-                    .font(.system(size: 11))
-            }
-            .buttonStyle(.borderless)
-            .foregroundStyle(Lumen.secondaryText)
+            .padding(12)
         }
-        .padding(12)
         .background(Lumen.panelBackground)
     }
 
@@ -138,10 +162,230 @@ private struct Sidebar: View {
             row("All photos", state.allPhotos.count)
             row("Picked", picked)
             row("Rejected", rejected)
-            if state.filter.isActive {
+            if state.filter.isActive || state.selectedCollectionID != nil {
                 row("Showing", state.photos.count)
             }
         }
+    }
+
+    // MARK: Albums
+
+    private var albums: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            sectionLabel("Albums")
+
+            sourceRow(title: "This folder", count: state.allPhotos.count,
+                      isSelected: state.selectedCollectionID == nil,
+                      isTarget: false) {
+                state.selectedCollectionID = nil
+            }
+
+            ForEach(state.collections) { album in
+                sourceRow(title: album.name, count: album.count,
+                          isSelected: state.selectedCollectionID == album.id,
+                          isTarget: album.isTarget) {
+                    state.selectedCollectionID = album.id
+                }
+                .contextMenu {
+                    Button("Make Target Album") { state.setTargetCollection(album.id) }
+                    Button("Remove Selection from \(album.name)") {
+                        state.removeSelectionFromCollection(album.id)
+                    }
+                }
+            }
+
+            HStack(spacing: 4) {
+                TextField("New album", text: $newAlbumName)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 11))
+                    .onSubmit { createAlbum() }
+                Button {
+                    createAlbum()
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 9))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Lumen.secondaryText)
+                .disabled(newAlbumName.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+            .padding(.horizontal, 5)
+            .padding(.vertical, 3)
+            .background(Lumen.controlBackground)
+            .clipShape(RoundedRectangle(cornerRadius: 4))
+
+            Button {
+                state.addSelectionToTargetCollection()
+            } label: {
+                Label(addToTargetTitle, systemImage: "tray.and.arrow.down")
+                    .font(.system(size: 11))
+            }
+            .buttonStyle(.borderless)
+            .keyboardShortcut("b", modifiers: [.command])
+            .disabled(state.targetCollection == nil || state.editTargets.isEmpty)
+            .help("Add the selection to the target album (⌘B)")
+        }
+    }
+
+    private var addToTargetTitle: String {
+        guard let target = state.targetCollection else { return "No target album" }
+        return "Add to \(target.name)"
+    }
+
+    private func createAlbum() {
+        state.createCollection(named: newAlbumName)
+        newAlbumName = ""
+    }
+
+    // MARK: Keywords
+
+    private var keywords: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            sectionLabel("Keywords")
+
+            if state.primaryKeywords.isEmpty {
+                Text(state.primarySelection == nil
+                     ? "Select a photo to keyword it"
+                     : "None on this photo")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Lumen.secondaryText)
+            } else {
+                ForEach(state.primaryKeywords, id: \.self) { word in
+                    HStack(spacing: 4) {
+                        Text(word)
+                            .font(.system(size: 11))
+                            .foregroundStyle(Lumen.primaryText)
+                        Spacer()
+                        Button {
+                            state.removeKeyword(word)
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 8))
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(Lumen.secondaryText)
+                        .help("Remove \(word) from the selection")
+                    }
+                }
+            }
+
+            HStack(spacing: 4) {
+                TextField("Add keyword", text: $newKeyword)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 11))
+                    .focused($keywordFieldFocused)
+                    .onSubmit { addKeyword() }
+                Button {
+                    addKeyword()
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 9))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Lumen.secondaryText)
+                .disabled(newKeyword.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+            .padding(.horizontal, 5)
+            .padding(.vertical, 3)
+            .background(Lumen.controlBackground)
+            .clipShape(RoundedRectangle(cornerRadius: 4))
+
+            // ⌘K puts the cursor in the field rather than applying anything: the verb a
+            // photographer wants from a keyword shortcut is "let me type one".
+            Button("Keyword the selection") { keywordFieldFocused = true }
+                .buttonStyle(.borderless)
+                .font(.system(size: 11))
+                .keyboardShortcut("k", modifiers: [.command])
+                .disabled(state.editTargets.isEmpty)
+                .help("Type a keyword for the selection (⌘K)")
+        }
+    }
+
+    private func addKeyword() {
+        state.addKeyword(newKeyword)
+        newKeyword = ""
+    }
+
+    // MARK: Stacks
+
+    private var stacks: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            sectionLabel("Stack")
+
+            if let stack = state.primaryStack {
+                Text("\(stack.memberCount) frame\(stack.memberCount == 1 ? "" : "s")"
+                     + " · \(stack.collapsed ? "collapsed" : "expanded")"
+                     + (stack.isPick ? " · this is the pick" : ""))
+                    .font(.system(size: 10))
+                    .foregroundStyle(Lumen.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Button(stack.collapsed ? "Expand Stack" : "Collapse Stack") {
+                    state.toggleStackCollapsed()
+                }
+                .buttonStyle(.borderless)
+                .font(.system(size: 11))
+
+                Button("Promote to Pick") { state.promoteStackPick() }
+                    .buttonStyle(.borderless)
+                    .font(.system(size: 11))
+                    .disabled(stack.isPick)
+
+                Button("Unstack") { state.unstackSelection() }
+                    .buttonStyle(.borderless)
+                    .font(.system(size: 11))
+                    .keyboardShortcut("g", modifiers: [.command, .shift])
+                    .help("Unstack (⇧⌘G)")
+            } else {
+                Text("Collapsed stacks show one frame each — the pick. Filter the grid "
+                     + "to them with the Metadata chip.")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Lumen.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Button("Stack Selection") { state.stackSelection() }
+                .buttonStyle(.borderless)
+                .font(.system(size: 11))
+                .keyboardShortcut("g", modifiers: [.command])
+                .disabled(state.selection.count < 2)
+                .help("Group the selection into one stack (⌘G)")
+        }
+    }
+
+    // MARK: Pieces
+
+    private func sectionLabel(_ text: String) -> some View {
+        Text(text.uppercased())
+            .font(.system(size: 9, weight: .semibold))
+            .tracking(0.5)
+            .foregroundStyle(Lumen.secondaryText)
+    }
+
+    private func sourceRow(title: String, count: Int, isSelected: Bool,
+                           isTarget: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                if isTarget {
+                    Image(systemName: "target")
+                        .font(.system(size: 8))
+                        .foregroundStyle(Lumen.secondaryText)
+                }
+                Text(title)
+                    .font(.system(size: 11))
+                    .lineLimit(1)
+                Spacer()
+                Text("\(count)")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(Lumen.secondaryText)
+            }
+            .padding(.horizontal, 5)
+            .padding(.vertical, 2)
+            .foregroundStyle(isSelected ? Lumen.primaryText : Lumen.secondaryText)
+            .background(isSelected ? Lumen.fillColor.opacity(0.28) : Color.clear)
+            .clipShape(RoundedRectangle(cornerRadius: 3))
+        }
+        .buttonStyle(.plain)
     }
 
     private func row(_ title: String, _ count: Int) -> some View {

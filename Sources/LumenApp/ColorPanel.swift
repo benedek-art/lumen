@@ -57,8 +57,14 @@ struct ColorPanel: View {
     private var mixerSection: some View {
         let mixer = state.currentRecipe.develop.mixer
         let bands = ColorPanel.normalizedBands(mixer.bands)
+        // The engine's own resolved geometry, not the raw wire values: the ring must
+        // draw the arc the pixel loop uses, including the min-reach clamp, or a handle
+        // dragged past the limit would sit somewhere the render disagrees with.
+        let arcs = ColorEngine.bandArcs(bands)
         let touched = bands.contains(where: { $0.hue != 0 || $0.sat != 0 || $0.lum != 0 })
-        let modified = touched || mixer.uniformity != 0
+        let reshaped = arcs != ColorEngine.canonicalArcs
+        let modified = touched || mixer.uniformity != 0 || reshaped
+        let index = min(max(selectedBand, 0), ColorEngine.bandCount - 1)
 
         return VStack(alignment: .leading, spacing: 2) {
             LumenSectionHeader(title: "Colour Mixer",
@@ -74,7 +80,15 @@ struct ColorPanel: View {
 
                 bandSwatches(bands)
 
-                MixerBandRibbon(weights: ColorPanel.ribbonWeights,
+                MixerHueRing(arcs: arcs,
+                             selected: index,
+                             allBands: allBands,
+                             onHandleMoved: { handle, degrees in
+                                 moveHandle(index, handle, to: degrees)
+                             },
+                             onResetArc: { resetArc(index) })
+
+                MixerBandRibbon(weights: ColorPanel.ribbonWeights(arcs),
                                 colors: ColorPanel.bandSwatchColors,
                                 selected: selectedBand,
                                 allBands: allBands)
@@ -83,7 +97,8 @@ struct ColorPanel: View {
                      ? "All bands move together; the spread between them is preserved."
                      : "\(ColorPanel.bandName(selectedBand)) — centred on "
                        + String(format: "%.1f°", ColorPanel.bandCentre(selectedBand))
-                       + " in OKLCh, feathered into its neighbours.")
+                       + " in OKLCh, "
+                       + ColorPanel.arcSummary(arcs, index))
                     .font(.system(size: 10))
                     .foregroundStyle(Lumen.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
@@ -105,9 +120,60 @@ struct ColorPanel: View {
                             range: 0...100, defaultValue: 0, step: 1, decimals: 0,
                             bipolar: false)
 
-                caption("Uniformity converges each band's low-frequency hue variation; "
-                        + "local texture survives.")
+                caption("Uniformity converges this band's hues toward the middle of the "
+                        + "core arc above — drag the inner handles onto the colours you "
+                        + "actually have and it converges on those. Texture-preserving "
+                        + "convergence needs a spatial pass the shipping graph does not "
+                        + "run yet; today it moves the whole pixel.")
             }
+        }
+    }
+
+    // MARK: - Ring handles (D13: visible, draggable range + feather)
+
+    /// Write one dragged handle back into the band's wire geometry.
+    ///
+    /// Everything is stored relative to the band's canonical centre, and the centre
+    /// itself never moves — it is the wire format's identity for the band. Dragging the
+    /// two inner handles to the same side is how you re-centre the band on a colour, and
+    /// `ColorEngine.BandArc.coreCentre` is what reads that back out for Uniformity.
+    private func moveHandle(_ band: Int, _ handle: MixerArcHandle, to degrees: Double) {
+        state.updateRecipe(coalescingKey: "mixer.arc.\(band).\(handle.rawValue)") { recipe in
+            var bands = ColorPanel.normalizedBands(recipe.develop.mixer.bands)
+            guard bands.indices.contains(band),
+                  ColorEngine.bandHueCentres.indices.contains(band) else { return }
+            let centre = ColorEngine.bandHueCentres[band]
+            let delta = Num.hueDelta(centre, degrees)     // signed, (−180, 180]
+            var core = ColorPanel.pair(bands[band].core, MixerBand.defaultCore)
+            var feather = ColorPanel.pair(bands[band].feather, MixerBand.defaultFeather)
+            let coreLo = ColorEngine.bandCoreMinDegrees
+            let coreHi = ColorEngine.bandCoreMaxDegrees
+            let featherLo = ColorEngine.bandFeatherMinDegrees
+            let featherHi = ColorEngine.bandFeatherMaxDegrees
+            switch handle {
+            case .coreStart:
+                core[0] = Num.clamp(-delta, coreLo, coreHi)
+            case .coreEnd:
+                core[1] = Num.clamp(delta, coreLo, coreHi)
+            case .featherStart:
+                feather[0] = Num.clamp(-delta - core[0], featherLo, featherHi)
+            case .featherEnd:
+                feather[1] = Num.clamp(delta - core[1], featherLo, featherHi)
+            }
+            bands[band].core = core
+            bands[band].feather = feather
+            recipe.develop.mixer.bands = bands
+        }
+    }
+
+    /// Back to the canonical wedge, leaving the band's three sliders alone.
+    private func resetArc(_ band: Int) {
+        state.updateRecipe { recipe in
+            var bands = ColorPanel.normalizedBands(recipe.develop.mixer.bands)
+            guard bands.indices.contains(band) else { return }
+            bands[band].core = MixerBand.defaultCore
+            bands[band].feather = MixerBand.defaultFeather
+            recipe.develop.mixer.bands = bands
         }
     }
 
@@ -477,17 +543,55 @@ struct ColorPanel: View {
 
     static let ribbonSteps: Int = 96
 
-    /// The engine's own membership vectors, sampled once. The strip is a drawing of the
-    /// weights the pixel loop uses — not a picture of what they ought to look like.
-    static let ribbonWeights: [[Double]] = {
+    /// The engine's own membership vectors. The strip is a drawing of the weights the
+    /// pixel loop uses — not a picture of what they ought to look like.
+    ///
+    /// A function of the live arcs, not a cached constant. It was a `static let`
+    /// computed once from the canonical geometry, which was correct exactly as long as
+    /// the geometry could not be edited; the moment the ring's handles landed, a cached
+    /// ribbon would have drawn a band's reach that the render no longer agreed with —
+    /// the specific failure this panel's header says it exists to avoid.
+    static func ribbonWeights(_ arcs: [ColorEngine.BandArc]) -> [[Double]] {
         var out: [[Double]] = []
         out.reserveCapacity(ColorPanel.ribbonSteps + 1)
         for step in 0...ColorPanel.ribbonSteps {
             let hue = Double(step) / Double(ColorPanel.ribbonSteps) * 360
-            out.append(ColorEngine.bandWeights(hue: hue))
+            out.append(ColorEngine.bandWeights(hue: hue, arcs: arcs))
         }
         return out
-    }()
+    }
+
+    /// Two finite values from a wire array that a decoded file could have made anything.
+    static func pair(_ values: [Double], _ fallback: [Double]) -> [Double] {
+        var out = fallback
+        for i in 0..<2 where i < values.count && values[i].isFinite { out[i] = values[i] }
+        return out
+    }
+
+    /// The sentence under the ring, in the units the handles are dragged in.
+    static func arcSummary(_ arcs: [ColorEngine.BandArc], _ index: Int) -> String {
+        guard arcs.indices.contains(index) else { return "feathered into its neighbours." }
+        let a = arcs[index]
+        return String(format: "core −%.0f°/+%.0f°, feather %.0f°/%.0f°.",
+                      a.coreBelow, a.coreAbove, a.featherBelow, a.featherAbove)
+    }
+
+    /// A hue's actual colour, for the ring — evaluated through OKLCh and the working
+    /// space rather than through SwiftUI's HSB, whose hue angle is a different number
+    /// entirely. A ring that put "29°" somewhere other than where the engine's red band
+    /// sits would be a diagram of a different tool.
+    static func hueColor(_ degrees: Double, L: Double = 0.72, C: Double = 0.13) -> Color {
+        let working = OKLabTransform.working.toRGB(OKLCh(L: L, C: C, h: degrees))
+        let display = ColorPanel.workingToSRGB.apply(working)
+        let encoded = TransferFunction.srgb.encode(RGB(Num.saturate(display.r),
+                                                       Num.saturate(display.g),
+                                                       Num.saturate(display.b)))
+        return Color(red: Num.saturate(encoded.r),
+                     green: Num.saturate(encoded.g),
+                     blue: Num.saturate(encoded.b))
+    }
+
+    static let workingToSRGB: Mat3 = ColorEngine.workingSpace.matrix(to: .srgb)
 
     /// A chip for a sampled swatch. The sample is scene-linear working RGB, so it gets
     /// a rough encode before it is shown — otherwise every swatch reads as too dark.
@@ -497,6 +601,205 @@ struct ColorPanel: View {
         let g = Num.saturate(pow(Num.saturate(point.sample[1]), 1.0 / 2.2))
         let b = Num.saturate(pow(Num.saturate(point.sample[2]), 1.0 / 2.2))
         return Color(red: r, green: g, blue: b)
+    }
+}
+
+// MARK: - Hue ring
+
+/// Which of the four handles on the selected band's arc is being dragged.
+enum MixerArcHandle: String, Hashable, Sendable {
+    case featherStart, coreStart, coreEnd, featherEnd
+}
+
+/// The hue ring, with the selected band's core arc and its four draggable handles.
+///
+/// This is the control docs/05 buys the whole Mixer entry with: Lightroom's band extents
+/// are invisible AND fixed, Capture One exposes one global Smoothness, and DxO's
+/// ColorWheel — the interaction grammar adopted here on purpose — is the only shipping
+/// tool that lets you see and move them. Two inner handles bound the core, two outer
+/// ones set the per-side falloff, and the arc drawn is the one `ColorEngine.bandArcs`
+/// resolved, clamps included.
+struct MixerHueRing: View {
+    let arcs: [ColorEngine.BandArc]
+    let selected: Int
+    let allBands: Bool
+    let onHandleMoved: (MixerArcHandle, Double) -> Void
+    let onResetArc: () -> Void
+
+    private static let diameter: CGFloat = 118
+    private static let ringWidth: CGFloat = 13
+    /// Steps around the ring. 180 is 2° per wedge — below the width of the thinnest
+    /// feather anyone can drag, so the colour never reads as stepped.
+    private static let steps: Int = 180
+
+    /// Which handle the drag grabbed. Decided once, on the first event: re-deciding on
+    /// every event let a fast drag hand the pointer to a neighbouring handle halfway
+    /// through, which reads as the arc snapping inside out.
+    @State private var grabbed: MixerArcHandle? = nil
+
+    var body: some View {
+        let arcList = arcs
+        let index = selected
+        let showHandles = !allBands && arcList.indices.contains(index)
+
+        return ZStack {
+            Canvas { context, size in
+                let centre = CGPoint(x: size.width / 2, y: size.height / 2)
+                // The arc and its handles live OUTSIDE the colour wheel, in the margin
+                // the frame reserves for them — drawn at the wheel's own radius they
+                // were clipped by the view bounds and the two upper handles vanished.
+                let bound = Swift.min(size.width, size.height) / 2
+                let arcRadius = bound - 5
+                let outer = arcRadius - 6
+                let inner = outer - MixerHueRing.ringWidth
+                guard inner > 2 else { return }
+
+                // The hue wheel itself, wedge by wedge, in real OKLCh hues.
+                for step in 0..<MixerHueRing.steps {
+                    let a0 = Double(step) / Double(MixerHueRing.steps) * 360
+                    let a1 = Double(step + 1) / Double(MixerHueRing.steps) * 360
+                    var wedge = Path()
+                    wedge.move(to: MixerHueRing.point(centre, inner, a0))
+                    wedge.addLine(to: MixerHueRing.point(centre, outer, a0))
+                    wedge.addLine(to: MixerHueRing.point(centre, outer, a1))
+                    wedge.addLine(to: MixerHueRing.point(centre, inner, a1))
+                    wedge.closeSubpath()
+                    context.fill(wedge, with: .color(ColorPanel.hueColor((a0 + a1) / 2)))
+                }
+
+                // Every band's centre, as a tick: the eight fixed hues the wire format
+                // is denominated in, so a re-centred core is visibly off its own tick.
+                for arc in arcList {
+                    var tick = Path()
+                    tick.move(to: MixerHueRing.point(centre, inner - 3, arc.centre))
+                    tick.addLine(to: MixerHueRing.point(centre, inner, arc.centre))
+                    context.stroke(tick, with: .color(Lumen.separator), lineWidth: 1)
+                }
+
+                guard showHandles, arcList.indices.contains(index) else { return }
+                let arc = arcList[index]
+
+                // Core and feather at ONE radius, so they read as a single arc with a
+                // bright middle and two dim tails: the core is what the band fully
+                // claims and the feather is how it lets go, and the picture should say
+                // that they are the same reach measured in two parts.
+                context.stroke(MixerHueRing.arcPath(centre, arcRadius,
+                                                    from: arc.centre - arc.coreBelow - arc.featherBelow,
+                                                    to: arc.centre - arc.coreBelow),
+                               with: .color(Lumen.primaryText.opacity(0.30)), lineWidth: 2)
+                context.stroke(MixerHueRing.arcPath(centre, arcRadius,
+                                                    from: arc.centre + arc.coreAbove,
+                                                    to: arc.centre + arc.coreAbove + arc.featherAbove),
+                               with: .color(Lumen.primaryText.opacity(0.30)), lineWidth: 2)
+                context.stroke(MixerHueRing.arcPath(centre, arcRadius,
+                                                    from: arc.centre - arc.coreBelow,
+                                                    to: arc.centre + arc.coreAbove),
+                               with: .color(Lumen.primaryText), lineWidth: 2.5)
+
+                // Where Uniformity converges: the midpoint of the core arc, which sits
+                // off the band's tick as soon as the two inner handles stop matching.
+                var target = Path()
+                target.move(to: MixerHueRing.point(centre, arcRadius - 4, arc.coreCentre))
+                target.addLine(to: MixerHueRing.point(centre, arcRadius + 4, arc.coreCentre))
+                context.stroke(target, with: .color(Lumen.accent), lineWidth: 1.5)
+
+                for handle in MixerHueRing.allHandles {
+                    let isCore = handle == .coreStart || handle == .coreEnd
+                    let p = MixerHueRing.point(centre, arcRadius,
+                                               MixerHueRing.degrees(of: handle, in: arc))
+                    let r: CGFloat = isCore ? 4 : 3
+                    let dot = Path(ellipseIn: CGRect(x: p.x - r, y: p.y - r,
+                                                     width: r * 2, height: r * 2))
+                    context.fill(dot, with: .color(isCore
+                                                   ? Lumen.primaryText
+                                                   : Lumen.primaryText.opacity(0.55)))
+                    context.stroke(dot, with: .color(Lumen.panelBackground), lineWidth: 1)
+                }
+            }
+            .frame(width: MixerHueRing.diameter + 12, height: MixerHueRing.diameter + 12)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { drag in
+                        guard showHandles else { return }
+                        let box = MixerHueRing.diameter + 12
+                        let dx = Double(drag.location.x - box / 2)
+                        let dy = Double(drag.location.y - box / 2)
+                        guard dx != 0 || dy != 0 else { return }
+                        let degrees = Num.wrapHue(atan2(dy, dx) * 180 / .pi)
+                        let handle = grabbed
+                            ?? MixerHueRing.nearestHandle(to: degrees, in: arcList[index])
+                        if grabbed == nil { grabbed = handle }
+                        onHandleMoved(handle, degrees)
+                    }
+                    .onEnded { _ in grabbed = nil }
+            )
+            .onTapGesture(count: 2) { onResetArc() }
+
+            if allBands {
+                Text("All bands")
+                    .font(.system(size: 9))
+                    .foregroundStyle(Lumen.secondaryText)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 2)
+        .help(allBands
+              ? "Band reach is per band; pick one to shape its arc."
+              : "Drag the inner handles for the core range, the outer ones for the "
+                + "feather. Double-click to reset the arc.")
+    }
+
+    static let allHandles: [MixerArcHandle] =
+        [.featherStart, .coreStart, .coreEnd, .featherEnd]
+
+    static func degrees(of handle: MixerArcHandle, in arc: ColorEngine.BandArc) -> Double {
+        switch handle {
+        case .featherStart: return arc.featherStart
+        case .coreStart: return arc.coreStart
+        case .coreEnd: return arc.coreEnd
+        case .featherEnd: return arc.featherEnd
+        }
+    }
+
+    /// Whichever of the four is closest, in degrees around the ring.
+    /// The parameter is deliberately not called `degrees`: that name is already the
+    /// lookup function one line down, and shadowing it makes the call unresolvable.
+    static func nearestHandle(to angle: Double,
+                              in arc: ColorEngine.BandArc) -> MixerArcHandle {
+        var best: MixerArcHandle = .coreStart
+        var bestDistance = Double.infinity
+        for handle in allHandles {
+            let d = abs(Num.hueDelta(MixerHueRing.degrees(of: handle, in: arc), angle))
+            if d < bestDistance {
+                bestDistance = d
+                best = handle
+            }
+        }
+        return best
+    }
+
+    /// Screen point at a hue angle. Same convention as `LumenColorWheel`: hue 0 at three
+    /// o'clock, increasing clockwise, because y grows downward.
+    static func point(_ centre: CGPoint, _ radius: CGFloat, _ degrees: Double) -> CGPoint {
+        let a = degrees * .pi / 180
+        return CGPoint(x: centre.x + radius * CGFloat(cos(a)),
+                       y: centre.y + radius * CGFloat(sin(a)))
+    }
+
+    /// A polyline arc. Sampled rather than `addArc`, so there is no sweep-direction
+    /// argument to get backwards and the wrap at 360° needs no special case.
+    static func arcPath(_ centre: CGPoint, _ radius: CGFloat,
+                        from start: Double, to end: Double) -> Path {
+        var path = Path()
+        let span = Swift.max(end - start, 0)
+        let steps = Swift.max(2, Int(span / 2) + 2)
+        for i in 0...steps {
+            let t = Double(i) / Double(steps)
+            let p = point(centre, radius, start + span * t)
+            if i == 0 { path.move(to: p) } else { path.addLine(to: p) }
+        }
+        return path
     }
 }
 

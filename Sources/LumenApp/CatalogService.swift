@@ -225,20 +225,161 @@ final class CatalogService: @unchecked Sendable {
 
     // MARK: - Queries
 
-    /// Filter and sort in SQL rather than in Swift, which is what keeps a
-    /// 100,000-frame archive responsive.
-    func photos(matching query: PhotoQuery, folderPath: String?) -> [PhotoRow] {
-        var rows: [PhotoRow] = []
-        queue.sync {
-            do {
-                let folderID = try folderPath.flatMap { try store.folder(path: $0)?.id }
-                rows = try store.photos(matching: query, folderID: folderID)
-            } catch {
-                NSLog("Lumen catalog: query failed — %@", String(describing: error))
+    /// Every read below is the same three steps — hop to the serial queue, run one
+    /// store call, hop back — and writing them out twenty times is twenty chances to
+    /// forget the hop and stall the main actor mid-cull.
+    ///
+    /// Failures return the fallback and are logged rather than thrown. A filter that
+    /// cannot reach the catalog degrades to showing everything, which is the same
+    /// posture the rest of this file takes: losing the catalog costs speed, never work,
+    /// and never a modal in the middle of a culling pass.
+    private func onQueue<T: Sendable>(_ what: String, fallback: T,
+                                      _ body: @escaping @Sendable (CatalogStore) throws -> T)
+        async -> T {
+        await withCheckedContinuation { (continuation: CheckedContinuation<T, Never>) in
+            queue.async { [store] in
+                do {
+                    continuation.resume(returning: try body(store))
+                } catch {
+                    NSLog("Lumen catalog: %@ failed — %@", what, String(describing: error))
+                    continuation.resume(returning: fallback)
+                }
             }
         }
-        return rows
     }
+
+    /// Filter and sort in SQL rather than in Swift, which is what keeps a
+    /// 100,000-frame archive responsive — and what makes the eight sort orders that
+    /// need capture time, camera, ISO or aspect possible at all.
+    func photos(matching query: PhotoQuery, folderPath: String?) async -> [PhotoRow] {
+        await onQueue("grid query", fallback: []) { store in
+            let folderID = try folderPath.flatMap { try store.folder(path: $0)?.id }
+            return try store.photos(matching: query, folderID: folderID)
+        }
+    }
+
+    /// The number a chip shows. Same predicates, same indexes as the query itself, so a
+    /// count can never disagree with the list it labels.
+    func count(matching query: PhotoQuery, folderPath: String?) async -> Int {
+        await onQueue("chip count", fallback: 0) { store in
+            let folderID = try folderPath.flatMap { try store.folder(path: $0)?.id }
+            return try store.countPhotos(matching: query, folderID: folderID)
+        }
+    }
+
+    /// The values a metadata chip offers, with live counts.
+    func facets(_ facet: PhotoFacet, folderPath: String?) async -> [FacetValue] {
+        await onQueue("metadata chip values", fallback: []) { store in
+            let folderID = try folderPath.flatMap { try store.folder(path: $0)?.id }
+            return try store.facetCounts(facet, folderID: folderID)
+        }
+    }
+
+    // MARK: - Collections
+
+    /// Albums with their membership counts, which is what the sidebar shows. Counted
+    /// through the same query builder the grid uses, so an album row and the grid it
+    /// opens can never report different numbers.
+    func collections() async -> [CollectionItem] {
+        await onQueue("album list", fallback: []) { store in
+            try store.collections().map { album in
+                var query = PhotoQuery()
+                query.albumID = album.id
+                return CollectionItem(id: album.id, name: album.name,
+                                      count: try store.countPhotos(matching: query),
+                                      isTarget: album.isTarget)
+            }
+        }
+    }
+
+    func createCollection(name: String) async -> Int64? {
+        await onQueue("album creation", fallback: nil) { (store: CatalogStore) -> Int64? in
+            let id = try store.createCollection(name: name)
+            // The first album a photographer makes becomes the target, so `⌘B` does
+            // something the moment there is somewhere for it to put a photo.
+            if (try store.targetCollectionID()) == nil {
+                try store.setTargetCollection(id)
+            }
+            return id
+        }
+    }
+
+    func setTargetCollection(_ albumID: Int64) async {
+        await onQueue("target album", fallback: ()) { try $0.setTargetCollection(albumID) }
+    }
+
+
+    func addToCollection(_ albumID: Int64, photoIDs: [Int64]) async {
+        await onQueue("album membership", fallback: ()) {
+            try $0.addToCollection(albumID, photoIDs: photoIDs)
+        }
+    }
+
+    func removeFromCollection(_ albumID: Int64, photoIDs: [Int64]) async {
+        await onQueue("album membership", fallback: ()) {
+            try $0.removeFromCollection(albumID, photoIDs: photoIDs)
+        }
+    }
+
+    // MARK: - Keywords
+
+    func keywords(photoID: Int64) async -> [String] {
+        await onQueue("keyword read", fallback: []) { try $0.keywords(photoID: photoID) }
+    }
+
+    func allKeywords() async -> [FacetValue] {
+        await onQueue("keyword list", fallback: []) { try $0.allKeywords() }
+    }
+
+    func addKeyword(_ name: String, photoIDs: [Int64]) async {
+        await onQueue("keyword write", fallback: ()) {
+            _ = try $0.addKeyword(name, photoIDs: photoIDs)
+        }
+    }
+
+    func removeKeyword(_ name: String, photoIDs: [Int64]) async {
+        await onQueue("keyword write", fallback: ()) {
+            try $0.removeKeyword(name, photoIDs: photoIDs)
+        }
+    }
+
+    // MARK: - Stacks
+
+    /// Group a selection, with the frame under the cursor as the pick. Returns the
+    /// stack so the caller can say how many frames went into it.
+    func createStack(photoIDs: [Int64], pickPhotoID: Int64?) async -> Int64? {
+        await onQueue("stack creation", fallback: nil) { (store: CatalogStore) -> Int64? in
+            try store.createStack(origin: "manual", photoIDs: photoIDs,
+                                  pickPhotoID: pickPhotoID)
+        }
+    }
+
+    func stack(containing photoID: Int64) async -> StackRow? {
+        await onQueue("stack lookup", fallback: nil) { (store: CatalogStore) -> StackRow? in
+            try store.stack(containing: photoID)
+        }
+    }
+
+    func stackMembers(stackID: Int64) async -> [Int64] {
+        await onQueue("stack members", fallback: []) { try $0.stackMembers(stackID: stackID) }
+    }
+
+    func setStackCollapsed(_ collapsed: Bool, stackID: Int64) async {
+        await onQueue("stack collapse", fallback: ()) {
+            try $0.setStackCollapsed(collapsed, stackID: stackID)
+        }
+    }
+
+    func setStackPick(_ photoID: Int64, stackID: Int64) async {
+        await onQueue("stack pick", fallback: ()) {
+            try $0.setStackPick(photoID, stackID: stackID)
+        }
+    }
+
+    func dissolveStack(id: Int64) async {
+        await onQueue("unstack", fallback: ()) { try $0.dissolveStack(id: id) }
+    }
+
 
     // MARK: - Enum bridging
 

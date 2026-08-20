@@ -23,6 +23,10 @@ struct LookPanel: View {
     @EnvironmentObject var state: AppState
 
     @State private var wheelsExpanded: Bool = true
+    /// Closed by default: the four wheels are the first-second surface, and the grid is
+    /// for the second pass. It is a disclosure of the grade, not a second grading tool
+    /// (D3) — which is why it lives inside `wheelsSection` rather than beside it.
+    @State private var balanceExpanded: Bool = false
     @State private var printerExpanded: Bool = true
     @State private var primariesExpanded: Bool = false
     @State private var transformExpanded: Bool = true
@@ -130,8 +134,118 @@ struct LookPanel: View {
                 caption("Blending widens the crossfades, Balance slides both pivots. "
                         + "Wheel tints are constant-luminance; the bar under each wheel "
                         + "is the zone's own lightness.")
+
+                colorBalanceDisclosure
             }
         }
+    }
+
+    // MARK: - Colour balance (the advanced grid, D15)
+
+    /// darktable's colour balance rgb, folded into one disclosure of the grade.
+    ///
+    /// Three axes that a naive HSL model would collapse into a single chroma multiply,
+    /// and that read as three intents here because the engine separates them properly:
+    /// Chroma is colourfulness at fixed lightness, Saturation is the colourfulness /
+    /// lightness RATIO at fixed H-K brightness, Brilliance is H-K brightness at fixed
+    /// ratio. What is deliberately NOT on screen is darktable's own leaked internals —
+    /// the white fulcrum, the saturation-formula picker, the checkerboard preferences.
+    /// There is one formula.
+    private var colorBalanceDisclosure: some View {
+        let grid = state.currentRecipe.look.wheels.colorBalance
+
+        return VStack(alignment: .leading, spacing: 2) {
+            LumenSectionHeader(title: "Colour balance",
+                               isExpanded: $balanceExpanded,
+                               isModified: !grid.isZero,
+                               onReset: {
+                                   state.updateRecipe {
+                                       $0.look.wheels.colorBalance = ColorBalanceParams()
+                                   }
+                               })
+
+            if balanceExpanded {
+                LumenSlider(title: "Hue shift",
+                            value: bindLook(\Look.wheels.colorBalance.hueShift,
+                                            key: "cb.hueShift"),
+                            range: -180...180, defaultValue: 0, step: 1, decimals: 0)
+                LumenSlider(title: "Vibrance",
+                            value: bindLook(\Look.wheels.colorBalance.vibrance,
+                                            key: "cb.vibrance"),
+                            range: -100...100, defaultValue: 0, step: 1, decimals: 0)
+
+                caption("Master moves, across the whole frame: the hue rotation holds "
+                        + "lightness and chroma, and Vibrance spends itself on the "
+                        + "colours that have least.")
+
+                balanceAxis("Chroma", \Look.wheels.colorBalance.chroma, "cb.chroma")
+                caption("Colourfulness at constant lightness and hue.")
+
+                balanceAxis("Saturation", \Look.wheels.colorBalance.saturation,
+                            "cb.saturation")
+                caption("The colourfulness/lightness ratio, at constant H-K corrected "
+                        + "brightness — the move that does not make a pushed blue read "
+                        + "as if it dimmed.")
+
+                balanceAxis("Brilliance", \Look.wheels.colorBalance.brilliance,
+                            "cb.brilliance")
+                if LookPanel.brillianceIsPushed(grid.brilliance) {
+                    // A soft warning, not a clamp. darktable's own documentation calls
+                    // past ±20 artifact territory, and the honest thing is to say so
+                    // while still letting the slider go there.
+                    Text("Brilliance past ±20 is artifact territory — highlights start "
+                         + "to flatten and shadows to plug.")
+                        .font(.system(size: 10))
+                        .foregroundStyle(Lumen.accent)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.bottom, 4)
+                } else {
+                    caption("H-K corrected brightness at constant ratio: exposure-like, "
+                            + "perceptually scaled.")
+                }
+
+                caption("The grid grades the same three zones the strip above draws, "
+                        + "measured on this stage's input — so opening this disclosure "
+                        + "never moves the zones the wheels are already working in.")
+            }
+        }
+    }
+
+    /// One axis of the grid: Global on top, then the three zones, in the same order the
+    /// wheels are laid out so the two halves of the panel read the same way.
+    private func balanceAxis(_ title: String,
+                             _ axis: WritableKeyPath<Look, ColorBalanceAxis>,
+                             _ key: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title.uppercased())
+                .font(.system(size: 9, weight: .semibold))
+                .tracking(0.6)
+                .foregroundStyle(Lumen.secondaryText)
+                .padding(.top, 4)
+            LumenSlider(title: "Global",
+                        value: bindLook(axis.appending(path: \ColorBalanceAxis.global),
+                                        key: key + ".global"),
+                        range: -100...100, defaultValue: 0, step: 1, decimals: 0)
+            LumenSlider(title: "Shadows",
+                        value: bindLook(axis.appending(path: \ColorBalanceAxis.shadows),
+                                        key: key + ".shadows"),
+                        range: -100...100, defaultValue: 0, step: 1, decimals: 0)
+            LumenSlider(title: "Midtones",
+                        value: bindLook(axis.appending(path: \ColorBalanceAxis.mid),
+                                        key: key + ".mid"),
+                        range: -100...100, defaultValue: 0, step: 1, decimals: 0)
+            LumenSlider(title: "Highlights",
+                        value: bindLook(axis.appending(path: \ColorBalanceAxis.high),
+                                        key: key + ".high"),
+                        range: -100...100, defaultValue: 0, step: 1, decimals: 0)
+        }
+    }
+
+    /// Whether any Brilliance field is far enough out to earn the warning line.
+    static func brillianceIsPushed(_ axis: ColorBalanceAxis) -> Bool {
+        let limit: Double = 20
+        return abs(axis.global) > limit || abs(axis.shadows) > limit
+            || abs(axis.mid) > limit || abs(axis.high) > limit
     }
 
     private func wheel(_ title: String, path: WritableKeyPath<GradingWheels, Wheel>) -> some View {
@@ -581,10 +695,15 @@ struct LookPanel: View {
         return [a, b]
     }
 
+    /// What puts the modified dot on the Colour Grading header. Broader than
+    /// `GradingWheels.isNeutral`, which answers "would this change a pixel": moved
+    /// pivots change no pixel on their own but are still an edit the user made and
+    /// should be able to see and reset.
     static func isNeutral(_ wheels: GradingWheels) -> Bool {
         let list = [wheels.global, wheels.shadows, wheels.mid, wheels.high]
         let untouched = list.allSatisfy { $0.sat == 0 && $0.lum == 0 }
         return untouched && wheels.blending == 50 && wheels.balance == 0
+            && wheels.colorBalance.isZero
             && normalizedPivots(wheels.pivots) == normalizedPivots(GradingWheels.defaultPivots)
     }
 

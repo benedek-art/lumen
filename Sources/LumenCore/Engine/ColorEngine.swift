@@ -50,13 +50,28 @@ public struct ColorEngine: Sendable {
     public let blackAndWhiteBands: [Double]
 
     /// Measured chroma-weighted mean hue per band, if the renderer has image statistics
-    /// (docs/06 brief §1.6). `nil` — the default — falls back to the band centres, which
-    /// is the best a per-pixel closed form can do; see `bandTargetHue(_:)`.
-    public var bandMeanHues: [Double]?
+    /// (docs/06 brief §1.6). `nil` falls back to the user's own core arc — see
+    /// `bandTargetHue(_:)`.
+    ///
+    /// A `let` fed by an init parameter, and a `var` assigned `nil` in `init` before
+    /// that. It had a reader at `bandTargetHue` and NO writer anywhere in Sources or
+    /// Tests, so Uniformity could only ever converge on the eight fixed band centres —
+    /// which is not what docs/05 specifies ("computes the chroma-weighted mean hue of
+    /// the band's members") and is visibly the wrong answer on the photograph the
+    /// feature exists for: a sky whose blues all sit at 250° got dragged toward 254.2°
+    /// as a body rather than converging on itself.
+    ///
+    /// `measureBandMeanHues` is the producer. Wiring it into the shipping path needs a
+    /// change in `RenderPlan`, which does not own an image — see this file's note on
+    /// `varianceCompress` for what else that same wiring has to carry.
+    public let bandMeanHues: [Double]?
 
     // MARK: - Derived state
 
     private let bands: [MixerBand]
+    /// The eight bands' ring geometry, resolved once. The Mixer reads these; B&W does
+    /// not — see `applyBlackAndWhite`.
+    public let arcs: [BandArc]
     private let uniformity: Double
     private let mixerIsIdentity: Bool
     private let swatches: [Swatch]
@@ -95,12 +110,33 @@ public struct ColorEngine: Sendable {
         return v
     }()
 
-    /// Core half-arc and feather extent. Cores tile the circle exactly (±22.5° at 45°
-    /// spacing) and the feathers overlap the neighbours, which is what makes the
-    /// normalized weights C¹ everywhere: no wedge edges exist, so the LrC PV6 banding
-    /// class of artifact is structurally impossible rather than merely mitigated.
+    /// Core half-arc and feather extent, at the DEFAULT geometry. Cores tile the circle
+    /// exactly (±22.5° at 45° spacing) and the feathers overlap the neighbours, which is
+    /// what makes the normalized weights C¹ everywhere: no wedge edges exist, so the LrC
+    /// PV6 banding class of artifact is structurally impossible rather than merely
+    /// mitigated. `MixerBand.defaultCore`/`defaultFeather` are derived from these.
     public static let bandCoreDegrees: Double = 22.5
     public static let bandFeatherDegrees: Double = 15.0
+
+    /// Bounds on the user's four ring handles (docs/05: draggable core + per-side
+    /// feather, "fully visual, no hidden numeric range").
+    public static let bandCoreMinDegrees: Double = 5.0
+    public static let bandCoreMaxDegrees: Double = 44.0
+    public static let bandFeatherMinDegrees: Double = 2.0
+    public static let bandFeatherMaxDegrees: Double = 60.0
+
+    /// The invariant that keeps the partition of unity a partition: every band must
+    /// reach at least this far to each side.
+    ///
+    /// `bandWeights` has a fallback for the case where every band's weight at some hue
+    /// is zero — it hands the whole weight to the nearest band. That branch is a HARD
+    /// EDGE, the one thing this band model exists not to have, and with fixed geometry
+    /// it was unreachable. Draggable handles make it reachable, so the sanitizer closes
+    /// the door instead: cores sit 45° apart, so a reach of more than 22.5° per side
+    /// means every hue is strictly inside at least one band's falloff and the sum is
+    /// never zero. The fallback stays as a guard against a corrupt decode, not as a
+    /// state the ring can be dragged into.
+    public static let bandMinReachDegrees: Double = 27.5
 
     /// ±100 on a Hue slider lands exactly on the adjacent band centre.
     public static let hueRangeDegrees: Double = 45.0
@@ -207,11 +243,15 @@ public struct ColorEngine: Sendable {
 
     // MARK: - Init
 
+    /// `bandMeanHues` is the one input that is not a recipe field: it is a MEASUREMENT
+    /// of this image, so it arrives from the renderer rather than from the user, and
+    /// `nil` means "nobody measured" rather than "zero".
     public init(mixer: Mixer,
                 pointColors: [PointColor],
                 color: ColorAdjust,
                 primaries: Primaries,
                 bw: BlackAndWhite?,
+                bandMeanHues: [Double]? = nil,
                 context: OKLabTransform.Context = OKLabTransform.working) {
         self.mixer = mixer
         self.pointColors = pointColors
@@ -219,10 +259,11 @@ public struct ColorEngine: Sendable {
         self.primaries = primaries
         self.bw = bw
         self.context = context
-        self.bandMeanHues = nil
+        self.bandMeanHues = bandMeanHues
 
         let sanitized: [MixerBand] = Self.sanitizedBands(mixer.bands)
         self.bands = sanitized
+        self.arcs = Self.bandArcs(sanitized)
         self.uniformity = Num.clamp(mixer.uniformity, 0, 100)
         var mixerFlat = true
         for b in sanitized where b.hue != 0 || b.sat != 0 || b.lum != 0 { mixerFlat = false }
@@ -263,9 +304,37 @@ public struct ColorEngine: Sendable {
 
     // MARK: - The stage
 
+    /// The whole of S9 at one pixel, with no neighbourhood — the flat-neighbourhood
+    /// case of `apply(_:localMean:)`, and the entry point every shipping caller uses.
+    public func apply(_ c: RGB) -> RGB {
+        apply(c, localMean: c)
+    }
+
     /// The whole of S9, in pipeline order. Pure, closed-form, one pass: primaries remap
     /// → Mixer → Point Colour → Vibrance/Saturation → B&W. No gamut clip: see below.
-    public func apply(_ c: RGB) -> RGB {
+    ///
+    /// `localMean` is the guided-filter mean of the STAGE INPUT around this pixel, and
+    /// only the two variance-compression controls read it — Mixer Uniformity and Point
+    /// Colour Variance. With `localMean == c` they compress the pixel itself, which
+    /// converges the colour correctly and takes the texture with it; with a real
+    /// neighbourhood mean they compress the low-frequency blotch and leave `(v − μ)` —
+    /// pores, grain, sky texture — untouched, which is the half of "three surfaces, one
+    /// kernel" docs/05 is actually selling.
+    ///
+    /// **What it would take to supply a real one, precisely.** `RenderPlan` bakes this
+    /// function into a 3D LUT, and a 3D LUT cannot carry a second per-pixel input. The
+    /// variance controls have to leave that table and become their own stage:
+    ///   1. `RenderPlan` splits S9 into the closed-form part (bakeable, unchanged) and a
+    ///      variance part gated on `mixer.uniformity != 0 || any(pointColors.variance)`;
+    ///   2. the renderer computes a guided-filter mean of the stage input once per
+    ///      frame at preview resolution — `SpatialOps` already has the filter, and
+    ///      `RenderGraph.guidedFilter` already runs it on the GPU for the tone mask —
+    ///      and caches it against the recipe prefix, as docs/05 requires ("the
+    ///      guided-filter local mean is computed once per image at preview res and
+    ///      cached");
+    ///   3. that mean and the image go into a two-input kernel calling this entry point.
+    /// Until then the flat case is what runs, and it is documented rather than implied.
+    public func apply(_ c: RGB, localMean: RGB) -> RGB {
         guard c.isFinite else { return c }
         // A stage that does nothing must do NOTHING. Without this the always-on soft
         // gamut clip below still ran on a default recipe, compressing the chroma of
@@ -274,9 +343,13 @@ public struct ColorEngine: Sendable {
         // `isIdentity` is true. GradeEngine has had the same guard from the start.
         guard !isIdentity else { return c }
         var out: RGB = c
+        // The neighbourhood is measured on the STAGE INPUT and travels unchanged through
+        // the stage — the primaries remap is a matrix, so it maps the mean the same way
+        // it maps the pixel, and applying it to both keeps the deviation honest.
+        let mean: RGB = localMean.isFinite ? applyPrimaries(localMean) : c
         out = applyPrimaries(out)
-        out = applyMixer(out)
-        out = applyPointColors(out)
+        out = applyMixer(out, localMean: mean)
+        out = applyPointColors(out, localMean: mean)
         out = applyVibranceSaturation(out)
         out = applyBlackAndWhite(out)
         guard out.isFinite else { return c }
@@ -309,23 +382,107 @@ public struct ColorEngine: Sendable {
             && !bwEnabled
     }
 
+    // MARK: - Band geometry (the four ring handles, D13)
+
+    /// One band's four ring handles, resolved to degrees and already sanitized.
+    ///
+    /// Absolute rather than relative, because two consumers have to agree about the
+    /// same arc: the pixel loop's membership function and the ring the user drags. A
+    /// panel that re-derived the arc from the wire values would be a second copy of
+    /// this arithmetic and would drift from it.
+    public struct BandArc: Equatable, Sendable {
+        /// The band's canonical hue centre. Not user-adjustable: it is the wire
+        /// format's structural identity for the band, and moving it would change what
+        /// "Green" means in every saved recipe.
+        public let centre: Double
+        public let coreBelow: Double
+        public let coreAbove: Double
+        public let featherBelow: Double
+        public let featherAbove: Double
+
+        public init(centre: Double, coreBelow: Double, coreAbove: Double,
+                    featherBelow: Double, featherAbove: Double) {
+            self.centre = centre
+            self.coreBelow = coreBelow
+            self.coreAbove = coreAbove
+            self.featherBelow = featherBelow
+            self.featherAbove = featherAbove
+        }
+
+        /// The MIDPOINT of the core arc — where the band actually sits after the user
+        /// has dragged its inner handles, and therefore where Uniformity converges when
+        /// no measured mean is available. Equal to `centre` at the default geometry, so
+        /// nothing about an untouched recipe changes.
+        public var coreCentre: Double { Num.wrapHue(centre + (coreAbove - coreBelow) / 2) }
+
+        /// Ring drawing: the four handle positions, in absolute degrees.
+        public var coreStart: Double { Num.wrapHue(centre - coreBelow) }
+        public var coreEnd: Double { Num.wrapHue(centre + coreAbove) }
+        public var featherStart: Double { Num.wrapHue(centre - coreBelow - featherBelow) }
+        public var featherEnd: Double { Num.wrapHue(centre + coreAbove + featherAbove) }
+    }
+
+    /// The default geometry, as arcs. What `bandWeights(hue:)` and the B&W mix use.
+    public static let canonicalArcs: [BandArc] =
+        ColorEngine.bandArcs(Array(repeating: MixerBand(), count: ColorEngine.bandCount))
+
+    /// Resolve the wire format's per-band handles into arcs, clamped so the partition
+    /// of unity survives any file (see `bandMinReachDegrees`).
+    public static func bandArcs(_ bands: [MixerBand]) -> [BandArc] {
+        var out: [BandArc] = []
+        out.reserveCapacity(bandCount)
+        for i in 0..<bandCount {
+            let band: MixerBand = i < bands.count ? bands[i] : MixerBand()
+            func side(_ v: [Double], _ index: Int, _ fallback: Double,
+                      _ lo: Double, _ hi: Double) -> Double {
+                guard index < v.count, v[index].isFinite else { return fallback }
+                return Num.clamp(v[index], lo, hi)
+            }
+            let cb: Double = side(band.core, 0, bandCoreDegrees,
+                                  bandCoreMinDegrees, bandCoreMaxDegrees)
+            let ca: Double = side(band.core, 1, bandCoreDegrees,
+                                  bandCoreMinDegrees, bandCoreMaxDegrees)
+            var fb: Double = side(band.feather, 0, bandFeatherDegrees,
+                                  bandFeatherMinDegrees, bandFeatherMaxDegrees)
+            var fa: Double = side(band.feather, 1, bandFeatherDegrees,
+                                  bandFeatherMinDegrees, bandFeatherMaxDegrees)
+            // Widen the FEATHER, never the core, to meet the minimum reach: the core is
+            // what the user drew and the feather is how it lets go, so a narrow
+            // selection stays narrow and only its falloff is forced to stay smooth.
+            fb = Swift.max(fb, bandMinReachDegrees - cb)
+            fa = Swift.max(fa, bandMinReachDegrees - ca)
+            out.append(BandArc(centre: bandHueCentres[i],
+                               coreBelow: cb, coreAbove: ca,
+                               featherBelow: fb, featherAbove: fa))
+        }
+        return out
+    }
+
     // MARK: - Band weights
+
+    /// The 8-band partition of unity at `hue`, in wire order, at the DEFAULT geometry.
+    /// Kept as the canonical-geometry entry point: the B&W mix and the goldens are
+    /// denominated in it, and it must not move when a Mixer handle does.
+    public static func bandWeights(hue: Double) -> [Double] {
+        bandWeights(hue: hue, arcs: canonicalArcs)
+    }
 
     /// The 8-band partition of unity at `hue`, in wire order. Σw = 1 exactly, on every
     /// path including the degenerate one. Exposed so the UI's ring and the "show reach"
     /// overlay draw the weights the engine actually uses, not a redrawn approximation.
-    public static func bandWeights(hue: Double) -> [Double] {
+    public static func bandWeights(hue: Double, arcs: [BandArc]) -> [Double] {
         var w: [Double] = [Double](repeating: 0, count: bandCount)
         var sum: Double = 0
         for i in 0..<bandCount {
-            let d = Num.hueDelta(bandHueCentres[i], hue)   // signed wrap180(hue − centre)
-            let below = Swift.max(0, -d - bandCoreDegrees)
-            let above = Swift.max(0, d - bandCoreDegrees)
+            let arc: BandArc = i < arcs.count ? arcs[i] : canonicalArcs[i]
+            let d = Num.hueDelta(arc.centre, hue)          // signed wrap180(hue − centre)
+            let below = Swift.max(0, -d - arc.coreBelow)
+            let above = Swift.max(0, d - arc.coreAbove)
             var v: Double = 1
             if below > 0 {
-                v = featherFalloff(below)
+                v = featherFalloff(below, extent: arc.featherBelow)
             } else if above > 0 {
-                v = featherFalloff(above)
+                v = featherFalloff(above, extent: arc.featherAbove)
             }
             w[i] = v
             sum += v
@@ -355,9 +512,9 @@ public struct ColorEngine: Sendable {
     /// Raised-cosine feather: 1 at the core edge, 0 at the feather extent, derivative 0
     /// at both ends. `Num.raisedCosine` runs the other way, hence the complement — one
     /// shape family for tone zones and colour bands alike.
-    private static func featherFalloff(_ distance: Double) -> Double {
-        guard bandFeatherDegrees > 0 else { return 0 }
-        return 1 - Num.raisedCosine(Num.saturate(distance / bandFeatherDegrees))
+    private static func featherFalloff(_ distance: Double, extent: Double) -> Double {
+        guard extent > 0 else { return 0 }
+        return 1 - Num.raisedCosine(Num.saturate(distance / extent))
     }
 
     /// Chroma gate. Multiplies adjustment magnitude, never membership.
@@ -382,11 +539,20 @@ public struct ColorEngine: Sendable {
     /// survives untouched, and `q > 0` amplifies real colour structure instead of chroma
     /// noise. Callers fold the chroma gate into `weight` for the hue axis.
     ///
-    /// `μ` is the guided-filter local mean of the axis (brief §2.4). A per-pixel closed
-    /// form has no neighbourhood, so callers here pass `μ = v`: the flat-neighbourhood
-    /// case, which keeps the algebra and the direction of the move exactly right and
-    /// gives up only the texture-preservation half. Passing a real filtered mean makes
-    /// this the full kernel with no other change.
+    /// `μ` is the guided-filter local mean of the axis (brief §2.4). It reaches this
+    /// kernel from `apply(_:localMean:)`, whose second argument is the whole seam: hand
+    /// it a guided-filter-smoothed copy of the stage input and this is the full,
+    /// texture-preserving kernel; hand it the pixel — which is what the one-argument
+    /// `apply` does, and what every shipping caller does today — and it degrades to the
+    /// flat-neighbourhood case, which keeps the algebra and the direction of the move
+    /// exactly right and gives up only the texture-preservation half.
+    ///
+    /// Why the shipping path is still flat, precisely: S9 is compiled to a 3D LUT over
+    /// log-encoded RGB (`RenderPlan.colorGradeLUT`), and a 3D LUT is by construction a
+    /// function of ONE colour. A second, spatially varying input cannot be baked into
+    /// it at any table size. Making Uniformity and Variance texture-preserving on the
+    /// shipping path therefore needs a stage, not a parameter — see the note above
+    /// `apply(_:localMean:)`.
     public static func varianceCompress(value v: Double,
                                         localMean mu: Double,
                                         target: Double,
@@ -405,12 +571,112 @@ public struct ColorEngine: Sendable {
     }
 
     /// Uniformity's convergence target for band `i`: the measured chroma-weighted mean
-    /// hue when the renderer supplied one, otherwise the band's canonical centre.
+    /// hue when the renderer supplied one, otherwise the midpoint of the band's own core
+    /// arc — the hue the user's two inner ring handles bracket.
+    ///
+    /// The fallback used to be `bandHueCentres[i]`, a constant, which made Uniformity a
+    /// pull toward eight fixed hues no control could move. The core midpoint is the same
+    /// number at the default geometry and a USER-WRITABLE one after that: drag the core
+    /// handles onto the blues you actually have and Uniformity converges on them.
     private func bandTargetHue(_ i: Int) -> Double {
         if let means = bandMeanHues, i < means.count, means[i].isFinite {
             return means[i]
         }
-        return Self.bandHueCentres[i]
+        guard i < arcs.count else { return Self.bandHueCentres[i] }
+        return arcs[i].coreCentre
+    }
+
+    /// The chroma-weighted circular mean hue of each band's members — the target
+    /// docs/05 specifies for Uniformity, measured off the image.
+    ///
+    /// Circular, not arithmetic: hue wraps, and averaging 350° with 10° arithmetically
+    /// gives 180°, the opposite colour. Summing unit vectors weighted by `w · gate · C`
+    /// gives the right answer and, as a bonus, a resultant length that is small exactly
+    /// when the band's hues are spread all the way round and a mean would be meaningless
+    /// — which is when this returns the band's canonical centre instead of a number
+    /// dressed up as a measurement.
+    ///
+    /// `nil` when nothing in the image lands in any band with enough chroma to have a
+    /// hue at all, so the caller can say "not measured" rather than "measured as grey".
+    public static func measureBandMeanHues(_ colors: [RGB],
+                                           arcs: [BandArc] = ColorEngine.canonicalArcs,
+                                           context: OKLabTransform.Context = OKLabTransform.working)
+        -> [Double]? {
+        var x: [Double] = [Double](repeating: 0, count: bandCount)
+        var y: [Double] = [Double](repeating: 0, count: bandCount)
+        var mass: [Double] = [Double](repeating: 0, count: bandCount)
+        var any = false
+        for c in colors {
+            guard c.isFinite else { continue }
+            let lch = context.toLCh(c)
+            guard lch.C.isFinite, lch.L.isFinite else { continue }
+            let gate = chromaGate(lch.C)
+            guard gate > 0 else { continue }
+            let w = bandWeights(hue: lch.h, arcs: arcs)
+            let radians = lch.h * .pi / 180
+            let cx = cos(radians)
+            let cy = sin(radians)
+            for i in 0..<bandCount {
+                // Chroma-weighted, exactly as the adjustment itself is: a near-neutral
+                // pixel's hue is numerically noise and must not vote on where the
+                // band's colour sits.
+                let m = w[i] * gate * Swift.max(0, lch.C)
+                guard m > 0 else { continue }
+                x[i] += m * cx
+                y[i] += m * cy
+                mass[i] += m
+                any = true
+            }
+        }
+        guard any else { return nil }
+        var out: [Double] = [Double](repeating: 0, count: bandCount)
+        for i in 0..<bandCount {
+            let arcCentre: Double = i < arcs.count ? arcs[i].centre : bandHueCentres[i]
+            guard mass[i] > 1e-9 else {
+                out[i] = arcCentre
+                continue
+            }
+            let rx = x[i] / mass[i]
+            let ry = y[i] / mass[i]
+            // Resultant length: 1 when every member agrees on a hue, 0 when they are
+            // spread evenly round the circle. Below the floor there is no mean to
+            // converge on and pretending otherwise would rotate a rainbow into a stripe.
+            let resultant = (rx * rx + ry * ry).squareRoot()
+            if resultant < meanHueResultantFloor {
+                out[i] = arcCentre
+            } else {
+                out[i] = Num.wrapHue(atan2(ry, rx) * 180 / .pi)
+            }
+        }
+        return out
+    }
+
+    /// Below this resultant length a band's hues are too spread to have a mean.
+    public static let meanHueResultantFloor: Double = 0.15
+
+    /// Measure straight off an image, sampling on a stride so a 45-megapixel frame costs
+    /// a few tens of thousands of conversions rather than forty-five million. Hue
+    /// statistics converge fast; this is a mean, not a percentile.
+    public static func measureBandMeanHues(_ image: ImageBuffer,
+                                           arcs: [BandArc] = ColorEngine.canonicalArcs,
+                                           targetSamples: Int = 40_000,
+                                           context: OKLabTransform.Context = OKLabTransform.working)
+        -> [Double]? {
+        let total = image.width * image.height
+        guard total > 0 else { return nil }
+        let stride = Swift.max(1, Int((Double(total) / Double(Swift.max(targetSamples, 1))).squareRoot()))
+        var samples: [RGB] = []
+        samples.reserveCapacity((image.width / stride + 1) * (image.height / stride + 1))
+        var y = 0
+        while y < image.height {
+            var x = 0
+            while x < image.width {
+                samples.append(image[x, y])
+                x += stride
+            }
+            y += stride
+        }
+        return measureBandMeanHues(samples, arcs: arcs, context: context)
     }
 
     // MARK: - Skin membership
@@ -543,12 +809,20 @@ public struct ColorEngine: Sendable {
         return out
     }
 
-    private func applyMixer(_ c: RGB) -> RGB {
+    private func applyMixer(_ c: RGB, localMean: RGB) -> RGB {
         guard !mixerIsIdentity else { return c }
         let lch = context.toLCh(c)
         guard lch.L.isFinite, lch.C.isFinite else { return c }
-        let w = Self.bandWeights(hue: lch.h)
+        // The user's own arcs, not the canonical ones: the ring the panel draws and the
+        // membership the pixel loop uses are the same four handles.
+        let w = Self.bandWeights(hue: lch.h, arcs: arcs)
         let gate = Self.chromaGate(lch.C)
+        // Uniformity's neighbourhood. Equal to `lch.h` on the flat path.
+        let meanHue: Double = {
+            guard uniformity > 0, localMean != c else { return lch.h }
+            let m = context.toLCh(localMean)
+            return m.h.isFinite ? m.h : lch.h
+        }()
 
         // Sum all three attributes across bands BEFORE applying any of them. Applying
         // band-serially would double-count in the overlap regions, which is exactly
@@ -568,7 +842,7 @@ public struct ColorEngine: Sendable {
             if q != 0 {
                 // Uniformity is evaluated against the STAGE INPUT hue (invariant #4:
                 // a selection never sees the move it is driving).
-                let moved = Self.varianceCompress(value: lch.h, localMean: lch.h,
+                let moved = Self.varianceCompress(value: lch.h, localMean: meanHue,
                                                   target: bandTargetHue(i),
                                                   q: q, beta: 1, weight: weight, axis: .hue)
                 converge += Num.hueDelta(lch.h, moved)
@@ -627,16 +901,23 @@ public struct ColorEngine: Sendable {
         return out
     }
 
-    private func applyPointColors(_ c: RGB) -> RGB {
+    private func applyPointColors(_ c: RGB, localMean: RGB) -> RGB {
         guard !swatches.isEmpty else { return c }
         var out: RGB = c
         // Compose in creation order; each swatch is closed-form, so all eight evaluate
         // in one pass with no intermediate buffers.
-        for s in swatches { out = applySwatch(s, to: out) }
+        //
+        // Every swatch measures its Variance against the SAME stage-input neighbourhood
+        // rather than a mean re-derived after the previous swatch moved the pixel. That
+        // is an approximation once two swatches overlap, and a deliberate one: swatches
+        // select different colours by construction, and re-filtering between them would
+        // need a second spatial pass per swatch — eight passes for a control the panel
+        // sells as costing one.
+        for s in swatches { out = applySwatch(s, to: out, localMean: localMean) }
         return out
     }
 
-    private func applySwatch(_ s: Swatch, to c: RGB) -> RGB {
+    private func applySwatch(_ s: Swatch, to c: RGB, localMean: RGB) -> RGB {
         let lch = context.toLCh(c)
         guard lch.L.isFinite, lch.C.isFinite else { return c }
 
@@ -662,13 +943,19 @@ public struct ColorEngine: Sendable {
 
         if s.q != 0 {
             let gate = Self.chromaGate(lch.C)
-            h = Self.varianceCompress(value: h, localMean: h, target: s.target.h,
+            // The neighbourhood, in the same coordinates the deviations are measured in.
+            // Identical to `lch` on the flat path, so this costs one comparison there.
+            let mu: OKLCh = localMean == c ? lch : {
+                let m = context.toLCh(localMean)
+                return m.L.isFinite && m.C.isFinite ? m : lch
+            }()
+            h = Self.varianceCompress(value: h, localMean: mu.h, target: s.target.h,
                                       q: s.q, beta: 1.0, weight: weight * gate, axis: .hue)
-            C = Self.varianceCompress(value: C, localMean: C, target: s.target.C,
+            C = Self.varianceCompress(value: C, localMean: mu.C, target: s.target.C,
                                       q: s.q, beta: 1.0, weight: weight, axis: .chroma)
             // Lightness deviation participates at half weight — which is why evening out
             // a blotchy sky does not flatten its luminance texture.
-            L = Self.varianceCompress(value: L, localMean: L, target: s.target.L,
+            L = Self.varianceCompress(value: L, localMean: mu.L, target: s.target.L,
                                       q: s.q, beta: 0.5, weight: weight, axis: .lightness)
         }
 
@@ -806,7 +1093,15 @@ public struct ColorEngine: Sendable {
             let lch = context.toLCh(c)
             if lch.C.isFinite, lch.L.isFinite {
                 // The same smooth periodic band model as the Mixer, which is why an
-                // aggressive mix (Blue −80 skies) darkens cleanly instead of banding.
+                // aggressive mix (Blue −80 skies) darkens cleanly instead of banding —
+                // but at the CANONICAL geometry, not the Mixer's handles.
+                //
+                // The split is the develop/look line (D4). The B&W mix lives in `look`
+                // and travels to eight hundred frames; the Mixer's ring handles live in
+                // `develop` and belong to one photo. Reading them here would make a
+                // pasted Look render differently on every frame depending on how that
+                // frame's Mixer happened to be shaped, which is exactly the
+                // non-portability the Look layer exists to prevent.
                 let w = Self.bandWeights(hue: lch.h)
                 let gate = Self.chromaGate(lch.C)
                 for i in 0..<Self.bandCount {

@@ -100,13 +100,22 @@ public struct GradingWheels: Codable, Equatable, Sendable {
     public var blending: Double     // 0…100, zone crossover softness
     public var balance: Double      // −100…+100, shifts zone boundaries
     public var pivots: [Double]     // two boundaries on the normalized tonal axis
+    /// The advanced disclosure (docs/05 §D15): master hue shift + vibrance, and
+    /// chroma / saturation / brilliance across the same three zones. Engine and maths:
+    /// `ColorBalanceGrid` in GradeEngine.swift.
+    ///
+    /// Note the name. `balance` above is the ZONE balance — which way the two pivots
+    /// slide — and has nothing to do with darktable's colour balance rgb. Two fields
+    /// one letter apart would have been the next bug in this file.
+    public var colorBalance: ColorBalanceParams
 
     public static let defaultPivots: [Double] = [0.33, 0.67]
 
     public init(global: Wheel = Wheel(), shadows: Wheel = Wheel(),
                 mid: Wheel = Wheel(), high: Wheel = Wheel(),
                 blending: Double = 50, balance: Double = 0,
-                pivots: [Double] = GradingWheels.defaultPivots) {
+                pivots: [Double] = GradingWheels.defaultPivots,
+                colorBalance: ColorBalanceParams = ColorBalanceParams()) {
         self.global = global
         self.shadows = shadows
         self.mid = mid
@@ -114,6 +123,7 @@ public struct GradingWheels: Codable, Equatable, Sendable {
         self.blending = blending
         self.balance = balance
         self.pivots = pivots
+        self.colorBalance = colorBalance
     }
 }
 
@@ -142,9 +152,14 @@ extension GradingWheels {
     /// `scalingShift(by: 0)`, which zeroes `sat` and `lum` and deliberately keeps
     /// `hue` — a mask at zero Amount would have declared itself non-identity and paid
     /// for a table that computes nothing.
+    /// The advanced grid is part of this test, not beside it: `LocalPlan` and
+    /// `GradeEngine.isIdentity` both consult `isNeutral` to decide whether to bake a
+    /// table at all, so a grade whose only move is +40 Brilliance has to answer false
+    /// here or it renders its input and the disclosure is inert inside every mask.
     public var isNeutral: Bool {
         func neutral(_ w: Wheel) -> Bool { w.sat == 0 && w.lum == 0 }
         return neutral(global) && neutral(shadows) && neutral(mid) && neutral(high)
+            && colorBalance.isZero
     }
 
     /// The per-mask Amount, applied to a grade.
@@ -163,6 +178,11 @@ extension GradingWheels {
         copy.shadows = scaled(shadows)
         copy.mid = scaled(mid)
         copy.high = scaled(high)
+        // The grid scales too, including its hue shift — see `ColorBalanceParams.scaled`
+        // for why that angle scales where a wheel's does not. Leaving it out would have
+        // reproduced, one disclosure lower, the exact bug `PointColor.scalingShift`
+        // exists to fix: a mask at Amount 0 whose grid still pushed at full strength.
+        copy.colorBalance = colorBalance.scaled(by: scale)
         return copy
     }
 }

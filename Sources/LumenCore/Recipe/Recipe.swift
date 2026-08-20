@@ -277,10 +277,37 @@ public struct MixerBand: Codable, Equatable, Sendable {
     public var sat: Double
     public var lum: Double    // chroma-preserving luminance (D13)
 
-    public init(hue: Double = 0, sat: Double = 0, lum: Double = 0) {
+    /// The two INNER ring handles: how far the band's core arc reaches below and above
+    /// its canonical centre, in degrees. `[below, above]`, default `[22.5, 22.5]`.
+    ///
+    /// Asymmetric on purpose, and that asymmetry is the whole feature. docs/05 asks for
+    /// an eyedropper that "re-centers the core range on the sampled hue"; a band centred
+    /// at 29.2° whose core runs `[12.5, 32.5]` is a core arc centred on 39.2°, so
+    /// re-centring needs no extra field and cannot disagree with the handles the user
+    /// can see. `ColorEngine.BandArc.coreCentre` reads that midpoint back out, and
+    /// Mixer Uniformity converges toward it.
+    public var core: [Double]
+    /// The two OUTER ring handles: falloff extent beyond the core, per side, in degrees.
+    /// `[below, above]`, default `[15, 15]`. Capture One exposes one global Smoothness;
+    /// this is the per-side version docs/05 claims as the improvement on it.
+    public var feather: [Double]
+
+    /// Wire defaults, derived from the engine's canonical geometry rather than
+    /// transcribed — a recipe that said 22.5 while the engine said something else would
+    /// be a band whose drawn arc and rendered reach disagreed.
+    public static let defaultCore: [Double] =
+        [ColorEngine.bandCoreDegrees, ColorEngine.bandCoreDegrees]
+    public static let defaultFeather: [Double] =
+        [ColorEngine.bandFeatherDegrees, ColorEngine.bandFeatherDegrees]
+
+    public init(hue: Double = 0, sat: Double = 0, lum: Double = 0,
+                core: [Double] = MixerBand.defaultCore,
+                feather: [Double] = MixerBand.defaultFeather) {
         self.hue = hue
         self.sat = sat
         self.lum = lum
+        self.core = core
+        self.feather = feather
     }
 }
 

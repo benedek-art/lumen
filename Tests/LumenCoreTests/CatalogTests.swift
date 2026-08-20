@@ -181,6 +181,244 @@ final class CatalogTests: XCTestCase {
         store.close()
     }
 
+    // MARK: - Sort orders
+
+    /// Every sort key the UI offers has to order by the column it names. Four of the
+    /// twelve existed before this, and "capture time" was the file's modification time
+    /// — which is when the card was copied, not when the shutter opened. These assert
+    /// against metadata deliberately arranged to disagree with filename order, so a
+    /// sort that quietly fell back to scan order fails.
+    func testEachSortKeyOrdersByTheColumnItNames() throws {
+        let store = try makeStore()
+        let (folderID, ids) = try seed(store, count: 4)
+        XCTAssertEqual(ids.count, 4)
+
+        // Capture times run backwards against the filenames.
+        for (offset, id) in ids.enumerated() {
+            try store.setMetadata(
+                PhotoMetadata(captureAt: 1_700_000_000 - Int64(offset * 60),
+                              camera: offset < 2 ? "Sony A7 IV" : "Nikon Z8",
+                              iso: offset < 2 ? 200 : 12_800,
+                              width: 6000, height: offset == 3 ? 6000 : 4000),
+                photoID: id)
+        }
+        try store.setRating(5, photoID: ids[3])
+        try store.setRating(1, photoID: ids[0])
+
+        func order(_ key: PhotoQuery.SortKey, ascending: Bool = true) throws -> [Int64] {
+            var query = PhotoQuery()
+            query.sortKey = key
+            query.ascending = ascending
+            return try store.photos(matching: query, folderID: folderID).map(\.id)
+        }
+
+        XCTAssertEqual(try order(.captureTime), ids.reversed(),
+                       "capture time did not order by capture_at")
+        XCTAssertEqual(try order(.filename), ids)
+        XCTAssertEqual(try order(.rating, ascending: false).first, ids[3])
+        XCTAssertEqual(try order(.rating).first, ids[1],
+                       "an unrated photo should sort below a 1-star one")
+        // Aspect: three 3:2 frames and one square, so the square leads ascending.
+        XCTAssertEqual(try order(.aspectRatio).first, ids[3])
+        store.close()
+    }
+
+    /// Nine frames a second all carry the same whole second. Ordering a burst by
+    /// `capture_at` alone hands them back in index order, which is right by luck on one
+    /// card and wrong on the next.
+    func testABurstIsOrderedBySubSecond() throws {
+        let store = try makeStore()
+        let (folderID, ids) = try seed(store, count: 3)
+        let subseconds = [700, 100, 400]
+        for (offset, id) in ids.enumerated() {
+            try store.setMetadata(
+                PhotoMetadata(captureAt: 1_700_000_000,
+                              captureSubsec: subseconds[offset]), photoID: id)
+        }
+        var query = PhotoQuery()
+        query.sortKey = .captureTime
+        XCTAssertEqual(try store.photos(matching: query, folderID: folderID).map(\.id),
+                       [ids[1], ids[2], ids[0]],
+                       "the burst came back in index order, not in shooting order")
+        store.close()
+    }
+
+    /// The edit-time sort reads `edit.updated_at`, which only `saveRecipe` writes.
+    func testEditTimeSortsByWhenTheRecipeWasLastSaved() throws {
+        let store = try makeStore()
+        let (folderID, ids) = try seed(store, count: 3)
+        var recipe = Recipe()
+        recipe.develop.tone.exposure = 0.5
+        try store.saveRecipe(recipe, photoID: ids[2], kind: .working, name: nil,
+                             isCurrent: true, at: 1_000)
+        try store.saveRecipe(recipe, photoID: ids[0], kind: .working, name: nil,
+                             isCurrent: true, at: 2_000)
+
+        var query = PhotoQuery()
+        query.sortKey = .editTime
+        let ordered = try store.photos(matching: query, folderID: folderID).map(\.id)
+        // Unedited photos have no edit row at all and sort last in both directions.
+        XCTAssertEqual(Array(ordered.prefix(2)), [ids[2], ids[0]])
+        XCTAssertEqual(ordered.last, ids[1])
+        store.close()
+    }
+
+    // MARK: - The chips that had no SQL
+
+    func testTheEditedChipFindsOnlyRecipesThatChangeThePicture() throws {
+        let store = try makeStore()
+        let (folderID, ids) = try seed(store, count: 3)
+
+        // A default recipe is not an edit, however many times it is saved.
+        try store.saveRecipe(Recipe(), photoID: ids[0], isCurrent: true)
+        var worked = Recipe()
+        worked.develop.tone.exposure = 1.1
+        try store.saveRecipe(worked, photoID: ids[1], isCurrent: true)
+
+        var edited = PhotoQuery()
+        edited.edited = true
+        XCTAssertEqual(try store.photos(matching: edited, folderID: folderID).map(\.id),
+                       [ids[1]])
+
+        var untouched = PhotoQuery()
+        untouched.edited = false
+        XCTAssertEqual(try store.countPhotos(matching: untouched, folderID: folderID), 2)
+        store.close()
+    }
+
+    func testCameraAndISOChipsNarrowTheGrid() throws {
+        let store = try makeStore()
+        let (folderID, ids) = try seed(store, count: 4)
+        for (offset, id) in ids.enumerated() {
+            try store.setMetadata(
+                PhotoMetadata(camera: offset < 3 ? "Sony A7 IV" : "Nikon Z8",
+                              iso: [100, 6400, 12_800, 200][offset]),
+                photoID: id)
+        }
+
+        var camera = PhotoQuery()
+        camera.cameras = ["Sony A7 IV"]
+        XCTAssertEqual(try store.countPhotos(matching: camera, folderID: folderID), 3)
+
+        var noisy = PhotoQuery()
+        noisy.isoRange = 6401...4_000_000
+        XCTAssertEqual(try store.photos(matching: noisy, folderID: folderID).map(\.id),
+                       [ids[2]])
+
+        // Two criteria AND by default...
+        var both = camera
+        both.isoRange = 6401...4_000_000
+        XCTAssertEqual(try store.countPhotos(matching: both, folderID: folderID), 1)
+
+        // ...and OR when the bar's Any toggle is on (D39).
+        both.matchAny = true
+        XCTAssertEqual(try store.countPhotos(matching: both, folderID: folderID), 3)
+
+        // The chip's own menu: values with live counts, most-used first.
+        let cameras = try store.facetCounts(.camera, folderID: folderID)
+        XCTAssertEqual(cameras.first, FacetValue(value: "Sony A7 IV", count: 3))
+        XCTAssertEqual(cameras.count, 2)
+        store.close()
+    }
+
+    // MARK: - Albums, keywords, stacks
+
+    func testAnAlbumScopesTheGridAndCountsItsOwnMembership() throws {
+        let store = try makeStore()
+        let (folderID, ids) = try seed(store, count: 5)
+
+        let tray = try store.createCollection(name: "Tray")
+        try store.setTargetCollection(tray)
+        XCTAssertEqual(try store.targetCollectionID(), tray)
+        try store.addToCollection(tray, photoIDs: [ids[1], ids[3]])
+
+        var inAlbum = PhotoQuery()
+        inAlbum.albumID = tray
+        XCTAssertEqual(try store.photos(matching: inAlbum, folderID: folderID).map(\.id),
+                       [ids[1], ids[3]])
+        XCTAssertEqual(try store.countPhotos(matching: inAlbum), 2)
+
+        // Adding the same photo twice is one membership, not two rows.
+        try store.addToCollection(tray, photoIDs: [ids[1]])
+        XCTAssertEqual(try store.countPhotos(matching: inAlbum), 2)
+
+        try store.removeFromCollection(tray, photoIDs: [ids[1]])
+        XCTAssertEqual(try store.photos(matching: inAlbum, folderID: folderID).map(\.id),
+                       [ids[3]])
+        store.close()
+    }
+
+    func testKeywordsAreAddedListedFilteredAndRemoved() throws {
+        let store = try makeStore()
+        let (folderID, ids) = try seed(store, count: 4)
+        _ = try store.addKeyword("harbour", photoIDs: [ids[0], ids[2]])
+        _ = try store.addKeyword("dawn", photoIDs: [ids[0]])
+
+        XCTAssertEqual(try store.keywords(photoID: ids[0]), ["dawn", "harbour"])
+        XCTAssertEqual(try store.allKeywords(),
+                       [FacetValue(value: "dawn", count: 1),
+                        FacetValue(value: "harbour", count: 2)])
+
+        var tagged = PhotoQuery()
+        tagged.keywords = ["harbour"]
+        XCTAssertEqual(try store.photos(matching: tagged, folderID: folderID).map(\.id),
+                       [ids[0], ids[2]])
+
+        try store.removeKeyword("harbour", photoIDs: [ids[0]])
+        XCTAssertEqual(try store.photos(matching: tagged, folderID: folderID).map(\.id),
+                       [ids[2]])
+        // The vocabulary survives losing its last photo — a shoot's words are worth
+        // keeping even when nothing is tagged with them right now.
+        XCTAssertEqual(try store.allKeywords().map(\.value), ["dawn", "harbour"])
+        store.close()
+    }
+
+    /// Collapsing 3,000 frames into 400 decisions is the whole point of stacks, and it
+    /// is a pure index operation: one row per collapsed stack, everything unstacked,
+    /// and every member of anything expanded.
+    func testACollapsedStackShowsOnlyItsPick() throws {
+        let store = try makeStore()
+        let (folderID, ids) = try seed(store, count: 6)
+        let burst = Array(ids.prefix(3))
+        let stackID = try store.createStack(origin: "manual", photoIDs: burst,
+                                            pickPhotoID: burst[0])
+
+        var tops = PhotoQuery()
+        tops.stackState = .collapsedTopsOnly
+        XCTAssertEqual(try store.photos(matching: tops, folderID: folderID).map(\.id),
+                       [ids[0], ids[3], ids[4], ids[5]])
+
+        // Promote a different frame and the collapsed stack shows that one instead.
+        try store.setStackPick(burst[2], stackID: stackID)
+        XCTAssertEqual(try store.photos(matching: tops, folderID: folderID).map(\.id),
+                       [ids[2], ids[3], ids[4], ids[5]])
+        do {
+            try store.setStackPick(ids[5], stackID: stackID)
+            XCTFail("a frame outside the stack must not be allowed to become its pick")
+        } catch {
+            // Expected: pointing a stack at a thumbnail from elsewhere in the library
+            // is how a collapsed stack ends up showing the wrong photograph.
+        }
+
+        // Expanded, every member is back.
+        try store.setStackCollapsed(false, stackID: stackID)
+        XCTAssertEqual(try store.countPhotos(matching: tops, folderID: folderID), 6)
+
+        var unstacked = PhotoQuery()
+        unstacked.stackState = .unstacked
+        XCTAssertEqual(try store.countPhotos(matching: unstacked, folderID: folderID), 3)
+
+        XCTAssertEqual(try store.stack(containing: burst[1])?.id, stackID)
+        XCTAssertEqual(try store.stackMembers(stackID: stackID), burst)
+
+        // Unstacking loses the grouping and no photographs.
+        try store.dissolveStack(id: stackID)
+        XCTAssertNil(try store.stack(containing: burst[1]))
+        XCTAssertEqual(try store.countPhotos(matching: unstacked, folderID: folderID), 6)
+        XCTAssertEqual(try store.photos(folderID: folderID).count, 6)
+        store.close()
+    }
+
     // MARK: - Backup
 
     func testBackupProducesAReadableCatalog() throws {
