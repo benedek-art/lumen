@@ -340,11 +340,21 @@ public struct RenderGraph {
         let e = image.extent
         guard e.width > 0, e.height > 0 else { return image }
         let centre = CIVector(x: e.midX, y: e.midY)
-        // Normalize against the half-diagonal so the effect follows the frame's shape.
-        let half = (e.width * e.width + e.height * e.height).squareRoot() / 2
-        let inv = CIVector(x: 1.0 / half, y: 1.0 / half)
+        // PER AXIS, then scaled so the corner lands at r = 1 — the ellipse inscribed in
+        // the crop rectangle, which is what docs/06's Roundness 0 means and what
+        // `DetailEngine.vignette` draws.
+        //
+        // Normalizing both axes by the half-DIAGONAL, as this did, draws a CIRCLE. On a
+        // 3:2 frame that put the long-edge midpoint at r = 0.832 where the reference
+        // has 0.707, and the short-edge midpoint at 0.555 — a visibly different
+        // vignette from the same slider, and a 24% gain difference at the edge.
+        let norm = 1.0 / (2.0 as CGFloat).squareRoot()
+        let inv = CIVector(x: norm / (e.width / 2), y: norm / (e.height / 2))
+        // The kernel's `feather` is `1 − inner`, so it starts where the reference does.
+        let feather = 1 - DetailEngine.vignetteInnerRadius
         return KernelLibrary.apply(KernelLibrary.vignette, extent: e,
-                                   [image, centre, inv, Float(ev), Float(0.7)]) ?? image
+                                   [image, centre, inv, Float(ev),
+                                    Float(feather)]) ?? image
     }
 
     func applyHalation(_ image: CIImage, film: FilmChain, longEdge: Int) -> CIImage {

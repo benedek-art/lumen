@@ -569,6 +569,16 @@ public struct DetailEngine: Sendable {
     /// parameters. Highlight protection blends the multiply back toward identity above half
     /// the default scene white (0.18 · 2^5 ÷ 2), which is what keeps a burn off a bright sky
     /// while it still shapes the corners.
+    /// Disclosure defaults, named so the GPU stand-in can use the same numbers. It did
+    /// not: the kernel was handed `feather = 0.7`, giving an inner radius of 0.3
+    /// against this path's 0.375.
+    public static let vignetteMidpoint: Double = 0.5
+    public static let vignetteFeather: Double = 0.5
+    /// Where the falloff starts, on the normalized radius whose 1 is the frame corner.
+    public static var vignetteInnerRadius: Double {
+        Num.clamp(vignetteMidpoint * (1 - 0.5 * vignetteFeather), 0, 0.98)
+    }
+
     public static func vignette(_ image: ImageBuffer, ev: Double) -> ImageBuffer {
         let amount = Num.clamp(ev, -3.0, 1.0)
         guard amount != 0 else { return image }
@@ -577,10 +587,10 @@ public struct DetailEngine: Sendable {
         let space = RGBColorSpace.rec2020
 
         // Disclosure defaults (docs/06 §12): Midpoint 50, Feather 50, Highlight 50.
-        let midpoint = 0.5
-        let feather = 0.5
+        let midpoint = DetailEngine.vignetteMidpoint
+        let feather = DetailEngine.vignetteFeather
         let protection = 0.5
-        let inner = Num.clamp(midpoint * (1 - 0.5 * feather), 0, 0.98)
+        let inner = DetailEngine.vignetteInnerRadius
         let outer = 1.0
         // Default scene white is mid-grey + 5 stops (ToneEngine.defaultWhiteAnchorEV).
         let highlightThreshold = 0.18 * pow(2.0, 5.0) / 2.0
