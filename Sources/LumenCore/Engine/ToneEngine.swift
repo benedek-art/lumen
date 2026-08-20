@@ -37,13 +37,89 @@ public struct ToneEngine: Sendable {
     public static let defaultWhiteAnchorEV: Double = 5.0
     public static let defaultBlackAnchorEV: Double = -9.0
 
+    /// What the Highlights and Shadows contributions are multiplied by so the tone
+    /// response cannot invert. 1 whenever the sliders are already safe, which is
+    /// almost always.
+    public let zonalScale: Double
+
     public init(tone: Tone = Tone(), zones: Zones = Zones()) {
+        self.tone = tone
+        self.zones = zones
+        let whites = Num.clamp(tone.whites, -100, 100) / 100
+        let blacks = Num.clamp(tone.blacks, -100, 100) / 100
+        let hi = Self.defaultWhiteAnchorEV - Self.whiteBlackRangeEV * whites
+        let lo = Self.defaultBlackAnchorEV - Self.whiteBlackRangeEV * blacks
+        self.whiteAnchorEV = hi
+        self.blackAnchorEV = lo
+        self.zonalScale = Self.solveZonalScale(tone: tone, whiteAnchorEV: hi,
+                                               blackAnchorEV: lo)
+    }
+
+    /// The largest multiple of the Highlights/Shadows contribution that keeps
+    /// `t + stops(t)` strictly increasing.
+    ///
+    /// The windows are raised cosines of a sine, whose steepest slope is
+    /// `4.3535 / anchor` — so at the default white anchor of 5 EV, Highlights at −100
+    /// contributes a slope of −2 × 0.871 = −1.74 against the +1 the identity brings.
+    /// The composed response therefore ran DOWNHILL just above mid-grey: a brighter
+    /// part of the scene rendered darker than a dimmer one. Not a look, an inversion,
+    /// and the same failure the contrast relax window was widened to prevent — this
+    /// one simply lives on a different slider.
+    ///
+    /// Shadows is safer only by accident: the black anchor sits nine stops down where
+    /// the same window is nearly twice as wide, so its slope is 0.97 and it inverts
+    /// only once Blacks pulls the anchor in.
+    ///
+    /// Rather than shrink the range for everybody, this solves for the largest scale
+    /// that stays monotone. Every contribution but the zonal one is fixed, and the
+    /// zonal one is linear in the scale, so one pass over the domain gives it in
+    /// closed form. At every default and most real settings it returns 1.
+    static func solveZonalScale(tone: Tone, whiteAnchorEV: Double,
+                                blackAnchorEV: Double) -> Double {
+        let h = Num.clamp(tone.highlights, -100, 100) / 100
+        let sh = Num.clamp(tone.shadows, -100, 100) / 100
+        guard h != 0 || sh != 0 else { return 1 }
+
+        let probe = ToneEngine(tone: tone, zones: Zones(), zonalScale: 1)
+        let step = 0.02
+        let margin = 0.02
+        var scale = 1.0
+        var t = blackAnchorEV
+        while t <= whiteAnchorEV {
+            let a = t + step
+            // `t + stops(t)` is `contrastMapped(t) + scale·zonal(t) + zonePanel(t)`,
+            // so the slope splits into a part the scale does not touch and a part
+            // that is linear in it. The Zones panel is deliberately outside this
+            // guarantee: it is the explicit power tool, and clamping it would be
+            // taking away the thing it is for.
+            let fixedSlope = (probe.contrastMapped(a) - probe.contrastMapped(t)) / step
+            let zonal = (probe.zonalStops(a) - probe.zonalStops(t)) / step
+            if zonal < 0 {
+                scale = Swift.min(scale, Swift.max((fixedSlope - margin) / -zonal, 0))
+            }
+            t += step
+        }
+        return Num.clamp(scale, 0, 1)
+    }
+
+    private init(tone: Tone, zones: Zones, zonalScale: Double) {
         self.tone = tone
         self.zones = zones
         let whites = Num.clamp(tone.whites, -100, 100) / 100
         let blacks = Num.clamp(tone.blacks, -100, 100) / 100
         self.whiteAnchorEV = Self.defaultWhiteAnchorEV - Self.whiteBlackRangeEV * whites
         self.blackAnchorEV = Self.defaultBlackAnchorEV - Self.whiteBlackRangeEV * blacks
+        self.zonalScale = zonalScale
+    }
+
+    /// The Highlights + Shadows contribution alone, before `zonalScale`.
+    func zonalStops(_ t: Double) -> Double {
+        var s = 0.0
+        let h = Num.clamp(tone.highlights, -100, 100) / 100
+        let sh = Num.clamp(tone.shadows, -100, 100) / 100
+        if h != 0 { s += h * Self.highlightShadowRangeEV * highlightWeight(t) }
+        if sh != 0 { s += sh * Self.highlightShadowRangeEV * shadowWeight(t) }
+        return s
     }
 
     /// Scene-linear multiplier from the Exposure slider. Applied at S6, upstream of
@@ -116,11 +192,7 @@ public struct ToneEngine: Sendable {
     /// The six sliders and the Zones panel compose by summing their stop fields —
     /// one engine, two registers, never two parallel tools.
     public func stops(at t: Double) -> Double {
-        var s = 0.0
-        let h = Num.clamp(tone.highlights, -100, 100) / 100
-        let sh = Num.clamp(tone.shadows, -100, 100) / 100
-        if h != 0 { s += h * Self.highlightShadowRangeEV * highlightWeight(t) }
-        if sh != 0 { s += sh * Self.highlightShadowRangeEV * shadowWeight(t) }
+        var s = zonalStops(t) * zonalScale
         s += contrastMapped(t) - t
         s += zonePanelStops(t)
         return s

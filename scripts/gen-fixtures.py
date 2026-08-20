@@ -17,7 +17,7 @@ Mirrored contracts (change BOTH sides together):
   MaskAlgebra.swift     <-> mask_combined
   LUT.swift             <-> lumen_log_encode / lumen_log_decode / tetrahedral
   ColorEngine.swift     <-> lum_sat_rolloff
-  ToneEngine.swift      <-> contrast_mapped
+  ToneEngine.swift      <-> contrast_mapped / ToneEngine
   DetailEngine.swift    <-> band_weight / band_center / dehaze_ratio
   MaskRaster.swift      <-> radial_alpha / edge_engagement
   DenoiseEngine.swift   <-> vst_inverse_blend
@@ -1685,6 +1685,163 @@ def gen_white_balance_checks():
 
 
 # ---------------------------------------------------------------------------
+# The six-slider tone contract (D6), and the composed picture end to end
+#
+#   ToneEngine.swift <-> ToneEngine
+# ---------------------------------------------------------------------------
+
+HL_SH_RANGE_EV = 2.0
+WHITE_BLACK_RANGE_EV = 1.5
+DEFAULT_WHITE_ANCHOR_EV = 5.0
+DEFAULT_BLACK_ANCHOR_EV = -9.0
+
+
+def raised_cosine(t):
+    u = min(max(t, 0.0), 1.0)
+    return 0.5 * (1 - math.cos(math.pi * u))
+
+
+class ToneEngine:
+    def __init__(self, exposure=0.0, contrast=0.0, pivot=0.0, highlights=0.0,
+                 shadows=0.0, whites=0.0, blacks=0.0):
+        self.exposure = min(max(exposure, -10.0), 10.0)
+        self.contrast = contrast
+        self.pivot = pivot
+        self.highlights = min(max(highlights, -100.0), 100.0) / 100
+        self.shadows = min(max(shadows, -100.0), 100.0) / 100
+        w = min(max(whites, -100.0), 100.0) / 100
+        b = min(max(blacks, -100.0), 100.0) / 100
+        self.white_anchor_ev = DEFAULT_WHITE_ANCHOR_EV - WHITE_BLACK_RANGE_EV * w
+        self.black_anchor_ev = DEFAULT_BLACK_ANCHOR_EV - WHITE_BLACK_RANGE_EV * b
+        self.zonal_scale = self._solve_zonal_scale()
+
+    def _zonal_stops(self, t):
+        s = 0.0
+        if self.highlights != 0:
+            s += self.highlights * HL_SH_RANGE_EV * self.highlight_weight(t)
+        if self.shadows != 0:
+            s += self.shadows * HL_SH_RANGE_EV * self.shadow_weight(t)
+        return s
+
+    def _solve_zonal_scale(self):
+        if self.highlights == 0 and self.shadows == 0:
+            return 1.0
+        step, margin, scale = 0.02, 0.02, 1.0
+        t = self.black_anchor_ev
+        while t <= self.white_anchor_ev:
+            a = t + step
+            fixed = (contrast_mapped(a, self.contrast, self.pivot)
+                     - contrast_mapped(t, self.contrast, self.pivot)) / step
+            zonal = (self._zonal_stops(a) - self._zonal_stops(t)) / step
+            if zonal < 0:
+                scale = min(scale, max((fixed - margin) / -zonal, 0.0))
+            t += step
+        return min(max(scale, 0.0), 1.0)
+
+    @property
+    def exposure_gain(self):
+        return 2.0 ** self.exposure
+
+    def highlight_weight(self, t):
+        hi = self.white_anchor_ev
+        if hi <= 0 or t <= 0 or t >= hi:
+            return 0.0
+        return raised_cosine(math.sin(math.pi * (t / hi)))
+
+    def shadow_weight(self, t):
+        lo = self.black_anchor_ev
+        if lo >= 0 or t >= 0 or t <= lo:
+            return 0.0
+        return raised_cosine(math.sin(math.pi * (t / lo)))
+
+    def stops(self, t):
+        s = self._zonal_stops(t) * self.zonal_scale
+        s += contrast_mapped(t, self.contrast, self.pivot) - t
+        return s
+
+    def gain(self, t):
+        return 2.0 ** self.stops(t)
+
+
+def gen_tone_checks():
+    print("the six-slider tone contract + the composed picture ...")
+
+    # Mid-grey is the fixed point of Highlights and Shadows: both windows are zero
+    # there, which is what makes them zonal rather than global brightness.
+    for h in (-100, -50, 50, 100):
+        for s in (-100, -50, 50, 100):
+            e = ToneEngine(highlights=h, shadows=s)
+            check(abs(e.stops(0.0)) < 1e-12,
+                  f"highlights {h} / shadows {s} moved mid-grey by {e.stops(0.0)}")
+
+    # Each window vanishes at its own anchor, so Highlights cannot touch the
+    # shadows and Shadows cannot touch the highlights.
+    e = ToneEngine(highlights=100, shadows=-100)
+    check(abs(e.highlight_weight(e.white_anchor_ev)) < 1e-12, "highlights reach the white anchor")
+    check(abs(e.shadow_weight(e.black_anchor_ev)) < 1e-12, "shadows reach the black anchor")
+    for t in (-8.0, -5.0, -2.0):
+        check(e.highlight_weight(t) == 0.0, f"highlights leaked into the shadows at {t} EV")
+    for t in (2.0, 4.0, 4.9):
+        check(e.shadow_weight(t) == 0.0, f"shadows leaked into the highlights at {t} EV")
+
+    # Whites and Blacks move the display transform's ANCHORS rather than adding
+    # gain — that is how "Whites owns the white point" is geometry, not a rule.
+    plain = ToneEngine()
+    lifted = ToneEngine(whites=100)
+    check(abs(lifted.white_anchor_ev - (DEFAULT_WHITE_ANCHOR_EV - WHITE_BLACK_RANGE_EV))
+          < 1e-12, "Whites did not move the white anchor")
+    check(abs(lifted.stops(0.0) - plain.stops(0.0)) < 1e-12,
+          "Whites added gain at mid-grey instead of moving the anchor")
+
+    # Exposure is an honest gain and nothing else.
+    check(abs(ToneEngine(exposure=1).exposure_gain - 2.0) < 1e-12, "exposure +1 is not 2x")
+    check(abs(ToneEngine(exposure=-2).exposure_gain - 0.25) < 1e-12, "exposure -2 is not 0.25x")
+
+    # The whole S7 response must be monotone in the input at every setting, or a
+    # brighter part of the scene renders darker than a dimmer one.
+    for contrast in (-100, -60, -50, 0, 50, 60, 85, 100):
+        for h in (-100, -80, -40, 0, 40, 80, 100):
+            for s in (-100, -80, 0, 80, 100):
+                e = ToneEngine(contrast=contrast, highlights=h, shadows=s)
+                prev, t = -1e18, -13.0
+                while t <= 13:
+                    # Output EV = input + the stops S7 adds there.
+                    out = t + e.stops(t)
+                    check(out >= prev - 1e-9,
+                          f"tone inverted at {t} EV (contrast {contrast}, "
+                          f"hi {h}, sh {s}): {out:.5f} after {prev:.5f}")
+                    prev = out
+                    t += 0.05
+
+    # --- the composed picture ---------------------------------------------
+    # Shaper domain -> tone -> display transform. This is the closest thing to
+    # "the picture is right" that runs without a GPU.
+    for contrast in (-60, 0, 60):
+        for h, s in ((0, 0), (-80, 80), (80, -80)):
+            tone = ToneEngine(contrast=contrast, highlights=h, shadows=s)
+            dt = DisplayTransform(white_anchor_ev=tone.white_anchor_ev,
+                                  black_anchor_ev=tone.black_anchor_ev)
+            prev, ev = -1e18, -12.0
+            while ev <= 12:
+                scene = MID_GREY * 2 ** ev
+                out = dt.tone(scene * tone.gain(ev))
+                check(math.isfinite(out), f"composed render non-finite at {ev} EV")
+                check(dt.black - 1e-9 <= out <= dt.white + 1e-9,
+                      f"composed render left the display range at {ev} EV: {out}")
+                check(out >= prev - 1e-9,
+                      f"composed render inverted at {ev} EV (contrast {contrast}, "
+                      f"hi {h}, sh {s})")
+                prev = out
+                ev += 0.05
+            # Mid-grey survives the whole chain when nothing asks it to move.
+            if contrast == 0 and h == 0 and s == 0:
+                check(abs(dt.tone(MID_GREY * tone.gain(0.0)) - MID_GREY) < 2e-3,
+                      "a default recipe did not land mid-grey on 0.18")
+
+    print("  zonal fixed points, anchor geometry, and a monotone composed picture")
+
+
+# ---------------------------------------------------------------------------
 
 def main():
     gen_canonical_fixture()
@@ -1701,6 +1858,7 @@ def main():
     gen_spatial_primitive_checks()
     gen_perceptual_checks()
     gen_white_balance_checks()
+    gen_tone_checks()
     if FAILURES:
         print(f"\n{len(FAILURES)} verification failure(s)")
         sys.exit(1)
