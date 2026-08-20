@@ -475,9 +475,11 @@ final class RobustnessTests: XCTestCase {
         off.amount = 0
         let filmOff = FilmChain(off, displayWhite: 1.0)
         XCTAssertTrue(filmOff.isIdentity, "Strength 0 did not reduce to the neutral chain")
-        let neutral = DisplayTransform(
-            { var p = DisplayTransformParams.neutral; p.whiteTarget = 100; return p }(),
-            space: .rec2020)
+        // Built exactly as `FilmChain.init` builds its own neutral rendering: the
+        // neutral preset at `displayWhite × 100`, in the working space.
+        var neutralParams = DisplayTransformParams.neutral
+        neutralParams.whiteTarget = 100
+        let neutral = DisplayTransform(neutralParams, space: .rec2020)
         for c in probes {
             XCTAssertLessThan(
                 filmOff.apply(c).maxAbsDifference(neutral.apply(c, gamut: Gamut.sharedBoundary)),

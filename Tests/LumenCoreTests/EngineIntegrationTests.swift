@@ -249,8 +249,10 @@ final class EngineIntegrationTests: XCTestCase {
             XCTAssertEqual(peak, expectedLevel,
                            "a \(period) px sinusoid landed in level \(peak), not "
                                + "\(expectedLevel) — energies \(energies)")
+            // `map { $0.element }`, not `map(\.element)`: a key path cannot refer to a
+            // tuple member, which `enumerated()` produces.
             let runnerUp = energies.enumerated()
-                .filter { $0.offset != peak }.map(\.element).max()!
+                .filter { $0.offset != peak }.map { $0.element }.max()!
             XCTAssertGreaterThan(energies[peak], runnerUp * 3,
                                  "level \(peak) holds only \(energies[peak]) against "
                                      + "\(runnerUp) next door — the bands are not "
@@ -1220,11 +1222,9 @@ final class EngineIntegrationTests: XCTestCase {
         // And the slider is exposure, not brightness: one stop of it must be
         // indistinguishable from having photographed twice the light. This is an
         // equality, so no no-op can satisfy it.
-        let pushed = RenderPlan(recipe: {
-            var r = Recipe()
-            r.develop.tone.exposure = 1
-            return r
-        }()).exactColor(RGB(gray: 0.18))
+        var oneStop = Recipe()
+        oneStop.develop.tone.exposure = 1
+        let pushed = RenderPlan(recipe: oneStop).exactColor(RGB(gray: 0.18))
         let brighterScene = RenderPlan(recipe: Recipe()).exactColor(RGB(gray: 0.36))
         XCTAssertLessThan(pushed.maxAbsDifference(brighterScene), 1e-9,
                           "+1 EV rendered differently from twice the scene light: "
