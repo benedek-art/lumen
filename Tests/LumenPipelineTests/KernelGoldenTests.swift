@@ -1065,6 +1065,149 @@ final class KernelGoldenTests: XCTestCase {
         let mean = total / Double(result.width * result.height)
         XCTAssertGreaterThan(mean, 0.9, "crop took the wrong end of the frame")
     }
+
+    // MARK: - Soft proof
+
+    /// A frame with a saturated Rec.2020 green in one half and a neutral in the other,
+    /// proofed to sRGB with the warning on. Both halves are asserted: the green has to
+    /// be flagged and the neutral has to be left exactly where it was.
+    ///
+    /// The flag is the one part of the proof that is NOT baked into the finish table —
+    /// a trilinear table cannot hold a step — so it is a graph stage, and this is the
+    /// only thing that can check that stage got the destination's primaries the right
+    /// way round. Getting `workingToProof` backwards produces a plausible-looking
+    /// picture that flags the wrong colours.
+    func testSoftProofFlagsWhatSRGBCannotHold() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+        let width = 32, height = 8
+        let source = ImageBuffer(width: width, height: height) { u, _ in
+            u < 0.5 ? RGB(0.02, 1.1, 0.02) : RGB(gray: 0.18)
+        }
+        let proof = SoftProof(enabled: true, space: .srgb,
+                              intent: .relativeColorimetric, showGamutWarning: true)
+        let plan = RenderPlan(recipe: Recipe(), lutSize: LUT3D.exportSize,
+                              softProof: proof)
+        let options = RenderGraph.Options(longEdge: width, draft: true)
+        let output = RenderGraph().build(ciImage(from: source), plan: plan,
+                                         options: options)
+        guard let gpu = readBack(output, width: width, height: height) else {
+            return XCTFail("proofed render failed")
+        }
+
+        let flag = SoftProof.warningColor
+        XCTAssertLessThan(gpu[4, 4].maxAbsDifference(flag), 0.02,
+                          "a Rec.2020 green was not flagged: \(gpu[4, 4])")
+        XCTAssertGreaterThan(gpu[28, 4].maxAbsDifference(flag), 0.05,
+                             "mid-grey is inside sRGB and must not be flagged")
+
+        // And the neutral half has to survive proofing untouched, which is the half a
+        // stage that tinted everything would still pass without.
+        let plain = RenderGraph().build(ciImage(from: source),
+                                        plan: RenderPlan(recipe: Recipe(),
+                                                         lutSize: LUT3D.exportSize),
+                                        options: options)
+        guard let unproofed = readBack(plain, width: width, height: height) else {
+            return XCTFail("unproofed render failed")
+        }
+        XCTAssertLessThan(gpu[28, 4].maxAbsDifference(unproofed[28, 4]), 0.01,
+                          "the proof moved an in-gamut neutral")
+
+        // The CPU reference has to agree about which pixels are flagged, or the two
+        // paths are showing two different instruments.
+        let reference = ReferenceRenderer.render(source, plan: plan)
+        for x in [2, 8, 14, 20, 26, 30] {
+            let gpuFlagged = gpu[x, 4].maxAbsDifference(flag) < 0.02
+            let refFlagged = reference[x, 4].maxAbsDifference(flag) < 0.02
+            XCTAssertEqual(gpuFlagged, refFlagged,
+                           "graph and reference disagree about column \(x)")
+        }
+    }
+
+    /// With the warning off the proof is pure table work, and it must still change a
+    /// colour sRGB cannot hold while leaving one it can.
+    func testSoftProofWithoutTheWarningStillMapsIntoTheDestination() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+        let width = 16, height = 4
+        let source = ImageBuffer(width: width, height: height) { u, _ in
+            u < 0.5 ? RGB(0.02, 1.1, 0.02) : RGB(gray: 0.18)
+        }
+        let options = RenderGraph.Options(longEdge: width, draft: true)
+        let proof = SoftProof(enabled: true, space: .srgb,
+                              intent: .relativeColorimetric, showGamutWarning: false)
+        guard let proofed = readBack(
+                RenderGraph().build(ciImage(from: source),
+                                    plan: RenderPlan(recipe: Recipe(),
+                                                     lutSize: LUT3D.exportSize,
+                                                     softProof: proof),
+                                    options: options),
+                width: width, height: height),
+              let plain = readBack(
+                RenderGraph().build(ciImage(from: source),
+                                    plan: RenderPlan(recipe: Recipe(),
+                                                     lutSize: LUT3D.exportSize),
+                                    options: options),
+                width: width, height: height)
+        else { return XCTFail("render failed") }
+
+        XCTAssertGreaterThan(proofed[2, 2].maxAbsDifference(plain[2, 2]), 0.02,
+                             "proofing did nothing to a colour sRGB cannot store")
+        XCTAssertLessThan(proofed[13, 2].maxAbsDifference(plain[13, 2]), 0.01,
+                          "proofing moved a neutral")
+    }
+
+    // MARK: - Export dither
+
+    /// The dither has to move pixels, has to move them by less than one output code,
+    /// and has to leave the tile's mean where it was. All three, because a stage that
+    /// added a constant would pass the first, one that did nothing would pass the
+    /// second and third, and one that added visible noise would pass the first and last.
+    func testDitherMovesPixelsByUnderOneCodeWithoutMovingTheMean() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+        let side = Dither.matrixSide
+        let level = 0.18
+        let source = ImageBuffer(width: side, height: side) { _, _ in RGB(gray: level) }
+        let input = ciImage(from: source)
+        let dithered = PipelineRenderer.applyDither(input, colorSpace: .srgb, bitDepth: 8)
+        guard let result = readBack(dithered, width: side, height: side) else {
+            return XCTFail("dither render failed")
+        }
+
+        let step = Dither.codeStep(level, transfer: .srgb, levels: 256)
+        var distinct = Set<Float>()
+        var sum = 0.0
+        var worst = 0.0
+        for y in 0..<side {
+            for x in 0..<side {
+                let v = result[x, y].g
+                distinct.insert(Float(v))
+                sum += v
+                worst = Swift.max(worst, abs(v - level))
+            }
+        }
+        XCTAssertGreaterThan(distinct.count, 8,
+                             "a flat patch came back flat — the dither did nothing")
+        // Half a code, plus room for the fp16 the graph stores intermediates in.
+        XCTAssertLessThan(worst, step * 0.5 + step * 0.1,
+                          "the dither moved a pixel by \(worst / step) codes")
+        XCTAssertEqual(sum / Double(side * side), level, accuracy: step * 0.05,
+                       "the dither shifted the tile's mean, so it is a bias not a dither")
+    }
+
+    /// 16-bit does not band, and paying for a dither there would be noise for nothing.
+    func testDitherLeaves16BitAlone() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+        let source = ImageBuffer(width: 8, height: 8) { _, _ in RGB(gray: 0.18) }
+        let input = ciImage(from: source)
+        let out = PipelineRenderer.applyDither(input, colorSpace: .srgb, bitDepth: 16)
+        guard let result = readBack(out, width: 8, height: 8) else {
+            return XCTFail("render failed")
+        }
+        for y in 0..<8 {
+            for x in 0..<8 {
+                XCTAssertEqual(result[x, y].g, 0.18, accuracy: 1e-4)
+            }
+        }
+    }
 }
 
 #endif

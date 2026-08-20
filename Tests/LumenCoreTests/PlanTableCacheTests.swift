@@ -101,6 +101,54 @@ final class PlanTableCacheTests: XCTestCase {
         XCTAssertEqual(second.vignetteEV, -0.8)
     }
 
+    /// Toggling the soft proof must not show the previous proof.
+    ///
+    /// The proofed finish table is DERIVED from the plain one — mapped, not re-baked —
+    /// so it rides a second cache slot whose key is the plain table's key plus the proof
+    /// settings. Leave the settings out and the plain table's key still hits, so
+    /// switching destination or intent keeps rendering the old proof: a stale picture
+    /// through a door the rest of this suite does not know about. This is that door.
+    func testProofSettingsAreInTheKey() {
+        let recipe = liveRecipe()
+        let cases: [(String, SoftProof)] = [
+            ("off", SoftProof(enabled: false)),
+            ("sRGB relative", SoftProof(enabled: true, space: .srgb,
+                                        intent: .relativeColorimetric)),
+            ("sRGB perceptual", SoftProof(enabled: true, space: .srgb,
+                                          intent: .perceptual)),
+            ("sRGB + paper white", SoftProof(enabled: true, space: .srgb,
+                                             intent: .relativeColorimetric,
+                                             simulatePaperWhite: true)),
+        ]
+        for (name, proof) in cases {
+            // Warm on a DIFFERENT proof, then ask for this one.
+            PlanTableCache.clear()
+            _ = RenderPlan(recipe: recipe, asShotKelvin: 5500, asShotTint: 0, lutSize: 17,
+                           softProof: SoftProof(enabled: true, space: .displayP3,
+                                                intent: .perceptual))
+            let viaCache = RenderPlan(recipe: recipe, asShotKelvin: 5500, asShotTint: 0,
+                                      lutSize: 17, softProof: proof)
+            PlanTableCache.clear()
+            let fresh = RenderPlan(recipe: recipe, asShotKelvin: 5500, asShotTint: 0,
+                                   lutSize: 17, softProof: proof)
+            XCTAssertEqual(viaCache.finishLUT, fresh.finishLUT,
+                           "the proofed finish table came back stale for \(name)")
+        }
+
+        // And the proofs must actually differ from each other, or the check above
+        // passes for a proof that does nothing.
+        PlanTableCache.clear()
+        let off = RenderPlan(recipe: recipe, asShotKelvin: 5500, asShotTint: 0,
+                             lutSize: 17, softProof: SoftProof(enabled: false))
+        let on = RenderPlan(recipe: recipe, asShotKelvin: 5500, asShotTint: 0,
+                            lutSize: 17,
+                            softProof: SoftProof(enabled: true, space: .srgb,
+                                                 intent: .perceptual))
+        XCTAssertNotEqual(off.finishLUT, on.finishLUT,
+                          "proofing to sRGB perceptual changed nothing, so this test "
+                              + "cannot tell a stale table from a fresh one")
+    }
+
     /// Export-size bakes are not cached, because holding 6.6 MB for a table used once is
     /// worse than rebuilding it. The behaviour must still be identical.
     func testExportSizeIsCorrectWhetherOrNotItIsCached() {

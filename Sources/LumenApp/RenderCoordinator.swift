@@ -48,20 +48,26 @@ actor RenderCoordinator {
     func render(url: URL, recipe: Recipe, maxLongEdge: Int, draft: Bool,
                 generation: UInt64,
                 strokeSets: [String: BrushStrokeSet] = [:],
-                showingUncropped: Bool = false) async -> RenderResult? {
+                showingUncropped: Bool = false,
+                softProof: SoftProof? = nil) async -> RenderResult? {
         latestGeneration = max(latestGeneration, generation)
         // Drop work that is already stale before paying for a decode.
         guard generation >= latestGeneration else { return nil }
         return await produce(url: url, recipe: recipe, maxLongEdge: maxLongEdge,
                              draft: draft, generation: generation, coalesced: true,
                              strokeSets: strokeSets,
-                             showingUncropped: showingUncropped)
+                             showingUncropped: showingUncropped,
+                             softProof: softProof)
     }
 
     /// A render nobody else is waiting on — the scope proxy, the Auto-tone probe. It
     /// neither claims a ticket nor yields to one: the caller has its own supersede
     /// check, and letting these touch `latestGeneration` would have them cancelling
     /// the viewer's frames (or, with a sentinel, all of them forever).
+    ///
+    /// Deliberately takes no soft proof. A scope is an instrument on the EDIT, and a
+    /// histogram with a gamut flag's flat grey binned into it would be measuring the
+    /// warning rather than the photograph — and Auto Tone would then solve against it.
     func renderOneShot(url: URL, recipe: Recipe, maxLongEdge: Int, draft: Bool,
                        strokeSets: [String: BrushStrokeSet] = [:]) async -> RenderResult? {
         await produce(url: url, recipe: recipe, maxLongEdge: maxLongEdge,
@@ -72,7 +78,8 @@ actor RenderCoordinator {
     private func produce(url: URL, recipe: Recipe, maxLongEdge: Int, draft: Bool,
                          generation: UInt64, coalesced: Bool,
                          strokeSets: [String: BrushStrokeSet],
-                         showingUncropped: Bool = false) async -> RenderResult? {
+                         showingUncropped: Bool = false,
+                         softProof: SoftProof? = nil) async -> RenderResult? {
         func stale() -> Bool { coalesced && generation < latestGeneration }
 
         do {
@@ -95,7 +102,8 @@ actor RenderCoordinator {
                 image = try renderer.renderPreview(source: source, recipe: recipe,
                                                    maxLongEdge: maxLongEdge, draft: draft,
                                                    showingUncropped: showingUncropped,
-                                                   strokeSets: strokeSets)
+                                                   strokeSets: strokeSets,
+                                                   softProof: softProof)
                 // Core kernels present but something else missing: the picture is real,
                 // and some stage of it silently did nothing. Say which.
                 let missing = KernelLibrary.unavailableKernels
@@ -107,7 +115,8 @@ actor RenderCoordinator {
             } else {
                 image = try renderer.renderReference(source: source, recipe: recipe,
                                                      maxLongEdge: maxLongEdge,
-                                                     strokeSets: strokeSets)
+                                                     strokeSets: strokeSets,
+                                                     softProof: softProof)
                 note = "CPU fallback — GPU kernels unavailable"
             }
 

@@ -175,6 +175,12 @@ final class KeyDispatcher {
             state.activeSection = .detail
         case "h":
             state.showHistogram.toggle()
+        // docs/09 gives soft proofing a bare `S`, which this grammar had already spent on
+        // the scopes long before proofing existed. ⇧S rather than stealing it back: a key
+        // that moves is worse than a key that is one modifier away, and the keyboard
+        // reference names both.
+        case "s" where flags.contains(.shift):
+            state.softProof.enabled.toggle()
         case "s":
             state.showScopes.toggle()
         case "a":
@@ -336,6 +342,7 @@ enum KeyReference {
             Entry(keys: "L", action: "Look panel"),
             Entry(keys: "M", action: "Masks"),
             Entry(keys: "R", action: "Crop tool on the image; again to leave it"),
+            Entry(keys: "⇧S", action: "Soft proof through the destination space"),
             Entry(keys: "\\", action: "Before / after, full frame"),
             Entry(keys: "Y", action: "Before / after, side by side"),
             Entry(keys: "⇧Y", action: "Before / after, split with a divider"),

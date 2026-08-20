@@ -109,6 +109,18 @@ public struct RenderGraph {
         // S14 + S15 — picture formation and the curve, as one table. The table is
         // normalized, so display white comes back through a matrix; that keeps an HDR
         // rendition's highlights out of the cube's unit domain entirely.
+        //
+        // First, the same input through the finish table WITHOUT the soft proof, kept
+        // only when a gamut flag has to be drawn. Core Image is lazy and this branches
+        // off the same upstream node, so it costs one extra table fetch per pixel and no
+        // second evaluation of anything above it.
+        var beforeProof: CIImage?
+        if let proofTable = plan.finishLUTBeforeProof {
+            beforeProof = Self.throughShaperToDisplay(image, { encoded in
+                ColorCube.filter(proofTable, image: encoded)
+            })
+        }
+
         if let formed = Self.throughShaperToDisplay(image, { encoded in
             ColorCube.filter(plan.finishLUT, image: encoded)
         }) {
@@ -118,6 +130,7 @@ public struct RenderGraph {
             // scene-referred data as if it were a picture is worse than any fallback.
             // Apply the transform's own curve through a 1-D cube instead.
             image = Self.applyFallbackTone(image, plan: plan) ?? image
+            beforeProof = nil
         }
 
         // Grain lives inside picture formation, in the density domain.
@@ -126,7 +139,76 @@ public struct RenderGraph {
             image = applyGrain(image, plate: plate, film: film)
         }
 
+        // The gamut flag, last, so nothing paints over it — a warning that grain or a
+        // later stage could modulate would read as a colour rather than as a flag.
+        if let proof = plan.softProof, proof.settings.showGamutWarning,
+           let beforeProof {
+            image = Self.applyGamutWarning(image, beforeProof: beforeProof, proof: proof,
+                                           finishScale: plan.finishScale)
+        }
+
         return image
+    }
+
+    // MARK: - Soft proof's gamut flag
+
+    /// Paint `SoftProof.warningColor` over every pixel the destination cannot hold.
+    ///
+    /// The proof's PICTURE half rides in the finish table, where it costs nothing and
+    /// measures as accurate. The flag cannot: it is a step function, and a trilinear
+    /// table turns a step into a ramp — measured, a baked flag's edge sat a mean of
+    /// 0.017 OKLCh chroma off the true boundary and mislabelled 6% of a realistic sweep.
+    /// So it is computed here, per pixel, from the value before the proof clipped it.
+    ///
+    /// No new kernel: the whole test is `Σ max(v−1, 0) + max(−v, 0)` in the destination's
+    /// primaries, which is two `highlightEnergy` clamps, an `addGlow` sum, a `luminance`
+    /// with unit weights, and a scale that saturates `blendMask`'s own clamp into a step.
+    /// Branchless, like every kernel here, because there are no branches available.
+    static func applyGamutWarning(_ image: CIImage, beforeProof: CIImage,
+                                  proof: SoftProofTransform,
+                                  finishScale: Double) -> CIImage {
+        let extent = image.extent
+        guard extent.width > 0, extent.height > 0 else { return image }
+
+        // Into the destination's primaries. `beforeProof` is the NORMALIZED display
+        // value — the table's own output, before `finishScale` — which is the domain the
+        // gamut test is defined in.
+        let inProof = Self.applyMatrix(beforeProof, proof.workingToProof)
+        let negated = Self.applyMatrix(inProof, Mat3.diagonal(RGB(gray: -1)))
+
+        guard let over = KernelLibrary.apply(KernelLibrary.highlightEnergy,
+                                             extent: extent, [inProof, Float(1.0), Float(1.0)]),
+              let under = KernelLibrary.apply(KernelLibrary.highlightEnergy,
+                                              extent: extent, [negated, Float(0.0), Float(1.0)]),
+              let excess = KernelLibrary.apply(KernelLibrary.addGlow, extent: extent,
+                                               [over, under, CIVector(x: 1, y: 1, z: 1)]),
+              let summed = KernelLibrary.apply(KernelLibrary.luminance, extent: extent,
+                                               [excess, CIVector(x: 1, y: 1, z: 1)])
+        else { return image }
+
+        // `blendMask` clamps its mask to [0,1], so scaling the excess by 1/epsilon turns
+        // that clamp into the step: anything past a quarter of a 12-bit code is fully
+        // flagged, anything under it is invisible.
+        let gate = Self.applyMatrix(
+            summed, Mat3.diagonal(RGB(gray: 1 / SoftProof.gamutEpsilon)))
+        let flag = SoftProof.warningColor * finishScale
+        guard let warning = Self.constant(flag, extent: extent) else { return image }
+        return KernelLibrary.apply(KernelLibrary.blendMask, extent: extent,
+                                   [image, warning, gate]) ?? image
+    }
+
+    /// A flat colour over `extent`, in the working space, with no colour management in
+    /// the way. A 1×1 float bitmap tagged with no colour space says exactly these
+    /// numbers; `CIConstantColorGenerator` would take a `CIColor` and match it into the
+    /// working space, which is a conversion nobody asked for on a value that is already
+    /// expressed there.
+    static func constant(_ color: RGB, extent: CGRect) -> CIImage? {
+        let pixel: [Float] = [Float(color.r), Float(color.g), Float(color.b), 1]
+        let data = pixel.withUnsafeBufferPointer { Data(buffer: $0) }
+        let image = CIImage(bitmapData: data, bytesPerRow: 16,
+                            size: CGSize(width: 1, height: 1),
+                            format: .RGBAf, colorSpace: nil)
+        return image.clampedToExtent().cropped(to: extent)
     }
 
     // MARK: - S6

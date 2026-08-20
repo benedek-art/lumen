@@ -31,6 +31,9 @@ enum PlanTableCache {
     /// Which table, so the two never collide on a key.
     enum Slot: String {
         case finish
+        /// The finish table with a soft proof mapped over it. A separate slot rather
+        /// than a variant of `finish`, because the flag overlay needs both at once.
+        case finishProofed
         case colorGrade
     }
 

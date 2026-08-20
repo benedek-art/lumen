@@ -47,6 +47,25 @@ public struct RenderPlan: Sendable {
     public let finishLUT: LUT3D
     public let finishScale: Double
 
+    /// The soft proof, when the viewer has one on (docs/11: "the proof state is a
+    /// viewing mode, not an edit", which is why it arrives as a plan argument and not
+    /// through the recipe).
+    ///
+    /// The proof's picture half is composed onto the END of `finishLUT` rather than run
+    /// as a stage of its own, and that is why it reaches pixels with no new kernel: the
+    /// finish table is the one object the GPU graph and `ReferenceRenderer` both apply,
+    /// so the simulation cannot be present on one path and missing from the other.
+    public let softProof: SoftProofTransform?
+
+    /// The finish table WITHOUT the proof, kept only when the gamut warning is on.
+    ///
+    /// The flag is a discontinuity and a trilinear table cannot hold one — measured, the
+    /// baked flag's edge sat a mean of 0.017 OKLCh chroma off the true boundary. So the
+    /// renderers compute it per pixel instead, and to ask "is this colour outside the
+    /// destination" they need the value from before the proof clipped it. This is that
+    /// value's table. Nil when there is no warning to draw, so nothing pays for it.
+    public let finishLUTBeforeProof: LUT3D?
+
     // MARK: Display
     public let displayWhite: Double
     public let displayTransform: DisplayTransform
@@ -63,7 +82,8 @@ public struct RenderPlan: Sendable {
                 asShotTint: Double = 0,
                 displayWhiteTarget: Double? = nil,
                 lutSize: Int = LUT3D.interactiveSize,
-                space: RGBColorSpace = .rec2020) {
+                space: RGBColorSpace = .rec2020,
+                softProof: SoftProof? = nil) {
         self.recipe = recipe
         let develop = recipe.develop
         let look = recipe.look
@@ -143,6 +163,27 @@ public struct RenderPlan: Sendable {
         let white = transform.white
         let scale = Swift.max(white, 1e-6)
         self.finishScale = scale
+        let proof = softProof?.transform(working: space)
+        self.softProof = proof
+        // One closure, used for both tables, so the proofed and unproofed versions
+        // cannot drift into being different pictures with one difference.
+        let display: @Sendable (RGB) -> RGB = { encoded in
+            let scene = LumenLog.decode(encoded)
+            let formed: RGB
+            if let chain {
+                formed = chain.apply(scene)
+            } else {
+                formed = transform.apply(scene, gamut: boundary)
+            }
+            // The division by `scale` comes BEFORE the proof deliberately: the proof's
+            // domain is display-linear relative to display white, so 1.0 has to mean
+            // white for the destination gamut to mean anything. Proofing the unscaled
+            // value would put an HDR rendition's 4.0 through a table whose whole
+            // question is "does this fit in the file", and every highlight would answer
+            // no for the wrong reason.
+            return curve.apply(formed, white: white, space: space) / scale
+        }
+
         // The single most expensive thing a plan does, and the one least likely to have
         // changed since the last frame. `transform` comes from the render preset, the
         // display white target and the tone ANCHORS — and the anchors move only with
@@ -151,19 +192,10 @@ public struct RenderPlan: Sendable {
         // table bit-identical while the user drags them.
         //
         // `boundary` is `Gamut.sharedBoundary`, one object for the whole process, so it
-        // is a constant rather than a key component.
-        let bakeFinish = {
-            LUT3D(size: lutSize) { encoded in
-                let scene = LumenLog.decode(encoded)
-                let formed: RGB
-                if let chain {
-                    formed = chain.apply(scene)
-                } else {
-                    formed = transform.apply(scene, gamut: boundary)
-                }
-                return curve.apply(formed, white: white, space: space) / scale
-            }
-        }
+        // is a constant rather than a key component. The PROOF is not in this key and
+        // must not be: `display` does not read it, and the proofed table is derived from
+        // this one below under a key of its own.
+        //
         // `FilmLab` has no default value to stand in for "no film", and substituting a
         // literal marker for an unencodable one would let a real stock collide with the
         // absence of one. Absent keys as "-", present-but-unencodable fails the key.
@@ -173,7 +205,7 @@ public struct RenderPlan: Sendable {
         } else {
             filmPart = "-"
         }
-        let finishKey = filmPart.flatMap { film in
+        let baseKey = filmPart.flatMap { film in
             PlanTableCache.key(
                 ["fin", "\(lutSize)", "\(space)", film,
                  CanonicalJSON.canonicalNumber(white),
@@ -182,9 +214,52 @@ public struct RenderPlan: Sendable {
                  displayWhiteTarget.map(CanonicalJSON.canonicalNumber) ?? "-"],
                 [look.render, develop.curve])
         }
-        self.finishLUT = finishKey.map {
-            PlanTableCache.table(.finish, key: $0, size: lutSize, build: bakeFinish)
-        } ?? bakeFinish()
+        let bakePlain = { LUT3D(size: lutSize, transform: display) }
+        let plain = baseKey.map {
+            PlanTableCache.table(.finish, key: $0, size: lutSize, build: bakePlain)
+        } ?? bakePlain()
+
+        // Baked ONCE and then mapped, not baked twice.
+        //
+        // The proofed table's samples are the plain table's samples put through the
+        // proof, by construction — so the second table is a matrix, a clamp and a matrix
+        // over 35 937 samples rather than another 35 937 evaluations of the display
+        // transform, the film chain and the curve. That distinction is the difference
+        // between proofing costing nothing per frame and costing another 17.7 ms of the
+        // budget `CurveStack`'s header measures.
+        //
+        // The map is cached too, under the base key PLUS the proof settings. Without the
+        // settings in the key, toggling the destination or the intent would keep showing
+        // the previous proof — the exact stale-picture failure `PlanTableCacheTests`
+        // exists to catch, arriving through a door that test did not know about.
+        if let proof {
+            let mapProof = {
+                var mapped = plain.data
+                var i = 0
+                while i < mapped.count {
+                    let out = proof.mapped(RGB(Double(mapped[i]), Double(mapped[i + 1]),
+                                               Double(mapped[i + 2])))
+                    mapped[i] = Float(out.r)
+                    mapped[i + 1] = Float(out.g)
+                    mapped[i + 2] = Float(out.b)
+                    i += 4
+                }
+                return LUT3D(size: lutSize, data: mapped)
+            }
+            let proofKey = baseKey.flatMap { base in
+                PlanTableCache.key([base, "proof"], [proof.settings])
+            }
+            self.finishLUT = proofKey.map {
+                PlanTableCache.table(.finishProofed, key: $0, size: lutSize,
+                                     build: mapProof)
+            } ?? mapProof()
+            // Kept only when there is a flag to draw; the flag needs the value from
+            // before the map and nothing else does.
+            self.finishLUTBeforeProof = proof.settings.showGamutWarning ? plain : nil
+        } else {
+            self.finishLUT = plain
+            self.finishLUTBeforeProof = nil
+        }
 
         // ---- carried through --------------------------------------------------
         self.detail = develop.detail
@@ -225,7 +300,24 @@ public struct RenderPlan: Sendable {
         // The finish table already ENDS in display-linear — encode going in, nothing
         // coming out. Decoding here would exponentiate the table's own interpolation
         // error, which is exactly what it did until a golden caught it.
-        return finishLUT.sample(LumenLog.encode(c)) * finishScale
+        let encoded = LumenLog.encode(c)
+        return finishedColor(encoded: encoded)
+    }
+
+    /// The finish table plus the exact gamut flag, which is how both render paths
+    /// compose the last stage. Factored out so the reference renderer, the GPU graph's
+    /// twin and `referenceColor` all say it once.
+    public func finishedColor(encoded: RGB) -> RGB {
+        let proofed = finishLUT.sample(encoded) * finishScale
+        guard let softProof, softProof.settings.showGamutWarning,
+              let plain = finishLUTBeforeProof else { return proofed }
+        // The flag is asked of the value BEFORE the proof mapped it, which is the whole
+        // reason that table is kept: after the map nothing is out of gamut.
+        guard softProof.isOutOfGamut(plain.sample(encoded)) else { return proofed }
+        // Denominated relative to display white, like every other display-linear value
+        // here, so it scales with the rendition instead of sitting at an absolute level
+        // that would be a different grey on an HDR target.
+        return SoftProof.warningColor * finishScale
     }
 
     /// The same function with the LUT stages evaluated exactly rather than sampled —
@@ -250,7 +342,14 @@ public struct RenderPlan: Sendable {
         } else {
             formed = displayTransform.apply(c, gamut: RenderPlan.sharedGamutBoundary)
         }
-        return CurveStack(develop.curve).apply(formed, white: displayWhite, space: space)
+        let finished = CurveStack(develop.curve).apply(formed, white: displayWhite,
+                                                       space: space)
+        // The proof belongs here too, in the same place and the same domain the table
+        // puts it — this function is the f32 twin the table's interpolation error is
+        // measured against, and a twin that skips a stage measures the stage instead of
+        // the error.
+        guard let softProof else { return finished }
+        return softProof.apply(finished / finishScale) * finishScale
     }
 
     /// The largest gain the tone stage produces, so its cube can be stored normalized.

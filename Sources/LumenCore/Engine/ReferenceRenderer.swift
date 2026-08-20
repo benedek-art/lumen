@@ -104,9 +104,11 @@ public enum ReferenceRenderer {
         // the whole reference path, and the grain that runs after it, `1/white` too
         // dark, so the two paths disagreed by a factor rather than a tolerance exactly
         // when an HDR rendition was being checked against them.
-        let finish = plan.finishLUT
-        let finishScale = plan.finishScale
-        image = image.map { finish.sample(LumenLog.encode($0)) * finishScale }
+        // Through `finishedColor` rather than the table directly, because the last stage
+        // is the table PLUS the soft proof's gamut flag when one is on, and that flag is
+        // computed per pixel rather than baked. One expression, so this path and the
+        // graph cannot disagree about what the final stage is.
+        image = image.map { plan.finishedColor(encoded: LumenLog.encode($0)) }
 
         // Grain lives inside picture formation, in the density domain.
         if let film = plan.filmChain, film.grainAmount > 0 {
