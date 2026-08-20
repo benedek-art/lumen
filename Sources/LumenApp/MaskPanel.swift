@@ -3,23 +3,22 @@
 // refinement chain, and the full local adjustment set that runs through its alpha.
 //
 // Four things this panel exists to get right:
-//   · The component operation is a control, not a modifier. Add / Subtract / Intersect
-//     are three equal buttons that stay editable after creation — LrC hides Intersect
-//     behind an Alt-click at creation time, and that is the difference being made here.
-//   · The refinement chain is shown in the order the engine runs it (Refine → Edge
-//     Shift → Feather → Levels) under its UI names, never the wire names: `MaskRefine`
-//     spells the guided filter `feather` and the Gaussian `blur`, and a panel that
-//     leaked that would teach the user the wrong word for both.
-//   · A mask can run the local point curve and the local grading wheels — the two tools
-//     Lightroom Classic still does not have inside a mask — so they are visible sections
-//     here, not a disclosure nobody opens.
-//   · Where the shipped format has no field for a spec'd control (whole-mask invert,
-//     linear Mirror, per-axis colour tolerances, similarity point geometry, depth
-//     source), the control is ABSENT rather than invented.
+//   · The component operation is a control, not a modifier: Add / Subtract / Intersect
+//     are three equal buttons, editable after creation. LrC hides Intersect behind an
+//     Alt-click at creation time; that is the difference being made here.
+//   · The refinement chain appears in the order the engine runs it (Refine → Edge Shift
+//     → Feather → Levels) under its UI names, never the wire names — `MaskRefine` spells
+//     the guided filter `feather` and the Gaussian `blur`, and leaking that would teach
+//     the user the wrong word for both.
+//   · A mask runs the local point curve and the local grading wheels — the two tools
+//     Lightroom Classic still lacks inside a mask — so both are visible sections.
+//   · Where the format has no field for a spec'd control (whole-mask invert, linear
+//     Mirror, per-axis colour tolerances, similarity geometry, depth source), the
+//     control is ABSENT rather than invented.
 //
 // Every slider is a `LumenSlider`, every edit goes through
-// `AppState.updateRecipe(coalescingKey:)` so one drag is one undo step, and every index
-// into `components` is bounds-checked at read and at write.
+// `updateRecipe(coalescingKey:)` so one drag is one undo step, and every index into
+// `components` is bounds-checked at read and at write.
 
 #if os(macOS)
 
@@ -198,7 +197,14 @@ struct MaskPanel: View {
                 .padding(.vertical, 2)
             LumenToggleRow(title: "Invert", isOn: invertBinding(id, i),
                            help: "Inverts this component before it folds into the stack")
-            componentSlider(id, i, "Amount", \.amount, 0...100, 100, bipolar: false)
+            LumenSlider(title: "Amount",
+                        value: Binding(get: { component(id, i)?.amount ?? 100 },
+                                       set: { v in
+                                           editComponent(id, i, key: "mask.c.amount.\(id).\(i)") {
+                                               $0.amount = Num.clamp(v, 0, 100)
+                                           }
+                                       }),
+                        range: 0...100, defaultValue: 100, step: 1, decimals: 0, bipolar: false)
             componentParameters(id, i, c)
             if let problem = c.validationError() {
                 note(problem + " — it renders empty until that is supplied.")
@@ -765,20 +771,6 @@ struct MaskPanel: View {
     }
 
     // MARK: - Slider builders
-
-    private func componentSlider(_ id: String, _ i: Int, _ t: String,
-                                 _ p: WritableKeyPath<MaskComponent, Double>,
-                                 _ r: ClosedRange<Double>, _ d: Double,
-                                 bipolar: Bool = true) -> some View {
-        LumenSlider(title: t,
-                    value: Binding(get: { component(id, i)?[keyPath: p] ?? d },
-                                   set: { v in
-                                       editComponent(id, i, key: "mask.c.\(t).\(id).\(i)") {
-                                           $0[keyPath: p] = Num.clamp(v, r.lowerBound, r.upperBound)
-                                       }
-                                   }),
-                    range: r, defaultValue: d, step: 1, decimals: 0, bipolar: bipolar)
-    }
 
     /// The kind-specific keys are optional on the flat component struct: `nil` means "not
     /// set", and the slider stands in the documented default until it is moved.

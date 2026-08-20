@@ -74,6 +74,13 @@ public enum ReferenceRenderer {
             image = applyMasks(image, plan: plan, inputs: inputs, space: space)
         }
 
+        // S12 — creative sharpening, after local so masked clarity is never
+        // double-sharpened.
+        if detail.sharpen.amount > 0, let node = decomposition {
+            image = DetailEngine.applySharpen(image, params: detail.sharpen,
+                                              decomposition: node)
+        }
+
         // S13 — vignette in scene-linear, before picture formation.
         if plan.vignetteEV != 0 {
             image = DetailEngine.vignette(image, ev: plan.vignetteEV)
@@ -91,7 +98,6 @@ public enum ReferenceRenderer {
                                longEdge: longEdge)
         }
 
-        _ = decomposition
         return image
     }
 

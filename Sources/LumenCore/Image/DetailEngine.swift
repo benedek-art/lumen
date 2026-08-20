@@ -189,13 +189,19 @@ public struct DetailEngine: Sendable {
     ///
     /// None of these rebuild the decomposition. A slider drag is one pass of coefficient
     /// re-weighting over planes that are already resident.
+    /// Stage S8 — presence, and ONLY presence.
+    ///
+    /// Capture sharpening is S4 (it runs on the cleanest estimate of the optical
+    /// image, immediately after denoise) and creative sharpening is S12 (after local
+    /// adjustments, so masked clarity is never double-sharpened). Folding either into
+    /// this call would put it after tone, which is the wrong place for both. Callers
+    /// invoke `captureSharpen` and `applySharpen` at their own stages; on the Apple
+    /// RAW path S4 is Apple's at-demosaic sharpener.
     public static func apply(_ image: ImageBuffer, detail: Detail,
                              decomposition: Decomposition) -> ImageBuffer {
-        var out = captureSharpen(image, detail.capture, space: decomposition.space)
-        out = applyTexture(out, amount: detail.texture, decomposition: decomposition)
+        var out = applyTexture(image, amount: detail.texture, decomposition: decomposition)
         out = applyClarity(out, amount: detail.clarity, decomposition: decomposition)
         out = applyDehaze(out, amount: detail.dehaze, decomposition: decomposition)
-        out = applySharpen(out, params: detail.sharpen, decomposition: decomposition)
         return out
     }
 
