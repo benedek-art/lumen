@@ -98,6 +98,44 @@ final class ColorScienceTests: XCTestCase {
         }
     }
 
+    /// A round trip is satisfied by an identity `encode`/`decode` pair, so every case
+    /// but sRGB was anchored to nothing. These are external reference points, not
+    /// numbers read back out of this implementation.
+    func testEveryTransferFunctionHitsItsKnownPoints() {
+        // Endpoints first: every curve in the set maps 0→0 and 1→1, except PQ, whose
+        // floor is genuinely not zero — `(c1)^m2` is about 1e-6, which is the standard's
+        // behaviour and not a bug.
+        for tf in TransferFunction.allCases {
+            XCTAssertEqual(tf.encode(1), 1, accuracy: 1e-9, "\(tf.rawValue) at white")
+            XCTAssertEqual(tf.encode(0), 0, accuracy: 1e-5, "\(tf.rawValue) at black")
+        }
+
+        // Mid-grey through each display curve. The sRGB figure is the one every
+        // photographer's intuition is built on; the rest are its siblings.
+        XCTAssertEqual(TransferFunction.srgb.encode(0.18), 0.4613, accuracy: 1e-3)
+        XCTAssertEqual(TransferFunction.rec709.encode(0.18), 0.4090, accuracy: 1e-3)
+        XCTAssertEqual(TransferFunction.gamma22.encode(0.18), 0.4587, accuracy: 1e-3)
+        XCTAssertEqual(TransferFunction.gamma18.encode(0.18), 0.3857, accuracy: 1e-3)
+        XCTAssertEqual(TransferFunction.linear.encode(0.18), 0.18, accuracy: 1e-12)
+
+        // HLG's toe meets its log segment at exactly 0.5 by construction — the
+        // constants `a`, `b`, `c` are chosen for it, so this checks all three at once.
+        XCTAssertEqual(TransferFunction.hlg.encode(1.0 / 12), 0.5, accuracy: 1e-9,
+                       "HLG's toe/log junction is not at half the code range")
+
+        // PQ is absolute: 1.0 linear is the standard's 10000 cd/m² peak, so 100 cd/m²
+        // — SDR reference white — is 0.01 linear and lands near half the code range.
+        XCTAssertEqual(TransferFunction.pq.encode(0.01), 0.5081, accuracy: 1e-3,
+                       "PQ did not put 100 nits at its usual code value")
+
+        // The two HDR curves spend far more code range on the deep shadows than the SDR
+        // ones do, which is the property that makes them worth the trouble. At 0.001
+        // linear, sRGB gives 0.0129 while HLG gives 0.0548 (4.2×) and PQ 0.2997 (23×).
+        let deepSRGB = TransferFunction.srgb.encode(0.001)
+        XCTAssertGreaterThan(TransferFunction.pq.encode(0.001), deepSRGB * 10)
+        XCTAssertGreaterThan(TransferFunction.hlg.encode(0.001), deepSRGB * 3)
+    }
+
     func testSRGBKnownPoints() {
         XCTAssertEqual(TransferFunction.srgb.encode(0), 0, accuracy: 1e-9)
         XCTAssertEqual(TransferFunction.srgb.encode(1), 1, accuracy: 1e-9)

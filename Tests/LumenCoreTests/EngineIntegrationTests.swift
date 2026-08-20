@@ -375,7 +375,13 @@ final class EngineIntegrationTests: XCTestCase {
 
         let before = source.luminancePlane().mean
         let after = out.luminancePlane().mean
-        XCTAssertEqual(after, before, accuracy: before * 0.12,
+        // 5%, not 12%. A 12% shift in mean luminance is about 0.16 EV — a visible
+        // exposure change, certified as "did not move the exposure". The detail bands
+        // have zero mean by construction, so boosting them should preserve the mean
+        // exactly; what stops this being 1% is the spatially-varying coherence and band
+        // weighting, which I have not measured. 5% (0.07 EV) is a bound I am confident
+        // in rather than a measurement — tighten it once this path has a mirror.
+        XCTAssertEqual(after, before, accuracy: before * 0.05,
                        "Texture moved the overall exposure")
     }
 

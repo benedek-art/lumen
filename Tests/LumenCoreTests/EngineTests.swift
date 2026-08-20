@@ -11,7 +11,18 @@ final class EngineTests: XCTestCase {
     // MARK: - Display transform
 
     func testTransformHitsAllFourAnchors() {
-        for preset in ["Neutral", "Soft", "Punchy", "Film Base"] {
+        // Driven off `presetNames` rather than a hardcoded list, which had drifted:
+        // the list here named four and the type ships five, and `preset(named:)` falls
+        // back to `.neutral` for anything it does not recognise — so renaming a preset
+        // silently turned this into four copies of the Neutral case.
+        //
+        // Linear is excluded by name: it is a straight scaling with no shoulder, so it
+        // cannot hit the black anchor, and `testLinearPresetIsAStraightScaling` covers
+        // it instead.
+        let anchored = DisplayTransformParams.presetNames.filter { $0 != "Linear" }
+        XCTAssertEqual(anchored.count, 4, "the preset list changed — is the new one "
+                           + "anchored, or does it belong with Linear?")
+        for preset in anchored {
             var p = DisplayTransformParams.preset(named: preset)
             p.whiteAnchorEV = 5
             p.blackAnchorEV = -9
@@ -59,7 +70,7 @@ final class EngineTests: XCTestCase {
         }
     }
 
-    func testSkewLeavesTheSlopeAtTheePivotAlone() {
+    func testSkewLeavesTheSlopeAtThePivotAlone() {
         var slopes: [Double] = []
         for skew in [-1.0, -0.5, 0, 0.5, 1.0] {
             var p = DisplayTransformParams()
@@ -97,7 +108,7 @@ final class EngineTests: XCTestCase {
     }
 
     func testHDRPeakRaisesWhiteButNotMidGrey() {
-        var sdr = DisplayTransformParams()
+        let sdr = DisplayTransformParams()
         var hdr = DisplayTransformParams()
         hdr.whiteTarget = 400
         let a = DisplayTransform(sdr), b = DisplayTransform(hdr)
@@ -105,7 +116,10 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(b.tone(0.18), 0.18, accuracy: 1e-9)
         XCTAssertEqual(b.white, 4.0, accuracy: 1e-9)
         XCTAssertGreaterThan(b.tone(0.18 * 16), a.tone(0.18 * 16))
-        sdr.whiteTarget = 100
+        // Raising the peak must not raise the floor — black is a fraction of SDR white,
+        // not of the display peak, which is what keeps an HDR display from washing out
+        // the shadows. (This line used to be a dead `sdr.whiteTarget = 100` store.)
+        XCTAssertEqual(b.black, a.black, accuracy: 1e-12)
     }
 
     func testLinearPresetIsAStraightScaling() {
@@ -372,21 +386,60 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(stack.master(0.5), 0.75, accuracy: 1e-6)
     }
 
+    /// The point of `preserveLuminance`: curve the luminance, carry the chroma ratios,
+    /// so a contrast curve is not also a saturation boost — or a hue rotation.
+    ///
+    /// The tolerance used to be 2 degrees, which is a visible shift on a saturated red
+    /// and 300× looser than what actually happens. Scaling all three channels by one
+    /// factor on the ENCODED axis and decoding back is, in the power-law region, exactly
+    /// a linear scale — so the hue moves by 0.007°, not 2°.
+    ///
+    /// It only stops being exact when a channel clips at the top of the encoded range,
+    /// and then it moves fast: at a scale of 2.0 this same colour swings 12°. So the
+    /// no-clip precondition is asserted alongside it. If a future curve change pushes
+    /// this case into clipping, that assertion fails and says so, instead of the hue
+    /// assertion failing for a reason nobody can see from the message.
     func testLuminancePreservingCurveDoesNotShiftHue() {
         let set = CurveSet(point: [[0, 0], [0.25, 0.45], [1, 1]], preserveLuminance: true)
         let stack = CurveStack(set)
         let input = RGB(0.30, 0.12, 0.06)
         let out = stack.apply(input)
+        for (name, value) in [("r", out.r), ("g", out.g), ("b", out.b)] {
+            XCTAssertLessThan(value, 0.999,
+                              "the \(name) channel clipped, so this no longer measures "
+                                  + "hue preservation")
+        }
         let before = OKLabTransform.working.toLCh(input)
         let after = OKLabTransform.working.toLCh(out)
-        XCTAssertEqual(after.h, before.h, accuracy: 2.0)
+        XCTAssertEqual(after.h, before.h, accuracy: 0.1)
         XCTAssertGreaterThan(after.L, before.L)
+        // Chroma rides along rather than being boosted — the saturation half of the
+        // same claim, which nothing asserted at all.
+        XCTAssertEqual(after.C / after.L, before.C / before.L, accuracy: 0.02,
+                       "the curve changed chroma relative to lightness")
     }
 
     func testSettingPointReplacesNearbyPoints() {
         let pts = CurveStack.settingPoint([[0, 0], [0.5, 0.5], [1, 1]], x: 0.505, y: 0.7)
         XCTAssertEqual(pts.count, 3)
         XCTAssertEqual(pts[1][1], 0.7, accuracy: 1e-9)
+        // The x too — whether the survivor takes the new x or keeps the old one is the
+        // interesting half of "replaces", and it was unasserted. It KEEPS the old one:
+        // dragging within the snap radius of an existing point moves that point
+        // vertically rather than sliding it sideways under the cursor, which is what
+        // makes a curve editor feel like it has handles.
+        XCTAssertEqual(pts[1][0], 0.5, accuracy: 1e-9)
+        XCTAssertEqual(pts[0], [0, 0])
+        XCTAssertEqual(pts[2], [1, 1])
+
+        // Outside the snap radius it is a new point, not a replacement.
+        let added = CurveStack.settingPoint([[0, 0], [0.5, 0.5], [1, 1]],
+                                            x: 0.75, y: 0.8)
+        XCTAssertEqual(added.count, 4)
+        XCTAssertEqual(added[2][0], 0.75, accuracy: 1e-9)
+        XCTAssertEqual(added[2][1], 0.8, accuracy: 1e-9)
+        // And the result stays sorted, which every downstream interpolator assumes.
+        XCTAssertEqual(added.map { $0[0] }, added.map { $0[0] }.sorted())
     }
 
     // MARK: - White balance

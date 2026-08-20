@@ -1242,9 +1242,13 @@ def gen_display_transform_checks():
         label = kw or "default"
 
         # 1. Mid-grey lands on 0.18 display-linear, ABSOLUTELY, at every peak.
+        # 1e-9, not 2e-3: the anchor is a construction, not a tuning, and the Swift
+        # asserts it at 1e-9. Six orders of magnitude apart is not a tolerance, it is
+        # two different claims — and since the Linux lane is the one that runs today,
+        # the loose one was the effective guarantee.
         got = t.tone(MID_GREY)
-        check(abs(got - MID_GREY) < 2e-3,
-              f"{label}: mid-grey landed at {got:.5f}, not 0.18")
+        check(abs(got - MID_GREY) < 1e-9,
+              f"{label}: mid-grey landed at {got:.12f}, not 0.18")
 
         # 2 + 3. The scene anchors land on the display's black and white targets.
         lo_scene = MID_GREY * 2 ** t.min_ev
