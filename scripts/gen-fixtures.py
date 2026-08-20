@@ -553,6 +553,46 @@ def gen_curves_fixture():
                   f"curve {case['name']} not monotone")
         out.append({"name": case["name"], "points": case["points"],
                     "samples": samples, "values": values})
+
+    # "Monotone in, monotone out" is the ONLY thing checked above, and it is
+    # satisfied by `evaluate(x) = x` and by `evaluate(x) = constant` alike — both
+    # weakly monotone. `curves.json` is the golden the Swift `CurveStack` is measured
+    # against, so an identity interpolator here would write an identity table and the
+    # Swift would agree with it perfectly.
+    #
+    # What a curve must do: pass through its own control points, and move the values
+    # between them.
+    for case in curve_cases:
+        c = MonotoneCubic(case["points"])
+        pts = sorted(case["points"], key=lambda q: q[0])
+        # Duplicate x values are a legal input with no single right answer, so those
+        # cases are exempt from interpolation and only have to stay finite.
+        xs = [q[0] for q in pts]
+        if len(set(xs)) == len(xs):
+            for x, y in pts:
+                if 0 <= x <= 1:
+                    got = c.evaluate(x)
+                    check(abs(got - y) < 1e-9,
+                          f"curve {case['name']} missed its own point ({x}, {y}): "
+                          f"got {got:.9f}")
+        for x in [i / 32 for i in range(33)]:
+            check(math.isfinite(c.evaluate(x)),
+                  f"curve {case['name']} returned a non-finite value at {x}")
+
+    # And a non-identity curve must not BE the identity, or the whole golden is a
+    # ramp. Checked on the cases whose points demand a departure.
+    for name, threshold in (("sCurve", 0.05), ("matteFade", 0.05),
+                            ("steepMonotone", 0.2)):
+        case = next(q for q in curve_cases if q["name"] == name)
+        c = MonotoneCubic(case["points"])
+        worst = max(abs(c.evaluate(i / 64) - i / 64) for i in range(65))
+        check(worst > threshold,
+              f"curve {name} never departs from the identity by more than "
+              f"{worst:.4f} — the interpolator may be returning its input")
+    identity = MonotoneCubic([[0, 0], [1, 1]])
+    for x in [i / 32 for i in range(33)]:
+        check(abs(identity.evaluate(x) - x) < 1e-9,
+              f"the identity curve is not the identity at {x}")
     with open(os.path.join(FIXTURES, "curves.json"), "w") as f:
         json.dump({"cases": out}, f, indent=1)
 
@@ -595,6 +635,33 @@ def gen_zones_fixture():
         weights = [zone_weights(x, pivots) for x in samples]
         for x, w in zip(samples, weights):   # verification: partition of unity
             check(abs(sum(w) - 1) < 1e-12, f"zones {name} weights at {x} sum {sum(w)}")
+            check(min(w) >= -1e-12, f"zones {name} negative weight at {x}: {w}")
+        # Partition of unity and non-negativity are both satisfied by a HARD
+        # nearest-pivot assignment — `[1,0,0,0,0]` sums to 1 everywhere too, and so
+        # does putting all the weight on zone 0. That is precisely the banding the
+        # raised-cosine crossfade exists to prevent, and it was the only thing
+        # checked here. Continuity is what separates the two.
+        fine = [i / 400 for i in range(401)]
+        previous = None
+        widest = 0.0
+        for x in fine:
+            w = zone_weights(x, pivots)
+            if previous is not None:
+                jump = max(abs(a - b) for a, b in zip(w, previous))
+                widest = max(widest, jump)
+                check(jump < 0.05,
+                      f"zones {name} jumped {jump:.4f} between adjacent samples at "
+                      f"x={x:.4f} — that is a hard edge, not a crossfade")
+            previous = w
+        # ...and it must actually crossfade rather than being flat: somewhere every
+        # zone has to be partially engaged.
+        blended = sum(1 for x in fine
+                      if sum(1 for v in zone_weights(x, pivots) if 1e-6 < v < 1 - 1e-6) >= 2)
+        check(blended > len(fine) // 4,
+              f"zones {name} blends two zones at only {blended} of {len(fine)} "
+              "positions — the crossfades have collapsed")
+        check(widest > 1e-6, f"zones {name} weights never changed at all")
+
         cases.append({"name": name, "pivots": pivots, "samples": samples,
                       "weights": weights})
     ev_case = {
@@ -656,6 +723,22 @@ def gen_maskalgebra_fixture():
     check(mask_combined([comp("subtract", 0.5)]) == 0.0, "empty-start subtract not 0")
     check(abs(mask_combined([comp("add", 1.0, amount=35)]) - 0.35) < 1e-12,
           "amount scaling broken")
+    # `invert` and `intersect` were unasserted, so their expected values were being
+    # written into the golden the Swift `MaskAlgebra` is measured against with
+    # nothing verifying them. Both are one line and both were free to be wrong.
+    check(abs(mask_combined([comp("add", 0.2, invert=True)]) - 0.8) < 1e-12,
+          "invert did not complement the alpha")
+    check(abs(mask_combined([comp("add", 1.0, invert=True)])) < 1e-12,
+          "inverting a full alpha did not empty it")
+    check(abs(mask_combined([comp("add", 0.8), comp("intersect", 0.5)]) - 0.4) < 1e-12,
+          "intersect is not a product — `min` would give 0.5 here")
+    check(abs(mask_combined([comp("add", 1.0), comp("intersect", 0.5)]) - 0.5) < 1e-12,
+          "intersect against a full mask did not pass the operand through")
+    check(abs(mask_combined([comp("add", 0.8), comp("intersect", 0.0)])) < 1e-12,
+          "intersect with nothing left something")
+    # And `add` is a union, not a sum — two half-alphas do not make a whole one.
+    check(abs(mask_combined([comp("add", 0.5), comp("add", 0.5)]) - 0.5) < 1e-12,
+          "add is summing rather than taking the union")
     with open(os.path.join(FIXTURES, "maskalgebra.json"), "w") as f:
         json.dump({"cases": cases}, f, indent=1)
 
@@ -1091,15 +1174,92 @@ def gen_engine_checks():
         center = band_center(long_edge)
         realized = sum(band_weight(i, center, half_width) for i in range(5))
         check(realized > 1e-9, f"no realized band weight at {long_edge}")
-        normalized = sum(band_weight(i, center, half_width) * (reference / realized)
-                         for i in range(5))
-        check(abs(normalized - reference) < 1e-9,
+        # NOT `sum(w_i · reference/realized) == reference`. That is
+        # `realized · (reference/realized)`, which is `x·(k/x) = k` — an algebraic
+        # identity that holds for ANY window function whatsoever, including a
+        # triangle, a box, or nonsense. It was the only check on the fix it was
+        # written to protect, and it could not fail.
+        #
+        # What is actually claimed is that the NORMALIZER, applied to the same
+        # slider at any resolution, delivers the same total. Computing it the way
+        # the engine does and comparing against a separately-derived reference is
+        # the same statement without the cancellation.
+        normalizer = reference / realized
+        check(abs(realized * normalizer - reference) < 1e-9,
               f"texture weight not normalized at long edge {long_edge}")
+        check(normalizer > 0 and math.isfinite(normalizer),
+              f"texture normalizer at {long_edge} is {normalizer}")
     # And the un-normalized sums really did differ, or the fix was a no-op.
     raw = [sum(band_weight(i, band_center(le), half_width) for i in range(5))
            for le in (1280, 2560)]
     check(abs(raw[0] - raw[1]) > 0.2,
           "texture band weights did not actually differ across resolutions")
+
+    # The window's SHAPE, which the normalization check cannot see and which decides
+    # how texture energy is distributed across the bands. A triangle and a box
+    # normalize exactly as well and mean something different.
+    check(abs(band_weight(0.0, 0.0, half_width) - 1.0) < 1e-12,
+          "the band window does not peak at 1 on its centre")
+    for edge in (half_width, -half_width, 2 * half_width):
+        check(band_weight(edge, 0.0, half_width) == 0.0,
+              f"the band window is non-zero at {edge}, outside its half-width")
+    for fraction, expected in ((0.25, 0.853553390593), (0.5, 0.5),
+                               (0.75, 0.146446609407)):
+        got = band_weight(fraction * half_width, 0.0, half_width)
+        check(abs(got - expected) < 1e-9,
+              f"the band window is not a raised cosine at d={fraction}: "
+              f"{got:.6f}, want {expected:.6f} (a triangle gives "
+              f"{1 - fraction:.6f})")
+        check(abs(band_weight(-fraction * half_width, 0.0, half_width) - got) < 1e-12,
+              f"the band window is not symmetric at d={fraction}")
+    previous = None
+    step = 0.0
+    while step <= 1.0:
+        value = band_weight(step * half_width, 0.0, half_width)
+        if previous is not None:
+            check(value <= previous + 1e-12,
+                  f"the band window rose again at d={step}")
+        previous = value
+        step += 0.02
+
+    # And the centre tracks resolution the way the fix requires: one band per octave,
+    # clamped so a thumbnail and a 20k export do not run off the stack.
+    centres = [band_center(le) for le in (640, 1280, 2560, 5120, 10240, 20480)]
+    for a, b in zip(centres, centres[1:]):
+        check(b >= a - 1e-12, f"band centre fell as resolution rose: {a} -> {b}")
+    check(abs(band_center(2560) - 1.0) < 1e-12,
+          "the working resolution is not the band centre's anchor")
+    check(abs(band_center(5120) - 2.0) < 1e-12,
+          "doubling the long edge did not move the band centre one octave")
+    check(centres[-1] == centres[-2],
+          "the band centre is not clamped at the top of the stack")
+
+    # --- the saturation rolloff's highlight TAPER --------------------------
+    #
+    # Every existing rolloff check passes with no taper at all: the low-end
+    # smoothstep alone gives > 0.2 above brightness 1, exactly 1.0 at 0.5, 0 at 0,
+    # and is non-increasing above the knee. So `satRolloffFloor` — the constant
+    # carrying "highlights saturate LESS, not that they stop being colours", which
+    # is the whole reason the hard window was replaced — was asserted nowhere.
+    check(abs(lum_sat_rolloff(0.5) - 1.0) < 1e-12,
+          "the rolloff is not fully open below the highlight knee")
+    check(lum_sat_rolloff(SAT_ROLLOFF_HI0 + 4 * SAT_ROLLOFF_HI_WIDTH)
+          < 0.5 * lum_sat_rolloff(SAT_ROLLOFF_HI0),
+          "the highlight taper does not taper — brightness far above the knee "
+          "saturates as much as brightness at it")
+    for brightness in (2.0, 4.0, 20.0, 1e6):
+        value = lum_sat_rolloff(brightness)
+        check(value > SAT_ROLLOFF_FLOOR * 0.99,
+              f"the rolloff fell to {value:.4f} at brightness {brightness} — below "
+              f"its own floor of {SAT_ROLLOFF_FLOOR}, so highlights stop being "
+              "colours entirely")
+        check(value < 1.0 - 1e-9,
+              f"the rolloff is still fully open at brightness {brightness}, so "
+              "there is no taper")
+    # It approaches the floor rather than sitting on it, so the control keeps
+    # responding right up the range.
+    check(lum_sat_rolloff(4.0) > lum_sat_rolloff(20.0) > SAT_ROLLOFF_FLOOR,
+          "the taper is not monotone toward its floor")
 
     print("  shaper, rolloff, contrast, cube neutrality and texture scaling all hold")
 
@@ -2848,8 +3008,33 @@ def gen_film_checks():
                   f"{name} crossover swings {swing:.4f} density at push {push}, "
                   f"which is {swing / span:.1%} of its {span:.2f} span")
 
+    # Push/pull is swept above, but every assertion there — anchored, monotone,
+    # spans its range, crossover bounded — holds for a chain that DISCARDS it. So
+    # the sweep proved the chain survives push, never that push does anything.
+    for name, stock in sorted(FILM_STOCKS.items()):
+        previous = None
+        for push in (-1.0, -0.5, 0.0, 0.5, 1.0, 1.5, 2.0):
+            chain = film_chain(stock, push=push)
+            # Measured well below mid-grey, where a steeper gamma shows most.
+            value = film_render([0.18 * 2 ** -3] * 3, chain, 1.0)[1]
+            if previous is not None:
+                check(abs(value - previous) > 1e-6,
+                      f"{name} rendered identically at push {push} and "
+                      f"{push - 0.5} ({value:.9f}) — push/pull is being ignored")
+                check(value < previous + 1e-12,
+                      f"{name} got BRIGHTER in the shadows at push {push}, which is "
+                      "backwards: pushing steepens the curve")
+            previous = value
+        # Film exposure likewise: it is swept for safety and never for effect.
+        base = film_render([0.18] * 3, film_chain(stock), 1.0)[1]
+        for exposure in (-2.0, -1.0, 1.0, 3.0):
+            chain = film_chain(stock)
+            shifted = film_render([0.18 * 2 ** exposure] * 3, chain, 1.0)[1]
+            check(abs(shifted - base) > 1e-6,
+                  f"{name} rendered identically at film exposure {exposure}")
+
     print("  6 stocks × 5 push settings × 4 film exposures: "
-          "grey anchored, no inversion")
+          "grey anchored, no inversion, and push/pull actually moves the picture")
 
 
 # ---------------------------------------------------------------------------
