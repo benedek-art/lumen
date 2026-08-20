@@ -171,6 +171,7 @@ DEFAULT_RECIPE = {
         "curve": {"parametric": {"highlights": 0, "lights": 0, "darks": 0,
                                  "shadows": 0, "splits": [0.25, 0.5, 0.75]},
                   "preserveLuminance": True},
+        "color": {"vibrance": 0, "saturation": 0, "density": 50, "protectSkin": 70},
         "mixer": {"bands": [{"hue": 0, "sat": 0, "lum": 0} for _ in range(8)],
                   "uniformity": 0},
         "pointColors": [],
@@ -190,6 +191,7 @@ DEFAULT_RECIPE = {
         "primaries": {"rHue": 0, "rPurity": 0, "gHue": 0, "gPurity": 0,
                       "bHue": 0, "bPurity": 0, "tintHue": 0, "tintPurity": 0},
         "vignette": 0,
+        "render": {"preset": "Neutral"},
     },
     "masks": [],
 }

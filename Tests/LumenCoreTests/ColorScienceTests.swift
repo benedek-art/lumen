@@ -1,0 +1,259 @@
+// ColorScienceTests.swift
+// Invariant tests for the colour foundation. These are not fixture comparisons —
+// they assert the properties the rest of the engine is allowed to assume, which is
+// what makes them useful when a refactor changes the numbers but must not change the
+// physics.
+
+import XCTest
+@testable import LumenCore
+
+final class ColorScienceTests: XCTestCase {
+
+    // MARK: - Matrices
+
+    func testSRGBMatrixMatchesPublishedValues() {
+        // The published sRGB D65 RGB→XYZ matrix. Deriving it from chromaticities and
+        // getting these numbers back is the check that the derivation is right.
+        let expected = Mat3(0.4124, 0.3576, 0.1805,
+                            0.2126, 0.7152, 0.0722,
+                            0.0193, 0.1192, 0.9505)
+        XCTAssertLessThan(RGBColorSpace.srgb.toXYZ.maxAbsDifference(expected), 1e-3)
+    }
+
+    func testRec2020LuminanceWeights() {
+        let w = RGBColorSpace.rec2020.luminanceWeights
+        XCTAssertEqual(w.r, 0.2627, accuracy: 1e-3)
+        XCTAssertEqual(w.g, 0.6780, accuracy: 1e-3)
+        XCTAssertEqual(w.b, 0.0593, accuracy: 1e-3)
+        XCTAssertEqual(w.sum, 1.0, accuracy: 1e-9)
+    }
+
+    func testEverySpaceMapsWhiteToUnitLuminance() {
+        for space in [RGBColorSpace.srgb, .rec2020, .displayP3, .adobeRGB, .proPhoto] {
+            XCTAssertEqual(space.luminance(RGB.one), 1.0, accuracy: 1e-9, space.name)
+        }
+    }
+
+    func testMatrixInverseRoundTrip() {
+        let m = RGBColorSpace.rec2020.toXYZ
+        let identity = m * m.inverse
+        XCTAssertLessThan(identity.maxAbsDifference(.identity), 1e-12)
+    }
+
+    func testCrossSpaceConversionRoundTrip() {
+        let toP3 = RGBColorSpace.rec2020.matrix(to: .displayP3)
+        let back = RGBColorSpace.displayP3.matrix(to: .rec2020)
+        for c in [RGB(0.2, 0.5, 0.9), RGB(1, 1, 1), RGB(0.03, 0.02, 0.01)] {
+            let round = back.apply(toP3.apply(c))
+            XCTAssertLessThan(round.maxAbsDifference(c), 1e-9)
+        }
+    }
+
+    func testAdaptationToSameWhiteIsIdentity() {
+        let m = ChromaticAdaptation.cat16(from: WhitePoint.d65, to: WhitePoint.d65)
+        XCTAssertLessThan(m.maxAbsDifference(.identity), 1e-9)
+    }
+
+    func testAdaptationMovesWhiteExactly() {
+        let m = ChromaticAdaptation.cat16(from: WhitePoint.d50, to: WhitePoint.d65)
+        let moved = m.apply(WhitePoint.d50.xyz())
+        XCTAssertLessThan(moved.maxAbsDifference(WhitePoint.d65.xyz()), 1e-9)
+    }
+
+    // MARK: - Transfer functions
+
+    func testTransferFunctionRoundTrips() {
+        for tf in TransferFunction.allCases {
+            for i in 0...20 {
+                let x = Double(i) / 20
+                XCTAssertEqual(tf.decode(tf.encode(x)), x, accuracy: 1e-6,
+                               "\(tf.rawValue) at \(x)")
+            }
+        }
+    }
+
+    func testSRGBKnownPoints() {
+        XCTAssertEqual(TransferFunction.srgb.encode(0), 0, accuracy: 1e-9)
+        XCTAssertEqual(TransferFunction.srgb.encode(1), 1, accuracy: 1e-9)
+        // 18% grey encodes near the middle of the code range — the fact every
+        // photographer's intuition is built on.
+        XCTAssertEqual(TransferFunction.srgb.encode(0.18), 0.4613, accuracy: 1e-3)
+    }
+
+    // MARK: - Colour temperature
+
+    func testLocusIsMonotoneInX() {
+        // Cooler light sits lower in x. A non-monotone locus would make the slider
+        // reverse direction somewhere in the middle, which is a very confusing bug.
+        var previous = Double.infinity
+        var kelvin = 2000.0
+        while kelvin <= 25000 {
+            let x = ColorTemperature.locus(kelvin: kelvin).x
+            XCTAssertLessThan(x, previous + 1e-6, "locus reversed at \(kelvin) K")
+            previous = x
+            kelvin += 250
+        }
+    }
+
+    func testTemperatureRoundTrip() {
+        for kelvin in [2500.0, 3200, 5000, 5500, 6500, 9000, 15000] {
+            for tint in [-80.0, 0, 60] {
+                let chroma = ColorTemperature.chromaticity(kelvin: kelvin, tint: tint)
+                let back = ColorTemperature.temperatureAndTint(for: chroma)
+                XCTAssertEqual(back.kelvin, kelvin, accuracy: kelvin * 0.03,
+                               "K round trip at \(kelvin)/\(tint)")
+                XCTAssertEqual(back.tint, tint, accuracy: 8,
+                               "tint round trip at \(kelvin)/\(tint)")
+            }
+        }
+    }
+
+    // MARK: - Perceptual
+
+    func testOKLabRoundTrip() {
+        let ctx = OKLabTransform.working
+        for c in [RGB(0.18, 0.18, 0.18), RGB(0.8, 0.2, 0.1), RGB(0.05, 0.3, 0.7),
+                  RGB(1.4, 0.9, 0.2)] {
+            let back = ctx.toRGB(ctx.toLab(c))
+            XCTAssertLessThan(back.maxAbsDifference(c), 1e-8, "\(c)")
+        }
+    }
+
+    func testNeutralHasZeroChroma() {
+        let lch = OKLabTransform.working.toLCh(RGB(gray: 0.42))
+        XCTAssertLessThan(lch.C, 1e-6)
+    }
+
+    func testUCSRoundTrip() {
+        for c in [RGB(0.2, 0.4, 0.6), RGB(0.9, 0.1, 0.05), RGB(gray: 0.5)] {
+            let back = LumenUCS.toRGB(LumenUCS.fromRGB(c))
+            XCTAssertLessThan(back.maxAbsDifference(c), 1e-7, "\(c)")
+        }
+    }
+
+    func testHKFactorIsUnityForNeutrals() {
+        XCTAssertEqual(HelmholtzKohlrausch.brightnessFactor(chroma: 0, hue: 0), 1,
+                       accuracy: 1e-12)
+        XCTAssertEqual(HelmholtzKohlrausch.brightnessFactor(chroma: 0, hue: 210), 1,
+                       accuracy: 1e-12)
+    }
+
+    /// The invariant docs/14 §5.4 makes every colour kernel promise: a chroma move
+    /// holds perceived brightness. This is what naive HSL cannot do.
+    func testChromaMovePreservesPerceivedBrightness() {
+        for c in [RGB(0.5, 0.2, 0.1), RGB(0.1, 0.4, 0.7), RGB(0.6, 0.6, 0.15)] {
+            let before = LumenUCS.fromRGB(c)
+            let scaled = LumenUCS.scaleChroma(c, by: 1.6)
+            let after = LumenUCS.fromRGB(scaled)
+            XCTAssertEqual(after.J, before.J, accuracy: 1e-6, "\(c)")
+            XCTAssertEqual(after.h, before.h, accuracy: 1e-4, "\(c)")
+            XCTAssertGreaterThan(after.C, before.C)
+        }
+    }
+
+    /// And the converse: a luminance move keeps the chroma ratio, so the LR
+    /// "luminance slider desaturates" artefact cannot occur.
+    func testBrightnessMovePreservesHue() {
+        for c in [RGB(0.5, 0.2, 0.1), RGB(0.1, 0.4, 0.7)] {
+            let before = LumenUCS.fromRGB(c)
+            let after = LumenUCS.fromRGB(LumenUCS.scaleBrightness(c, by: 1.3))
+            XCTAssertEqual(after.h, before.h, accuracy: 1e-3, "\(c)")
+            XCTAssertGreaterThan(after.J, before.J)
+        }
+    }
+
+    // MARK: - Gamut
+
+    func testInGamutColoursAreUntouchedBySoftClip() {
+        let boundary = Gamut.Boundary(hueSteps: 24, lightnessSteps: 9)
+        for c in [RGB(0.3, 0.3, 0.32), RGB(0.5, 0.48, 0.45)] {
+            let out = Gamut.softClip(c, boundary: boundary)
+            XCTAssertLessThan(out.maxAbsDifference(c), 1e-6, "\(c)")
+        }
+    }
+
+    func testSoftClipReducesExcessChroma() {
+        let boundary = Gamut.Boundary(hueSteps: 24, lightnessSteps: 9)
+        let ctx = OKLabTransform.working
+        // A colour well outside the working gamut at its lightness.
+        let wild = ctx.toRGB(OKLCh(L: 0.5, C: 0.45, h: 30))
+        let clipped = Gamut.softClip(wild, boundary: boundary)
+        let before = ctx.toLCh(wild)
+        let after = ctx.toLCh(clipped)
+        XCTAssertLessThan(after.C, before.C)
+        XCTAssertEqual(after.h, before.h, accuracy: 1e-3)
+        XCTAssertEqual(after.L, before.L, accuracy: 1e-3)
+    }
+
+    // MARK: - Shaper and LUTs
+
+    func testLogEncodeRoundTrip() {
+        for x in [0.0, 1e-5, 0.001, 0.18, 1.0, 12.0, 400.0] {
+            let round = LumenLog.decode(LumenLog.encode(x))
+            XCTAssertEqual(round, x, accuracy: Swift.max(abs(x) * 1e-6, 1e-9), "\(x)")
+        }
+    }
+
+    func testLogEncodeIsMonotoneAndBounded() {
+        var previous = -Double.infinity
+        var x = 0.0
+        while x < 500 {
+            let y = LumenLog.encode(x)
+            XCTAssertGreaterThan(y, previous - 1e-12)
+            previous = y
+            x = x < 1e-4 ? x + 1e-5 : x * 1.1
+        }
+        XCTAssertEqual(LumenLog.encode(0.18), 0.5, accuracy: 1e-9)
+        XCTAssertLessThanOrEqual(LumenLog.encode(0), 0.01)
+    }
+
+    func testLUT1DEvaluatesAndBakes() {
+        let lut = LUT1D(size: 256) { $0 * $0 }
+        XCTAssertEqual(lut.evaluate(0.5), 0.25, accuracy: 1e-4)
+        XCTAssertEqual(lut.evaluate(0), 0, accuracy: 1e-12)
+        XCTAssertEqual(lut.evaluate(1), 1, accuracy: 1e-12)
+        XCTAssertFalse(lut.isIdentity())
+        XCTAssertTrue(LUT1D(size: 64) { $0 }.isIdentity())
+    }
+
+    func testLUT3DIdentitySamplesExactly() {
+        let lut = LUT3D.identity(size: 17)
+        for c in [RGB(0.1, 0.5, 0.9), RGB(0, 0, 0), RGB(1, 1, 1), RGB(0.33, 0.66, 0.5)] {
+            XCTAssertLessThan(lut.sample(c).maxAbsDifference(c), 1e-6, "\(c)")
+        }
+    }
+
+    func testLUT3DCubeFileRoundTrip() {
+        let lut = LUT3D(size: 5) { RGB($0.g, $0.b, $0.r) }
+        let text = lut.cubeFileContents(title: "swap")
+        guard let parsed = LUT3D.fromCubeFile(text) else {
+            return XCTFail("cube file did not parse")
+        }
+        XCTAssertEqual(parsed.size, 5)
+        XCTAssertLessThan(parsed.maxAbsDifference(lut), 1e-5)
+    }
+
+    func testMalformedCubeFileIsRejected() {
+        XCTAssertNil(LUT3D.fromCubeFile("LUT_3D_SIZE 4\n0.1 0.2\n"))
+        XCTAssertNil(LUT3D.fromCubeFile("not a lut at all"))
+    }
+
+    // MARK: - Numeric helpers
+
+    func testSignedPowerPreservesSign() {
+        XCTAssertEqual(Num.spow(-0.25, 0.5), -0.5, accuracy: 1e-12)
+        XCTAssertEqual(Num.spow(0.25, 0.5), 0.5, accuracy: 1e-12)
+    }
+
+    func testAnchorInterpolationClampsAtEnds() {
+        let anchors: [(x: Double, y: Double)] = [(100, 0), (800, 10), (6400, 40)]
+        XCTAssertEqual(Num.interpolateAnchors(anchors, at: 50), 0, accuracy: 1e-12)
+        XCTAssertEqual(Num.interpolateAnchors(anchors, at: 100_000), 40, accuracy: 1e-12)
+        XCTAssertEqual(Num.interpolateAnchors(anchors, at: 450), 5, accuracy: 1e-9)
+    }
+
+    func testHueDeltaTakesTheShortWay() {
+        XCTAssertEqual(Num.hueDelta(350, 10), 20, accuracy: 1e-9)
+        XCTAssertEqual(Num.hueDelta(10, 350), -20, accuracy: 1e-9)
+    }
+}

@@ -12,19 +12,82 @@ public struct Look: Codable, Equatable, Sendable {
     public var primaries: Primaries
     public var bw: BlackAndWhite?
     public var vignette: Double         // EV, −3.00…+1.00 (docs/06); 0 = off
+    public var render: RenderParams
+    public var lut: LUTReference?
 
     public init(wheels: GradingWheels = GradingWheels(),
                 printerLights: PrinterLights = PrinterLights(),
                 filmLab: FilmLab? = nil,
                 primaries: Primaries = Primaries(),
                 bw: BlackAndWhite? = nil,
-                vignette: Double = 0) {
+                vignette: Double = 0,
+                render: RenderParams = RenderParams(),
+                lut: LUTReference? = nil) {
         self.wheels = wheels
         self.printerLights = printerLights
         self.filmLab = filmLab
         self.primaries = primaries
         self.bw = bw
         self.vignette = vignette
+        self.render = render
+        self.lut = lut
+    }
+}
+
+/// The display transform's user-facing parameters (D8). Overrides are optional so a
+/// recipe that just says "Punchy" stays one word on the wire and follows the preset
+/// if the preset is ever retuned — while an explicit tweak pins itself forever.
+public struct RenderParams: Codable, Equatable, Sendable {
+    public var preset: String            // "Neutral" | "Soft" | "Punchy" | "Film Base" | "Linear"
+    public var contrast: Double?         // 0.1…10, log-scaled slider
+    public var skew: Double?             // −1…+1
+    public var huePreservation: Double?  // 0…100
+    public var blackTarget: Double?      // 0…15 % of SDR white
+    /// % of SDR white. nil = follow the display's live EDR headroom (docs/14 §7).
+    public var whiteTarget: Double?
+
+    public init(preset: String = "Neutral", contrast: Double? = nil, skew: Double? = nil,
+                huePreservation: Double? = nil, blackTarget: Double? = nil,
+                whiteTarget: Double? = nil) {
+        self.preset = preset
+        self.contrast = contrast
+        self.skew = skew
+        self.huePreservation = huePreservation
+        self.blackTarget = blackTarget
+        self.whiteTarget = whiteTarget
+    }
+
+    /// Resolve to engine parameters, preset first, explicit overrides on top.
+    public func resolved(displayWhiteTarget: Double? = nil) -> DisplayTransformParams {
+        var p = DisplayTransformParams.preset(named: preset)
+        if let contrast { p.contrast = contrast }
+        if let skew { p.skew = skew }
+        if let huePreservation { p.huePreservation = huePreservation }
+        if let blackTarget { p.blackTarget = blackTarget }
+        if let whiteTarget {
+            p.whiteTarget = whiteTarget
+        } else if let displayWhiteTarget {
+            p.whiteTarget = displayWhiteTarget
+        }
+        return p
+    }
+}
+
+/// A user `.cube` LUT applied at one of the two documented taps (docs/14 §2.3):
+/// `display` = after the transform (the common case for SDR-referred LUT packs),
+/// `log` = before it, on a fixed log encoding.
+public struct LUTReference: Codable, Equatable, Sendable {
+    public enum Tap: String, Codable, Sendable { case display, log }
+    public var ref: String        // "blob:xxh64:<hash>" or a bundled LUT id
+    public var name: String
+    public var tap: Tap
+    public var amount: Double     // 0…100
+
+    public init(ref: String, name: String = "", tap: Tap = .display, amount: Double = 100) {
+        self.ref = ref
+        self.name = name
+        self.tap = tap
+        self.amount = amount
     }
 }
 

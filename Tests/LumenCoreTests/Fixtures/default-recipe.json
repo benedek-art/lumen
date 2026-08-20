@@ -1,5 +1,11 @@
 {
  "develop": {
+  "color": {
+   "density": 50,
+   "protectSkin": 70,
+   "saturation": 0,
+   "vibrance": 0
+  },
   "curve": {
    "parametric": {
     "darks": 0,
@@ -193,6 +199,9 @@
    "g": 0,
    "master": 0,
    "r": 0
+  },
+  "render": {
+   "preset": "Neutral"
   },
   "vignette": 0,
   "wheels": {

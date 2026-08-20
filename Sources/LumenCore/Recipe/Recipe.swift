@@ -40,6 +40,7 @@ public struct Develop: Codable, Equatable, Sendable {
     public var tone: Tone
     public var zones: Zones
     public var curve: CurveSet
+    public var color: ColorAdjust
     public var mixer: Mixer
     public var pointColors: [PointColor]
     public var detail: Detail
@@ -52,6 +53,7 @@ public struct Develop: Codable, Equatable, Sendable {
         tone: Tone = Tone(),
         zones: Zones = Zones(),
         curve: CurveSet = CurveSet(),
+        color: ColorAdjust = ColorAdjust(),
         mixer: Mixer = Mixer(),
         pointColors: [PointColor] = [],
         detail: Detail = Detail(),
@@ -63,12 +65,32 @@ public struct Develop: Codable, Equatable, Sendable {
         self.tone = tone
         self.zones = zones
         self.curve = curve
+        self.color = color
         self.mixer = mixer
         self.pointColors = pointColors
         self.detail = detail
         self.denoise = denoise
         self.geometry = geometry
         self.heal = heal
+    }
+}
+
+/// Vibrance and Saturation on the H-K-aware UCS model (D21), plus the two dials that
+/// make Saturation behave like stacked dye instead of like a channel spread.
+/// `density` blends additive ↔ subtractive behaviour; `protectSkin` attenuates BOTH
+/// sliders inside the skin-tone tolerance band.
+public struct ColorAdjust: Codable, Equatable, Sendable {
+    public var vibrance: Double     // −100…+100, low-chroma weighted
+    public var saturation: Double   // −100…+100, −100 reaches true B&W
+    public var density: Double      // 0…100, default 50
+    public var protectSkin: Double  // 0…100, default 70
+
+    public init(vibrance: Double = 0, saturation: Double = 0,
+                density: Double = 50, protectSkin: Double = 70) {
+        self.vibrance = vibrance
+        self.saturation = saturation
+        self.density = density
+        self.protectSkin = protectSkin
     }
 }
 
