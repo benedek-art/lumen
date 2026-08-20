@@ -259,6 +259,36 @@ final class AppState: ObservableObject {
         return Double(size.width / size.height)
     }
 
+    /// The active mask's alpha, rasterized for the loupe overlay.
+    ///
+    /// Nothing produced this before, so `MaskOverlayView` always fell back to a flat
+    /// tint over the whole frame — which reads as "this mask selects everything" and
+    /// was the app's only way to look at a mask.
+    @Published private(set) var maskOverlayRaster: CGImage?
+
+    private var maskOverlayGeneration: Int = 0
+
+    /// Rebuild it for the mask the panel is showing. Superseded by generation, like
+    /// every other background render here, so a fast sequence of edits does not land
+    /// out of order.
+    func refreshMaskOverlay() {
+        maskOverlayGeneration &+= 1
+        let generation = maskOverlayGeneration
+        guard let maskID = soloMaskOverlay, let photo = primarySelection else {
+            maskOverlayRaster = nil
+            return
+        }
+        let recipe = recipe(for: photo)
+        let strokes = strokeSets(for: recipe)
+        Task { [weak self] in
+            guard let self else { return }
+            let raster = await self.renderCoordinator.maskAlpha(
+                url: photo.id, recipe: recipe, maskID: maskID, strokeSets: strokes)
+            guard self.maskOverlayGeneration == generation else { return }
+            self.maskOverlayRaster = raster
+        }
+    }
+
     private func refreshPrimaryFrameSize() {
         guard let url = primarySelection?.id else { return }
         // Off the synchronous path: the first call for a photo opens the file to read
@@ -327,7 +357,14 @@ final class AppState: ObservableObject {
     @Published var recipes: [URL: Recipe] = [:]
     @Published var activeSection: PanelSection = .basic
     @Published var showBefore = false
-    @Published var soloMaskOverlay: String?
+    /// Which mask the loupe is showing as an overlay, if any. Setting it rasterizes
+    /// that mask's alpha.
+    @Published var soloMaskOverlay: String? {
+        didSet {
+            guard soloMaskOverlay != oldValue else { return }
+            refreshMaskOverlay()
+        }
+    }
     /// Which mask and component the panel has selected. Published because the on-image
     /// canvas edits geometry and lives in the viewer, not the panel.
     @Published var activeMaskID: String?
@@ -694,6 +731,7 @@ final class AppState: ObservableObject {
         activeComponentIndex = 0
         loadStrokeSets(for: recipe(for: photo))
         scheduleScopeRefresh()
+        refreshMaskOverlay()
     }
 
     func selectNext() { moveSelection(by: 1) }
@@ -866,7 +904,12 @@ final class AppState: ObservableObject {
         persist(changed)
         // Renaming a mask changes the recipe without changing the picture. Re-binning
         // the scopes for it would mean a proxy render per keystroke.
-        if touchedPixels { scheduleScopeRefresh() }
+        if touchedPixels {
+            scheduleScopeRefresh()
+            // The overlay is a picture of the mask, so editing the mask must move it.
+            // Cheap when nothing is soloed — the refresh guards on that first.
+            refreshMaskOverlay()
+        }
     }
 
     private func persist(_ changes: [URL: Recipe]) {

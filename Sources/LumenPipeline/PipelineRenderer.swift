@@ -311,7 +311,8 @@ public final class PipelineRenderer {
             // its rasterizer — a luma band is denominated in EV of the corrected scene,
             // not of the raw decode, or the handles move when Exposure does.
             let source = maskSource(decoded: decoded, plan: plan,
-                                    width: width, height: height, extent: extent)
+                                    width: width, height: height, extent: extent,
+                                    strokeSets: strokeSets)
 
             for mask in plan.masks {
                 let alpha = MaskRaster.combine(mask: mask,
@@ -332,15 +333,88 @@ public final class PipelineRenderer {
         return graph
     }
 
+    /// One mask's alpha, rasterized for display over the loupe.
+    ///
+    /// The app had no way to produce this. `MaskOverlayView` takes a raster and every
+    /// caller passed nil, so its fallback — a flat tint over the entire frame — was the
+    /// only thing the "show this mask's alpha as an overlay" button ever drew. A
+    /// uniform wash reads as "this mask selects everything", which is worse than
+    /// showing nothing, and it was the app's only way to SEE a mask.
+    ///
+    /// Built through the same `maskSource` and `MaskRaster.combine` the render uses, so
+    /// what the overlay shows is what the pipeline will apply — an overlay derived from
+    /// the displayed preview instead would put a luma-range mask's band in the wrong
+    /// place, which is exactly the sort of "close enough" that makes an instrument
+    /// worse than useless.
+    public func renderMaskAlpha(source: AppleRawSource, recipe: Recipe, maskID: String,
+                                strokeSets: [String: BrushStrokeSet] = [:]) -> CGImage? {
+        let plan = RenderPlan(recipe: recipe,
+                              asShotKelvin: source.asShotTemperature,
+                              asShotTint: source.asShotTint)
+        guard let mask = plan.masks.first(where: { $0.id == maskID }) else { return nil }
+
+        let native = source.nativeLongEdge
+        let scale = native > 0
+            ? Swift.min(1.0, Double(Self.maskRasterLongEdge) / native) : 1.0
+        guard let decoded = source.decode(recipe: recipe, draft: true,
+                                          scaleFactor: scale) else { return nil }
+
+        let extent = decoded.extent
+        let long = Swift.max(extent.width, extent.height)
+        let fit = long > 0 ? Swift.min(1.0, CGFloat(Self.maskRasterLongEdge) / long) : 1
+        let width = Swift.max(Int(extent.width * fit), 8)
+        let height = Swift.max(Int(extent.height * fit), 8)
+
+        let stage = maskSource(decoded: decoded, plan: plan, width: width,
+                               height: height, extent: extent, strokeSets: strokeSets)
+        let alpha = MaskRaster.combine(mask: mask,
+                                       size: (width: width, height: height),
+                                       source: stage,
+                                       strokeSets: strokeSets,
+                                       aiMattes: [:])
+
+        // Eight-bit greyscale is all a mask overlay needs, and it is what
+        // `Image(decorative:)` will mask with.
+        var bytes = [UInt8](repeating: 0, count: width * height)
+        for y in 0..<height {
+            for x in 0..<width {
+                bytes[y * width + x] = UInt8(Num.saturate(alpha[x, y]) * 255)
+            }
+        }
+        guard let provider = CGDataProvider(data: Data(bytes) as CFData),
+              let space = CGColorSpace(name: CGColorSpace.linearGray) else { return nil }
+        return CGImage(width: width, height: height, bitsPerComponent: 8,
+                       bitsPerPixel: 8, bytesPerRow: width, space: space,
+                       bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.none.rawValue),
+                       provider: provider, decode: nil, shouldInterpolate: true,
+                       intent: .defaultIntent)
+    }
+
     /// The local-stage input, at mask-raster resolution, as an `ImageBuffer`.
     ///
     /// Returns nil when no mask component actually reads the picture, because then this
     /// is a whole extra render pass bought for nothing: a Linear or Radial gradient is
     /// pure geometry and a brush is pure geometry plus its stroke set.
     private func maskSource(decoded: CIImage, plan: RenderPlan,
-                            width: Int, height: Int, extent: CGRect) -> ImageBuffer? {
+                            width: Int, height: Int, extent: CGRect,
+                            strokeSets: [String: BrushStrokeSet]) -> ImageBuffer? {
+        /// A brush is pure geometry UNLESS one of its strokes has Automask on, which
+        /// gates each stamp on a colour difference against the picture.
+        ///
+        /// `MaskKind.brush.readsSourceImage` is false, correctly, for a plain brush —
+        /// but that made this test skip the stage input whenever Refine was 0, and
+        /// `MaskRaster.paint` then computes `stroke.automask && source != nil`, which is
+        /// false, and drops the ΔE gate entirely. So the Automask toggle did nothing in
+        /// preview or export while the CPU reference honoured it, and turning Refine up
+        /// to 3 switched it back on by accident.
+        func usesAutomask(_ component: MaskComponent) -> Bool {
+            guard component.kind == .brush, let ref = component.strokesRef,
+                  let set = strokeSets[ref] else { return false }
+            return set.strokes.contains { $0.automask }
+        }
+
         let needsPicture = plan.masks.contains { mask in
-            mask.components.contains { $0.kind.readsSourceImage }
+            mask.components.contains { $0.kind.readsSourceImage || usesAutomask($0) }
                 || MaskRaster.refineRadius(feather: mask.refine.feather,
                                            longEdge: Swift.max(width, height)) >= 1
         }

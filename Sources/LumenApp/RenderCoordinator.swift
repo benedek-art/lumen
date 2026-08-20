@@ -112,6 +112,15 @@ actor RenderCoordinator {
                             using: exportRecipe, strokeSets: strokeSets)
     }
 
+    /// One mask's alpha, for the loupe's overlay. Small by construction — the raster is
+    /// capped at 1024 px — so it does not claim a render ticket.
+    func maskAlpha(url: URL, recipe: Recipe, maskID: String,
+                   strokeSets: [String: BrushStrokeSet]) -> CGImage? {
+        guard let source = try? self.source(for: url) else { return nil }
+        return renderer.renderMaskAlpha(source: source, recipe: recipe,
+                                        maskID: maskID, strokeSets: strokeSets)
+    }
+
     func nativeSize(for url: URL) -> (width: Int, height: Int)? {
         guard let source = try? self.source(for: url) else { return nil }
         return source.nativePixelSize
