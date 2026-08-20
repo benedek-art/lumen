@@ -1102,14 +1102,11 @@ final class EngineIntegrationTests: XCTestCase {
     /// that aliases) or removing it (which divides by nothing). The behaviour that
     /// matters is that EXPORT resolution is live across the whole slider.
     func testGrainSizeSaturatesOnSmallRendersAndIsLiveOnExports() {
-        let profile = FilmGrainProfile(stock: FilmStock.portra400, size: 1, amount: 50,
-                                       pushPull: 0)
         func scale(_ longEdge: Int, _ size: Double) -> Double {
             FilmGrainProfile(stock: FilmStock.portra400, size: size, amount: 50,
                              pushPull: 0)
                 .plateScale(longEdgePixels: longEdge, printSizeInches: 10)
         }
-        _ = profile
 
         // A fit view: the fine end of the slider is one value, at the floor.
         XCTAssertEqual(scale(1200, 0.5), 0.5, accuracy: 1e-12)
