@@ -590,6 +590,15 @@ public struct HalationProfile: Sendable {
 /// the print rather than in pixels.
 public struct FilmGrainProfile: Sendable {
 
+    /// The plate seed both render paths use.
+    ///
+    /// Named here because it was written twice with different values — the GPU plate
+    /// used 0x5DEECE66D while the reference defaulted to this one — so the two paths
+    /// produced different grain from the same recipe and no golden could ever compare
+    /// it. Grain is meant to be deterministic for a given photo; two deterministic
+    /// answers is the same problem as none.
+    public static let defaultPlateSeed: UInt64 = 0x9E3779B97F4A7C15
+
     /// Density units of grain at Amount 100 and peak amplitude (p = 0.5).
     public static let densityScale: Double = 0.12
 

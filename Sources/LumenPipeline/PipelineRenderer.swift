@@ -394,7 +394,9 @@ public final class PipelineRenderer {
     /// re-centres it. Deterministic: the same frame grains the same way every render.
     static func grainPlate(film: FilmChain, extent: CGRect) -> CIImage? {
         let size = 128
-        let plate = FilmGrainProfile.plate(size: size, seed: 0x5DEECE66D, sigma: 1)
+        let plate = FilmGrainProfile.plate(size: size,
+                                           seed: FilmGrainProfile.defaultPlateSeed,
+                                           sigma: 1)
         var pixels = [Float](repeating: 1, count: size * size * 4)
         for i in 0..<(size * size) {
             // No `saturate`: the texture is RGBAf and the clamp was flattening the

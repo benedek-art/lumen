@@ -99,7 +99,8 @@ public struct RenderGraph {
         // S13 — vignette, then halation: the lens vignettes the light before it
         // strikes the film, and the film base reflects what arrives.
         if plan.vignetteEV != 0 {
-            image = applyVignette(image, ev: plan.vignetteEV)
+            image = applyVignette(image, ev: plan.vignetteEV,
+                                  crop: plan.recipe.develop.geometry.crop)
         }
         if let film = plan.filmChain, film.halationAmount > 0, !options.draft {
             image = applyHalation(image, film: film, longEdge: options.longEdge)
@@ -388,8 +389,34 @@ public struct RenderGraph {
 
     // MARK: - S13 vignette and halation
 
-    func applyVignette(_ image: CIImage, ev: Double) -> CIImage {
-        let e = image.extent
+    /// `crop` is the recipe's crop, so the burn is centred on the rectangle the user
+    /// will actually see.
+    ///
+    /// This stage runs on the full decoded frame and `applyGeometry` crops afterwards,
+    /// so computing the ellipse from `image.extent` centred it on the SENSOR. On a
+    /// cropped photo the burn was off-centre with the wrong radius, and on an
+    /// off-centre crop it could sit almost entirely outside the visible frame — while
+    /// the panel note asserts the vignette "is masked to the crop rectangle, so it
+    /// stays post-crop by construction".
+    ///
+    /// Straighten is not accounted for: the crop rectangle is expressed on the
+    /// straightened frame while this stage still sees the source orientation, and the
+    /// two coincide only at angle 0. A rotated frame therefore still places the ellipse
+    /// slightly off. That is a much smaller error than the one being fixed, and it is
+    /// listed in BUILDING.md rather than approximated with maths I cannot check here.
+    func applyVignette(_ image: CIImage, ev: Double, crop: Crop) -> CIImage {
+        let full = image.extent
+        guard full.width > 0, full.height > 0 else { return image }
+
+        var e = full
+        if crop.x != 0 || crop.y != 0 || crop.w != 1 || crop.h != 1,
+           crop.w > 0, crop.h > 0 {
+            // Recipe crop is top-left-origin; Core Image extents are bottom-up.
+            e = CGRect(x: full.minX + CGFloat(crop.x) * full.width,
+                       y: full.minY + CGFloat(1 - crop.y - crop.h) * full.height,
+                       width: CGFloat(crop.w) * full.width,
+                       height: CGFloat(crop.h) * full.height)
+        }
         guard e.width > 0, e.height > 0 else { return image }
         let centre = CIVector(x: e.midX, y: e.midY)
         // PER AXIS, then scaled so the corner lands at r = 1 — the ellipse inscribed in
@@ -404,7 +431,9 @@ public struct RenderGraph {
         let inv = CIVector(x: norm / (e.width / 2), y: norm / (e.height / 2))
         // The kernel's `feather` is `1 − inner`, so it starts where the reference does.
         let feather = 1 - DetailEngine.vignetteInnerRadius
-        return KernelLibrary.apply(KernelLibrary.vignette, extent: e,
+        // Rendered over the FULL extent — the crop only defines the ellipse. Cropping
+        // the output here would throw away the pixels applyGeometry is about to select.
+        return KernelLibrary.apply(KernelLibrary.vignette, extent: full,
                                    [image, centre, inv, Float(ev),
                                     Float(feather)]) ?? image
     }

@@ -24,7 +24,7 @@ public enum ReferenceRenderer {
 
         public init(strokeSets: [String: BrushStrokeSet] = [:],
                     aiMattes: [String: Plane] = [:],
-                    grainSeed: UInt64 = 0x9E3779B97F4A7C15) {
+                    grainSeed: UInt64 = FilmGrainProfile.defaultPlateSeed) {
             self.strokeSets = strokeSets
             self.aiMattes = aiMattes
             self.grainSeed = grainSeed
@@ -98,8 +98,15 @@ public enum ReferenceRenderer {
         // S14 + S15 — picture formation and the curve. The table ends in
         // display-linear, so this stage encodes going in and does not decode coming
         // out; the graph's `throughShaperToDisplay` is the same asymmetry.
+        // `finishScale`, which the graph applies as a matrix after the same table
+        // (`RenderGraph.build`). Dropping it here was harmless only while display white
+        // is 1.0 — that is, only for SDR. Any plan with a whiteTarget above 100 rendered
+        // the whole reference path, and the grain that runs after it, `1/white` too
+        // dark, so the two paths disagreed by a factor rather than a tolerance exactly
+        // when an HDR rendition was being checked against them.
         let finish = plan.finishLUT
-        image = image.map { finish.sample(LumenLog.encode($0)) }
+        let finishScale = plan.finishScale
+        image = image.map { finish.sample(LumenLog.encode($0)) * finishScale }
 
         // Grain lives inside picture formation, in the density domain.
         if let film = plan.filmChain, film.grainAmount > 0 {
