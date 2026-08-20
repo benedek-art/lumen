@@ -91,23 +91,33 @@ struct DetailPanel: View {
                 }
                 .frame(height: Lumen.rowHeight)
 
+                // Both rows are optional-backed, where nil means "use the measured
+                // value", so double-clicking to reset must CLEAR rather than write the
+                // stand-in — writing it pins an override and only flips the badge from
+                // Auto to Manual.
                 LumenSlider(title: "Radius",
                             value: binder.value(\.develop.detail.capture.radius,
                                                 "detail.capture.radius",
                                                 orAuto: captureRadiusStandIn),
                             range: 0.4...2.0, hardRange: nil,
                             defaultValue: captureRadiusStandIn,
-                            step: 0.05, decimals: 2, bipolar: false)
+                            step: 0.05, decimals: 2, bipolar: false,
+                            onReset: { clearCaptureOverrides() })
                 LumenSlider(title: "Amount",
                             value: binder.value(\.develop.detail.capture.amount,
                                                 "detail.capture.amount",
                                                 orAuto: captureAmountStandIn),
-                            range: 0...100, hardRange: nil,
+                            range: 0...150, hardRange: nil,
                             defaultValue: captureAmountStandIn,
-                            step: 1, decimals: 0, bipolar: false)
-                DevelopNote("Moving either row pins it for this photo. The iteration "
-                            + "count, corner boost and ISO-adaptive noise gate stay "
-                            + "with the engine.")
+                            step: 1, decimals: 0, bipolar: false,
+                            onReset: { clearCaptureOverrides() })
+                // Radius is honest about being reference-only: `CaptureSharpen.radius`
+                // reaches only `DetailEngine.captureSharpen`, which has no caller — the
+                // RAW stage reads `strengthFraction` and nothing else. Amount's range
+                // now matches the engine's 0…150 rather than stopping at the default.
+                DevelopNote("Amount pins the strength for this photo. Radius is stored "
+                            + "but not applied in this build — the decode stage takes "
+                            + "the strength and measures the radius itself.")
             }
         }
     }

@@ -62,6 +62,19 @@ struct LumenSlider: View {
     var wand: (() -> Void)?
     var onEditingChanged: ((Bool) -> Void)?
 
+    /// What double-clicking the label should do, when writing `defaultValue` is not it.
+    ///
+    /// Several rows are backed by an OPTIONAL where nil means "auto": Temp and Tint
+    /// (nil = as shot), the capture-sharpening overrides (nil = measured), and the
+    /// display transform's four overrides (nil = follow the preset). For those, writing
+    /// the default through the ordinary setter does not clear the override — it PINS
+    /// one. Resetting Temp wrote 5500 K, which flips the section from "As Shot" to
+    /// "Custom" and changes the picture for any file not shot at 5500 K; resetting a
+    /// transform override pins the current preset's value so the row stays marked
+    /// modified and stops following a retuned preset. Every one of those panels already
+    /// has a correct clear action; the slider's own gesture contradicted them.
+    var onReset: (() -> Void)?
+
     @State private var isDragging = false
     @State private var dragStartValue: Double = 0
     @State private var isEditingText = false
@@ -198,6 +211,10 @@ struct LumenSlider: View {
     }
 
     private func reset() {
+        if let onReset {
+            onReset()
+            return
+        }
         onEditingChanged?(true)
         value = defaultValue
         onEditingChanged?(false)

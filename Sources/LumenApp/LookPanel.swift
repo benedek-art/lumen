@@ -301,28 +301,32 @@ struct LookPanel: View {
                                                      fallback: base.contrast,
                                                      set: { $0.contrast = $1 }),
                                 range: 0.1...10, defaultValue: base.contrast,
-                                step: 0.05, decimals: 2, bipolar: false)
+                                step: 0.05, decimals: 2, bipolar: false,
+                                onReset: { clearTransformOverride(\.contrast) })
                     LumenSlider(title: "Skew",
                                 value: renderBinding("render.skew",
                                                      get: { $0.skew },
                                                      fallback: base.skew,
                                                      set: { $0.skew = $1 }),
                                 range: -1...1, defaultValue: base.skew,
-                                step: 0.01, decimals: 2)
+                                step: 0.01, decimals: 2,
+                                onReset: { clearTransformOverride(\.skew) })
                     LumenSlider(title: "Hue keep",
                                 value: renderBinding("render.hue",
                                                      get: { $0.huePreservation },
                                                      fallback: base.huePreservation,
                                                      set: { $0.huePreservation = $1 }),
                                 range: 0...100, defaultValue: base.huePreservation,
-                                step: 1, decimals: 0, bipolar: false)
+                                step: 1, decimals: 0, bipolar: false,
+                                onReset: { clearTransformOverride(\.huePreservation) })
                     LumenSlider(title: "Black target",
                                 value: renderBinding("render.black",
                                                      get: { $0.blackTarget },
                                                      fallback: base.blackTarget,
                                                      set: { $0.blackTarget = $1 }),
                                 range: 0...15, defaultValue: base.blackTarget,
-                                step: 0.01, decimals: 2, bipolar: false)
+                                step: 0.01, decimals: 2, bipolar: false,
+                                onReset: { clearTransformOverride(\.blackTarget) })
 
                     caption("Untouched, these follow the preset — so a retuned preset "
                             + "reaches every recipe that only said its name. Move one "
@@ -336,6 +340,20 @@ struct LookPanel: View {
         Binding(
             get: { state.currentRecipe.look.render.preset },
             set: { name in state.updateRecipe { $0.look.render.preset = name } })
+    }
+
+    /// Clear ONE override back to following the preset.
+    ///
+    /// `LumenSlider`'s double-click reset writes `defaultValue`, and for these four rows
+    /// the default is the preset's current value — so resetting pinned that number
+    /// instead of clearing the override. The row stayed marked modified and stopped
+    /// following a retuned preset, which is the exact behaviour the caption below the
+    /// group promises you get by NOT touching it.
+    private func clearTransformOverride(
+        _ field: WritableKeyPath<RenderParams, Double?>) {
+        state.updateRecipe { recipe in
+            recipe.look.render[keyPath: field] = nil
+        }
     }
 
     private func clearTransformOverrides() {

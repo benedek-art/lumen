@@ -83,14 +83,21 @@ struct BasicPanel: View {
                             range: 2000...50000,
                             hardRange: 2000...50000,
                             defaultValue: asShotTempStandIn,
-                            step: 10, decimals: 0, bipolar: false)
+                            step: 10, decimals: 0, bipolar: false,
+                            // Double-clicking the label CLEARS the override rather than
+                            // writing 5500 into it. `raw.temp` is optional and nil means
+                            // as-shot; pinning a number there flips the section to
+                            // "Custom" and changes the picture for any file not shot at
+                            // that temperature.
+                            onReset: { applyAsShot() })
                 LumenSlider(title: "Tint",
                             value: binder.value(\.develop.raw.tint, "wb.tint",
                                                 orAuto: asShotTintStandIn),
                             range: -150...150,
                             hardRange: -300...300,
                             defaultValue: asShotTintStandIn,
-                            step: 1, decimals: 0)
+                            step: 1, decimals: 0,
+                            onReset: { applyAsShot() })
                 if isPickingNeutral {
                     DevelopNote("Click a light neutral grey in the loupe — not white. "
                                 + "The solve targets R = G = B at the sampled patch.")
