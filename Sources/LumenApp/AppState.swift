@@ -355,7 +355,10 @@ final class AppState: ObservableObject {
     ///
     /// Written on `didSet` rather than at quit, because a crash must not cost the user
     /// the delivery preset they just built.
-    @Published var exportRecipes: [ExportRecipe] = AppState.loadExportRecipes() {
+    /// A computed property rather than `= loadExportRecipes()`, because an initializer
+    /// that ends in a call followed by a brace block is the trailing-closure ambiguity
+    /// Swift is strict about in property declarations. No parentheses, no ambiguity.
+    @Published var exportRecipes: [ExportRecipe] = AppState.storedExportRecipes {
         didSet {
             guard exportRecipes != oldValue else { return }
             AppState.saveExportRecipes(exportRecipes)
@@ -363,6 +366,8 @@ final class AppState: ObservableObject {
     }
 
     private static let exportRecipesKey = "dev.lumenapp.exportRecipes"
+
+    private static var storedExportRecipes: [ExportRecipe] { loadExportRecipes() }
 
     private static func loadExportRecipes() -> [ExportRecipe] {
         guard let data = UserDefaults.standard.data(forKey: exportRecipesKey),
