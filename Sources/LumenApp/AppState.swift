@@ -501,13 +501,10 @@ final class AppState: ObservableObject {
 
     func selectAll() { selection = Set(photos.map(\.id)) }
 
-    /// "None" means none: leaving the primary set would leave one photo still taking
-    /// edits after the user asked for nothing to be selected.
-    func selectNone() {
-        selection = []
-        primarySelection = nil
-        scheduleScopeRefresh()
-    }
+    /// Clears the selection, not the cursor. `editTargets` falls back to the photo
+    /// under the cursor by design — in the loupe there is always exactly one photo
+    /// being edited, and clearing it would empty the viewer.
+    func selectNone() { selection = [] }
 
     // MARK: Culling actions
 
@@ -603,11 +600,13 @@ final class AppState: ObservableObject {
         guard !targets.isEmpty else { return }
         var before: [URL: Recipe] = [:]
         var after: [URL: Recipe] = [:]
+        var touchedPixels = false
         for photo in targets {
             let old = recipe(for: photo)
             var updated = old
             mutate(&updated)
             guard updated != old else { continue }
+            if !updated.rendersSameAs(old) { touchedPixels = true }
             before[photo.id] = old
             after[photo.id] = updated
             recipes[photo.id] = updated
@@ -615,7 +614,9 @@ final class AppState: ObservableObject {
         guard !after.isEmpty else { return }
         history.record(before: before, after: after, coalescingKey: coalescingKey)
         persist(after)
-        scheduleScopeRefresh()
+        // Renaming a mask changes the recipe without changing the picture. Re-binning
+        // the scopes for it would mean a proxy render per keystroke.
+        if touchedPixels { scheduleScopeRefresh() }
     }
 
     private func persist(_ changes: [URL: Recipe]) {

@@ -20,7 +20,23 @@ jobs:
       - name: Toolchain
         run: swift --version && xcodebuild -version
 
+      # Build FIRST. Running it after `swift test` compiled everything meant the
+      # compiler had nothing left to do and re-emitted no diagnostics, so the warnings
+      # section was empty whatever the code said — a green light wired to nothing.
+      - name: Build — whole package including the app
+        shell: bash
+        run: |
+          set +e
+          swift build > build.log 2>&1
+          status=$?
+          echo "=== errors ==="
+          grep -E "error:" build.log | sed 's#/Users/runner/work/lumen/lumen/##' | sort -u | head -80
+          echo "=== warnings ==="
+          grep -E "warning:" build.log | sed 's#/Users/runner/work/lumen/lumen/##' | sort -u | head -30
+          exit $status
+
       - name: Test — engine + GPU goldens
+        if: always()
         shell: bash
         run: |
           set +e
@@ -35,19 +51,6 @@ jobs:
           echo "=== test failures ==="
           grep -E ": error: -\[" test.log | sed 's#/Users/runner/work/lumen/lumen/##' \
             | sed 's/^.*error: //' | sort -u | head -40
-          exit $status
-
-      - name: Build — whole package including the app
-        if: always()
-        shell: bash
-        run: |
-          set +e
-          swift build > build.log 2>&1
-          status=$?
-          echo "=== errors ==="
-          grep -E "error:" build.log | sed 's#/Users/runner/work/lumen/lumen/##' | sort -u | head -80
-          echo "=== warnings ==="
-          grep -E "warning:" build.log | sed 's#/Users/runner/work/lumen/lumen/##' | sort -u | head -30
           exit $status
 
   # Linux lane: regenerate fixtures with the Python reference and fail if the

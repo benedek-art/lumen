@@ -122,6 +122,12 @@ final class KeyDispatcher {
             state.setLabel(.green)
         case "9":
             state.setLabel(.blue)
+        // Purple is offered by the label picker and the filter bar, so it needs a key
+        // like the other five; `-` sits next to 9 and is otherwise only a zoom key in
+        // the loupe, where labels are rarer than zooming — so purple takes it only
+        // outside the loupe.
+        case "-" where state.viewMode != .loupe:
+            state.setLabel(.purple)
 
         // ---- Editing -----------------------------------------------------------
         case "\\":
@@ -280,6 +286,7 @@ enum KeyReference {
             Entry(keys: "1–5", action: "Rating"),
             Entry(keys: "0", action: "Clear rating"),
             Entry(keys: "6–9", action: "Red / yellow / green / blue label"),
+            Entry(keys: "-", action: "Purple label (outside the loupe)"),
             Entry(keys: "A", action: "Toggle auto-advance"),
             Entry(keys: "← →", action: "Previous / next photo"),
             Entry(keys: "↑ ↓", action: "Previous / next row"),

@@ -325,7 +325,7 @@ struct DevelopPanel: View {
                 // is ordinary slider positions: visible, arguable, one undo step.
                 DevelopFooterButton(title: "Auto", systemImage: "wand.and.stars",
                                     help: "Set the six tone sliders from the scene's "
-                                        + "own statistics (⌘U). Every value stays "
+                                        + "own statistics (⇧⌘A). Every value stays "
                                         + "visible and individually revertable.",
                                     action: { state.applyAutoTone() })
                 DevelopFooterButton(title: "Reset", systemImage: "arrow.uturn.backward",

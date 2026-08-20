@@ -31,6 +31,15 @@ public struct Recipe: Codable, Equatable, Sendable {
         self.look = look
         self.masks = masks
     }
+
+    /// Whether two recipes would render the same picture. Not every field in a recipe
+    /// is a pixel: a mask's name is a label for the panel, and typing one should not
+    /// re-render the frame and re-bin the scopes on every keystroke.
+    public func rendersSameAs(_ other: Recipe) -> Bool {
+        develop == other.develop
+            && look == other.look
+            && masks.map(\.withoutCosmetics) == other.masks.map(\.withoutCosmetics)
+    }
 }
 
 // MARK: - Develop (per-image normalization, D4)

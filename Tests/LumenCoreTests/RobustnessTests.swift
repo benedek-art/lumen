@@ -81,6 +81,84 @@ final class RobustnessTests: XCTestCase {
         XCTAssertEqual(out.width, source.width)
     }
 
+    // MARK: - Which table is wrong
+
+    /// `referenceColor` is two cubes in series and `exactColor` is neither, so when
+    /// they disagree the useful question is *which* cube. This measures them one at a
+    /// time, at the colour the composed test reports as its worst case.
+    ///
+    /// The colour stage is measured in the space it is stored in — log — because that
+    /// is where its interpolation error actually lives. A tenth of a stop there is a
+    /// seven percent error in linear, so quoting the linear number would blame the
+    /// table for the exponential.
+    func testEachTableTracksItsOwnExactEvaluationSeparately() {
+        var recipe = Recipe()
+        recipe.develop.tone.contrast = 30
+        recipe.develop.color.saturation = 20
+        recipe.look.wheels.shadows = Wheel(hue: 220, sat: 0.3, lum: 0)
+        let plan = RenderPlan(recipe: recipe, lutSize: LUT3D.exportSize)
+
+        let color = ColorEngine(mixer: recipe.develop.mixer,
+                                pointColors: recipe.develop.pointColors,
+                                color: recipe.develop.color,
+                                primaries: recipe.look.primaries, bw: recipe.look.bw)
+        let grade = GradeEngine(wheels: recipe.look.wheels,
+                                printerLights: recipe.look.printerLights,
+                                whiteAnchorEV: plan.tone.whiteAnchorEV,
+                                blackAnchorEV: plan.tone.blackAnchorEV)
+
+        var worstColorEV = 0.0, worstColorWhere = ""
+        var worstFinish = 0.0, worstFinishWhere = ""
+
+        for i in 0...24 {
+            let ev = -7 + Double(i) * 0.5
+            for hue in stride(from: 0.0, to: 360.0, by: 45.0) {
+                let tint = OKLabTransform.working.toRGB(OKLCh(L: 0.5, C: 0.1, h: hue))
+                let normalized = tint / Swift.max(tint.maxComponent, 1e-6)
+                let scene = normalized * (0.18 * pow(2.0, ev))
+
+                // Everything before the first cube, exactly as both paths compute it.
+                var c = plan.linear.apply(scene)
+                if !plan.toneIsIdentity {
+                    let lum = Swift.max(RGBColorSpace.rec2020.luminance(c), 0)
+                    c = c * plan.tone.gain(at: Num.safeLog2(lum / 0.18))
+                }
+
+                // Cube one: colour and grade, log in and log out.
+                let tabled = plan.colorGradeLUT.sample(LumenLog.encode(c))
+                let exactEncoded = LumenLog.encode(grade.apply(color.apply(c)))
+                let dEncoded = tabled.maxAbsDifference(exactEncoded) * LumenLog.range
+                if dEncoded > worstColorEV {
+                    worstColorEV = dEncoded
+                    worstColorWhere = "\(ev) EV hue \(hue): in \(c) "
+                        + "table \(LumenLog.decode(tabled)) "
+                        + "exact \(grade.apply(color.apply(c)))"
+                }
+
+                // Cube two: picture formation and the curve, from the SAME input on
+                // both sides, so cube one's error does not get charged to it.
+                let exactGraded = grade.apply(color.apply(c))
+                let finishTable = plan.finishLUT.sample(LumenLog.encode(exactGraded))
+                    * plan.finishScale
+                let formed = plan.displayTransform.apply(exactGraded,
+                                                         gamut: RenderPlan.sharedGamutBoundary)
+                let finishExact = CurveStack(recipe.develop.curve)
+                    .apply(formed, white: plan.displayWhite, space: .rec2020)
+                let dFinish = finishTable.maxAbsDifference(finishExact)
+                if dFinish > worstFinish {
+                    worstFinish = dFinish
+                    worstFinishWhere = "\(ev) EV hue \(hue): in \(exactGraded) "
+                        + "table \(finishTable) exact \(finishExact)"
+                }
+            }
+        }
+
+        XCTAssertLessThan(worstColorEV, 0.02,
+                          "colour/grade table is off by \(worstColorEV) stops at \(worstColorWhere)")
+        XCTAssertLessThan(worstFinish, 0.01,
+                          "finish table is off by \(worstFinish) at \(worstFinishWhere)")
+    }
+
     // MARK: - The cube must not invent a colour cast
 
     /// A cube is interpolated, so it is allowed to be a little wrong — except on the
@@ -245,6 +323,7 @@ final class RobustnessTests: XCTestCase {
         let plan = RenderPlan(recipe: recipe, lutSize: LUT3D.exportSize)
 
         var worst = 0.0
+        var where_ = ""
         for i in 0...20 {
             let ev = -8 + Double(i) * 0.6
             for hue in stride(from: 0.0, to: 360.0, by: 30.0) {
@@ -253,11 +332,17 @@ final class RobustnessTests: XCTestCase {
                         OKLCh(L: 0.5, C: chroma, h: hue))
                     let normalized = tint / Swift.max(tint.maxComponent, 1e-6)
                     let scene = normalized * (0.18 * pow(2.0, ev))
-                    worst = Swift.max(worst, plan.referenceColor(scene)
-                        .maxAbsDifference(plan.exactColor(scene)))
+                    let table = plan.referenceColor(scene)
+                    let exact = plan.exactColor(scene)
+                    let d = table.maxAbsDifference(exact)
+                    if d > worst {
+                        worst = d
+                        where_ = "\(ev) EV hue \(hue) C \(chroma): scene \(scene) "
+                            + "table \(table) exact \(exact)"
+                    }
                 }
             }
         }
-        XCTAssertLessThan(worst, 0.01, "export table error reached \(worst)")
+        XCTAssertLessThan(worst, 0.01, "export table error reached \(worst) at \(where_)")
     }
 }

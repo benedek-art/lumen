@@ -33,6 +33,14 @@ public struct Mask: Codable, Equatable, Sendable {
         self.refine = refine
         self.adjust = adjust
     }
+
+    /// The same mask with everything that is only a label removed. Renaming a mask
+    /// must not be a reason to re-render 45 megapixels.
+    public var withoutCosmetics: Mask {
+        var copy = self
+        copy.name = ""
+        return copy
+    }
 }
 
 public enum MaskOp: String, Codable, Sendable {
