@@ -592,6 +592,20 @@ public struct FilmGrainProfile: Sendable {
 
     /// Density units of grain at Amount 100 and peak amplitude (p = 0.5).
     public static let densityScale: Double = 0.12
+
+    /// How the unit-variance plate is packed into the texture the GPU samples:
+    /// `stored = plate / plateEncodeScale + 0.5`, recovered as
+    /// `(stored − 0.5) × plateEncodeScale`.
+    ///
+    /// Named once, here, because the two halves lived in different files and did not
+    /// agree: the store used 0.25 and the kernel recovered with ×2, so the GPU saw HALF
+    /// the amplitude the reference defines — grain was worth half as much on screen and
+    /// in export as the golden said. The store also clamped to 0…1, which flattened the
+    /// 3.4% of the plate beyond ±2σ, exactly the strongest grains.
+    ///
+    /// 8 keeps a 4σ plate inside 0…1 without clamping. The texture is `RGBAf`, so there
+    /// is no precision cost to the headroom and no clamp is needed for a rare outlier.
+    public static let plateEncodeScale: Double = 8.0
     /// The particle model's authored grain area, µm² — the plate generator's premise.
     public static let particleAreaMicronsSquared: Double = 0.2
     /// Long edge, in inches, when no print size is chosen.

@@ -572,8 +572,13 @@ struct LookPanel: View {
         } else {
             text += " (transparency)"
         }
-        let inches = FilmGrainProfile.printLongEdgeInches(film.printSize)
-        text += String(format: ". Grain is anchored to a %.0f″ print, not to pixels.", inches)
+        // What is true: the grain's pixel footprint follows the GATE and the render's
+        // pixel count. The print size cancels out of the enlargement and the print's
+        // pixel density, which is the anchoring working correctly — but the caption
+        // used to name the chosen size as though changing it changed the picture, and
+        // it cannot. Saying so is better than a number that updates and does nothing.
+        text += String(format: ". Grain follows the %.1f mm gate and the render size; "
+                           + "the print size cancels out.", stock.gateLongEdgeMM)
         return text
     }
 }

@@ -149,13 +149,17 @@ public enum KernelLibrary {
     /// vanishes at Dmin and Dmax, which is why film grain lives in the midtones and
     /// clean film blacks stay clean — the property a constant-sigma RGB overlay
     /// cannot reproduce.
+    /// The recovery factor MUST be `FilmGrainProfile.plateEncodeScale` — the same
+    /// number `grainPlate` divides by. It used to be hardcoded as 2.0 against a store
+    /// that divided by 4, so the GPU saw half the amplitude the reference defines.
+    /// Interpolated rather than written out, so the pair cannot drift again.
     static let grainSource = """
     kernel vec4 lumenGrain(__sample image, __sample noise, float amount, float dmax) {
         vec3 c = max(image.rgb, vec3(1e-5));
         vec3 d = -log(c) / log(10.0);
         vec3 p = clamp(d / dmax, 0.0, 1.0);
         vec3 amp = sqrt(max(p * (vec3(1.0) - p), vec3(0.0)));
-        vec3 n = (noise.rgb - vec3(0.5)) * 2.0;
+        vec3 n = (noise.rgb - vec3(0.5)) * \(Float(FilmGrainProfile.plateEncodeScale));
         vec3 d2 = d + amp * n * amount;
         vec3 shifted = pow(vec3(10.0), -d2);
         return vec4(shifted, image.a);

@@ -323,7 +323,9 @@ public final class PipelineRenderer {
         let plate = FilmGrainProfile.plate(size: size, seed: 0x5DEECE66D, sigma: 1)
         var pixels = [Float](repeating: 1, count: size * size * 4)
         for i in 0..<(size * size) {
-            let v = Float(Num.saturate(Double(plate[i]) * 0.25 + 0.5))
+            // No `saturate`: the texture is RGBAf and the clamp was flattening the
+            // 3.4% of the plate beyond ±2σ — precisely the strongest grains.
+            let v = Float(Double(plate[i]) / FilmGrainProfile.plateEncodeScale + 0.5)
             pixels[i * 4] = v
             pixels[i * 4 + 1] = v
             pixels[i * 4 + 2] = v

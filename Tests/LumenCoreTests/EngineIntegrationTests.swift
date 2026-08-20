@@ -1055,6 +1055,70 @@ final class EngineIntegrationTests: XCTestCase {
         }
     }
 
+    /// Grain follows the gate and the render size; the print size cancels.
+    ///
+    /// The cancellation is deliberate and physically right — enlarging to a bigger print
+    /// scales the grain up and the print's pixel density down by the same factor — but
+    /// it was documented in a comment and asserted nowhere, while the panel shipped a
+    /// Print size picker whose caption named the chosen size as though it mattered. A
+    /// property this counter-intuitive needs a test, or the next reader "fixes" it.
+    func testGrainFollowsTheGateAndTheRenderSizeNotThePrintSize() {
+        let profile = FilmGrainProfile(stock: FilmStock.portra400, size: 1, amount: 50,
+                                       pushPull: 0)
+        let reference = profile.plateScale(longEdgePixels: 6000, printSizeInches: 10)
+        for inches in [5.0, 8, 11, 16, 20, 30] {
+            XCTAssertEqual(profile.plateScale(longEdgePixels: 6000,
+                                              printSizeInches: inches),
+                           reference, accuracy: 1e-12,
+                           "a \(inches)″ print changed the grain's pixel footprint")
+        }
+
+        // The two things that DO move it. Render size, proportionally:
+        XCTAssertEqual(profile.plateScale(longEdgePixels: 12000, printSizeInches: 10),
+                       reference * 2, accuracy: 1e-9,
+                       "doubling the render did not double the grain's footprint")
+        // And the gate — a Super 35 frame is enlarged more from the same pixels, so its
+        // grain is coarser, exactly as in a darkroom.
+        let cine = FilmGrainProfile(stock: FilmStock.cine250D, size: 1, amount: 50,
+                                    pushPull: 0)
+        XCTAssertGreaterThan(
+            cine.plateScale(longEdgePixels: 6000, printSizeInches: 10)
+                / cine.pitchMicrons,
+            profile.plateScale(longEdgePixels: 6000, printSizeInches: 10)
+                / profile.pitchMicrons,
+            "the smaller gate did not produce coarser grain per unit pitch")
+    }
+
+    /// The plate survives the trip through the GPU's texture at full amplitude.
+    ///
+    /// It did not: the store divided by 4 and the kernel recovered with ×2, so the GPU
+    /// saw HALF the amplitude the reference defines — Grain Amount was worth half as
+    /// much on screen and in export as the golden said — and the store clamped to 0…1,
+    /// flattening the 3.4% of the plate beyond ±2σ, which is exactly the strongest
+    /// grains. The two halves lived in different files with no shared constant.
+    func testTheGrainPlateEncodingRoundTripsAtFullAmplitude() {
+        let plate = FilmGrainProfile.plate(size: 128, seed: 0x5DEECE66D, sigma: 1)
+        let scale = FilmGrainProfile.plateEncodeScale
+
+        var worst = 0.0
+        var lowest = Double.infinity
+        var highest = -Double.infinity
+        for value in plate {
+            // Exactly what `grainPlate` writes and `lumenGrain` reads back.
+            let stored = Double(Float(Double(value) / scale + 0.5))
+            let recovered = (stored - 0.5) * scale
+            worst = Swift.max(worst, abs(recovered - Double(value)))
+            lowest = Swift.min(lowest, stored)
+            highest = Swift.max(highest, stored)
+        }
+        XCTAssertLessThan(worst, 1e-6,
+                          "the plate came back at a different amplitude: worst \(worst)")
+        // And nothing needs clamping, which is what makes dropping the old `saturate`
+        // safe rather than merely different.
+        XCTAssertGreaterThan(lowest, 0, "the encoded plate went below 0 at \(lowest)")
+        XCTAssertLessThan(highest, 1, "the encoded plate went above 1 at \(highest)")
+    }
+
     func testGrainPlateIsDeterministicAndUnitVariance() {
         let a = FilmGrainProfile.plate(size: 64, seed: 12345, sigma: 1)
         let b = FilmGrainProfile.plate(size: 64, seed: 12345, sigma: 1)
