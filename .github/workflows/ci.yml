@@ -47,7 +47,16 @@ jobs:
         shell: bash
         run: |
           set +e
-          swift test > test.log 2>&1
+          # `tee`, not `>`: redirecting the whole suite to a file means the CI log
+          # shows nothing at all until the step ends, so a hung test is a forty-minute
+          # timeout with no clue which test hung — the same shape of problem as an
+          # empty log, arriving at the exact moment you need the opposite. The stream
+          # is noisy; the deduplicated summary below still runs after it, and that is
+          # what anyone reads when the suite merely fails rather than hangs.
+          #
+          # `shell: bash` above makes GitHub run this with `-e -o pipefail`, so $?
+          # is swift test's status and not tee's.
+          swift test 2>&1 | tee test.log
           status=$?
           echo "=== compile errors ==="
           grep -E "error:" test.log | grep -v ": error: -\[" \
