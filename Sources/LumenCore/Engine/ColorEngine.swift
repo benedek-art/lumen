@@ -23,9 +23,11 @@
 // reached only through the user's `density` dial. The additive path it blends against
 // still holds J exactly, so `density = 0` is a strictly luminance-preserving chroma move.
 //
-// The stage always finishes with a soft gamut clip against the working-gamut boundary
-// (docs/14 §5.4 invariant #3): no colour tool may hand S14 a pixel the display
-// transform would have to mangle. The boundary is built once, lazily, and shared.
+// The stage does NOT clip to gamut. Display-gamut mapping is the last colour
+// operation inside S14 (docs/14 §2) and belongs there, where "the display" finally
+// means something and values are display-normalized. Doing it here ran a
+// display-domain operation on unbounded scene-referred data, and `Gamut.softClip`'s
+// own `L < 1` guard turned it into a step function of exposure.
 
 import Foundation
 
@@ -254,7 +256,7 @@ public struct ColorEngine: Sendable {
     // MARK: - The stage
 
     /// The whole of S9, in pipeline order. Pure, closed-form, one pass: primaries remap
-    /// → Mixer → Point Colour → Vibrance/Saturation → B&W → always-on soft gamut clip.
+    /// → Mixer → Point Colour → Vibrance/Saturation → B&W. No gamut clip: see below.
     public func apply(_ c: RGB) -> RGB {
         guard c.isFinite else { return c }
         // A stage that does nothing must do NOTHING. Without this the always-on soft
@@ -270,8 +272,24 @@ public struct ColorEngine: Sendable {
         out = applyVibranceSaturation(out)
         out = applyBlackAndWhite(out)
         guard out.isFinite else { return c }
-        return Gamut.softClip(out, boundary: gamut.value(),
-                              threshold: Self.gamutThreshold, context: context)
+        // NO gamut clip here. Display-gamut mapping is the last colour operation
+        // inside S14 (docs/14 §2), and `DisplayTransform.apply` does it there, on
+        // display-normalized values, hue-preserving.
+        //
+        // Running it here ran it on scene-referred data, which is unbounded — and
+        // `Gamut.softClip` bails out on `L >= 1`, so it was a step function of
+        // exposure: a colour got compressed below about three and a half stops over
+        // mid-grey and passed through untouched above it. That is a discontinuity in
+        // the middle of the working range. It made a gradient across that exposure
+        // jump, and it made this stage impossible to bake accurately, because a cube
+        // cell straddling the switch interpolates between clipped and unclipped
+        // corners — which is what showed up as a 0.17 error between the tables and the
+        // exact evaluation.
+        //
+        // Pushing chroma past the display gamut is what a saturation slider is FOR.
+        // S14 compresses it back, once, at the point where "the display" finally means
+        // something.
+        return out
     }
 
     /// True when nothing in the stage would change a pixel, so the renderer can skip S9

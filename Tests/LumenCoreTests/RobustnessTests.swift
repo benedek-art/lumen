@@ -81,6 +81,56 @@ final class RobustnessTests: XCTestCase {
         XCTAssertEqual(out.width, source.width)
     }
 
+    // MARK: - Scene-referred means unbounded
+
+    /// No scene-referred stage may change its behaviour at a particular brightness.
+    /// The colour and grade stages used to finish with a display-gamut soft clip, and
+    /// `Gamut.softClip` returns its input untouched once OKLab L reaches 1 — so a
+    /// colour was compressed below roughly three and a half stops over mid-grey and
+    /// passed through above it. A step in the middle of the working range.
+    ///
+    /// Measured as a ratio, not a difference, because the values themselves grow
+    /// exponentially with exposure: the question is whether doubling the input
+    /// doubles the output, all the way up.
+    func testSceneReferredStagesAreContinuousInExposure() {
+        var color = ColorAdjust()
+        color.saturation = 60
+        color.vibrance = 30
+        let colorEngine = ColorEngine(mixer: Mixer(), pointColors: [], color: color,
+                                      primaries: Primaries(), bw: nil)
+        let gradeEngine = GradeEngine(
+            wheels: GradingWheels(shadows: Wheel(hue: 220, sat: 0.3, lum: 0)),
+            printerLights: PrinterLights())
+
+        for hue in stride(from: 0.0, to: 360.0, by: 30.0) {
+            let tint = OKLabTransform.working.toRGB(OKLCh(L: 0.5, C: 0.12, h: hue))
+            let unit = tint / Swift.max(tint.maxComponent, 1e-6)
+            for engine in ["colour", "grade"] {
+                var previousRatio: RGB?
+                var ev = -6.0
+                while ev <= 8 {
+                    let scene = unit * (0.18 * pow(2.0, ev))
+                    let out = engine == "colour"
+                        ? colorEngine.apply(scene)
+                        : gradeEngine.apply(scene)
+                    let ratio = RGB(out.r / Swift.max(scene.r, 1e-9),
+                                    out.g / Swift.max(scene.g, 1e-9),
+                                    out.b / Swift.max(scene.b, 1e-9))
+                    if let previous = previousRatio {
+                        // A tenth of a stop of input may not move the stage's gain by
+                        // more than a few percent. A switch moves it by tens.
+                        XCTAssertLessThan(
+                            ratio.maxAbsDifference(previous), 0.15,
+                            "\(engine) stage stepped at \(ev) EV, hue \(hue): "
+                                + "gain went \(previous) → \(ratio)")
+                    }
+                    previousRatio = ratio
+                    ev += 0.1
+                }
+            }
+        }
+    }
+
     // MARK: - Which table is wrong
 
     /// `referenceColor` is two cubes in series and `exactColor` is neither, so when

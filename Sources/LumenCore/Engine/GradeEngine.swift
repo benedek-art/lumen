@@ -29,9 +29,9 @@
 //     `t` handed to `zoneWeights(at:)`/`apply` is the input pixel's tonal position, so
 //     grading a zone never moves the zone out from under itself.
 //
-// The stage ends, always, in a soft gamut clip at constant hue and lightness against a
-// per-hue max-chroma boundary (invariant 3): no colour tool may write a value the
-// display transform would later have to clip per channel.
+// The stage does NOT clip to gamut: that is S14's job, on display-normalized values.
+// Invariant 3 is satisfied there, once, rather than by every colour tool separately
+// running a display-domain operation on unbounded scene-referred data.
 
 import Foundation
 
@@ -334,7 +334,7 @@ public struct GradeEngine: Sendable {
     /// The wheels, at one pixel. Zone weights come from the INPUT pixel's tonal
     /// position (invariant 4), the tint is a constant-luminance translation in OKLab,
     /// the lightness move is a perceptual gain in UCS, and the stage closes on the
-    /// always-on soft gamut clip.
+    /// no gamut clip — see below.
     public func apply(_ c: RGB) -> RGB {
         guard !isIdentity else { return c }
         guard c.isFinite else { return c }
@@ -369,7 +369,24 @@ public struct GradeEngine: Sendable {
         }
 
         guard out.isFinite else { return c }
-        return Gamut.softClip(out, boundary: gamutCache.boundary, context: context)
+        // NO gamut clip here. Display-gamut mapping is the last colour operation
+        // inside S14 (docs/14 §2), and `DisplayTransform.apply` does it there, on
+        // display-normalized values, hue-preserving.
+        //
+        // Running it here ran it on scene-referred data, which is unbounded — and
+        // `Gamut.softClip` bails out on `L >= 1`, so it was a step function of
+        // exposure: a colour got compressed below about three and a half stops over
+        // mid-grey and passed through untouched above it. That is a discontinuity in
+        // the middle of the working range. It made a gradient across that exposure
+        // jump, and it made this stage impossible to bake accurately, because a cube
+        // cell straddling the switch interpolates between clipped and unclipped
+        // corners — which is what showed up as a 0.17 error between the tables and the
+        // exact evaluation.
+        //
+        // Pushing chroma past the display gamut is what a saturation slider is FOR.
+        // S14 compresses it back, once, at the point where "the display" finally means
+        // something.
+        return out
     }
 }
 
@@ -573,6 +590,23 @@ public struct ColorBalanceGrid: Sendable {
 
         let out: RGB = context.toRGB(OKLCh(L: L, C: C, h: h))
         guard out.isFinite else { return c }
-        return Gamut.softClip(out, boundary: gamutCache.boundary, context: context)
+        // NO gamut clip here. Display-gamut mapping is the last colour operation
+        // inside S14 (docs/14 §2), and `DisplayTransform.apply` does it there, on
+        // display-normalized values, hue-preserving.
+        //
+        // Running it here ran it on scene-referred data, which is unbounded — and
+        // `Gamut.softClip` bails out on `L >= 1`, so it was a step function of
+        // exposure: a colour got compressed below about three and a half stops over
+        // mid-grey and passed through untouched above it. That is a discontinuity in
+        // the middle of the working range. It made a gradient across that exposure
+        // jump, and it made this stage impossible to bake accurately, because a cube
+        // cell straddling the switch interpolates between clipped and unclipped
+        // corners — which is what showed up as a 0.17 error between the tables and the
+        // exact evaluation.
+        //
+        // Pushing chroma past the display gamut is what a saturation slider is FOR.
+        // S14 compresses it back, once, at the point where "the display" finally means
+        // something.
+        return out
     }
 }
