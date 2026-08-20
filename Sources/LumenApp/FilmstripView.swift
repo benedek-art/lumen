@@ -18,12 +18,16 @@ struct FilmstripView: View {
     /// Total strip height including padding; the cell is the remainder.
     var height: CGFloat = 92
 
-    private let spacing: CGFloat = 6
-    private let padding: CGFloat = 6
-    private let pixels: Int = 256
+    private static let spacing: CGFloat = 6
+    private static let padding: CGFloat = 6
+    /// One fixed cache level: the strip must not re-decode when the grid slider moves.
+    private static let pixels: Int = 256
 
     var body: some View {
         let photos = state.photos
+        let spacing = Self.spacing
+        let padding = Self.padding
+        let pixels = Self.pixels
         let side = max(height - padding * 2, 32)
 
         ScrollViewReader { proxy in

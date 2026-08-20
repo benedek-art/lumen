@@ -176,26 +176,12 @@ struct LookPanel: View {
                                onReset: { state.updateRecipe { $0.look.printerLights = PrinterLights() } })
 
             if printerExpanded {
-                PrinterLightRow(title: "Master", points: lights.master, limit: masterLimit,
-                                decrement: KeyEquivalent(","), increment: KeyEquivalent("."),
-                                modifiers: [],
-                                onStep: { step("master", by: $0) },
-                                onReset: { setPoints("master", to: 0) })
-                PrinterLightRow(title: "Red / Cyan", points: lights.r, limit: trimLimit,
-                                decrement: KeyEquivalent(","), increment: KeyEquivalent("."),
-                                modifiers: .control,
-                                onStep: { step("r", by: $0) },
-                                onReset: { setPoints("r", to: 0) })
-                PrinterLightRow(title: "Green / Mag", points: lights.g, limit: trimLimit,
-                                decrement: KeyEquivalent(","), increment: KeyEquivalent("."),
-                                modifiers: .option,
-                                onStep: { step("g", by: $0) },
-                                onReset: { setPoints("g", to: 0) })
-                PrinterLightRow(title: "Blue / Yellow", points: lights.b, limit: trimLimit,
-                                decrement: KeyEquivalent(","), increment: KeyEquivalent("."),
-                                modifiers: .shift,
-                                onStep: { step("b", by: $0) },
-                                onReset: { setPoints("b", to: 0) })
+                // `,` and `.` step the master; the same pair with ⌃ / ⌥ / ⇧ steps one
+                // channel. The real interface here is the keyboard, watching the image.
+                printerRow("Master", "master", lights.master, masterLimit, [])
+                printerRow("Red / Cyan", "r", lights.r, trimLimit, .control)
+                printerRow("Green / Mag", "g", lights.g, trimLimit, .option)
+                printerRow("Blue / Yellow", "b", lights.b, trimLimit, .shift)
 
                 caption("One point is one twelfth of a stop, exactly — twelve points is "
                         + "2×, with no hidden negative gamma. \u{201C}+3R, −2 master\u{201D} "
@@ -203,6 +189,15 @@ struct LookPanel: View {
                         + "count your way back out of.")
             }
         }
+    }
+
+    private func printerRow(_ title: String, _ channel: String, _ points: Int,
+                            _ limit: Int, _ modifiers: EventModifiers) -> some View {
+        PrinterLightRow(title: title, points: points, limit: limit,
+                        decrement: KeyEquivalent(","), increment: KeyEquivalent("."),
+                        modifiers: modifiers,
+                        onStep: { delta in step(channel, by: delta) },
+                        onReset: { setPoints(channel, to: 0) })
     }
 
     private func step(_ channel: String, by delta: Int) {

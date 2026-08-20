@@ -13,6 +13,7 @@
 import CoreGraphics
 import CoreImage
 import CoreImage.CIFilterBuiltins
+import CoreText
 import Foundation
 import ImageIO
 import LumenCore
@@ -280,9 +281,16 @@ public final class PipelineRenderer {
         guard let generator = CIFilter(name: "CIAttributedTextImageGenerator") else {
             return image
         }
+        // CoreText, not AppKit: nothing in LumenPipeline may import AppKit or SwiftUI
+        // (docs/13 §2), which is also what keeps this target testable headless.
+        let font = CTFontCreateWithName("Helvetica-Bold" as CFString, fontSize, nil)
+        guard let gray = CGColorSpace(name: CGColorSpace.linearGray),
+              let color = CGColor(colorSpace: gray,
+                                  components: [1, Num.clamp(watermark.opacity / 100, 0, 1)])
+        else { return image }
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: fontSize, weight: .medium),
-            .foregroundColor: NSColor(white: 1, alpha: watermark.opacity / 100),
+            NSAttributedString.Key(kCTFontAttributeName as String): font,
+            NSAttributedString.Key(kCTForegroundColorAttributeName as String): color,
         ]
         let text = NSAttributedString(string: watermark.text, attributes: attributes)
         generator.setValue(text, forKey: "inputText")

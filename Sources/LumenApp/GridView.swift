@@ -27,13 +27,14 @@ struct GridView: View {
     @EnvironmentObject var state: AppState
     @FocusState private var focused: Bool
 
-    private let spacing: CGFloat = 10
+    private static let cellSpacing: CGFloat = 10
 
     var body: some View {
         let photos = state.photos
         let side = CGFloat(state.gridThumbnailSize)
         // Retina: ask for twice the point size, then let the loader snap to a cache level.
         let pixels = Int(side * 2)
+        let spacing = Self.cellSpacing
         let columns = [GridItem(.adaptive(minimum: side, maximum: side), spacing: spacing)]
 
         GeometryReader { geometry in
@@ -88,7 +89,8 @@ struct GridView: View {
     }
 
     private func columnCount(width: CGFloat, side: CGFloat) -> Int {
-        let usable = width - spacing * 2 + spacing
+        let spacing = Self.cellSpacing
+        let usable = width - spacing
         guard side > 0, usable > 0 else { return 1 }
         return max(1, Int(usable / (side + spacing)))
     }
@@ -146,10 +148,28 @@ struct PhotoCell: View {
     let pixels: Int
     let isSelected: Bool
     let isPrimary: Bool
-    var showsCaption: Bool = true
+    let showsCaption: Bool
     let loader: ThumbnailLoader
 
-    @State private var image: CGImage?
+    @State private var image: CGImage? = nil
+
+    /// Spelled out rather than left to the memberwise initializer, which private
+    /// state would otherwise make inaccessible from the filmstrip's file.
+    init(photo: PhotoItem,
+         side: CGFloat,
+         pixels: Int,
+         isSelected: Bool,
+         isPrimary: Bool,
+         showsCaption: Bool = true,
+         loader: ThumbnailLoader) {
+        self.photo = photo
+        self.side = side
+        self.pixels = pixels
+        self.isSelected = isSelected
+        self.isPrimary = isPrimary
+        self.showsCaption = showsCaption
+        self.loader = loader
+    }
 
     private var wellHeight: CGFloat { showsCaption ? side * 0.76 : side }
 

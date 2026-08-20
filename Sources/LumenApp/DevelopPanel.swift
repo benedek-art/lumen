@@ -189,7 +189,6 @@ struct DevelopPanel: View {
     /// label, never an edit target.
     var photo: PhotoItem?
 
-    private var binder: RecipeBinder { RecipeBinder(state: state) }
     private var subject: PhotoItem? { photo ?? state.primarySelection }
 
     var body: some View {
@@ -201,13 +200,7 @@ struct DevelopPanel: View {
             if state.editTargets.isEmpty {
                 emptyState
             } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 2) {
-                        sectionContent
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.bottom, 12)
-                }
+                sectionContent
             }
             Divider().overlay(Lumen.separator)
             footer
@@ -260,31 +253,46 @@ struct DevelopPanel: View {
         .padding(.vertical, 2)
     }
 
+    /// Each section owns its own scrolling. The panels written here are plain columns
+    /// of rows, so they get the standard scroll column; the Colour and Look panels
+    /// bring their own, because a grading wheel and an eight-band ribbon need their own
+    /// layout rules.
     @ViewBuilder
     private var sectionContent: some View {
         switch state.activeSection {
         case .basic:
-            BasicPanel()
+            scrollColumn { BasicPanel() }
         case .detail:
-            DetailPanel()
+            scrollColumn { DetailPanel() }
         case .effects:
-            EffectsPanel()
-        case .curve:
-            placeholder("Tone Curve",
-                        "Parametric, point and channel curves evaluate after the "
-                        + "display transform, luminance-preserving by default (D10).")
+            scrollColumn { EffectsPanel() }
         case .color:
-            placeholder("Colour",
-                        "Vibrance and Saturation live in Basic. The colour mixer, "
-                        + "point colour and grading wheels arrive with Phase 6.")
-        case .masks:
-            placeholder("Masks",
-                        "Local adjustments share the presence decomposition rather "
-                        + "than recomputing it, and land in Phase 4.")
+            ColorPanel()
         case .look:
-            placeholder("Look",
-                        "The portable creative subtree — render preset, film stock, "
-                        + "grade — is what Copy Look carries across a shoot (D4).")
+            LookPanel()
+        case .curve:
+            scrollColumn {
+                placeholder("Tone Curve",
+                            "Parametric, point and channel curves evaluate after the "
+                            + "display transform, luminance-preserving by default (D10).")
+            }
+        case .masks:
+            scrollColumn {
+                placeholder("Masks",
+                            "Local adjustments share the presence decomposition rather "
+                            + "than recomputing it, and land in Phase 4.")
+            }
+        }
+    }
+
+    private func scrollColumn<Content: View>(
+        @ViewBuilder _ content: () -> Content) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 2) {
+                content()
+            }
+            .padding(.horizontal, 10)
+            .padding(.bottom, 14)
         }
     }
 
@@ -310,11 +318,14 @@ struct DevelopPanel: View {
     private var footer: some View {
         VStack(spacing: 4) {
             HStack(spacing: 4) {
+                // Auto reads a proxy of the actual render — including the crop — and
+                // writes the six sliders through `AutoTone.suggest(from:)`. The result
+                // is ordinary slider positions: visible, arguable, one undo step.
                 DevelopFooterButton(title: "Auto", systemImage: "wand.and.stars",
-                                    help: "Set the six tone sliders from the scene "
-                                        + "statistics (⌘U). Every value stays visible "
-                                        + "and individually revertable.",
-                                    action: { applyAutoTone() })
+                                    help: "Set the six tone sliders from the scene's "
+                                        + "own statistics (⌘U). Every value stays "
+                                        + "visible and individually revertable.",
+                                    action: { state.applyAutoTone() })
                 DevelopFooterButton(title: "Reset", systemImage: "arrow.uturn.backward",
                                     help: "Return every setting to its default",
                                     action: { state.resetSettings() })
@@ -356,46 +367,6 @@ struct DevelopPanel: View {
         return current != Recipe(pipelineVersion: current.pipelineVersion)
     }
 
-    // MARK: Auto
-
-    /// Auto is a discrete action that writes ordinary slider positions (D11): after it
-    /// runs, every value is visible, arguable and revertable, and history holds it as
-    /// one step.
-    private func applyAutoTone() {
-        let suggested = AutoTone.suggest(from: Self.referenceStatistics())
-        binder.edit("tone.auto") { recipe in
-            recipe.develop.tone.exposure = suggested.exposure
-            recipe.develop.tone.contrast = suggested.contrast
-            recipe.develop.tone.contrastPivot = suggested.contrastPivot
-            recipe.develop.tone.highlights = suggested.highlights
-            recipe.develop.tone.shadows = suggested.shadows
-            recipe.develop.tone.whites = suggested.whites
-            recipe.develop.tone.blacks = suggested.blacks
-        }
-        state.statusMessage = "Accepted: Auto settings"
-    }
-
-    /// Auto is specified to run on the log-luminance histogram of the **cropped**
-    /// region of the ~1 MP scope proxy, face-weighted (docs/04 §14.2). Nothing
-    /// publishes that histogram to the main actor yet, so until the render coordinator
-    /// does, Auto runs against a neutral reference distribution: a Gaussian of
-    /// log-luminance centred one stop under mid-grey with a ±3 EV spread. The call
-    /// shape is the real one — swapping in the live statistics is a one-line change
-    /// here and nothing else in the panel moves.
-    private static func referenceStatistics() -> AutoTone.Statistics {
-        let bins = 128
-        let minEV = -12.0
-        let maxEV = 12.0
-        var histogram = [Double](repeating: 0, count: bins)
-        for i in 0..<bins {
-            let t = Double(i) / Double(bins - 1)
-            let ev = minEV + (maxEV - minEV) * t
-            let d = (ev + 1.0) / 3.0
-            histogram[i] = exp(-0.5 * d * d)
-        }
-        return AutoTone.Statistics(histogram: histogram, minEV: minEV, maxEV: maxEV,
-                                   faceMeanEV: nil)
-    }
 }
 
 // MARK: - Footer button
