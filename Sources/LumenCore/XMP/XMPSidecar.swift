@@ -52,6 +52,57 @@ public struct SidecarContent: Equatable, Sendable {
     }
 }
 
+/// Reconciling what the catalog knows with what the sidecar says.
+///
+/// The promise this exists to keep is "losing the catalog costs speed, never work"
+/// (docs/15 §15.5): every recipe, rating, flag and label lands in both places, so a
+/// photo that arrives from another machine, or a catalog restored from an older
+/// backup, comes back with its work attached.
+///
+/// Separated from `CatalogService` — which owns the file read, the serial queue and the
+/// debounce — because the RULE is pure, and `LumenApp` has no test target. The rule is
+/// one sentence: the sidecar fills in where the catalog is silent, and never overwrites
+/// it. Catalog-wins is the right way round because the catalog is what the running app
+/// just edited, while the sidecar may be seconds stale behind the debounce.
+public enum SidecarMerge {
+
+    public struct State: Equatable, Sendable {
+        public var rating: Int
+        public var flag: SidecarFlag
+        public var label: String?
+        public var recipe: Recipe?
+
+        public init(rating: Int = 0, flag: SidecarFlag = .none,
+                    label: String? = nil, recipe: Recipe? = nil) {
+            self.rating = rating
+            self.flag = flag
+            self.label = label
+            self.recipe = recipe
+        }
+    }
+
+    /// `catalog` as stored, `sidecar` as read from disk (nil when there is no sidecar,
+    /// or it did not parse).
+    public static func resolve(catalog: State, sidecar: SidecarContent?) -> State {
+        var out = catalog
+        guard let sidecar else { return out }
+
+        if out.recipe == nil, let json = sidecar.recipeJSON {
+            // A sidecar whose recipe will not parse leaves the catalog's nil alone
+            // rather than becoming an empty recipe — "no edit recorded" and "edited
+            // back to default" are different states, and only one of them is a lie.
+            out.recipe = try? CanonicalJSON.decodeRecipe(from: Data(json.utf8))
+        }
+        if out.rating == 0, sidecar.rating > 0 { out.rating = sidecar.rating }
+        if out.flag == .none { out.flag = sidecar.flag }
+        if out.label == nil || out.label?.isEmpty == true,
+           let name = sidecar.label, !name.isEmpty {
+            out.label = name
+        }
+        return out
+    }
+}
+
 public enum XMPSidecar {
 
     public static let lumenNamespace = "http://lumenapp.dev/xmp/1.0/"

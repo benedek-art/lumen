@@ -126,6 +126,100 @@ final class SidecarAndIngestTests: XCTestCase {
         XCTAssertEqual(decoded, recipe)
     }
 
+    // MARK: - Catalog / sidecar reconciliation
+
+    /// "Losing the catalog costs speed, never work."
+    ///
+    /// That promise had no test. `CatalogTests` proves a `SidecarContent` round-trips
+    /// through `XMPSidecar`, and nothing proved that a pick which exists ONLY in the
+    /// sidecar comes back into the catalog on rescan — which is the exact scenario the
+    /// flag field was added for, and it lived in `LumenApp`, a target with no tests.
+    /// The rule now lives in `SidecarMerge`, in LumenCore, and this is it.
+    func testTheSidecarFillsInWhatTheCatalogDoesNotKnow() throws {
+        var recipe = Recipe()
+        recipe.develop.tone.exposure = 0.75
+        let sidecar = SidecarContent(rating: 4, flag: .reject, label: "Green",
+                                     recipeJSON: try CanonicalJSON
+                                        .canonicalRecipeJSON(recipe))
+
+        // A catalog that knows nothing — restored from an older backup, or a photo
+        // that just arrived from another machine. Everything comes back.
+        let recovered = SidecarMerge.resolve(catalog: SidecarMerge.State(),
+                                             sidecar: sidecar)
+        XCTAssertEqual(recovered.rating, 4)
+        XCTAssertEqual(recovered.flag, .reject)
+        XCTAssertEqual(recovered.label, "Green")
+        XCTAssertEqual(recovered.recipe, recipe)
+
+        // Flag and rating are separate axes all the way through: four stars AND
+        // rejected survives the merge, not just the round trip.
+        XCTAssertEqual(recovered.rating, 4)
+        XCTAssertEqual(recovered.flag, .reject)
+    }
+
+    func testTheCatalogWinsWhereverItHasSomethingToSay() throws {
+        var catalogRecipe = Recipe()
+        catalogRecipe.develop.tone.exposure = 1.5
+        var sidecarRecipe = Recipe()
+        sidecarRecipe.develop.tone.exposure = -1.5
+
+        let catalog = SidecarMerge.State(rating: 2, flag: .pick, label: "Blue",
+                                         recipe: catalogRecipe)
+        let sidecar = SidecarContent(rating: 5, flag: .reject, label: "Red",
+                                     recipeJSON: try CanonicalJSON
+                                        .canonicalRecipeJSON(sidecarRecipe))
+        let merged = SidecarMerge.resolve(catalog: catalog, sidecar: sidecar)
+
+        // The catalog is what the running app just edited; the sidecar may be seconds
+        // stale behind its debounce. Letting the sidecar win would undo the last edit.
+        XCTAssertEqual(merged.rating, 2, "the sidecar overwrote a rating")
+        XCTAssertEqual(merged.flag, .pick, "the sidecar overwrote a flag")
+        XCTAssertEqual(merged.label, "Blue", "the sidecar overwrote a label")
+        XCTAssertEqual(merged.recipe, catalogRecipe, "the sidecar overwrote an edit")
+    }
+
+    func testMergingIsAdditivePerField() throws {
+        // Each field fills in independently: a catalog that knows the rating but not
+        // the flag keeps its rating and gains the flag.
+        let sidecar = SidecarContent(rating: 5, flag: .pick, label: "Red")
+        let partial = SidecarMerge.resolve(
+            catalog: SidecarMerge.State(rating: 3), sidecar: sidecar)
+        XCTAssertEqual(partial.rating, 3)
+        XCTAssertEqual(partial.flag, .pick)
+        XCTAssertEqual(partial.label, "Red")
+
+        // No sidecar at all is the identity.
+        let alone = SidecarMerge.State(rating: 1, flag: .reject, label: "Yellow")
+        XCTAssertEqual(SidecarMerge.resolve(catalog: alone, sidecar: nil), alone)
+
+        // A sidecar with nothing in it cannot erase anything.
+        XCTAssertEqual(SidecarMerge.resolve(catalog: alone, sidecar: SidecarContent()),
+                       alone)
+
+        // An empty label in either place is treated as absent rather than as a value,
+        // so an empty string cannot shadow a real label.
+        let blank = SidecarMerge.resolve(catalog: SidecarMerge.State(label: ""),
+                                         sidecar: SidecarContent(label: "Purple"))
+        XCTAssertEqual(blank.label, "Purple")
+    }
+
+    /// A sidecar whose recipe will not parse must leave the catalog's nil alone rather
+    /// than becoming an empty recipe. "No edit recorded" and "edited back to default"
+    /// are different states, and only one of them is a lie about the photographer's
+    /// work.
+    func testACorruptSidecarRecipeDoesNotBecomeAnEmptyEdit() {
+        for json in ["{not json", "", "null", "[]", "{\"pipelineVersion\":"] {
+            let merged = SidecarMerge.resolve(
+                catalog: SidecarMerge.State(),
+                sidecar: SidecarContent(rating: 3, recipeJSON: json))
+            XCTAssertNil(merged.recipe,
+                         "a recipe parsed out of \(json.debugDescription)")
+            // The fields that DID parse still come through — partial salvage, same as
+            // the sidecar parser's own policy.
+            XCTAssertEqual(merged.rating, 3)
+        }
+    }
+
     func testXMPParseRejectsGarbage() {
         XCTAssertNil(XMPSidecar.parse("this is not xml"))
         XCTAssertNil(XMPSidecar.parse("<unrelated><xml/></unrelated>"))

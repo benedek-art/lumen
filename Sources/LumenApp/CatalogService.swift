@@ -99,26 +99,21 @@ final class CatalogService: @unchecked Sendable {
     /// where the catalog is silent: a photo moved in from another machine, or restored
     /// from a backup, should arrive with its work attached.
     private static func merge(row: PhotoRow, recipe: Recipe?, file: URL) -> StoredState {
-        var flag = appFlag(row.flag)
-        var rating = row.rating
-        var label = appLabel(row.label)
-        var resolved = recipe
+        // The rule — "the sidecar fills in where the catalog is silent, and never
+        // overwrites it" — lives in `SidecarMerge`, in LumenCore, where it can be
+        // tested. This function owns only the file read and the enum mapping.
+        let merged = SidecarMerge.resolve(
+            catalog: SidecarMerge.State(rating: row.rating,
+                                        flag: sidecarFlag(appFlag(row.flag)),
+                                        label: row.label,
+                                        recipe: recipe),
+            sidecar: readSidecar(for: file))
 
-        if let sidecar = readSidecar(for: file) {
-            if resolved == nil, let json = sidecar.recipeJSON {
-                resolved = try? CanonicalJSON.decodeRecipe(from: Data(json.utf8))
-            }
-            if rating == 0, sidecar.rating > 0 { rating = sidecar.rating }
-            // Same rule as the others: the sidecar fills in where the catalog is
-            // silent. A pick or reject that only ever reached the sidecar — because
-            // the catalog was restored from an older backup, or the photo arrived
-            // from another machine — comes back rather than being lost.
-            if flag == .none { flag = appFlag(sidecar.flag) }
-            if label == .none, let name = sidecar.label { label = appLabel(name) }
-        }
-
-        return StoredState(catalogID: row.id, flag: flag, rating: rating,
-                           label: label, recipe: resolved)
+        return StoredState(catalogID: row.id,
+                           flag: appFlag(merged.flag),
+                           rating: merged.rating,
+                           label: appLabel(merged.label),
+                           recipe: merged.recipe)
     }
 
     // MARK: - Culling state
