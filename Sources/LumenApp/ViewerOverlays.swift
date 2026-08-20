@@ -125,7 +125,8 @@ struct BeforeAfterSplit<Before: View, After: View>: View {
                     Spacer(minLength: 0)
                     LumenBadge(text: "AFTER")
                 }
-                .padding(8)
+                .frame(width: geometry.size.width)
+                .padding(.vertical, 8)
                 .allowsHitTesting(false)
             }
         }
@@ -134,13 +135,15 @@ struct BeforeAfterSplit<Before: View, After: View>: View {
     private var handle: some View {
         RoundedRectangle(cornerRadius: 3)
             .fill(Lumen.controlBackground.opacity(0.95))
-            .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(Lumen.separator))
+            .overlay {
+                RoundedRectangle(cornerRadius: 3).strokeBorder(Lumen.separator)
+            }
             .frame(width: 12, height: 34)
-            .overlay(
+            .overlay {
                 Image(systemName: "arrow.left.and.right")
                     .font(.system(size: 8, weight: .semibold))
                     .foregroundStyle(Lumen.primaryText)
-            )
+            }
     }
 }
 
@@ -310,8 +313,10 @@ struct ReadoutHUD: View {
                 RoundedRectangle(cornerRadius: 2)
                     .fill(swatchColor)
                     .frame(width: 11, height: 11)
-                    .overlay(RoundedRectangle(cornerRadius: 2)
-                        .strokeBorder(Lumen.separator, lineWidth: 0.5))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 2)
+                            .strokeBorder(Lumen.separator, lineWidth: 0.5)
+                    }
                 Text(numbers)
                     .font(.system(size: 10, design: .monospaced))
                     .foregroundStyle(Lumen.primaryText)
@@ -332,7 +337,9 @@ struct ReadoutHUD: View {
         .padding(.vertical, 5)
         .frame(width: 190, alignment: .leading)
         .background(Color.black.opacity(0.66), in: RoundedRectangle(cornerRadius: 5))
-        .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(Lumen.separator, lineWidth: 0.5))
+        .overlay {
+            RoundedRectangle(cornerRadius: 5).strokeBorder(Lumen.separator, lineWidth: 0.5)
+        }
     }
 
     private var numbers: String {

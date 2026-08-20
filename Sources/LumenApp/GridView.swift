@@ -14,8 +14,9 @@
 // one-row grid backed by the same thumbnail cache, never a second preview system
 // (docs/12 §B1).
 //
-// Keyboard: only the geometric arrow moves live here, because only the grid knows
-// how many columns a row has. The letter grammar belongs to the keymap.
+// Keyboard belongs to the keymap, with one exception of geometry rather than grammar:
+// the grid publishes its column count to `AppState.gridColumns`, because ↑/↓ mean
+// "one row" and only the view that laid the row out knows how wide it is.
 
 #if os(macOS)
 
@@ -25,7 +26,6 @@ import SwiftUI
 
 struct GridView: View {
     @EnvironmentObject var state: AppState
-    @FocusState private var focused: Bool
 
     private static let cellSpacing: CGFloat = 10
 
@@ -61,22 +61,17 @@ struct GridView: View {
                     .padding(spacing)
                 }
                 .background(Lumen.viewerBackground)
-                .focusable()
-                .focused($focused)
                 .onAppear {
-                    focused = true
+                    // ↑/↓ are the keymap's, but only the grid knows how wide a row is.
+                    state.gridColumns = columnCount(width: geometry.size.width, side: side)
                     state.thumbnails.prefetch(around: state.primarySelection?.id,
                                               in: photos.map(\.id), size: pixels)
                 }
-                .onMoveCommand { direction in
-                    let row = columnCount(width: geometry.size.width, side: side)
-                    switch direction {
-                    case .left: state.selectPrevious()
-                    case .right: state.selectNext()
-                    case .up: state.moveSelection(by: -row)
-                    case .down: state.moveSelection(by: row)
-                    default: break
-                    }
+                .onChange(of: geometry.size.width) { _, width in
+                    state.gridColumns = columnCount(width: width, side: side)
+                }
+                .onChange(of: side) { _, newSide in
+                    state.gridColumns = columnCount(width: geometry.size.width, side: newSide)
                 }
                 .onChange(of: state.primarySelection?.id) { _, id in
                     guard let id else { return }

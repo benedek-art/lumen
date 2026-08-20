@@ -8,6 +8,10 @@ on:
 jobs:
   # The real thing: compile every target and RUN the suites on macOS. The engine's
   # goldens run first so their signal survives churn in the app layer.
+  #
+  # Each step writes its full output to a file and prints only the deduplicated
+  # diagnostics. A Swift build repeats the same error once per compilation unit, and a
+  # log where one warning appears forty times is a log nobody reads to the end.
   test-macos:
     runs-on: macos-15
     timeout-minutes: 40
@@ -16,20 +20,32 @@ jobs:
       - name: Toolchain
         run: swift --version && xcodebuild -version
 
-      # `set -o pipefail` is load-bearing: without it the pipe's exit status is
-      # tail's, and a failing build reports green.
       - name: Test — engine + GPU goldens
         shell: bash
         run: |
-          set -o pipefail
-          swift test 2>&1 | tail -400
+          set +e
+          swift test > test.log 2>&1
+          status=$?
+          echo "=== errors ==="
+          grep -E "error:" test.log | sed 's#/Users/runner/work/lumen/lumen/##' | sort -u | head -60
+          echo "=== test failures ==="
+          grep -E "XCTAssert|failed \(|: error: -\[" test.log | sed 's#/Users/runner/work/lumen/lumen/##' | sort -u | head -60
+          echo "=== summary ==="
+          grep -E "Executed [0-9]+ test" test.log | tail -3
+          exit $status
 
       - name: Build — whole package including the app
         if: always()
         shell: bash
         run: |
-          set -o pipefail
-          swift build 2>&1 | tail -400
+          set +e
+          swift build > build.log 2>&1
+          status=$?
+          echo "=== errors ==="
+          grep -E "error:" build.log | sed 's#/Users/runner/work/lumen/lumen/##' | sort -u | head -80
+          echo "=== warnings ==="
+          grep -E "warning:" build.log | sed 's#/Users/runner/work/lumen/lumen/##' | sort -u | head -30
+          exit $status
 
   # Linux lane: regenerate fixtures with the Python reference and fail if the
   # committed fixtures drifted from the verified reference.

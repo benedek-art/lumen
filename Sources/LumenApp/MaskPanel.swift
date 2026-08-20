@@ -301,7 +301,9 @@ struct MaskPanel: View {
     }
 
     private func brushParameters(_ component: MaskComponent) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
+        let ref: String = component.strokesRef.map { String($0.prefix(20)) + "…" }
+            ?? "no stroke blob yet"
+        return VStack(alignment: .leading, spacing: 2) {
             LumenSlider(title: "Size", value: brushBinding(\.size),
                         range: 0.002...0.5, defaultValue: BrushStroke.defaultSize,
                         step: 0.002, decimals: 3, bipolar: false)
@@ -317,9 +319,7 @@ struct MaskPanel: View {
                            help: "Gates each stamp by colour similarity to the stamp centre")
             note("These are the settings the NEXT stroke records. Size is a fraction of "
                  + "the source long edge, so a stroke keeps its width at export "
-                 + "resolution. Strokes live in "
-                 + (component.strokesRef.map { String($0.prefix(20)) + "…" } ?? "no blob yet")
-                 + ".")
+                 + "resolution. Strokes live in " + ref + ".")
         }
     }
 
@@ -502,7 +502,9 @@ struct MaskPanel: View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(entries.indices), id: \.self) { i in
                 LumenToggleRow(title: entries[i].label,
-                               isOn: listBinding(maskID, index, entries[i].key, isParts: isParts))
+                               isOn: listBinding(maskID, index, entries[i].key, isParts: isParts),
+                               help: isParts ? "Include this part in the mask"
+                                             : "Include this class in the mask")
             }
             note(caption)
         }
@@ -1094,13 +1096,15 @@ struct MaskPanel: View {
     }
 
     private func brushBinding(_ path: ReferenceWritableKeyPath<MaskBrushStore, Double>) -> Binding<Double> {
-        Binding(get: { MaskBrushStore.shared[keyPath: path] },
-                set: { v in MaskBrushStore.shared[keyPath: path] = v })
+        let store = brush
+        return Binding(get: { store[keyPath: path] },
+                       set: { v in store[keyPath: path] = v })
     }
 
     private func brushFlag(_ path: ReferenceWritableKeyPath<MaskBrushStore, Bool>) -> Binding<Bool> {
-        Binding(get: { MaskBrushStore.shared[keyPath: path] },
-                set: { v in MaskBrushStore.shared[keyPath: path] = v })
+        let store = brush
+        return Binding(get: { store[keyPath: path] },
+                       set: { v in store[keyPath: path] = v })
     }
 
     // MARK: - Small views
@@ -1215,9 +1219,10 @@ struct MaskPanel: View {
         }
     }
 
-    /// The nine person parts and six landscape classes, exactly as the spec fixes them.
+    /// The nine person parts (plus Entire Person, the default) and the six landscape
+    /// classes, exactly as the spec fixes them.
     static let personParts: [(key: String, label: String)] = [
-        ("faceSkin", "Face Skin"), ("bodySkin", "Body Skin"), ("eyebrows", "Eyebrows"),
+        ("entirePerson", "Entire Person"), ("faceSkin", "Face Skin"), ("bodySkin", "Body Skin"), ("eyebrows", "Eyebrows"),
         ("eyeSclera", "Eye Sclera"), ("irisPupil", "Iris & Pupil"), ("lips", "Lips"),
         ("teeth", "Teeth"), ("hair", "Hair"), ("clothes", "Clothes"),
     ]

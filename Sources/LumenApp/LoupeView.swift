@@ -791,8 +791,13 @@ struct LoupeView: View {
 
     // MARK: Crop
 
+    /// Dragging the crop rectangle writes through `updateRecipe` with a coalescing key,
+    /// exactly like the crop panel's sliders — one drag is one undo step, and the on-image
+    /// gesture inherits that rather than reimplementing it (docs/12 §B6).
     private var cropBinding: Binding<Crop> {
-        Binding(
+        let state = self.state
+        let photo = self.photo
+        return Binding(
             get: { state.recipe(for: photo).develop.geometry.crop },
             set: { newValue in
                 state.updateRecipe(coalescingKey: "crop") { recipe in

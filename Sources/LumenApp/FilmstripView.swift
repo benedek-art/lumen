@@ -15,8 +15,9 @@ import SwiftUI
 struct FilmstripView: View {
     @EnvironmentObject var state: AppState
 
-    /// Total strip height including padding; the cell is the remainder.
-    var height: CGFloat = 92
+    /// Total strip height including padding; the cell is the remainder. Matches the
+    /// height the shell reserves for the strip.
+    var height: CGFloat = 96
 
     private static let spacing: CGFloat = 6
     private static let padding: CGFloat = 6

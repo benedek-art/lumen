@@ -18,6 +18,26 @@ import LumenCore
 import LumenPipeline
 import SwiftUI
 
+// MARK: - Formats
+
+/// What Lumen will browse. Deliberately NOT on `AppState`: the folder scan runs off
+/// the main actor, and a main-actor-isolated constant it has to reach for is both a
+/// concurrency warning today and an error under Swift 6.
+enum PhotoFormats {
+    static let raw: Set<String> = [
+        "arw", "cr2", "cr3", "crw", "dng", "erf", "nef", "nrw", "orf",
+        "pef", "raf", "raw", "rw2", "srw", "x3f",
+    ]
+    static let rendered: Set<String> = [
+        "jpg", "jpeg", "heic", "heif", "png", "tif", "tiff",
+    ]
+    static let browsable: Set<String> = raw.union(rendered)
+
+    static func isRaw(_ url: URL) -> Bool {
+        raw.contains(url.pathExtension.lowercased())
+    }
+}
+
 // MARK: - Photo
 
 struct PhotoItem: Identifiable, Hashable, Sendable {
@@ -28,7 +48,7 @@ struct PhotoItem: Identifiable, Hashable, Sendable {
     var label: ColorLabel = .none
 
     var filename: String { id.lastPathComponent }
-    var isRaw: Bool { !AppState.jpegExtensions.contains(id.pathExtension.lowercased()) }
+    var isRaw: Bool { PhotoFormats.isRaw(id) }
 
     static func == (a: PhotoItem, b: PhotoItem) -> Bool { a.id == b.id }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
@@ -146,12 +166,9 @@ enum SortOrder: String, CaseIterable, Identifiable, Sendable {
 @MainActor
 final class AppState: ObservableObject {
 
-    static let rawExtensions: Set<String> = [
-        "arw", "cr2", "cr3", "crw", "dng", "erf", "nef", "nrw", "orf",
-        "pef", "raf", "raw", "rw2", "srw", "x3f",
-    ]
-    static let jpegExtensions: Set<String> = ["jpg", "jpeg", "heic", "heif", "png", "tif", "tiff"]
-    static var browsableExtensions: Set<String> { rawExtensions.union(jpegExtensions) }
+    static var rawExtensions: Set<String> { PhotoFormats.raw }
+    static var jpegExtensions: Set<String> { PhotoFormats.rendered }
+    static var browsableExtensions: Set<String> { PhotoFormats.browsable }
 
     // MARK: Library
 
