@@ -119,6 +119,38 @@ final class RobustnessTests: XCTestCase {
                              "saturation did nothing to a highlight")
     }
 
+    // MARK: - The first step of a slider must be a first step
+
+    /// Denoise ran the whole image through the variance-stabilizing round trip the
+    /// moment Luminance left zero, and the unbiased inverse lifted every pixel by a
+    /// constant — about 2.3e-3 linear at ISO 102400, a milky black arriving in full on
+    /// the first step of the slider. The correction is a debias for a coefficient that
+    /// was actually estimated and a pedestal for one that was not, so it is applied in
+    /// proportion to how much shrinking happened.
+    func testDenoiseDoesNotLiftBlacksOnItsFirstStep() {
+        let black = ImageBuffer(width: 8, height: 8) { _, _ in RGB(gray: 0) }
+        let profile = NoiseProfile(a: 1.024e-2, b: 1e-6)   // ~ISO 102400
+
+        func render(luma: Double) -> Double {
+            let params = ClassicNR(luma: luma, chroma: 0, hotPixels: 0)
+            let engine = ClassicalDenoise(params, profile: profile, isoDefaults: false)
+            return engine.apply(black)[4, 4].g
+        }
+
+        XCTAssertEqual(render(luma: 0), 0, accuracy: 1e-12, "denoise off is not free")
+        XCTAssertLessThan(abs(render(luma: 1)), 3e-4,
+                          "the first step of Luminance lifted black to \(render(luma: 1))")
+
+        // And the climb stays proportional — no jump anywhere along the slider.
+        var previous = 0.0
+        for value in stride(from: 0.0, through: 100.0, by: 5.0) {
+            let out = render(luma: value)
+            XCTAssertLessThan(abs(out - previous), 1.5e-3,
+                              "denoise stepped between \(previous) and \(out) at \(value)")
+            previous = out
+        }
+    }
+
     // MARK: - A control that exists must do something
 
     /// Seven sliders in the mask panel moved a value that no render stage read. The

@@ -323,6 +323,26 @@ public enum VST {
     /// This is the inverse docs/07 mandates; it is deliberately NOT the algebraic inverse,
     /// so `inverse(forward(x))` differs from `x` by the (small) debiasing term. The
     /// round-trip identity golden runs against `algebraicInverse`.
+    /// The inverse to use when only `shrinkage` of the full denoising strength was
+    /// actually applied, 0…1.
+    ///
+    /// The unbiased inverse is the right one for a coefficient that has been
+    /// *estimated* — it compensates the forward transform's bias, and its correction
+    /// tends to a constant `a/4` in the highlights. Applied where nothing was shrunk,
+    /// that constant is not a debias, it is a pedestal: at ISO 102400 pure black came
+    /// back at 2.3e-3 linear, a milky lift that appeared in full the instant the
+    /// Luminance slider left zero. Blending toward the algebraic inverse in proportion
+    /// to how much shrinking actually happened makes the slider a slider again, and at
+    /// full strength this is exactly the inverse docs/07 mandates.
+    public static func inverse(_ y: Double, profile: NoiseProfile,
+                               shrinkage: Double) -> Double {
+        let t = Num.saturate(shrinkage)
+        if t >= 1 { return inverse(y, profile: profile) }
+        if t <= 0 { return algebraicInverse(y, profile: profile) }
+        return Num.mix(algebraicInverse(y, profile: profile),
+                       inverse(y, profile: profile), t)
+    }
+
     public static func inverse(_ y: Double, profile: NoiseProfile) -> Double {
         guard y.isFinite else { return 0 }
         let a = profile.a
@@ -582,7 +602,13 @@ public struct ClassicalDenoise: Sendable {
     ///
     /// Alpha is carried through untouched. With every slider at 0 this returns its input
     /// bit-for-bit — the VST round trip is never run for nothing, which is what keeps
-    /// "denoise off" free and keeps the unbiased inverse from shifting an unshrunk image.
+    /// "denoise off" free.
+    ///
+    /// It is also what the first slider step used to cost. Skipping the round trip at
+    /// zero is not the same as the round trip being harmless just above zero: at
+    /// Luminance 1 the whole image went through it, and the unbiased inverse lifted
+    /// every pixel by a constant. `shrinkage` below is what makes the step small
+    /// instead of the full pedestal.
     public func apply(_ image: ImageBuffer, space: RGBColorSpace = .rec2020) -> ImageBuffer {
         var work = image
         if hotPixels > 0 {
@@ -592,6 +618,13 @@ public struct ClassicalDenoise: Sendable {
         let kL = ClassicalDenoise.lumaK(luma)
         let kC = ClassicalDenoise.chromaK(chroma)
         guard kL > 0 || kC > 0 else { return work }
+
+        // How much of the full shrinking strength is actually in play. The unbiased
+        // inverse's asymptotic correction is a debias for an estimated coefficient and
+        // a pedestal for an unshrunk one, so it is applied in proportion — see
+        // `VST.inverse(_:profile:shrinkage:)`.
+        let shrinkage = Num.saturate(Swift.max(kL / ClassicalDenoise.lumaMaxK,
+                                               kC / ClassicalDenoise.chromaMaxK))
 
         let w = work.width
         let h = work.height
@@ -696,9 +729,9 @@ public struct ClassicalDenoise: Sendable {
                             Double(p1.values[row + x]),
                             Double(p2.values[row + x]))
                 let v = unrotate.apply(d)
-                out[x, y] = RGB(VST.inverse(v.r, profile: profile),
-                                VST.inverse(v.g, profile: profile),
-                                VST.inverse(v.b, profile: profile))
+                out[x, y] = RGB(VST.inverse(v.r, profile: profile, shrinkage: shrinkage),
+                                VST.inverse(v.g, profile: profile, shrinkage: shrinkage),
+                                VST.inverse(v.b, profile: profile, shrinkage: shrinkage))
             }
         }
         return out
