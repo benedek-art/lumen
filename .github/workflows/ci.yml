@@ -77,6 +77,50 @@ jobs:
             | awk '{ key = $1; if (seen[key]++ < 2) print }' | head -24
           exit $status
 
+  # The fast lane. Nine tests are 92% of the suite's wall clock — measured, from the
+  # streamed log: 232s, 196s, 125s, 90s, 74s, 57s, 53s, 46s, 44s out of 997s. The other
+  # 235 tests run in about seventy seconds put together.
+  #
+  # Skipping those nine here turns "did I break something ordinary" from a
+  # seventeen-minute answer into a two-minute one, which is the difference between a
+  # loop you can iterate in and one you batch changes against — and batching changes is
+  # how two of them land in the same round and neither is bisectable.
+  #
+  # It is NOT a substitute: `test-macos` below still runs everything on the same push,
+  # and nothing merges on this lane's word alone. If a rename makes a skip stop
+  # matching, this lane gets slower and stays correct.
+  test-fast:
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Everything except the nine slow whole-pipeline tests
+        shell: bash
+        run: |
+          set +e
+          swift test 2>&1 \
+            --skip testGraphMatchesTheReferenceRendererWithTheSpatialStagesOn \
+            --skip testEveryStageInTheFullRecipeChangesTheResult \
+            --skip testRenderedLuminanceIsMonotoneAtExtremeSettings \
+            --skip testRaisingExposureRaisesThePictureByTheAmountItClaims \
+            --skip testEveryLocalSliderThePanelOffersChangesThePicture \
+            --skip testTheInteractiveTableAgreesWithTheExportOne \
+            --skip testEachTableTracksItsOwnExactEvaluationSeparately \
+            --skip testGraphMatchesTheReferenceRendererOnTheColourPath \
+            --skip testExportTableErrorStaysUnderOnePercent \
+            | tee fast.log
+          status=$?
+          echo "=== compile errors ==="
+          grep -E "error:" fast.log | grep -v ": error: -\[" \
+            | sed 's#/Users/runner/work/lumen/lumen/##' | sort -u | head -40
+          echo "=== summary ==="
+          grep -E "Executed [0-9]+ test" fast.log | tail -1
+          echo "=== failures ==="
+          grep -E ": error: -\[" fast.log | sed 's#/Users/runner/work/lumen/lumen/##' \
+            | sed 's/^.*error: //' | awk '{ key = $1; if (seen[key]++ < 2) print }' \
+            | head -20
+          exit $status
+
   # The thing a photographer can actually open. Runs on every push regardless of the
   # test lane's verdict, because a build you can launch and poke at is how you find
   # out what the tests are not asking about.
