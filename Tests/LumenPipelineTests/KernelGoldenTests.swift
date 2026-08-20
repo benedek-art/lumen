@@ -943,6 +943,226 @@ final class KernelGoldenTests: XCTestCase {
         return RenderPlan(recipe: recipe, captureISO: iso)
     }
 
+    /// A single-channel plane as a frame the graph can eat, and back again.
+    private func broadcast(_ plane: Plane) -> ImageBuffer {
+        var buffer = ImageBuffer(width: plane.width, height: plane.height)
+        for y in 0..<plane.height {
+            for x in 0..<plane.width { buffer[x, y] = RGB(gray: plane[x, y]) }
+        }
+        return buffer
+    }
+
+    /// A plane with a step, a one-pixel line and noise — every feature a five-tap
+    /// filter can get wrong, including two that sit inside the deepest level's reach of
+    /// the border.
+    ///
+    /// The magnitudes are the ones the stage actually works in, and that is not
+    /// cosmetic. Written first with a 0.15…0.65 step — image-like numbers — the edge
+    /// map came out identically ZERO, because its knees are denominated in the VST
+    /// plane's own noise σ and that plane spans tens of units, not tenths. The
+    /// comparison would then have been 0 == 0: green for a stage with no edge map at
+    /// all. Measured on this plane the map runs the full 0.000…1.000 instead.
+    private func testPlane(width: Int = 64, height: Int = 64) -> Plane {
+        var plane = Plane(width: width, height: height)
+        for y in 0..<height {
+            for x in 0..<width {
+                var v = x < width / 2 ? -10.0 : 20.0
+                if x == width - 3 { v = 25.0 }
+                if y == 2 { v += 6.0 }
+                v += 0.8 * Foundation.sin(Double(x) * 1.9 + Double(y) * 2.7)
+                plane[x, y] = v
+            }
+        }
+        return plane
+    }
+
+    /// The plane's own span, so a tolerance can be stated as a fraction of the numbers
+    /// being compared rather than as an absolute that means nothing without them.
+    private func span(_ plane: Plane) -> Double {
+        var lo = Double.infinity
+        var hi = -Double.infinity
+        for v in plane.values {
+            lo = Swift.min(lo, Double(v))
+            hi = Swift.max(hi, Double(v))
+        }
+        return hi - lo
+    }
+
+    private func worstDifference(_ got: ImageBuffer, _ expected: Plane) -> (Double, (Int, Int)) {
+        var worst = 0.0
+        var at = (0, 0)
+        for y in 0..<expected.height {
+            for x in 0..<expected.width {
+                let d = abs(got[x, y].r - expected[x, y])
+                if d > worst { worst = d; at = (x, y) }
+            }
+        }
+        return (worst, at)
+    }
+
+    // MARK: The primitives S3 is built from, each against its own reference
+    //
+    // These exist because the first version of this stage failed its end-to-end golden
+    // by 71% of the stage's effect and the golden could say nothing about WHERE. A max
+    // over a five-level wavelet stack is not a diagnosis. Each of the three below has
+    // exactly one reference function and fails on its own.
+
+    /// One à-trous smoothing step, at every dilation the stack uses.
+    ///
+    /// This is the one that catches a tap landing in the wrong place. At step 16 the
+    /// filter reaches 32 px, which on a 64 px frame is every pixel — so a border
+    /// convention that disagrees with `Plane.clampedSample` shows up here immediately
+    /// rather than as a number at the end of the chain.
+    func testAtrousStepMatchesTheReference() throws {
+        try XCTSkipUnless(KernelLibrary.bSpline5 != nil, "bSpline5 unavailable")
+        let plane = testPlane()
+        let input = ciImage(from: broadcast(plane))
+        for step in [1, 2, 4, 8, 16] {
+            guard let output = RenderGraph.bSplinePass(input, step: step) else {
+                return XCTFail("step \(step): the à-trous pass produced nothing")
+            }
+            guard let got = readBack(output, width: plane.width, height: plane.height)
+            else { return XCTFail("step \(step): render failed") }
+            let expected = SpatialOps.atrousSmooth(plane, step: step)
+            let (worst, at) = worstDifference(got, expected)
+            // It must SMOOTH — a pass that returned its input would match nothing, but
+            // a pass that returned its input and a reference that did too would match
+            // everything, so the movement is asserted separately.
+            var moved = 0.0
+            for y in 0..<plane.height {
+                for x in 0..<plane.width {
+                    moved = Swift.max(moved, abs(expected[x, y] - plane[x, y]))
+                }
+            }
+            XCTAssertGreaterThan(moved, span(plane) * 0.05,
+                                 "step \(step): the reference barely smoothed anything")
+            // 1e-6 of the plane's span. Float32 through this filter is worth about
+            // 3e-6 of it; a tap in the wrong place is worth a tenth of it or more.
+            XCTAssertLessThan(worst, span(plane) * 1e-5,
+                              "step \(step): GPU and reference B3-spline differ by "
+                                  + "\(worst) at \(at), on a plane spanning "
+                                  + "\(span(plane))")
+        }
+    }
+
+    /// The three radius-1 box passes that stand in for a σ = 1.5 Gaussian.
+    func testEdgeBlurMatchesTheReferenceGaussian() throws {
+        try XCTSkipUnless(KernelLibrary.box3 != nil, "box3 unavailable")
+        let plane = testPlane()
+        var blurred = ciImage(from: broadcast(plane))
+        for _ in 0..<3 {
+            guard let horizontal = KernelLibrary.applyNeighbourhood(
+                    KernelLibrary.box3, extent: blurred.extent, reach: 1,
+                    [RenderGraph.clamped(blurred), CIVector(x: 1, y: 0)]),
+                  let vertical = KernelLibrary.applyNeighbourhood(
+                    KernelLibrary.box3, extent: blurred.extent, reach: 1,
+                    [RenderGraph.clamped(horizontal), CIVector(x: 0, y: 1)])
+            else { return XCTFail("box3 produced nothing") }
+            blurred = vertical
+        }
+        guard let got = readBack(blurred, width: plane.width, height: plane.height)
+        else { return XCTFail("blur render failed") }
+        let expected = SpatialOps.gaussianBlur(plane, sigma: ClassicalDenoise.edgeBlurSigma)
+        let (worst, at) = worstDifference(got, expected)
+        XCTAssertLessThan(worst, span(plane) * 1e-5,
+                          "three box passes differ from gaussianBlur(1.5) by \(worst) "
+                              + "at \(at), on a plane spanning \(span(plane))")
+    }
+
+    /// The edge map, which is what decides how much of each band survives. A stage
+    /// whose edge map is wrong denoises the right amount in the wrong places.
+    func testEdgeMapMatchesTheReference() throws {
+        try XCTSkipUnless(KernelLibrary.edgeMap != nil && KernelLibrary.box3 != nil,
+                          "edge kernels unavailable")
+        let plane = testPlane()
+        // ISO 6400 needs no rescaling, so the plan's knees are the reference's own —
+        // asserted, because a scale of anything but 1 would make this comparison a
+        // different question.
+        let denoise = ClassicalDenoise(ClassicNR(luma: 60, chroma: 0),
+                                       profile: NoiseProfile.forISO(6400))
+        let gpu = denoise.gpuPlan(width: plane.width, height: plane.height)
+        XCTAssertEqual(gpu.encodedScale, 1, accuracy: 1e-12)
+
+        guard let output = RenderGraph.edgePlane(ciImage(from: broadcast(plane)), gpu: gpu)
+        else { return XCTFail("the edge map produced nothing") }
+        guard let got = readBack(output, width: plane.width, height: plane.height)
+        else { return XCTFail("edge map render failed") }
+        let expected = ClassicalDenoise.edgeMap(plane,
+                                                blurSigma: ClassicalDenoise.edgeBlurSigma,
+                                                lo: ClassicalDenoise.edgeKneeLow,
+                                                hi: ClassicalDenoise.edgeKneeHigh)
+        let (worst, at) = worstDifference(got, expected)
+        // The map must actually select: all-zero or all-one would match a broken
+        // reference and would silently disable edge protection in the real stage.
+        var low = 1.0
+        var high = 0.0
+        for y in 0..<plane.height {
+            for x in 0..<plane.width {
+                low = Swift.min(low, expected[x, y])
+                high = Swift.max(high, expected[x, y])
+            }
+        }
+        XCTAssertLessThan(low, 0.1, "the reference edge map never opens")
+        XCTAssertGreaterThan(high, 0.9, "the reference edge map never closes")
+        XCTAssertLessThan(worst, 1e-4,
+                          "GPU and reference edge maps differ by \(worst) at \(at)")
+    }
+
+    /// The cross-guided filter the chroma blotch pass runs on, against
+    /// `SpatialOps.guidedFilter`.
+    ///
+    /// This is the one primitive in S3 that goes through a STOCK filter — `CIBoxBlur`,
+    /// six times inside the guided filter — and it is the only place in this codebase
+    /// where that filter sees signed data, because the chroma planes of a
+    /// variance-stabilized image are centred on zero. Every other guided-filter use
+    /// here runs on log luminance in [0,1]. If box blurring a signed plane is not what
+    /// the reference does, this says so on its own rather than through the blotch
+    /// golden three stages downstream.
+    func testCrossGuidedFilterOnSignedChroma() throws {
+        try XCTSkipUnless(KernelLibrary.guidedCrossCoefficients != nil,
+                          "guided kernels unavailable")
+        let width = 64, height = 64
+        var signal = Plane(width: width, height: height)
+        var guide = Plane(width: width, height: height)
+        for y in 0..<height {
+            for x in 0..<width {
+                // Chroma: signed, centred on zero, with a blob and a hard edge.
+                let dx = Double(x) - 32, dy = Double(y) - 32
+                let blob = Foundation.exp(-(dx * dx + dy * dy) / (2 * 100))
+                signal[x, y] = (x < width / 2 ? -1.5 : 1.5) + 2.0 * blob
+                    + 0.4 * Foundation.sin(Double(x) * 2.3 + Double(y) * 1.7)
+                // Guide: linear luminance, strictly positive, with the same edge.
+                guide[x, y] = x < width / 2 ? 0.06 : 0.40
+            }
+        }
+        let expected = SpatialOps.guidedFilter(input: signal, guide: guide,
+                                               radius: ClassicalDenoise.blotchRadius,
+                                               epsilon: ClassicalDenoise.blotchEpsilon)
+        guard let filtered = RenderGraph.crossGuidedFilter(
+            input: ciImage(from: broadcast(signal)),
+            guide: ciImage(from: broadcast(guide)),
+            radius: ClassicalDenoise.blotchRadius,
+            epsilon: ClassicalDenoise.blotchEpsilon)
+        else { return XCTFail("the cross-guided filter produced nothing") }
+        guard let got = readBack(filtered, width: width, height: height) else {
+            return XCTFail("guided filter render failed")
+        }
+        let (worst, at) = worstDifference(got, expected)
+        // It has to have SMOOTHED, or agreeing with the reference proves nothing.
+        var moved = 0.0
+        for y in 0..<height {
+            for x in 0..<width {
+                moved = Swift.max(moved, abs(expected[x, y] - signal[x, y]))
+            }
+        }
+        XCTAssertGreaterThan(moved, 0.2,
+                             "the reference guided filter barely moved the plane")
+        XCTAssertLessThan(worst, span(signal) * 0.02,
+                          "GPU and reference guided filters differ by \(worst) at "
+                              + "\(at), on a plane spanning \(span(signal)) — "
+                              + "CIBoxBlur and the reference's box blur disagree")
+    }
+
     /// The whole S3 chain against `ClassicalDenoise.apply`.
     ///
     /// Nine kernels, five à-trous levels, two edge maps and an inverse transform have to

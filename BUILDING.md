@@ -175,6 +175,38 @@ the large one. Modelled against the f64 reference, the pedestal halves the half-
 error of the stage: worst pixel 9.8e-4 against 1.6e-3, RMS 1.2e-4 against 2.2e-4, on a
 stage whose effect is 1.5e-2 to 4.8e-2.
 
+## The other kind of unit: what a Core Image kernel is allowed to read
+
+A second class of defect, found the same way — by modelling the arithmetic first and
+then not believing the graph.
+
+`CIColorKernel` carries a contract: **it reads exactly the pixel it is producing.**
+That promise is what lets Core Image fuse colour kernels together and concatenate them
+with geometry nodes, and it is not advisory. S3's à-trous transform was first built by
+handing one colour kernel five *translated* copies of the same image and letting each
+`__sample` argument pick up its own offset. It compiled, it ran, and it produced a
+picture — and on the macOS runner the five-level stack differed from
+`ClassicalDenoise.apply` by **71% of the stage's own effect**, while the numpy model of
+the identical arithmetic agreed with the reference to 6e-16 in double and 5e-4 in half.
+The maths was never wrong; the graph was not computing the maths.
+
+A kernel that reads a neighbourhood must be a general `CIKernel`, must say where it
+samples with `samplerTransform`, and must be applied with a `roiCallback` that tells
+Core Image how far it reaches. The ROI is not a formality either: it is what makes a
+tiled render of a 45-megapixel export produce the same pixels as a 64-pixel test frame,
+and S3's deepest à-trous level reaches 32 px.
+
+The tell: a stage whose end-to-end golden is wrong by a large *fraction of its own
+effect* rather than by a rounding error. That is a structural difference, and the first
+question to ask is not "is the formula right" but "is the graph evaluating the formula".
+`RenderGraph.localStructure` had already reached for `CIFilter.convolution3X3` on a
+clamped image rather than translated inputs; that precedent was there to be read.
+
+Which is also why every primitive in S3 now has its own golden against its own
+reference — `SpatialOps.atrousSmooth`, `gaussianBlur`, `ClassicalDenoise.edgeMap`,
+`SpatialOps.guidedFilter`. A maximum over a five-level wavelet stack tells you the
+denoise is wrong. It cannot tell you which tap moved.
+
 The tone mask is the one place ε = 0.004 on an encoded plane is *correct*:
 `ReferenceRenderer.applyTone` encodes with `LumenLog` too and passes the same
 number, so both paths agree and the softness is a shared choice about a selection

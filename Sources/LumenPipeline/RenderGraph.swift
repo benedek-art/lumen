@@ -285,43 +285,33 @@ public struct RenderGraph {
     static let broadcastGreen = Mat3(0, 1, 0, 0, 1, 0, 0, 1, 0)
     static let broadcastBlue = Mat3(0, 0, 1, 0, 0, 1, 0, 0, 1)
 
-    /// The hot-pixel pass: the centre plus its eight neighbours, each a translation of
-    /// the same clamped image, into one branchless kernel.
+    /// The hot-pixel pass: one general kernel reading its own 3×3 neighbourhood.
     static func applyHotPixels(_ image: CIImage,
                                gpu: ClassicalDenoise.GPUPlan) -> CIImage? {
-        var arguments: [Any] = [image]
-        for dy in -1...1 {
-            for dx in -1...1 where !(dx == 0 && dy == 0) {
-                arguments.append(shifted(image, dx: dx, dy: dy))
-            }
-        }
-        arguments.append(Float(Swift.min(gpu.hotPixelK, 1e30)))
-        arguments.append(Float(gpu.profile.a))
-        arguments.append(Float(gpu.profile.b))
-        return KernelLibrary.apply(KernelLibrary.hotPixel, extent: image.extent,
-                                   arguments)
+        KernelLibrary.applyNeighbourhood(
+            KernelLibrary.hotPixel, extent: image.extent, reach: 1,
+            [clamped(image), Float(Swift.min(gpu.hotPixelK, 1e30)),
+             Float(gpu.profile.a), Float(gpu.profile.b)])
     }
 
     /// One à-trous smoothing step: the B3-spline row `[1,4,6,4,1]/16` applied
     /// separably with its taps `step` pixels apart — the holes the transform is named
     /// for. Level `j` uses `step = 2^j`, so the support doubles per level while the
     /// resolution never drops, which is what makes the reconstruction an exact sum.
+    ///
+    /// The deepest level of a five-level stack reaches 32 px, so `reach` is not a
+    /// formality: it is what Core Image is told to fetch, and a tile rendered without
+    /// it would be built from a frame that stops at the tile edge.
     static func bSplinePass(_ image: CIImage, step: Int) -> CIImage? {
         let extent = image.extent
-        let s = Swift.max(step, 1)
-        func taps(_ source: CIImage, dx: Int, dy: Int) -> [Any] {
-            var out: [Any] = []
-            out.reserveCapacity(5)
-            for t in 0..<5 {
-                out.append(shifted(source, dx: (t - 2) * dx * s, dy: (t - 2) * dy * s))
-            }
-            return out
-        }
-        guard let horizontal = KernelLibrary.apply(KernelLibrary.bSpline5, extent: extent,
-                                                   taps(image, dx: 1, dy: 0))
+        let s = CGFloat(Swift.max(step, 1))
+        guard let horizontal = KernelLibrary.applyNeighbourhood(
+            KernelLibrary.bSpline5, extent: extent, reach: 2 * s,
+            [clamped(image), CIVector(x: s, y: 0)])
         else { return nil }
-        return KernelLibrary.apply(KernelLibrary.bSpline5, extent: extent,
-                                   taps(horizontal, dx: 0, dy: 1))
+        return KernelLibrary.applyNeighbourhood(
+            KernelLibrary.bSpline5, extent: extent, reach: 2 * s,
+            [clamped(horizontal), CIVector(x: 0, y: s)])
     }
 
     /// The blur-stabilized gradient edge map: three radius-1 box passes on each axis —
@@ -332,41 +322,29 @@ public struct RenderGraph {
         let extent = plane.extent
         var blurred = plane
         for _ in 0..<3 {
-            guard let horizontal = KernelLibrary.apply(
-                    KernelLibrary.box3, extent: extent,
-                    [shifted(blurred, dx: -1, dy: 0), blurred,
-                     shifted(blurred, dx: 1, dy: 0)]),
-                  let vertical = KernelLibrary.apply(
-                    KernelLibrary.box3, extent: extent,
-                    [shifted(horizontal, dx: 0, dy: -1), horizontal,
-                     shifted(horizontal, dx: 0, dy: 1)])
+            guard let horizontal = KernelLibrary.applyNeighbourhood(
+                    KernelLibrary.box3, extent: extent, reach: 1,
+                    [clamped(blurred), CIVector(x: 1, y: 0)]),
+                  let vertical = KernelLibrary.applyNeighbourhood(
+                    KernelLibrary.box3, extent: extent, reach: 1,
+                    [clamped(horizontal), CIVector(x: 0, y: 1)])
             else { return nil }
             blurred = vertical
         }
-        return KernelLibrary.apply(
-            KernelLibrary.edgeMap, extent: extent,
-            [shifted(blurred, dx: 1, dy: 0), shifted(blurred, dx: -1, dy: 0),
-             shifted(blurred, dx: 0, dy: 1), shifted(blurred, dx: 0, dy: -1),
-             Float(gpu.edgeKneeLow), Float(gpu.edgeKneeHigh)])
+        return KernelLibrary.applyNeighbourhood(
+            KernelLibrary.edgeMap, extent: extent, reach: 1,
+            [clamped(blurred), Float(gpu.edgeKneeLow), Float(gpu.edgeKneeHigh)])
     }
 
-    /// The image as seen from `(dx, dy)` away: sampling the result at `p` reads the
-    /// source at `p + (dx, dy)`.
+    /// The image with its border repeated outwards — the edge convention
+    /// `Plane.clampedSample` gives the CPU reference, and the reason a five-tap kernel
+    /// needs no special case per border.
     ///
-    /// Clamped first, so a tap that falls outside the frame repeats the border pixel —
-    /// the same edge convention `Plane.clampedSample` gives the CPU reference, and the
-    /// reason a 5-tap kernel needs no special case per border.
-    ///
-    /// The y sign is not a hazard here even though Core Image's origin is bottom-left
-    /// and the reference's is top-left: every filter built out of this — the B3-spline
-    /// row, the box blur, the gradient magnitude, the 3×3 neighbourhood — is symmetric
-    /// under a y flip.
-    static func shifted(_ image: CIImage, dx: Int, dy: Int) -> CIImage {
-        guard dx != 0 || dy != 0 else { return image.clampedToExtent() }
-        return image.clampedToExtent()
-            .transformed(by: CGAffineTransform(translationX: CGFloat(-dx),
-                                               y: CGFloat(-dy)))
-    }
+    /// The y sign is not a hazard even though Core Image's origin is bottom-left and
+    /// the reference's is top-left: every filter built on this — the B3-spline row, the
+    /// box blur, the gradient magnitude, the 3×3 neighbourhood — is symmetric under a
+    /// y flip.
+    static func clamped(_ image: CIImage) -> CIImage { image.clampedToExtent() }
 
     // MARK: - S6
 
