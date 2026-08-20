@@ -177,13 +177,37 @@ public enum CanonicalJSON {
     }
 
     /// The shared number rule. Mirrored in scripts/gen-fixtures.py — keep in sync.
+    ///
+    /// Shortest representation that ROUND-TRIPS, found by trying 15, 16 and then 17
+    /// significant digits — 17 always suffices for a Double, and the first that parses
+    /// back to the same value is the shortest that does.
+    ///
+    /// It used to be `%.6g`, six significant digits, which broke two of this file's
+    /// own promises. Serialization was lossy, so `decodeRecipe` — which re-serializes
+    /// through here before decoding — truncated on the way IN as well: quit, relaunch,
+    /// and the recipe in memory was not the one saved. And any two recipes agreeing to
+    /// six figures produced the same canonical string and therefore the same
+    /// `recipe_fp`, so the second was served the first's cached pixels. The error was
+    /// bounded at ~1e-6 relative and invisible today, but "two recipes that do not
+    /// render identically must not hash identically" is not a claim that admits a
+    /// tolerance, and one field with wide dynamic range — a coordinate on a large
+    /// canvas, a grain seed, a scene-linear multiplier — makes it visible. `%.6g` of
+    /// 1234567.5 is 1.23457e+06, an error of 2.5 whole units.
+    ///
+    /// Both sides format through C `printf`, so Swift and the Python mirror produce
+    /// byte-identical output for the same double. `String(format:)` takes no locale
+    /// here, so a comma decimal separator cannot appear.
     public static func canonicalNumber(_ d: Double) -> String {
         assert(d.isFinite, "non-finite number in recipe JSON")
         if d == d.rounded() && abs(d) < 1e15 {
             let i = Int64(d)
             return i == 0 ? "0" : String(i)   // also normalizes -0
         }
-        return String(format: "%.6g", d)
+        for precision in 15...17 {
+            let text = String(format: "%.\(precision)g", d)
+            if Double(text) == d { return text }
+        }
+        return String(format: "%.17g", d)
     }
 
     private static func writeEscaped(_ s: String, into out: inout String) {

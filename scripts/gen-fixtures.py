@@ -59,11 +59,20 @@ def check(cond, msg):
 # ---------------------------------------------------------------------------
 
 def canonical_number(d):
+    """Mirror of CanonicalJSON.canonicalNumber.
+
+    Shortest representation that round-trips, tried at 15, 16 then 17 significant
+    digits. Both sides go through C printf, so the bytes match.
+    """
     assert math.isfinite(d), "non-finite number in recipe JSON"
     if d == round(d) and abs(d) < 1e15:
         i = int(d)
         return "0" if i == 0 else str(i)
-    return "%.6g" % d
+    for precision in (15, 16, 17):
+        text = "%.*g" % (precision, d)
+        if float(text) == d:
+            return text
+    return "%.17g" % d
 
 
 def _escape(s):
@@ -261,6 +270,35 @@ def gen_canonical_fixture():
     cases.append({"name": "maskAndLook", "canonical": c_canon, "fingerprint": fp(c_canon)})
     check('"filmLab"' in c_canon and '"aiSky"' in c_canon,
           f"case C canonical missing fields: {c_canon[:200]}")
+
+    # Case D: numbers that six significant digits could not represent. Until this
+    # existed, every fixture value round-tripped at 6 digits by luck, so the whole
+    # `%.6g` truncation — lossy save AND fingerprint aliasing — was invisible to the
+    # fixtures. Two recipes differing only past the sixth figure must produce
+    # different canonical strings and different fingerprints.
+    d1 = json.loads(json.dumps(defaults))
+    d1["develop"]["tone"]["exposure"] = 1.2345678901234
+    d1["develop"]["raw"]["temp"] = 5123.456789
+    d1["look"]["vignette"] = -0.30000000000000004      # a real float-arithmetic result
+    d1_canon = canonical_recipe_json(d1, defaults)
+    cases.append({"name": "beyondSixFigures", "canonical": d1_canon,
+                  "fingerprint": fp(d1_canon)})
+
+    d2 = json.loads(json.dumps(d1))
+    d2["develop"]["tone"]["exposure"] = 1.2345678901235   # differs in the 14th digit
+    d2_canon = canonical_recipe_json(d2, defaults)
+    check(d1_canon != d2_canon,
+          "two recipes differing past the sixth figure serialized identically")
+    check(fp(d1_canon) != fp(d2_canon),
+          "two recipes that render differently share a fingerprint")
+    cases.append({"name": "beyondSixFiguresNeighbour", "canonical": d2_canon,
+                  "fingerprint": fp(d2_canon)})
+
+    # ...and serialization must be lossless: what comes back parses to what went in.
+    for value in (1.2345678901234, 0.1, 1 / 3, 5123.456789, -0.30000000000000004,
+                  1e-7, 2.5e20, 1234567.5):
+        check(float(canonical_number(value)) == value,
+              f"canonical_number lost {value!r} -> {canonical_number(value)}")
 
     with open(os.path.join(FIXTURES, "canonical.json"), "w") as f:
         json.dump({"cases": cases}, f, indent=1)
