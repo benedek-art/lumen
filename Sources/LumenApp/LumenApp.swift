@@ -23,6 +23,8 @@ struct LumenApp: App {
             CommandGroup(replacing: .newItem) {
                 Button("Open Folder…") { state.chooseFolder() }
                     .keyboardShortcut("o", modifiers: [.command])
+                Button("Ingest from Card…") { state.showIngestSheet = true }
+                    .keyboardShortcut("i", modifiers: [.command, .shift])
             }
 
             CommandGroup(replacing: .undoRedo) {

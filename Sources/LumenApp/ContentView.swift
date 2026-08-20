@@ -41,6 +41,7 @@ struct ContentView: View {
         .keyboardGrammar()
         .sheet(isPresented: $state.showKeyReference) { KeyReferenceSheet() }
         .sheet(isPresented: $state.showExportSheet) { ExportSheet() }
+        .sheet(isPresented: $state.showIngestSheet) { IngestSheet() }
     }
 
     private var showsDevelopColumn: Bool {

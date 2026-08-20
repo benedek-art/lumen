@@ -193,6 +193,7 @@ final class AppState: ObservableObject {
     @Published var gridColumns: Int = 6
     @Published var showKeyReference = false
     @Published var showExportSheet = false
+    @Published var showIngestSheet = false
 
     // MARK: Editor
 
