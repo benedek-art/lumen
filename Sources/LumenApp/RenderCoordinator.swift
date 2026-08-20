@@ -170,6 +170,29 @@ actor RenderCoordinator {
                                           sourceX: sourceX, sourceY: sourceY)
     }
 
+    /// One sample in the WORKING space — after white balance, exposure and printer
+    /// lights, which is where the colour stage sees its input.
+    ///
+    /// A different tap from `solveNeutral`'s on purpose. The neutral solver wants the
+    /// value BEFORE white balance, because it is computing that white balance. Every
+    /// colour tool wants the value the colour stage will actually compare against, or a
+    /// swatch picked off a warm frame would stop matching the moment Temp moved.
+    ///
+    /// The linear stage is a 3x3, so this is the matrix rather than a second render.
+    func sampleWorking(url: URL, recipe: Recipe,
+                       sourceX: Double, sourceY: Double) -> RGB? {
+        guard let source = try? self.source(for: url),
+              let sample = renderer.sampleSceneLinear(source: source, recipe: recipe,
+                                                     sourceX: sourceX, sourceY: sourceY),
+              sample.isFinite
+        else { return nil }
+        let plan = RenderPlan(recipe: recipe,
+                              asShotKelvin: source.asShotTemperature,
+                              asShotTint: source.asShotTint)
+        let working = plan.linear.apply(sample)
+        return working.isFinite ? working : nil
+    }
+
     /// Sample a point and solve the Temp/Tint that make it neutral.
     ///
     /// The whole solve happens here rather than in the app because everything it needs

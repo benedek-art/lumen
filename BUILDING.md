@@ -314,19 +314,25 @@ changed the picture.
   says so.
 - **Speed Edit (D44) is not implemented.** Correctly absent from the keyboard reference,
   so nobody is sent looking for it.
-- **Only white balance has an eyedropper so far.** The probe exists now —
-  `PipelineRenderer.sampleSceneLinear` reads the DECODED frame, before any of Lumen's
-  stages, which is the one tap whose meaning does not shift when a slider moves
-  (sampling after white balance would make the picked neutral depend on the white
-  balance it is being used to compute). `RenderCoordinator.solveNeutral` does the whole
-  sample-and-solve on the actor, because the as-shot neutral the sample must be measured
-  against lives beside the source. It is cheap despite decoding at full resolution:
-  Core Image is lazy, so a five-pixel-square read computes that region and its filter
-  support, not the frame.
+- **The eyedropper is wired; what it feeds is not all verified.** The probe is
+  `PipelineRenderer.sampleSceneLinear`, reading the DECODED frame before any of Lumen's
+  stages. Two taps come off it, deliberately: `solveNeutral` wants the value BEFORE
+  white balance because it is computing that white balance, and `sampleWorking` applies
+  the linear stage first because every colour tool must compare against what the colour
+  stage actually sees — a swatch picked off a warm frame would otherwise stop matching
+  the moment Temp moved. Both live on the render actor, beside the source that knows the
+  as-shot neutral.
 
-  Still seeded at 18% grey, because each needs its own catcher and its own meaning for
-  "the colour here": Point Colour swatches, Colour Range, both Similarity kinds, and the
-  local Colour tint. The hard part is done; what is left is per-consumer wiring.
+  Five consumers now pick: white balance, global Point Colour, per-mask Point Colour,
+  and the samples that Colour Range and both Similarity kinds compare against. A
+  colour-driven mask component is still born carrying one placeholder grey so it is a
+  valid component, and the first real pick replaces it rather than sitting beside it —
+  otherwise every colour mask would select its target plus mid-grey, which on a
+  photograph is most of the frame.
+
+  None of this has been exercised by a human. The coordinate inverse is shared with
+  `MaskCanvas` and the probe has two tests, but "the click lands where the cursor was"
+  is not something CI can tell us.
 - **A kernel that fails outside the core four degrades one stage silently in EXPORT.**
   The preview now takes the real CPU fallback when a core kernel is missing, and labels
   a reduced render with the names of whatever else failed. `export` has no equivalent:

@@ -621,13 +621,11 @@ struct MaskPanel: View {
         selectedComponent = Swift.max(Swift.min(index, (mask(id)?.components.count ?? 0) - 1), 0)
     }
 
+    /// Arms a pick. Colour Range and both Similarity kinds compare against these
+    /// samples, so a list of greys made three working kernels select nothing anybody
+    /// wanted — the algorithms were fine and the input was a constant.
     private func addSample(_ id: String, _ i: Int) {
-        editComponent(id, i, key: nil) { c in
-            var list = c.samples ?? []
-            guard list.count < 8 else { return }
-            list.append([0.18, 0.18, 0.18])
-            c.samples = list
-        }
+        state.beginPick(.maskSample(maskID: id, component: i))
     }
 
     private func removeSample(_ id: String, _ i: Int) {
@@ -664,12 +662,12 @@ struct MaskPanel: View {
         selectedComponent = 0
     }
 
+    /// Arms a pick, like the global swatch row. A swatch born neutral is not an
+    /// unconfigured control, it is one that selects nothing — the chordal hue term
+    /// against a grey target is identically zero.
     private func addSwatch(_ id: String) {
-        editMask(id, key: nil) { m in
-            guard m.adjust.pointColors.count < 8 else { return }
-            m.adjust.pointColors.append(PointColor(sample: [0.18, 0.18, 0.18]))
-        }
-        selectedSwatch = Swift.max((mask(id)?.adjust.pointColors.count ?? 1) - 1, 0)
+        guard (mask(id)?.adjust.pointColors.count ?? 8) < 8 else { return }
+        state.beginPick(.maskPointColor(maskID: id))
     }
 
     private func removeSwatch(_ id: String) {
@@ -1069,10 +1067,10 @@ struct MaskPanel: View {
             c.hi = 1
             c.smooth = 50
         case .colorRange:
-            c.samples = [[0.18, 0.18, 0.18]]
+            c.samples = [AppState.placeholderSample]
             c.rangeAmount = 50
         case .similarity, .similarityLine:
-            c.samples = [[0.18, 0.18, 0.18]]
+            c.samples = [AppState.placeholderSample]
             c.chromaSel = 50
             c.lumaSel = 50
             if kind == .similarityLine { c.line = [0.5, 0.75, 0.5, 0.25] }

@@ -219,15 +219,17 @@ struct ColorPanel: View {
         }
     }
 
+    /// Arms a pick rather than appending a grey swatch and hoping.
+    ///
+    /// Every swatch used to be born `[0.18, 0.18, 0.18]`, and with a neutral target the
+    /// chordal hue term is identically zero — so the control was not merely
+    /// unconfigured, it was a "low-chroma mid-tones" selector wearing five sliders. The
+    /// swatch now comes into existence carrying a colour, so there is no state in which
+    /// it looks live and selects nothing.
     private func addSwatch() {
-        state.updateRecipe { recipe in
-            guard recipe.develop.pointColors.count < ColorPanel.maxSwatches else { return }
-            // Mid-grey in the scene-referred working space: a swatch with no sample yet
-            // is inert, which is the honest state until the eyedropper lands.
-            recipe.develop.pointColors.append(PointColor(sample: [0.18, 0.18, 0.18]))
-        }
-        let count = state.currentRecipe.develop.pointColors.count
-        selectedSwatch = max(0, count - 1)
+        guard state.currentRecipe.develop.pointColors.count < ColorPanel.maxSwatches
+        else { return }
+        state.beginPick(.newPointColor)
     }
 
     private func removeSwatch() {

@@ -123,10 +123,12 @@ struct BasicPanel: View {
             .help("White balance preset — any manual move reads as Custom")
 
             Button {
-                // The catcher lives on the loupe, so arm it and go there. Pressing it
-                // again disarms rather than stacking a second pick.
-                state.isPickingNeutral.toggle()
-                if state.isPickingNeutral { state.showLoupe() }
+                // Pressing it again disarms rather than stacking a second pick.
+                if state.pickTarget == .neutral {
+                    state.cancelPick()
+                } else {
+                    state.beginPick(.neutral)
+                }
             } label: {
                 Image(systemName: "eyedropper")
                     .font(.system(size: 11))
@@ -143,7 +145,7 @@ struct BasicPanel: View {
             // whose meaning does not shift when a slider moves. Sampling after white
             // balance would make the picked neutral depend on the white balance it is
             // being used to compute.
-            .help(state.isPickingNeutral
+            .help(state.pickTarget == .neutral
                   ? "Click a neutral in the picture — or press again to cancel."
                   : "Click something grey in the picture and Temp/Tint solve for it.")
         }

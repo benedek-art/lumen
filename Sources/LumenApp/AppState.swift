@@ -81,6 +81,30 @@ struct PhotoItem: Identifiable, Hashable, Sendable {
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
 }
 
+/// What a click on the image is being collected for.
+enum PickTarget: Equatable, Sendable {
+    /// Solve Temp/Tint so the clicked pixel is grey.
+    case neutral
+    /// Append a Point Colour swatch carrying the clicked colour.
+    case newPointColor
+    /// Re-sample an existing swatch.
+    case pointColor(index: Int)
+    /// Add a sample to a Colour Range or Similarity mask component.
+    case maskSample(maskID: String, component: Int)
+    /// Append a Point Colour swatch to a mask's own sub-recipe.
+    case maskPointColor(maskID: String)
+
+    /// What the status line says while the click is being waited for.
+    var prompt: String {
+        switch self {
+        case .neutral: return "Click something neutral grey in the picture."
+        case .newPointColor, .pointColor: return "Click the colour to work on."
+        case .maskSample: return "Click the colour this mask should select."
+        case .maskPointColor: return "Click the colour to work on inside this mask."
+        }
+    }
+}
+
 enum PhotoFlag: Int, Codable, Sendable, CaseIterable {
     case rejected = -1
     case none = 0
@@ -366,10 +390,14 @@ final class AppState: ObservableObject {
     @Published var recipes: [URL: Recipe] = [:]
     @Published var activeSection: PanelSection = .basic
     @Published var showBefore = false
-    /// True while the loupe is waiting for the user to click a neutral. The picker
-    /// overlay only exists when this is set, so it can never eat a pan or a
-    /// click-to-zoom the rest of the time.
-    @Published var isPickingNeutral = false
+    /// What the next click on the image is FOR, if anything. The picker overlay only
+    /// exists while this is set, so it can never eat a pan or a click-to-zoom the rest
+    /// of the time.
+    ///
+    /// One target rather than a flag per consumer: every colour tool in the app needs
+    /// the same click and the same coordinate inverse, and four booleans would be four
+    /// chances for two of them to be true at once.
+    @Published var pickTarget: PickTarget?
     /// Which mask the loupe is showing as an overlay, if any. Setting it rasterizes
     /// that mask's alpha.
     @Published var soloMaskOverlay: String? {
@@ -894,33 +922,107 @@ final class AppState: ObservableObject {
 
     /// Every edit goes through here so history, persistence and the sidecar all see
     /// it. `coalescingKey` lets a slider drag collapse into one undo step.
-    /// Pick a neutral off the frame: sample it scene-linear, solve the Temp/Tint that
-    /// make it grey, and write them.
+    /// The grey a colour-driven mask component is born with, so it is a valid
+    /// component before anything has been picked. Named because two places have to
+    /// agree it is a placeholder rather than a choice.
+    static let placeholderSample: [Double] = [0.18, 0.18, 0.18]
+
+    /// Arm the next click on the image, and say what it is for.
+    func beginPick(_ target: PickTarget) {
+        pickTarget = target
+        statusMessage = target.prompt
+        showLoupe()          // the catcher lives on the loupe
+    }
+
+    func cancelPick() {
+        pickTarget = nil
+        statusMessage = nil
+    }
+
+    /// A click landed. Resolve it against whatever the pick was for.
     ///
-    /// The solve is one actor call because everything it needs — the decoded pixel and
-    /// the as-shot neutral to measure it against — lives beside the source. The write
-    /// goes through `updateRecipe`, so a picked neutral is one undo step and one
-    /// history entry, exactly like dragging the sliders it moves.
-    func pickNeutral(on photo: PhotoItem, sourceX: Double, sourceY: Double) {
+    /// Two different taps, deliberately. The neutral solver wants the value BEFORE
+    /// white balance, because it is computing that white balance; every colour tool
+    /// wants the value the colour stage will compare against, or a swatch picked off a
+    /// warm frame would stop matching the moment Temp moved.
+    ///
+    /// Every write goes through `updateRecipe`, so a picked colour is one undo step and
+    /// one history entry, exactly like the sliders it replaces.
+    func resolvePick(on photo: PhotoItem, sourceX: Double, sourceY: Double) {
+        guard let target = pickTarget else { return }
         let current = recipe(for: photo)
-        let url = photo.id          // PhotoItem.id IS the URL
+        let url = photo.id                      // PhotoItem.id IS the URL
         Task {
-            let solved = await renderCoordinator.solveNeutral(
-                url: url, recipe: current, sourceX: sourceX, sourceY: sourceY)
-            isPickingNeutral = false
-            guard let solved else {
-                // Naming the reason, because "nothing happened" after a deliberate
-                // click is the worst thing this could do. Black clipped shadows have
-                // no chromaticity to neutralise and never will.
-                statusMessage = "Too dark there to read a neutral — try a lit grey."
-                return
+            switch target {
+            case .neutral:
+                let solved = await renderCoordinator.solveNeutral(
+                    url: url, recipe: current, sourceX: sourceX, sourceY: sourceY)
+                pickTarget = nil
+                guard let solved else {
+                    statusMessage = "Too dark there to read a neutral — try a lit grey."
+                    return
+                }
+                updateRecipe { recipe in
+                    recipe.develop.raw.temp = solved.kelvin
+                    recipe.develop.raw.tint = solved.tint
+                }
+                statusMessage = String(format: "Neutral picked — %.0f K, tint %.0f",
+                                       solved.kelvin, solved.tint)
+
+            case .newPointColor, .pointColor, .maskSample, .maskPointColor:
+                let sample = await renderCoordinator.sampleWorking(
+                    url: url, recipe: current, sourceX: sourceX, sourceY: sourceY)
+                pickTarget = nil
+                guard let sample else {
+                    statusMessage = "Could not read a colour there."
+                    return
+                }
+                let rgb = [sample.r, sample.g, sample.b]
+                switch target {
+                case .newPointColor:
+                    updateRecipe { recipe in
+                        guard recipe.develop.pointColors.count < 8 else { return }
+                        recipe.develop.pointColors.append(PointColor(sample: rgb))
+                    }
+                case .pointColor(let index):
+                    updateRecipe { recipe in
+                        guard recipe.develop.pointColors.indices.contains(index) else {
+                            return
+                        }
+                        recipe.develop.pointColors[index].sample = rgb
+                    }
+                case .maskSample(let maskID, let component):
+                    updateRecipe { recipe in
+                        guard let m = recipe.masks.firstIndex(where: { $0.id == maskID }),
+                              recipe.masks[m].components.indices.contains(component)
+                        else { return }
+                        var list = recipe.masks[m].components[component].samples ?? []
+                        // A component is born carrying one placeholder grey so it is a
+                        // valid component; the first real pick REPLACES it rather than
+                        // sitting beside it. Otherwise every colour mask would select
+                        // its target plus mid-grey, which on a photograph is most of
+                        // the frame.
+                        if list == [AppState.placeholderSample] {
+                            list = [rgb]
+                        } else {
+                            guard list.count < 8 else { return }
+                            list.append(rgb)
+                        }
+                        recipe.masks[m].components[component].samples = list
+                    }
+                case .maskPointColor(let maskID):
+                    updateRecipe { recipe in
+                        guard let m = recipe.masks.firstIndex(where: { $0.id == maskID }),
+                              recipe.masks[m].adjust.pointColors.count < 8
+                        else { return }
+                        recipe.masks[m].adjust.pointColors.append(
+                            PointColor(sample: rgb))
+                    }
+                case .neutral:
+                    break        // handled above; unreachable
+                }
+                statusMessage = nil
             }
-            updateRecipe { recipe in
-                recipe.develop.raw.temp = solved.kelvin
-                recipe.develop.raw.tint = solved.tint
-            }
-            statusMessage = String(format: "Neutral picked — %.0f K, tint %.0f",
-                                   solved.kelvin, solved.tint)
         }
     }
 
