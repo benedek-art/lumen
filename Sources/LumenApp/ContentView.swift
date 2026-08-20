@@ -56,8 +56,8 @@ struct ContentView: View {
             case .grid:
                 GridView()
             case .loupe:
-                if state.primarySelection != nil {
-                    LoupeView()
+                if let photo = state.primarySelection {
+                    LoupeView(photo: photo)
                 } else {
                     GridView()
                 }

@@ -394,15 +394,21 @@ struct ClippingOverlayView: View {
         }
         .allowsHitTesting(false)
         .task(id: BuildKey(sampler: sampler.id, mode: mode, fullFrame: fullFrame)) {
-            let source = sampler
-            let wanted = mode
-            let flood = fullFrame
-            let built: CGImage? = await Task.detached(priority: .userInitiated) {
-                ClippingOverlayView.build(sampler: source, mode: wanted, fullFrame: flood)
-            }.value
-            guard !Task.isCancelled else { return }
-            overlay = built
+            await rebuild()
         }
+    }
+
+    /// Classification runs off the main actor; only the finished image is applied here.
+    @MainActor
+    private func rebuild() async {
+        let source = sampler
+        let wanted = mode
+        let flood = fullFrame
+        let built: CGImage? = await Task.detached(priority: .userInitiated) {
+            ClippingOverlayView.build(sampler: source, mode: wanted, fullFrame: flood)
+        }.value
+        guard !Task.isCancelled else { return }
+        overlay = built
     }
 
     /// One pass over the sampled proxy. The bytes are sRGB-encoded, and the encoding is

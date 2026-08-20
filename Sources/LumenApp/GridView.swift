@@ -217,10 +217,10 @@ struct PhotoCell: View {
         // 120 ms, first appearance only (docs/10 §10.2): never a white flash.
         .animation(.easeOut(duration: 0.12), value: image == nil)
         .frame(width: side, height: wellHeight)
-        .clipShape(RoundedRectangle(cornerRadius: 3))
         .overlay(alignment: .bottom) {
             if hasBadges { badges }
         }
+        .clipShape(RoundedRectangle(cornerRadius: 3))
         .overlay(
             RoundedRectangle(cornerRadius: 3)
                 .strokeBorder(borderColor, lineWidth: isPrimary ? 2 : 1)

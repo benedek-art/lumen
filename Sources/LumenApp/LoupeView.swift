@@ -402,6 +402,7 @@ struct LoupeView: View {
     var body: some View {
         GeometryReader { geometry in
             let container: CGSize = geometry.size
+            let longEdge: Int = requestedLongEdge(container: container)
             ZStack(alignment: .bottomLeading) {
                 Lumen.viewerBackground
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -440,25 +441,14 @@ struct LoupeView: View {
             .onChange(of: state.zoomLevel) { oldValue, newValue in
                 applyZoomChange(from: oldValue, to: newValue, container: container)
             }
-            .task(id: RenderKey(url: photo.id, recipe: recipe,
-                                longEdge: requestedLongEdge(container: container))) {
-                await model.load(url: photo.id,
-                                 recipe: recipe,
-                                 coordinator: state.renderCoordinator,
-                                 thumbnails: state.thumbnails,
-                                 draftLongEdge: LoupeView.draftLongEdge,
-                                 fullLongEdge: requestedLongEdge(container: container))
+            // `.task`'s action is `@Sendable`, so it touches no main-actor state
+            // directly: everything goes through the `@MainActor` methods below.
+            .task(id: RenderKey(url: photo.id, recipe: recipe, longEdge: longEdge)) {
+                await renderCurrent(longEdge: longEdge)
             }
             .task(id: BeforeKey(url: photo.id, recipe: beforeRecipe,
-                                wanted: needsBeforeRender,
-                                longEdge: requestedLongEdge(container: container))) {
-                guard needsBeforeRender else { return }
-                await beforeModel.load(url: photo.id,
-                                       recipe: beforeRecipe,
-                                       coordinator: state.renderCoordinator,
-                                       thumbnails: nil,
-                                       draftLongEdge: LoupeView.draftLongEdge,
-                                       fullLongEdge: requestedLongEdge(container: container))
+                                wanted: needsBeforeRender, longEdge: longEdge)) {
+                await renderBefore(longEdge: longEdge)
             }
             .task(id: model.revision) {
                 await rebuildSampler()
@@ -479,6 +469,31 @@ struct LoupeView: View {
         let recipe: Recipe
         let wanted: Bool
         let longEdge: Int
+    }
+
+    // MARK: Render entry points
+
+    @MainActor
+    private func renderCurrent(longEdge: Int) async {
+        await model.load(url: photo.id,
+                         recipe: recipe,
+                         coordinator: state.renderCoordinator,
+                         thumbnails: state.thumbnails,
+                         draftLongEdge: LoupeView.draftLongEdge,
+                         fullLongEdge: longEdge)
+    }
+
+    /// The before rendition, evaluated through the same pipeline as the edit so the
+    /// flip is a comparison and not a different renderer's opinion.
+    @MainActor
+    private func renderBefore(longEdge: Int) async {
+        guard needsBeforeRender else { return }
+        await beforeModel.load(url: photo.id,
+                               recipe: beforeRecipe,
+                               coordinator: state.renderCoordinator,
+                               thumbnails: nil,
+                               draftLongEdge: LoupeView.draftLongEdge,
+                               fullLongEdge: longEdge)
     }
 
     // MARK: Content
@@ -733,6 +748,7 @@ struct LoupeView: View {
 
     // MARK: Readout
 
+    @MainActor
     private func rebuildSampler() async {
         guard let cg = model.image else {
             sampler = nil

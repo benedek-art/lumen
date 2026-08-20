@@ -249,30 +249,14 @@ struct LookPanel: View {
                                onReset: { state.updateRecipe { $0.look.primaries = Primaries() } })
 
             if primariesExpanded {
-                LumenSlider(title: "Red Hue",
-                            value: bindLook(\Look.primaries.rHue, key: "prim.rHue"),
-                            range: -100...100, defaultValue: 0, step: 1, decimals: 0)
-                LumenSlider(title: "Red Purity",
-                            value: bindLook(\Look.primaries.rPurity, key: "prim.rPurity"),
-                            range: -100...100, defaultValue: 0, step: 1, decimals: 0)
-                LumenSlider(title: "Green Hue",
-                            value: bindLook(\Look.primaries.gHue, key: "prim.gHue"),
-                            range: -100...100, defaultValue: 0, step: 1, decimals: 0)
-                LumenSlider(title: "Green Purity",
-                            value: bindLook(\Look.primaries.gPurity, key: "prim.gPurity"),
-                            range: -100...100, defaultValue: 0, step: 1, decimals: 0)
-                LumenSlider(title: "Blue Hue",
-                            value: bindLook(\Look.primaries.bHue, key: "prim.bHue"),
-                            range: -100...100, defaultValue: 0, step: 1, decimals: 0)
-                LumenSlider(title: "Blue Purity",
-                            value: bindLook(\Look.primaries.bPurity, key: "prim.bPurity"),
-                            range: -100...100, defaultValue: 0, step: 1, decimals: 0)
-                LumenSlider(title: "Shadow Tint",
-                            value: bindLook(\Look.primaries.tintHue, key: "prim.tintHue"),
-                            range: -100...100, defaultValue: 0, step: 1, decimals: 0)
-                LumenSlider(title: "Tint Purity",
-                            value: bindLook(\Look.primaries.tintPurity, key: "prim.tintPurity"),
-                            range: -100...100, defaultValue: 0, step: 1, decimals: 0)
+                bipolarSlider("Red Hue", \Look.primaries.rHue, "prim.rHue")
+                bipolarSlider("Red Purity", \Look.primaries.rPurity, "prim.rPurity")
+                bipolarSlider("Green Hue", \Look.primaries.gHue, "prim.gHue")
+                bipolarSlider("Green Purity", \Look.primaries.gPurity, "prim.gPurity")
+                bipolarSlider("Blue Hue", \Look.primaries.bHue, "prim.bHue")
+                bipolarSlider("Blue Purity", \Look.primaries.bPurity, "prim.bPurity")
+                bipolarSlider("Shadow Tint", \Look.primaries.tintHue, "prim.tintHue")
+                bipolarSlider("Tint Purity", \Look.primaries.tintPurity, "prim.tintPurity")
 
                 caption("Redefines what red, green and blue mean for this image. The "
                         + "mixer targets pixels that look blue; a primary moves every "
@@ -297,21 +281,13 @@ struct LookPanel: View {
                                onReset: { state.updateRecipe { $0.look.render = RenderParams() } })
 
             if transformExpanded {
-                HStack(spacing: 6) {
-                    Text("Preset")
-                        .font(.system(size: 11))
-                        .foregroundStyle(Lumen.secondaryText)
-                        .frame(width: Lumen.labelWidth, alignment: .leading)
+                pickerRow("Preset") {
                     Picker("", selection: presetBinding) {
                         ForEach(DisplayTransformParams.presetNames, id: \.self) { name in
                             Text(name).tag(name)
                         }
                     }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                    .controlSize(.small)
                 }
-                .frame(height: Lumen.rowHeight)
 
                 LumenSectionHeader(title: "Transform detail",
                                    isExpanded: $transformAdvanced,
@@ -395,22 +371,14 @@ struct LookPanel: View {
                                onReset: { state.updateRecipe { $0.look.filmLab = nil } })
 
             if filmExpanded {
-                HStack(spacing: 6) {
-                    Text("Stock")
-                        .font(.system(size: 11))
-                        .foregroundStyle(Lumen.secondaryText)
-                        .frame(width: Lumen.labelWidth, alignment: .leading)
+                pickerRow("Stock") {
                     Picker("", selection: stockBinding) {
                         Text("None").tag("")
                         ForEach(FilmStock.all, id: \.id) { candidate in
                             Text(candidate.name).tag(candidate.id)
                         }
                     }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                    .controlSize(.small)
                 }
-                .frame(height: Lumen.rowHeight)
 
                 if let film {
                     LumenSlider(title: "Strength",
@@ -445,22 +413,14 @@ struct LookPanel: View {
                                 range: 0.5...2.0, defaultValue: 1.0, step: 0.05, decimals: 2,
                                 bipolar: false)
 
-                    HStack(spacing: 6) {
-                        Text("Print size")
-                            .font(.system(size: 11))
-                            .foregroundStyle(Lumen.secondaryText)
-                            .frame(width: Lumen.labelWidth, alignment: .leading)
+                    pickerRow("Print size") {
                         Picker("", selection: printSizeBinding) {
                             Text("Long edge").tag("")
                             ForEach(LookPanel.printSizes, id: \.self) { size in
                                 Text(size + "″").tag(size)
                             }
                         }
-                        .labelsHidden()
-                        .pickerStyle(.menu)
-                        .controlSize(.small)
                     }
-                    .frame(height: Lumen.rowHeight)
 
                     if let stock {
                         caption(LookPanel.stockCaption(stock, film: film))
@@ -525,6 +485,30 @@ struct LookPanel: View {
     }
 
     // MARK: - Shared bindings and helpers
+
+    /// A label plus a menu, on the same grid as a slider row.
+    private func pickerRow<Content: View>(_ title: String,
+                                          @ViewBuilder _ content: () -> Content) -> some View {
+        HStack(spacing: 6) {
+            Text(title)
+                .font(.system(size: 11))
+                .foregroundStyle(Lumen.secondaryText)
+                .frame(width: Lumen.labelWidth, alignment: .leading)
+            content()
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .controlSize(.small)
+        }
+        .frame(height: Lumen.rowHeight)
+    }
+
+    /// The −100…+100, default-0 row this panel is mostly made of.
+    private func bipolarSlider(_ title: String,
+                               _ path: WritableKeyPath<Look, Double>,
+                               _ key: String) -> some View {
+        LumenSlider(title: title, value: bindLook(path, key: key),
+                    range: -100...100, defaultValue: 0, step: 1, decimals: 0)
+    }
 
     private func bindLook(_ path: WritableKeyPath<Look, Double>, key: String) -> Binding<Double> {
         Binding(

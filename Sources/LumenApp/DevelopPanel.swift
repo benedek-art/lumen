@@ -366,7 +366,6 @@ struct DevelopPanel: View {
         let current = state.currentRecipe
         return current != Recipe(pipelineVersion: current.pipelineVersion)
     }
-
 }
 
 // MARK: - Footer button

@@ -204,6 +204,7 @@ private struct ComparePane: View {
     var body: some View {
         GeometryReader { geometry in
             let container = geometry.size
+            let longEdge: Int = requestedLongEdge(container: container)
             ZStack(alignment: .bottomLeading) {
                 Lumen.viewerBackground
 
@@ -232,23 +233,28 @@ private struct ComparePane: View {
             .clipped()
             .contentShape(Rectangle())
             .gesture(dragGesture(container: container))
-            .overlay(
+            .overlay {
                 Rectangle()
                     .strokeBorder(isPrimary ? Lumen.fillColor : Lumen.separator,
                                   lineWidth: isPrimary ? 2 : 1)
                     .allowsHitTesting(false)
-            )
+            }
             .task(id: RenderKey(url: photo.id,
                                 recipe: state.recipe(for: photo),
-                                longEdge: requestedLongEdge(container: container))) {
-                await model.load(url: photo.id,
-                                 recipe: state.recipe(for: photo),
-                                 coordinator: state.renderCoordinator,
-                                 thumbnails: state.thumbnails,
-                                 draftLongEdge: LoupeView.draftLongEdge,
-                                 fullLongEdge: requestedLongEdge(container: container))
+                                longEdge: longEdge)) {
+                await render(longEdge: longEdge)
             }
         }
+    }
+
+    @MainActor
+    private func render(longEdge: Int) async {
+        await model.load(url: photo.id,
+                         recipe: state.recipe(for: photo),
+                         coordinator: state.renderCoordinator,
+                         thumbnails: state.thumbnails,
+                         draftLongEdge: LoupeView.draftLongEdge,
+                         fullLongEdge: longEdge)
     }
 
     // MARK: Geometry
@@ -353,6 +359,7 @@ private struct SurveyCell: View {
     var body: some View {
         GeometryReader { geometry in
             let container = geometry.size
+            let longEdge: Int = requestedLongEdge(container: container)
             ZStack(alignment: .bottomLeading) {
                 Lumen.viewerBackground
 
@@ -394,23 +401,28 @@ private struct SurveyCell: View {
                 .padding(5)
                 .help("Remove \(photo.filename) from the survey")
             }
-            .overlay(
+            .overlay {
                 Rectangle()
                     .strokeBorder(isPrimary ? Lumen.fillColor : Lumen.separator,
                                   lineWidth: isPrimary ? 2 : 1)
                     .allowsHitTesting(false)
-            )
+            }
             .task(id: RenderKey(url: photo.id,
                                 recipe: state.recipe(for: photo),
-                                longEdge: requestedLongEdge(container: container))) {
-                await model.load(url: photo.id,
-                                 recipe: state.recipe(for: photo),
-                                 coordinator: state.renderCoordinator,
-                                 thumbnails: state.thumbnails,
-                                 draftLongEdge: 512,
-                                 fullLongEdge: requestedLongEdge(container: container))
+                                longEdge: longEdge)) {
+                await render(longEdge: longEdge)
             }
         }
+    }
+
+    @MainActor
+    private func render(longEdge: Int) async {
+        await model.load(url: photo.id,
+                         recipe: state.recipe(for: photo),
+                         coordinator: state.renderCoordinator,
+                         thumbnails: state.thumbnails,
+                         draftLongEdge: 512,
+                         fullLongEdge: longEdge)
     }
 
     private func requestedLongEdge(container: CGSize) -> Int {
