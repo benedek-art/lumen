@@ -26,12 +26,15 @@ jobs:
           set +e
           swift test > test.log 2>&1
           status=$?
-          echo "=== errors ==="
-          grep -E "error:" test.log | sed 's#/Users/runner/work/lumen/lumen/##' | sort -u | head -60
-          echo "=== test failures ==="
-          grep -E "XCTAssert|failed \(|: error: -\[" test.log | sed 's#/Users/runner/work/lumen/lumen/##' | sort -u | head -60
+          echo "=== compile errors ==="
+          grep -E "error:" test.log | grep -v ": error: -\[" \
+            | sed 's#/Users/runner/work/lumen/lumen/##' | sort -u | head -40
           echo "=== summary ==="
-          grep -E "Executed [0-9]+ test" test.log | tail -3
+          grep -E "Executed [0-9]+ test" test.log | tail -1
+          # Failures print LAST so a short tail of the CI log always reaches them.
+          echo "=== test failures ==="
+          grep -E ": error: -\[" test.log | sed 's#/Users/runner/work/lumen/lumen/##' \
+            | sed 's/^.*error: //' | sort -u | head -40
           exit $status
 
       - name: Build — whole package including the app
