@@ -532,6 +532,9 @@ def gen_maskalgebra_fixture():
 # ---------------------------------------------------------------------------
 
 def xmp_escape(s):
+    # Characters below 0x20 other than tab/LF/CR are illegal in XML 1.0 even as
+    # numeric references, so they are dropped rather than escaped — matching the Swift.
+    s = "".join(ch for ch in s if ord(ch) >= 0x20 or ch in "\t\n\r")
     return (s.replace("&", "&amp;").replace("<", "&lt;")
              .replace(">", "&gt;").replace('"', "&quot;"))
 
@@ -539,6 +542,10 @@ def xmp_escape(s):
 def xmp_serialize(content):
     fields = ""
     fields += f"   <xmp:Rating>{content['rating']}</xmp:Rating>\n"
+    # `lumen:flag` rather than Lightroom's `xmp:Rating = -1`: Lumen keeps flag and
+    # rating as separate axes, so overloading the rating would destroy one of them.
+    if content.get("flag", "none") != "none":
+        fields += f"   <lumen:flag>{content['flag']}</lumen:flag>\n"
     if content.get("label") is not None:
         fields += f"   <xmp:Label>{xmp_escape(content['label'])}</xmp:Label>\n"
     fields += (f"   <lumen:pipelineVersion>{content['pipelineVersion']}"
@@ -577,7 +584,19 @@ def gen_xmp_fixture():
                      "catalogUUID": "9E107D9D-372B-4F2C-A1B2-000000000001",
                      "writeStamp": "2026-08-19T21:30:00Z"}},
         {"name": "cullOnly",
-         "content": {"rating": 5, "label": None, "pipelineVersion": 1,
+         "content": {"rating": 5, "flag": "pick", "label": None, "pipelineVersion": 1,
+                     "recipeFingerprint": None, "recipeJSON": None,
+                     "catalogUUID": None, "writeStamp": None}},
+        # A reject that is also rated. Lightroom's convention would write
+        # xmp:Rating = -1 and lose the four stars; these are separate axes here.
+        {"name": "rejectedButRated",
+         "content": {"rating": 4, "flag": "reject", "label": "blue",
+                     "pipelineVersion": 1, "recipeFingerprint": None,
+                     "recipeJSON": None, "catalogUUID": None, "writeStamp": None}},
+        # A label carrying a control character: illegal in XML 1.0 even as a numeric
+        # reference, so emitting it would produce a sidecar nothing can read back.
+        {"name": "controlCharacters",
+         "content": {"rating": 1, "label": "bad\u0007label\u0000", "pipelineVersion": 1,
                      "recipeFingerprint": None, "recipeJSON": None,
                      "catalogUUID": None, "writeStamp": None}},
         {"name": "escaping",
@@ -598,6 +617,14 @@ def gen_xmp_fixture():
         rating = desc.find("xmp:Rating", ns)
         check(rating is not None and int(rating.text) == c["content"]["rating"],
               f"xmp {c['name']} rating round-trip")
+        want_flag = c["content"].get("flag", "none")
+        got_flag = desc.find("lumen:flag", ns)
+        check((got_flag.text if got_flag is not None else "none") == want_flag,
+              f"xmp {c['name']} flag round-trip")
+        # The rating must survive a reject: they are separate axes.
+        if want_flag == "reject":
+            check(int(rating.text) == c["content"]["rating"],
+                  f"xmp {c['name']} lost the rating to the reject flag")
         if c["content"]["recipeJSON"] is not None:
             rj = desc.find("lumen:recipe", ns)
             check(rj is not None and rj.text == c["content"]["recipeJSON"],

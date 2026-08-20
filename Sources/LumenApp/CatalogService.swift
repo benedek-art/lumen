@@ -99,7 +99,7 @@ final class CatalogService: @unchecked Sendable {
     /// where the catalog is silent: a photo moved in from another machine, or restored
     /// from a backup, should arrive with its work attached.
     private static func merge(row: PhotoRow, recipe: Recipe?, file: URL) -> StoredState {
-        let flag = appFlag(row.flag)
+        var flag = appFlag(row.flag)
         var rating = row.rating
         var label = appLabel(row.label)
         var resolved = recipe
@@ -109,6 +109,11 @@ final class CatalogService: @unchecked Sendable {
                 resolved = try? CanonicalJSON.decodeRecipe(from: Data(json.utf8))
             }
             if rating == 0, sidecar.rating > 0 { rating = sidecar.rating }
+            // Same rule as the others: the sidecar fills in where the catalog is
+            // silent. A pick or reject that only ever reached the sidecar — because
+            // the catalog was restored from an older backup, or the photo arrived
+            // from another machine — comes back rather than being lost.
+            if flag == .none { flag = appFlag(sidecar.flag) }
             if label == .none, let name = sidecar.label { label = appLabel(name) }
         }
 
@@ -134,7 +139,7 @@ final class CatalogService: @unchecked Sendable {
                 self.onFailure?("Could not save the flag or rating — \(error)")
             }
             self.enqueueSidecar(
-                for: url, rating: rating,
+                for: url, rating: rating, flag: Self.sidecarFlag(flag),
                 label: .some(label == .none ? nil : label.displayName.lowercased()),
                 recipe: nil)
         }
@@ -190,6 +195,22 @@ final class CatalogService: @unchecked Sendable {
 
     // MARK: - Enum bridging
 
+    static func sidecarFlag(_ flag: PhotoFlag) -> SidecarFlag {
+        switch flag {
+        case .picked: return .pick
+        case .rejected: return .reject
+        case .none: return .none
+        }
+    }
+
+    static func appFlag(_ flag: SidecarFlag) -> PhotoFlag {
+        switch flag {
+        case .pick: return .picked
+        case .reject: return .rejected
+        case .none: return .none
+        }
+    }
+
     // The app and the catalog each name these for their own audience. One conversion
     // in one place beats qualifying every call site.
 
@@ -235,11 +256,13 @@ final class CatalogService: @unchecked Sendable {
     /// say about the label"; `.some(nil)` means "the label was cleared". Collapsing
     /// the two meant clearing a red label wrote the catalog but left the sidecar
     /// saying red — and the next scan's merge read the sidecar and put red back.
-    private func enqueueSidecar(for url: URL, rating: Int?, label: String??,
+    private func enqueueSidecar(for url: URL, rating: Int?, flag: SidecarFlag? = nil,
+                                label: String??,
                                 recipe: (json: String, fingerprint: String, version: Int)?) {
         sidecarLock.lock()
         var content = pendingSidecars[url] ?? Self.readSidecar(for: url) ?? SidecarContent()
         if let rating { content.rating = rating }
+        if let flag { content.flag = flag }
         if let label { content.label = label }
         if let recipe {
             content.recipeJSON = recipe.json

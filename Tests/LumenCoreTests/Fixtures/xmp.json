@@ -17,6 +17,7 @@
    "name": "cullOnly",
    "content": {
     "rating": 5,
+    "flag": "pick",
     "label": null,
     "pipelineVersion": 1,
     "recipeFingerprint": null,
@@ -24,7 +25,34 @@
     "catalogUUID": null,
     "writeStamp": null
    },
-   "xmp": "<?xpacket begin=\"\ufeff\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n<x:xmpmeta xmlns:x=\"adobe:ns:meta/\" x:xmptk=\"Lumen\">\n <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n  <rdf:Description rdf:about=\"\"\n    xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\"\n    xmlns:lumen=\"http://lumenapp.dev/xmp/1.0/\">\n   <xmp:Rating>5</xmp:Rating>\n   <lumen:pipelineVersion>1</lumen:pipelineVersion>\n  </rdf:Description>\n </rdf:RDF>\n</x:xmpmeta>\n<?xpacket end=\"w\"?>"
+   "xmp": "<?xpacket begin=\"\ufeff\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n<x:xmpmeta xmlns:x=\"adobe:ns:meta/\" x:xmptk=\"Lumen\">\n <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n  <rdf:Description rdf:about=\"\"\n    xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\"\n    xmlns:lumen=\"http://lumenapp.dev/xmp/1.0/\">\n   <xmp:Rating>5</xmp:Rating>\n   <lumen:flag>pick</lumen:flag>\n   <lumen:pipelineVersion>1</lumen:pipelineVersion>\n  </rdf:Description>\n </rdf:RDF>\n</x:xmpmeta>\n<?xpacket end=\"w\"?>"
+  },
+  {
+   "name": "rejectedButRated",
+   "content": {
+    "rating": 4,
+    "flag": "reject",
+    "label": "blue",
+    "pipelineVersion": 1,
+    "recipeFingerprint": null,
+    "recipeJSON": null,
+    "catalogUUID": null,
+    "writeStamp": null
+   },
+   "xmp": "<?xpacket begin=\"\ufeff\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n<x:xmpmeta xmlns:x=\"adobe:ns:meta/\" x:xmptk=\"Lumen\">\n <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n  <rdf:Description rdf:about=\"\"\n    xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\"\n    xmlns:lumen=\"http://lumenapp.dev/xmp/1.0/\">\n   <xmp:Rating>4</xmp:Rating>\n   <lumen:flag>reject</lumen:flag>\n   <xmp:Label>blue</xmp:Label>\n   <lumen:pipelineVersion>1</lumen:pipelineVersion>\n  </rdf:Description>\n </rdf:RDF>\n</x:xmpmeta>\n<?xpacket end=\"w\"?>"
+  },
+  {
+   "name": "controlCharacters",
+   "content": {
+    "rating": 1,
+    "label": "bad\u0007label\u0000",
+    "pipelineVersion": 1,
+    "recipeFingerprint": null,
+    "recipeJSON": null,
+    "catalogUUID": null,
+    "writeStamp": null
+   },
+   "xmp": "<?xpacket begin=\"\ufeff\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n<x:xmpmeta xmlns:x=\"adobe:ns:meta/\" x:xmptk=\"Lumen\">\n <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n  <rdf:Description rdf:about=\"\"\n    xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\"\n    xmlns:lumen=\"http://lumenapp.dev/xmp/1.0/\">\n   <xmp:Rating>1</xmp:Rating>\n   <xmp:Label>badlabel</xmp:Label>\n   <lumen:pipelineVersion>1</lumen:pipelineVersion>\n  </rdf:Description>\n </rdf:RDF>\n</x:xmpmeta>\n<?xpacket end=\"w\"?>"
   },
   {
    "name": "escaping",

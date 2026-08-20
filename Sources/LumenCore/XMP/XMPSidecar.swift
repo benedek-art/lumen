@@ -14,8 +14,22 @@ import Foundation
 import FoundationXML
 #endif
 
+/// Pick / reject, as the sidecar carries it.
+///
+/// Written as `lumen:flag` rather than by overloading `xmp:Rating = -1`, which is
+/// Lightroom's convention. Lumen keeps flag and rating as separate axes — a photo can
+/// be four stars AND rejected — so writing −1 into the rating would destroy one of
+/// them on the way out and on the way back.
+public enum SidecarFlag: String, Equatable, Sendable {
+    case none, pick, reject
+}
+
 public struct SidecarContent: Equatable, Sendable {
     public var rating: Int          // 0…5
+    /// The culling decision. Without this in the sidecar, a folder's picks and
+    /// rejects existed ONLY in the catalog — so "losing the catalog costs speed,
+    /// never work" was false for the one decision the app is built around.
+    public var flag: SidecarFlag
     public var label: String?       // color label name
     public var pipelineVersion: Int
     public var recipeFingerprint: String?
@@ -23,11 +37,12 @@ public struct SidecarContent: Equatable, Sendable {
     public var catalogUUID: String?
     public var writeStamp: String?  // ISO 8601
 
-    public init(rating: Int = 0, label: String? = nil,
+    public init(rating: Int = 0, flag: SidecarFlag = .none, label: String? = nil,
                 pipelineVersion: Int = currentPipelineVersion,
                 recipeFingerprint: String? = nil, recipeJSON: String? = nil,
                 catalogUUID: String? = nil, writeStamp: String? = nil) {
         self.rating = rating
+        self.flag = flag
         self.label = label
         self.pipelineVersion = pipelineVersion
         self.recipeFingerprint = recipeFingerprint
@@ -46,6 +61,9 @@ public enum XMPSidecar {
     public static func serialize(_ content: SidecarContent) -> String {
         var fields = ""
         fields += "   <xmp:Rating>\(content.rating)</xmp:Rating>\n"
+        if content.flag != .none {
+            fields += "   <lumen:flag>\(content.flag.rawValue)</lumen:flag>\n"
+        }
         if let label = content.label {
             fields += "   <xmp:Label>\(escapeXML(label))</xmp:Label>\n"
         }
@@ -125,7 +143,7 @@ private final class SidecarParserDelegate: NSObject, XMLParserDelegate {
     private var buffer = ""
 
     private static let interesting: Set<String> = [
-        "xmp:Rating", "xmp:Label",
+        "xmp:Rating", "xmp:Label", "lumen:flag",
         "lumen:pipelineVersion", "lumen:recipeFingerprint",
         "lumen:recipe", "lumen:catalogUUID", "lumen:writeStamp",
     ]
@@ -156,6 +174,9 @@ private final class SidecarParserDelegate: NSObject, XMLParserDelegate {
             // does not, so 999 stars would reach the grid.
             let parsed = Int(value.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
             content.rating = Swift.min(Swift.max(parsed, 0), 5)
+        case "lumen:flag":
+            content.flag = SidecarFlag(
+                rawValue: value.trimmingCharacters(in: .whitespacesAndNewlines)) ?? .none
         case "xmp:Label":
             content.label = value
         case "lumen:pipelineVersion":
