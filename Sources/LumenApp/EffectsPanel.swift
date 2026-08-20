@@ -112,14 +112,14 @@ struct EffectsPanel: View {
 
                     LumenSlider(title: "Amount",
                                 value: binder.custom("look.grain.amount",
-                                                     get: { $0.look.filmLab?.grain.amount ?? 0 },
-                                                     set: { $0.look.filmLab?.grain.amount = $1 }),
+                                                     get: { r in r.look.filmLab?.grain.amount ?? 0 },
+                                                     set: { r, v in r.look.filmLab?.grain.amount = v }),
                                 range: 0...100, hardRange: nil, defaultValue: 0,
                                 step: 1, decimals: 0, bipolar: false)
                     LumenSlider(title: "Size",
                                 value: binder.custom("look.grain.size",
-                                                     get: { $0.look.filmLab?.grain.size ?? 1 },
-                                                     set: { $0.look.filmLab?.grain.size = $1 }),
+                                                     get: { r in r.look.filmLab?.grain.size ?? 1 },
+                                                     set: { r, v in r.look.filmLab?.grain.size = v }),
                                 range: 0.5...2.0, hardRange: nil, defaultValue: 1.0,
                                 step: 0.05, decimals: 2, bipolar: true)
                     DevelopNote("Size is the grain pitch at the gate relative to the "
@@ -273,7 +273,7 @@ struct EffectsPanel: View {
                 LumenToggleRow(title: "Defringe",
                                isOn: binder.customFlag(
                                    "geometry.lens.defringe.enabled",
-                                   get: { $0.develop.geometry.lens.defringe != nil },
+                                   get: { r in r.develop.geometry.lens.defringe != nil },
                                    set: { recipe, on in
                                        recipe.develop.geometry.lens.defringe =
                                            on ? Defringe() : nil

@@ -314,7 +314,7 @@ struct DevelopPanel: View {
                                     help: "Set the six tone sliders from the scene "
                                         + "statistics (⌘U). Every value stays visible "
                                         + "and individually revertable.",
-                                    action: applyAutoTone)
+                                    action: { applyAutoTone() })
                 DevelopFooterButton(title: "Reset", systemImage: "arrow.uturn.backward",
                                     help: "Return every setting to its default",
                                     action: { state.resetSettings() })

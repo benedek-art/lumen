@@ -614,7 +614,7 @@ struct ZoneWeightStrip: View {
 
     /// Where the handle was when the drag began. Dragging by translation rather than by
     /// absolute location keeps the handle under the pointer without a coordinate space.
-    @State private var dragOrigin: Double?
+    @State private var dragOrigin: Double? = nil
 
     var body: some View {
         let pivotPair = pivots

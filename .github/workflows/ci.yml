@@ -16,12 +16,20 @@ jobs:
       - name: Toolchain
         run: swift --version && xcodebuild -version
 
+      # `set -o pipefail` is load-bearing: without it the pipe's exit status is
+      # tail's, and a failing build reports green.
       - name: Test — engine + GPU goldens
-        run: swift test 2>&1 | tail -400
+        shell: bash
+        run: |
+          set -o pipefail
+          swift test 2>&1 | tail -400
 
       - name: Build — whole package including the app
         if: always()
-        run: swift build 2>&1 | tail -400
+        shell: bash
+        run: |
+          set -o pipefail
+          swift build 2>&1 | tail -400
 
   # Linux lane: regenerate fixtures with the Python reference and fail if the
   # committed fixtures drifted from the verified reference.

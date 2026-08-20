@@ -57,8 +57,8 @@ struct ColorPanel: View {
     private var mixerSection: some View {
         let mixer = state.currentRecipe.develop.mixer
         let bands = ColorPanel.normalizedBands(mixer.bands)
-        let modified = bands.contains { $0.hue != 0 || $0.sat != 0 || $0.lum != 0 }
-            || mixer.uniformity != 0
+        let touched = bands.contains(where: { $0.hue != 0 || $0.sat != 0 || $0.lum != 0 })
+        let modified = touched || mixer.uniformity != 0
 
         return VStack(alignment: .leading, spacing: 2) {
             LumenSectionHeader(title: "Colour Mixer",
@@ -334,8 +334,8 @@ struct ColorPanel: View {
                 state.updateRecipe(coalescingKey: key) { recipe in
                     var bands = ColorPanel.normalizedBands(recipe.develop.mixer.bands)
                     if everything {
-                        let mean = bands.reduce(0.0) { $0 + component.value($1) }
-                            / Double(bands.count)
+                        let sum = bands.reduce(0.0) { $0 + component.value($1) }
+                        let mean = sum / Double(bands.count)
                         let delta = newValue - mean
                         for i in bands.indices {
                             let moved = component.value(bands[i]) + delta

@@ -52,6 +52,15 @@ private func allowsFullDecode(_ url: URL) -> Bool {
     alreadyRenderedExtensions.contains(url.pathExtension.lowercased())
 }
 
+/// Queue priorities. Visible cells beat the prefetch ring, which beats anything
+/// speculative (docs/10 §10.3: visible > lookahead > rest).
+enum ThumbnailPriority {
+    static let visible = 300
+    static let lookahead = 200
+    static let prefetch = 100
+    static let background = 10
+}
+
 private func decodeEmbeddedThumbnail(url: URL, maxPixel: Int, allowFullDecode: Bool) -> CGImage? {
     let sourceOptions: [CFString: Any] = [kCGImageSourceShouldCache: false]
     guard let source = CGImageSourceCreateWithURL(url as CFURL, sourceOptions as CFDictionary) else {
@@ -75,20 +84,13 @@ private func decodeEmbeddedThumbnail(url: URL, maxPixel: Int, allowFullDecode: B
 @MainActor
 final class ThumbnailLoader: ObservableObject {
 
-    /// Queue priorities. Visible cells beat the prefetch ring, which beats anything
-    /// speculative (docs/10 §10.3: visible > lookahead > rest).
-    enum Priority {
-        static let visible = 300
-        static let lookahead = 200
-        static let prefetch = 100
-        static let background = 10
-    }
+    typealias Priority = ThumbnailPriority
 
     /// D34's ring, exactly: 8 ahead in the direction of travel, 2 behind.
     private static let aheadCount = 8
     private static let behindCount = 2
 
-    private struct Key: Hashable {
+    private struct Key: Hashable, Sendable {
         let url: URL
         let pixels: Int
     }
