@@ -257,12 +257,16 @@ final class AppState: ObservableObject {
         // is usually a property read — but selection changes must never wait on it.
         Task { [weak self] in
             guard let self else { return }
-            guard let size = self.renderCoordinator.nativeSize(for: url),
+            // `await`: RenderCoordinator is an actor, and reading a photo's native size
+            // is a hop onto it.
+            guard let size = await self.renderCoordinator.nativeSize(for: url),
                   size.width > 0, size.height > 0 else { return }
+            // The selection can have moved on across that hop.
             guard self.primarySelection?.id == url else { return }
             self.primaryFrameAspect = Double(size.width) / Double(size.height)
         }
     }
+
     /// The units the pixel readout speaks, everywhere it appears.
     ///
     /// One home, because there were two: the histogram panel's segmented control wrote
