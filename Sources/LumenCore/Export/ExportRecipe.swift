@@ -413,6 +413,37 @@ public struct HDRSettings: Codable, Equatable, Sendable {
     public var whiteTargetPercent: Double { 100 * pow(2, Num.clamp(headroomEV, 0, 4)) }
 }
 
+extension ExportRecipe {
+
+    /// Whether the encoder can actually store the extra range HDR asks for.
+    ///
+    /// False everywhere today, and stated here rather than assumed, because assuming it
+    /// made the HDR toggle produce a file strictly WORSE than leaving it off.
+    /// `renderHDRPair` and the whole `GainMap` relation are implemented and tested, but
+    /// nothing calls them: `export` renders once and `write` emits a single rendition
+    /// through `writeJPEG`/`HEIFRepresentation` with only a quality option. No second
+    /// image plane is ever attached.
+    ///
+    /// What `hdr` DID reach was the render plan's `displayWhiteTarget`. At the default
+    /// +2 EV that is 400%, which puts the display transform's white at 4.0 and scales
+    /// the finish LUT to match — and then the result was encoded to 8 bits, so every
+    /// value above diffuse white clipped to 255. Ticking the box threw away all the
+    /// highlight roll-off the transform had just placed between 1.0 and 4.0.
+    ///
+    /// Writing it for real needs an auxiliary gain-map image attached through
+    /// `CGImageDestination` (ISO 21496-1), which is the piece that does not exist.
+    /// Until it does, HDR must not change the render, and the sheet must not claim a
+    /// map was stored.
+    public var hdrIsWritable: Bool { false }
+
+    /// The display white target the render should actually use — the HDR ceiling only
+    /// when there is somewhere to put it, and SDR otherwise.
+    public var renderWhiteTargetPercent: Double? {
+        guard let hdr, hdrIsWritable else { return nil }
+        return hdr.whiteTargetPercent
+    }
+}
+
 /// The ISO 21496-1 gain-map relation, as pure maths so the encoder side stays thin.
 public enum GainMap {
 

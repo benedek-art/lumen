@@ -97,7 +97,10 @@ public final class PipelineRenderer {
         let plan = RenderPlan(recipe: recipe,
                               asShotKelvin: source.asShotTemperature,
                               asShotTint: source.asShotTint,
-                              displayWhiteTarget: exportRecipe.hdr?.whiteTargetPercent,
+                              // Not `hdr?.whiteTargetPercent`: raising the ceiling to
+                              // 400% and then encoding 8 bits clipped everything above
+                              // diffuse white. See `ExportRecipe.hdrIsWritable`.
+                              displayWhiteTarget: exportRecipe.renderWhiteTargetPercent,
                               lutSize: LUT3D.exportSize)
 
         let graph = makeGraph(plan: plan, decoded: decoded, draft: false,

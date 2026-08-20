@@ -608,7 +608,8 @@ private struct ExportRecipeEditor: View {
         VStack(alignment: .leading, spacing: 2) {
             LumenSectionHeader(title: "HDR gain map")
             LumenToggleRow(title: "Emit gain map", isOn: hdrEnabled,
-                           help: "ISO 21496-1 gain map alongside a deliberate SDR base.")
+                           help: "Schema-reserved. The encoder writes no map yet, and "
+                               + "these settings do not change the exported file.")
             if recipe.hdr != nil {
                 LumenSlider(title: "Headroom", value: hdrValue(\.headroomEV),
                             range: 0.5...4, defaultValue: 2, step: 0.1, decimals: 1,
@@ -621,17 +622,26 @@ private struct ExportRecipeEditor: View {
                                help: "The SDR rendition is authored, never an automatic tone-map.")
                 ExportNote(hdrExplanation)
             } else {
-                ExportNote("\(recipe.format.rawValue.uppercased()) can carry a gain map. "
-                           + "Off means a plain SDR file.")
+                ExportNote("\(recipe.format.rawValue.uppercased()) will be able to "
+                           + "carry a gain map. Today every export is a plain SDR file.")
             }
         }
     }
 
+    /// Says what will happen, not what was designed.
+    ///
+    /// This used to report "HDR ceiling 2.0 EV above SDR white; map stored at 25%
+    /// resolution" for a file that had no map in it — and the setting it described was
+    /// actively harmful, because the raised ceiling reached the render and the 8-bit
+    /// encode then clipped everything above diffuse white. The settings are stored so
+    /// nothing migrates when the encoder lands; they no longer touch the render.
     private var hdrExplanation: String {
         let settings = recipe.hdr ?? HDRSettings()
-        return String(format: "HDR ceiling %.1f EV above SDR white (%.0f%% of SDR white); "
-                      + "map stored at %.0f%% resolution.",
-                      settings.headroomEV, settings.whiteTargetPercent, settings.mapScale * 100)
+        return String(format: "Planned: %.1f EV of headroom above SDR white, map at "
+                      + "%.0f%% resolution. Not written yet — this export is a plain "
+                      + "SDR file either way, and turning this on no longer changes "
+                      + "its pixels.",
+                      settings.headroomEV, settings.mapScale * 100)
     }
 
     private var hdrEnabled: Binding<Bool> {
