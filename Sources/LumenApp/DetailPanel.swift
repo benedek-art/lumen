@@ -1,7 +1,7 @@
 // DetailPanel.swift
 // Capture sharpening, manual sharpening and noise reduction — the three places the
-// pipeline touches high-frequency structure, in pipeline order (S4, S12, and the
-// decode-adjacent denoise stage).
+// pipeline touches high-frequency structure, in pipeline order (S4, S12, and S3,
+// which is upstream of both).
 //
 // The panel's job is to keep the division of labour visible: capture sharpening
 // undoes the sensor's own blur once, at decode, from the frame's measured PSF; manual
@@ -212,10 +212,47 @@ struct DetailPanel: View {
 
     // MARK: Noise reduction
 
+    /// The ISO this photo was shot at, as the catalog read it. nil for a rendered file
+    /// or before the metadata backfill has reached it.
+    private var captureISO: Double? {
+        state.primarySelection?.iso.map { Double($0) }
+    }
+
+    /// What an unedited frame at this ISO starts on — the same resolution
+    /// `AppState.startingRecipe` writes, so "modified" means modified against the
+    /// photo's own defaults rather than against a flat table, and double-clicking a
+    /// slider goes back to the ISO-adaptive value instead of to somebody else's guess.
+    private var isoDefault: Denoise {
+        ISODefaults.startingDenoise(forISO: captureISO)
+    }
+
+    /// Says which profile the numbers came from, because "Luminance 19" means nothing
+    /// without it. docs/07 D11 asks for the resolved value to be shown, not the word
+    /// "auto" standing in for a number nobody can see.
+    @ViewBuilder
+    private var isoBadgeRow: some View {
+        if let iso = captureISO {
+            HStack(spacing: 6) {
+                Text(recipe.develop.denoise == isoDefault
+                     ? "Defaults for ISO \(Int(iso))"
+                     : "Adjusted from the ISO \(Int(iso)) defaults")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Lumen.secondaryText)
+                Spacer()
+                LumenBadge(text: recipe.develop.denoise == isoDefault ? "Auto" : "Manual")
+            }
+            .frame(height: Lumen.rowHeight)
+        } else {
+            DevelopNote("No ISO recorded for this file, so these start at the flat "
+                        + "defaults rather than at a profiled guess.")
+        }
+    }
+
     private var noiseSection: some View {
-        DevelopSection("Noise Reduction", isModified: recipe.develop.denoise != Denoise(),
+        DevelopSection("Noise Reduction", isModified: recipe.develop.denoise != isoDefault,
                        onReset: { binder.edit("denoise.reset") {
-                           $0.develop.denoise = Denoise()
+                           $0.develop.denoise = ISODefaults.startingDenoise(
+                               forISO: self.captureISO)
                        } }) {
             VStack(alignment: .leading, spacing: 4) {
                 LumenSegmented(options: [(value: Denoise.Mode.off, label: "Off"),
@@ -232,36 +269,66 @@ struct DetailPanel: View {
     private var noiseControls: some View {
         switch recipe.develop.denoise.mode {
         case .off:
-            DevelopNote("No denoise. Capture sharpening still gates itself away from "
+            DevelopNote("No denoise at all — Hot Pixels included, because off means "
+                        + "off. Capture sharpening still gates itself away from "
                         + "low-contrast regions, so this is a usable setting at base ISO.")
         case .classic:
             VStack(alignment: .leading, spacing: 2) {
+                isoBadgeRow
                 LumenSlider(title: "Luminance",
                             value: binder.value(\.develop.denoise.classic.luma,
                                                 "denoise.classic.luma"),
-                            range: 0...100, hardRange: nil, defaultValue: 0,
+                            range: 0...100, hardRange: nil,
+                            defaultValue: isoDefault.classic.luma,
+                            step: 1, decimals: 0, bipolar: false)
+                LumenSlider(title: "Luminance Detail",
+                            value: binder.value(\.develop.denoise.classic.lumaDetail,
+                                                "denoise.classic.lumaDetail"),
+                            range: 0...100, hardRange: nil,
+                            defaultValue: isoDefault.classic.lumaDetail,
+                            step: 1, decimals: 0, bipolar: false)
+                LumenSlider(title: "Luminance Contrast",
+                            value: binder.value(\.develop.denoise.classic.lumaContrast,
+                                                "denoise.classic.lumaContrast"),
+                            range: 0...100, hardRange: nil,
+                            defaultValue: isoDefault.classic.lumaContrast,
                             step: 1, decimals: 0, bipolar: false)
                 LumenSlider(title: "Colour",
                             value: binder.value(\.develop.denoise.classic.chroma,
                                                 "denoise.classic.chroma"),
-                            range: 0...100, hardRange: nil, defaultValue: 25,
+                            range: 0...100, hardRange: nil,
+                            defaultValue: isoDefault.classic.chroma,
                             step: 1, decimals: 0, bipolar: true)
+                LumenSlider(title: "Colour Detail",
+                            value: binder.value(\.develop.denoise.classic.colorDetail,
+                                                "denoise.classic.colorDetail"),
+                            range: 0...100, hardRange: nil,
+                            defaultValue: isoDefault.classic.colorDetail,
+                            step: 1, decimals: 0, bipolar: false)
+                LumenSlider(title: "Colour Smoothness",
+                            value: binder.value(\.develop.denoise.classic.colorSmoothness,
+                                                "denoise.classic.colorSmoothness"),
+                            range: 0...100, hardRange: nil,
+                            defaultValue: isoDefault.classic.colorSmoothness,
+                            step: 1, decimals: 0, bipolar: false)
                 LumenSlider(title: "Hot Pixels",
                             value: binder.value(\.develop.denoise.classic.hotPixels,
                                                 "denoise.classic.hotPixels"),
                             range: 0...100, hardRange: nil, defaultValue: 0,
                             step: 1, decimals: 0, bipolar: false)
-                DevelopNote("Instant, non-destructive, and enough for most frames. "
-                            + "Colour starts mild rather than at zero because chroma "
+                DevelopNote("Profiled wavelet noise reduction, live on every frame. "
+                            + "Luminance is gentle by design and Colour is aggressive: "
+                            + "chroma smoothing costs almost nothing to look at, and "
                             + "blotches are the artefact nobody wants to see.")
-                // Hot Pixels is implemented in `ClassicalDenoise` and that engine does
-                // not run in the graph, so this slider has no consumer on the shipping
-                // path. Said plainly rather than left to look live.
-                // This said "applies on the reference renderer only", which was
-                // itself false: `ClassicalDenoise` has no caller on ANY path, reference
-                // included. An honesty note that is wrong is worse than none.
-                DevelopNote("Hot Pixels reaches no render path in this build — the "
-                            + "engine behind it has no caller yet.")
+                DevelopNote("Detail raises the shrinkage threshold, so texture — and "
+                            + "the noise beside it — survives. Contrast keeps coarse "
+                            + "luminance structure at the cost of mottling. Colour "
+                            + "Detail protects thin colour edges; Colour Smoothness "
+                            + "reaches the large blotches.")
+                DevelopNote("Hot Pixels replaces single-pixel outliers with the median "
+                            + "of their neighbours, and only where the pixel is a "
+                            + "strict extremum — an edge or a fine line always has a "
+                            + "neighbour on its own side, so neither is touched.")
             }
         case .ai:
             VStack(alignment: .leading, spacing: 2) {
@@ -269,20 +336,17 @@ struct DetailPanel: View {
                             value: binder.value(\.develop.denoise.amount, "denoise.amount"),
                             range: 0...100, hardRange: nil, defaultValue: 50,
                             step: 1, decimals: 0, bipolar: false)
-                // Describes a Tier 2 that does not exist, and gets the
-                // performance backwards: Amount feeds `Denoise.appleStandIn`, which is
-                // part of the decode cache key, so dragging it forces a full
-                // re-demosaic — the opposite of instant.
+                // Tier 2 does not exist: no model ships, `AIDenoiseSplice` has no
+                // caller, and Amount reaches the decoder's own denoise instead. That
+                // is also why dragging it is slow — the stand-in is part of the decode
+                // key, so each step re-demosaics the frame.
                 DevelopNote("No AI model ships yet. Amount drives the decoder's own "
-                            + "denoise as a stand-in, and because that is part of the "
-                            + "decode, dragging it re-decodes the frame rather than "
-                            + "blending a cached result.")
-                // Until Tier 2 exists, Amount drives the decoder's own denoise. That is
-                // a stand-in and worth saying: what it must NOT do is what it did
-                // before, which was drive nothing while the two hidden Classic sliders
-                // drove everything.
-                DevelopNote("No model has shipped yet, so Amount currently drives the "
-                            + "decoder's own noise reduction as a stand-in.")
+                            + "noise reduction as a stand-in, and because that is part "
+                            + "of the decode, dragging it re-decodes the frame rather "
+                            + "than blending a cached result.")
+                DevelopNote("Classic is the profiled engine and it runs on every frame "
+                            + "and every export. It is the one to reach for until a "
+                            + "model ships.")
             }
         }
     }

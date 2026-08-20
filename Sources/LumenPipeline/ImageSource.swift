@@ -105,11 +105,22 @@ public final class RenderedImageSource: ImageSource {
                                                        y: CGFloat(scale)))
     }
 
+    /// `iso: nil` on purpose, even though the file usually records one.
+    ///
+    /// ISO selects the sensor noise profile the denoise stage's thresholds are
+    /// denominated in, and a rendered file has already been through the camera's own
+    /// noise reduction — its pixels no longer carry `variance = a·signal + b` for any
+    /// `(a, b)` this table knows. Handing it the ISO 6400 profile would tell Tier 1 to
+    /// remove noise that is not there any more, and it would remove texture instead.
+    /// nil falls back to the base-ISO profile, which is the gentlest on the curve; the
+    /// sliders still work, and the user still decides. Same reasoning as the Linear
+    /// render preset this path starts on.
     public var captureMetadata: CaptureMetadata {
         CaptureMetadata(asShotTemperature: asShotTemperature,
                         asShotTint: asShotTint,
                         decoderVersion: nil,
-                        pixelSize: nativePixelSize)
+                        pixelSize: nativePixelSize,
+                        iso: nil)
     }
 }
 

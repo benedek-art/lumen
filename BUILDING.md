@@ -43,7 +43,7 @@ export it (⌘E).
 | Target | Contents | Platforms |
 |---|---|---|
 | `LumenCore` | The whole engine as pure Swift: colour science, the display transform, tone, curves, colour and grade, the film chain, spatial filters, denoise, mask rasterization, scopes, the SQLite catalog, the recipe format. No UI, no Apple-only frameworks. | macOS + Linux |
-| `LumenPipeline` | The Core Image render path: twenty-two small kernels, the graph, the RAW stage, export. No AppKit, no SwiftUI — deliberately, so it stays testable headless. | macOS |
+| `LumenPipeline` | The Core Image render path: thirty-two small kernels, the graph, the RAW stage, export. No AppKit, no SwiftUI — deliberately, so it stays testable headless. | macOS |
 | `LumenApp` | The SwiftUI application. | macOS |
 
 ## How this code was verified
@@ -163,6 +163,18 @@ Two rules that would have caught all four:
    EV at the source so there is one denomination downstream rather than each
    reader choosing.
 
+**The denoise stage is the exception to the whole section, and says so.** S3 works in
+the LINEAR working image's own units, because `variance = a·signal + b` is a statement
+about linear signal — nothing on that path may carry a `LumenLog.range`. Its own
+numerical hazard is different and is documented at `ClassicalDenoise.GPUPlan`: the
+generalized Anscombe transform carries a `2/a` factor, which for a read-noise-dominated
+profile reaches 2.0e8 against a half-float working format that stops at 65 504. The
+kernels work in `scale · (f(x) − f(0.18))` and compute it as `2(x − x₀)/(√u + √u₀)`
+rather than as a difference of two transforms — the same number, without ever forming
+the large one. Modelled against the f64 reference, the pedestal halves the half-float
+error of the stage: worst pixel 9.8e-4 against 1.6e-3, RMS 1.2e-4 against 2.2e-4, on a
+stage whose effect is 1.5e-2 to 4.8e-2.
+
 The tone mask is the one place ε = 0.004 on an encoded plane is *correct*:
 `ReferenceRenderer.applyTone` encodes with `LumenLog` too and passes the same
 number, so both paths agree and the softness is a shared choice about a selection
@@ -192,10 +204,11 @@ S15 curve    ┘        one 3-D table, log domain in, display-linear out
 S16 geometry          crop ∘ rotate, one resample
 ```
 
-The custom-shader surface is therefore twenty-two small kernels
+The custom-shader surface is therefore thirty-two small kernels
 (`Sources/LumenPipeline/Kernels.swift`) — the log shaper, image-by-image arithmetic for
-the guided filter, mask compositing, grain, vignette, dehaze and halation. Everything
-else is a stock filter or a table.
+the guided filter, mask compositing, grain, vignette, dehaze, halation, and the nine
+that make up S3's variance-stabilizing transform and à-trous shrinkage. Everything else
+is a stock filter or a table.
 
 If a kernel fails to compile on a given machine, `KernelLibrary.isAvailable` goes false
 and the renderer says so in the viewer rather than rendering something wrong.
@@ -227,13 +240,16 @@ These are tracked, not hidden.
   kinds that worked. The mask Refine slider and the brush Automask toggle died on the
   same argument. Fixed, and `MaskKind.readsSourceImage` now states which kinds need the
   picture so a renderer cannot quietly fail to supply it again.
-- **Tier-1 classical denoise and capture sharpening exist but are not in the reference
-  renderer's stage list.** Both are implemented and unit-tested in `LumenCore`; what
-  actually runs on the live path is Apple's decode-stage noise reduction and sharpener,
-  driven by the same slider values, so the controls work — but the f32 reference does
-  not model S2/S3/S4, which means the golden suite cannot catch drift in them. `.off`
-  really is off. (An earlier version of this file claimed the reference ran Tier 1. It
-  did not.)
+- **Tier-1 classical denoise ships; capture sharpening still does not.** S3 is in the
+  graph — `RenderGraph.applyDenoise`, nine new kernels — and `KernelGoldenTests`
+  compares it against `ClassicalDenoise.apply` on real frames, so the golden suite can
+  catch drift in it. All seven controls are on the wire and in the panel, the profile
+  follows the capture ISO, and Off is off including Hot Pixels. Two things it is NOT:
+  `ReferenceRenderer.render` still starts at S6, so the CPU stage runs one level up in
+  `PipelineRenderer.renderReference` rather than inside the reference's own stage list;
+  and Tier 2 remains a cached-artifact design with no model, so `.ai` still drives the
+  decoder's own denoise from its Amount. Capture sharpening (S4) is unchanged: Apple's
+  at-demosaic sharpener scaled by the slider, with `richardsonLucy` still uncalled.
 - **Halation now runs on both paths** and the golden suite compares them. It used to be
   GPU-only, which meant the slider did nothing on every headless render and any golden
   that set it diverged.

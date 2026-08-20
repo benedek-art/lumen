@@ -41,6 +41,13 @@ public final class AppleRawSource: ImageSource {
     private let defaultColorNR: Float
     private let defaultSharpness: Float
 
+    /// The ISO this frame was shot at, read once from the file's EXIF block.
+    ///
+    /// `CIRAWFilter` does not surface it, and it is not worth a second demosaic to find
+    /// out, so this goes through the same metadata reader the catalog backfill uses:
+    /// one `CGImageSourceCopyPropertiesAtIndex` per opened photo, no pixels decoded.
+    public let captureISO: Double?
+
     public init(url: URL) throws {
         guard FileManager.default.fileExists(atPath: url.path) else {
             throw RawSourceError.unreadable(url)
@@ -68,6 +75,7 @@ public final class AppleRawSource: ImageSource {
         self.defaultLuminanceNR = filter.luminanceNoiseReductionAmount
         self.defaultColorNR = filter.colorNoiseReductionAmount
         self.defaultSharpness = filter.sharpnessAmount
+        self.captureISO = CaptureMetadataReader.read(url: url)?.iso.map { Double($0) }
     }
 
     public var nativeLongEdge: Double {
@@ -159,9 +167,12 @@ public final class AppleRawSource: ImageSource {
         filter.sharpnessAmount = defaultSharpness
             * Float(dev.detail.capture.strengthFraction)
 
-        // Noise reduction: Lumen's Tier 1 is the reference implementation and neither
-        // tier runs in the GPU graph yet, so Apple's stage stands in. Tracked in
-        // BUILDING.md; `.off` really is off.
+        // Noise reduction: Tier 1 runs in the graph now (S3,
+        // `RenderGraph.applyDenoise`), so Off and Classic both hand this stage zero —
+        // leaving Apple's denoise on underneath a profiled wavelet shrinkage would
+        // smooth the frame twice, once with a model of this sensor and once with
+        // somebody else's guess. Only `.ai` still reaches it, because Tier 2 is a
+        // cached artifact that does not exist yet and its Amount would drive nothing.
         //
         // The mapping lives on `Denoise` so it can be tested — this stage needs a
         // camera RAW to reach at all, and the wiring here was wrong in a way the panel
@@ -185,7 +196,8 @@ public final class AppleRawSource: ImageSource {
         CaptureMetadata(asShotTemperature: asShotTemperature,
                         asShotTint: asShotTint,
                         decoderVersion: pinnedDecoderVersion,
-                        pixelSize: nativePixelSize)
+                        pixelSize: nativePixelSize,
+                        iso: captureISO)
     }
 }
 
@@ -194,13 +206,19 @@ public struct CaptureMetadata: Sendable {
     public let asShotTint: Double
     public let decoderVersion: Int?
     public let pixelSize: (width: Int, height: Int)
+    /// What the file says it was shot at. It is what selects the noise profile the
+    /// denoise stage's every threshold is denominated in, so a source that cannot
+    /// answer says nil rather than guessing — `RenderPlan` then falls back to the
+    /// gentlest profile on the seed curve.
+    public let iso: Double?
 
     public init(asShotTemperature: Double, asShotTint: Double, decoderVersion: Int?,
-                pixelSize: (width: Int, height: Int)) {
+                pixelSize: (width: Int, height: Int), iso: Double? = nil) {
         self.asShotTemperature = asShotTemperature
         self.asShotTint = asShotTint
         self.decoderVersion = decoderVersion
         self.pixelSize = pixelSize
+        self.iso = iso
     }
 }
 

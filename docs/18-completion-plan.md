@@ -54,10 +54,10 @@ looks like and needs no new UI.
 
 | Item | Now | Closes it |
 |---|---|---|
-| Tier 1 classical | 15 | CIKernels for the VST and à-trous shrinkage so `ClassicalDenoise` runs in the graph. The engine is done and tested; it has no kernels |
-| Luminance Detail / Contrast, Colour Detail / Smoothness | 10 | Four of seven Tier-1 controls have no wire format |
-| Hot Pixels | 5 | Reads nowhere on any path — the panel's note about it is itself wrong |
-| ISO-adaptive defaults | 10 | `ISODefaults` has the spec's anchors and no caller |
+| Tier 1 classical | ~~15~~ **done** | Nine kernels in `RenderGraph.applyDenoise` at S3: the variance-stabilizing transform, the dilated B3-spline row, the two edge maps and the soft-threshold clamp. Modelled against the f64 reference before it was written — the GPU formulation agrees to 9e-16 in exact arithmetic and 1.3e-4 RMS in the half-float working format, on a stage that moves the frame by 1.5e-2 to 4.8e-2. Apple's decode-stage NR is off in Classic now, or the frame was smoothed twice |
+| Luminance Detail / Contrast, Colour Detail / Smoothness | ~~10~~ **done** | All seven on the wire, all seven in the panel, decoding tolerant of the three-field form every existing recipe was written in. One definition of the per-band thresholds, read by both the reference and the GPU plan |
+| Hot Pixels | ~~5~~ **done** | A branchless 8-neighbour median through a Batcher sorting network, gated on `k·σ` AND on strict extremum, in the graph. A one-pixel line survives at 100 |
+| ISO-adaptive defaults | ~~10~~ **done** | `ISODefaults.startingDenoise` resolves the anchors into the recipe at import, off the catalog's EXIF ISO; the panel shows the resolved values and badges which ISO they came from, and the noise profile every threshold is denominated in follows the same ISO through `RenderPlan` |
 | Tier 2 AI | 20 | `huggingface.co` is reachable now — the network policy was widened mid-session — so a model CAN be fetched and the ceiling is lifted |
 
 ### Batch 3 — The library half

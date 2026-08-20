@@ -1,5 +1,5 @@
 // Kernels.swift
-// The complete custom-shader surface of Lumen's render path: fifteen small kernels.
+// The complete custom-shader surface of Lumen's render path: thirty-two small kernels.
 //
 // That number is the point. Nearly every colour-bearing stage is a pure RGB→RGB
 // function, so the engine evaluates it once in LumenCore's reference implementation
@@ -391,6 +391,187 @@ public enum KernelLibrary {
     }
     """
 
+    // MARK: - S3, profiled classical noise reduction
+
+    /// Scene-linear → the variance-stabilized plane the shrinkage runs in, expressed
+    /// relative to mid-grey and scaled (`ClassicalDenoise.GPUPlan`).
+    ///
+    /// **Units.** Everything here is in the LINEAR working image's own units, not in
+    /// EV and not in `LumenLog`'s encoded domain: `shot` and `offset` come straight
+    /// from a `NoiseProfile`, whose `variance = a·signal + b` is a statement about
+    /// linear signal. Nothing on this path may carry a `LumenLog.range`.
+    ///
+    /// The output plane's unit is one standard deviation of sensor noise — that is what
+    /// a variance-stabilizing transform is for — so every threshold downstream is a
+    /// number of σ and means the same thing at every brightness.
+    ///
+    /// Written as `2(x − x₀)/(√u + √u₀)` rather than as `(2/a)(√u − √u₀)`. The two are
+    /// algebraically identical, and the second computes 2.0e8 minus 2.0e8 in a float32
+    /// shader for a read-noise-dominated profile. See `GPUPlan` for the derivation and
+    /// for why the same expression covers the `a → 0` case with no branch.
+    static let denoiseForwardSource = """
+    kernel vec4 lumenDenoiseForward(__sample c, float shot, float offset,
+                                    float pedestal, float sqrtPedestal,
+                                    float signalFloor, float scale) {
+        vec3 x = max(c.rgb, vec3(signalFloor));
+        vec3 u = max(shot * x + vec3(offset), vec3(0.0));
+        vec3 g = scale * 2.0 * (x - vec3(pedestal)) / (sqrt(u) + vec3(sqrtPedestal));
+        return vec4(g, c.a);
+    }
+    """
+
+    /// The variance-stabilized plane back to scene-linear, blending the algebraic and
+    /// the exact-unbiased inverses in proportion to how much shrinking actually
+    /// happened — the correction is a debias for an estimated coefficient and a milky
+    /// pedestal for an unshrunk one.
+    ///
+    /// `d` is floored at 1.0 rather than at the transform's own 1.2247 minimum. On the
+    /// live branch `d` is already above that, so the floor is a no-op; on the
+    /// degenerate branch — pure read noise, where `unbiasedGain` is zero — it is what
+    /// keeps `0 · (1/0)` from producing a NaN across the whole frame.
+    static let denoiseInverseSource = """
+    kernel vec4 lumenDenoiseInverse(__sample g, float shot, float pedestal,
+                                    float sqrtPedestal, float invScale,
+                                    float minRelative, float reference,
+                                    float unbiasedGain, float shrinkage) {
+        vec3 v = g.rgb * invScale;
+        vec3 w = max(v, vec3(minRelative));
+        vec3 algebraic = vec3(pedestal) + 0.25 * shot * v * v + v * sqrtPedestal;
+        vec3 clamped = vec3(pedestal) + 0.25 * shot * w * w + w * sqrtPedestal;
+        vec3 d = max(w + vec3(reference), vec3(1.0));
+        vec3 i1 = vec3(1.0) / d;
+        vec3 i2 = i1 * i1;
+        vec3 correction = vec3(0.25) + 0.25 * 1.224744871391589 * i1
+            - 1.375 * i2 + 0.625 * 1.224744871391589 * i2 * i1;
+        vec3 x = algebraic
+            + shrinkage * (clamped - algebraic + unbiasedGain * correction);
+        return vec4(x, g.a);
+    }
+    """
+
+    /// One separable pass of the à-trous transform's B3-spline row, `[1,4,6,4,1]/16`.
+    /// The five taps arrive as five translations of the same image, which is what puts
+    /// the "holes" in: level `j` translates by `2^j` instead of by 1.
+    static let bSpline5Source = """
+    kernel vec4 lumenBSpline5(__sample t0, __sample t1, __sample t2,
+                              __sample t3, __sample t4) {
+        vec3 v = (t0.rgb + t4.rgb + 4.0 * (t1.rgb + t3.rgb) + 6.0 * t2.rgb) / 16.0;
+        return vec4(v, t2.a);
+    }
+    """
+
+    /// One separable pass of a radius-1 box blur. Three of these on each axis is
+    /// exactly what `SpatialOps.gaussianBlur(_:sigma: 1.5)` does — Kovesi's box widths
+    /// for σ = 1.5 are [1, 1, 1] — and it is a kernel rather than `CIBoxBlur` because
+    /// that filter returns its input unchanged at radius 1.
+    static let box3Source = """
+    kernel vec4 lumenBox3(__sample t0, __sample t1, __sample t2) {
+        return vec4((t0.rgb + t1.rgb + t2.rgb) / 3.0, t1.a);
+    }
+    """
+
+    /// Chroma magnitude √(U0² + V0²) of the decorrelated plane, broadcast. The chroma
+    /// edge map is built on this rather than on either chroma channel alone, so a
+    /// saturated edge across flat luminance still protects itself.
+    static let chromaMagnitudeSource = """
+    kernel vec4 lumenChromaMagnitude(__sample p) {
+        float m = sqrt(p.g * p.g + p.b * p.b);
+        return vec4(m, m, m, 1.0);
+    }
+    """
+
+    /// Gradient-magnitude edge map in [0,1] from four central-difference taps.
+    ///
+    /// The knees arrive already denominated in the plane they are applied to: they are
+    /// stated in units of the blurred plane's own noise σ and multiplied through by
+    /// `1/(2√π·σ_blur)` and the encoded scale on the way in, so the map means the same
+    /// thing at every noise level and at every profile.
+    static let edgeMapSource = """
+    kernel vec4 lumenEdgeMap(__sample xp, __sample xm, __sample yp, __sample ym,
+                             float lo, float hi) {
+        float gx = (xp.r - xm.r) * 0.5;
+        float gy = (yp.r - ym.r) * 0.5;
+        float e = smoothstep(lo, hi, sqrt(gx * gx + gy * gy));
+        return vec4(e, e, e, 1.0);
+    }
+    """
+
+    /// What soft thresholding REMOVES from one à-trous band: `clamp(d, −t, t)`.
+    ///
+    /// Soft thresholding is `d − clamp(d, −t, t)`, so returning the clamp and
+    /// subtracting it from the running image reconstructs identically — and does it
+    /// without ever summing five full-range planes back together. In a half-float
+    /// working format that matters: the correction is small and bounded, while the
+    /// planes are not.
+    ///
+    /// One kernel for all three channels, with the thresholds and the edge protections
+    /// carried per channel: luma reads the luma edge map, both chroma channels read the
+    /// chroma one. A zero threshold removes nothing, which is exactly what the
+    /// reference does when a band's threshold is zero.
+    static let denoiseRemovedSource = """
+    kernel vec4 lumenDenoiseRemoved(__sample detail, __sample lumaEdge,
+                                    __sample chromaEdge, vec3 threshold,
+                                    vec3 protection) {
+        vec3 e = clamp(vec3(lumaEdge.r, chromaEdge.r, chromaEdge.r), 0.0, 1.0);
+        vec3 t = threshold * (vec3(1.0) - protection * e);
+        return vec4(clamp(detail.rgb, -t, t), 1.0);
+    }
+    """
+
+    /// Blend two separately filtered chroma planes back into the decorrelated image,
+    /// leaving luma alone — the large-scale chroma blotch pass's recombination.
+    static let mixChromaSource = """
+    kernel vec4 lumenMixChroma(__sample base, __sample u, __sample v, float amount) {
+        return vec4(base.r, mix(base.g, u.r, amount), mix(base.b, v.r, amount), base.a);
+    }
+    """
+
+    /// Hot Pixels: replace a single-pixel outlier with the median of its eight
+    /// neighbours (docs/07 §2.5).
+    ///
+    /// Two conditions, both required, exactly as the reference states them: the pixel
+    /// must deviate from that median by more than `k·σ` with σ read from the noise
+    /// profile AT THE MEDIAN — the pixel's own value is the thing under suspicion — and
+    /// it must be a strict extremum of the 3×3 neighbourhood. The second is what makes
+    /// this single-pixel: an edge or a fine line always has a neighbour on the same
+    /// side of the median, so it is never an extremum and never touched.
+    ///
+    /// The median comes from a Batcher odd-even mergesort, 19 comparators of `min`/`max`
+    /// on vec3 — branchless, like every kernel here, and the whole reason the network is
+    /// spelled out rather than looped. The comparator list is the data; the shader text
+    /// is generated from it so a transcription slip is not possible.
+    static let hotPixelSource: String = {
+        let network: [(Int, Int)] = [
+            (0, 1), (2, 3), (4, 5), (6, 7),
+            (0, 2), (1, 3), (4, 6), (5, 7),
+            (1, 2), (5, 6),
+            (0, 4), (1, 5), (2, 6), (3, 7),
+            (2, 4), (3, 5),
+            (1, 2), (3, 4), (5, 6),
+        ]
+        let sort = network.map { pair in
+            "    t = min(a\(pair.0), a\(pair.1));"
+                + " a\(pair.1) = max(a\(pair.0), a\(pair.1)); a\(pair.0) = t;"
+        }.joined(separator: "\n    ")
+        return """
+        kernel vec4 lumenHotPixel(__sample c, __sample s0, __sample s1, __sample s2,
+                                  __sample s3, __sample s4, __sample s5, __sample s6,
+                                  __sample s7, float k, float shot, float variance) {
+            vec3 a0 = s0.rgb; vec3 a1 = s1.rgb; vec3 a2 = s2.rgb; vec3 a3 = s3.rgb;
+            vec3 a4 = s4.rgb; vec3 a5 = s5.rgb; vec3 a6 = s6.rgb; vec3 a7 = s7.rgb;
+            vec3 t;
+        \(sort)
+            vec3 median = (a3 + a4) * 0.5;
+            vec3 v = c.rgb;
+            vec3 sigma = sqrt(max(shot * max(median, vec3(0.0)) + vec3(variance),
+                                  vec3(1e-12)));
+            vec3 outside = max(vec3(1.0) - step(v, a7), vec3(1.0) - step(a0, v));
+            vec3 far = vec3(1.0) - step(abs(v - median), k * sigma);
+            return vec4(mix(v, median, outside * far), c.a);
+        }
+        """
+    }()
+
     /// Vignette as an EV multiply in scene-linear (docs/14 §2.1.11: the lens vignettes
     /// the light before it reaches the film, so this belongs upstream of the curve and
     /// gets highlight-priority behaviour free from the transform's shoulder).
@@ -444,6 +625,15 @@ public enum KernelLibrary {
     public static let dehaze = make(dehazeSource)
     public static let addGlow = make(addGlowSource)
     public static let highlightEnergy = make(highlightEnergySource)
+    public static let denoiseForward = make(denoiseForwardSource)
+    public static let denoiseInverse = make(denoiseInverseSource)
+    public static let bSpline5 = make(bSpline5Source)
+    public static let box3 = make(box3Source)
+    public static let chromaMagnitude = make(chromaMagnitudeSource)
+    public static let edgeMap = make(edgeMapSource)
+    public static let denoiseRemoved = make(denoiseRemovedSource)
+    public static let mixChroma = make(mixChromaSource)
+    public static let hotPixel = make(hotPixelSource)
 
     /// Every kernel compiled. False means this macOS build rejected the kernel
     /// language and the renderer must use the CPU reference path.
@@ -466,8 +656,21 @@ public enum KernelLibrary {
             ("coherence", coherence), ("detailGainGated", detailGainGated),
             ("tensorMagnitude", tensorMagnitude),
             ("highlightEnergy", highlightEnergy),
+            ("denoiseForward", denoiseForward), ("denoiseInverse", denoiseInverse),
+            ("bSpline5", bSpline5), ("box3", box3),
+            ("chromaMagnitude", chromaMagnitude), ("edgeMap", edgeMap),
+            ("denoiseRemoved", denoiseRemoved), ("mixChroma", mixChroma),
+            ("hotPixel", hotPixel),
         ]
         return all.filter { $0.1 == nil }.map { $0.0 }
+    }
+
+    /// The kernels S3 needs. Denoise degrades as a whole rather than in pieces: half a
+    /// wavelet shrinkage is not a gentler denoise, it is a wrong picture.
+    public static var denoiseAvailable: Bool {
+        denoiseForward != nil && denoiseInverse != nil && bSpline5 != nil
+            && box3 != nil && chromaMagnitude != nil && edgeMap != nil
+            && denoiseRemoved != nil && subtract != nil
     }
 
     /// The kernels the core colour path cannot run without. Presence, film and mask

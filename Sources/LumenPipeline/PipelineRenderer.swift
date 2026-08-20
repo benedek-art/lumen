@@ -72,12 +72,17 @@ public final class PipelineRenderer {
         let plan = RenderPlan(recipe: recipe,
                               asShotKelvin: source.asShotTemperature,
                               asShotTint: source.asShotTint,
-                              lutSize: draft ? 17 : LUT3D.interactiveSize)
+                              lutSize: draft ? 17 : LUT3D.interactiveSize,
+                              captureISO: source.captureMetadata.iso)
         let graph = makeGraph(plan: plan, decoded: decoded, draft: draft,
                               strokeSets: strokeSets)
+        // Preview decodes are downsampled, and downsampling averages the noise down
+        // with them, so the profile the denoise stage works against follows the same
+        // factor — squared, because it is a variance.
         var image = graph.build(decoded, plan: plan,
                                 options: RenderGraph.Options(longEdge: longEdge,
-                                                             draft: draft))
+                                                             draft: draft,
+                                                             noiseScale: scale * scale))
         image = Self.applyGeometry(image, recipe: recipe, scaleTo: maxLongEdge,
                                    skipCrop: showingUncropped)
 
@@ -105,7 +110,8 @@ public final class PipelineRenderer {
                               // 400% and then encoding 8 bits clipped everything above
                               // diffuse white. See `ExportRecipe.hdrIsWritable`.
                               displayWhiteTarget: exportRecipe.renderWhiteTargetPercent,
-                              lutSize: LUT3D.exportSize)
+                              lutSize: LUT3D.exportSize,
+                              captureISO: source.captureMetadata.iso)
 
         let graph = makeGraph(plan: plan, decoded: decoded, draft: false,
                               strokeSets: strokeSets)
@@ -146,11 +152,13 @@ public final class PipelineRenderer {
 
         let sdrPlan = RenderPlan(recipe: recipe, asShotKelvin: source.asShotTemperature,
                                  asShotTint: source.asShotTint,
-                                 displayWhiteTarget: 100, lutSize: LUT3D.exportSize)
+                                 displayWhiteTarget: 100, lutSize: LUT3D.exportSize,
+                                 captureISO: source.captureMetadata.iso)
         let hdrPlan = RenderPlan(recipe: recipe, asShotKelvin: source.asShotTemperature,
                                  asShotTint: source.asShotTint,
                                  displayWhiteTarget: settings.whiteTargetPercent,
-                                 lutSize: LUT3D.exportSize)
+                                 lutSize: LUT3D.exportSize,
+                                 captureISO: source.captureMetadata.iso)
 
         let sdrGraph = makeGraph(plan: sdrPlan, decoded: decoded, draft: false,
                                  strokeSets: strokeSets)
@@ -858,12 +866,21 @@ public final class PipelineRenderer {
             throw RenderError.renderFailed
         }
         let plan = RenderPlan(recipe: recipe, asShotKelvin: source.asShotTemperature,
-                              asShotTint: source.asShotTint)
+                              asShotTint: source.asShotTint,
+                              captureISO: source.captureMetadata.iso)
+        // S3 runs here rather than inside `ReferenceRenderer.render`, which starts at
+        // S6 and is what several dozen goldens compare against. The stage belongs on
+        // this path — a fallback that skips the denoise the GPU path applies is a
+        // different picture — and the same decode scale reaches the profile.
+        var staged = buffer
+        if !plan.denoiseIsIdentity {
+            staged = plan.classicalDenoise.scaled(noiseScale: scale * scale).apply(buffer)
+        }
         // Stroke sets go in, exactly as they do on the GPU path — a fallback that
         // silently drops every brush mask is not the same picture, and this is the
         // path that runs when the graph could not be built at all.
         let rendered = ReferenceRenderer.render(
-            buffer, plan: plan,
+            staged, plan: plan,
             inputs: ReferenceRenderer.Inputs(strokeSets: strokeSets))
         guard let cgImage = Self.cgImage(from: rendered) else {
             throw RenderError.renderFailed

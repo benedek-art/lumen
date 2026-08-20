@@ -73,6 +73,11 @@ struct PhotoItem: Identifiable, Hashable, Sendable {
     var flag: PhotoFlag = .none
     var rating: Int = 0
     var label: ColorLabel = .none
+    /// What the file says it was shot at, from the catalog's EXIF row. It is what makes
+    /// an unedited photo's noise-reduction defaults ISO-adaptive; nil until the
+    /// metadata backfill has reached this photo, and nil forever for a file that
+    /// records no ISO, in which case the flat wire defaults stand.
+    var iso: Int?
 
     var filename: String { id.lastPathComponent }
     var isRaw: Bool { PhotoFormats.isRaw(id) }
@@ -768,7 +773,43 @@ final class AppState: ObservableObject {
                 if let id = item.catalogID { byID[id] = item.id }
             }
             self.libraryOrder = rows.compactMap { byID[$0.id] } + strays.map(\.id)
+            self.adoptCaptureISO(from: rows)
             self.reportAlbumScope()
+        }
+    }
+
+    /// Carry the capture ISO from the catalog's rows onto the items the grid holds.
+    ///
+    /// EXIF arrives after the grid does — `backfillMetadata` runs behind it, and asks
+    /// for this refresh when its last batch lands — so this is where a freshly imported
+    /// folder's ISOs reach `PhotoItem`. Without it an unedited frame's ISO-adaptive
+    /// denoise defaults would not appear until the next launch, which reads as the
+    /// defaults simply being flat.
+    ///
+    /// One assignment rather than one per row: `allPhotos` is `@Published` and a
+    /// per-element write republishes the whole grid.
+    private func adoptCaptureISO(from rows: [PhotoRow]) {
+        var isoByID: [Int64: Int] = [:]
+        for row in rows {
+            if let iso = row.iso { isoByID[row.id] = iso }
+        }
+        guard !isoByID.isEmpty else { return }
+        var updated = allPhotos
+        var changed = false
+        for i in updated.indices {
+            guard let id = updated[i].catalogID, let iso = isoByID[id],
+                  updated[i].iso != iso else { continue }
+            updated[i].iso = iso
+            changed = true
+        }
+        guard changed else { return }
+        allPhotos = updated
+        // The develop panel reads the primary selection's own copy, so it needs the
+        // same news; the id has not changed, so the `didSet` observer returns early.
+        if let primary = primarySelection,
+           let fresh = updated.first(where: { $0.id == primary.id }),
+           fresh.iso != primary.iso {
+            primarySelection = fresh
         }
     }
 
@@ -1282,6 +1323,7 @@ final class AppState: ObservableObject {
                 items[i].flag = row.flag
                 items[i].rating = row.rating
                 items[i].label = row.label
+                items[i].iso = row.iso
                 if let recipe = row.recipe { recipes[items[i].id] = recipe }
             }
         }
@@ -1478,7 +1520,7 @@ final class AppState: ObservableObject {
     // MARK: Recipes
 
     func recipe(for photo: PhotoItem) -> Recipe {
-        recipes[photo.id] ?? AppState.startingRecipe(for: photo.id)
+        recipes[photo.id] ?? AppState.startingRecipe(for: photo.id, iso: photo.iso)
     }
 
     /// What an unedited photo starts as, which is not the same for every file.
@@ -1494,10 +1536,23 @@ final class AppState: ObservableObject {
     /// exactly this escape hatch. It is a starting point and not a lock: the preset
     /// picker still offers the other four, and any recipe the user has saved wins over
     /// this entirely.
-    static func startingRecipe(for url: URL) -> Recipe {
+    ///
+    /// The other thing that is not the same for every file is its noise. Tier-1 denoise
+    /// is always live, and docs/07 §4's whole point is that a flat "Colour 25" is a
+    /// guess that happens to be acceptable — so an unedited photo starts on the values
+    /// its own ISO calls for, resolved to concrete numbers here so the panel shows what
+    /// will render. A file with no ISO recorded keeps the flat defaults; a saved recipe
+    /// wins over this entirely, so nothing is ever recomputed under a hand-set slider.
+    ///
+    /// Rendered files are left alone for the same reason they start on Linear: the
+    /// camera has already denoised them, and their pixels no longer follow any sensor
+    /// noise model this table knows.
+    static func startingRecipe(for url: URL, iso: Int? = nil) -> Recipe {
         var recipe = Recipe()
         if PhotoFormats.isRendered(url) {
             recipe.look.render.preset = "Linear"
+        } else if let iso {
+            recipe.develop.denoise = ISODefaults.startingDenoise(forISO: Double(iso))
         }
         return recipe
     }

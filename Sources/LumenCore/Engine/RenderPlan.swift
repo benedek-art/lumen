@@ -58,11 +58,26 @@ public struct RenderPlan: Sendable {
     public let vignetteEV: Double
     public let masks: [Mask]
 
+    // MARK: Stage S3 — profiled classical noise reduction
+    ///
+    /// The Tier-1 engine, resolved through `ISODefaults.classic(for:)` so the mode
+    /// switch means what the panel says: Off zeroes every row including Hot Pixels,
+    /// Classic runs the recipe's own block, and AI drops the ISO-adaptive rows to zero
+    /// because the noise they compensate for is meant to be gone by then.
+    public let classicalDenoise: ClassicalDenoise
+    /// True when S3 cannot move a pixel, so the graph skips forty nodes.
+    public let denoiseIsIdentity: Bool
+
+    /// `captureISO` is what the file says it was shot at; it selects the noise profile
+    /// every threshold in S3 is denominated in. A file with no ISO recorded falls back
+    /// to the base-ISO profile, which is the gentlest of the seed curve — under-denoising
+    /// an unknown body is recoverable, over-denoising it is not.
     public init(recipe: Recipe,
                 asShotKelvin: Double = 5500,
                 asShotTint: Double = 0,
                 displayWhiteTarget: Double? = nil,
                 lutSize: Int = LUT3D.interactiveSize,
+                captureISO: Double? = nil,
                 space: RGBColorSpace = .rec2020) {
         self.recipe = recipe
         let develop = recipe.develop
@@ -139,6 +154,13 @@ public struct RenderPlan: Sendable {
             }
             return curve.apply(formed, white: white, space: space) / scale
         }
+
+        // ---- S3 ---------------------------------------------------------------
+        let noiseProfile = NoiseProfile.forISO(captureISO ?? 100)
+        let engine = ClassicalDenoise(ISODefaults.classic(for: develop.denoise),
+                                      profile: noiseProfile)
+        self.classicalDenoise = engine
+        self.denoiseIsIdentity = engine.isIdentity
 
         // ---- carried through --------------------------------------------------
         self.detail = develop.detail

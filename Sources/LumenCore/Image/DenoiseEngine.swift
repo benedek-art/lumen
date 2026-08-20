@@ -492,28 +492,24 @@ public struct ClassicalDenoise: Sendable {
         self.levels = Swift.min(Swift.max(levels, 1), ClassicalDenoise.maximumLevels)
     }
 
-    /// Build from the shipped recipe struct. `ClassicNR` carries only the three fields the
-    /// wire format has today (docs/07 §12.7), so the four LR-parity sub-sliders come from
-    /// defaults here:
+    /// Build from the shipped recipe struct. All seven sliders are on the wire now
+    /// (docs/07 §12.7 closed), so this reads every one of them and invents nothing: a
+    /// hand-set Luminance Detail reaches the engine, and the ISO-adaptive resolution
+    /// of docs/07 §2.1 happens once at import in `ISODefaults.classic(forISO:)` rather
+    /// than being re-derived on every render.
     ///
-    ///  - `isoDefaults == false` — the flat LR-parity defaults: Detail 50 / Contrast 0 /
-    ///    Color Detail 50 / Color Smoothness 50.
-    ///  - `isoDefaults == true` — the profiled, ISO-adaptive resolution docs/07 §2.1 calls
-    ///    Lumen's first departure from LR: with `n = noisiness(of:)` in [0,1] measured from
-    ///    the profile's σ at mid-gray, Luminance Detail falls to `50 − 10n` (less texture
-    ///    preservation where there is more noise than texture) and Color Smoothness rises to
-    ///    `50 + 40n` (blotches grow with gain). Contrast and Color Detail stay at their LR
-    ///    defaults; nothing here overrides a hand-set value, because those three fields come
-    ///    straight from `params`.
-    public init(_ params: ClassicNR, profile: NoiseProfile, isoDefaults: Bool) {
-        let n: Double = isoDefaults ? ClassicalDenoise.noisiness(of: profile) : 0
+    /// That ordering is the point. Resolving the adaptive defaults here would have made
+    /// them un-overridable — the engine would recompute them from the profile and
+    /// discard whatever the panel showed — which is precisely how a slider ends up
+    /// storing a value nothing reads.
+    public init(_ params: ClassicNR, profile: NoiseProfile) {
         self.init(luma: params.luma,
                   chroma: params.chroma,
                   hotPixels: params.hotPixels,
-                  lumaDetail: 50 - 10 * n,
-                  lumaContrast: 0,
-                  colorDetail: 50,
-                  colorSmoothness: 50 + 40 * n,
+                  lumaDetail: params.lumaDetail,
+                  lumaContrast: params.lumaContrast,
+                  colorDetail: params.colorDetail,
+                  colorSmoothness: params.colorSmoothness,
                   profile: profile,
                   levels: ClassicalDenoise.defaultLevels)
     }
@@ -596,6 +592,22 @@ public struct ClassicalDenoise: Sendable {
 
     // MARK: The pass
 
+    /// How much of the full shrinking strength is actually in play. The unbiased
+    /// inverse's asymptotic correction is a debias for an estimated coefficient and a
+    /// pedestal for an unshrunk one, so it is applied in proportion — see
+    /// `VST.inverse(_:profile:shrinkage:)`.
+    public var shrinkageFraction: Double {
+        Num.saturate(Swift.max(ClassicalDenoise.lumaK(luma) / ClassicalDenoise.lumaMaxK,
+                               ClassicalDenoise.chromaK(chroma) / ClassicalDenoise.chromaMaxK))
+    }
+
+    /// True when this configuration cannot move a pixel, so a caller can skip the whole
+    /// stage rather than run an identity through forty graph nodes.
+    public var isIdentity: Bool {
+        hotPixels <= 0 && ClassicalDenoise.lumaK(luma) <= 0
+            && ClassicalDenoise.chromaK(chroma) <= 0
+    }
+
     /// Run Tier 1 over a linear scene-referred buffer. `space` supplies the luminance
     /// weights for the guided-filter guide, so the blotch pass follows real luminance
     /// structure rather than an assumed Rec.709 weighting.
@@ -607,7 +619,7 @@ public struct ClassicalDenoise: Sendable {
     /// It is also what the first slider step used to cost. Skipping the round trip at
     /// zero is not the same as the round trip being harmless just above zero: at
     /// Luminance 1 the whole image went through it, and the unbiased inverse lifted
-    /// every pixel by a constant. `shrinkage` below is what makes the step small
+    /// every pixel by a constant. `shrinkageFraction` is what makes the step small
     /// instead of the full pedestal.
     public func apply(_ image: ImageBuffer, space: RGBColorSpace = .rec2020) -> ImageBuffer {
         var work = image
@@ -619,12 +631,7 @@ public struct ClassicalDenoise: Sendable {
         let kC = ClassicalDenoise.chromaK(chroma)
         guard kL > 0 || kC > 0 else { return work }
 
-        // How much of the full shrinking strength is actually in play. The unbiased
-        // inverse's asymptotic correction is a debias for an estimated coefficient and
-        // a pedestal for an unshrunk one, so it is applied in proportion — see
-        // `VST.inverse(_:profile:shrinkage:)`.
-        let shrinkage = Num.saturate(Swift.max(kL / ClassicalDenoise.lumaMaxK,
-                                               kC / ClassicalDenoise.chromaMaxK))
+        let shrinkage = shrinkageFraction
 
         let w = work.width
         let h = work.height
@@ -678,28 +685,18 @@ public struct ClassicalDenoise: Sendable {
         }
 
         // 3. Shrinkage, per plane, in VST space.
-        let coarseDivisor = Double(Swift.max(levelCount - 1, 1))
         if kL > 0 {
-            let detailScale = 1.5 - lumaDetail / 100
-            let contrast = lumaContrast / 100
-            p0 = shrink(p0, levels: levelCount, k: kL, detailScale: detailScale,
-                        edge: lumaEdge, edgeProtection: ClassicalDenoise.lumaEdgeProtection,
-                        bandScale: { j in
-                            let coarse = Double(j) / coarseDivisor
-                            return Swift.max(1 - ClassicalDenoise.lumaContrastReach * contrast * coarse, 0)
-                        })
+            p0 = shrink(p0, thresholds: lumaThresholds(levels: levelCount),
+                        edge: lumaEdge, edgeProtection: ClassicalDenoise.lumaEdgeProtection)
         }
         if kC > 0 {
             let smooth = colorSmoothness / 100
             let protection = colorDetail / 100
-            let bandScale: (Int) -> Double = { j in
-                let coarse = Double(j) / coarseDivisor
-                return 1 + ClassicalDenoise.colorSmoothnessReach * smooth * coarse
-            }
-            p1 = shrink(p1, levels: levelCount, k: kC, detailScale: 1.0,
-                        edge: chromaEdge, edgeProtection: protection, bandScale: bandScale)
-            p2 = shrink(p2, levels: levelCount, k: kC, detailScale: 1.0,
-                        edge: chromaEdge, edgeProtection: protection, bandScale: bandScale)
+            let thresholds = chromaThresholds(levels: levelCount)
+            p1 = shrink(p1, thresholds: thresholds,
+                        edge: chromaEdge, edgeProtection: protection)
+            p2 = shrink(p2, thresholds: thresholds,
+                        edge: chromaEdge, edgeProtection: protection)
 
             // Large-scale chroma blotches survive band shrinkage because they *are* the
             // coarse band; a luminance-guided edge-preserving smooth is what removes them
@@ -737,16 +734,56 @@ public struct ClassicalDenoise: Sendable {
         return out
     }
 
-    private func shrink(_ plane: Plane, levels levelCount: Int, k: Double,
-                        detailScale: Double, edge: Plane, edgeProtection: Double,
-                        bandScale: (Int) -> Double) -> Plane {
-        guard k > 0 && detailScale > 0 else { return plane }
+    /// The per-band soft-threshold base for the luma plane, in units of the VST plane's
+    /// unit noise σ. **One definition, read by both paths**: the CPU reference shrinks
+    /// with exactly this array and the GPU stage uploads exactly this array, so the two
+    /// cannot drift into disagreeing about what a slider means.
+    ///
+    /// `Luminance` sets the master scale, `Luminance Detail` multiplies the threshold
+    /// (`1.5 − detail/100`, so 50 ⇒ ×1.0), and `Luminance Contrast` pulls the coarse
+    /// bands' thresholds down so coarse luminance structure survives — at the cost of
+    /// mottling, which is LR's own tradeoff.
+    public func lumaThresholds(levels levelCount: Int) -> [Double] {
+        let k = ClassicalDenoise.lumaK(luma)
+        let detailScale = 1.5 - lumaDetail / 100
+        let contrast = lumaContrast / 100
+        let coarseDivisor = Double(Swift.max(levelCount - 1, 1))
+        guard k > 0 && detailScale > 0 else {
+            return [Double](repeating: 0, count: Swift.max(levelCount, 0))
+        }
+        return (0..<Swift.max(levelCount, 0)).map { j in
+            let coarse = Double(j) / coarseDivisor
+            let band = Swift.max(1 - ClassicalDenoise.lumaContrastReach * contrast * coarse, 0)
+            return k * detailScale * ClassicalDenoise.detailSigma(level: j) * band
+        }
+    }
+
+    /// The per-band soft-threshold base for both chroma planes. `Colour Smoothness`
+    /// pushes the coarse bands' thresholds up, which is where blotches live.
+    public func chromaThresholds(levels levelCount: Int) -> [Double] {
+        let k = ClassicalDenoise.chromaK(chroma)
+        let smooth = colorSmoothness / 100
+        let coarseDivisor = Double(Swift.max(levelCount - 1, 1))
+        guard k > 0 else {
+            return [Double](repeating: 0, count: Swift.max(levelCount, 0))
+        }
+        return (0..<Swift.max(levelCount, 0)).map { j in
+            let coarse = Double(j) / coarseDivisor
+            let band = 1 + ClassicalDenoise.colorSmoothnessReach * smooth * coarse
+            return k * ClassicalDenoise.detailSigma(level: j) * band
+        }
+    }
+
+    private func shrink(_ plane: Plane, thresholds: [Double],
+                        edge: Plane, edgeProtection: Double) -> Plane {
+        let levelCount = thresholds.count
+        guard levelCount > 0 else { return plane }
         let decomposition = SpatialOps.atrousWavelet(plane, levels: levelCount)
         var details: [Plane] = decomposition.details
         let n = details.count
         guard n > 0 else { return plane }
         for j in 0..<n {
-            let base = k * detailScale * ClassicalDenoise.detailSigma(level: j) * bandScale(j)
+            let base = j < thresholds.count ? thresholds[j] : 0
             if !(base > 0) { continue }
             details[j] = ClassicalDenoise.softThreshold(details[j], threshold: base,
                                                         edge: edge, protection: edgeProtection)
@@ -875,6 +912,212 @@ public struct ClassicalDenoise: Sendable {
             }
         }
         return out
+    }
+
+    // MARK: - The GPU stage's parameters
+
+    /// Everything the Core Image stage needs, resolved once per plan, in the units its
+    /// kernels work in. Defined here, beside the reference, because the two must not be
+    /// able to disagree about what a slider means: the thresholds below are literally
+    /// `lumaThresholds`/`chromaThresholds`, and `encodedForward`/`encodedInverse` are
+    /// the expressions the shaders evaluate, written once in Swift so a test on a
+    /// machine with no GPU can check them against `VST`.
+    ///
+    /// ## The change of variables, and why there is one
+    ///
+    /// The GPU works in `g = scale · (f(x) − f(x₀))` rather than in `f(x)` directly,
+    /// where `f` is the generalized Anscombe transform and `x₀` is mid-grey. Both parts
+    /// cancel exactly — an à-trous detail band is unchanged by a constant offset, and
+    /// every threshold is homogeneous in the plane — so this is a numerical device, not
+    /// a different operator. It exists for two measured reasons:
+    ///
+    /// 1. **Range.** `f(x) = (2/a)·√(ax + 3a²/8 + b)` carries a `2/a` factor. For a
+    ///    read-noise-dominated profile — which is what `NoiseProfile.estimate` returns
+    ///    for a clean plane — that is enormous: at `a = 1e-11, b = 1e-6` the transform
+    ///    reaches 2.0e8, against a half-float working format whose largest finite value
+    ///    is 65 504. The stage would render infinities. Pedestal-relative, the same
+    ///    profile spans 1.6e4 and the `scale` below caps it at `encodedCeiling`.
+    /// 2. **Precision.** Half-float error is relative, so a band coefficient of 0.02
+    ///    riding on a pedestal of 67 is below the quantum. Modelled against the f64
+    ///    reference on a noisy 64×48 frame, the pedestal halves the half-float error of
+    ///    the whole stage: worst pixel 9.8e-4 against 1.6e-3, RMS 1.2e-4 against 2.2e-4.
+    ///
+    /// The forward expression is written as `2(x − x₀) / (√u + √u₀)` rather than as the
+    /// difference of two transforms. Those are algebraically the same — `u` and `u₀` are
+    /// affine in `x` with the same slope — but the difference form computes `2.0e8` and
+    /// subtracts `2.0e8` in a float32 shader, which leaves nothing. The quotient form
+    /// never forms the large quantity at all, and it degenerates correctly: as `a → 0`
+    /// it becomes `(x − x₀)/√b`, which is exactly `VST`'s own Gaussian branch, so the
+    /// kernel needs no branch for it.
+    public struct GPUPlan: Sendable {
+
+        /// À-trous levels this extent supports.
+        public let levels: Int
+        /// The noise model actually in force, already scaled for the render resolution.
+        public let profile: NoiseProfile
+        /// Linear level the encoded plane is centred on: mid-grey.
+        public let pedestalSignal: Double
+        /// `√u₀`, with `u₀ = a·x₀ + 3a²/8 + b`.
+        public let sqrtPedestal: Double
+        /// `x` below which the forward transform's radicand goes negative. The reference
+        /// returns 0 there; clamping the input to this value produces the same number,
+        /// because `f` of it IS 0.
+        public let signalFloor: Double
+        /// `f(x₀)`, the level the unbiased inverse's `d` is measured from. Zero on the
+        /// Gaussian branch, where there is no `d` clamp at all.
+        public let referenceLevel: Double
+        /// `a`, or 0 on the Gaussian branch where the unbiased correction vanishes.
+        public let unbiasedGain: Double
+        /// `minimumForward − f(x₀)`; the clamp expressed in the encoded plane.
+        public let minimumForwardRelative: Double
+        /// The homogeneous scale `s`.
+        public let encodedScale: Double
+        /// How much of full strength is in play, for the inverse's blend.
+        public let shrinkage: Double
+        /// Per-band luma thresholds, already multiplied by `encodedScale`.
+        public let lumaThresholds: [Double]
+        /// Per-band chroma thresholds, already multiplied by `encodedScale`.
+        public let chromaThresholds: [Double]
+        /// Edge-map protection: how far a strong edge backs the threshold off.
+        public let lumaProtection: Double
+        public let chromaProtection: Double
+        /// Edge-map smoothstep knees, already multiplied by `encodedScale`.
+        public let edgeKneeLow: Double
+        public let edgeKneeHigh: Double
+        /// Weight of the luminance-guided chroma blotch pass, 0 when it is off.
+        public let blotchMix: Double
+        /// Hot-pixel gate `k`; infinite when the pass is off.
+        public let hotPixelK: Double
+
+        /// The forward transform a shader computes, in Swift. Equal to
+        /// `encodedScale · (VST.forward(x) − VST.forward(x₀))` for every finite `x`.
+        public func encodedForward(_ x: Double) -> Double {
+            let a = profile.a
+            let b = profile.b
+            let clamped = Swift.max(x.isFinite ? x : 0, signalFloor)
+            let u = Swift.max(a * clamped + 0.375 * a * a + b, 0)
+            let denominator = u.squareRoot() + sqrtPedestal
+            guard denominator > 0 else { return 0 }
+            return encodedScale * 2 * (clamped - pedestalSignal) / denominator
+        }
+
+        /// The inverse a shader computes, in Swift. Equal to
+        /// `VST.inverse(g / encodedScale + VST.forward(x₀), shrinkage:)`.
+        ///
+        /// `x = x₀ + a·v²/4 + v·√u₀` is the algebraic inverse re-centred on `x₀`; it
+        /// follows from `f(x)² − f(x₀)² = (4/a)(x − x₀)` and needs neither `2/a` nor
+        /// `b/a`, both of which diverge as the shot term goes to zero.
+        public func encodedInverse(_ g: Double) -> Double {
+            let a = profile.a
+            let v = g.isFinite ? g / encodedScale : 0
+            let w = Swift.max(v, minimumForwardRelative)
+            let algebraic = pedestalSignal + 0.25 * a * v * v + v * sqrtPedestal
+            let clamped = pedestalSignal + 0.25 * a * w * w + w * sqrtPedestal
+            // Floored at 1 rather than at the transform's own 1.2247 minimum, exactly
+            // as the shader does. On the live branch `d` is already above that, so the
+            // floor is a no-op; on the degenerate branch — pure read noise, where
+            // `unbiasedGain` is zero — it is what keeps `0 · (1/0)` from being a NaN.
+            let d = Swift.max(w + referenceLevel, 1)
+            let i1 = 1.0 / d
+            let i2 = i1 * i1
+            let i3 = i2 * i1
+            let root32 = 1.224744871391589
+            let correction = 0.25 + 0.25 * root32 * i1 - 1.375 * i2 + 0.625 * root32 * i3
+            let t = Num.saturate(shrinkage)
+            return algebraic + t * (clamped - algebraic + unbiasedGain * correction)
+        }
+    }
+
+    /// Largest magnitude the encoded plane is allowed to reach, so `encodedScale` has a
+    /// number to solve for. 4096 leaves a 16× margin under half-float's 65 504 ceiling,
+    /// which covers speculars several stops above `encodedCeilingSignal`.
+    public static let encodedCeiling: Double = 4096
+    /// The scene level the ceiling is solved at — six stops above display white.
+    public static let encodedCeilingSignal: Double = 64
+
+    /// The same seven settings against a profile scaled for the render resolution.
+    ///
+    /// `noiseScale` multiplies the profile's variance. The interactive path decodes at
+    /// preview resolution, and downsampling averages the noise down with it: a 2560 px
+    /// preview of an 8000 px frame carries about a tenth the variance. Without this the
+    /// preview would be denoised as though it still had the sensor's full noise — a
+    /// heavily smoothed preview and a much lighter export of the same photograph, which
+    /// is the same class of lie the sharpening mask had before its structure tensor was
+    /// smoothed. It is an approximation: the factor is exact for an area average and
+    /// optimistic for whatever resampler the decoder actually used. Above 1 it is
+    /// ignored, because a caller bug must not amplify a noise model.
+    public func scaled(noiseScale: Double) -> ClassicalDenoise {
+        let k = (noiseScale.isFinite && noiseScale > 0) ? Swift.min(noiseScale, 1) : 1
+        guard k < 1 else { return self }
+        return ClassicalDenoise(luma: luma, chroma: chroma, hotPixels: hotPixels,
+                                lumaDetail: lumaDetail, lumaContrast: lumaContrast,
+                                colorDetail: colorDetail,
+                                colorSmoothness: colorSmoothness,
+                                profile: NoiseProfile(a: profile.a * k,
+                                                      b: profile.b * k),
+                                levels: levels)
+    }
+
+    /// Resolve the GPU stage's parameters for one extent and one render scale. The
+    /// graph calls this once per frame and reads nothing else — every threshold, knee
+    /// and constant the kernels take comes from here, so there is one definition of
+    /// what a slider means rather than two that can drift.
+    public func gpuPlan(width: Int, height: Int, noiseScale: Double = 1) -> GPUPlan {
+        let engine = scaled(noiseScale: noiseScale)
+        let scaled = engine.profile
+        let a = scaled.a
+        let b = scaled.b
+        let x0 = 0.18
+        let gaussian = a <= VST.minimumShot
+        let u0 = Swift.max(a * x0 + 0.375 * a * a + b, 0)
+        let sqrtU0 = u0.squareRoot()
+        let xFloor = gaussian ? -Double.greatestFiniteMagnitude
+                              : -(0.375 * a * a + b) / a
+        let reference = gaussian ? 0 : 2 * sqrtU0 / a
+        // A value that clamps nothing, for the branch where the reference applies no
+        // clamp: the Gaussian path returns `y·√b` before `d` is ever formed.
+        let minimumRelative = gaussian ? -Double.greatestFiniteMagnitude
+                                       : VST.minimumForward - reference
+
+        // Solve the homogeneous scale against the widest excursion this profile can
+        // produce over a plausible scene: black at one end, `encodedCeilingSignal` at
+        // the other. Both ends are written as the transform's own quotient form, so
+        // `reach` is in the same units as `encodedCeiling` by construction rather than
+        // by a comment claiming so.
+        let blackU = Swift.max(0.375 * a * a + b, 0)
+        let low = 2 * (0 - x0) / (blackU.squareRoot() + sqrtU0)
+        let ceilingU = Swift.max(a * ClassicalDenoise.encodedCeilingSignal + 0.375 * a * a + b, 0)
+        let high = 2 * (ClassicalDenoise.encodedCeilingSignal - x0) / (ceilingU.squareRoot() + sqrtU0)
+        let reach = Swift.max(abs(low), abs(high))
+        let scale = (reach.isFinite && reach > ClassicalDenoise.encodedCeiling)
+            ? ClassicalDenoise.encodedCeiling / reach
+            : 1
+
+        let levelCount = effectiveLevels(width: width, height: height)
+        let kL = ClassicalDenoise.lumaK(luma)
+        let kC = ClassicalDenoise.chromaK(chroma)
+        let knee = 1.0 / (2.0 * Double.pi.squareRoot() * ClassicalDenoise.edgeBlurSigma)
+        let blotch = Num.saturate(colorSmoothness / 100) * Num.saturate(chroma / 100)
+
+        return GPUPlan(
+            levels: levelCount,
+            profile: scaled,
+            pedestalSignal: x0,
+            sqrtPedestal: sqrtU0,
+            signalFloor: xFloor,
+            referenceLevel: reference,
+            unbiasedGain: gaussian ? 0 : a,
+            minimumForwardRelative: minimumRelative,
+            encodedScale: scale,
+            shrinkage: engine.shrinkageFraction,
+            lumaThresholds: engine.lumaThresholds(levels: levelCount).map { $0 * scale },
+            chromaThresholds: engine.chromaThresholds(levels: levelCount).map { $0 * scale },
+            lumaProtection: kL > 0 ? ClassicalDenoise.lumaEdgeProtection : 0,
+            chromaProtection: kC > 0 ? Num.saturate(colorDetail / 100) : 0,
+            edgeKneeLow: ClassicalDenoise.edgeKneeLow * knee * scale,
+            edgeKneeHigh: ClassicalDenoise.edgeKneeHigh * knee * scale,
+            blotchMix: kC > 0 ? 0.5 * blotch : 0,
+            hotPixelK: ClassicalDenoise.hotPixelK(hotPixels))
     }
 
     // MARK: Teaching view
@@ -1306,10 +1549,40 @@ public enum ISODefaults {
 
     /// The full Tier-1 default block for an ISO. Hot Pixels stays at 0: it is a defect
     /// control, not a noise control, and defects do not scale with gain.
+    ///
+    /// The four sub-sliders resolve here too, which is docs/07 §2.1's first departure
+    /// from Lightroom: with `n = ClassicalDenoise.noisiness(of:)` in [0,1] measured from
+    /// the profile's σ at mid-grey, Luminance Detail falls to `50 − 10n` (less texture
+    /// to preserve where there is more noise than texture) and Colour Smoothness rises
+    /// to `50 + 40n` (blotches grow with gain). Contrast and Colour Detail stay at LR's
+    /// defaults, where nothing measured says otherwise.
+    ///
+    /// Resolved to concrete numbers ONCE, at import, and written into the recipe — so
+    /// the panel shows what will render, a later edit to these anchors cannot silently
+    /// restyle photographs already in the catalog, and a hand-set value is never
+    /// recomputed out from under the user.
     public static func classic(forISO iso: Double) -> ClassicNR {
-        ClassicNR(luma: luminance(forISO: iso),
-                  chroma: color(forISO: iso),
-                  hotPixels: 0)
+        let n = ClassicalDenoise.noisiness(of: NoiseProfile.forISO(iso))
+        return ClassicNR(luma: luminance(forISO: iso),
+                         chroma: color(forISO: iso),
+                         hotPixels: 0,
+                         lumaDetail: Num.clamp(50 - 10 * n, 0, 100),
+                         lumaContrast: 0,
+                         colorDetail: 50,
+                         colorSmoothness: Num.clamp(50 + 40 * n, 0, 100))
+    }
+
+    /// The Tier-1 block an unedited photo starts with, given what its EXIF says. A file
+    /// with no ISO recorded keeps the flat wire defaults rather than being handed a
+    /// guess: an invented profile is worse than an honest absence.
+    ///
+    /// This is the import-time caller docs/07 §4 describes. It is also the only place
+    /// the anchors are read, so "ISO-adaptive defaults" is a claim with one traceable
+    /// implementation rather than a table nobody calls.
+    public static func startingDenoise(forISO iso: Double?) -> Denoise {
+        guard let iso, iso.isFinite, iso > 0 else { return Denoise() }
+        return Denoise(mode: .classic, amount: aiAmount(forISO: iso),
+                       model: nil, classic: classic(forISO: iso))
     }
 
     /// The Tier-2 Amount default for an ISO.

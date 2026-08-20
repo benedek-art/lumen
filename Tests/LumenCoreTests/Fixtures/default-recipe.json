@@ -24,8 +24,12 @@
    "amount": 50,
    "classic": {
     "chroma": 25,
+    "colorDetail": 50,
+    "colorSmoothness": 50,
     "hotPixels": 0,
-    "luma": 0
+    "luma": 0,
+    "lumaContrast": 0,
+    "lumaDetail": 50
    },
    "mode": "classic"
   },

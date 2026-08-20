@@ -485,8 +485,7 @@ final class EngineIntegrationTests: XCTestCase {
     func testClassicalDenoiseAtZeroIsIdentity() {
         let source = ramp()
         let engine = ClassicalDenoise(ClassicNR(luma: 0, chroma: 0, hotPixels: 0),
-                                      profile: NoiseProfile.forISO(100),
-                                      isoDefaults: false)
+                                      profile: NoiseProfile.forISO(100))
         let out = engine.apply(source)
         // Bit-exact for the same reason: with no hot-pixel pass and both shrinkage
         // constants at zero, `apply` returns its input.
@@ -499,8 +498,7 @@ final class EngineIntegrationTests: XCTestCase {
             return RGB(gray: 0.2 + n)
         }
         let engine = ClassicalDenoise(ClassicNR(luma: 70, chroma: 60, hotPixels: 0),
-                                      profile: NoiseProfile.forISO(6400),
-                                      isoDefaults: false)
+                                      profile: NoiseProfile.forISO(6400))
         let out = engine.apply(noisy)
         let before = standardDeviation(noisy.luminancePlane())
         let after = standardDeviation(out.luminancePlane())

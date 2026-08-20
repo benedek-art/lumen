@@ -28,6 +28,9 @@ final class CatalogService: @unchecked Sendable {
         var rating: Int
         var label: ColorLabel
         var recipe: Recipe?
+        /// The capture ISO the backfill read, carried through so an unedited photo can
+        /// start on the noise-reduction defaults its own gain calls for.
+        var iso: Int?
     }
 
     private let store: CatalogStore
@@ -168,7 +171,8 @@ final class CatalogService: @unchecked Sendable {
                            flag: appFlag(merged.flag),
                            rating: merged.rating,
                            label: appLabel(merged.label),
-                           recipe: merged.recipe)
+                           recipe: merged.recipe,
+                           iso: row.iso)
     }
 
     // MARK: - Culling state
