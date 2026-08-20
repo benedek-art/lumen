@@ -66,13 +66,17 @@ filtered down to deduplicated diagnostics so a round is readable.
 > — treat them as unverified until a run gets past this point.
 >
 > What stood in for it meanwhile, and still runs on every push: the Python mirror below,
-> and `scripts/check-swift-surface.py`, which makes four mechanical passes over the
+> and `scripts/check-swift-surface.py`, which makes five mechanical passes over the
 > whole tree — every capitalized identifier resolves against the declarations in-tree,
 > every `Type(...)` call site matches one of that type's declared initializers, every
-> call to an actor-isolated member is awaited, and every `TypeName.member` names
-> something that type has. Each pass is verified able to fail by substituting wrong
-> code, and the third exists because a missing `await` was found by hand in code the
-> first two both accepted. They catch renames, typos, reshaped initializers and
+> call to an actor-isolated member is awaited, every `TypeName.member` names something
+> that type has, and every platform symbol is used in a file that imports its module.
+> Each pass is verified able to fail by substituting wrong code; the third exists
+> because a missing `await` was found by hand in code the first two both accepted, and
+> the fifth because pass 1 waved `SQLITE_CORRUPT` through — its known-platform list is
+> global, imports are per-file, and "that is a real symbol" was never the same question
+> as "that symbol is in scope here". Pass 5 now reproduces the compiler's diagnostic on
+> that file and line exactly. They catch renames, typos, reshaped initializers and
 > isolation slips. They do not check a single type, they cannot see leading-dot enum
 > cases, and they are not a compiler.
 

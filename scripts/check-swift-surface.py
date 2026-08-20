@@ -35,6 +35,7 @@ is printed so the silence is visible rather than implied.
     python3 scripts/check-swift-surface.py     # 0 if clean, 1 if anything is flagged
 """
 
+import collections
 import re
 import sys
 from pathlib import Path
@@ -133,6 +134,9 @@ EXTENSION = re.compile(r"\bextension\s+([A-Z]\w*)")
 # Not preceded by a dot: `Foo.Bar` and `T.Type` resolve through their base, which
 # is checked on its own, and `.RGBAf` is an enum case rather than a type.
 CAPITALIZED = re.compile(r"(?<![\w.])([A-Z]\w*)\b")
+# Pass 5 also needs lower-case module symbols (sqlite3_open), which CAPITALIZED
+# by construction cannot see.
+SYMBOLISH = re.compile(r"(?<![\w.])([A-Za-z_]\w*)\b")
 # Generic parameter lists, so `struct BeforeAfterSplit<Before: View, After: View>`
 # declares `Before` and `After` rather than reporting them as unknown types.
 GENERIC_LIST = re.compile(
@@ -630,6 +634,93 @@ def pass_members():
     return False
 
 
+
+
+# ==========================================================================
+# Pass 5 — a platform symbol is in scope only where its module is imported
+# ==========================================================================
+#
+# Pass 1 resolves a name against KNOWN, which is one list for the whole tree. But
+# imports are per-file, so "this is a real platform symbol" and "this symbol is in
+# scope here" are different questions, and pass 1 only ever asked the first. That is
+# how `SQLITE_CORRUPT` sailed through: CatalogStore.swift matched on it while importing
+# no SQLite3, and pass 1 saw a name on the list and said yes. The macOS compiler said
+# `cannot find 'SQLITE_CORRUPT' in scope`, which is the whole error this pass exists
+# to have caught first.
+#
+# Scope is deliberately narrow. A prefix is only listed when it is a real namespace —
+# every symbol carrying it comes from that one module and from nowhere else. CG* is
+# absent for exactly this reason: CGFloat and CGRect arrive with Foundation, so
+# requiring `import CoreGraphics` for them would be wrong. NS* likewise straddles
+# Foundation and AppKit. When in doubt the prefix is left out and this pass says
+# nothing about it, rather than saying something false.
+MODULE_PREFIXES = {
+    "SQLite3": ("SQLITE_", "sqlite3"),
+    "CoreImage": ("CI", "kCI"),
+    "Metal": ("MTL",),
+}
+
+# `import CoreImage.CIFilterBuiltins` imports CoreImage. Submodule paths count.
+IMPORT = re.compile(r"(?:^|\n)\s*(?:@\w+\s+)?import\s+([\w.]+)")
+
+def owning_module(name):
+    for module, prefixes in MODULE_PREFIXES.items():
+        for prefix in prefixes:
+            if name.startswith(prefix) and len(name) > len(prefix):
+                # "CI" must be followed by an upper-case letter or the rule catches
+                # ordinary words like "Circle" and "Color".
+                # "CI" must be followed by an upper-case letter. Without this the
+                # rule swallows ordinary words (Circle, Color) and Swift's own
+                # C-interop shims — CIntegerType is the only one that even reaches
+                # here, and the lower-case "n" turns it away. An exception list was
+                # written for those and then measured: every entry on it was already
+                # rejected by this line or never matched the prefix at all, so it was
+                # inert and is gone.
+                if prefix in ("CI", "kCI") and not name[len(prefix)].isupper():
+                    continue
+                return module
+    return None
+
+
+def pass_module_imports():
+    problems = []
+    checked = collections.Counter()
+    for path in FILES:
+        raw = path.read_text()
+        imported = set(IMPORT.findall(raw))
+        # A submodule import brings its parent in.
+        imported |= {name.split(".")[0] for name in imported}
+        text = strip_all(raw)
+        seen = {}
+        for lineno, line in enumerate(text.split("\n"), 1):
+            for name in SYMBOLISH.findall(line):
+                module = owning_module(name)
+                if module is None:
+                    continue
+                checked[module] += 1
+                if module in imported:
+                    continue
+                seen.setdefault((module, name), lineno)
+        for (module, name), lineno in seen.items():
+            problems.append(
+                (path.relative_to(ROOT).as_posix(), lineno, module, name))
+
+    # Per-module counts, not one total. Metal is listed and currently matches nothing
+    # in the tree, and a single clean number would let "imports: ok" be read as "Metal
+    # is checked" when no Metal symbol exists to check.
+    tally = ", ".join(f"{m} {checked[m]}" for m in sorted(MODULE_PREFIXES))
+    if not problems:
+        print(f"imports:  every platform symbol whose module is identifiable is used "
+              f"in a file that imports it\n          uses seen: {tally}")
+        return True
+
+    print(f"imports:  {len(problems)} platform symbols used where their module is "
+          f"not imported\n")
+    for path, lineno, module, name in sorted(problems):
+        print(f"  {name:<28} needs `import {module}`  {path}:{lineno}")
+    return False
+
+
 if __name__ == "__main__":
     ok = pass_symbols()
     print()
@@ -638,4 +729,6 @@ if __name__ == "__main__":
     ok = pass_actor_await() and ok
     print()
     ok = pass_members() and ok
+    print()
+    ok = pass_module_imports() and ok
     sys.exit(0 if ok else 1)
