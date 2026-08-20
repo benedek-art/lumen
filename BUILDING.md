@@ -48,6 +48,20 @@ export it (⌘E).
 
 ## How this code was verified
 
+**LumenCore compiles and tests locally now.** `scripts/install-linux-toolchain.sh`
+fetches a Linux Swift toolchain; `swift build --target LumenCore` takes about ten
+seconds and `swift test --filter LumenCoreTests` runs the ~200 tests that do not need
+Core Image. That covers eighteen thousand lines — all the colour science, tone, grade,
+film, detail, denoise, mask algebra, catalog and XMP.
+
+It does NOT cover LumenPipeline or LumenApp, which are `#if os(macOS)` and need Core
+Image, AppKit and SwiftUI. Those still go through the macOS runner, and
+`scripts/check-swift-surface.py` remains their only local feedback — which is why that
+script has six passes rather than one. Two bugs shipped in a single afternoon that a
+compiler catches in seconds: a member that did not exist on a type, and an overlay
+drawing against a rectangle the renderer had already applied.
+
+
 There is no Swift toolchain on the machine this was written on, and swift.org is
 blocked by its egress policy. So the verification loop is **GitHub Actions' macOS
 runner**: it compiles all four targets and runs both suites there, and the CI log is
