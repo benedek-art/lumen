@@ -124,5 +124,5 @@ jobs:
       # identifiers and call sites whose labels match no declared initializer, which is
       # what a reshaped struct leaves behind. It costs seconds and it is the only
       # feedback on the Swift at all when the macOS runner cannot start.
-      - name: Swift surface — symbols and initializer labels
+      - name: Swift surface — symbols, init labels, actor await, members
         run: python3 scripts/check-swift-surface.py

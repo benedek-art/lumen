@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Two mechanical passes over the Swift sources, for when there is no compiler.
+"""Four mechanical passes over the Swift sources, for when there is no compiler.
 
 This is NOT a type checker and must never be described as one. It catches four classes
 of error, all of which a tree that has not been compiled in a while is likely to carry:
