@@ -53,7 +53,6 @@ struct BasicPanel: View {
 
     @State private var showPivot: Bool = false
     @State private var showSaturationAdvanced: Bool = false
-    @State private var isPickingNeutral: Bool = false
 
     private var binder: RecipeBinder { RecipeBinder(state: state) }
     private var recipe: Recipe { state.currentRecipe }
@@ -98,10 +97,6 @@ struct BasicPanel: View {
                             defaultValue: asShotTintStandIn,
                             step: 1, decimals: 0,
                             onReset: { applyAsShot() })
-                if isPickingNeutral {
-                    DevelopNote("Click a light neutral grey in the loupe — not white. "
-                                + "The solve targets R = G = B at the sampled patch.")
-                }
             }
         }
     }
@@ -127,24 +122,28 @@ struct BasicPanel: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .help("White balance preset — any manual move reads as Custom")
 
-            Button {
-                isPickingNeutral.toggle()
-                state.statusMessage = isPickingNeutral
-                    ? "Pick a light neutral grey to set white balance (W)"
-                    : nil
-            } label: {
+            // Disabled, so the action is empty rather than dead code that cannot run.
+            Button {} label: {
                 Image(systemName: "eyedropper")
                     .font(.system(size: 11))
                     .padding(.horizontal, 5)
                     .padding(.vertical, 3)
-                    .background(isPickingNeutral
-                                ? Lumen.accent.opacity(0.6) : Lumen.controlBackground)
+                    .background(Lumen.controlBackground)
                     .foregroundStyle(Lumen.primaryText)
                     .clipShape(RoundedRectangle(cornerRadius: 4))
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help("Sample a neutral to solve Temp and Tint (W)")
+            // Honest about not working. The solver exists and is correct
+            // (`WhiteBalanceEngine.neutralizing`) and has no caller: it needs a
+            // WORKING-SPACE sample — scene-linear, after S6 — and the only thing the
+            // app can sample is the display-referred preview, which has been through
+            // the whole tone and display transform. Wiring it means a new probe through
+            // the renderer, not a click handler. Until then the button must not imply
+            // that clicking the image does something.
+            .help("Not wired in this build — the neutral solver has no way to sample "
+                  + "scene-linear values yet. Use the presets or the Temp/Tint sliders.")
+            .disabled(true)
         }
         .frame(height: Lumen.rowHeight)
     }

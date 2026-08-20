@@ -509,9 +509,13 @@ struct MaskPanel: View {
                         wheelsSlider(mask.id, "Blending", \.blending, 0...100, 50)
                         wheelsSlider(mask.id, "Balance", \.balance, -100...100, 0, bipolar: true)
                     } else {
-                        note("Grading wheels inside a mask — the second thing Lightroom does "
-                             + "not have locally. Same colour space as the global grade, "
-                             + "inheriting its zone pivots.")
+                        note("Grading wheels inside a mask — the second thing Lightroom "
+                             + "does not have locally. Stored with the recipe and NOT "
+                             + "applied in this build: no stage reads adjust.wheels, so "
+                             + "moving one re-renders and changes no pixel. The rest of "
+                             + "this panel says which controls are unwired; this one "
+                             + "did not, which is the only reason it is worth saying "
+                             + "twice.")
                     }
                 }
             }

@@ -102,8 +102,11 @@ struct EffectsPanel: View {
                             range: -3.0...1.0, hardRange: nil, defaultValue: 0,
                             step: 0.01, decimals: 2)
                 DevelopNote("Stops at the corner, applied on scene-linear data before "
-                            + "the display transform and masked to the crop rectangle, "
-                            + "so it stays post-crop by construction.")
+                            + "the display transform, with the ellipse taken from the "
+                            + "crop rectangle so it stays centred on what you see. A "
+                            + "straighten angle shifts it slightly — the crop is "
+                            + "measured on the straightened frame and this stage runs "
+                            + "before the rotation.")
             }
         }
     }
@@ -128,7 +131,13 @@ struct EffectsPanel: View {
                                 value: binder.custom("look.grain.amount",
                                                      get: { r in r.look.filmLab?.grain.amount ?? 0 },
                                                      set: { r, v in r.look.filmLab?.grain.amount = v }),
-                                range: 0...100, hardRange: nil, defaultValue: 0,
+                                // The stock's own grain, matching LookPanel — the
+                                // two panels bind the SAME field and disagreed about
+                                // its default, so after picking Portra 400 one read
+                                // "modified" and the other "default", and
+                                // double-clicking reset it to two different numbers.
+                                range: 0...100, hardRange: nil,
+                                defaultValue: grainDefault,
                                 step: 1, decimals: 0, bipolar: false)
                     LumenSlider(title: "Size",
                                 value: binder.custom("look.grain.size",
@@ -148,9 +157,16 @@ struct EffectsPanel: View {
         }
     }
 
+    /// The loaded stock's own grain amount — the same default `LookPanel` uses for the
+    /// same field. Two panels binding one value must agree about what neutral is, or
+    /// one of them shows "modified" while the other shows "default" for one number.
+    private var grainDefault: Double {
+        FilmStock.named(recipe.look.filmLab?.stock ?? "")?.grainDefault ?? 0
+    }
+
     private var isGrainModified: Bool {
         guard let film = recipe.look.filmLab else { return false }
-        return film.grain != FilmGrain()
+        return film.grain != FilmGrain(size: 1.0, amount: grainDefault)
     }
 
     private var grainReset: (() -> Void)? {
