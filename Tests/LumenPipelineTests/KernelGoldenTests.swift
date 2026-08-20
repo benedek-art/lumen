@@ -77,6 +77,175 @@ final class KernelGoldenTests: XCTestCase {
                               + "per-channel again, not a luminance ratio")
     }
 
+    // MARK: - Sharpening: Masking, Detail, and the structure the gate reads
+
+    /// A frame with three regions a sharpening mask has to tell apart: a hard vertical
+    /// edge, isotropic fine texture, and a smooth low-contrast ramp.
+    private func structureTestFrame(width: Int, height: Int) -> ImageBuffer {
+        var noise = [Double](repeating: 0, count: width * height)
+        // Deterministic, so a failure is reproducible rather than a coin flip.
+        var seed: UInt64 = 0x9E3779B97F4A7C15
+        for i in 0..<noise.count {
+            seed = seed &* 6364136223846793005 &+ 1442695040888963407
+            noise[i] = Double(seed >> 40) / Double(1 << 24) - 0.5
+        }
+        return ImageBuffer(width: width, height: height) { u, v in
+            let x = Int(u * Double(width)), y = Int(v * Double(height))
+            var value: Double
+            if v < 0.5 {
+                // Top half: an edge down the middle, with fine texture over it.
+                value = u < 0.5 ? 0.09 : 0.52
+                value *= 1.0 + 0.06 * noise[Swift.min(y * width + x, noise.count - 1)]
+            } else {
+                // Bottom half: a smooth ramp — a cheek or a clear sky.
+                value = 0.13 + 0.08 * v
+            }
+            return RGB(gray: value)
+        }
+    }
+
+    /// Masking must protect flat areas WITHOUT gutting the edges it exists to keep.
+    ///
+    /// The shipping gate read a raw per-pixel Sobel magnitude where the reference reads
+    /// √λ₁ of a box-smoothed structure tensor. Those are the same quantity only when the
+    /// smoothing radius is zero: an unsmoothed tensor is rank-1, so the mask came out
+    /// one pixel wide where the reference's is a band. Measured against the reference on
+    /// a synthetic frame, Masking then kept 17.8% of the sharpening delta on a genuine
+    /// edge against the reference's 73.7% — the slider was not protecting skin so much
+    /// as deleting the sharpening everywhere, and because a per-pixel gradient scales
+    /// with resolution it deleted a different amount in the loupe than in the export.
+    ///
+    /// Both halves are asserted. "Flat is protected" alone passes for a gate that
+    /// returns zero everywhere, which is exactly the bug this test was written for.
+    func testMaskingProtectsFlatAreasWithoutGuttingEdges() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+        let width = 64, height = 64
+        let source = structureTestFrame(width: width, height: height)
+        let input = ciImage(from: source)
+        let longEdge = 1600   // a realistic frame, so the tensor radius is the real one
+
+        let open = RenderGraph.applySharpen(
+            input, ManualSharpen(amount: 100, masking: 0), longEdge: longEdge)
+        let gated = RenderGraph.applySharpen(
+            input, ManualSharpen(amount: 100, masking: 80), longEdge: longEdge)
+
+        guard let before = readBack(input, width: width, height: height),
+              let ungated = readBack(open, width: width, height: height),
+              let masked = readBack(gated, width: width, height: height)
+        else { return XCTFail("sharpen render failed") }
+
+        func meanChange(_ image: ImageBuffer, xs: Range<Int>, ys: Range<Int>) -> Double {
+            var total = 0.0, count = 0
+            for y in ys {
+                for x in xs {
+                    total += abs(Double(image[x, y].g) - Double(before[x, y].g))
+                    count += 1
+                }
+            }
+            return count > 0 ? total / Double(count) : 0
+        }
+
+        // Columns 30…34 straddle the edge; 4…20 is texture well away from it.
+        let edgeOpen = meanChange(ungated, xs: 30..<34, ys: 4..<28)
+        let edgeMasked = meanChange(masked, xs: 30..<34, ys: 4..<28)
+        let flatOpen = meanChange(ungated, xs: 4..<20, ys: 4..<28)
+        let flatMasked = meanChange(masked, xs: 4..<20, ys: 4..<28)
+
+        XCTAssertGreaterThan(edgeOpen, 1e-4,
+                             "sharpening moved nothing on an edge, so this proves nothing")
+
+        // Flat areas: the gate has to actually close.
+        XCTAssertLessThan(flatMasked, flatOpen * 0.5,
+                          "Masking at 80 left \(flatMasked / Swift.max(flatOpen, 1e-12)) "
+                              + "of the sharpening in a flat area — the gate is not closing")
+
+        // Edges: and it has to stay open where the detail is. Before the structure
+        // tensor landed this ratio was 0.18.
+        let kept = edgeMasked / Swift.max(edgeOpen, 1e-12)
+        XCTAssertGreaterThan(kept, 0.5,
+                             "Masking at 80 kept only \(kept) of the sharpening on an "
+                                 + "edge — the gate is reading a per-pixel gradient, not "
+                                 + "a smoothed structure tensor")
+    }
+
+    /// The Detail slider has to reach pixels.
+    ///
+    /// It has twice been a no-op on this path: once because `CIUnsharpMask` had nowhere
+    /// to put it, and once because the fine band was blurred at a fixed sigma that
+    /// equalled the working radius at its default, making the two components of the
+    /// cross-fade bit-identical. Both times every test in the suite passed.
+    func testDetailSliderMovesThePicture() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+        let width = 64, height = 64
+        let source = structureTestFrame(width: width, height: height)
+        let input = ciImage(from: source)
+
+        let low = RenderGraph.applySharpen(
+            input, ManualSharpen(amount: 100, detail: 0), longEdge: 1600)
+        let high = RenderGraph.applySharpen(
+            input, ManualSharpen(amount: 100, detail: 100), longEdge: 1600)
+
+        guard let a = readBack(low, width: width, height: height),
+              let b = readBack(high, width: width, height: height)
+        else { return XCTFail("sharpen render failed") }
+
+        var worst = 0.0
+        for y in 0..<height {
+            for x in 0..<width { worst = Swift.max(worst, a[x, y].maxAbsDifference(b[x, y])) }
+        }
+        XCTAssertGreaterThan(worst, 1e-4,
+                             "Detail moved the frame by \(worst) across its whole range "
+                                 + "— the slider reaches no pixels")
+    }
+
+    /// Negative Texture must smooth isotropic texture harder than it smooths an edge.
+    ///
+    /// That asymmetry is the entire difference between a skin smoother and a negative
+    /// Clarity, and the coherence gate is what produces it. The shipping kernel had it
+    /// close to backwards: it squared the eigenvalue ratio, which the reference does
+    /// not, and it omitted the reference's strength gate, so a smooth low-contrast ramp
+    /// — a cheek, a sky — has a tiny gradient pointing consistently one way and read as
+    /// a coherent edge to be protected. Against the reference on the same frame:
+    /// isotropic texture 0.596 where the reference says 0.000, a smooth ramp 0.715
+    /// against 0.000, and a real edge protected LESS, 0.503 against 0.611.
+    func testNegativeTextureSmoothsTextureMoreThanEdges() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+        let width = 64, height = 64
+        let source = structureTestFrame(width: width, height: height)
+        let input = ciImage(from: source)
+
+        var detail = Detail()
+        detail.texture = -100
+        let output = RenderGraph.applyPresence(input, detail: detail, longEdge: 1600)
+
+        guard let before = readBack(input, width: width, height: height),
+              let after = readBack(output, width: width, height: height)
+        else { return XCTFail("presence render failed") }
+
+        func meanChange(xs: Range<Int>, ys: Range<Int>) -> Double {
+            var total = 0.0, count = 0
+            for y in ys {
+                for x in xs {
+                    total += abs(Double(after[x, y].g) - Double(before[x, y].g))
+                        / Swift.max(Double(before[x, y].g), 1e-6)
+                    count += 1
+                }
+            }
+            return count > 0 ? total / Double(count) : 0
+        }
+
+        let texture = meanChange(xs: 4..<20, ys: 4..<28)   // isotropic fine detail
+        let edge = meanChange(xs: 30..<34, ys: 4..<28)     // the coherent edge
+
+        XCTAssertGreaterThan(texture, 1e-5,
+                             "negative Texture smoothed nothing, so this proves nothing")
+        XCTAssertGreaterThan(texture, edge,
+                             "negative Texture moved the edge by \(edge) and the texture "
+                                 + "by \(texture) — the coherence gate is not "
+                                 + "distinguishing them, which is what makes it a skin "
+                                 + "smoother rather than a glow")
+    }
+
     // MARK: - The eyedropper's probe
 
     /// A source that hands back a known picture, so the probe can be asked whether it

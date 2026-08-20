@@ -190,9 +190,12 @@ public enum KernelLibrary {
         float bright = step(0.0, v) * halo;
         v = v * (1.0 - bright * smoothstep(0.15, 0.60, usm));
 
+        // `gradient` arrives in EV/px already — `structureTensor` scales at the source
+        // so one quantity is not denominated two different ways in two kernels. `range`
+        // still converts `lum` and `fine`, which are encoded.
         float edge = smoothstep(0.02 + 0.10 * masking,
                                 0.10 + 0.25 * masking,
-                                gradient.r * range);
+                                gradient.r);
         v = v * mix(1.0, edge, masking);
         return vec4(v, v, v, 1.0);
     }
@@ -210,10 +213,26 @@ public enum KernelLibrary {
 
     /// The three products of a structure tensor, packed into one plane so a single box
     /// blur smooths all of them: (gx², gy², gx·gy).
+    ///
+    /// The 3x3 Sobel responds with eight times the derivative on a linear ramp, which
+    /// is where the /8 comes from — without it every threshold expressed against this
+    /// tensor is off by a factor of 64. Normalised this way a Sobel and the reference's
+    /// central difference agree exactly on a ramp and to within a pixel of smoothing
+    /// elsewhere, which the box blur below then dwarfs.
+    ///
+    /// `scale` converts the incoming derivative into the units the thresholds downstream
+    /// are written in. The plane this reads is `LumenLog`-encoded, so one EV arrives as
+    /// 1/24 of a unit, while the reference's tensor is built on a plane in EV and every
+    /// threshold against it — sharpening's 0.02…0.35 EV/px mask, the coherence strength
+    /// gate — is stated in EV per pixel. Scaling HERE rather than at each reader also
+    /// keeps the products out of half-float's subnormal range: at the bottom of the
+    /// masking band a squared derivative is 6.9e-7 unscaled, below the smallest normal
+    /// half (6.1e-5) and quantised to about 8%, against 4.0e-4 once scaled. The band's
+    /// low end is exactly where the smoothstep decides, so that is not spare precision.
     static let structureTensorSource = """
-    kernel vec4 lumenStructureTensor(__sample gx, __sample gy) {
-        float x = gx.r / 8.0;
-        float y = gy.r / 8.0;
+    kernel vec4 lumenStructureTensor(__sample gx, __sample gy, float scale) {
+        float x = gx.r / 8.0 * scale;
+        float y = gy.r / 8.0 * scale;
         return vec4(x * x, y * y, x * y, 1.0);
     }
     """
@@ -231,8 +250,28 @@ public enum KernelLibrary {
     /// negative-Clarity glow: without the gate it attacks an eyelash as readily as a
     /// pore, and the face goes waxy while the edges go soft. docs/06 names the gate as
     /// the whole difference, and the shipping path had neither it nor the bands.
+    /// The ratio is NOT squared, and it is gated by strength. Both of those were wrong
+    /// here, in opposite directions, and between them they came close to inverting the
+    /// control this gate exists to make possible.
+    ///
+    /// Squaring `(λ₁−λ₂)/(λ₁+λ₂)` — which the comment above described and the reference
+    /// does not do — only ever lowers a value already in [0,1], so an edge read as less
+    /// coherent than it is and negative Texture softened it harder than it should.
+    /// Omitting the strength gate is the larger error: a gently shaded cheek or a clear
+    /// sky has a tiny gradient pointing consistently one way, so the ratio alone is
+    /// near 1 and the region reads as a "coherent edge" to be protected. Measured on a
+    /// frame with an edge, isotropic texture and a smooth ramp, against the reference:
+    /// on the texture the reference opens the gate fully (coherence 0.000) and this
+    /// returned 0.596; on the smooth ramp 0.000 against 0.715; and on the actual edge
+    /// it protected LESS than the reference, 0.503 against 0.611. Negative Texture was
+    /// therefore doing about a third of its work on skin while softening edges more
+    /// than specified — the waxy-face-and-soft-edges failure docs/06 names the gate to
+    /// prevent, produced by the gate itself.
+    ///
+    /// With the strength gate restored and the square dropped the three regions land on
+    /// 0.611 / 0.000 / 0.000 against the reference's 0.611 / 0.000 / 0.000.
     static let coherenceSource = """
-    kernel vec4 lumenCoherence(__sample tensor) {
+    kernel vec4 lumenCoherence(__sample tensor, float lo, float hi) {
         float jxx = tensor.r;
         float jyy = tensor.g;
         float jxy = tensor.b;
@@ -241,9 +280,31 @@ public enum KernelLibrary {
         float spread = sqrt(d * d + 4.0 * jxy * jxy);
         // A flat region has a trace of essentially zero and no orientation to speak
         // of, so it must read as ISOTROPIC. Dividing by it would say the opposite.
-        float c = spread / max(trace, 1e-8);
-        c = c * c * step(1e-8, trace);
-        return vec4(vec3(clamp(c, 0.0, 1.0)), 1.0);
+        float c = clamp(spread / max(trace, 1e-12), 0.0, 1.0) * step(1e-12, trace);
+        // Strength: direction means nothing without contrast behind it.
+        float magnitude = sqrt(max(0.5 * (trace + spread), 0.0));
+        return vec4(vec3(c * smoothstep(lo, hi, magnitude)), 1.0);
+    }
+    """
+
+    /// √λ₁ of the smoothed tensor — the gradient strength along the dominant local
+    /// direction, in the units `structureTensor` was scaled into.
+    ///
+    /// This replaces a per-pixel `sqrt(gx² + gy²)`, which is the same quantity only in
+    /// the limit of no smoothing at all: an unsmoothed tensor is rank-1, so λ₂ = 0 and
+    /// λ₁ = gx² + gy². The smoothing is the entire point. Without it the edge mask was
+    /// one pixel wide where the reference's is a band, and sharpening's Masking slider
+    /// kept 17.8% of its delta on an edge where the reference keeps 73.7% — it was not
+    /// protecting flat areas so much as deleting the sharpening everywhere. It also
+    /// made the mask resolution-dependent in a way the reference is not, which is why
+    /// a fit preview and a full-resolution export disagreed about the same photograph.
+    static let tensorMagnitudeSource = """
+    kernel vec4 lumenTensorMagnitude(__sample tensor) {
+        float trace = tensor.r + tensor.g;
+        float d = tensor.r - tensor.g;
+        float spread = sqrt(d * d + 4.0 * tensor.b * tensor.b);
+        float m = sqrt(max(0.5 * (trace + spread), 0.0));
+        return vec4(vec3(m), 1.0);
     }
     """
 
@@ -280,19 +341,6 @@ public enum KernelLibrary {
     static let subtractSource = """
     kernel vec4 lumenSubtract(__sample a, __sample b) {
         return vec4(a.rgb - b.rgb, a.a);
-    }
-    """
-
-    /// Gradient magnitude by Sobel, in the units of whatever plane it is given.
-    ///
-    /// The 3x3 Sobel responds with eight times the derivative on a linear ramp, which
-    /// is where the /8 comes from — without it the magnitude is eight times too large
-    /// and every threshold expressed against it is meaningless.
-    static let sobelMagnitudeSource = """
-    kernel vec4 lumenSobelMagnitude(__sample gx, __sample gy) {
-        float x = gx.r / 8.0;
-        float y = gy.r / 8.0;
-        return vec4(vec3(sqrt(x * x + y * y)), 1.0);
     }
     """
 
@@ -392,7 +440,7 @@ public enum KernelLibrary {
     public static let coherence = make(coherenceSource)
     public static let detailGainGated = make(detailGainGatedSource)
     public static let lumaRatio = make(lumaRatioSource)
-    public static let sobelMagnitude = make(sobelMagnitudeSource)
+    public static let tensorMagnitude = make(tensorMagnitudeSource)
     public static let dehaze = make(dehazeSource)
     public static let addGlow = make(addGlowSource)
     public static let highlightEnergy = make(highlightEnergySource)
@@ -416,7 +464,7 @@ public enum KernelLibrary {
             ("subtract", subtract), ("thresholdMask", thresholdMask),
             ("structureTensor", structureTensor),
             ("coherence", coherence), ("detailGainGated", detailGainGated),
-            ("sobelMagnitude", sobelMagnitude),
+            ("tensorMagnitude", tensorMagnitude),
             ("highlightEnergy", highlightEnergy),
         ]
         return all.filter { $0.1 == nil }.map { $0.0 }

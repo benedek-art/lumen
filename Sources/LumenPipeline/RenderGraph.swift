@@ -238,9 +238,15 @@ public struct RenderGraph {
             // That asymmetry is the whole difference between a skin smoother and a
             // negative-Clarity glow: ungated, it attacks an eyelash as readily as a
             // pore, so the face goes waxy while the edges go soft. docs/06 names the
-            // gate as the point of the control and the shipping path did not have it.
+            // gate as the point of the control.
+            //
+            // The radius is the reference's `workingRadius / 4`, not `mid`. It was
+            // `mid` here — four times too wide — which, together with the two errors in
+            // the coherence kernel itself, had the gate closing on the flat skin it is
+            // meant to smooth and opening on the edges it is meant to protect.
             let gate = d.texture < 0
-                ? Self.coherence(lum, radius: mid)
+                ? Self.localStructure(lum, radius: Self.structureRadius(longEdge: longEdge))?
+                    .coherence
                 : nil
             let gained: CIImage?
             if let gate {
@@ -475,10 +481,11 @@ public struct RenderGraph {
               let blurred = Self.gaussianBlur(lum, sigma: radius),
               let finestBlur = Self.gaussianBlur(lum, sigma: fineSigma),
               let fine = Self.subtract(lum, finestBlur),
-              let gradient = Self.gradientMagnitude(lum),
+              let structure = Self.localStructure(
+                lum, radius: Self.structureRadius(longEdge: longEdge)),
               let delta = KernelLibrary.apply(
                 KernelLibrary.sharpenDelta, extent: image.extent,
-                [lum, blurred, fine, gradient, Float(amount), Float(detail),
+                [lum, blurred, fine, structure.magnitude, Float(amount), Float(detail),
                  Float(masking), Float(halo), Float(LumenLog.range)]),
               let out = KernelLibrary.apply(KernelLibrary.lumaRatio,
                                             extent: image.extent,
@@ -517,12 +524,24 @@ public struct RenderGraph {
         KernelLibrary.apply(KernelLibrary.subtract, extent: a.extent, [a, b])
     }
 
-    /// Structure-tensor coherence: 0 on isotropic texture, 1 on a coherent edge.
+    /// Local structure of a log-luminance plane: gradient strength along the dominant
+    /// direction, and how directed that neighbourhood is. The GPU counterpart of
+    /// `DetailEngine.structureTensor`, and the same two outputs off one smoothed tensor
+    /// because that is what they cost — sharpening's edge mask and negative Texture's
+    /// skin gate are two reads of one quantity, not two filters.
     ///
-    /// `radius` sets the neighbourhood the tensor is averaged over. Too small and every
-    /// pixel looks like an edge because a two-pixel window cannot tell a pore from a
-    /// jawline; the reference uses a mid-scale window and so does this.
-    static func coherence(_ plane: CIImage, radius: Int) -> CIImage? {
+    /// `magnitude` is √λ₁ in EV per pixel, so a threshold on it is a statement about
+    /// contrast rather than about exposure. `coherence` is (λ₁−λ₂)/(λ₁+λ₂) gated by
+    /// strength: 1 on a directed, high-contrast edge and 0 on isotropic texture.
+    ///
+    /// The smoothing radius is the reference's, `workingRadius / 4`, floored at 2
+    /// rather than at 1 because `CIBoxBlur` returns its input unchanged at radius 1 —
+    /// an unsmoothed tensor is rank-1, which collapses coherence to a constant 1 and
+    /// the magnitude to a bare per-pixel gradient. That floor is the one deliberate
+    /// departure: on a frame small enough for `workingRadius / 4` to reach 1 the GPU
+    /// averages a 5x5 window where the reference averages 3x3.
+    static func localStructure(_ plane: CIImage, radius: Int)
+        -> (magnitude: CIImage, coherence: CIImage)? {
         let horizontal = CIFilter.convolution3X3()
         horizontal.inputImage = plane.clampedToExtent()
         horizontal.weights = CIVector(values: [-1, 0, 1, -2, 0, 2, -1, 0, 1], count: 9)
@@ -533,30 +552,36 @@ public struct RenderGraph {
         vertical.bias = 0
         guard let gx = horizontal.outputImage?.cropped(to: plane.extent),
               let gy = vertical.outputImage?.cropped(to: plane.extent),
-              let tensor = KernelLibrary.apply(KernelLibrary.structureTensor,
-                                               extent: plane.extent, [gx, gy]),
-              let smoothed = Self.boxBlur(tensor, radius: radius)
+              let tensor = KernelLibrary.apply(
+                KernelLibrary.structureTensor, extent: plane.extent,
+                [gx, gy, Float(LumenLog.range)]),
+              let smoothed = Self.boxBlur(tensor, radius: Swift.max(radius, 2)),
+              let magnitude = KernelLibrary.apply(KernelLibrary.tensorMagnitude,
+                                                  extent: plane.extent, [smoothed]),
+              let coherence = KernelLibrary.apply(
+                KernelLibrary.coherence, extent: plane.extent,
+                [smoothed, Float(Self.coherenceStrengthLow),
+                 Float(Self.coherenceStrengthHigh)])
         else { return nil }
-        return KernelLibrary.apply(KernelLibrary.coherence,
-                                   extent: plane.extent, [smoothed])
+        return (magnitude, coherence)
     }
 
-    /// Sobel gradient magnitude, in the units of the plane it is given.
-    static func gradientMagnitude(_ plane: CIImage) -> CIImage? {
-        let horizontal = CIFilter.convolution3X3()
-        horizontal.inputImage = plane.clampedToExtent()
-        horizontal.weights = CIVector(values: [-1, 0, 1, -2, 0, 2, -1, 0, 1], count: 9)
-        horizontal.bias = 0
-        let vertical = CIFilter.convolution3X3()
-        vertical.inputImage = plane.clampedToExtent()
-        vertical.weights = CIVector(values: [-1, -2, -1, 0, 0, 0, 1, 2, 1], count: 9)
-        vertical.bias = 0
-        guard let gx = horizontal.outputImage?.cropped(to: plane.extent),
-              let gy = vertical.outputImage?.cropped(to: plane.extent)
-        else { return nil }
-        return KernelLibrary.apply(KernelLibrary.sobelMagnitude,
-                                   extent: plane.extent, [gx, gy])
+    /// The neighbourhood the structure tensor is averaged over, from the same working
+    /// radius the reference derives it from: `max(longEdge * 0.02, 3) / 4`.
+    ///
+    /// It has to scale with the frame or the two halves of the app disagree with each
+    /// other. A per-pixel gradient measured on a 1600 px fit preview is four times the
+    /// same edge measured on a 6000 px export, so a fixed threshold against it means
+    /// something different in the loupe than in the file that comes out.
+    static func structureRadius(longEdge: Int) -> Int {
+        let working = Swift.max(Int((Double(longEdge) * 0.02).rounded()), 3)
+        return Swift.max(working / 4, 2)
     }
+
+    /// Contrast, in EV per pixel, below which a direction is not evidence of an edge.
+    /// `DetailEngine.structureTensor`'s numbers.
+    static let coherenceStrengthLow: Double = 0.05
+    static let coherenceStrengthHigh: Double = 0.35
 
     // MARK: - S13 vignette and halation
 
