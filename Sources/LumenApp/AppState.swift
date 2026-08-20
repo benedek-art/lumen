@@ -56,6 +56,13 @@ enum PhotoFormats {
     static func isRaw(_ url: URL) -> Bool {
         raw.contains(url.pathExtension.lowercased())
     }
+
+    /// Already-rendered files, which decode through `RenderedImageSource` rather than
+    /// the RAW stage. A sibling of `isRaw` so callers do not each write the
+    /// lowercase-the-extension dance and drift apart on the one that forgets.
+    static func isRendered(_ url: URL) -> Bool {
+        rendered.contains(url.pathExtension.lowercased())
+    }
 }
 
 // MARK: - Photo
@@ -896,7 +903,7 @@ final class AppState: ObservableObject {
     /// history entry, exactly like dragging the sliders it moves.
     func pickNeutral(on photo: PhotoItem, sourceX: Double, sourceY: Double) {
         let current = recipe(for: photo)
-        let url = photo.url
+        let url = photo.id          // PhotoItem.id IS the URL
         Task {
             let solved = await renderCoordinator.solveNeutral(
                 url: url, recipe: current, sourceX: sourceX, sourceY: sourceY)

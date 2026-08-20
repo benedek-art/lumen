@@ -211,8 +211,7 @@ actor RenderCoordinator {
             sourceOrder.append(url)
             return cached
         }
-        let extensionName = url.pathExtension.lowercased()
-        let created: any ImageSource = PhotoFormats.rendered.contains(extensionName)
+        let created: any ImageSource = PhotoFormats.isRendered(url)
             ? try RenderedImageSource(url: url)
             : try AppleRawSource(url: url)
         sources[url] = created
