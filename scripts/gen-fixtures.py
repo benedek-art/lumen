@@ -21,6 +21,7 @@ Mirrored contracts (change BOTH sides together):
   DetailEngine.swift    <-> band_weight / band_center / dehaze_ratio
   MaskRaster.swift      <-> radial_alpha / edge_engagement
   DenoiseEngine.swift   <-> vst_inverse_blend
+  DisplayTransform.swift<-> DisplayTransform
   XMPSidecar.swift      <-> xmp_serialize
   RenameTemplate.swift  <-> rename_render
 """
@@ -1036,6 +1037,168 @@ def gen_spatial_checks():
 
 
 # ---------------------------------------------------------------------------
+# THE display transform (D8)
+#
+#   DisplayTransform.swift <-> DisplayTransform
+#
+# Its four constraints are supposed to hold BY CONSTRUCTION rather than by
+# clamping, which is exactly the kind of claim worth executing.
+# ---------------------------------------------------------------------------
+
+def srgb_encode(x):
+    if x <= 0.0031308:
+        return 12.92 * x
+    return 1.055 * (abs(x) ** (1 / 2.4)) * (1 if x >= 0 else -1) - 0.055
+
+
+def srgb_decode(x):
+    if x <= 0.04045:
+        return x / 12.92
+    return ((x + 0.055) / 1.055) ** 2.4
+
+
+SKEW_SHAPE = 2.0
+
+
+class DisplayTransform:
+    def __init__(self, contrast=1.5, skew=0.0, white_target=100.0,
+                 black_target=0.0152, white_anchor_ev=5.0, black_anchor_ev=-9.0):
+        w = max(white_target, 1) / 100.0
+        b = min(max(black_target, 0), 15) / 100.0
+        self.white = w
+        self.black = min(b, MID_GREY * 0.5)
+
+        hi = max(white_anchor_ev, 0.5)
+        lo = min(black_anchor_ev, -0.5)
+        self.min_ev = lo
+        self.range = hi - lo
+        self.pivot_x = (0 - lo) / (hi - lo)
+
+        eb, ew, ep = srgb_encode(self.black), srgb_encode(w), srgb_encode(MID_GREY)
+        self.encoded_black, self.encoded_white = eb, ew
+        span = max(ew - eb, 1e-6)
+        py = min(max((ep - eb) / span, 0.01), 0.99)
+        self.pivot_y = py
+
+        c = min(max(contrast, 0.1), 10)
+        h = 1e-6
+        slope_of_decode = max((srgb_decode(ep + h) - srgb_decode(ep - h)) / (2 * h), 1e-9)
+        m = c * MID_GREY * math.log(2.0) * (hi - lo) / (slope_of_decode * span)
+
+        a_toe = m * self.pivot_x / py
+        a_shoulder = m * (1 - self.pivot_x) / (1 - py)
+        sk = min(max(skew, -1), 1)
+        self.toe_lambda = min(max(sk * 0.5, -1), a_toe / SKEW_SHAPE * 0.9)
+        self.shoulder_lambda = min(max(-sk * 0.5, -1), a_shoulder / SKEW_SHAPE * 0.9)
+        self.toe_power = a_toe - self.toe_lambda * SKEW_SHAPE
+        self.shoulder_power = a_shoulder - self.shoulder_lambda * SKEW_SHAPE
+
+    def normalized_curve(self, x):
+        X = min(max(x, 0.0), 1.0)
+        if X < self.pivot_x:
+            if self.pivot_x <= 0:
+                return 0.0
+            u = X / self.pivot_x
+            return (self.pivot_y * (u ** self.toe_power)
+                    * (1 - self.toe_lambda + self.toe_lambda * u ** SKEW_SHAPE))
+        if self.pivot_x >= 1:
+            return 1.0
+        u = (1 - X) / (1 - self.pivot_x)
+        s = ((u ** self.shoulder_power)
+             * (1 - self.shoulder_lambda + self.shoulder_lambda * u ** SKEW_SHAPE))
+        return 1 - (1 - self.pivot_y) * s
+
+    def tone(self, x):
+        if x <= 0:
+            return self.black
+        ev = math.log2(x / MID_GREY)
+        X = (ev - self.min_ev) / self.range
+        Y = self.normalized_curve(X)
+        return srgb_decode(self.encoded_black
+                           + (self.encoded_white - self.encoded_black) * Y)
+
+
+def gen_display_transform_checks():
+    print("the display transform (anchors / monotonicity / HDR) ...")
+
+    cases = [dict(), dict(contrast=1.2, skew=0.2), dict(contrast=2.2, skew=-0.3),
+             dict(white_anchor_ev=3.0, black_anchor_ev=-6.0),
+             dict(white_anchor_ev=7.5, black_anchor_ev=-11.0),
+             dict(white_target=400.0), dict(white_target=1600.0, contrast=1.8)]
+
+    for kw in cases:
+        t = DisplayTransform(**kw)
+        label = kw or "default"
+
+        # 1. Mid-grey lands on 0.18 display-linear, ABSOLUTELY, at every peak.
+        got = t.tone(MID_GREY)
+        check(abs(got - MID_GREY) < 2e-3,
+              f"{label}: mid-grey landed at {got:.5f}, not 0.18")
+
+        # 2 + 3. The scene anchors land on the display's black and white targets.
+        lo_scene = MID_GREY * 2 ** t.min_ev
+        hi_scene = MID_GREY * 2 ** (t.min_ev + t.range)
+        check(abs(t.tone(lo_scene) - t.black) < 1e-4,
+              f"{label}: black anchor landed at {t.tone(lo_scene)}, not {t.black}")
+        check(abs(t.tone(hi_scene) - t.white) < 1e-4,
+              f"{label}: white anchor landed at {t.tone(hi_scene)}, not {t.white}")
+
+        # 4. Log-log slope at mid-grey equals `contrast`, independent of skew.
+        wanted = kw.get("contrast", 1.5)
+        d = 1e-4
+        a = math.log2(t.tone(MID_GREY * 2 ** -d))
+        bb = math.log2(t.tone(MID_GREY * 2 ** d))
+        slope = (bb - a) / (2 * d)
+        check(abs(slope - wanted) < 0.02,
+              f"{label}: log-log slope at mid-grey was {slope:.4f}, wanted {wanted}")
+
+        # Monotone across the whole scene domain, and bounded by the targets.
+        prev, ev = -1e18, MIN_EV
+        while ev <= MAX_EV:
+            v = t.tone(MID_GREY * 2 ** ev)
+            check(v >= prev - 1e-12, f"{label}: transform inverted at {ev} EV")
+            check(t.black - 1e-9 <= v <= t.white + 1e-9,
+                  f"{label}: transform left [black, white] at {ev} EV: {v}")
+            prev = v
+            ev += 0.02
+
+    # Skew must move the curve's shape without moving the pivot slope — that is
+    # the whole claim of the two-power construction.
+    d = 1e-4
+    slopes = []
+    for skew in (-0.8, -0.4, 0.0, 0.4, 0.8):
+        t = DisplayTransform(skew=skew)
+        a = math.log2(t.tone(MID_GREY * 2 ** -d))
+        bb = math.log2(t.tone(MID_GREY * 2 ** d))
+        slopes.append((bb - a) / (2 * d))
+    check(max(slopes) - min(slopes) < 0.01,
+          f"skew moved the pivot slope: {[round(s, 4) for s in slopes]}")
+    # ...and it really did change the curve, or the invariance is vacuous.
+    # Relative, not absolute: four stops under mid-grey the display values are
+    # around 0.003, where any absolute threshold is arbitrary. Skew moves the toe
+    # by 40 % there and the shoulder by a few percent — it is a shape control, so
+    # the toe is where to look.
+    for ev, want in ((-4.0, 0.15), (3.0, 0.01)):
+        lo_s = DisplayTransform(skew=-0.8).tone(MID_GREY * 2 ** ev)
+        hi_s = DisplayTransform(skew=0.8).tone(MID_GREY * 2 ** ev)
+        rel = abs(hi_s - lo_s) / max(abs(lo_s), 1e-12)
+        check(rel > want,
+              f"skew changed the curve by only {rel:.1%} at {ev} EV")
+
+    # HDR: raising the display peak must not raise the black floor, and must not
+    # move mid-grey — the highlights get let out, the picture does not brighten.
+    sdr = DisplayTransform(white_target=100)
+    hdr = DisplayTransform(white_target=1000)
+    check(abs(sdr.black - hdr.black) < 1e-12, "raising the peak raised the floor")
+    check(abs(sdr.tone(MID_GREY) - hdr.tone(MID_GREY)) < 2e-3,
+          "raising the peak moved mid-grey")
+    check(hdr.tone(MID_GREY * 2 ** 4) > sdr.tone(MID_GREY * 2 ** 4),
+          "raising the peak did not let the highlights out")
+
+    print("  four anchors, monotonicity, skew invariance and HDR headroom all hold")
+
+
+# ---------------------------------------------------------------------------
 
 def main():
     gen_canonical_fixture()
@@ -1048,6 +1211,7 @@ def main():
     verify_schema()
     gen_engine_checks()
     gen_spatial_checks()
+    gen_display_transform_checks()
     if FAILURES:
         print(f"\n{len(FAILURES)} verification failure(s)")
         sys.exit(1)
