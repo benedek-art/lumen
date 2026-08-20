@@ -106,11 +106,22 @@ public struct CurveStack: Sendable {
             // between non-decreasing samples is non-decreasing. So a curve monotone at
             // every stored sample is monotone everywhere it will ever be read.
             //
-            // Fixed at 1024 rather than tied to `size` on purpose. A size-dependent
+            // Fixed at 1024 rather than tied to `size` on purpose: a size-dependent
             // scale would hand a 512-sample preview and a 1024-sample export different
-            // curves. Every size used is a power-of-two divisor of 1024, so those
-            // grids are subsets of this one and inherit the guarantee; a bake larger
-            // than 1024 would need this raised to match.
+            // curves.
+            //
+            // This used to claim the bake grids were subsets of this one and inherited
+            // the guarantee. They are not, at ANY size. `LUT1D(size:)` samples
+            // `i / (size − 1)` — 1/511 apart for a 512-point table, 1/1023 for a
+            // 1024-point one — while this probes `i / 1024`. 511 and 1023 share no
+            // factor with 1024, so the two grids meet only at the endpoints, and the
+            // common refinement is 522,753 points: far too many to bisect over forty
+            // times. The certificate was real and it was about a curve nobody bakes.
+            //
+            // Hence the clamp below. This bisection still chooses the SHAPE — a single
+            // global scale, so the curve keeps its form instead of being flattened in
+            // patches — and the clamp makes the invariant exact on whatever grid is
+            // actually stored. Proof by sampling where the samples are the output.
             let probes = 1024
             for i in 0...probes {
                 let x = Double(i) / Double(probes)
@@ -131,7 +142,27 @@ public struct CurveStack: Sendable {
             }
             finalScale = lo
         }
-        return LUT1D(size: size) { x in Num.saturate(x + delta(x) * finalScale) }
+        // Non-decreasing by construction, on the grid that will be read.
+        //
+        // The limiter lands within about 2e-9 of monotone and no closer, because it
+        // certifies a different grid and tolerates 1e-9 on that one. Measured, a
+        // 512-point bake at Highlights −100 / Lights +100 stepped backwards by 1.8e-9
+        // — invisible on any axis (a 16-bit level is 1.5e-5, four orders of magnitude
+        // larger) but a broken invariant, and the kind that gets designed around later.
+        //
+        // A forward max is enough because `LUT1D` interpolates linearly: linear
+        // interpolation between non-decreasing samples is non-decreasing, so pinning
+        // the stored samples pins the whole curve. It repairs only what the limiter
+        // left behind, which is why it cannot flatten anything visible — a clamp on
+        // its own, without the global scale above, would.
+        var samples = [Double](repeating: 0, count: size)
+        var running = -Double.infinity
+        for i in 0..<size {
+            let x = Double(i) / Double(size - 1)
+            running = Swift.max(running, Num.saturate(x + delta(x) * finalScale))
+            samples[i] = running
+        }
+        return LUT1D(samples: samples)
     }
 
     // MARK: - Evaluation on the encoded axis

@@ -361,13 +361,27 @@ final class EngineTests: XCTestCase {
         for h in [-100.0, 0, 100] {
             for s in [-100.0, 0, 100] {
                 let p = ParametricCurve(highlights: h, lights: -s, darks: s, shadows: -h)
-                let lut = CurveStack.bakeParametric(p, size: 512)
-                var previous = -Double.infinity
-                for i in 0..<512 {
-                    let v = lut.samples[i]
-                    XCTAssertGreaterThanOrEqual(v, previous - 1e-9,
-                                                "non-monotone at h=\(h) s=\(s)")
-                    previous = v
+                // Every size the app bakes, and EXACTLY monotone at each — no epsilon.
+                // The slack used to be 1e-9, which is both a hole and a puzzle: it
+                // permitted the very dips it was meant to catch, and it left the
+                // reader to guess whether a small backward step was expected. The
+                // samples are produced by a running maximum, so `>=` is now literally
+                // true and anything less is a real defect.
+                //
+                // Several sizes because the failure was size-dependent and invisible
+                // at the default: the limiter certifies a grid of `i / 1024` while
+                // `LUT1D` stores `i / (size - 1)`, and those coincide nowhere but the
+                // endpoints. Testing one size tested one accident.
+                for size in [256, 512, 1024] {
+                    let lut = CurveStack.bakeParametric(p, size: size)
+                    XCTAssertEqual(lut.samples.count, size)
+                    var previous = -Double.infinity
+                    for (i, v) in lut.samples.enumerated() {
+                        XCTAssertGreaterThanOrEqual(
+                            v, previous,
+                            "non-monotone at h=\(h) s=\(s) size=\(size) index=\(i)")
+                        previous = v
+                    }
                 }
             }
         }
