@@ -689,6 +689,10 @@ struct LocalPlan {
             && adjust.temp == 0 && adjust.tint == 0 && adjust.hue == 0
             && adjust.sat == 0 && adjust.vibrance == 0 && adjust.colorTint == nil
             && adjust.pointColors.isEmpty
+            // `wheels` belongs here for the same reason `pointColors` does: a mask
+            // whose only edit is a grade would otherwise declare itself identity and
+            // return its input.
+            && (adjust.wheels?.isNeutral ?? true)
         self.isIdentity = identity
         guard !identity else {
             self.lut = LUT3D.identity(size: 2)
@@ -715,6 +719,20 @@ struct LocalPlan {
         let balance = ReferenceRenderer.LocalWhiteBalance(temp: adjust.temp * scale,
                                                           tint: adjust.tint * scale,
                                                           space: .rec2020)
+        // Local grading wheels (D29). The panel has offered four draggable wheels
+        // since it was written and no stage read them, so a masked grade moved
+        // nothing. The anchors this needs were already parameters of this initializer
+        // and were the only two it never used — they were plumbed here for exactly
+        // this and left unconnected.
+        //
+        // Same engine as the global grade, never a parallel implementation: the zone
+        // windows, the constant-luminance ab translation and the monotonicity solve
+        // are the parts that make a grade look like a grade rather than a tint.
+        let localGrade = (adjust.wheels?.isNeutral ?? true)
+            ? nil
+            : GradeEngine(wheels: adjust.wheels!.scalingShift(by: scale),
+                          printerLights: PrinterLights(),
+                          whiteAnchorEV: whiteAnchorEV, blackAnchorEV: blackAnchorEV)
 
         self.lut = LUT3D(size: LUT3D.interactiveSize) { encoded in
             var c = LumenLog.decode(encoded)
@@ -731,6 +749,9 @@ struct LocalPlan {
             // a second copy here and nothing at all there.
             c = ReferenceRenderer.applyColorTint(c, tint: tintColor,
                                                  strength: tintStrength)
+            // After the colour stage and the tint, matching where the global grade
+            // sits relative to colour in the main plan (S9/S10).
+            if let localGrade { c = localGrade.apply(c) }
             return LumenLog.encode(c)
         }
     }

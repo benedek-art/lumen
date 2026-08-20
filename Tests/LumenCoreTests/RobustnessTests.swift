@@ -161,6 +161,41 @@ final class RobustnessTests: XCTestCase {
     /// rebuilt its table — and then produced exactly the same picture.
     ///
     /// This walks every local field the panel exposes and asserts the render moves.
+    /// A mask's Amount must scale how far a grade pushes, not which way it pushes.
+    ///
+    /// `sat` and `lum` are magnitudes and scale; `hue` is an angle and must not, or a
+    /// mask at 50% would be a different colour rather than half as much of the same
+    /// one — the failure would look like a plausible grade, which is why it needs its
+    /// own assertion rather than trusting the wiring.
+    func testAMasksAmountScalesItsGradeWithoutRotatingIt() throws {
+        let wheels = GradingWheels(shadows: Wheel(hue: 220, sat: 0.8, lum: 0.3),
+                                   high: Wheel(hue: 40, sat: 0.5, lum: -0.2))
+        let half = wheels.scalingShift(by: 0.5)
+
+        XCTAssertEqual(half.shadows.sat, 0.4, accuracy: 1e-12, "sat did not halve")
+        XCTAssertEqual(half.shadows.lum, 0.15, accuracy: 1e-12, "lum did not halve")
+        XCTAssertEqual(half.high.sat, 0.25, accuracy: 1e-12)
+        XCTAssertEqual(half.high.lum, -0.1, accuracy: 1e-12)
+        XCTAssertEqual(half.shadows.hue, 220, accuracy: 1e-12,
+                       "hue is an angle and must not scale — the grade rotated")
+        XCTAssertEqual(half.high.hue, 40, accuracy: 1e-12,
+                       "hue is an angle and must not scale — the grade rotated")
+
+        // Zone geometry says where the zones are, not how hard they push.
+        XCTAssertEqual(half.blending, wheels.blending, accuracy: 1e-12)
+        XCTAssertEqual(half.balance, wheels.balance, accuracy: 1e-12)
+        XCTAssertEqual(half.pivots, wheels.pivots)
+
+        // And the identity test has to see through moved pivots.
+        var movedPivots = GradingWheels()
+        movedPivots.pivots = [0.2, 0.8]
+        XCTAssertTrue(movedPivots.isNeutral,
+                      "moved pivots with untouched wheels is still the identity")
+        XCTAssertFalse(wheels.isNeutral)
+        XCTAssertTrue(wheels.scalingShift(by: 0).isNeutral,
+                      "a mask at zero Amount must grade nothing")
+    }
+
     func testEveryLocalSliderThePanelOffersChangesThePicture() throws {
         let source = ImageBuffer(width: 24, height: 16) { u, v in
             // Texture and Clarity need something to find, and Dehaze needs a gradient
@@ -190,6 +225,12 @@ final class RobustnessTests: XCTestCase {
             ("exposure", { $0.exposure = 0.8 }),
             ("saturation", { $0.sat = 70 }),
             ("hue", { $0.hue = 40 }),
+            // The wheels were the one entry missing from this list, and they were also
+            // the one control in the mask panel that shipped as four live-looking
+            // wheels reading into a field no stage touched.
+            ("grading wheels", {
+                $0.wheels = GradingWheels(shadows: Wheel(hue: 220, sat: 0.7, lum: 0.2))
+            }),
         ]
 
         for (name, mutate) in fields {

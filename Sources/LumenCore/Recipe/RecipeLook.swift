@@ -129,6 +129,44 @@ public struct Wheel: Codable, Equatable, Sendable {
     }
 }
 
+extension GradingWheels {
+
+    /// True when every wheel is at its neutral, whatever the zone geometry says.
+    ///
+    /// Pivots, blending and balance describe WHERE the zones sit, not how hard they
+    /// push, so a grade with moved pivots and untouched wheels is still the identity
+    /// and must not cost a table.
+    ///
+    /// Tested on magnitude rather than by comparing against `Wheel()`, because hue with
+    /// no saturation behind it is not a colour. A full-equality test also breaks
+    /// `scalingShift(by: 0)`, which zeroes `sat` and `lum` and deliberately keeps
+    /// `hue` — a mask at zero Amount would have declared itself non-identity and paid
+    /// for a table that computes nothing.
+    public var isNeutral: Bool {
+        func neutral(_ w: Wheel) -> Bool { w.sat == 0 && w.lum == 0 }
+        return neutral(global) && neutral(shadows) && neutral(mid) && neutral(high)
+    }
+
+    /// The per-mask Amount, applied to a grade.
+    ///
+    /// `sat` and `lum` are magnitudes and scale. `hue` is an ANGLE and does not:
+    /// scaling it would rotate the grade toward red as the mask weakened rather than
+    /// weaken it, so a mask at 50% would be a different colour rather than half as
+    /// much of the same one. Zone geometry is left alone for the reason above.
+    public func scalingShift(by scale: Double) -> GradingWheels {
+        guard scale != 1, scale.isFinite else { return self }
+        func scaled(_ w: Wheel) -> Wheel {
+            Wheel(hue: w.hue, sat: w.sat * scale, lum: w.lum * scale)
+        }
+        var copy = self
+        copy.global = scaled(global)
+        copy.shadows = scaled(shadows)
+        copy.mid = scaled(mid)
+        copy.high = scaled(high)
+        return copy
+    }
+}
+
 /// Printer lights (D16): master exposure + per-channel trims in log space,
 /// denominated in points of 1/12 stop, keyboard-steppable. Neutral = 0.
 public struct PrinterLights: Codable, Equatable, Sendable {

@@ -510,12 +510,10 @@ struct MaskPanel: View {
                         wheelsSlider(mask.id, "Balance", \.balance, -100...100, 0, bipolar: true)
                     } else {
                         note("Grading wheels inside a mask — the second thing Lightroom "
-                             + "does not have locally. Stored with the recipe and NOT "
-                             + "applied in this build: no stage reads adjust.wheels, so "
-                             + "moving one re-renders and changes no pixel. The rest of "
-                             + "this panel says which controls are unwired; this one "
-                             + "did not, which is the only reason it is worth saying "
-                             + "twice.")
+                             + "does not have locally. The same engine as the global "
+                             + "grade, so the zone windows and the constant-luminance "
+                             + "translation behave identically; the mask's Amount "
+                             + "scales how far each wheel pushes, not which way.")
                     }
                 }
             }

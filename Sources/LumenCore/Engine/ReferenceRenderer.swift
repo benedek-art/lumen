@@ -209,6 +209,17 @@ public enum ReferenceRenderer {
                                         space: space)
         let tintColor = a.colorTint
         let tintStrength = Num.clamp(a.colorTintStrength, 0, 100) / 100 * scale
+        // Local grading wheels (D29), the same engine the global grade uses. Kept in
+        // step with `LocalPlan` on the GPU side deliberately: a mask's sub-recipe is a
+        // delta evaluated with the shared engines, and the moment the two paths grow
+        // separate grade code a golden that compares them starts measuring the
+        // difference between two implementations rather than one implementation's error.
+        let localGrade = (a.wheels?.isNeutral ?? true)
+            ? nil
+            : GradeEngine(wheels: a.wheels!.scalingShift(by: scale),
+                          printerLights: PrinterLights(),
+                          whiteAnchorEV: plan.tone.whiteAnchorEV,
+                          blackAnchorEV: plan.tone.blackAnchorEV)
 
         var out = image.map { pixel in
             var c = pixel * exposureGain
@@ -226,8 +237,12 @@ public enum ReferenceRenderer {
             // The GPU path applied this and the reference did not, so the two rendered
             // different pictures for any mask with a Colour tint — and a golden
             // comparing them would have diverged wherever one was set.
-            return applyColorTint(c, tint: tintColor, strength: tintStrength,
-                                  space: space)
+            c = applyColorTint(c, tint: tintColor, strength: tintStrength,
+                               space: space)
+            // After colour and tint, matching the GPU local plan and the global
+            // stage order.
+            if let localGrade { c = localGrade.apply(c) }
+            return c
         }
 
         // The spatial half of the local set. These run over the WHOLE buffer and the
