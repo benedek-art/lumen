@@ -271,6 +271,11 @@ final class PhotoRenderModel: ObservableObject {
     /// and it is one constant so it can be retuned in one place.
     static let settleNanoseconds: UInt64 = 250_000_000
 
+    /// How many times the quality pass will re-ask when it comes back empty. See the
+    /// comment at the retry loop: nil from the coordinator can mean "superseded by a
+    /// sibling viewer", which is not a failure and must not badge like one.
+    static let qualityAttempts: Int = 3
+
     @MainActor private static var generationCounter: UInt64 = 0
 
     @MainActor
@@ -328,18 +333,35 @@ final class PhotoRenderModel: ObservableObject {
         try? await Task.sleep(nanoseconds: PhotoRenderModel.settleNanoseconds)
         guard !Task.isCancelled, latestGeneration == draftGeneration else { return }
 
-        let fullGeneration: UInt64 = PhotoRenderModel.nextGeneration()
-        latestGeneration = fullGeneration
-        let full = await coordinator.render(url: url, recipe: recipe,
-                                            maxLongEdge: Swift.max(fullLongEdge, 64),
-                                            draft: false, generation: fullGeneration)
-        guard !Task.isCancelled else { return }
-        if let full, full.generation == latestGeneration {
-            apply(full, url: url)
-            return
+        // The quality pass, with a bounded retry. The coordinator supersedes by
+        // generation across *every* viewer sharing it, so a compare pane can lose the
+        // race to a sibling pane and get a nil that means "superseded", not "failed".
+        // Retrying a few times when there is nothing honest on screen turns that into a
+        // slower first paint rather than a false "can't read this file".
+        var attempt: Int = 0
+        while attempt < PhotoRenderModel.qualityAttempts {
+            let generation: UInt64 = PhotoRenderModel.nextGeneration()
+            latestGeneration = generation
+            let result = await coordinator.render(url: url, recipe: recipe,
+                                                  maxLongEdge: Swift.max(fullLongEdge, 64),
+                                                  draft: false, generation: generation)
+            guard !Task.isCancelled else { return }
+            if let result, result.generation == generation, latestGeneration == generation {
+                apply(result, url: url)
+                return
+            }
+            // Something newer of ours is already in flight: that request owns the frame.
+            guard latestGeneration == generation else { return }
+            // A draft of this very recipe is already up. It is the edit, just coarser —
+            // keep it rather than churning the queue.
+            if image != nil, !usedEmbeddedPreview { return }
+            attempt += 1
+            try? await Task.sleep(nanoseconds: UInt64(attempt) * 60_000_000)
+            guard !Task.isCancelled else { return }
         }
-        // Nothing came back and nothing is on screen: say so instead of spinning.
-        if full == nil, image == nil {
+
+        // Nothing came back and nothing honest is on screen: say so instead of spinning.
+        if image == nil {
             isUnreadable = true
             note = "Can't render \(url.lastPathComponent) — no RAW decode and no embedded preview"
         }
@@ -488,6 +510,11 @@ struct LoupeView: View {
     @MainActor
     private func renderBefore(longEdge: Int) async {
         guard needsBeforeRender else { return }
+        // Let the edited rendition claim the coordinator's generation lane first: it
+        // supersedes by number, and the picture being edited must never lose that race
+        // to its own before state.
+        try? await Task.sleep(nanoseconds: 40_000_000)
+        guard !Task.isCancelled, needsBeforeRender else { return }
         await beforeModel.load(url: photo.id,
                                recipe: beforeRecipe,
                                coordinator: state.renderCoordinator,

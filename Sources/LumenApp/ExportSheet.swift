@@ -7,9 +7,9 @@
 //
 // The sheet keeps no local copy of anything. Every control writes straight back into
 // `state.exportRecipes`, so editing a recipe here edits it everywhere; there is no
-// "apply" step and no dialog-local state to get out of sync. Indices into the recipe
-// array are never held across a view update — rows are addressed by `id` and every
-// lookup is bounds-checked, because a recipe can be deleted while its editor is open.
+// "apply" step and no dialog-local state to drift. Indices into the recipe array are
+// never held across a view update — rows are addressed by `id` and every lookup is
+// bounds-checked, because a recipe can be deleted while its editor is open.
 
 #if os(macOS)
 
@@ -17,6 +17,33 @@ import AppKit
 import Foundation
 import LumenCore
 import SwiftUI
+
+// MARK: - Segmented option tables
+
+private let formatOptions: [(value: ExportFormat, label: String)] =
+    [(value: .jpeg, label: "JPEG"), (value: .heif, label: "HEIC"),
+     (value: .tiff, label: "TIFF"), (value: .png, label: "PNG")]
+
+/// Medium × amount is the entire sharpening surface — no radius, no amount slider.
+private let sharpenMediumOptions: [(value: OutputSharpen.Medium, label: String)] =
+    [(value: .none, label: "Off"), (value: .screen, label: "Screen"),
+     (value: .matte, label: "Matte"), (value: .glossy, label: "Glossy")]
+
+private let sharpenAmountOptions: [(value: OutputSharpen.Amount, label: String)] =
+    [(value: .low, label: "Low"), (value: .standard, label: "Standard"),
+     (value: .high, label: "High")]
+
+private let watermarkPositionOptions: [(value: Watermark.Position, label: String)] =
+    [(value: .bottomLeft, label: "BL"), (value: .bottomRight, label: "BR"),
+     (value: .topLeft, label: "TL"), (value: .topRight, label: "TR"),
+     (value: .centre, label: "Mid")]
+
+private let bitDepthOptions: [(value: Int, label: String)] =
+    [(value: 8, label: "8-bit"), (value: 16, label: "16-bit")]
+
+private let mapScaleOptions: [(value: Double, label: String)] =
+    [(value: 1.0, label: "Full"), (value: 0.5, label: "Half"),
+     (value: 0.25, label: "Quarter")]
 
 // MARK: - Sheet
 
@@ -31,11 +58,9 @@ struct ExportSheet: View {
             header
             Divider().overlay(Lumen.separator)
             HStack(spacing: 0) {
-                recipeColumn
-                    .frame(width: 244)
+                recipeColumn.frame(width: 244)
                 Divider().overlay(Lumen.separator)
-                editorColumn
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                editorColumn.frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .frame(maxHeight: .infinity)
             Divider().overlay(Lumen.separator)
@@ -44,9 +69,7 @@ struct ExportSheet: View {
         .frame(width: 800, height: 640)
         .background(Lumen.panelBackground)
         .onAppear {
-            if selectedRecipeID == nil {
-                selectedRecipeID = state.exportRecipes.first?.id
-            }
+            if selectedRecipeID == nil { selectedRecipeID = state.exportRecipes.first?.id }
         }
     }
 
@@ -92,13 +115,12 @@ struct ExportSheet: View {
             ScrollView {
                 VStack(spacing: 1) {
                     ForEach(state.exportRecipes) { recipe in
-                        ExportRecipeRow(
-                            name: recipe.name,
-                            summary: Self.summary(of: recipe),
-                            isHDR: recipe.hdr != nil,
-                            isSelected: recipe.id == selectedRecipeID,
-                            enabled: enabledBinding(id: recipe.id),
-                            onSelect: { selectedRecipeID = recipe.id })
+                        ExportRecipeRow(name: recipe.name,
+                                        summary: Self.summary(of: recipe),
+                                        isHDR: recipe.hdr != nil,
+                                        isSelected: recipe.id == selectedRecipeID,
+                                        enabled: enabledBinding(id: recipe.id),
+                                        onSelect: { selectedRecipeID = recipe.id })
                     }
                 }
                 .padding(.bottom, 6)
@@ -106,39 +128,32 @@ struct ExportSheet: View {
 
             Divider().overlay(Lumen.separator)
 
-            HStack(spacing: 10) {
-                Button(action: { addRecipe() }) {
-                    Image(systemName: "plus")
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(Lumen.secondaryText)
-                .help("New recipe")
-
-                Button(action: { duplicateSelectedRecipe() }) {
-                    Image(systemName: "plus.square.on.square")
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(Lumen.secondaryText)
-                .disabled(selectedRecipeID == nil)
-                .help("Duplicate the selected recipe")
-
-                Button(action: { deleteSelectedRecipe() }) {
-                    Image(systemName: "minus")
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(Lumen.secondaryText)
-                .disabled(selectedRecipeID == nil || state.exportRecipes.count <= 1)
-                .help("Delete the selected recipe")
-
+            HStack(spacing: 12) {
+                iconButton("plus", help: "New recipe", disabled: false) { addRecipe() }
+                iconButton("plus.square.on.square", help: "Duplicate the selected recipe",
+                           disabled: selectedRecipeID == nil) { duplicateSelectedRecipe() }
+                iconButton("minus", help: "Delete the selected recipe",
+                           disabled: selectedRecipeID == nil
+                                     || state.exportRecipes.count <= 1) { deleteSelectedRecipe() }
                 Spacer()
             }
-            .font(.system(size: 11))
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
         }
     }
 
-    /// One line of prose per row so the list is scannable without opening each editor.
+    private func iconButton(_ symbol: String, help: String, disabled: Bool,
+                            action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol).font(.system(size: 11))
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(Lumen.secondaryText)
+        .disabled(disabled)
+        .help(help)
+    }
+
+    /// One line of prose per row, so the list is scannable without opening each editor.
     static func summary(of recipe: ExportRecipe) -> String {
         var parts: [String] = [recipe.format.rawValue.uppercased()]
         if recipe.format.supportsQuality {
@@ -149,7 +164,8 @@ struct ExportSheet: View {
         parts.append(recipe.colorSpace.displayName)
         if recipe.resizeMode != .none {
             let unit = recipe.resizeMode == .megapixels ? "MP" : "px"
-            parts.append("\(recipe.resizeMode.displayName) \(Int(recipe.resizeValue.rounded()))\(unit)")
+            parts.append("\(recipe.resizeMode.displayName) "
+                         + "\(Int(recipe.resizeValue.rounded()))\(unit)")
         }
         return parts.joined(separator: " · ")
     }
@@ -183,9 +199,8 @@ struct ExportSheet: View {
         VStack(alignment: .leading, spacing: 8) {
             if state.isExporting {
                 VStack(alignment: .leading, spacing: 3) {
-                    ProgressView(value: min(max(state.exportProgress, 0), 1))
-                        .progressViewStyle(.linear)
-                    Text("Exporting — \(Int((min(max(state.exportProgress, 0), 1) * 100).rounded()))%")
+                    ProgressView(value: clampedProgress).progressViewStyle(.linear)
+                    Text("Exporting — \(Int((clampedProgress * 100).rounded()))%")
                         .font(.system(size: 10))
                         .foregroundStyle(Lumen.secondaryText)
                 }
@@ -203,13 +218,11 @@ struct ExportSheet: View {
         .padding(14)
     }
 
-    private var checkedRecipeCount: Int {
-        state.exportRecipes.filter({ $0.enabled }).count
-    }
+    private var clampedProgress: Double { min(max(state.exportProgress, 0), 1) }
 
-    private var fileCount: Int {
-        targetPhotos.count * checkedRecipeCount
-    }
+    private var checkedRecipeCount: Int { state.exportRecipes.filter({ $0.enabled }).count }
+
+    private var fileCount: Int { targetPhotos.count * checkedRecipeCount }
 
     private var fileCountSummary: String {
         let photos = targetPhotos.count
@@ -221,8 +234,6 @@ struct ExportSheet: View {
             + "\(files) file\(files == 1 ? "" : "s")"
     }
 
-    // MARK: Targets
-
     /// Mirrors `AppState.export(to:)`: the selection when there is one, otherwise the
     /// photo under the cursor. The footer must count exactly what the export will do.
     private var targetPhotos: [PhotoItem] {
@@ -233,8 +244,7 @@ struct ExportSheet: View {
     }
 
     private var previewSourceURL: URL {
-        if let first = targetPhotos.first { return first.id }
-        return URL(fileURLWithPath: "/Pictures/DSCF0001.RAF")
+        targetPhotos.first?.id ?? URL(fileURLWithPath: "/Pictures/DSCF0001.RAF")
     }
 
     // MARK: Bindings into the shared recipe array
@@ -279,8 +289,7 @@ struct ExportSheet: View {
         var copy = state.exportRecipes[index]
         copy.id = UUID().uuidString
         copy.name = copy.name + " copy"
-        let insertion = min(index + 1, state.exportRecipes.count)
-        state.exportRecipes.insert(copy, at: insertion)
+        state.exportRecipes.insert(copy, at: min(index + 1, state.exportRecipes.count))
         selectedRecipeID = copy.id
     }
 
@@ -289,11 +298,9 @@ struct ExportSheet: View {
               let index = state.exportRecipes.firstIndex(where: { $0.id == id }),
               state.exportRecipes.indices.contains(index) else { return }
         state.exportRecipes.remove(at: index)
-        if state.exportRecipes.indices.contains(index) {
-            selectedRecipeID = state.exportRecipes[index].id
-        } else {
-            selectedRecipeID = state.exportRecipes.last?.id
-        }
+        selectedRecipeID = state.exportRecipes.indices.contains(index)
+            ? state.exportRecipes[index].id
+            : state.exportRecipes.last?.id
     }
 }
 
@@ -315,16 +322,13 @@ private struct ExportRecipeRow: View {
                 .toggleStyle(.checkbox)
                 .controlSize(.small)
                 .help("Include this recipe in the next export")
-
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 4) {
                     Text(name.isEmpty ? "Untitled" : name)
                         .font(.system(size: 11, weight: isSelected ? .semibold : .regular))
                         .foregroundStyle(enabled ? Lumen.primaryText : Lumen.secondaryText)
                         .lineLimit(1)
-                    if isHDR {
-                        LumenBadge(text: "HDR", emphasized: true)
-                    }
+                    if isHDR { LumenBadge(text: "HDR", emphasized: true) }
                 }
                 Text(summary)
                     .font(.system(size: 9))
@@ -352,30 +356,20 @@ private struct ExportRecipeEditor: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 2) {
-                nameSection
+                LumenSectionHeader(title: "Recipe")
+                ExportFieldRow("Name") {
+                    ExportTextEntry(text: $recipe.name, placeholder: "Recipe name")
+                }
                 formatSection
                 sizeSection
                 sharpenSection
                 namingSection
                 metadataSection
                 watermarkSection
-                if recipe.format.supportsGainMap {
-                    hdrSection
-                }
+                if recipe.format.supportsGainMap { hdrSection }
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
-        }
-    }
-
-    // MARK: Name
-
-    private var nameSection: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            LumenSectionHeader(title: "Recipe")
-            ExportFieldRow("Name") {
-                ExportTextEntry(text: $recipe.name, placeholder: "Recipe name")
-            }
         }
     }
 
@@ -385,11 +379,7 @@ private struct ExportRecipeEditor: View {
         VStack(alignment: .leading, spacing: 2) {
             LumenSectionHeader(title: "Format")
             ExportFieldRow("Format") {
-                LumenSegmented(options: [(value: ExportFormat.jpeg, label: "JPEG"),
-                                         (value: ExportFormat.heif, label: "HEIC"),
-                                         (value: ExportFormat.tiff, label: "TIFF"),
-                                         (value: ExportFormat.png, label: "PNG")],
-                               selection: $recipe.format)
+                LumenSegmented(options: formatOptions, selection: $recipe.format)
                     .frame(maxWidth: 260)
             }
             if recipe.format.supportsQuality {
@@ -397,15 +387,11 @@ private struct ExportRecipeEditor: View {
                             defaultValue: recipe.format == .heif ? 85 : 90,
                             step: 1, decimals: 0, bipolar: false)
             }
-            if recipe.format.supportsSixteenBit {
-                ExportFieldRow("Bit depth") {
-                    LumenSegmented(options: [(value: 8, label: "8-bit"),
-                                             (value: 16, label: "16-bit")],
-                                   selection: $recipe.bitDepth)
+            ExportFieldRow("Bit depth") {
+                if recipe.format.supportsSixteenBit {
+                    LumenSegmented(options: bitDepthOptions, selection: $recipe.bitDepth)
                         .frame(maxWidth: 140)
-                }
-            } else {
-                ExportFieldRow("Bit depth") {
+                } else {
                     Text("8-bit — fixed for \(recipe.format.rawValue.uppercased())")
                         .font(.system(size: 10))
                         .foregroundStyle(Lumen.secondaryText)
@@ -422,8 +408,8 @@ private struct ExportRecipeEditor: View {
                 .controlSize(.small)
                 .frame(maxWidth: 200)
             }
-            ExportNote("8-bit encodes are dithered out of the f32 pipeline, and the "
-                       + "gamut map runs hue-preserving into the destination space.")
+            ExportNote("8-bit encodes are dithered out of the f32 pipeline, and the gamut "
+                       + "map runs hue-preserving into the destination space.")
         }
     }
 
@@ -443,18 +429,18 @@ private struct ExportRecipeEditor: View {
                 .controlSize(.small)
                 .frame(maxWidth: 200)
             }
+            if recipe.resizeMode == .megapixels {
+                LumenSlider(title: "Megapixels", value: $recipe.resizeValue,
+                            range: 0.5...100, hardRange: 0.1...500, defaultValue: 24,
+                            step: 0.5, decimals: 1, bipolar: false)
+            } else if recipe.resizeMode != .none {
+                LumenSlider(title: "Pixels", value: $recipe.resizeValue,
+                            range: 320...8000, hardRange: 16...30000, defaultValue: 2048,
+                            step: 8, decimals: 0, bipolar: false)
+            }
             if recipe.resizeMode != .none {
-                if recipe.resizeMode == .megapixels {
-                    LumenSlider(title: "Megapixels", value: $recipe.resizeValue,
-                                range: 0.5...100, hardRange: 0.1...500, defaultValue: 24,
-                                step: 0.5, decimals: 1, bipolar: false)
-                } else {
-                    LumenSlider(title: "Pixels", value: $recipe.resizeValue,
-                                range: 320...8000, hardRange: 16...30000, defaultValue: 2048,
-                                step: 8, decimals: 0, bipolar: false)
-                }
-                LumenToggleRow(title: "Don't enlarge", isOn: dontEnlarge,
-                               help: "Never upscale past the source's own pixels. On by default.")
+                LumenToggleRow(title: "Don't enlarge", isOn: invertedFlag(\.allowUpscale),
+                               help: "Never upscale past the source's own pixels.")
             }
             LumenSlider(title: "Resolution", value: $recipe.resolutionPPI,
                         range: 72...600, hardRange: 1...2400, defaultValue: 300,
@@ -464,31 +450,17 @@ private struct ExportRecipeEditor: View {
         }
     }
 
-    private var dontEnlarge: Binding<Bool> {
-        let recipe = self.$recipe
-        return Binding(
-            get: { !recipe.wrappedValue.allowUpscale },
-            set: { recipe.wrappedValue.allowUpscale = !$0 })
-    }
-
     // MARK: Output sharpening
 
     private var sharpenSection: some View {
         VStack(alignment: .leading, spacing: 2) {
             LumenSectionHeader(title: "Output sharpening")
             ExportFieldRow("Medium") {
-                LumenSegmented(options: [(value: OutputSharpen.Medium.none, label: "Off"),
-                                         (value: OutputSharpen.Medium.screen, label: "Screen"),
-                                         (value: OutputSharpen.Medium.matte, label: "Matte"),
-                                         (value: OutputSharpen.Medium.glossy, label: "Glossy")],
-                               selection: $recipe.sharpen.medium)
+                LumenSegmented(options: sharpenMediumOptions, selection: $recipe.sharpen.medium)
                     .frame(maxWidth: 260)
             }
             ExportFieldRow("Amount") {
-                LumenSegmented(options: [(value: OutputSharpen.Amount.low, label: "Low"),
-                                         (value: OutputSharpen.Amount.standard, label: "Standard"),
-                                         (value: OutputSharpen.Amount.high, label: "High")],
-                               selection: $recipe.sharpen.amount)
+                LumenSegmented(options: sharpenAmountOptions, selection: $recipe.sharpen.amount)
                     .frame(maxWidth: 260)
                     .disabled(recipe.sharpen.isIdentity)
                     .opacity(recipe.sharpen.isIdentity ? 0.4 : 1)
@@ -501,10 +473,10 @@ private struct ExportRecipeEditor: View {
         if recipe.sharpen.isIdentity {
             return "Off — for files headed to further retouching."
         }
-        let radius = recipe.sharpen.baseRadius(printPPI: recipe.resolutionPPI)
-        return String(format: "Halo radius %.2f px at %.0f ppi, energy %.2f. "
-                      + "Medium × amount is the whole surface — no radius slider, by design.",
-                      radius, recipe.resolutionPPI, recipe.sharpen.energy())
+        return String(format: "Halo radius %.2f px at %.0f ppi, energy %.2f. Medium × amount "
+                      + "is the whole surface — no radius slider, by design.",
+                      recipe.sharpen.baseRadius(printPPI: recipe.resolutionPPI),
+                      recipe.resolutionPPI, recipe.sharpen.energy())
     }
 
     // MARK: Naming
@@ -513,43 +485,42 @@ private struct ExportRecipeEditor: View {
         VStack(alignment: .leading, spacing: 2) {
             LumenSectionHeader(title: "Naming")
             ExportFieldRow("Filename") {
-                ExportTextEntry(text: $recipe.filenameTemplate,
-                                placeholder: "{name}", monospaced: true)
+                ExportTextEntry(text: $recipe.filenameTemplate, placeholder: "{name}",
+                                monospaced: true)
             }
             ExportFieldRow("Subfolder") {
-                ExportTextEntry(text: optionalText(\.subfolder),
-                                placeholder: "none", monospaced: true)
+                ExportTextEntry(text: optionalText(\.subfolder), placeholder: "none",
+                                monospaced: true)
             }
-            HStack(alignment: .top, spacing: 6) {
-                Text("Preview")
-                    .font(.system(size: 11))
-                    .foregroundStyle(Lumen.secondaryText)
-                    .frame(width: Lumen.labelWidth, alignment: .leading)
+            ExportFieldRow("Preview") {
                 Text(filenamePreview)
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(Lumen.primaryText)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 0)
             }
-            .padding(.vertical, 2)
-            ExportNote(previewIsPlaceholder
-                       ? "Preview uses a placeholder file — select a photo to see the real name."
-                       : "Preview is the real name for " + previewSource.lastPathComponent + ".")
-            ExportNote("Tokens implemented today: {name} {date} {recipe} {ext}. Anything else "
-                       + "is left visible in the name rather than silently dropped, so a typo "
-                       + "shows up in the preview instead of in the delivered folder.")
+            ExportNote(namingNote)
         }
+    }
+
+    private var namingNote: String {
+        var note: String
+        if previewIsPlaceholder {
+            note = "Preview uses a placeholder file — select a photo for the real name. "
+        } else {
+            note = "Preview is the real name for " + previewSource.lastPathComponent + ". "
+        }
+        note += "Tokens implemented today: {name} {date} {recipe} {ext}. Anything else stays "
+        note += "visible in the name rather than being silently dropped, so a typo shows up "
+        note += "here instead of in the delivered folder."
+        return note
     }
 
     private var filenamePreview: String {
         let base = AppState.renderFilename(template: recipe.filenameTemplate,
-                                           source: previewSource,
-                                           recipeName: recipe.name)
+                                           source: previewSource, recipeName: recipe.name)
         let file = base + "." + recipe.format.fileExtension
-        if let sub = recipe.subfolder, !sub.isEmpty {
-            return sub + "/" + file
-        }
+        if let sub = recipe.subfolder, !sub.isEmpty { return sub + "/" + file }
         return file
     }
 
@@ -558,29 +529,21 @@ private struct ExportRecipeEditor: View {
     private var metadataSection: some View {
         VStack(alignment: .leading, spacing: 2) {
             LumenSectionHeader(title: "Metadata")
-            LumenToggleRow(title: "Strip GPS", isOn: stripGPS,
-                           help: "Client-safe by default. Independent of everything else here.")
+            LumenToggleRow(title: "Strip GPS", isOn: invertedFlag(\.metadata.includeGPS),
+                           help: "Client-safe by default, independent of everything else here.")
             LumenToggleRow(title: "EXIF", isOn: $recipe.metadata.includeEXIF,
                            help: "Camera, lens, exposure.")
             LumenToggleRow(title: "Camera serial", isOn: $recipe.metadata.includeCameraSerial,
                            help: "Off by default — a serial number identifies the body.")
             LumenToggleRow(title: "Keywords", isOn: $recipe.metadata.includeKeywords)
             ExportFieldRow("Copyright") {
-                ExportTextEntry(text: optionalText(\.metadata.copyright),
-                                placeholder: "© …")
+                ExportTextEntry(text: optionalText(\.metadata.copyright), placeholder: "© …")
             }
             ExportFieldRow("Contact") {
                 ExportTextEntry(text: optionalText(\.metadata.contact),
                                 placeholder: "email or site")
             }
         }
-    }
-
-    private var stripGPS: Binding<Bool> {
-        let recipe = self.$recipe
-        return Binding(
-            get: { !recipe.wrappedValue.metadata.includeGPS },
-            set: { recipe.wrappedValue.metadata.includeGPS = !$0 })
     }
 
     // MARK: Watermark
@@ -592,67 +555,40 @@ private struct ExportRecipeEditor: View {
                            help: "Schema-reserved. The encoder does not composite it yet.")
             if recipe.watermark != nil {
                 ExportFieldRow("Text") {
-                    ExportTextEntry(text: watermarkText, placeholder: "© Your Name")
+                    ExportTextEntry(text: watermarkValue(\.text), placeholder: "© Your Name")
                 }
                 ExportFieldRow("Position") {
-                    LumenSegmented(options: [(value: Watermark.Position.bottomLeft, label: "BL"),
-                                             (value: Watermark.Position.bottomRight, label: "BR"),
-                                             (value: Watermark.Position.topLeft, label: "TL"),
-                                             (value: Watermark.Position.topRight, label: "TR"),
-                                             (value: Watermark.Position.centre, label: "Centre")],
-                                   selection: watermarkPosition)
+                    LumenSegmented(options: watermarkPositionOptions,
+                                   selection: watermarkValue(\.position))
                         .frame(maxWidth: 260)
                 }
-                LumenSlider(title: "Opacity", value: watermarkNumber(\.opacity),
+                LumenSlider(title: "Opacity", value: watermarkValue(\.opacity),
                             range: 0...100, defaultValue: 60, step: 1, decimals: 0,
                             bipolar: false)
-                LumenSlider(title: "Size", value: watermarkNumber(\.sizePercent),
+                LumenSlider(title: "Size", value: watermarkValue(\.sizePercent),
                             range: 0.5...20, defaultValue: 3, step: 0.1, decimals: 1,
                             bipolar: false)
-                LumenSlider(title: "Inset", value: watermarkNumber(\.insetPercent),
+                LumenSlider(title: "Inset", value: watermarkValue(\.insetPercent),
                             range: 0...20, defaultValue: 2, step: 0.1, decimals: 1,
                             bipolar: false)
-                ExportNote("Stored with the recipe so nothing migrates when compositing "
-                           + "ships — but v1 writes no mark. Treat this as a plan, not a result.")
+                ExportNote("Stored with the recipe so nothing migrates when compositing ships "
+                           + "— but v1 writes no mark. This is a plan, not a result.")
             }
         }
     }
 
     private var watermarkEnabled: Binding<Bool> {
         let recipe = self.$recipe
-        return Binding(
-            get: { recipe.wrappedValue.watermark != nil },
-            set: { isOn in
-                recipe.wrappedValue.watermark = isOn ? Watermark() : nil
-            })
+        return Binding(get: { recipe.wrappedValue.watermark != nil },
+                       set: { recipe.wrappedValue.watermark = $0 ? Watermark() : nil })
     }
 
-    private var watermarkText: Binding<String> {
+    private func watermarkValue<V>(_ keyPath: WritableKeyPath<Watermark, V>) -> Binding<V> {
         let recipe = self.$recipe
         return Binding(
-            get: { recipe.wrappedValue.watermark?.text ?? "" },
-            set: { value in
-                var mark = recipe.wrappedValue.watermark ?? Watermark()
-                mark.text = value
-                recipe.wrappedValue.watermark = mark
-            })
-    }
-
-    private var watermarkPosition: Binding<Watermark.Position> {
-        let recipe = self.$recipe
-        return Binding(
-            get: { recipe.wrappedValue.watermark?.position ?? Watermark().position },
-            set: { value in
-                var mark = recipe.wrappedValue.watermark ?? Watermark()
-                mark.position = value
-                recipe.wrappedValue.watermark = mark
-            })
-    }
-
-    private func watermarkNumber(_ keyPath: WritableKeyPath<Watermark, Double>) -> Binding<Double> {
-        let recipe = self.$recipe
-        return Binding(
-            get: { recipe.wrappedValue.watermark?[keyPath: keyPath] ?? Watermark()[keyPath: keyPath] },
+            get: {
+                recipe.wrappedValue.watermark?[keyPath: keyPath] ?? Watermark()[keyPath: keyPath]
+            },
             set: { value in
                 var mark = recipe.wrappedValue.watermark ?? Watermark()
                 mark[keyPath: keyPath] = value
@@ -668,17 +604,14 @@ private struct ExportRecipeEditor: View {
             LumenToggleRow(title: "Emit gain map", isOn: hdrEnabled,
                            help: "ISO 21496-1 gain map alongside a deliberate SDR base.")
             if recipe.hdr != nil {
-                LumenSlider(title: "Headroom", value: hdrNumber(\.headroomEV),
+                LumenSlider(title: "Headroom", value: hdrValue(\.headroomEV),
                             range: 0.5...4, defaultValue: 2, step: 0.1, decimals: 1,
                             bipolar: false)
                 ExportFieldRow("Map size") {
-                    LumenSegmented(options: [(value: 1.0, label: "Full"),
-                                             (value: 0.5, label: "Half"),
-                                             (value: 0.25, label: "Quarter")],
-                                   selection: hdrNumber(\.mapScale))
+                    LumenSegmented(options: mapScaleOptions, selection: hdrValue(\.mapScale))
                         .frame(maxWidth: 200)
                 }
-                LumenToggleRow(title: "Deliberate SDR base", isOn: hdrFlag(\.deliberateSDRBase),
+                LumenToggleRow(title: "Deliberate SDR base", isOn: hdrValue(\.deliberateSDRBase),
                                help: "The SDR rendition is authored, never an automatic tone-map.")
                 ExportNote(hdrExplanation)
             } else {
@@ -690,22 +623,23 @@ private struct ExportRecipeEditor: View {
 
     private var hdrExplanation: String {
         let settings = recipe.hdr ?? HDRSettings()
-        return String(format: "HDR rendition ceiling %.1f EV above SDR white (%.0f%% of SDR "
-                      + "white). Map stored at %.0f%% resolution.",
+        return String(format: "HDR ceiling %.1f EV above SDR white (%.0f%% of SDR white); "
+                      + "map stored at %.0f%% resolution.",
                       settings.headroomEV, settings.whiteTargetPercent, settings.mapScale * 100)
     }
 
     private var hdrEnabled: Binding<Bool> {
         let recipe = self.$recipe
-        return Binding(
-            get: { recipe.wrappedValue.hdr != nil },
-            set: { isOn in recipe.wrappedValue.hdr = isOn ? HDRSettings() : nil })
+        return Binding(get: { recipe.wrappedValue.hdr != nil },
+                       set: { recipe.wrappedValue.hdr = $0 ? HDRSettings() : nil })
     }
 
-    private func hdrNumber(_ keyPath: WritableKeyPath<HDRSettings, Double>) -> Binding<Double> {
+    private func hdrValue<V>(_ keyPath: WritableKeyPath<HDRSettings, V>) -> Binding<V> {
         let recipe = self.$recipe
         return Binding(
-            get: { recipe.wrappedValue.hdr?[keyPath: keyPath] ?? HDRSettings()[keyPath: keyPath] },
+            get: {
+                recipe.wrappedValue.hdr?[keyPath: keyPath] ?? HDRSettings()[keyPath: keyPath]
+            },
             set: { value in
                 var settings = recipe.wrappedValue.hdr ?? HDRSettings()
                 settings[keyPath: keyPath] = value
@@ -713,18 +647,15 @@ private struct ExportRecipeEditor: View {
             })
     }
 
-    private func hdrFlag(_ keyPath: WritableKeyPath<HDRSettings, Bool>) -> Binding<Bool> {
-        let recipe = self.$recipe
-        return Binding(
-            get: { recipe.wrappedValue.hdr?[keyPath: keyPath] ?? HDRSettings()[keyPath: keyPath] },
-            set: { value in
-                var settings = recipe.wrappedValue.hdr ?? HDRSettings()
-                settings[keyPath: keyPath] = value
-                recipe.wrappedValue.hdr = settings
-            })
-    }
+    // MARK: Shared binding helpers
 
-    // MARK: Optional-string helper
+    /// A checkbox phrased as the negative of the stored flag ("Don't enlarge",
+    /// "Strip GPS"), so the safe answer is the one that reads as on.
+    private func invertedFlag(_ keyPath: WritableKeyPath<ExportRecipe, Bool>) -> Binding<Bool> {
+        let recipe = self.$recipe
+        return Binding(get: { !recipe.wrappedValue[keyPath: keyPath] },
+                       set: { recipe.wrappedValue[keyPath: keyPath] = !$0 })
+    }
 
     private func optionalText(_ keyPath: WritableKeyPath<ExportRecipe, String?>) -> Binding<String> {
         let recipe = self.$recipe
@@ -749,7 +680,7 @@ private struct ExportFieldRow<Content: View>: View {
     }
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
             Text(label)
                 .font(.system(size: 11))
                 .foregroundStyle(Lumen.secondaryText)

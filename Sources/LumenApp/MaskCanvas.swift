@@ -143,9 +143,10 @@ struct MaskCanvas: View {
         .contentShape(Rectangle())
         .gesture(dragGesture)
         .onContinuousHover(coordinateSpace: .local) { phase in
-            switch phase {
-            case .active(let point): hover = point
-            case .ended: hover = nil
+            if case .active(let point) = phase {
+                hover = point
+            } else {
+                hover = nil
             }
         }
         .allowsHitTesting(isLive)

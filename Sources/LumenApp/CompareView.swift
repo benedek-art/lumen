@@ -74,15 +74,22 @@ final class CompareSync: ObservableObject {
 struct CompareView: View {
 
     @EnvironmentObject var state: AppState
-    var layout: CompareLayout = .twoUp
+    /// Pass a layout to pin one; leave it nil and the view follows `AppState.viewMode`,
+    /// so `C` and `N` reach the same view without the shell having to know which.
+    var layout: CompareLayout?
 
     @StateObject private var sync: CompareSync = CompareSync()
+
+    private var effectiveLayout: CompareLayout {
+        if let layout { return layout }
+        return state.viewMode == .survey ? .survey : .twoUp
+    }
 
     var body: some View {
         Group {
             if comparisonSet.isEmpty {
                 empty
-            } else if layout == .survey {
+            } else if effectiveLayout == .survey {
                 survey
             } else {
                 twoUp

@@ -194,6 +194,14 @@ struct DevelopPanel: View {
     var body: some View {
         VStack(spacing: 0) {
             header
+            if state.showHistogram {
+                // The histogram sits above the sliders because it is the instrument
+                // they are being read against, not a panel of its own.
+                HistogramView(histogram: state.scopes?.histogram)
+                    .frame(height: 96)
+                    .padding(.horizontal, 8)
+                    .padding(.bottom, 4)
+            }
             Divider().overlay(Lumen.separator)
             sectionSwitcher
             Divider().overlay(Lumen.separator)

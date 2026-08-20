@@ -193,7 +193,7 @@ struct HistogramView: View {
     /// the zone's slider, picked up from the value the slider had when the drag started
     /// so the gesture is absolute rather than accumulating rounding error.
     private func zoneDrag(width: CGFloat) -> some Gesture {
-        DragGesture(minimumDistance: 1, coordinateSpace: .local)
+        DragGesture(minimumDistance: 1)
             .onChanged { value in
                 guard width > 1 else { return }
                 if dragZone == nil {

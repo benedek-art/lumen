@@ -345,7 +345,7 @@ struct CurveEditorView: View {
     // MARK: Gesture
 
     private func plotGesture(size: CGSize) -> some Gesture {
-        DragGesture(minimumDistance: 0, coordinateSpace: .local)
+        DragGesture(minimumDistance: 0)
             .onChanged { value in
                 if !dragBegan {
                     dragBegan = true

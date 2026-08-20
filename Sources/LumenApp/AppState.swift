@@ -203,6 +203,10 @@ final class AppState: ObservableObject {
     @Published var clippingOverlay: ClippingOverlay.Mode?
     @Published var showHistogram = true
     @Published var showScopes = false
+    /// The histogram and scopes for the current photo, binned from a small proxy of
+    /// the actual composite off the main actor.
+    @Published var scopes: ScopeData?
+    var scopeGeneration: UInt64 = 0
     @Published var zoomLevel: Double = 0        // 0 = fit; otherwise a ratio like 1.0
 
     // MARK: Services
@@ -358,6 +362,7 @@ final class AppState: ObservableObject {
         }
         selection = [photo.id]
         primarySelection = photo
+        scheduleScopeRefresh()
     }
 
     func selectNext() { moveSelection(by: 1) }
@@ -443,6 +448,7 @@ final class AppState: ObservableObject {
         guard !after.isEmpty else { return }
         history.record(before: before, after: after, coalescingKey: coalescingKey)
         persist(after)
+        scheduleScopeRefresh()
     }
 
     private func persist(_ changes: [URL: Recipe]) {

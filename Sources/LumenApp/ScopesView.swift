@@ -349,7 +349,7 @@ struct ScopesView: View {
 
 /// How a panel's trace is coloured. Waveform and vectorscope are achromatic; the
 /// parade's three panels carry just enough tint to name themselves.
-struct ScopeTint {
+private struct ScopeTint {
     let r: Double
     let g: Double
     let b: Double
