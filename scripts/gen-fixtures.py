@@ -25,6 +25,7 @@ Mirrored contracts (change BOTH sides together):
   SpatialOps.swift      <-> box_blur / guided_filter
   BlobStore.swift       <-> blob_filename
   Perceptual.swift      <-> oklab_* / ucs_*
+  ColorSpaces.swift     <-> locus / temperature_and_tint
   XMPSidecar.swift      <-> xmp_serialize
   RenameTemplate.swift  <-> rename_render
 """
@@ -1535,6 +1536,155 @@ def gen_perceptual_checks():
 
 
 # ---------------------------------------------------------------------------
+# White balance: the temperature locus and the eyedropper's inverse
+#
+#   ColorSpaces.swift <-> locus / wb_chromaticity / temperature_and_tint
+# ---------------------------------------------------------------------------
+
+MIN_KELVIN, MAX_KELVIN = 2000.0, 50000.0
+TINT_UNIT_IN_V = 0.05 / 150.0
+
+
+def xy_to_uv(x, y):
+    d = -2 * x + 12 * y + 3
+    return (0.0, 0.0) if d == 0 else (4 * x / d, 6 * y / d)
+
+
+def uv_to_xy(u, v):
+    d = 2 * u - 8 * v + 4
+    return (0.0, 0.0) if d == 0 else (3 * u / d, 2 * v / d)
+
+
+def planck_x(t):
+    if t <= 4000:
+        return (-0.2661239e9 / t ** 3 - 0.2343589e6 / t ** 2
+                + 0.8776956e3 / t + 0.179910)
+    return (-3.0258469e9 / t ** 3 + 2.1070379e6 / t ** 2
+            + 0.2226347e3 / t + 0.240390)
+
+
+def planckian_locus(kelvin):
+    t = max(kelvin, 1667.0)
+    x = planck_x(t)
+    if t <= 2222:
+        y = -1.1063814 * x ** 3 - 1.34811020 * x ** 2 + 2.18555832 * x - 0.20219683
+    else:
+        y = -0.9549476 * x ** 3 - 1.37418593 * x ** 2 + 2.09137015 * x - 0.16748867
+    return (x, y)
+
+
+def daylight_locus(kelvin):
+    t = max(kelvin, 1000.0)
+    if t <= 7000:
+        x = 0.244063 + 0.09911e3 / t + 2.9678e6 / t ** 2 - 4.6070e9 / t ** 3
+    else:
+        x = 0.237040 + 0.24748e3 / t + 1.9018e6 / t ** 2 - 2.0064e9 / t ** 3
+    return (x, -3.000 * x * x + 2.870 * x - 0.275)
+
+
+def locus(kelvin):
+    t = min(max(kelvin, 1000.0), 100000.0)
+    if t <= 3500:
+        return planckian_locus(t)
+    if t >= 4500:
+        return daylight_locus(t)
+    w = smoothstep(3500, 4500, t)
+    p, d = planckian_locus(t), daylight_locus(t)
+    return (p[0] + (d[0] - p[0]) * w, p[1] + (d[1] - p[1]) * w)
+
+
+def wb_chromaticity(kelvin, tint):
+    base = locus(kelvin)
+    if tint == 0:
+        return base
+    u, v = xy_to_uv(*base)
+    return uv_to_xy(u, v + tint * TINT_UNIT_IN_V)
+
+
+def temperature_and_tint(chroma):
+    u, v = xy_to_uv(*chroma)
+    min_mired, max_mired = 1e6 / MAX_KELVIN, 1e6 / MIN_KELVIN
+
+    def u_error(m):
+        return abs(xy_to_uv(*locus(1e6 / m))[0] - u)
+
+    best_mired, best = 1e6 / 5500, float("inf")
+    m = min_mired
+    while m <= max_mired:
+        e = u_error(m)
+        if e < best:
+            best, best_mired = e, m
+        m += 0.5
+    step = 0.25
+    for _ in range(12):
+        lo, hi = max(min_mired, best_mired - step), min(max_mired, best_mired + step)
+        a, b = u_error(lo), u_error(hi)
+        if a < best:
+            best, best_mired = a, lo
+        if b < best:
+            best, best_mired = b, hi
+        step /= 2
+    kelvin = 1e6 / best_mired
+    tint = (v - xy_to_uv(*locus(kelvin))[1]) / TINT_UNIT_IN_V
+    return (min(max(kelvin, MIN_KELVIN), MAX_KELVIN), min(max(tint, -300.0), 300.0))
+
+
+def gen_white_balance_checks():
+    print("white balance locus + eyedropper inverse ...")
+
+    # The locus must be smooth and monotone across the crossfade. The two loci
+    # disagree by ~0.007 in y where they meet, so a hard switch would put a
+    # visible tint step in the middle of the temperature slider.
+    prev_u = None
+    k = 2000.0
+    while k <= 50000:
+        x, y = locus(k)
+        u, _ = xy_to_uv(x, y)
+        check(math.isfinite(u), f"locus non-finite at {k} K")
+        if prev_u is not None:
+            check(u < prev_u + 1e-12, f"locus u reversed at {k} K")
+            check(prev_u - u < 0.004, f"locus stepped at {k} K: du={prev_u - u:.5f}")
+        prev_u = u
+        k *= 1.01
+
+    # No kink at either crossfade boundary.
+    for edge in (3500.0, 4500.0):
+        h = 1.0
+        before = xy_to_uv(*locus(edge - h))[0] - xy_to_uv(*locus(edge - 2 * h))[0]
+        after = xy_to_uv(*locus(edge + 2 * h))[0] - xy_to_uv(*locus(edge + h))[0]
+        check(abs(after - before) < 2e-6,
+              f"locus has a kink at {edge} K: {before:.3e} vs {after:.3e}")
+
+    # The eyedropper's inverse must be EXACTLY the inverse of the forward map.
+    # Nearest-point-on-locus looks equivalent and is not: the locus is curved, so
+    # a colour far off it in v is closest to a different temperature than the one
+    # it came from. At 5500 K / tint -80 that error used to be 2850 K.
+    worst_k, worst_t, where = 0.0, 0.0, ""
+    k = 2500.0
+    while k <= 20000:
+        for tint in (-120.0, -80.0, -40.0, 0.0, 40.0, 80.0, 120.0):
+            chroma = wb_chromaticity(k, tint)
+            got_k, got_t = temperature_and_tint(chroma)
+            dk, dt = abs(got_k - k) / k, abs(got_t - tint)
+            if dk > worst_k:
+                worst_k, where = dk, f"{k:.0f} K / tint {tint:.0f}"
+            worst_t = max(worst_t, dt)
+        k *= 1.5
+    check(worst_k < 0.01, f"eyedropper recovered the wrong temperature: "
+                          f"{worst_k:.2%} off at {where}")
+    check(worst_t < 1.0, f"eyedropper recovered the wrong tint: {worst_t:.3f} units off")
+
+    # And the failure mode that motivated the rewrite, called out by name.
+    chroma = wb_chromaticity(5500, -80)
+    got_k, got_t = temperature_and_tint(chroma)
+    check(abs(got_k - 5500) < 200,
+          f"the 5500 K / tint -80 case came back as {got_k:.0f} K")
+    check(abs(got_t + 80) < 1.0, f"...with tint {got_t:.1f}")
+
+    print("  locus smooth and monotone, eyedropper inverts its own forward map")
+
+
+# ---------------------------------------------------------------------------
 
 def main():
     gen_canonical_fixture()
@@ -1550,6 +1700,7 @@ def main():
     gen_display_transform_checks()
     gen_spatial_primitive_checks()
     gen_perceptual_checks()
+    gen_white_balance_checks()
     if FAILURES:
         print(f"\n{len(FAILURES)} verification failure(s)")
         sys.exit(1)
