@@ -57,7 +57,7 @@ film, detail, denoise, mask algebra, catalog and XMP.
 It does NOT cover LumenPipeline or LumenApp, which are `#if os(macOS)` and need Core
 Image, AppKit and SwiftUI. Those still go through the macOS runner, and
 `scripts/check-swift-surface.py` remains their only local feedback — which is why that
-script has six passes rather than one. Two bugs shipped in a single afternoon that a
+script has eight passes rather than one. Two bugs shipped in a single afternoon that a
 compiler catches in seconds: a member that did not exist on a type, and an overlay
 drawing against a rectangle the renderer had already applied.
 
@@ -80,7 +80,7 @@ filtered down to deduplicated diagnostics so a round is readable.
 > — treat them as unverified until a run gets past this point.
 >
 > What stood in for it meanwhile, and still runs on every push: the Python mirror below,
-> and `scripts/check-swift-surface.py`, which makes six mechanical passes over the
+> and `scripts/check-swift-surface.py`, which makes eight mechanical passes over the
 > whole tree — every capitalized identifier resolves against the declarations in-tree,
 > every `Type(...)` call site matches one of that type's declared initializers, every
 > call to an actor-isolated member is awaited, every `TypeName.member` names something

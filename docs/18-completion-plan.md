@@ -120,7 +120,7 @@ looks like and needs no new UI.
 
 Scores in this document are claims, and claims get checked. After each batch:
 
-- The six mechanical passes and the fixture gate, on every push.
+- The eight mechanical passes and the fixture gate, on every push.
 - The macOS suite, with the fast lane for iteration.
 - **Independent agents re-audit the batch against its spec**, with the same instruction
   the first five had: trace UI → model → the stage that reads it, and treat "code

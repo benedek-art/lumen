@@ -728,6 +728,108 @@ def pass_module_imports():
     return False
 
 
+# ==========================================================================
+# Pass 5b — an IN-TREE type used where its own module is not imported
+# ==========================================================================
+#
+# Pass 1 resolves every capitalised identifier against the whole tree at once, with no
+# idea which of the four targets each file belongs to. So `CaptureMetadataReader`, which
+# lives in LumenPipeline, read as perfectly resolved from `Sources/LumenApp/Catalog
+# Service.swift`, whose imports are Foundation and LumenCore. It is a hard compile error
+# and it was invisible to seven passes.
+#
+# Only unambiguous names are checked: a type declared in exactly one module. Anything
+# declared in two (a test double shadowing a real type, say) is skipped rather than
+# guessed at, and so is anything a file declares locally.
+
+MODULE_DEPENDENCIES = {
+    # Which modules a target may import at all, from Package.swift. A use of something
+    # from a module the target does not depend on is a different error with a different
+    # fix, so it is reported as itself rather than as a missing import line.
+    "LumenCore": set(),
+    "LumenPipeline": {"LumenCore"},
+    "LumenApp": {"LumenCore", "LumenPipeline"},
+    "LumenCoreTests": {"LumenCore"},
+    "LumenPipelineTests": {"LumenCore", "LumenPipeline"},
+}
+
+
+def _module_of(path):
+    parts = path.relative_to(ROOT).parts
+    return parts[1] if len(parts) > 2 and parts[0] in ("Sources", "Tests") else None
+
+
+def pass_intree_imports():
+    # type -> the set of modules declaring it, and per-file local declarations.
+    declared_in = {}
+    for path in FILES:
+        module = _module_of(path)
+        if module is None:
+            continue
+        text = strip_comments(path.read_text())
+        spans = _enclosing_types(text)
+        for m in TYPE_BLOCK.finditer(text):
+            if m.group(1) == "extension":
+                continue
+            # TOP-LEVEL only. A nested type is `Outer.Inner`, so a bare `Inner` in
+            # another module is never a reference to it — and indexing nested names
+            # is what made SwiftUI's `@State` look like `XMPSidecar.State` and a
+            # `<Content: View>` generic parameter look like a test's `Content`.
+            if any(start < m.start() < end for start, end, _ in spans):
+                continue
+            declared_in.setdefault(m.group(2).split(".")[-1], set()).add(module)
+
+    unique = {name: next(iter(mods)) for name, mods in declared_in.items()
+              if len(mods) == 1}
+
+    problems = []
+    for path in FILES:
+        module = _module_of(path)
+        if module is None:
+            continue
+        raw = path.read_text()
+        imported = set(IMPORT.findall(raw))
+        # `@testable import X` is an import; so is a submodule's parent.
+        imported |= {name.split(".")[0] for name in imported}
+        text = strip_all(raw)
+        # `<Content: View>` declares `Content` for this file; `@State` is an attribute.
+        local = set()
+        for m in re.finditer(r"<([^<>]{1,200})>", text):
+            for part in m.group(1).split(","):
+                hit = re.match(r"\s*([A-Z]\w*)\s*(?::|$)", part)
+                if hit:
+                    local.add(hit.group(1))
+        seen = {}
+        for lineno, line in enumerate(text.split("\n"), 1):
+            for name in SYMBOLISH.findall(line):
+                home = unique.get(name)
+                if home is None or home == module or home in imported:
+                    continue
+                if name in local or f"@{name}" in line:
+                    continue
+                seen.setdefault((home, name), lineno)
+        for (home, name), lineno in seen.items():
+            reachable = home in MODULE_DEPENDENCIES.get(module, set())
+            problems.append((path.relative_to(ROOT).as_posix(), lineno, home, name,
+                             module, reachable))
+
+    problems = sorted(set(problems))
+    if not problems:
+        print(f"targets:  every in-tree type is used in a file whose module imports "
+              f"its own ({len(unique)} unambiguously placed)")
+        return True
+
+    print(f"targets:  {len(problems)} in-tree types used where their module is not "
+          f"imported\n")
+    for path, lineno, home, name, module, reachable in problems[:25]:
+        if reachable:
+            print(f"  {name:<28} needs `import {home}`  {path}:{lineno}")
+        else:
+            print(f"  {name:<28} is in {home}, which {module} does not depend on"
+                  f"  {path}:{lineno}")
+    return False
+
+
 
 
 # ==========================================================================
@@ -1080,6 +1182,8 @@ if __name__ == "__main__":
     ok = pass_members() and ok
     print()
     ok = pass_module_imports() and ok
+    print()
+    ok = pass_intree_imports() and ok
     print()
     ok = pass_value_members() and ok
     print()

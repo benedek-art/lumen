@@ -23,7 +23,7 @@
 # What it does NOT cover: LumenPipeline and LumenApp are `#if os(macOS)` and need Core
 # Image, AppKit and SwiftUI. They still need the macOS runner. The mechanical checker
 # (scripts/check-swift-surface.py) remains the only local feedback on those, which is
-# why it has six passes rather than one.
+# why it has eight passes rather than one.
 #
 # Requires outbound access to download.swift.org. If the environment's network policy is
 # "trusted" rather than "all", this returns 403 at CONNECT and there is nothing to do

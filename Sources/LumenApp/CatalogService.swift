@@ -16,6 +16,9 @@
 
 import Foundation
 import LumenCore
+// `CaptureMetadataReader` reads EXIF through ImageIO, so it lives in LumenPipeline
+// with the rest of the platform-image code rather than in LumenCore.
+import LumenPipeline
 
 final class CatalogService: @unchecked Sendable {
 
