@@ -44,7 +44,13 @@ public final class PipelineRenderer {
     /// the full-quality pass re-renders when interaction settles (docs/12 latency ladder).
     public func renderPreview(source: AppleRawSource, recipe: Recipe,
                               maxLongEdge: Int, draft: Bool) throws -> CGImage {
-        guard var image = source.decode(recipe: recipe, draft: draft) else {
+        // Decode at the target resolution, not the sensor's: a 2560px preview of a
+        // 7000px raw decodes ~7× less data. Lanczos below stays as a safety net for
+        // formats where scaleFactor is ignored.
+        let native = source.nativeLongEdge
+        let scale = native > 0 ? min(1.0, Double(maxLongEdge) / native) : 1.0
+        guard var image = source.decode(recipe: recipe, draft: draft,
+                                        scaleFactor: scale) else {
             throw RenderError.decodeFailed
         }
         image = Self.applyGeometry(image, recipe: recipe)

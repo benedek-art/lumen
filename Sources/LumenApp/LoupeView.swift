@@ -107,9 +107,20 @@ struct LoupeView: View {
             }
         }
 
-        // Settle debounce: during a slider drag each tick cancels the previous task
-        // here, so at most one real render dispatches per pause — no queue storm.
-        try? await Task.sleep(nanoseconds: 100_000_000)
+        // Two-tier render (docs/12 progressive-refine): a cheap low-res pass lands
+        // immediately so slider drags feel live, then a settle debounce dispatches
+        // one quality pass per pause — stale requests die at the coordinator.
+        let fast = await RenderCoordinator.shared.render(
+            url: url, recipe: recipe, maxLongEdge: 1024)
+        guard !Task.isCancelled else { return }
+        if case .success(let cg) = fast {
+            rendered = cg
+            renderedFor = url
+            isEmbeddedFallback = false
+            lastRenderError = nil
+        }
+
+        try? await Task.sleep(nanoseconds: 250_000_000)
         guard !Task.isCancelled else { return }
 
         let result = await RenderCoordinator.shared.render(

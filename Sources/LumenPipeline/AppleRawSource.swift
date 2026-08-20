@@ -73,6 +73,13 @@ public final class AppleRawSource {
         self.defaultColorNR = filter.colorNoiseReductionAmount
     }
 
+    /// Native long edge in pixels — lets callers decode at view resolution
+    /// (scaleFactor) instead of paying for the full sensor on every render.
+    public var nativeLongEdge: Double {
+        let size = filter.nativeSize
+        return Double(max(size.width, size.height))
+    }
+
     /// Configure Apple's stage from the recipe and return the decoded image.
     /// Every recipe-driven property is written unconditionally (recipe value or
     /// captured as-shot default) so a cached filter never carries stale state.
