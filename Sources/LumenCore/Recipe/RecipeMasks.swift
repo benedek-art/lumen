@@ -15,23 +15,57 @@ public struct Mask: Codable, Equatable, Sendable {
     public var id: String              // UUID string
     public var name: String
     public var enabled: Bool
+    /// Whole-mask invert (docs/08 §8.1: "Invert mask — whole-mask, after combine").
+    ///
+    /// Distinct from `MaskComponent.invert`, which flips ONE component before the
+    /// fold. This flips the folded alpha of the whole stack, and it does so BEFORE
+    /// the refinement chain, so Refine still snaps to the picture's edges, Edge Shift
+    /// still grows the boundary of what is now selected, and Levels still remaps the
+    /// density the user can see. Inverting after the chain would make Edge Shift run
+    /// backwards, which is the one ordering a photographer would notice.
+    public var invert: Bool
     public var amount: Double          // 0…200 multiplier over the whole adjust set (D29)
     public var components: [MaskComponent]
     public var refine: MaskRefine
     public var adjust: LocalAdjust
 
     public init(id: String = UUID().uuidString, name: String = "",
-                enabled: Bool = true, amount: Double = 100,
+                enabled: Bool = true, invert: Bool = false, amount: Double = 100,
                 components: [MaskComponent] = [],
                 refine: MaskRefine = MaskRefine(),
                 adjust: LocalAdjust = LocalAdjust()) {
         self.id = id
         self.name = name
         self.enabled = enabled
+        self.invert = invert
         self.amount = amount
         self.components = components
         self.refine = refine
         self.adjust = adjust
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, enabled, invert, amount, components, refine, adjust
+    }
+
+    /// Every field has a default, so a mask written by a build that did not have
+    /// `invert` — or a hand-edited sidecar missing a key — still decodes into a mask
+    /// instead of failing the whole recipe. A mask is user work; losing an hour of it
+    /// to one absent boolean is not an acceptable failure mode, and the sparse form
+    /// this format uses prunes at the recipe level, never inside a mask.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try c.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
+        self.name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
+        self.enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
+        self.invert = try c.decodeIfPresent(Bool.self, forKey: .invert) ?? false
+        self.amount = try c.decodeIfPresent(Double.self, forKey: .amount) ?? 100
+        self.components = try c.decodeIfPresent([MaskComponent].self,
+                                                forKey: .components) ?? []
+        self.refine = try c.decodeIfPresent(MaskRefine.self, forKey: .refine)
+            ?? MaskRefine()
+        self.adjust = try c.decodeIfPresent(LocalAdjust.self, forKey: .adjust)
+            ?? LocalAdjust()
     }
 
     /// The same mask with everything that is only a label removed. Renaming a mask
@@ -85,16 +119,36 @@ public enum MaskKind: String, Codable, Sendable {
         }
     }
 
-    /// True when this kind needs an AI matte supplied alongside it. Nothing generates
-    /// those yet, which is why the panel files them under "requires a model".
-    public var needsMatte: Bool {
+    /// True when this kind needs an AI matte supplied alongside it.
+    public var needsMatte: Bool { matteProvider != .none }
+
+    /// WHERE that matte can come from, which is not the same question and used to be
+    /// conflated with it — the panel filed all seven under "requires a model" when
+    /// three of them are served by an OS framework that needs no download at all.
+    public enum MatteProvider: String, Sendable {
+        /// Rasterized from geometry or from the picture; no matte involved.
+        case none
+        /// Apple's Vision framework: on-device, no download, no bundled weights.
+        case vision
+        /// A Core ML model that is not bundled. These render empty and say so.
+        case model
+    }
+
+    public var matteProvider: MatteProvider {
         switch self {
         case .brush, .linear, .radial, .lumaRange, .colorRange, .similarity,
              .similarityLine:
-            return false
-        case .aiSubject, .aiSky, .aiBackground, .aiObject, .aiPerson, .aiLandscape,
-             .depthRange:
-            return true
+            return .none
+        case .aiSubject, .aiBackground, .aiPerson:
+            // Foreground instances and person instances both come out of Vision.
+            // Background is deliberately the COMPLEMENT of the subject rather than a
+            // second model: two models can disagree, and a complement cannot
+            // (docs/08 §8.3).
+            return .vision
+        case .aiSky, .aiObject, .aiLandscape, .depthRange:
+            // Sky segmentation, SAM and Depth Anything. None is bundled; the panel
+            // says so rather than implying a pass that is not running.
+            return .model
         }
     }
 }

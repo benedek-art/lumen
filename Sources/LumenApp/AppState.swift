@@ -449,6 +449,10 @@ final class AppState: ObservableObject {
             primaryFrameSize = nil
             refreshPrimaryFrameSize()
             refreshPrimaryLibraryDetail()
+            // A photo whose recipe already carries a Subject mask needs its matte
+            // before the first frame is worth looking at; the call is a no-op for the
+            // overwhelming majority of photographs, which have no AI component at all.
+            ensureMaskMattes()
         }
     }
 
@@ -477,7 +481,17 @@ final class AppState: ObservableObject {
     /// Nothing produced this before, so `MaskOverlayView` always fell back to a flat
     /// tint over the whole frame — which reads as "this mask selects everything" and
     /// was the app's only way to look at a mask.
-    @Published private(set) var maskOverlayRaster: CGImage?
+    ///
+    /// A `Plane` of numbers rather than a `CGImage`: the six overlay modes composite
+    /// the alpha against the picture per pixel, and the CGImage form was being used as
+    /// a SwiftUI `.mask`, which reads an alpha channel the grey image did not have.
+    @Published private(set) var maskOverlayAlpha: Plane?
+
+    /// Which of the six overlay modes the loupe draws, and in which colour
+    /// (docs/08 §8.6). `⌥O` cycles the mode, `⇧O` the colour, and both are also in
+    /// the mask panel so neither needs a key to be discovered.
+    @Published var maskOverlayMode: MaskOverlay.Mode = .colorOverlay
+    @Published var maskOverlayTint: MaskOverlay.Tint = .red
 
     private var maskOverlayGeneration: Int = 0
 
@@ -488,7 +502,7 @@ final class AppState: ObservableObject {
         maskOverlayGeneration &+= 1
         let generation = maskOverlayGeneration
         guard let maskID = soloMaskOverlay, let photo = primarySelection else {
-            maskOverlayRaster = nil
+            maskOverlayAlpha = nil
             return
         }
         let recipe = recipe(for: photo)
@@ -498,7 +512,112 @@ final class AppState: ObservableObject {
             let raster = await self.renderCoordinator.maskAlpha(
                 url: photo.id, recipe: recipe, maskID: maskID, strokeSets: strokes)
             guard self.maskOverlayGeneration == generation else { return }
-            self.maskOverlayRaster = raster
+            self.maskOverlayAlpha = raster
+        }
+    }
+
+    /// Which AI matte kinds each file has, so the views that consume them can go stale
+    /// when one arrives.
+    ///
+    /// The mattes themselves live in the renderer's cache, behind the render actor —
+    /// this is only the ledger of what exists. It is published because the loupe's
+    /// render key has to mention it: a matte arrives asynchronously, exactly like a
+    /// brush blob, and a `.task(id:)` that does not name it renders the mask empty and
+    /// stays that way until an unrelated edit moves the recipe.
+    @Published private(set) var availableMattes: [URL: Set<String>] = [:]
+    /// Files a generation pass has already FINISHED for, whatever it found. Without
+    /// this a photograph with no subject in it would be re-segmented on every edit.
+    /// Separate from `pendingMattes` so "still working" and "looked and found nothing"
+    /// are different states — the panel says different things about them.
+    private var attemptedMattes: Set<URL> = []
+    private var pendingMattes: Set<URL> = []
+
+    func maskMatteKinds(for url: URL) -> Set<String> { availableMattes[url] ?? [] }
+
+    /// What to tell the user about one AI component (docs/08 §8.7: errors are specific
+    /// and actionable, never "Something went wrong").
+    enum MatteStatus {
+        /// Rasterized from geometry or the picture — no matte involved.
+        case notNeeded
+        /// Vision can produce it and has not been asked yet, or is working.
+        case working
+        /// Vision produced one.
+        case ready
+        /// Vision ran and found nothing in this photograph.
+        case notFound
+        /// Needs a Core ML model that is not bundled.
+        case needsModel
+    }
+
+    func matteStatus(for kind: MaskKind) -> MatteStatus {
+        switch kind.matteProvider {
+        case .none: return .notNeeded
+        case .model: return .needsModel
+        case .vision:
+            guard let url = primarySelection?.id else { return .working }
+            if maskMatteKinds(for: url).contains(kind.rawValue) { return .ready }
+            return attemptedMattes.contains(url) && !pendingMattes.contains(url)
+                ? .notFound : .working
+        }
+    }
+
+    /// Ask for whatever Vision mattes the current photo's masks need. Cheap and
+    /// idempotent: it returns immediately when there is nothing to compute or the pass
+    /// has already run for this file.
+    func ensureMaskMattes() {
+        guard let photo = primarySelection else { return }
+        let url = photo.id
+        let recipe = recipe(for: photo)
+        guard !VisionMattes.kinds(in: recipe).isEmpty else { return }
+        guard !attemptedMattes.contains(url), !pendingMattes.contains(url) else { return }
+        pendingMattes.insert(url)
+        Task { [weak self] in
+            guard let self else { return }
+            // `await`: the coordinator is an actor, and the segmentation it runs is on
+            // a third one, so neither this actor nor the render loop is blocked.
+            let kinds = await self.renderCoordinator.ensureMattes(url: url, recipe: recipe)
+            self.pendingMattes.remove(url)
+            self.attemptedMattes.insert(url)
+            guard !kinds.isEmpty else { return }
+            self.availableMattes[url] = kinds
+            // The overlay is a picture of the mask, and the mask just changed.
+            self.refreshMaskOverlay()
+        }
+    }
+
+    /// `O`: show or hide the overlay for the mask the panel has selected. With no mask
+    /// selected there is nothing to show, so the key does nothing rather than picking
+    /// a mask on the user's behalf.
+    func toggleMaskOverlay() {
+        if soloMaskOverlay != nil {
+            soloMaskOverlay = nil
+            return
+        }
+        guard let id = activeMaskID ?? currentRecipe.masks.first?.id else { return }
+        soloMaskOverlay = id
+    }
+
+    /// `⌥O` and `⇧O`: cycle the mode and the colour. Cycling either turns the overlay
+    /// ON if it is off — pressing a key that changes how a thing is drawn and seeing
+    /// nothing happen is how a user concludes the key is broken.
+    func cycleMaskOverlayMode() {
+        maskOverlayMode = maskOverlayMode.next
+        if soloMaskOverlay == nil { toggleMaskOverlay() }
+    }
+
+    func cycleMaskOverlayTint() {
+        maskOverlayTint = maskOverlayTint.next
+        if soloMaskOverlay == nil { toggleMaskOverlay() }
+    }
+
+    /// `'`: invert the component the mask panel has selected (docs/08 §8.6).
+    func invertActiveMaskComponent() {
+        guard let id = activeMaskID ?? currentRecipe.masks.first?.id else { return }
+        let index = activeComponentIndex
+        updateRecipe(coalescingKey: nil) { recipe in
+            guard let m = recipe.masks.firstIndex(where: { $0.id == id }),
+                  recipe.masks[m].components.indices.contains(index) else { return }
+            recipe.masks[m].components[index].invert.toggle()
         }
     }
 
@@ -1707,6 +1826,8 @@ final class AppState: ObservableObject {
             // The overlay is a picture of the mask, so editing the mask must move it.
             // Cheap when nothing is soloed — the refresh guards on that first.
             refreshMaskOverlay()
+            // Adding a Subject or People component is the moment its matte is wanted.
+            ensureMaskMattes()
         }
     }
 

@@ -167,6 +167,28 @@ final class KeyDispatcher {
         case "m":
             state.activeSection = .masks
             state.showLoupe()
+
+        // ---- Mask overlays (docs/08 §8.6) --------------------------------------
+        //
+        // LR's three overlay keys, adopted verbatim: fifteen years of tutorials and
+        // muscle memory describe exactly this grammar. Until now the overlay had no
+        // key at all and one mode of six, so the only way to look at a mask was a
+        // button in the panel that drew a flat tint.
+        case "o":
+            if flags.contains(.option) {
+                state.cycleMaskOverlayMode()
+            } else if flags.contains(.shift) {
+                state.cycleMaskOverlayTint()
+            } else {
+                state.toggleMaskOverlay()
+            }
+            state.activeSection = .masks
+            state.showLoupe()
+        case "'":
+            // Invert the selected COMPONENT, which is what this key means in LR and in
+            // docs/08 §8.1. The whole-mask invert is a toggle in the panel, because a
+            // second invert key would be two keys nobody could tell apart.
+            state.invertActiveMaskComponent()
         case "b":
             state.activeSection = .basic
         case "l":
@@ -341,6 +363,10 @@ enum KeyReference {
             Entry(keys: "D", action: "Detail panel"),
             Entry(keys: "L", action: "Look panel"),
             Entry(keys: "M", action: "Masks"),
+            Entry(keys: "O", action: "Show the selected mask's overlay"),
+            Entry(keys: "⇧O", action: "Cycle the overlay colour: red, green, white, black"),
+            Entry(keys: "⌥O", action: "Cycle the six overlay modes"),
+            Entry(keys: "'", action: "Invert the selected mask component"),
             Entry(keys: "R", action: "Crop tool on the image; again to leave it"),
             Entry(keys: "⇧S", action: "Soft proof through the destination space"),
             Entry(keys: "\\", action: "Before / after, full frame"),

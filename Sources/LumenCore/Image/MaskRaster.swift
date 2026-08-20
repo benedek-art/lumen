@@ -97,8 +97,8 @@ public enum MaskRaster {
         }
     }
 
-    /// Rasterize every component, fold the stack with `MaskAlgebra`'s semantics, then
-    /// run the refinement chain in `MaskRefine` order:
+    /// Rasterize every component, fold the stack with `MaskAlgebra`'s semantics, apply
+    /// the whole-mask invert, then run the refinement chain in `MaskRefine` order:
     /// guided-filter refine (`feather`) → edge shift (`edge`) → Gaussian softness
     /// (`blur`) → levels remap (`levelsLo`/`levelsHi`/`levelsGamma`).
     ///
@@ -138,7 +138,7 @@ public enum MaskRaster {
             }
         }
 
-        return refined(acc, refine: mask.refine, source: source)
+        return refined(acc, refine: mask.refine, source: source, invert: mask.invert)
     }
 
     /// docs/08 §8.5: "radius ≈ Refine × 2% long edge". At 61 MP (9504 px long edge),
@@ -182,12 +182,17 @@ public enum MaskRaster {
 
     // MARK: - Refinement chain (docs/08 §8.5)
 
-    /// Fixed order, applied to the folded alpha. Whole-mask invert would sit ahead of
-    /// this chain (brief §5.7) but `Mask` ships no invert field, so there is nothing
-    /// to apply here.
-    static func refined(_ alpha: Plane, refine: MaskRefine, source: ImageBuffer?) -> Plane {
+    /// Fixed order, applied to the folded alpha. Whole-mask invert (docs/08 §8.1,
+    /// brief §5.7) sits AHEAD of this chain: the four refinements are shaping the
+    /// selection the user can see, so inverting first is what makes Edge Shift grow
+    /// the region that is now selected rather than the one that no longer is.
+    static func refined(_ alpha: Plane, refine: MaskRefine, source: ImageBuffer?,
+                        invert: Bool = false) -> Plane {
         var a = alpha
         let longEdge = Swift.max(a.width, a.height)
+
+        // 0. Whole-mask invert, before the chain.
+        if invert { a = a.map { 1 - Num.saturate($0.isFinite ? $0 : 0) } }
 
         // 1. Guided-filter refine — edge-aware snap against the stage input's structure.
         let r = refineRadius(feather: refine.feather, longEdge: longEdge)
@@ -868,5 +873,105 @@ public enum MaskRaster {
         let num = (f[q] + Double(q * q)) - (f[vk] + Double(vk * vk))
         let s = num / den
         return s.isFinite ? s : Double.infinity
+    }
+}
+
+// MARK: - Overlays
+
+/// How a mask is DRAWN over the picture (docs/08 §8.6): six modes and four overlay
+/// colours, with LR's keyboard grammar — `O` shows it, `⇧O` cycles the colour, `⌥O`
+/// cycles the mode.
+///
+/// The compositing rule lives here, in the engine, for the same reason
+/// `ClippingOverlay`'s does: it is a statement about what the user is being shown, it
+/// has to be identical wherever it is drawn, and a rule that lives in a SwiftUI view
+/// cannot be tested. The view's whole job is to run `composite` over the sampled
+/// picture and the mask's alpha.
+public enum MaskOverlay {
+
+    /// The six modes, in the order `⌥O` cycles them — LR's order, because fifteen
+    /// years of tutorials describe it.
+    public enum Mode: String, Codable, Sendable, CaseIterable {
+        case colorOverlay
+        case colorOnBW
+        case imageOnBW
+        case imageOnBlack
+        case imageOnWhite
+        case matte
+
+        public var label: String {
+            switch self {
+            case .colorOverlay: return "Colour Overlay"
+            case .colorOnBW: return "Colour on B&W"
+            case .imageOnBW: return "Image on B&W"
+            case .imageOnBlack: return "Image on Black"
+            case .imageOnWhite: return "Image on White"
+            case .matte: return "Matte"
+            }
+        }
+
+        /// True when the mode needs the picture underneath. `matte` does not — it is
+        /// the ground-truth view, and it must look the same over any photograph.
+        public var readsPicture: Bool { self != .matte }
+
+        public var next: Mode {
+            let all = Mode.allCases
+            guard let i = all.firstIndex(of: self) else { return .colorOverlay }
+            return all[(i + 1) % all.count]
+        }
+    }
+
+    /// The four overlay colours `⇧O` cycles, in LR's order.
+    public enum Tint: String, Codable, Sendable, CaseIterable {
+        case red, green, white, black
+
+        public var label: String { rawValue.capitalized }
+
+        /// Display-referred, because that is the domain the overlay is drawn in.
+        public var colour: RGB {
+            switch self {
+            case .red: return RGB(0.90, 0.16, 0.16)
+            case .green: return RGB(0.16, 0.85, 0.30)
+            case .white: return RGB.one
+            case .black: return RGB.zero
+            }
+        }
+
+        public var next: Tint {
+            let all = Tint.allCases
+            guard let i = all.firstIndex(of: self) else { return .red }
+            return all[(i + 1) % all.count]
+        }
+    }
+
+    /// Default strength of the tinted modes (docs/08 §8.6 shows a translucent wash).
+    public static let defaultStrength: Double = 0.45
+
+    /// One overlay pixel, fully opaque, ready to draw over the image.
+    ///
+    /// - Parameters:
+    ///   - picture: the displayed pixel, sRGB-encoded 0…1 — the same numbers the
+    ///     viewer is showing, so what the overlay draws is what the eye compares
+    ///     against.
+    ///   - alpha: the mask's refined alpha at that pixel.
+    ///   - strength: how far the two tinted modes push toward the overlay colour.
+    ///     Only they use it; the other four are unambiguous by construction and a
+    ///     half-strength Matte would be a lie about the mask's density.
+    public static func composite(picture: RGB, alpha: Double, mode: Mode, tint: Tint,
+                                 strength: Double = defaultStrength) -> RGB {
+        let a = Num.saturate(alpha.isFinite ? alpha : 0)
+        let s = Num.saturate(strength.isFinite ? strength : defaultStrength)
+        let c = picture.isFinite ? picture : RGB.zero
+        // Rec.709 luma on the ENCODED picture: this is a desaturation for the eye, not
+        // a colour-science operation, and the encoded axis is where the viewer is.
+        let grey = RGB(gray: Num.saturate(0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b))
+        switch mode {
+        case .colorOverlay: return c.mix(tint.colour, a * s)
+        case .colorOnBW: return grey.mix(tint.colour, a * s)
+        case .imageOnBW: return grey.mix(c, a)
+        case .imageOnBlack: return RGB.zero.mix(c, a)
+        case .imageOnWhite: return RGB.one.mix(c, a)
+        case .matte: return RGB(gray: a)
+        }
     }
 }

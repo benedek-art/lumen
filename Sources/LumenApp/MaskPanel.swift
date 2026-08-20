@@ -12,9 +12,9 @@
 //     the user the wrong word for both.
 //   · A mask runs the local point curve and the local grading wheels — the two tools
 //     Lightroom Classic still lacks inside a mask — so both are visible sections.
-//   · Where the format has no field for a spec'd control (whole-mask invert, linear
-//     Mirror, per-axis colour tolerances, similarity geometry, depth source), the
-//     control is ABSENT rather than invented.
+//   · Where the format has no field for a spec'd control (linear Mirror, per-axis
+//     colour tolerances, similarity geometry, depth source), the control is ABSENT
+//     rather than invented.
 //
 // Every slider is a `LumenSlider`, every edit goes through
 // `updateRecipe(coalescingKey:)` so one drag is one undo step, and every index into
@@ -95,12 +95,24 @@ struct MaskPanel: View {
                             value: maskValue(mask.id, "amount", get: { $0.amount },
                                              set: { $0.amount = Num.clamp($1, 0, 200) }),
                             range: 0...200, defaultValue: 100, step: 1, decimals: 0)
+                // Whole-mask invert (docs/08 §8.1), not the per-component one further
+                // down: this flips the folded stack. It runs BEFORE the refinement
+                // chain, so Refine still snaps to the picture and Edge Shift still
+                // grows what is now selected.
+                LumenToggleRow(title: "Invert mask",
+                               isOn: optionBinding(mask.id, mask.invert,
+                                                   on: { $0.invert = true },
+                                                   off: { $0.invert = false }),
+                               help: "Selects everything this stack does not, after the "
+                                   + "components combine and before Refine, Edge Shift, "
+                                   + "Feather and Levels")
                 HStack(spacing: 4) {
                     smallButton("Duplicate", "plus.square.on.square") { duplicateMask(mask.id) }
                     smallButton("Delete", "trash") { deleteMask(mask.id) }
                     Spacer(minLength: 0)
                 }
                 .frame(height: Lumen.rowHeight)
+                overlayControls(mask)
                 note("Amount scales the adjustment deltas, not the alpha: past 100 it "
                      + "amplifies beyond the slider maxima instead of clipping a mask that "
                      + "is already fully opaque.")
@@ -142,6 +154,51 @@ struct MaskPanel: View {
             selectedMaskID = mask.id
             selectedComponent = 0
             selectedSwatch = 0
+        }
+    }
+
+    /// The overlay's mode and colour, in the panel as well as on `⌥O` / `⇧O`. Both
+    /// belong here because a control that only exists as a keystroke is a control most
+    /// people never find — and the six modes are the whole of docs/08 §8.6.
+    private func overlayControls(_ mask: Mask) -> some View {
+        let showing = state.soloMaskOverlay == mask.id
+        return VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
+                Button {
+                    state.soloMaskOverlay = showing ? nil : mask.id
+                } label: {
+                    HStack(spacing: 3) {
+                        Image(systemName: showing ? "eye.fill" : "eye")
+                            .font(.system(size: 9))
+                        Text(showing ? "Overlay on" : "Show overlay").font(.system(size: 10))
+                    }
+                    .padding(.horizontal, 6).padding(.vertical, 3)
+                    .background(showing ? Lumen.fillColor.opacity(0.35) : Lumen.controlBackground)
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(showing ? Lumen.primaryText : Lumen.secondaryText)
+                .help("O shows the overlay for this mask")
+
+                Menu(state.maskOverlayMode.label) {
+                    ForEach(MaskOverlay.Mode.allCases, id: \.self) { m in
+                        Button(m.label) { state.maskOverlayMode = m }
+                    }
+                }
+                .fixedSize()
+                .help("⌥O cycles the six modes")
+
+                Menu(state.maskOverlayTint.label) {
+                    ForEach(MaskOverlay.Tint.allCases, id: \.self) { t in
+                        Button(t.label) { state.maskOverlayTint = t }
+                    }
+                }
+                .fixedSize()
+                .help("⇧O cycles red, green, white and black")
+                Spacer(minLength: 0)
+            }
+            .frame(height: Lumen.rowHeight)
         }
     }
 
@@ -368,11 +425,46 @@ struct MaskPanel: View {
         }
     }
 
+    /// What is actually happening to this component's matte.
+    ///
+    /// This used to read "Computed in the background once the model is available" for
+    /// all seven AI kinds, which implied a background pass that did not exist — and it
+    /// said it about Subject and People too, which need no model at all. Each row now
+    /// states its own case.
     private func modelNote(_ c: MaskComponent) -> some View {
-        HStack(spacing: 6) {
-            LumenBadge(text: c.model ?? "MODEL NEEDED", emphasized: c.model == nil)
-            Text(c.model == nil ? "Computed in the background once the model is available."
-                                : "Cached at generation resolution; refine carries it up.")
+        let status = state.matteStatus(for: c.kind)
+        let badge: String
+        let text: String
+        switch status {
+        case .ready:
+            badge = c.model ?? "VISION"
+            text = "Computed on this Mac by Apple's Vision framework, cached at 1024 px; "
+                + "Refine carries the edge up to full resolution."
+        case .working:
+            badge = "VISION"
+            text = "Computing on this Mac — no download, no model. The mask is empty "
+                + "until it lands, and the picture stays editable meanwhile."
+        case .notFound:
+            badge = "NOTHING FOUND"
+            text = c.kind == .aiPerson
+                ? "Vision found no person in this frame. Try a brush, or Subject."
+                : "Vision found no clear subject in this frame. Try a brush, or a "
+                    + "Similarity Point on what you meant."
+        case .needsModel:
+            badge = "MODEL NEEDED"
+            text = "No model for this is bundled and nothing computes it, so this "
+                + "component selects nothing at all. Subject, Background and People "
+                + "work today; this one does not."
+        case .notNeeded:
+            badge = c.model ?? ""
+            text = ""
+        }
+        return HStack(spacing: 6) {
+            if !badge.isEmpty {
+                LumenBadge(text: badge,
+                           emphasized: status == .needsModel || status == .notFound)
+            }
+            Text(text)
                 .font(.system(size: 10)).foregroundStyle(Lumen.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -483,16 +575,16 @@ struct MaskPanel: View {
                                onReset: { editMask(mask.id, key: nil) { $0.adjust.curve = nil } })
             if curveExpanded {
                 VStack(alignment: .leading, spacing: 2) {
-                    // The controls are absent rather than inert. `LocalAdjust.curve`
-                    // has a wire format and no stage reads it: a local curve has to
-                    // tap after the display transform, next to the global curve, and
-                    // the local stage runs well before that. Offering four sliders
-                    // that move a stored value and change no pixel is worse than
-                    // offering none, because it costs the user the time to find out.
-                    note("A curve per mask — the tool Lightroom still does not put "
-                         + "inside a local adjustment. Not wired yet: it has to tap "
-                         + "after the display transform, alongside the global curve, "
-                         + "and the local stage runs before it. The global curve works.")
+                    // The same editor the global curve uses, pointed at this mask.
+                    // A second, simpler widget here would be two curve UIs that could
+                    // disagree about what the pipeline applies; this one draws
+                    // `CurveStack`'s own evaluation, which is what gets baked.
+                    CurveEditorView(target: .mask(mask.id))
+                    note("A curve per mask — one of the two tools Lightroom still does "
+                         + "not put inside a local adjustment. It taps AFTER the "
+                         + "display transform, alongside the global curve, through this "
+                         + "mask's alpha, so the axis means the same thing here as it "
+                         + "does globally. Amount scales how far it moves the picture.")
                 }
             }
         }
@@ -760,17 +852,6 @@ struct MaskPanel: View {
                 set: { v in editComponent(id, i, key: nil) { $0.invert = v } })
     }
 
-    private func preserveBinding(_ id: String) -> Binding<Bool> {
-        Binding(get: { mask(id)?.adjust.curve?.preserveLuminance ?? true },
-                set: { v in
-                    editMask(id, key: nil) { m in
-                        var c = m.adjust.curve ?? CurveSet()
-                        c.preserveLuminance = v
-                        m.adjust.curve = c
-                    }
-                })
-    }
-
     private func listBinding(_ id: String, _ i: Int, _ key: String,
                              isParts: Bool) -> Binding<Bool> {
         Binding(
@@ -886,19 +967,6 @@ struct MaskPanel: View {
                     range: r, defaultValue: 0, step: step, decimals: decimals, bipolar: bipolar)
     }
 
-    private func curveSlider(_ id: String, _ t: String,
-                             _ p: WritableKeyPath<ParametricCurve, Double>) -> some View {
-        LumenSlider(title: t,
-                    value: maskValue(id, "curve." + t,
-                                     get: { $0.adjust.curve?.parametric[keyPath: p] ?? 0 },
-                                     set: { m, v in
-                                         var c = m.adjust.curve ?? CurveSet()
-                                         c.parametric[keyPath: p] = Num.clamp(v, -100, 100)
-                                         m.adjust.curve = c
-                                     }),
-                    range: -100...100, defaultValue: 0, step: 1, decimals: 0)
-    }
-
     private func wheelsSlider(_ id: String, _ t: String,
                               _ p: WritableKeyPath<GradingWheels, Double>,
                               _ r: ClosedRange<Double>, _ d: Double,
@@ -967,9 +1035,14 @@ struct MaskPanel: View {
                     Button(MaskPanel.kindName(k)) { action(k) }
                 }
             }
-            Section("AI — requires a model") {
-                ForEach(MaskPanel.aiKinds, id: \.self) { k in
-                    Button(MaskPanel.kindName(k) + "  ·  model") { action(k) }
+            Section("AI — on this Mac") {
+                ForEach(MaskPanel.visionKinds, id: \.self) { k in
+                    Button(MaskPanel.kindName(k)) { action(k) }
+                }
+            }
+            Section("AI — needs a model Lumen does not ship") {
+                ForEach(MaskPanel.modelKinds, id: \.self) { k in
+                    Button(MaskPanel.kindName(k) + "  ·  empty") { action(k) }
                 }
             }
         } label: {
@@ -979,8 +1052,10 @@ struct MaskPanel: View {
             }
         }
         .fixedSize()
-        .help("Every component type. The AI kinds need a model that is not bundled "
-              + "yet — adding one now produces an empty mask.")
+        .help("Every component type. Subject, Background and People are computed on "
+              + "this Mac by Vision, with no download; Sky, Object and Landscape need "
+              + "a model that is not bundled, and adding one of those produces an "
+              + "empty mask.")
     }
 
     private func smallButton(_ title: String, _ systemImage: String,
@@ -1019,6 +1094,16 @@ struct MaskPanel: View {
                                          .similarityLine, .depthRange]
     static let aiKinds: [MaskKind] = [.aiSubject, .aiSky, .aiBackground, .aiObject,
                                       .aiPerson, .aiLandscape]
+
+    /// The menu splits the AI roster by what actually computes it, rather than filing
+    /// all of it under "requires a model": three come out of Vision on this Mac with no
+    /// download, and the rest select nothing at all until a model is bundled. Both
+    /// lists are derived from `MaskKind.matteProvider`, so a kind cannot end up in the
+    /// wrong one.
+    /// (Depth Range is not in either list: it lives under Range, where its own row
+    /// already says no depth source ships.)
+    static let visionKinds: [MaskKind] = aiKinds.filter { $0.matteProvider == .vision }
+    static let modelKinds: [MaskKind] = aiKinds.filter { $0.matteProvider == .model }
 
     static func kindName(_ kind: MaskKind) -> String {
         switch kind {

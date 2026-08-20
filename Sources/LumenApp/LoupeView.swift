@@ -420,6 +420,13 @@ struct LoupeView: View {
         /// would be the same key for two different pictures. That is the same shape as a
         /// fingerprint that omits a field the render reads.
         let softProof: SoftProof?
+        /// Which AI mattes the renderer holds for this file right now.
+        ///
+        /// Same shape as `strokeRefs`, and the same trap: a Subject mask's matte is
+        /// computed asynchronously and lives beside the recipe rather than inside it,
+        /// so a key that does not mention it renders that mask empty and stays that
+        /// way until an unrelated edit happens to move the recipe.
+        let matteKinds: Set<String>
     }
 
     /// Above this we stop asking for more pixels; a real 1:1 on a 45 MP frame is the
@@ -495,7 +502,8 @@ struct LoupeView: View {
             // directly: everything goes through the `@MainActor` methods below.
             .task(id: RenderKey(url: photo.id, recipe: recipe, longEdge: longEdge,
                                 strokeRefs: Set(state.strokeSets(for: recipe).keys),
-                                softProof: state.activeSoftProof)) {
+                                softProof: state.activeSoftProof,
+                                matteKinds: state.maskMatteKinds(for: photo.id))) {
                 await renderCurrent(longEdge: longEdge)
             }
             .task(id: BeforeKey(url: photo.id, recipe: beforeRecipe,
@@ -644,8 +652,15 @@ struct LoupeView: View {
             // The real alpha, not nil. Passing nil made MaskOverlayView fall back to a
             // flat tint over the whole frame, which reads as "this mask selects
             // everything" — and this button is the app's only way to look at a mask.
-            if state.soloMaskOverlay != nil, let raster = state.maskOverlayRaster {
-                MaskOverlayView(raster: raster, opacity: viewport.maskOverlayOpacity)
+            // The sampler goes in too: four of the six modes redraw the UNMASKED
+            // pixels (grey, black or white), which needs the picture.
+            if state.soloMaskOverlay != nil, let alpha = state.maskOverlayAlpha {
+                MaskOverlayView(alpha: alpha, sampler: sampler,
+                                geometry: recipe.develop.geometry,
+                                sourceSize: state.primaryFrameSize
+                                    ?? CGSize(width: cg.width, height: cg.height),
+                                mode: state.maskOverlayMode, tint: state.maskOverlayTint,
+                                strength: viewport.maskOverlayOpacity)
                     .frame(width: drawn.width, height: drawn.height)
             }
 

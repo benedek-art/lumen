@@ -45,9 +45,69 @@ public final class PipelineRenderer {
         self.context = CIContext(options: options)
     }
 
+    /// AI mattes, keyed by file and then by `MaskKind.rawValue` (docs/08 §8.9: the
+    /// raster is never the source of truth — it is disposable, and regenerating it
+    /// costs a second).
+    ///
+    /// Held HERE rather than threaded through every render call because the
+    /// alternative is a defaulted `aiMattes:` parameter on nine functions across three
+    /// targets, and a caller that forgets one gets no error — it gets a mask that
+    /// silently selects nothing, which is the exact failure this project has already
+    /// shipped twice. The renderer looks the mattes up from the source it was handed.
+    ///
+    /// Bounded like the source cache, for the same reason: a scroll through a folder
+    /// must not pin a hundred mattes in memory.
+    private var mattes: [URL: [String: Plane]] = [:]
+    private var matteOrder: [URL] = []
+    private static let matteCacheLimit = 12
+
     /// True when the GPU path is intact. False means kernels failed to compile and the
     /// renderer is producing a reduced result the UI must label.
     public var isGPUPathAvailable: Bool { KernelLibrary.coreAvailable }
+
+    // MARK: - AI mattes
+
+    /// Which kinds this file already has a matte for.
+    public func matteKinds(for url: URL) -> Set<String> {
+        Set((mattes[url] ?? [:]).keys)
+    }
+
+    /// Store what a generation pass produced. An empty result is stored as an empty
+    /// dictionary rather than dropped, so "we looked and found nothing" is
+    /// distinguishable from "we have not looked yet" and the pass is not repeated on
+    /// every edit.
+    public func storeMattes(_ produced: [String: Plane], for url: URL) {
+        mattes[url, default: [:]].merge(produced) { _, new in new }
+        matteOrder.removeAll { $0 == url }
+        matteOrder.append(url)
+        while matteOrder.count > Self.matteCacheLimit, let oldest = matteOrder.first {
+            matteOrder.removeFirst()
+            mattes.removeValue(forKey: oldest)
+        }
+    }
+
+    /// True once a generation pass has run for this file, whatever it found.
+    public func hasAttemptedMattes(for url: URL) -> Bool { mattes[url] != nil }
+
+    public func forgetMattes(for url: URL) {
+        mattes.removeValue(forKey: url)
+        matteOrder.removeAll { $0 == url }
+    }
+
+    /// The picture the segmenter sees: a NEUTRAL rendition of the file, at matte
+    /// resolution, with no crop and no rotation.
+    ///
+    /// Neutral because a matte computed from the user's edit would move every time the
+    /// exposure did, and every slider drag would invalidate a cache that costs a second
+    /// to refill. Uncropped and unrotated because a mask raster is expressed in source
+    /// coordinates — that invariant is what lets a crop re-rasterize a mask instead of
+    /// orphaning it, and a matte in any other frame would not line up with it.
+    public func matteSourceImage(source: any ImageSource,
+                                 maxLongEdge: Int = PipelineRenderer.maskRasterLongEdge)
+    -> CGImage? {
+        try? renderPreview(source: source, recipe: Recipe(),
+                           maxLongEdge: maxLongEdge, draft: false)
+    }
 
     public var unavailableKernels: [String] { KernelLibrary.unavailableKernels }
 
@@ -81,7 +141,8 @@ public final class PipelineRenderer {
                               captureISO: source.captureMetadata.iso,
                               softProof: softProof)
         let graph = makeGraph(plan: plan, decoded: decoded, draft: draft,
-                              strokeSets: strokeSets)
+                              strokeSets: strokeSets,
+                              aiMattes: mattes[source.url] ?? [:])
         // Preview decodes are downsampled, and downsampling averages the noise down
         // with them, so the profile the denoise stage works against follows the same
         // factor — squared, because it is a variance.
@@ -120,7 +181,8 @@ public final class PipelineRenderer {
                               captureISO: source.captureMetadata.iso)
 
         let graph = makeGraph(plan: plan, decoded: decoded, draft: false,
-                              strokeSets: strokeSets)
+                              strokeSets: strokeSets,
+                              aiMattes: mattes[source.url] ?? [:])
         var image = graph.build(decoded, plan: plan,
                                 options: RenderGraph.Options(longEdge: longEdge,
                                                              draft: false,
@@ -250,10 +312,11 @@ public final class PipelineRenderer {
                                  lutSize: LUT3D.exportSize,
                                  captureISO: source.captureMetadata.iso)
 
+        let cached = mattes[source.url] ?? [:]
         let sdrGraph = makeGraph(plan: sdrPlan, decoded: decoded, draft: false,
-                                 strokeSets: strokeSets)
+                                 strokeSets: strokeSets, aiMattes: cached)
         let hdrGraph = makeGraph(plan: hdrPlan, decoded: decoded, draft: false,
-                                 strokeSets: strokeSets)
+                                 strokeSets: strokeSets, aiMattes: cached)
         let sdr = Self.applyGeometry(sdrGraph.build(decoded, plan: sdrPlan, options: options),
                                      recipe: recipe)
         let hdr = Self.applyGeometry(hdrGraph.build(decoded, plan: hdrPlan, options: options),
@@ -385,7 +448,8 @@ public final class PipelineRenderer {
     /// plate is generated once per stock and tiled. Leaving either empty is how the
     /// local stage and film grain silently did nothing.
     private func makeGraph(plan: RenderPlan, decoded: CIImage, draft: Bool,
-                           strokeSets: [String: BrushStrokeSet]) -> RenderGraph {
+                           strokeSets: [String: BrushStrokeSet],
+                           aiMattes: [String: Plane]) -> RenderGraph {
         var graph = RenderGraph()
         guard !draft else { return graph }
         let extent = decoded.extent
@@ -421,7 +485,7 @@ public final class PipelineRenderer {
                                                size: (width: width, height: height),
                                                source: source,
                                                strokeSets: strokeSets,
-                                               aiMattes: [:])
+                                               aiMattes: aiMattes)
                 guard let image = Self.image(from: alpha, targetExtent: extent) else {
                     continue
                 }
@@ -448,8 +512,15 @@ public final class PipelineRenderer {
     /// the displayed preview instead would put a luma-range mask's band in the wrong
     /// place, which is exactly the sort of "close enough" that makes an instrument
     /// worse than useless.
+    ///
+    /// A `Plane`, not a `CGImage`. It used to hand back an 8-bit grey CGImage with
+    /// `CGImageAlphaInfo.none`, which the viewer then used as a SwiftUI `.mask` —
+    /// and a SwiftUI mask reads the ALPHA channel, which on that image is 1
+    /// everywhere. So the overlay was a flat tint over the whole frame a second time,
+    /// by a different route than the first. The six overlay modes need the alpha as
+    /// numbers anyway: `MaskOverlay.composite` mixes the picture with it per pixel.
     public func renderMaskAlpha(source: any ImageSource, recipe: Recipe, maskID: String,
-                                strokeSets: [String: BrushStrokeSet] = [:]) -> CGImage? {
+                                strokeSets: [String: BrushStrokeSet] = [:]) -> Plane? {
         let plan = RenderPlan(recipe: recipe,
                               asShotKelvin: source.asShotTemperature,
                               asShotTint: source.asShotTint)
@@ -469,27 +540,14 @@ public final class PipelineRenderer {
 
         let stage = maskSource(decoded: decoded, plan: plan, width: width,
                                height: height, extent: extent, strokeSets: strokeSets)
-        let alpha = MaskRaster.combine(mask: mask,
-                                       size: (width: width, height: height),
-                                       source: stage,
-                                       strokeSets: strokeSets,
-                                       aiMattes: [:])
-
-        // Eight-bit greyscale is all a mask overlay needs, and it is what
-        // `Image(decorative:)` will mask with.
-        var bytes = [UInt8](repeating: 0, count: width * height)
-        for y in 0..<height {
-            for x in 0..<width {
-                bytes[y * width + x] = UInt8(Num.saturate(alpha[x, y]) * 255)
-            }
-        }
-        guard let provider = CGDataProvider(data: Data(bytes) as CFData),
-              let space = CGColorSpace(name: CGColorSpace.linearGray) else { return nil }
-        return CGImage(width: width, height: height, bitsPerComponent: 8,
-                       bitsPerPixel: 8, bytesPerRow: width, space: space,
-                       bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.none.rawValue),
-                       provider: provider, decode: nil, shouldInterpolate: true,
-                       intent: .defaultIntent)
+        return MaskRaster.combine(mask: mask,
+                                  size: (width: width, height: height),
+                                  source: stage,
+                                  strokeSets: strokeSets,
+                                  // The same cache the render reads, so the overlay
+                                  // shows the subject mask the picture is getting
+                                  // rather than an empty one.
+                                  aiMattes: mattes[source.url] ?? [:])
     }
 
     /// The local-stage input, at mask-raster resolution, as an `ImageBuffer`.
@@ -539,7 +597,10 @@ public final class PipelineRenderer {
     /// Long edge a mask raster is computed at. Masks are low-frequency fields; the
     /// guided-filter refinement that makes their edges sharp runs at full resolution
     /// in the graph, not here.
-    static let maskRasterLongEdge: Int = 1024
+    ///
+    /// Public because it is also the resolution an AI matte is generated at, and
+    /// `matteSourceImage` takes it as a default argument.
+    public static let maskRasterLongEdge: Int = 1024
 
     /// A single-channel plane as a grey CIImage stretched over the frame.
     static func image(from plane: Plane, targetExtent: CGRect) -> CIImage? {
@@ -1027,7 +1088,10 @@ public final class PipelineRenderer {
         // their picture is deliverable when nothing had checked.
         let rendered = ReferenceRenderer.render(
             staged, plan: plan,
-            inputs: ReferenceRenderer.Inputs(strokeSets: strokeSets))
+            // Mattes too, for the same reason: a fallback that drops the subject mask
+            // renders a different picture from the one the user was looking at.
+            inputs: ReferenceRenderer.Inputs(strokeSets: strokeSets,
+                                             aiMattes: mattes[source.url] ?? [:]))
         guard let cgImage = Self.cgImage(from: rendered) else {
             throw RenderError.renderFailed
         }

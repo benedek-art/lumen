@@ -477,35 +477,179 @@ struct ClippingOverlayView: View {
 
 // MARK: - Mask overlay
 
-/// The solo-mask tint. When a rasterized alpha plane is available it tints exactly the
-/// masked pixels; until the mask rasterizer is wired to the viewer it tints the frame
-/// evenly and the loupe's badge names which mask is soloed, rather than implying a
-/// coverage we have not computed.
+/// The solo-mask overlay: all six of docs/08 §8.6's modes, over the pixels the loupe
+/// is showing.
+///
+/// It draws an opaque layer computed by `MaskOverlay.composite`, exactly as
+/// `ClippingOverlayView` does, rather than tinting through a SwiftUI `.mask`. Two
+/// reasons: four of the six modes have to change the UNMASKED pixels (grey them,
+/// black them, white them), which a tint layer cannot do; and the mask form was
+/// silently broken anyway, because `.mask` reads the masking view's alpha channel and
+/// the grey raster it was handed had none.
+///
+/// With no alpha yet — the raster is computed off the main actor — it draws nothing at
+/// all. A flat wash while the numbers are in flight reads as "this mask selects
+/// everything", which is the exact misreading this view exists to prevent.
 struct MaskOverlayView: View {
 
-    var raster: CGImage?
-    var tint: Color = Lumen.accent
-    var opacity: Double = 0.45
+    let alpha: Plane?
+    let sampler: PixelSampler?
+    /// The geometry the preview underneath has already been through, and the frame the
+    /// alpha is expressed against. A mask raster is in SOURCE coordinates — uncropped
+    /// and unrotated, because that is the invariant that lets a crop re-rasterize a
+    /// mask instead of orphaning it — while the picture on screen has been cropped and
+    /// straightened. Stretching one onto the other put the overlay somewhere other than
+    /// the mask on any cropped photograph.
+    var geometry: Geometry = Geometry()
+    var sourceSize: CGSize = .zero
+    var mode: MaskOverlay.Mode = .colorOverlay
+    var tint: MaskOverlay.Tint = .red
+    var strength: Double = MaskOverlay.defaultStrength
+
+    @State private var overlay: CGImage?
+
+    private struct BuildKey: Equatable {
+        let sampler: UUID?
+        let width: Int
+        let height: Int
+        let checksum: Float
+        let geometry: Geometry
+        let mode: MaskOverlay.Mode
+        let tint: MaskOverlay.Tint
+        let strength: Double
+    }
 
     var body: some View {
         Group {
-            if let raster {
-                tint.opacity(clampedOpacity)
-                    .mask {
-                        Image(decorative: raster, scale: 1, orientation: .up)
-                            .resizable()
-                            .interpolation(.high)
-                    }
+            if let overlay {
+                Image(decorative: overlay, scale: 1, orientation: .up)
+                    .resizable()
+                    .interpolation(.high)
             } else {
-                tint.opacity(clampedOpacity * 0.3)
+                Color.clear
             }
         }
         .allowsHitTesting(false)
+        .task(id: buildKey) { await rebuild() }
     }
 
-    private var clampedOpacity: Double {
-        guard opacity.isFinite else { return 0.45 }
-        return Swift.min(Swift.max(opacity, 0), 1)
+    /// The alpha plane is a value type with no identity, so the key carries its extent
+    /// and the sum of its values — enough for "the mask changed" without hashing a
+    /// megapixel on every layout pass.
+    private var buildKey: BuildKey {
+        var checksum: Float = 0
+        if let alpha {
+            var i = 0
+            let stride = Swift.max(1, alpha.values.count / 4096)
+            while i < alpha.values.count {
+                checksum += alpha.values[i]
+                i += stride
+            }
+        }
+        return BuildKey(sampler: sampler?.id,
+                        width: alpha?.width ?? 0, height: alpha?.height ?? 0,
+                        checksum: checksum, geometry: geometry,
+                        mode: mode, tint: tint, strength: strength)
+    }
+
+    @MainActor
+    private func rebuild() async {
+        guard let alpha else {
+            overlay = nil
+            return
+        }
+        let picture = sampler
+        let wanted = mode
+        let colour = tint
+        let amount = strength
+        let frame = geometry
+        let native = sourceSize
+        let built: CGImage? = await Task.detached(priority: .userInitiated) {
+            MaskOverlayView.build(alpha: alpha, sampler: picture, geometry: frame,
+                                  sourceSize: native, mode: wanted,
+                                  tint: colour, strength: amount)
+        }.value
+        guard !Task.isCancelled else { return }
+        overlay = built
+    }
+
+    /// Composited at the PICTURE's resolution when there is one, so the mask edge is
+    /// drawn against the pixels it is judged against rather than against a 1024-px
+    /// raster's staircase. The alpha is sampled bilinearly, which is what makes that
+    /// legitimate: mask rasters are smooth by construction.
+    nonisolated static func build(alpha: Plane, sampler: PixelSampler?,
+                                  geometry: Geometry, sourceSize: CGSize,
+                                  mode: MaskOverlay.Mode, tint: MaskOverlay.Tint,
+                                  strength: Double) -> CGImage? {
+        let needsPicture = mode.readsPicture
+        // The sampler's extent for every mode, including the Matte: the layer is drawn
+        // over the DISPLAYED frame, so it has to carry the displayed frame's aspect. A
+        // matte built at the source raster's aspect would be stretched on any crop.
+        let width = sampler?.width ?? alpha.width
+        let height = sampler?.height ?? alpha.height
+        guard width > 0, height > 0 else { return nil }
+        let bytes = sampler?.bytes
+        let usable = needsPicture && bytes != nil
+            && (bytes?.count ?? 0) >= width * height * 4
+        // Five of the six modes are opaque layers built FROM the picture. Without the
+        // picture they would paint a black frame with a tint on it, which is a worse
+        // lie than drawing nothing, so they wait for the sampler instead.
+        if needsPicture && !usable { return nil }
+
+        // The alpha lives in source coordinates; the picture on screen has been cropped
+        // and straightened. `sourceNormalized` is the exact inverse of the transform
+        // the renderer applied — the same one `MaskCanvas` uses to place a gesture —
+        // so the overlay lands on the pixels the mask selects. With no frame size
+        // supplied there is nothing to invert and the plane is stretched, which is
+        // right for an uncropped photograph and no worse than before for a cropped one.
+        let reproject = sourceSize.width > 0 && sourceSize.height > 0
+        var out = [UInt8](repeating: 0, count: width * height * 4)
+        for y in 0..<height {
+            let v = (Double(y) + 0.5) / Double(height)
+            for x in 0..<width {
+                let u = (Double(x) + 0.5) / Double(width)
+                var su = u
+                var sv = v
+                if reproject {
+                    let point = PipelineRenderer.sourceNormalized(
+                        displayedX: u, displayedY: v, geometry: geometry,
+                        sourceSize: sourceSize)
+                    su = Double(point.x)
+                    sv = Double(point.y)
+                }
+                let a = alpha.bilinear(su * Double(alpha.width),
+                                       sv * Double(alpha.height))
+                var picture = RGB.zero
+                if usable, let bytes {
+                    let i = (y * width + x) * 4
+                    picture = RGB(Double(bytes[i]) / 255,
+                                  Double(bytes[i + 1]) / 255,
+                                  Double(bytes[i + 2]) / 255)
+                }
+                let c = MaskOverlay.composite(picture: picture, alpha: a, mode: mode,
+                                              tint: tint, strength: strength)
+                let i = (y * width + x) * 4
+                out[i] = byte(c.r)
+                out[i + 1] = byte(c.g)
+                out[i + 2] = byte(c.b)
+                out[i + 3] = 255
+            }
+        }
+
+        guard let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let provider = CGDataProvider(data: Data(out) as CFData) else { return nil }
+        return CGImage(width: width, height: height,
+                       bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: width * 4,
+                       space: space,
+                       bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+                       provider: provider, decode: nil, shouldInterpolate: true,
+                       intent: .defaultIntent)
+    }
+
+    private nonisolated static func byte(_ v: Double) -> UInt8 {
+        guard v.isFinite else { return 0 }
+        let scaled = (Swift.min(Swift.max(v, 0), 1) * 255).rounded()
+        return UInt8(Swift.min(Swift.max(scaled, 0), 255))
     }
 }
 

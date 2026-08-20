@@ -279,3 +279,56 @@ public struct CurveStack: Sendable {
         return CurveStack.settingPoint(set.point, x: x, y: y)
     }
 }
+
+// MARK: - The local point curve
+
+/// A mask's point curve (docs/08 §8.4) — the one local control that does NOT run at
+/// the local stage.
+///
+/// Every other local adjustment is a scene-referred delta composited at S11. A curve
+/// is not: "midtones" means picture midtones to every photographer alive, so a curve
+/// operates on display-linear values through the familiar encoded axis, and that axis
+/// only exists after S14. docs/14 calls this the two-tap design, and it is why this
+/// type is separate from `LocalPlan` / `applyLocalAdjust`: both render paths run it as
+/// a second pass over the FORMED picture, through the same pre-geometry mask alpha.
+///
+/// Baking it into the local stage instead would be the units mistake BUILDING.md
+/// catalogues, in a new costume: a control denominated on the display's encoded axis
+/// evaluated against a scene-referred plane, where 0.5 is not middle grey and the four
+/// parametric regions do not land on the tones they are named after.
+public struct LocalCurve: Sendable {
+
+    private let stack: CurveStack
+    /// The mask's Amount as a multiplier. It scales the curve's DISPLACEMENT, which is
+    /// what "Amount scales the adjustment deltas" means for a curve (docs/08 §8.1);
+    /// above 1 it extrapolates, exactly as Amount > 100 does for every other local
+    /// control.
+    private let scale: Double
+    /// Display white, so the curve's axis means the same thing on an HDR rendition as
+    /// it does globally — `CurveStack.apply` normalizes by it.
+    private let white: Double
+    private let space: RGBColorSpace
+
+    /// True when this curve cannot move a pixel: no curve stored, an untouched one, or
+    /// an Amount of zero. Callers skip the whole tap rather than bake a table for it.
+    public let isIdentity: Bool
+
+    public init(curve: CurveSet?, amount: Double = 100, white: Double = 1,
+                space: RGBColorSpace = .rec2020) {
+        let built = CurveStack(curve ?? CurveSet())
+        let factor = Num.clamp(amount.isFinite ? amount : 100, 0, 200) / 100
+        self.stack = built
+        self.scale = factor
+        self.white = (white.isFinite && white > 1e-6) ? white : 1
+        self.space = space
+        self.isIdentity = curve == nil || built.isIdentity || factor == 0
+    }
+
+    /// Apply to a display-linear colour — the same domain `CurveStack.apply` takes.
+    public func apply(_ c: RGB) -> RGB {
+        guard !isIdentity, c.isFinite else { return c }
+        let curved = stack.apply(c, white: white, space: space)
+        guard curved.isFinite else { return c }
+        return scale == 1 ? curved : c.mix(curved, scale)
+    }
+}
