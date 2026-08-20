@@ -151,6 +151,24 @@ public enum ReferenceRenderer {
         return out
     }
 
+    /// The local Colour tint: a mix toward a target hue that holds the pixel's own
+    /// luminance, so tinting a mask does not also brighten it.
+    ///
+    /// Here, and shared, because the two render paths each dropped a different local
+    /// control: the GPU path declared a mask identity when its only edit was a Point
+    /// Colour swatch, and this path never read `colorTint` at all. Each was silently
+    /// missing what the other applied, which is exactly the divergence a single
+    /// implementation makes impossible.
+    public static func applyColorTint(_ c: RGB, tint: [Double]?, strength: Double,
+                                      space: RGBColorSpace = .rec2020) -> RGB {
+        guard let tint, tint.count >= 3, strength > 0 else { return c }
+        let target = RGB(tint[0], tint[1], tint[2])
+        let targetLuminance = space.luminance(target)
+        guard targetLuminance > 1e-6 else { return c }
+        let luminance = Swift.max(space.luminance(c), 0)
+        return c.mix(target * luminance / targetLuminance, Num.saturate(strength))
+    }
+
     /// A mask's sub-recipe is a delta over the global parameters, evaluated with the
     /// same engines the global path uses — never a parallel implementation.
     static func applyLocalAdjust(_ image: ImageBuffer, mask: Mask, plan: RenderPlan,
@@ -173,6 +191,8 @@ public enum ReferenceRenderer {
         let context = OKLabTransform.working
         let balance = LocalWhiteBalance(temp: a.temp * scale, tint: a.tint * scale,
                                         space: space)
+        let tintColor = a.colorTint
+        let tintStrength = Num.clamp(a.colorTintStrength, 0, 100) / 100 * scale
 
         var out = image.map { pixel in
             var c = pixel * exposureGain
@@ -187,7 +207,11 @@ public enum ReferenceRenderer {
                 lch.h = Num.wrapHue(lch.h + hueShift)
                 c = context.toRGB(lch)
             }
-            return c
+            // The GPU path applied this and the reference did not, so the two rendered
+            // different pictures for any mask with a Colour tint — and a golden
+            // comparing them would have diverged wherever one was set.
+            return applyColorTint(c, tint: tintColor, strength: tintStrength,
+                                  space: space)
         }
 
         // The spatial half of the local set. These run over the WHOLE buffer and the

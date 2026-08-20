@@ -542,10 +542,15 @@ struct LocalPlan {
     let isIdentity: Bool
 
     init(adjust: LocalAdjust, scale: Double, whiteAnchorEV: Double, blackAnchorEV: Double) {
+        // `pointColors` belongs in this list. Leaving it out meant a mask whose ONLY
+        // edit was a sampled swatch declared itself identity, got a 2-point identity
+        // table, and returned its input — the Point Colour control did nothing at all
+        // inside a mask on the GPU path, which is every preview and every export.
         let identity = adjust.contrast == 0 && adjust.highlights == 0
             && adjust.shadows == 0 && adjust.whites == 0 && adjust.blacks == 0
             && adjust.temp == 0 && adjust.tint == 0 && adjust.hue == 0
             && adjust.sat == 0 && adjust.vibrance == 0 && adjust.colorTint == nil
+            && adjust.pointColors.isEmpty
         self.isIdentity = identity
         guard !identity else {
             self.lut = LUT3D.identity(size: 2)
@@ -582,12 +587,10 @@ struct LocalPlan {
                 lch.h = Num.wrapHue(lch.h + hueShift)
                 c = OKLabTransform.working.toRGB(lch)
             }
-            if let tint = tintColor, tint.count >= 3, tintStrength > 0 {
-                let target = RGB(tint[0], tint[1], tint[2])
-                let l = Swift.max(RGBColorSpace.rec2020.luminance(c), 0)
-                c = c.mix(target * l / Swift.max(RGBColorSpace.rec2020.luminance(target), 1e-6),
-                          tintStrength)
-            }
+            // One implementation, shared with the reference renderer — this used to be
+            // a second copy here and nothing at all there.
+            c = ReferenceRenderer.applyColorTint(c, tint: tintColor,
+                                                 strength: tintStrength)
             return LumenLog.encode(c)
         }
     }

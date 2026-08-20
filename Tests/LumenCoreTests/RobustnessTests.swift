@@ -649,6 +649,53 @@ final class RobustnessTests: XCTestCase {
         }
     }
 
+    /// A local Colour tint has to change the picture, and hold luminance while it does.
+    ///
+    /// It changed nothing here: the reference renderer's local stage never read
+    /// `colorTint` at all, while the GPU path applied it — so the two rendered different
+    /// pictures for any mask carrying one, and every golden that compares them would
+    /// have diverged wherever it was set. The mirror-image gap was on the other side:
+    /// the GPU declared a mask identity when its only edit was a Point Colour swatch.
+    /// One shared implementation now, which is the only thing that makes that class of
+    /// divergence impossible rather than merely fixed.
+    func testTheLocalColourTintTintsAndHoldsLuminance() {
+        let space = RGBColorSpace.rec2020
+        let warm: [Double] = [0.9, 0.45, 0.2]
+        for probe in [RGB(0.18, 0.18, 0.18), RGB(0.4, 0.2, 0.1), RGB(0.05, 0.3, 0.6)] {
+            let before = space.luminance(probe)
+
+            // Strength 0 and a nil swatch are both exact identities.
+            XCTAssertEqual(ReferenceRenderer.applyColorTint(probe, tint: warm,
+                                                            strength: 0).maxAbsDifference(probe),
+                           0, accuracy: 0)
+            XCTAssertEqual(ReferenceRenderer.applyColorTint(probe, tint: nil,
+                                                            strength: 1).maxAbsDifference(probe),
+                           0, accuracy: 0)
+
+            // At full strength the colour becomes the swatch's hue, and the pixel's own
+            // luminance survives — that is what makes this a tint rather than a paint.
+            let tinted = ReferenceRenderer.applyColorTint(probe, tint: warm, strength: 1)
+            XCTAssertEqual(space.luminance(tinted), before, accuracy: before * 1e-9,
+                           "the tint moved \(probe)'s luminance")
+            XCTAssertGreaterThan(tinted.maxAbsDifference(probe), 1e-6,
+                                 "a full-strength tint left \(probe) unchanged")
+
+            // And it is a genuine mix: half strength lands between the two.
+            let half = ReferenceRenderer.applyColorTint(probe, tint: warm, strength: 0.5)
+            for channel in 0..<3 {
+                let lo = Swift.min(probe[channel], tinted[channel]) - 1e-9
+                let hi = Swift.max(probe[channel], tinted[channel]) + 1e-9
+                XCTAssertTrue(half[channel] >= lo && half[channel] <= hi,
+                              "half strength left the interval in channel \(channel)")
+            }
+        }
+
+        // A black swatch cannot divide by its own zero luminance.
+        let degenerate = ReferenceRenderer.applyColorTint(RGB(0.3, 0.3, 0.3),
+                                                          tint: [0, 0, 0], strength: 1)
+        XCTAssertTrue(degenerate.isFinite, "a black swatch produced \(degenerate)")
+    }
+
     // MARK: - Monotonicity across the whole slider
 
     /// A brighter input must never render darker. The contrast relax window used to be

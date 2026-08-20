@@ -154,17 +154,24 @@ public enum MaskRaster {
     /// The levels density remap: `t = clamp((α − lo)/(hi − lo), 0, 1)`, `α' = t^(1/γ)`,
     /// so γ > 1 raises density and γ = 1 is identity.
     ///
-    /// `lo`/`hi` are the wire values (`MaskRefine.levelsLo`/`levelsHi`, 0…100). Values
-    /// that are already normalized (both ≤ 1) are accepted as such, so `lo: 0, hi: 1`
-    /// and `lo: 0, hi: 100` both mean "full range". `hi ≤ lo` collapses to a hard step
-    /// rather than silently inverting — inversion belongs to the invert toggles.
+    /// `lo`/`hi` are the wire values (`MaskRefine.levelsLo`/`levelsHi`), which the
+    /// format defines as 0…100 and the panel ships as a 0…100 slider with step 1.
+    /// `hi ≤ lo` collapses to a hard step rather than silently inverting — inversion
+    /// belongs to the invert toggles.
+    ///
+    /// PERCENT ALWAYS. This used to sniff the units — `percent = lo > 1 || hi > 1` —
+    /// as a convenience so that `hi: 1` and `hi: 100` both meant "full range". But 1 is
+    /// a value the slider can actually take, and it means one percent, so dragging Hi
+    /// down through it produced: at 2 the mask is fully opaque, at 1 it snaps back to
+    /// un-remapped, at 0 fully opaque again. And `lo: 1, hi: 1` read as `lo01 = 1`,
+    /// which emptied the mask completely. Taking the units from the contract instead of
+    /// guessing them from the values removes the hole.
     public static func levels(_ v: Double, lo: Double, hi: Double, gamma: Double) -> Double {
         guard v.isFinite else { return 0 }
         let loIn = lo.isFinite ? lo : 0
         let hiIn = hi.isFinite ? hi : 100
-        let percent = loIn > 1 || hiIn > 1
-        let lo01 = Num.saturate(percent ? loIn / 100 : loIn)
-        let hi01 = Num.saturate(percent ? hiIn / 100 : hiIn)
+        let lo01 = Num.saturate(loIn / 100)
+        let hi01 = Num.saturate(hiIn / 100)
         let span = Swift.max(hi01 - lo01, 1e-4)
         let t = Num.saturate((v - lo01) / span)
         let g = gamma.isFinite ? Num.clamp(gamma, 0.2, 5.0) : 1

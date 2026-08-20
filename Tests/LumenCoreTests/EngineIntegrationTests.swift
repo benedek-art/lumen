@@ -702,15 +702,30 @@ final class EngineIntegrationTests: XCTestCase {
     /// Nothing in the suite referenced `refine.` at all, so all six controls of that
     /// panel were untested. This one is a pure function, so it can be pinned exactly.
     func testMaskLevelsRemapsDensityTheWayItDocuments() {
-        // Identity at the defaults, in both spellings of "full range". Accepting 0…1
-        // and 0…100 as the same thing is a documented affordance, and a wire value that
-        // silently meant a different range would rewrite every saved mask.
-        for hi in [1.0, 100.0] {
-            for v in [0.0, 0.25, 0.5, 0.75, 1.0] {
-                XCTAssertEqual(MaskRaster.levels(v, lo: 0, hi: hi, gamma: 1), v,
-                               accuracy: 1e-12, "levels moved \(v) at hi=\(hi)")
-            }
+        // Identity at the defaults. The units come from the format — 0…100 — and are
+        // NOT sniffed from the values, which is what created a hole exactly at Hi = 1:
+        // that is one percent, a value the slider can take, and reading it as "1.0
+        // normalized" made it behave as full range. Dragging Hi down used to go opaque
+        // at 2, un-remapped at 1, opaque again at 0.
+        for v in [0.0, 0.25, 0.5, 0.75, 1.0] {
+            XCTAssertEqual(MaskRaster.levels(v, lo: 0, hi: 100, gamma: 1), v,
+                           accuracy: 1e-12, "levels moved \(v)")
         }
+        // Hi = 1 is one percent: everything above it saturates, and it must NOT look
+        // like the full-range case.
+        XCTAssertEqual(MaskRaster.levels(0.5, lo: 0, hi: 1, gamma: 1), 1, accuracy: 1e-12,
+                       "Hi = 1 behaved as full range instead of as one percent")
+        XCTAssertEqual(MaskRaster.levels(0.005, lo: 0, hi: 1, gamma: 1), 0.5,
+                       accuracy: 1e-9)
+        // And the neighbouring settings agree with it rather than jumping across it.
+        for hi in [0.0, 1.0, 2.0] {
+            XCTAssertEqual(MaskRaster.levels(0.5, lo: 0, hi: hi, gamma: 1), 1,
+                           accuracy: 1e-12,
+                           "Hi = \(hi) disagreed with its neighbours at alpha 0.5")
+        }
+        // `lo = hi = 1` used to read as lo01 = 1 and empty the mask entirely.
+        XCTAssertEqual(MaskRaster.levels(0.5, lo: 1, hi: 1, gamma: 1), 1,
+                       accuracy: 1e-12, "lo = hi = 1 emptied the mask")
 
         // A window maps its endpoints to 0 and 1 and its midpoint to the middle.
         XCTAssertEqual(MaskRaster.levels(0.25, lo: 25, hi: 75, gamma: 1), 0,
