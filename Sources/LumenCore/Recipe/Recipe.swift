@@ -300,6 +300,25 @@ public struct PointColor: Codable, Equatable, Sendable {
     }
 }
 
+extension PointColor {
+    /// This swatch with its SHIFT scaled — what a mask's Amount is supposed to do to it.
+    ///
+    /// `Mask.amount` scales every other local adjustment and did not scale this one, on
+    /// either path, so dragging a mask's Amount to 0 left its Point Colour shifts at
+    /// full strength while everything around them faded out. The panel states that
+    /// Amount "scales the adjustment deltas", and the shift IS the delta.
+    ///
+    /// `range` and `variance` are deliberately untouched: they describe WHICH colours
+    /// the swatch selects, not how far it moves them, and fading a selection toward
+    /// zero would change which pixels are affected rather than by how much.
+    public func scalingShift(by scale: Double) -> PointColor {
+        guard scale != 1, scale.isFinite else { return self }
+        var copy = self
+        copy.shift = HSLShift(h: shift.h * scale, s: shift.s * scale, l: shift.l * scale)
+        return copy
+    }
+}
+
 public struct HSLShift: Codable, Equatable, Sendable {
     public var h: Double
     public var s: Double

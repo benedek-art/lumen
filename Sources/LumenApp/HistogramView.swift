@@ -148,12 +148,35 @@ struct HistogramView: View {
                 + "   " + HistogramView.format(share, decimals: 1) + "% of pixels"
         }
         if let axis = hoverAxis {
-            return "Level " + HistogramView.format(axis * state.readoutSpace.fullScale, decimals: 1)
+            return "Level " + HistogramView.format(
+                HistogramView.level(atAxis: axis, in: state.readoutSpace), decimals: 1)
         }
         return HistogramView.format(histogram.clippedPercent(.luma, end: .high), decimals: 2)
             + "% white · "
             + HistogramView.format(histogram.clippedPercent(.luma, end: .low), decimals: 2)
             + "% black"
+    }
+
+    /// The number to print for a hover position on the histogram's axis.
+    ///
+    /// The axis is ALWAYS sRGB-encoded — `ScopeData` bins with `.srgb255` whatever the
+    /// picker says — so `axis * fullScale` is only right when full scale is 255. For
+    /// "Working %" it printed the encoded value as a percentage: a mid-grey pixel read
+    /// 46.1 here while the loupe's readout pill said 18.0% for the same pixel, a factor
+    /// of 2.6 apart in the shadows, from one shared setting driving two instruments.
+    ///
+    /// The conversion is the same one `ImageSampler.readout` does, for the same reason:
+    /// two readouts of one quantity must not be two different quantities.
+    static func level(atAxis axis: Double, in space: ReadoutSpace) -> Double {
+        switch space {
+        case .srgb255, .outputProfile:
+            return axis * space.fullScale
+        case .working:
+            let encoded = RGB(gray: Num.saturate(axis))
+            let linear = TransferFunction.srgb.decode(encoded)
+            let working = RGBColorSpace.srgb.matrix(to: .rec2020).apply(linear)
+            return working.g * 100
+        }
     }
 
     private var secondaryReadout: String {

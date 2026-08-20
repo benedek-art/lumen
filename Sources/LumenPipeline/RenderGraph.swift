@@ -154,7 +154,10 @@ public struct RenderGraph {
         // Exposure moves — the exposure-independent property the tone equalizer needs.
         let radius = Swift.max(Int(Double(options.longEdge) * 0.02), 2)
         let mask = Self.guidedSelfFilter(lum, radius: radius, epsilon: 0.004) ?? lum
-        guard let normalized = ColorCube.filter(plan.toneGainCube(), image: mask) else {
+        // The plan's stored cube, baked once per plan. Calling `toneGainCube()`
+        // rebuilt 32 768 samples on every frame of every slider drag.
+        let cube = plan.toneGainCube32 ?? plan.toneGainCube()
+        guard let normalized = ColorCube.filter(cube, image: mask) else {
             return image
         }
         // The cube stores gains normalized into the unit domain; the scale comes back
@@ -682,8 +685,10 @@ struct LocalPlan {
                                          blacks: adjust.blacks * scale))
         let color = ColorAdjust(vibrance: adjust.vibrance * scale,
                                 saturation: adjust.sat * scale)
-        let colorEngine = ColorEngine(mixer: Mixer(), pointColors: adjust.pointColors,
-                                      color: color, primaries: Primaries(), bw: nil)
+        let colorEngine = ColorEngine(
+            mixer: Mixer(),
+            pointColors: adjust.pointColors.map { $0.scalingShift(by: scale) },
+            color: color, primaries: Primaries(), bw: nil)
         let hueShift = adjust.hue * scale
         let tintColor = adjust.colorTint
         let tintStrength = Num.clamp(adjust.colorTintStrength, 0, 100) / 100 * scale

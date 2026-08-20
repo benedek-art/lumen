@@ -139,6 +139,18 @@ public struct RenderPlan: Sendable {
         self.denoise = develop.denoise
         self.vignetteEV = look.vignette
         self.masks = recipe.masks.filter { $0.enabled }
+
+        // Baked once, here, and only when the tone stage will actually read it.
+        if toneEngine.isIdentity {
+            self.toneGainCube32 = nil
+        } else {
+            var peak = 1e-9
+            for v in self.toneGainLUT.samples { peak = Swift.max(peak, v) }
+            let lut = self.toneGainLUT
+            self.toneGainCube32 = LUT3D(size: 32) { encoded in
+                RGB(gray: lut.evaluate(encoded.r) / peak)
+            }
+        }
     }
 
     /// One gamut boundary for the whole process — the same object every other stage
@@ -204,12 +216,17 @@ public struct RenderPlan: Sendable {
     /// Built once per plan, not per frame: the cube is a quarter of a million samples
     /// expressing a one-dimensional function, and rebaking it on every render was pure
     /// waste.
-    public private(set) lazy var toneGainCubeCached: LUT3D = {
-        let scale = toneGainScale
-        return LUT3D(size: 32) { encoded in
-            RGB(gray: toneGainLUT.evaluate(encoded.r) / scale)
-        }
-    }()
+    /// A STORED cube, not a `lazy var`.
+    ///
+    /// It was lazy, which on a struct means a mutating getter — and every consumer
+    /// holds the plan as a `let`, so none of them could call it. `RenderGraph.applyTone`
+    /// therefore called `toneGainCube()` and rebaked all 32 768 samples on every single
+    /// frame, which is exactly the waste the property was added to prevent. Nothing was
+    /// wrong with the reasoning; it just could not be reached from where it was needed.
+    ///
+    /// Built only when the tone stage is live, because that is the only time anything
+    /// reads it and an identity plan should not pay for a quarter of a million samples.
+    public let toneGainCube32: LUT3D?
 
     public func toneGainCube(size: Int = 32) -> LUT3D {
         let scale = toneGainScale

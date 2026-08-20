@@ -287,7 +287,11 @@ struct DevelopPanel: View {
         case .look:
             LookPanel()
         case .curve:
-            scrollColumn { CurveEditorView() }
+            // The scopes' histogram, so the curve is placed against the picture
+            // rather than an empty square. The parameter defaulted to nil and
+            // nothing ever passed one — the same constructed-with-no-argument
+            // shape that left the crop ratios on an assumed 3:2.
+            scrollColumn { CurveEditorView(histogram: state.scopes?.histogram) }
         case .masks:
             MaskPanel()
         }

@@ -198,7 +198,7 @@ public enum ReferenceRenderer {
                                          whites: a.whites * scale,
                                          blacks: a.blacks * scale))
         let color = ColorEngine(mixer: Mixer(),
-                                pointColors: a.pointColors,
+                                pointColors: a.pointColors.map { $0.scalingShift(by: scale) },
                                 color: ColorAdjust(vibrance: a.vibrance * scale,
                                                    saturation: a.sat * scale),
                                 primaries: Primaries(), bw: nil)
