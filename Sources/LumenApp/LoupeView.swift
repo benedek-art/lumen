@@ -394,6 +394,18 @@ struct LoupeView: View {
         let url: URL
         let recipe: Recipe
         let longEdge: Int
+        /// Which brush blobs are actually in memory right now.
+        ///
+        /// The render consumes stroke sets that are passed alongside the recipe rather
+        /// than contained in it — a `strokesRef` is a promise that bytes exist, not the
+        /// bytes — and they arrive asynchronously: `loadStrokeSets` reads the blobs off
+        /// the actor and publishes them into `strokeCache`. That publish re-evaluates
+        /// `body`, but `.task(id:)` only restarts when the id CHANGES, and the id did
+        /// not mention them. So selecting a photo whose mask uses a brush painted in an
+        /// earlier session rendered with that component contributing nothing, and stayed
+        /// that way until some unrelated edit moved the recipe. This is the same shape
+        /// as a fingerprint that omits a field the render reads.
+        let strokeRefs: Set<String>
     }
 
     /// Above this we stop asking for more pixels; a real 1:1 on a 45 MP frame is the
@@ -467,11 +479,13 @@ struct LoupeView: View {
             }
             // `.task`'s action is `@Sendable`, so it touches no main-actor state
             // directly: everything goes through the `@MainActor` methods below.
-            .task(id: RenderKey(url: photo.id, recipe: recipe, longEdge: longEdge)) {
+            .task(id: RenderKey(url: photo.id, recipe: recipe, longEdge: longEdge,
+                                strokeRefs: Set(state.strokeSets(for: recipe).keys))) {
                 await renderCurrent(longEdge: longEdge)
             }
             .task(id: BeforeKey(url: photo.id, recipe: beforeRecipe,
-                                wanted: needsBeforeRender, longEdge: longEdge)) {
+                                wanted: needsBeforeRender, longEdge: longEdge,
+                                strokeRefs: Set(state.strokeSets(for: beforeRecipe).keys))) {
                 await renderBefore(longEdge: longEdge)
             }
             .task(id: model.revision) {
@@ -493,6 +507,9 @@ struct LoupeView: View {
         let recipe: Recipe
         let wanted: Bool
         let longEdge: Int
+        /// See `RenderKey.strokeRefs`: the before rendition is passed stroke sets the
+        /// same way and goes stale in the same way without them.
+        let strokeRefs: Set<String>
     }
 
     // MARK: Render entry points

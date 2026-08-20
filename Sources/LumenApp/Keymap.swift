@@ -132,6 +132,27 @@ final class KeyDispatcher {
         // ---- Editing -----------------------------------------------------------
         case "\\":
             state.showBefore.toggle()
+
+        // The before/after family. `LoupeViewport.beforeMode` had no writer anywhere:
+        // no key, no menu item, no button — so `BeforeAfterSplit`, `BeforeAfterPair`,
+        // `SplitScissor` and the whole second render pipeline behind them could never
+        // be shown, while the enum's own doc comment named these three shortcuts. Only
+        // the `\` full-frame flip worked, and nothing said the rest was missing.
+        //
+        // Pressing the same one again turns it off, so Y is a toggle rather than a
+        // mode you have to know how to leave.
+        case "y":
+            let wanted: BeforeAfterMode
+            if flags.contains(.shift) {
+                wanted = .split
+            } else if flags.contains(.option) {
+                wanted = .topBottom
+            } else {
+                wanted = .sideBySide
+            }
+            let viewport = LoupeViewport.shared
+            viewport.beforeMode = viewport.beforeMode == wanted ? .off : wanted
+            if viewport.beforeMode != .off { state.showLoupe() }
         case "r":
             state.activeSection = .effects       // crop lives with the effects group
             state.showLoupe()
@@ -154,12 +175,22 @@ final class KeyDispatcher {
             state.showFilmstrip.toggle()
 
         // ---- Zoom --------------------------------------------------------------
+        //
+        // Through `LoupeViewport`'s verbs, which are headed "the keymap's entry points"
+        // and had no callers at all — this ran its own arithmetic on `zoomLevel`
+        // instead. Two consequences the user could feel: the keyboard never anchored
+        // the zoom at the cursor, which is the entire purpose of
+        // `anchorNextZoomAtCursor`, so Z and + zoomed about the centre while a click
+        // zoomed where you pointed; and `−` walked 1 → 0.5 → 0.25 → 0.125 without ever
+        // snapping back to Fit, because `zoomOut`'s "below 0.35 means fit" rule lived
+        // in the verb nobody called. Click-to-zoom already went through these, so the
+        // mouse and the keyboard were following different ladders.
         case "z":
-            state.zoomLevel = state.zoomLevel == 0 ? 1 : 0
+            LoupeViewport.shared.toggleZoom(in: state)
         case "-":
-            state.zoomLevel = state.zoomLevel == 0 ? 0 : max(state.zoomLevel / 2, 0.125)
+            LoupeViewport.shared.zoomOut(in: state)
         case "=", "+":
-            state.zoomLevel = state.zoomLevel == 0 ? 1 : min(state.zoomLevel * 2, 8)
+            LoupeViewport.shared.zoomIn(in: state)
 
         // ---- Thumbnail size ----------------------------------------------------
         case "[":
@@ -296,8 +327,11 @@ enum KeyReference {
             Entry(keys: "D", action: "Detail panel"),
             Entry(keys: "L", action: "Look panel"),
             Entry(keys: "M", action: "Masks"),
-            Entry(keys: "R", action: "Crop"),
-            Entry(keys: "\\", action: "Before / after"),
+            Entry(keys: "R", action: "Effects panel, where crop ratios live"),
+            Entry(keys: "\\", action: "Before / after, full frame"),
+            Entry(keys: "Y", action: "Before / after, side by side"),
+            Entry(keys: "⇧Y", action: "Before / after, split with a divider"),
+            Entry(keys: "⌥Y", action: "Before / after, top and bottom"),
             Entry(keys: "H", action: "Histogram"),
             Entry(keys: "S", action: "Scopes"),
         ]),
