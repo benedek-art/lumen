@@ -89,8 +89,8 @@ jobs:
           path: Lumen.app.zip
           retention-days: 30
 
-  # Linux lane: regenerate fixtures with the Python reference and fail if the
-  # committed fixtures drifted from the verified reference.
+  # Linux lane: recompute every fixture with the Python reference and fail if the
+  # committed fixtures no longer agree with it.
   fixtures-linux:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -98,10 +98,18 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install reference deps
         run: pip install xxhash
-      - name: Regenerate + self-verify fixtures
-        run: python3 scripts/gen-fixtures.py
-      - name: Fixtures must match committed state
-        run: git diff --exit-code -- Tests/LumenCoreTests/Fixtures
+      - name: Fixtures must still match the committed state
+        # --check recomputes everything and compares numerically rather than writing.
+        #
+        # The gate here used to be `git diff --exit-code` over regenerated output,
+        # which made it a bit-exactness test of double arithmetic across machines —
+        # and nothing guarantees that. glibc dispatches exp/log/pow to FMA-using
+        # variants when the CPU has FMA, so the same glibc version on a different
+        # runner returns results a few ulp apart: this lane failed on 163 values in
+        # enginemath.json whose worst deviation was 8e-15 relative, with no change to
+        # the engine at all. The tolerance --check uses is documented in the script
+        # and is six orders of magnitude below anything a real change produces.
+        run: python3 scripts/gen-fixtures.py --check
 
       # Four mechanical passes over the Swift, on the lane that has no Swift. Not a
       # type checker and no substitute for the macOS build — it catches undeclared

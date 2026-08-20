@@ -495,15 +495,6 @@ public struct CatalogMigration: Sendable {
 
 public final class CatalogStore {
 
-    /// Whether a cache-open failure means the file is damaged, as opposed to busy or
-    /// momentarily unavailable. Recreating on anything else destroys a live database.
-    static func indicatesCorruptCache(_ error: SQLiteError) -> Bool {
-        switch error.code {
-        case SQLITE_CORRUPT, SQLITE_NOTADB, SQLITE_FORMAT: return true
-        default: return false
-        }
-    }
-
     // MARK: Stored state
 
     private let db: SQLiteDatabase
@@ -760,7 +751,7 @@ public final class CatalogStore {
         var textIndexAvailable = false
         do {
             textIndexAvailable = try CatalogStore.prepareCacheDatabase(at: resolvedCachePath)
-        } catch let error as SQLiteError where CatalogStore.indicatesCorruptCache(error) {
+        } catch let error as SQLiteError where error.indicatesCorruptDatabase {
             // Corrupt cache -> recreate empty; the workers refill it (docs/15 §15.2).
             // Losing it costs warm-up time and nothing else.
             //

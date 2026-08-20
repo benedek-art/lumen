@@ -53,13 +53,17 @@ blocked by its egress policy. So the verification loop is **GitHub Actions' macO
 runner**: it compiles all four targets and runs both suites there, and the CI log is
 filtered down to deduplicated diagnostics so a round is readable.
 
-> **⚠️ A large batch of commits has never been compiled.** Partway through 2026-08-20
-> GitHub stopped allocating runners — every run failed in about three seconds with no
-> job starting, on both lanes, with empty logs, which is the signature of exhausted
-> Actions minutes on a private repository. Roughly seventy commits landed while that
-> held. The repository is public now, so the push trigger is back on and CI runs again;
-> until a run has actually gone green, treat anything from that window as unverified by
-> a compiler.
+> **⚠️ A large batch of commits went uncompiled for a while.** Partway through
+> 2026-08-20 GitHub stopped allocating runners — every run failed in about three
+> seconds with no job starting, on both lanes, with empty logs, which is the signature
+> of exhausted Actions minutes on a private repository. Roughly seventy commits landed
+> while that held. The repository is public now, the push trigger is back on, and the
+> first real run since (#58) reached the compiler and reported **one** error across
+> those seventy commits: `CatalogStore` matched on `SQLITE_CORRUPT`/`NOTADB`/`FORMAT`
+> without importing the C module those come from. The predicate now lives on
+> `SQLiteError` in `SQLite.swift`, the one file that does import it. That error stopped
+> the build at LumenCore, so LumenPipeline and LumenApp are still waiting on a compiler
+> — treat them as unverified until a run gets past this point.
 >
 > What stood in for it meanwhile, and still runs on every push: the Python mirror below,
 > and `scripts/check-swift-surface.py`, which makes four mechanical passes over the

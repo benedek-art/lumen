@@ -48,11 +48,107 @@ os.makedirs(FIXTURES, exist_ok=True)
 
 FAILURES = []
 
+# --check compares against the committed fixtures instead of overwriting them.
+CHECK_ONLY = "--check" in sys.argv[1:]
+
+# Tolerance for the comparison in --check mode.
+#
+# `git diff --exit-code` used to be the gate, which made it a bit-exactness test of
+# double arithmetic across machines — and nothing guarantees that. glibc dispatches
+# exp/log/pow to FMA-using variants when the CPU has FMA, so the same glibc on two
+# different runners returns results a few ulp apart. The CI lane failed on 163 values
+# in enginemath.json that differed only in their last two or three digits, the worst
+# by 8e-15 relative: noise from a machine, not a change to the engine.
+#
+# 1e-9 relative sits six orders of magnitude above that noise and six below anything a
+# real change produces — perturbing any engine constant moves these values in the
+# third decimal or beyond, not the fifteenth. The absolute floor matters for the
+# values that are legitimately zero-ish (an achromatic sample's chroma lands around
+# 1e-16, and its *sign* is arbitrary); it is the same 1e-12 the Swift suite uses when
+# it asserts those quantities.
+CHECK_RTOL = 1e-9
+CHECK_ATOL = 1e-12
+
 
 def check(cond, msg):
     if not cond:
         FAILURES.append(msg)
         print(f"  FAIL: {msg}")
+
+
+def _compare(want, got, path):
+    """Structure exactly, numbers within tolerance. Returns a list of differences."""
+    if isinstance(want, bool) or isinstance(got, bool):
+        # bool before int: `True == 1` in Python and that is not a match here.
+        if want is not got:
+            return [f"{path}: committed {want!r}, regenerated {got!r}"]
+        return []
+    if isinstance(want, (int, float)) and isinstance(got, (int, float)):
+        if want == got:
+            return []
+        if math.isnan(want) and math.isnan(got):
+            return []
+        delta = abs(want - got)
+        if delta <= CHECK_ATOL + CHECK_RTOL * abs(want):
+            return []
+        rel = delta / abs(want) if want else float("inf")
+        return [f"{path}: committed {want!r}, regenerated {got!r} (rel {rel:.3e})"]
+    if isinstance(want, dict) and isinstance(got, dict):
+        out = []
+        for key in sorted(set(want) | set(got)):
+            if key not in want:
+                out.append(f"{path}.{key}: absent from the committed fixture")
+            elif key not in got:
+                out.append(f"{path}.{key}: no longer generated")
+            else:
+                out += _compare(want[key], got[key], f"{path}.{key}")
+        return out
+    if isinstance(want, list) and isinstance(got, list):
+        if len(want) != len(got):
+            return [f"{path}: committed {len(want)} entries, regenerated {len(got)}"]
+        out = []
+        for i, (a, b) in enumerate(zip(want, got)):
+            out += _compare(a, b, f"{path}[{i}]")
+        return out
+    if want != got:
+        return [f"{path}: committed {want!r}, regenerated {got!r}"]
+    return []
+
+
+def write_fixture(name, payload, indent=1, sort_keys=False, trailing_newline=False):
+    """Write a fixture — or, under --check, verify the committed one still matches.
+
+    Every fixture goes through here so the two modes cannot drift apart: --check
+    compares exactly what a write would have produced.
+    """
+    path = os.path.join(FIXTURES, name)
+    if not CHECK_ONLY:
+        with open(path, "w") as f:
+            json.dump(payload, f, indent=indent, sort_keys=sort_keys)
+            if trailing_newline:
+                f.write("\n")
+        return
+    if not os.path.exists(path):
+        check(False, f"{name} is not committed")
+        return
+    with open(path) as f:
+        try:
+            committed = json.load(f)
+        except json.JSONDecodeError as exc:
+            check(False, f"{name} is not valid JSON: {exc}")
+            return
+    # Round-trip the payload through JSON so the comparison sees what would be
+    # written — tuples become lists, and non-string dict keys become strings.
+    differences = _compare(committed, json.loads(json.dumps(payload)), name)
+    if differences:
+        check(False, f"{name}: {len(differences)} value(s) drifted from the committed "
+                     f"fixture")
+        for line in differences[:12]:
+            print(f"    {line}")
+        if len(differences) > 12:
+            print(f"    ... and {len(differences) - 12} more")
+    else:
+        print(f"  {name}: matches the committed fixture")
 
 
 # ---------------------------------------------------------------------------
@@ -329,10 +425,8 @@ def gen_canonical_fixture():
     check(c_canon != canonical_recipe_json(renamed, defaults),
           "the stored recipe lost the mask name — only the fingerprint should")
 
-    with open(os.path.join(FIXTURES, "canonical.json"), "w") as f:
-        json.dump({"cases": cases}, f, indent=1)
-    with open(os.path.join(FIXTURES, "default-recipe.json"), "w") as f:
-        json.dump(DEFAULT_RECIPE, f, indent=1, sort_keys=True)
+    write_fixture("canonical.json", {"cases": cases})
+    write_fixture("default-recipe.json", DEFAULT_RECIPE, sort_keys=True)
 
 
 # ---------------------------------------------------------------------------
@@ -357,8 +451,7 @@ def gen_fingerprint_fixture():
     vectors = [{"input": s,
                 "xxh64": xxhash.xxh64(s.encode("utf-8"), seed=0).hexdigest()}
                for s in inputs]
-    with open(os.path.join(FIXTURES, "fingerprint.json"), "w") as f:
-        json.dump({"vectors": vectors}, f, indent=1)
+    write_fixture("fingerprint.json", {"vectors": vectors})
 
 
 # ---------------------------------------------------------------------------
@@ -593,8 +686,7 @@ def gen_curves_fixture():
     for x in [i / 32 for i in range(33)]:
         check(abs(identity.evaluate(x) - x) < 1e-9,
               f"the identity curve is not the identity at {x}")
-    with open(os.path.join(FIXTURES, "curves.json"), "w") as f:
-        json.dump({"cases": out}, f, indent=1)
+    write_fixture("curves.json", {"cases": out})
 
 
 # ---------------------------------------------------------------------------
@@ -672,8 +764,7 @@ def gen_zones_fixture():
         "stops": [exposure_stops(x, default_pivots, [0.3, 0, -0.2, 0, -1.0], 0.15)
                   for x in samples],
     }
-    with open(os.path.join(FIXTURES, "zones.json"), "w") as f:
-        json.dump({"cases": cases, "exposure": ev_case}, f, indent=1)
+    write_fixture("zones.json", {"cases": cases, "exposure": ev_case})
 
 
 # ---------------------------------------------------------------------------
@@ -739,8 +830,7 @@ def gen_maskalgebra_fixture():
     # And `add` is a union, not a sum — two half-alphas do not make a whole one.
     check(abs(mask_combined([comp("add", 0.5), comp("add", 0.5)]) - 0.5) < 1e-12,
           "add is summing rather than taking the union")
-    with open(os.path.join(FIXTURES, "maskalgebra.json"), "w") as f:
-        json.dump({"cases": cases}, f, indent=1)
+    write_fixture("maskalgebra.json", {"cases": cases})
 
 
 # ---------------------------------------------------------------------------
@@ -845,8 +935,7 @@ def gen_xmp_fixture():
             rj = desc.find("lumen:recipe", ns)
             check(rj is not None and rj.text == c["content"]["recipeJSON"],
                   f"xmp {c['name']} recipe round-trip")
-    with open(os.path.join(FIXTURES, "xmp.json"), "w") as f:
-        json.dump({"cases": cases}, f, indent=1)
+    write_fixture("xmp.json", {"cases": cases})
 
 
 # ---------------------------------------------------------------------------
@@ -932,8 +1021,7 @@ def gen_rename_fixture():
         c["expected"] = rename_render(c["template"], ctx, c["seq"])
     check(rename_render("{date}_{seq}", ctx, 3) == "20260819_0003", "rename date_seq")
     check(rename_render("{year}/{month}/x", ctx, 1) == "2026-08-x", "rename sanitize /")
-    with open(os.path.join(FIXTURES, "rename.json"), "w") as f:
-        json.dump({"cases": cases}, f, indent=1)
+    write_fixture("rename.json", {"cases": cases})
 
 
 # ---------------------------------------------------------------------------
@@ -3177,7 +3265,14 @@ def gen_enginemath_fixture():
     perceptual = []
     for c in ((0.18, 0.18, 0.18), (0.9, 0.2, 0.05), (2.4, 1.2, 0.6)):
         L, C, hh = oklch_from_rgb(c)
-        perceptual.append({"rgb": list(c), "L": L, "C": C, "h": hh})
+        # Hue is atan2 of the two chroma axes, so at C ~ 0 it is the angle between two
+        # quantities that are both rounding error — for the neutral grey here it landed
+        # on 296.57 on one machine and 334.01 on another, from a chroma of 1e-16. The
+        # Swift guards its hue assertion with the same C > 1e-9 test and never reads
+        # this field for such a row; recording a number there stored noise as if it
+        # were a golden value.
+        write_hue = hh if C > 1e-9 else None
+        perceptual.append({"rgb": list(c), "L": L, "C": C, "h": write_hue})
 
     # Film: the grey ramp through every stock at its default push, plus the two push
     # extremes on one colour stock and one transparency, since push is where the
@@ -3243,9 +3338,8 @@ def gen_enginemath_fixture():
         "perceptual": perceptual,
         "radialAlpha": radial,
     }
-    with open(os.path.join(FIXTURES, "enginemath.json"), "w") as f:
-        json.dump(payload, f, indent=2, sort_keys=True)
-        f.write("\n")
+    write_fixture("enginemath.json", payload, indent=2, sort_keys=True,
+                  trailing_newline=True)
     total = (len(shaper) + len(rolloff) + len(contrast) + len(display)
              + sum(len(t["stops"]) for t in tone) + len(chroma)
              + len(white_balance) + len(perceptual)
@@ -3281,7 +3375,11 @@ def main():
     if FAILURES:
         print(f"\n{len(FAILURES)} verification failure(s)")
         sys.exit(1)
-    print("\nAll fixtures generated; all Linux-side verifications passed.")
+    if CHECK_ONLY:
+        print("\nAll fixtures match the committed state; all Linux-side "
+              "verifications passed.")
+    else:
+        print("\nAll fixtures generated; all Linux-side verifications passed.")
 
 
 if __name__ == "__main__":

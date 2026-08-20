@@ -45,6 +45,19 @@ public enum SQLiteError: Error, CustomStringConvertible {
         }
     }
 
+    /// Whether this failure means the database file is damaged, as opposed to busy or
+    /// momentarily unavailable. A caller that recreates the file on anything else
+    /// destroys a live database.
+    ///
+    /// It lives here rather than at the call site because the `SQLITE_*` codes come
+    /// from the C module, and this file is the only one in LumenCore that imports it.
+    public var indicatesCorruptDatabase: Bool {
+        switch code {
+        case SQLITE_CORRUPT, SQLITE_NOTADB, SQLITE_FORMAT: return true
+        default: return false
+        }
+    }
+
     public var message: String {
         switch self {
         case .unavailable: return "SQLite is not available on this platform"
@@ -535,6 +548,9 @@ import Foundation
 
 public enum SQLiteError: Error, CustomStringConvertible {
     case unavailable
+
+    /// Never: "the module is missing" is not "the file is damaged".
+    public var indicatesCorruptDatabase: Bool { false }
 
     public var description: String { "sqlite3: unavailable on this platform" }
 }
