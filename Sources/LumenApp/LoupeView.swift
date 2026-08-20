@@ -571,13 +571,9 @@ struct LoupeView: View {
     }
 
     /// The stroke set already stored for a component, or an empty one when there is
-    /// nothing behind its reference yet.
+    /// nothing behind its reference yet. Memory only — this runs inside `body`.
     private func existingStrokes(_ component: MaskComponent?) -> BrushStrokeSet {
-        guard let ref = component?.strokesRef,
-              let set = state.catalog?.blobs.strokeSet(for: ref) else {
-            return BrushStrokeSet()
-        }
-        return set
+        state.strokeSet(ref: component?.strokesRef) ?? BrushStrokeSet()
     }
 
     @ViewBuilder

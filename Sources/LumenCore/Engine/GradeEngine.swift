@@ -37,29 +37,6 @@ import Foundation
 
 // MARK: - Gamut boundary cache
 
-/// The max-chroma boundary costs a few hundred bisections to build, and most frames
-/// never need one (an untouched grade panel returns early). Build it on first use and
-/// keep it: one lock, one table, shared by every pixel of every tile.
-private final class GamutBoundaryCache: @unchecked Sendable {
-    private let lock: NSLock = NSLock()
-    private let context: OKLabTransform.Context
-    private var stored: Gamut.Boundary?
-
-    init(context: OKLabTransform.Context) {
-        self.context = context
-        self.stored = nil
-    }
-
-    var boundary: Gamut.Boundary {
-        lock.lock()
-        defer { lock.unlock() }
-        if let existing = stored { return existing }
-        let built = Gamut.Boundary(context: context)
-        stored = built
-        return built
-    }
-}
-
 // MARK: - Zone windows
 
 /// The two visible pivots of the grading panel, resolved into three weights that sum to
@@ -260,7 +237,6 @@ public struct GradeEngine: Sendable {
     private let shadowTint: WheelTint
     private let midTint: WheelTint
     private let highTint: WheelTint
-    private let gamutCache: GamutBoundaryCache
 
     public init(wheels: GradingWheels,
                 printerLights: PrinterLights,
@@ -277,7 +253,6 @@ public struct GradeEngine: Sendable {
         self.shadowTint = WheelTint(wheels.shadows)
         self.midTint = WheelTint(wheels.mid)
         self.highTint = WheelTint(wheels.high)
-        self.gamutCache = GamutBoundaryCache(context: context)
     }
 
     // MARK: Zones
@@ -477,7 +452,6 @@ public struct ColorBalanceGrid: Sendable {
     public let windows: ZoneWindows
     public let context: OKLabTransform.Context
 
-    private let gamutCache: GamutBoundaryCache
 
     public init(params: ColorBalanceParams = ColorBalanceParams(),
                 windows: ZoneWindows = ZoneWindows(),
@@ -485,7 +459,6 @@ public struct ColorBalanceGrid: Sendable {
         self.params = params
         self.windows = windows
         self.context = context
-        self.gamutCache = GamutBoundaryCache(context: context)
     }
 
     /// True when every control in the disclosure is at rest.

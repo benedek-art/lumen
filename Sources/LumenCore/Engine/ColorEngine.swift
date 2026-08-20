@@ -31,29 +31,6 @@
 
 import Foundation
 
-/// Lazily-built, thread-safe holder for the working-gamut boundary. The boundary costs
-/// ~600 bisections to build and is pure, so it is computed on first use and cached for
-/// every subsequent pixel and every copy of the engine that shares this box.
-private final class GamutBoundaryCache: @unchecked Sendable {
-    private let lock: NSLock = NSLock()
-    private let context: OKLabTransform.Context
-    private var stored: Gamut.Boundary?
-
-    init(context: OKLabTransform.Context) {
-        self.context = context
-        self.stored = nil
-    }
-
-    func value() -> Gamut.Boundary {
-        lock.lock()
-        defer { lock.unlock() }
-        if let b = stored { return b }
-        let b = Gamut.Boundary(context: context)
-        stored = b
-        return b
-    }
-}
-
 public struct ColorEngine: Sendable {
 
     // MARK: - Inputs
@@ -91,7 +68,6 @@ public struct ColorEngine: Sendable {
     private let bwEnabled: Bool
     private let bwHasBands: Bool
     private let lumaWeights: RGB
-    private let gamut: GamutBoundaryCache
 
     // MARK: - Band model (docs/06 brief §1.1–1.2)
 
@@ -203,9 +179,6 @@ public struct ColorEngine: Sendable {
     /// OKLab hue of the green↔magenta opponent axis; +tint is toward magenta.
     public static let tintAxisDegrees: Double = 328.36
 
-    /// Fraction of the per-hue boundary chroma above which the always-on clip engages.
-    public static let gamutThreshold: Double = 0.80
-
     /// The working space the stage operates in (docs/14 §1.3). The primaries remap needs
     /// chromaticities, which `OKLabTransform.Context` does not carry; this is the space
     /// `OKLabTransform.working` is built from.
@@ -265,7 +238,6 @@ public struct ColorEngine: Sendable {
         self.bwHasBands = anyBand
 
         self.lumaWeights = Self.workingSpace.luminanceWeights
-        self.gamut = GamutBoundaryCache(context: context)
     }
 
     // MARK: - The stage

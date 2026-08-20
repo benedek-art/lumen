@@ -613,9 +613,11 @@ struct MaskCanvas: View {
     /// bounds-checked at write time as well as at read time: the panel's selection can
     /// be one edit stale, and a stale index must be a no-op rather than a trap.
     ///
-    /// The stroke payload is handed back on the edit rather than written here — blob
-    /// storage is the catalog's job (`blob:xxh64:<hash>` addressing, docs/15 §15.4),
-    /// and this file does no I/O.
+    /// The payload rides on the edit, and this writes it to the blob store before it
+    /// writes the reference into the recipe. That order is the whole point: a
+    /// `strokesRef` whose bytes were never stored is a mask that rasterizes empty
+    /// forever, and it reaches the catalog and the sidecar looking exactly like a mask
+    /// that works.
     @MainActor
     static func apply(_ edit: MaskCanvasEdit, in state: AppState) {
         switch edit {
@@ -625,7 +627,7 @@ struct MaskCanvas: View {
                       recipe.masks[m].components.indices.contains(index) else { return }
                 recipe.masks[m].components[index] = component
             }
-        case .strokes(let maskID, let index, _, let ref, let payload):
+        case .strokes(let maskID, let index, let set, let ref, let payload):
             // The reference is only a promise that the bytes exist. Store them first:
             // a `strokesRef` whose blob was never written is a mask that rasterizes
             // empty forever, and it survives into the catalog and the sidecar looking
@@ -636,6 +638,9 @@ struct MaskCanvas: View {
                 state.statusMessage = "Could not save that stroke — the mask is unchanged"
                 return
             }
+            // The bytes are already in hand, so the render path does not have to go
+            // back to the disk to find out what was just painted.
+            state.remember(set, ref: ref)
             state.updateRecipe(coalescingKey: nil) { recipe in
                 guard let m = recipe.masks.firstIndex(where: { $0.id == maskID }),
                       recipe.masks[m].components.indices.contains(index) else { return }

@@ -329,6 +329,10 @@ final class AppState: ObservableObject {
     /// it. Deriving this from the filtered list meant narrowing a filter after
     /// selecting forty frames quietly shrank both the export and the count that
     /// promised what would be exported.
+    /// Brush stroke blobs this session has read or written, by reference. Content
+    /// addressed, so an entry is never stale: the name IS the bytes.
+    @Published private var strokeCache: [String: BrushStrokeSet] = [:]
+
     /// Cached so a sort does not stat the same file once per comparison.
     private static let fileDateCache = FileDateCache()
 
@@ -341,11 +345,60 @@ final class AppState: ObservableObject {
     }
 
     /// The brush blobs a recipe's masks refer to. A `strokesRef` is a promise that
-    /// bytes exist somewhere; this is where the renderer collects them. Empty when
-    /// there is no catalog, which is honest — with nowhere to have stored strokes,
-    /// there are none to rasterize.
+    /// bytes exist somewhere; these are the bytes.
+    ///
+    /// Served from memory, never from the disk, because every caller is on the main
+    /// actor and two of them are inside a view's `body`. Reading the blob here would
+    /// be a blocking file read during layout — the exact thing the rule at the top of
+    /// this file forbids. `loadStrokeSets` does the reading, off the actor, and
+    /// publishes the result.
     func strokeSets(for recipe: Recipe) -> [String: BrushStrokeSet] {
-        catalog?.blobs.strokeSets(for: recipe) ?? [:]
+        var out: [String: BrushStrokeSet] = [:]
+        for mask in recipe.masks {
+            for component in mask.components where component.kind == .brush {
+                guard let ref = component.strokesRef, let set = strokeCache[ref] else { continue }
+                out[ref] = set
+            }
+        }
+        return out
+    }
+
+    /// A stroke set the app already holds, for the canvas to append to.
+    func strokeSet(ref: String?) -> BrushStrokeSet? {
+        guard let ref else { return nil }
+        return strokeCache[ref]
+    }
+
+    /// Record a set the user just painted. The bytes are already in hand, so this
+    /// closes the loop without a round trip through the disk.
+    func remember(_ set: BrushStrokeSet, ref: String) {
+        strokeCache[ref] = set
+    }
+
+    /// Pull in any blob this recipe references that is not in memory yet. Reading is
+    /// off the actor; only the handoff is on it. Called when the selection changes and
+    /// after a recipe arrives from the catalog, which is every moment a new `strokesRef`
+    /// can appear that this session did not write.
+    func loadStrokeSets(for recipe: Recipe) {
+        guard let blobs = catalog?.blobs else { return }
+        let missing = recipe.masks
+            .flatMap(\.components)
+            .filter { $0.kind == .brush }
+            .compactMap(\.strokesRef)
+            .filter { strokeCache[$0] == nil }
+        guard !missing.isEmpty else { return }
+
+        Task.detached(priority: .userInitiated) { [weak self] in
+            var loaded: [String: BrushStrokeSet] = [:]
+            for ref in missing {
+                if let set = blobs.strokeSet(for: ref) { loaded[ref] = set }
+            }
+            guard !loaded.isEmpty else { return }
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                for (ref, set) in loaded { self.strokeCache[ref] = set }
+            }
+        }
     }
 
     /// What an edit applies to: the whole selection when there is one, otherwise the
@@ -444,6 +497,9 @@ final class AppState: ObservableObject {
             }
         }
         allPhotos = items
+        for recipe in recipes.values where !recipe.masks.isEmpty {
+            loadStrokeSets(for: recipe)
+        }
         isScanning = false
         statusMessage = "\(items.count) photo\(items.count == 1 ? "" : "s")"
         if primarySelection == nil, let first = photos.first {
@@ -480,6 +536,7 @@ final class AppState: ObservableObject {
         // there.
         activeMaskID = nil
         activeComponentIndex = 0
+        loadStrokeSets(for: recipe(for: photo))
         scheduleScopeRefresh()
     }
 

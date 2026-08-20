@@ -51,8 +51,13 @@ struct LumenSlider: View {
     var defaultValue: Double = 0
     var step: Double = 1
     var decimals: Int = 0
-    /// Draw the fill from this value rather than from the left edge, so a bipolar
-    /// control reads as a deviation from neutral.
+    /// This control has a meaningful neutral somewhere other than an end, so the
+    /// track carries a tick there and you can find your way back to it by eye.
+    ///
+    /// It no longer decides where the fill starts. That is derived from
+    /// `defaultValue` for every control, bipolar or not — the fill reads as a
+    /// deviation from neutral in both cases, and a flag was never what distinguished
+    /// them.
     var bipolar: Bool = true
     var wand: (() -> Void)?
     var onEditingChanged: ((Bool) -> Void)?
@@ -116,6 +121,15 @@ struct LumenSlider: View {
                     .fill(Lumen.fillColor.opacity(isModified ? 0.9 : 0.5))
                     .frame(width: max(abs(fraction - zeroFraction) * width, 1), height: 3)
                     .offset(x: min(fraction, zeroFraction) * width)
+                // The neutral mark. Sits under the thumb so the thumb covers it when
+                // the control is at its default, which is exactly when you do not
+                // need to be told where the default is.
+                if bipolar && zeroFraction > 0.001 && zeroFraction < 0.999 {
+                    Rectangle()
+                        .fill(Lumen.separator)
+                        .frame(width: 1, height: 7)
+                        .offset(x: zeroFraction * width - 0.5)
+                }
                 Circle()
                     .fill(Lumen.primaryText)
                     .frame(width: isDragging ? 11 : 9, height: isDragging ? 11 : 9)

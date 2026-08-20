@@ -142,7 +142,15 @@ final class RobustnessTests: XCTestCase {
 
         for hue in stride(from: 0.0, to: 360.0, by: 30.0) {
             let tint = OKLabTransform.working.toRGB(OKLCh(L: 0.5, C: 0.12, h: hue))
-            let unit = tint / Swift.max(tint.maxComponent, 1e-6)
+            // A chroma the working space cannot reach at this lightness comes back with
+            // a negative channel, and a ratio against a near-zero divisor would then
+            // fail this test for arithmetic reasons rather than for continuity ones.
+            // Floor it: the question here is whether the stage steps, and a colour a
+            // little way inside the gamut asks it just as well.
+            let floored = RGB(Swift.max(tint.r, 1e-3),
+                              Swift.max(tint.g, 1e-3),
+                              Swift.max(tint.b, 1e-3))
+            let unit = floored / Swift.max(floored.maxComponent, 1e-6)
             for engine in ["colour", "grade"] {
                 var previousRatio: RGB?
                 var ev = -6.0
