@@ -154,11 +154,17 @@ public struct RenderGraph {
     // MARK: - S8 presence
 
     func applyPresence(_ image: CIImage, plan: RenderPlan, options: Options) -> CIImage {
-        let d = plan.detail
+        Self.applyPresence(image, detail: plan.detail, longEdge: options.longEdge)
+    }
+
+    /// Presence over an explicit `Detail`, so the local stage can run the same code on
+    /// a mask's own texture/clarity/dehaze values instead of having none.
+    static func applyPresence(_ image: CIImage, detail d: Detail,
+                              longEdge: Int) -> CIImage {
         var out = image
 
         if d.dehaze != 0 {
-            out = Self.applyDehaze(out, amount: d.dehaze, longEdge: options.longEdge)
+            out = Self.applyDehaze(out, amount: d.dehaze, longEdge: longEdge)
         }
 
         guard d.texture != 0 || d.clarity != 0 else { return out }
@@ -166,8 +172,8 @@ public struct RenderGraph {
 
         // One decomposition, two bands: texture is the fine scale, clarity the mid
         // scale. Both come off guided filters, so neither can halo.
-        let fine = Swift.max(Int(Double(options.longEdge) * 0.003), 1)
-        let mid = Swift.max(Int(Double(options.longEdge) * 0.02), 3)
+        let fine = Swift.max(Int(Double(longEdge) * 0.003), 1)
+        let mid = Swift.max(Int(Double(longEdge) * 0.02), 3)
         guard let baseFine = Self.guidedSelfFilter(lum, radius: fine, epsilon: 0.0008),
               let baseMid = Self.guidedSelfFilter(lum, radius: mid, epsilon: 0.004)
         else { return out }
@@ -236,7 +242,8 @@ public struct RenderGraph {
         var out = image
         for mask in plan.masks {
             guard let alpha = maskImages[mask.id] else { continue }
-            let adjusted = Self.applyLocalAdjust(out, mask: mask, plan: plan)
+            let adjusted = Self.applyLocalAdjust(out, mask: mask, plan: plan,
+                                                 longEdge: options.longEdge)
             guard let blended = KernelLibrary.apply(KernelLibrary.blendMask,
                                                     extent: out.extent,
                                                     [out, adjusted, alpha])
@@ -249,7 +256,8 @@ public struct RenderGraph {
     /// A mask's sub-recipe evaluated on the stage input. Local parameters are deltas
     /// over the global ones, so this is the same maths as the global path with a
     /// different parameter set — never a parallel implementation.
-    static func applyLocalAdjust(_ image: CIImage, mask: Mask, plan: RenderPlan) -> CIImage {
+    static func applyLocalAdjust(_ image: CIImage, mask: Mask, plan: RenderPlan,
+                                 longEdge: Int) -> CIImage {
         let scale = Num.clamp(mask.amount, 0, 200) / 100.0
         let a = mask.adjust
         var out = image
@@ -268,6 +276,30 @@ public struct RenderGraph {
             out = throughShaper(out) { encoded in
                 ColorCube.filter(localPlan.lut, image: encoded)
             } ?? out
+        }
+
+        // The spatial half. It runs over the whole frame and `applyLocal` composites
+        // the result through the mask's alpha, which is why a masked Clarity needs no
+        // cropped decomposition of its own. Without this the mask panel's Texture,
+        // Clarity, Dehaze and Sharpness sliders moved and nothing happened.
+        var localDetail = Detail()
+        localDetail.texture = a.texture * scale
+        localDetail.clarity = a.clarity * scale
+        localDetail.dehaze = a.dehaze * scale
+        if localDetail.texture != 0 || localDetail.clarity != 0 || localDetail.dehaze != 0 {
+            out = applyPresence(out, detail: localDetail, longEdge: longEdge)
+        }
+
+        let sharpness = a.sharpness * scale
+        if sharpness > 0 {
+            out = applySharpen(out, ManualSharpen(amount: Num.clamp(sharpness, 0, 150)),
+                               longEdge: longEdge)
+        } else if sharpness < 0 {
+            // Negative Sharpness is a softening; `applySharpen` clamps at zero.
+            let filter = CIFilter.gaussianBlur()
+            filter.inputImage = out.clampedToExtent()
+            filter.radius = Float(Num.clamp(-sharpness / 100, 0, 1) * 2.5)
+            out = filter.outputImage?.cropped(to: out.extent) ?? out
         }
         return out
     }
@@ -518,11 +550,18 @@ struct LocalPlan {
         let hueShift = adjust.hue * scale
         let tintColor = adjust.colorTint
         let tintStrength = Num.clamp(adjust.colorTintStrength, 0, 100) / 100 * scale
+        // Temp and Tint were in the identity test above and then never applied, so a
+        // local white-balance nudge marked the stage live, rebuilt the table, and
+        // produced the same picture.
+        let balance = ReferenceRenderer.LocalWhiteBalance(temp: adjust.temp * scale,
+                                                          tint: adjust.tint * scale,
+                                                          space: .rec2020)
 
         self.lut = LUT3D(size: LUT3D.interactiveSize) { encoded in
             var c = LumenLog.decode(encoded)
             let lum = Swift.max(RGBColorSpace.rec2020.luminance(c), 0)
             c = c * tone.gain(at: Num.safeLog2(lum / 0.18))
+            c = balance.apply(c)
             c = colorEngine.apply(c)
             if hueShift != 0 {
                 var lch = OKLabTransform.working.toLCh(c)

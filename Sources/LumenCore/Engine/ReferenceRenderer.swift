@@ -171,13 +171,16 @@ public enum ReferenceRenderer {
         let exposureGain = tone.exposureGain
         let hueShift = a.hue * scale
         let context = OKLabTransform.working
+        let balance = LocalWhiteBalance(temp: a.temp * scale, tint: a.tint * scale,
+                                        space: space)
 
-        return image.map { pixel in
+        var out = image.map { pixel in
             var c = pixel * exposureGain
             if !tone.isIdentity {
                 let lum = Swift.max(space.luminance(c), 0)
                 c = c * tone.gain(at: Num.safeLog2(lum / 0.18))
             }
+            c = balance.apply(c)
             c = color.apply(c)
             if hueShift != 0 {
                 var lch = context.toLCh(c)
@@ -186,6 +189,66 @@ public enum ReferenceRenderer {
             }
             return c
         }
+
+        // The spatial half of the local set. These run over the WHOLE buffer and the
+        // caller composites the result through the mask's alpha — the same shape the
+        // colour half already had, and the reason a masked Clarity does not need its
+        // own cropped decomposition.
+        let texture = a.texture * scale
+        let clarity = a.clarity * scale
+        let dehaze = a.dehaze * scale
+        let sharpness = a.sharpness * scale
+        if texture != 0 || clarity != 0 || dehaze != 0 || sharpness != 0 {
+            let radius = Swift.max(Int(Double(Swift.max(out.width, out.height)) * 0.02), 3)
+            let node = DetailEngine.Decomposition(image: out, workingRadius: radius,
+                                                  space: space)
+            out = DetailEngine.applyTexture(out, amount: texture, decomposition: node)
+            out = DetailEngine.applyClarity(out, amount: clarity, decomposition: node)
+            out = DetailEngine.applyDehaze(out, amount: dehaze, decomposition: node)
+            if sharpness > 0 {
+                out = DetailEngine.applySharpen(
+                    out, params: ManualSharpen(amount: Num.clamp(sharpness, 0, 150)),
+                    decomposition: node)
+            } else if sharpness < 0 {
+                // Negative Sharpness is a blur, which `applySharpen` refuses by
+                // contract (it clamps amount at 0). A small Gaussian is what the
+                // control means.
+                let sigma = Num.clamp(-sharpness / 100, 0, 1) * 2.5
+                out = DetailEngine.blur(out, sigma: sigma)
+            }
+        }
+        return out
+    }
+
+    /// A local Temp/Tint nudge. The mask panel's two sliders are RELATIVE — −100…+100
+    /// around whatever the global white balance settled on — so they cannot go through
+    /// `WhiteBalanceEngine`, which speaks in absolute Kelvin. They are converted to a
+    /// mired shift about a 5500 K anchor, which is what "warmer by a bit" means in a
+    /// way that behaves the same at every global temperature.
+    public struct LocalWhiteBalance: Sendable {
+        public let matrix: Mat3
+        public let isIdentity: Bool
+
+        public init(temp: Double, tint: Double, space: RGBColorSpace = .rec2020) {
+            let t = Num.clamp(temp, -100, 100)
+            let g = Num.clamp(tint, -100, 100)
+            guard t != 0 || g != 0 else {
+                self.matrix = .identity
+                self.isIdentity = true
+                return
+            }
+            self.isIdentity = false
+            // ±100 is ±50 mired, about 5500 K → 4400 K one way and 7300 K the other:
+            // a decisive nudge, not a relabelling of the whole scene.
+            let anchorMired = 1e6 / 5500.0
+            let target = 1e6 / Num.clamp(anchorMired - t * 0.5, 20, 500)
+            self.matrix = WhiteBalanceEngine(asShotKelvin: 5500, asShotTint: 0,
+                                             targetKelvin: target,
+                                             targetTint: g * 1.5,
+                                             space: space).matrix
+        }
+
+        public func apply(_ c: RGB) -> RGB { isIdentity ? c : matrix.apply(c) }
     }
 
     static func applyGrain(_ image: ImageBuffer, film: FilmChain, seed: UInt64,

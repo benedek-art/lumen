@@ -119,6 +119,62 @@ final class RobustnessTests: XCTestCase {
                              "saturation did nothing to a highlight")
     }
 
+    // MARK: - A control that exists must do something
+
+    /// Seven sliders in the mask panel moved a value that no render stage read. The
+    /// panel offered Temp, Tint, Texture, Clarity, Dehaze, Sharpness and Noise; the
+    /// local stage applied exposure, contrast, the tone pair, hue, saturation and
+    /// vibrance, and silently dropped the rest. Temp and Tint were the worst of it:
+    /// they were in the stage's identity test, so moving one marked the stage live and
+    /// rebuilt its table — and then produced exactly the same picture.
+    ///
+    /// This walks every local field the panel exposes and asserts the render moves.
+    func testEveryLocalSliderThePanelOffersChangesThePicture() throws {
+        let source = ImageBuffer(width: 24, height: 16) { u, v in
+            // Texture and Clarity need something to find, and Dehaze needs a gradient
+            // it can read as depth, so this is not a flat field.
+            let detail = 0.06 * sin(u * 47) * cos(v * 31)
+            return RGB(0.30 + detail, 0.26 + detail * 0.8, 0.20 + detail * 0.6)
+        }
+
+        var base = Recipe()
+        var component = MaskComponent(op: .add, kind: .radial)
+        component.center = [0.5, 0.5]
+        component.radii = [0.9, 0.9]
+        component.feather = 20
+        var mask = Mask(name: "whole frame")
+        mask.components = [component]
+        base.masks = [mask]
+        let unedited = ReferenceRenderer.render(source, plan: RenderPlan(recipe: base))
+
+        let fields: [(String, (inout LocalAdjust) -> Void)] = [
+            ("temp", { $0.temp = 80 }),
+            ("tint", { $0.tint = 80 }),
+            ("texture", { $0.texture = 90 }),
+            ("clarity", { $0.clarity = 90 }),
+            ("dehaze", { $0.dehaze = 80 }),
+            ("sharpness", { $0.sharpness = 90 }),
+            ("softening (negative sharpness)", { $0.sharpness = -90 }),
+            ("exposure", { $0.exposure = 0.8 }),
+            ("saturation", { $0.sat = 70 }),
+            ("hue", { $0.hue = 40 }),
+        ]
+
+        for (name, mutate) in fields {
+            var recipe = base
+            mutate(&recipe.masks[0].adjust)
+            let out = ReferenceRenderer.render(source, plan: RenderPlan(recipe: recipe))
+            var worst = 0.0
+            for y in 0..<out.height {
+                for x in 0..<out.width {
+                    worst = Swift.max(worst, out[x, y].maxAbsDifference(unedited[x, y]))
+                }
+            }
+            XCTAssertGreaterThan(worst, 1e-4,
+                                 "the local \(name) slider changed nothing")
+        }
+    }
+
     // MARK: - Scene-referred means unbounded
 
     /// No scene-referred stage may change its behaviour at a particular brightness.

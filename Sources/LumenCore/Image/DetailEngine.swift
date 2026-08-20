@@ -523,6 +523,33 @@ public struct DetailEngine: Sendable {
     /// parameters. Highlight protection blends the multiply back toward identity above half
     /// the default scene white (0.18 · 2^5 ÷ 2), which is what keeps a burn off a bright sky
     /// while it still shapes the corners.
+    /// A plain Gaussian softening of all three channels. This is what a NEGATIVE
+    /// Sharpness means: `applySharpen` clamps its amount at zero by contract, so
+    /// without this the left half of the local Sharpness slider did nothing at all.
+    public static func blur(_ image: ImageBuffer, sigma: Double) -> ImageBuffer {
+        guard sigma > 0.05, sigma.isFinite, image.width > 0, image.height > 0 else {
+            return image
+        }
+        var channels: [Plane] = []
+        channels.reserveCapacity(3)
+        for channel in 0..<3 {
+            var plane = Plane(width: image.width, height: image.height)
+            for y in 0..<image.height {
+                for x in 0..<image.width {
+                    plane[x, y] = image[x, y][channel]
+                }
+            }
+            channels.append(SpatialOps.gaussianBlur(plane, sigma: sigma))
+        }
+        var out = image
+        for y in 0..<image.height {
+            for x in 0..<image.width {
+                out[x, y] = RGB(channels[0][x, y], channels[1][x, y], channels[2][x, y])
+            }
+        }
+        return out
+    }
+
     public static func vignette(_ image: ImageBuffer, ev: Double) -> ImageBuffer {
         let amount = Num.clamp(ev, -3.0, 1.0)
         guard amount != 0 else { return image }
