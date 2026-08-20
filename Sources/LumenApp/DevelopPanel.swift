@@ -202,6 +202,14 @@ struct DevelopPanel: View {
                     .padding(.horizontal, 8)
                     .padding(.bottom, 4)
             }
+            if state.showScopes {
+                ScopesView(waveform: state.scopes?.waveform,
+                           parade: state.scopes?.parade,
+                           vectorscope: state.scopes?.vectorscope)
+                    .frame(height: 190)
+                    .padding(.horizontal, 8)
+                    .padding(.bottom, 4)
+            }
             Divider().overlay(Lumen.separator)
             sectionSwitcher
             Divider().overlay(Lumen.separator)

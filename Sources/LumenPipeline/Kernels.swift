@@ -96,8 +96,8 @@ public enum KernelLibrary {
     kernel vec4 lumenDehaze(__sample image, __sample transmission, vec3 airlight,
                             float floorT) {
         float t = max(transmission.r, floorT);
-        vec3 out = (image.rgb - airlight) / t + airlight;
-        return vec4(out, image.a);
+        vec3 recovered = (image.rgb - airlight) / t + airlight;
+        return vec4(recovered, image.a);
     }
     """
 
@@ -139,8 +139,8 @@ public enum KernelLibrary {
         vec3 amp = sqrt(max(p * (vec3(1.0) - p), vec3(0.0)));
         vec3 n = (noise.rgb - vec3(0.5)) * 2.0;
         vec3 d2 = d + amp * n * amount;
-        vec3 out = pow(vec3(10.0), -d2);
-        return vec4(out, image.a);
+        vec3 shifted = pow(vec3(10.0), -d2);
+        return vec4(shifted, image.a);
     }
     """
 

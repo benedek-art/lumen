@@ -5,23 +5,21 @@
 // Four things this panel exists to get right:
 //   · The component operation is a control, not a modifier. Add / Subtract / Intersect
 //     are three equal buttons that stay editable after creation — LrC hides Intersect
-//     behind an Alt-click at creation time and that is the difference being made here.
+//     behind an Alt-click at creation time, and that is the difference being made here.
 //   · The refinement chain is shown in the order the engine runs it (Refine → Edge
-//     Shift → Feather → Levels) with the UI names, never the wire names: `MaskRefine`
+//     Shift → Feather → Levels) under its UI names, never the wire names: `MaskRefine`
 //     spells the guided filter `feather` and the Gaussian `blur`, and a panel that
 //     leaked that would teach the user the wrong word for both.
-//   · A mask can run the local point curve and the local grading wheels — the two
-//     tools Lightroom Classic still does not have inside a mask — so they are visible
-//     sections here, not a disclosure nobody opens.
-//   · Where the shipped wire format has no field for a spec'd control (whole-mask
-//     invert, linear Mirror, per-axis colour tolerances, similarity point geometry,
-//     depth source), the control is ABSENT rather than invented. A panel that writes
-//     keys the format does not define is a migration nobody agreed to.
+//   · A mask can run the local point curve and the local grading wheels — the two tools
+//     Lightroom Classic still does not have inside a mask — so they are visible sections
+//     here, not a disclosure nobody opens.
+//   · Where the shipped format has no field for a spec'd control (whole-mask invert,
+//     linear Mirror, per-axis colour tolerances, similarity point geometry, depth
+//     source), the control is ABSENT rather than invented.
 //
 // Every slider is a `LumenSlider`, every edit goes through
-// `AppState.updateRecipe(coalescingKey:)` so one drag is one undo step, and every
-// index into `components` is bounds-checked at both read and write: a mask list is
-// user work in flight and a stale index must degrade, never trap.
+// `AppState.updateRecipe(coalescingKey:)` so one drag is one undo step, and every index
+// into `components` is bounds-checked at read and at write.
 
 #if os(macOS)
 
@@ -33,10 +31,9 @@ import SwiftUI
 struct MaskPanel: View {
     @EnvironmentObject var state: AppState
 
-    /// Brush parameters are session state, not recipe state: they are recorded INTO
-    /// each stroke as it is drawn (BrushStroke carries its own size/feather/flow/
-    /// density/flags), so the panel and the canvas share one store rather than
-    /// inventing a component field the wire format does not have.
+    /// Brush parameters are session state, not recipe state: each stroke records its own
+    /// size/feather/flow/density/flags into the blob as it is drawn, so the panel and the
+    /// canvas share one store rather than inventing a component field.
     @ObservedObject private var brush: MaskBrushStore = MaskBrushStore.shared
 
     @State private var selectedMaskID: String? = nil
@@ -48,8 +45,7 @@ struct MaskPanel: View {
     @State private var colourExpanded: Bool = true
     @State private var curveExpanded: Bool = true
     @State private var wheelsExpanded: Bool = true
-    @State private var presenceExpanded: Bool = false
-    @State private var detailAdjustExpanded: Bool = false
+    @State private var detailExpanded: Bool = false
     @State private var pointExpanded: Bool = false
 
     // MARK: - Body
@@ -66,13 +62,11 @@ struct MaskPanel: View {
                     Divider()
                     adjustSections(mask)
                 } else {
-                    note("No masks yet. A mask is a stack of components combined with "
-                         + "add, subtract and intersect, carrying one set of local "
-                         + "adjustments through its alpha.")
+                    note("No masks yet. A mask is a stack of components combined with add, "
+                         + "subtract and intersect, carrying one set of local adjustments.")
                 }
             }
-            .padding(.horizontal, 10)
-            .padding(.bottom, 18)
+            .padding(.horizontal, 10).padding(.bottom, 18)
         }
         .background(Lumen.panelBackground)
         .foregroundStyle(Lumen.primaryText)
@@ -84,33 +78,24 @@ struct MaskPanel: View {
         let list = masks
         return VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 6) {
-                LumenSectionHeader(title: "Masks", isExpanded: nil,
-                                   isModified: !list.isEmpty)
-                kindMenu(label: "Add", systemImage: "plus") { kind in addMask(kind: kind) }
+                LumenSectionHeader(title: "Masks", isExpanded: nil, isModified: !list.isEmpty)
+                kindMenu(label: "Add mask") { kind in addMask(kind: kind) }
             }
-
-            ForEach(Array(list.indices), id: \.self) { index in
-                maskRow(list[index], index: index)
-            }
-
+            ForEach(Array(list.indices), id: \.self) { i in maskRow(list[i], index: i) }
             if let mask = activeMask {
                 LumenSlider(title: "Amount",
-                            value: maskValue(mask.id, "mask.amount",
-                                             get: { $0.amount },
+                            value: maskValue(mask.id, "amount", get: { $0.amount },
                                              set: { $0.amount = Num.clamp($1, 0, 200) }),
-                            range: 0...200, defaultValue: 100, step: 1, decimals: 0,
-                            bipolar: true)
-
+                            range: 0...200, defaultValue: 100, step: 1, decimals: 0)
                 HStack(spacing: 4) {
                     smallButton("Duplicate", "plus.square.on.square") { duplicateMask(mask.id) }
                     smallButton("Delete", "trash") { deleteMask(mask.id) }
                     Spacer(minLength: 0)
                 }
                 .frame(height: Lumen.rowHeight)
-
                 note("Amount scales the adjustment deltas, not the alpha: past 100 it "
-                     + "amplifies beyond the slider maxima instead of clipping a mask "
-                     + "that is already fully opaque.")
+                     + "amplifies beyond the slider maxima instead of clipping a mask that "
+                     + "is already fully opaque.")
             }
         }
     }
@@ -119,37 +104,29 @@ struct MaskPanel: View {
         let isSelected = mask.id == activeMask?.id
         let isSolo = state.soloMaskOverlay == mask.id
         return HStack(spacing: 5) {
-            Button {
-                editMask(mask.id, key: nil) { $0.enabled.toggle() }
-            } label: {
-                Image(systemName: mask.enabled ? "eye" : "eye.slash")
-                    .font(.system(size: 10))
+            Button { editMask(mask.id, key: nil) { $0.enabled.toggle() } } label: {
+                Image(systemName: mask.enabled ? "eye" : "eye.slash").font(.system(size: 10))
                     .foregroundStyle(mask.enabled ? Lumen.primaryText : Lumen.secondaryText)
             }
             .buttonStyle(.plain)
-            .help(mask.enabled ? "Stop rendering this mask, keeping it" : "Render this mask again")
+            .help(mask.enabled ? "Stop rendering this mask, keeping it" : "Render it again")
 
-            TextField("Mask \(index + 1)",
-                      text: maskName(mask.id))
-                .textFieldStyle(.plain)
-                .font(.system(size: 11))
+            TextField("Mask \(index + 1)", text: maskName(mask.id))
+                .textFieldStyle(.plain).font(.system(size: 11))
                 .foregroundStyle(isSelected ? Lumen.primaryText : Lumen.secondaryText)
 
             LumenBadge(text: "\(mask.components.count)")
 
-            Button {
-                state.soloMaskOverlay = isSolo ? nil : mask.id
-            } label: {
-                Image(systemName: isSolo ? "circle.lefthalf.filled.righthalf.striped.horizontal"
-                                         : "circle.lefthalf.filled")
+            Button { state.soloMaskOverlay = isSolo ? nil : mask.id } label: {
+                Image(systemName: isSolo ? "circle.lefthalf.striped.horizontal"
+                                        : "circle.lefthalf.filled")
                     .font(.system(size: 10))
                     .foregroundStyle(isSolo ? Lumen.accent : Lumen.secondaryText)
             }
             .buttonStyle(.plain)
             .help("Show this mask's alpha as an overlay on the image")
         }
-        .padding(.horizontal, 4)
-        .frame(height: Lumen.rowHeight)
+        .padding(.horizontal, 4).frame(height: Lumen.rowHeight)
         .background(isSelected ? Lumen.fillColor.opacity(0.20) : Color.clear)
         .clipShape(RoundedRectangle(cornerRadius: 3))
         .contentShape(Rectangle())
@@ -163,27 +140,22 @@ struct MaskPanel: View {
     // MARK: - Component stack
 
     private func componentSection(_ mask: Mask) -> some View {
-        let index = activeComponentIndex
-        return VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 6) {
                 LumenSectionHeader(title: "Components", isExpanded: $componentsExpanded,
                                    isModified: !mask.components.isEmpty)
-                kindMenu(label: "Add", systemImage: "plus") { kind in
-                    addComponent(kind: kind, to: mask.id)
-                }
+                kindMenu(label: "Add") { kind in addComponent(kind: kind, to: mask.id) }
             }
-
             if componentsExpanded {
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(Array(mask.components.indices), id: \.self) { i in
                         componentRow(mask, i)
                     }
-                    if let i = index, mask.components.indices.contains(i) {
+                    if let i = activeComponentIndex, mask.components.indices.contains(i) {
                         componentEditor(mask.id, i, mask.components[i])
                     } else {
-                        note("This mask has no components yet, so its alpha is empty. "
-                             + "Add one — the stack folds add, subtract and intersect "
-                             + "in order, starting from nothing.")
+                        note("No components yet, so this mask's alpha is empty. The stack "
+                             + "folds in order, starting from nothing.")
                     }
                 }
             }
@@ -196,329 +168,194 @@ struct MaskPanel: View {
         return HStack(spacing: 5) {
             Text(MaskPanel.opGlyph(component.op))
                 .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                .foregroundStyle(Lumen.secondaryText)
-                .frame(width: 12)
-            Text(MaskPanel.kindName(component.kind))
-                .font(.system(size: 11))
+                .foregroundStyle(Lumen.secondaryText).frame(width: 12)
+            Text(MaskPanel.kindName(component.kind)).font(.system(size: 11)).lineLimit(1)
                 .foregroundStyle(isSelected ? Lumen.primaryText : Lumen.secondaryText)
-                .lineLimit(1)
-            if component.invert {
-                LumenBadge(text: "INV")
-            }
+            if component.invert { LumenBadge(text: "INV") }
             Spacer(minLength: 0)
             if component.validationError() != nil {
                 LumenBadge(text: "INCOMPLETE", emphasized: true)
             }
-            Button {
-                removeComponent(mask.id, index)
-            } label: {
+            Button { removeComponent(mask.id, index) } label: {
                 Image(systemName: "minus.circle").font(.system(size: 10))
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(Lumen.secondaryText)
+            .buttonStyle(.plain).foregroundStyle(Lumen.secondaryText)
             .help("Remove this component")
         }
-        .padding(.horizontal, 4)
-        .frame(height: Lumen.rowHeight)
+        .padding(.horizontal, 4).frame(height: Lumen.rowHeight)
         .background(isSelected ? Lumen.fillColor.opacity(0.16) : Color.clear)
         .clipShape(RoundedRectangle(cornerRadius: 3))
         .contentShape(Rectangle())
         .onTapGesture { selectedComponent = index }
     }
 
-    private func componentEditor(_ maskID: String, _ index: Int,
-                                 _ component: MaskComponent) -> some View {
+    private func componentEditor(_ id: String, _ i: Int, _ c: MaskComponent) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             LumenSegmented(options: [(value: MaskOp.add, label: "Add"),
                                      (value: MaskOp.subtract, label: "Subtract"),
                                      (value: MaskOp.intersect, label: "Intersect")],
-                           selection: opBinding(maskID, index))
+                           selection: opBinding(id, i))
                 .padding(.vertical, 2)
-
-            LumenToggleRow(title: "Invert",
-                           isOn: Binding(
-                            get: { self.component(maskID, index)?.invert ?? false },
-                            set: { on in editComponent(maskID, index, key: nil) { $0.invert = on } }),
+            LumenToggleRow(title: "Invert", isOn: invertBinding(id, i),
                            help: "Inverts this component before it folds into the stack")
-
-            LumenSlider(title: "Amount",
-                        value: componentValue(maskID, index, "amount", 100,
-                                              get: { $0.amount },
-                                              set: { $0.amount = Num.clamp($1, 0, 100) }),
-                        range: 0...100, defaultValue: 100, step: 1, decimals: 0,
-                        bipolar: false)
-
-            componentParameters(maskID, index, component)
-
-            if let problem = component.validationError() {
+            componentSlider(id, i, "Amount", \.amount, 0...100, 100, bipolar: false)
+            componentParameters(id, i, c)
+            if let problem = c.validationError() {
                 note(problem + " — it renders empty until that is supplied.")
             }
         }
-        .padding(.leading, 6)
-        .padding(.bottom, 4)
+        .padding(.leading, 6).padding(.bottom, 4)
     }
 
     @ViewBuilder
-    private func componentParameters(_ maskID: String, _ index: Int,
-                                     _ component: MaskComponent) -> some View {
-        switch component.kind {
+    private func componentParameters(_ id: String, _ i: Int, _ c: MaskComponent) -> some View {
+        switch c.kind {
         case .brush:
-            brushParameters(component)
+            brushParameters(c)
         case .linear:
-            placementNote("Drag on the image to set the gradient line. The span between "
-                          + "the two ends is the feather; there is no separate control.",
-                          detail: MaskPanel.lineSummary(component.line))
+            note("Drag on the image to set the gradient line — " + MaskPanel.lineSummary(c)
+                 + ". The span between the ends is the feather; there is no other control.")
         case .similarityLine:
             VStack(alignment: .leading, spacing: 2) {
-                placementNote("Drag on the image to set the ramp.",
-                              detail: MaskPanel.lineSummary(component.line))
-                similarityParameters(maskID, index, component)
+                note("Drag on the image to set the ramp — " + MaskPanel.lineSummary(c) + ".")
+                similarityParameters(id, i, c)
             }
         case .radial:
-            radialParameters(maskID, index, component)
+            VStack(alignment: .leading, spacing: 2) {
+                optionalSlider(id, i, "Feather", \.feather, 0...100, 50)
+                optionalSlider(id, i, "Rotation", \.rotation, -180...180, 0, bipolar: true)
+                note("Drag on the image to place and resize the ellipse — "
+                     + MaskPanel.ellipseSummary(c) + ". Falloff runs inward from the edge.")
+            }
         case .lumaRange:
-            lumaParameters(maskID, index)
-        case .colorRange:
-            colourRangeParameters(maskID, index, component)
-        case .similarity:
-            similarityParameters(maskID, index, component)
+            VStack(alignment: .leading, spacing: 2) {
+                bandSlider(id, i, "Band Lo", isLow: true, depth: false)
+                bandSlider(id, i, "Band Hi", isLow: false, depth: false)
+                optionalSlider(id, i, "Smoothness", \.smooth, 0...100, 50)
+                note("EV-denominated on a fixed −10…+4 axis over scene luminance, never "
+                     + "auto-ranged, so a band means the same on every frame.")
+            }
         case .depthRange:
-            depthParameters(maskID, index)
+            VStack(alignment: .leading, spacing: 2) {
+                bandSlider(id, i, "Near", isLow: true, depth: true)
+                bandSlider(id, i, "Far", isLow: false, depth: true)
+                optionalSlider(id, i, "Smoothness", \.smooth, 0...100, 50)
+                note("Relative depth, near = 0. Embedded depth is used when the file has "
+                     + "it; otherwise it is estimated in the background.")
+            }
+        case .colorRange:
+            VStack(alignment: .leading, spacing: 2) {
+                sampleChips(id, i, c)
+                optionalSlider(id, i, "Refine", \.rangeAmount, 0...100, 50)
+                note("Refine drives the hue, chroma and lightness tolerances together; the "
+                     + "per-axis split has no field in the format, so it is not shown.")
+            }
+        case .similarity:
+            similarityParameters(id, i, c)
         case .aiPerson:
-            checkboxList(maskID, index, MaskPanel.personParts, isParts: true,
-                         caption: "Parts are synthesised from the person matte; a part "
-                                + "with low confidence is flagged on its row once the "
-                                + "model has run.")
+            checkboxList(id, i, MaskPanel.personParts, isParts: true,
+                         caption: "Parts are synthesised from the person matte.")
         case .aiLandscape:
-            checkboxList(maskID, index, MaskPanel.landscapeClasses, isParts: false,
+            checkboxList(id, i, MaskPanel.landscapeClasses, isParts: false,
                          caption: "Six classes, deliberately: snow is a luminance range "
                                 + "intersected with this mask, not a seventh class.")
         case .aiObject:
-            objectParameters(maskID, index, component)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text("\(c.prompt?.count ?? 0) prompt point(s)")
+                        .font(.system(size: 11)).foregroundStyle(Lumen.secondaryText)
+                    Spacer(minLength: 0)
+                    smallButton("Reset", "arrow.uturn.backward") {
+                        editComponent(id, i, key: nil) { $0.prompt = nil }
+                    }
+                }
+                .frame(height: Lumen.rowHeight)
+                modelNote(c)
+            }
         case .aiSubject, .aiSky, .aiBackground:
-            modelNote(component)
+            modelNote(c)
         }
     }
 
-    private func brushParameters(_ component: MaskComponent) -> some View {
-        let ref: String = component.strokesRef.map { String($0.prefix(20)) + "…" }
-            ?? "no stroke blob yet"
+    private func brushParameters(_ c: MaskComponent) -> some View {
+        let ref = c.strokesRef.map { String($0.prefix(20)) + "…" } ?? "no blob yet"
         return VStack(alignment: .leading, spacing: 2) {
-            LumenSlider(title: "Size", value: brushBinding(\.size),
-                        range: 0.002...0.5, defaultValue: BrushStroke.defaultSize,
-                        step: 0.002, decimals: 3, bipolar: false)
-            LumenSlider(title: "Feather", value: brushBinding(\.feather),
-                        range: 0...100, defaultValue: 50, step: 1, decimals: 0, bipolar: false)
-            LumenSlider(title: "Flow", value: brushBinding(\.flow),
-                        range: 1...100, defaultValue: 100, step: 1, decimals: 0, bipolar: false)
-            LumenSlider(title: "Density", value: brushBinding(\.density),
-                        range: 0...100, defaultValue: 100, step: 1, decimals: 0, bipolar: false)
+            LumenSlider(title: "Size", value: brushValue(\.size), range: 0.002...0.5,
+                        defaultValue: BrushStroke.defaultSize, step: 0.002, decimals: 3,
+                        bipolar: false)
+            LumenSlider(title: "Feather", value: brushValue(\.feather), range: 0...100,
+                        defaultValue: 50, step: 1, decimals: 0, bipolar: false)
+            LumenSlider(title: "Flow", value: brushValue(\.flow), range: 1...100,
+                        defaultValue: 100, step: 1, decimals: 0, bipolar: false)
+            LumenSlider(title: "Density", value: brushValue(\.density), range: 0...100,
+                        defaultValue: 100, step: 1, decimals: 0, bipolar: false)
             LumenToggleRow(title: "Eraser", isOn: brushFlag(\.erase),
                            help: "Erase strokes fold into the same buffer in draw order")
             LumenToggleRow(title: "Automask", isOn: brushFlag(\.automask),
                            help: "Gates each stamp by colour similarity to the stamp centre")
-            note("These are the settings the NEXT stroke records. Size is a fraction of "
-                 + "the source long edge, so a stroke keeps its width at export "
-                 + "resolution. Strokes live in " + ref + ".")
+            note("The settings the NEXT stroke records. Size is a fraction of the source "
+                 + "long edge, so a stroke keeps its width at export resolution. "
+                 + "Strokes: " + ref + ".")
         }
     }
 
-    private func radialParameters(_ maskID: String, _ index: Int,
-                                  _ component: MaskComponent) -> some View {
+    private func similarityParameters(_ id: String, _ i: Int,
+                                      _ c: MaskComponent) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            LumenSlider(title: "Feather",
-                        value: componentValue(maskID, index, "feather", 50,
-                                              get: { $0.feather ?? 50 },
-                                              set: { $0.feather = Num.clamp($1, 0, 100) }),
-                        range: 0...100, defaultValue: 50, step: 1, decimals: 0, bipolar: false)
-            LumenSlider(title: "Rotation",
-                        value: componentValue(maskID, index, "rotation", 0,
-                                              get: { $0.rotation ?? 0 },
-                                              set: { $0.rotation = Num.clamp($1, -180, 180) }),
-                        range: -180...180, defaultValue: 0, step: 1, decimals: 0)
-            placementNote("Drag on the image to place and resize the ellipse; the falloff "
-                          + "runs inward from its edge.",
-                          detail: MaskPanel.ellipseSummary(component))
-        }
-    }
-
-    private func lumaParameters(_ maskID: String, _ index: Int) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            LumenSlider(title: "Band Lo",
-                        value: componentValue(maskID, index, "lo", MaskPanel.evMin,
-                                              get: { MaskPanel.ev($0.lo ?? 0) },
-                                              set: { c, v in
-                                                  let n = MaskPanel.normalizedEV(v)
-                                                  c.lo = Swift.min(n, c.hi ?? 1)
-                                              }),
-                        range: MaskPanel.evMin...MaskPanel.evMax, defaultValue: MaskPanel.evMin,
-                        step: 0.1, decimals: 1, bipolar: false)
-            LumenSlider(title: "Band Hi",
-                        value: componentValue(maskID, index, "hi", MaskPanel.evMax,
-                                              get: { MaskPanel.ev($0.hi ?? 1) },
-                                              set: { c, v in
-                                                  let n = MaskPanel.normalizedEV(v)
-                                                  c.hi = Swift.max(n, c.lo ?? 0)
-                                              }),
-                        range: MaskPanel.evMin...MaskPanel.evMax, defaultValue: MaskPanel.evMax,
-                        step: 0.1, decimals: 1, bipolar: false)
-            LumenSlider(title: "Smoothness",
-                        value: componentValue(maskID, index, "smooth", 50,
-                                              get: { $0.smooth ?? 50 },
-                                              set: { $0.smooth = Num.clamp($1, 0, 100) }),
-                        range: 0...100, defaultValue: 50, step: 1, decimals: 0, bipolar: false)
-            note("The band is denominated in EV on a fixed −10…+4 axis over the "
-                 + "scene-referred luminance, never auto-ranged per photo, so the same "
-                 + "band means the same thing on every frame.")
-        }
-    }
-
-    private func depthParameters(_ maskID: String, _ index: Int) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            LumenSlider(title: "Near",
-                        value: componentValue(maskID, index, "depthLo", 0,
-                                              get: { $0.depthLo ?? 0 },
-                                              set: { c, v in
-                                                  c.depthLo = Swift.min(Num.saturate(v), c.depthHi ?? 1)
-                                              }),
-                        range: 0...1, defaultValue: 0, step: 0.01, decimals: 2, bipolar: false)
-            LumenSlider(title: "Far",
-                        value: componentValue(maskID, index, "depthHi", 1,
-                                              get: { $0.depthHi ?? 1 },
-                                              set: { c, v in
-                                                  c.depthHi = Swift.max(Num.saturate(v), c.depthLo ?? 0)
-                                              }),
-                        range: 0...1, defaultValue: 1, step: 0.01, decimals: 2, bipolar: false)
-            LumenSlider(title: "Smoothness",
-                        value: componentValue(maskID, index, "smooth", 50,
-                                              get: { $0.smooth ?? 50 },
-                                              set: { $0.smooth = Num.clamp($1, 0, 100) }),
-                        range: 0...100, defaultValue: 50, step: 1, decimals: 0, bipolar: false)
-            note("Relative depth, near = 0. Embedded depth is used when the file carries "
-                 + "it; otherwise the depth map is estimated in the background.")
-        }
-    }
-
-    private func colourRangeParameters(_ maskID: String, _ index: Int,
-                                       _ component: MaskComponent) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            sampleChips(maskID, index, component)
-            LumenSlider(title: "Refine",
-                        value: componentValue(maskID, index, "rangeAmount", 50,
-                                              get: { $0.rangeAmount ?? 50 },
-                                              set: { $0.rangeAmount = Num.clamp($1, 0, 100) }),
-                        range: 0...100, defaultValue: 50, step: 1, decimals: 0, bipolar: false)
-            note("Refine drives the hue, chroma and lightness tolerances together. The "
-                 + "per-axis split is a format addition that has not landed, so it is "
-                 + "not shown rather than faked.")
-        }
-    }
-
-    private func similarityParameters(_ maskID: String, _ index: Int,
-                                      _ component: MaskComponent) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            sampleChips(maskID, index, component)
-            LumenSlider(title: "Chroma sel.",
-                        value: componentValue(maskID, index, "chromaSel", 50,
-                                              get: { $0.chromaSel ?? 50 },
-                                              set: { $0.chromaSel = Num.clamp($1, 0, 100) }),
-                        range: 0...100, defaultValue: 50, step: 1, decimals: 0, bipolar: false)
-            LumenSlider(title: "Luma sel.",
-                        value: componentValue(maskID, index, "lumaSel", 50,
-                                              get: { $0.lumaSel ?? 50 },
-                                              set: { $0.lumaSel = Num.clamp($1, 0, 100) }),
-                        range: 0...100, defaultValue: 50, step: 1, decimals: 0, bipolar: false)
+            sampleChips(id, i, c)
+            optionalSlider(id, i, "Chroma sel.", \.chromaSel, 0...100, 50)
+            optionalSlider(id, i, "Luma sel.", \.lumaSel, 0...100, 50)
             note("Selectivity is the width of the OKLab similarity gate. Point positions "
-                 + "and radius have no field in the shipped format, so this component "
-                 + "evaluates its gate over the whole frame for now.")
+                 + "and radius have no field in the shipped format, so the gate currently "
+                 + "evaluates over the whole frame.")
         }
     }
 
-    private func sampleChips(_ maskID: String, _ index: Int,
-                             _ component: MaskComponent) -> some View {
-        let samples = component.samples ?? []
+    private func sampleChips(_ id: String, _ i: Int, _ c: MaskComponent) -> some View {
+        let samples = c.samples ?? []
         return HStack(spacing: 4) {
-            ForEach(Array(samples.indices), id: \.self) { i in
-                RoundedRectangle(cornerRadius: 3)
-                    .fill(MaskPanel.chipColor(samples[i]))
+            ForEach(Array(samples.indices), id: \.self) { s in
+                RoundedRectangle(cornerRadius: 3).fill(MaskPanel.chipColor(samples[s]))
                     .frame(width: 20, height: 14)
                     .overlay(RoundedRectangle(cornerRadius: 3)
                         .strokeBorder(Lumen.separator, lineWidth: 0.5))
             }
             Spacer(minLength: 0)
-            Button {
-                editComponent(maskID, index, key: nil) { c in
-                    var list = c.samples ?? []
-                    guard list.count < 8 else { return }
-                    list.append([0.18, 0.18, 0.18])
-                    c.samples = list
-                }
-            } label: {
+            Button { addSample(id, i) } label: {
                 Image(systemName: "plus").font(.system(size: 9, weight: .semibold))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.plain).disabled(samples.count >= 8)
             .foregroundStyle(samples.count < 8 ? Lumen.primaryText : Lumen.secondaryText)
-            .disabled(samples.count >= 8)
-            .help("Add a sample (up to 8). The eyedropper lands with the sampler.")
-
-            Button {
-                editComponent(maskID, index, key: nil) { c in
-                    var list = c.samples ?? []
-                    guard list.count > 1 else { return }
-                    list.removeLast()
-                    c.samples = list
-                }
-            } label: {
+            .help("Add a sample (up to 8); the eyedropper lands with the sampler")
+            Button { removeSample(id, i) } label: {
                 Image(systemName: "minus").font(.system(size: 9, weight: .semibold))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.plain).disabled(samples.count <= 1)
             .foregroundStyle(samples.count > 1 ? Lumen.primaryText : Lumen.secondaryText)
-            .disabled(samples.count <= 1)
             .help("Remove the last sample")
         }
         .frame(height: Lumen.rowHeight)
     }
 
-    private func objectParameters(_ maskID: String, _ index: Int,
-                                  _ component: MaskComponent) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 6) {
-                Text("\(component.prompt?.count ?? 0) prompt point(s)")
-                    .font(.system(size: 11))
-                    .foregroundStyle(Lumen.secondaryText)
-                Spacer(minLength: 0)
-                smallButton("Reset", "arrow.uturn.backward") {
-                    editComponent(maskID, index, key: nil) { $0.prompt = nil }
-                }
-            }
-            .frame(height: Lumen.rowHeight)
-            modelNote(component)
-        }
-    }
-
-    private func checkboxList(_ maskID: String, _ index: Int,
+    private func checkboxList(_ id: String, _ i: Int,
                               _ entries: [(key: String, label: String)],
                               isParts: Bool, caption: String) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(entries.indices), id: \.self) { i in
-                LumenToggleRow(title: entries[i].label,
-                               isOn: listBinding(maskID, index, entries[i].key, isParts: isParts),
-                               help: isParts ? "Include this part in the mask"
-                                             : "Include this class in the mask")
+            ForEach(Array(entries.indices), id: \.self) { e in
+                LumenToggleRow(title: entries[e].label,
+                               isOn: listBinding(id, i, entries[e].key, isParts: isParts),
+                               help: "Include this in the mask")
             }
             note(caption)
         }
     }
 
-    private func modelNote(_ component: MaskComponent) -> some View {
+    private func modelNote(_ c: MaskComponent) -> some View {
         HStack(spacing: 6) {
-            LumenBadge(text: component.model ?? "MODEL NEEDED",
-                       emphasized: component.model == nil)
-            Text(component.model == nil
-                 ? "Computed in the background once the model is available."
-                 : "Cached at generation resolution; the refine chain carries it to full size.")
-                .font(.system(size: 10))
-                .foregroundStyle(Lumen.secondaryText)
+            LumenBadge(text: c.model ?? "MODEL NEEDED", emphasized: c.model == nil)
+            Text(c.model == nil ? "Computed in the background once the model is available."
+                                : "Cached at generation resolution; refine carries it up.")
+                .font(.system(size: 10)).foregroundStyle(Lumen.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.vertical, 2)
@@ -527,53 +364,21 @@ struct MaskPanel: View {
     // MARK: - Refinement chain
 
     private func refineSection(_ mask: Mask) -> some View {
-        let refine = mask.refine
-        let modified = refine != MaskRefine()
-        return VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 2) {
             LumenSectionHeader(title: "Refine", isExpanded: $refineExpanded,
-                               isModified: modified,
+                               isModified: mask.refine != MaskRefine(),
                                onReset: { editMask(mask.id, key: nil) { $0.refine = MaskRefine() } })
             if refineExpanded {
                 VStack(alignment: .leading, spacing: 2) {
-                    LumenSlider(title: "Refine",
-                                value: maskValue(mask.id, "mask.refine",
-                                                 get: { $0.refine.feather },
-                                                 set: { $0.refine.feather = Num.clamp($1, 0, 100) }),
-                                range: 0...100, defaultValue: 0, step: 1, decimals: 0, bipolar: false)
-                    LumenSlider(title: "Edge Shift",
-                                value: maskValue(mask.id, "mask.edge",
-                                                 get: { $0.refine.edge },
-                                                 set: { $0.refine.edge = Num.clamp($1, -50, 50) }),
-                                range: -50...50, defaultValue: 0, step: 1, decimals: 0)
-                    LumenSlider(title: "Feather",
-                                value: maskValue(mask.id, "mask.blur",
-                                                 get: { $0.refine.blur },
-                                                 set: { $0.refine.blur = Num.clamp($1, 0, 100) }),
-                                range: 0...100, defaultValue: 0, step: 1, decimals: 0, bipolar: false)
-                    LumenSlider(title: "Levels Lo",
-                                value: maskValue(mask.id, "mask.levelsLo",
-                                                 get: { $0.refine.levelsLo },
-                                                 set: { m, v in
-                                                     m.refine.levelsLo = Swift.min(Num.clamp(v, 0, 100),
-                                                                                   m.refine.levelsHi)
-                                                 }),
-                                range: 0...100, defaultValue: 0, step: 1, decimals: 0, bipolar: false)
-                    LumenSlider(title: "Levels Hi",
-                                value: maskValue(mask.id, "mask.levelsHi",
-                                                 get: { $0.refine.levelsHi },
-                                                 set: { m, v in
-                                                     m.refine.levelsHi = Swift.max(Num.clamp(v, 0, 100),
-                                                                                   m.refine.levelsLo)
-                                                 }),
-                                range: 0...100, defaultValue: 100, step: 1, decimals: 0, bipolar: false)
-                    LumenSlider(title: "Levels Gamma",
-                                value: maskValue(mask.id, "mask.levelsGamma",
-                                                 get: { $0.refine.levelsGamma },
-                                                 set: { $0.refine.levelsGamma = Num.clamp($1, 0.2, 5) }),
-                                range: 0.2...5, defaultValue: 1, step: 0.05, decimals: 2)
+                    refineSlider(mask.id, "Refine", \.feather, 0...100, 0)
+                    refineSlider(mask.id, "Edge Shift", \.edge, -50...50, 0, bipolar: true)
+                    refineSlider(mask.id, "Feather", \.blur, 0...100, 0)
+                    levelsSlider(mask.id, "Levels Lo", low: true)
+                    levelsSlider(mask.id, "Levels Hi", low: false)
+                    refineSlider(mask.id, "Levels Gamma", \.levelsGamma, 0.2...5, 1,
+                                 step: 0.05, decimals: 2, bipolar: true)
                     note("In engine order: an edge-aware snap against the image structure, "
-                         + "then a boundary shift, then a Gaussian soften, then the "
-                         + "density remap.")
+                         + "a boundary shift, a Gaussian soften, then the density remap.")
                 }
             }
         }
@@ -588,7 +393,6 @@ struct MaskPanel: View {
             colourSection(mask)
             wheelsSection(mask)
             pointColourSection(mask)
-            presenceSection(mask)
             detailSection(mask)
         }
     }
@@ -598,13 +402,12 @@ struct MaskPanel: View {
             LumenSectionHeader(title: "Light", isExpanded: $lightExpanded)
             if lightExpanded {
                 VStack(alignment: .leading, spacing: 2) {
-                    adjustSlider(mask.id, "Exposure", \.exposure, range: -4...4,
-                                 step: 0.05, decimals: 2)
-                    adjustSlider(mask.id, "Contrast", \.contrast, range: -100...100)
-                    adjustSlider(mask.id, "Highlights", \.highlights, range: -100...100)
-                    adjustSlider(mask.id, "Shadows", \.shadows, range: -100...100)
-                    adjustSlider(mask.id, "Whites", \.whites, range: -100...100)
-                    adjustSlider(mask.id, "Blacks", \.blacks, range: -100...100)
+                    adjustSlider(mask.id, "Exposure", \.exposure, -4...4, step: 0.05, decimals: 2)
+                    adjustSlider(mask.id, "Contrast", \.contrast, -100...100)
+                    adjustSlider(mask.id, "Highlights", \.highlights, -100...100)
+                    adjustSlider(mask.id, "Shadows", \.shadows, -100...100)
+                    adjustSlider(mask.id, "Whites", \.whites, -100...100)
+                    adjustSlider(mask.id, "Blacks", \.blacks, -100...100)
                 }
             }
         }
@@ -616,24 +419,19 @@ struct MaskPanel: View {
             LumenSectionHeader(title: "Colour", isExpanded: $colourExpanded)
             if colourExpanded {
                 VStack(alignment: .leading, spacing: 2) {
-                    adjustSlider(mask.id, "Temp", \.temp, range: -100...100)
-                    adjustSlider(mask.id, "Tint", \.tint, range: -100...100)
-                    adjustSlider(mask.id, "Hue", \.hue, range: -180...180)
-                    adjustSlider(mask.id, "Saturation", \.sat, range: -100...100)
-                    adjustSlider(mask.id, "Vibrance", \.vibrance, range: -100...100)
+                    adjustSlider(mask.id, "Temp", \.temp, -100...100)
+                    adjustSlider(mask.id, "Tint", \.tint, -100...100)
+                    adjustSlider(mask.id, "Hue", \.hue, -180...180)
+                    adjustSlider(mask.id, "Saturation", \.sat, -100...100)
+                    adjustSlider(mask.id, "Vibrance", \.vibrance, -100...100)
                     LumenToggleRow(title: "Colour tint",
-                                   isOn: Binding(
-                                    get: { hasTint },
-                                    set: { on in
-                                        editMask(mask.id, key: nil) {
-                                            $0.adjust.colorTint = on ? [0.5, 0.5, 0.5] : nil
-                                        }
-                                    }),
-                                   help: "Colorize the masked area; the swatch is set by "
-                                       + "the eyedropper")
+                                   isOn: optionBinding(mask.id, hasTint,
+                                                       on: { $0.adjust.colorTint = [0.5, 0.5, 0.5] },
+                                                       off: { $0.adjust.colorTint = nil }),
+                                   help: "Colorize the masked area; the eyedropper sets the swatch")
                     if hasTint {
-                        adjustSlider(mask.id, "Tint strength", \.colorTintStrength,
-                                     range: 0...100, bipolar: false)
+                        adjustSlider(mask.id, "Tint strength", \.colorTintStrength, 0...100,
+                                     bipolar: false)
                     }
                 }
             }
@@ -641,121 +439,71 @@ struct MaskPanel: View {
     }
 
     private func curveSection(_ mask: Mask) -> some View {
-        let curve = mask.adjust.curve
+        let has = mask.adjust.curve != nil
         return VStack(alignment: .leading, spacing: 2) {
-            LumenSectionHeader(title: "Curve", isExpanded: $curveExpanded,
-                               isModified: curve != nil,
+            LumenSectionHeader(title: "Curve", isExpanded: $curveExpanded, isModified: has,
                                onReset: { editMask(mask.id, key: nil) { $0.adjust.curve = nil } })
             if curveExpanded {
                 VStack(alignment: .leading, spacing: 2) {
                     LumenToggleRow(title: "Local tone curve",
-                                   isOn: Binding(
-                                    get: { curve != nil },
-                                    set: { on in
-                                        editMask(mask.id, key: nil) {
-                                            $0.adjust.curve = on ? CurveSet() : nil
-                                        }
-                                    }),
+                                   isOn: optionBinding(mask.id, has,
+                                                       on: { $0.adjust.curve = CurveSet() },
+                                                       off: { $0.adjust.curve = nil }),
                                    help: "A tone curve that runs only inside this mask")
-                    if curve != nil {
-                        curveRows(mask.id)
+                    if has {
+                        curveSlider(mask.id, "Highlights", \.highlights)
+                        curveSlider(mask.id, "Lights", \.lights)
+                        curveSlider(mask.id, "Darks", \.darks)
+                        curveSlider(mask.id, "Shadows", \.shadows)
+                        LumenToggleRow(title: "Preserve luminance", isOn: preserveBinding(mask.id),
+                                       help: "Chroma is held while the curve moves luminance")
                     } else {
-                        note("A curve per mask — the tool Lightroom still does not put "
-                             + "inside a local adjustment. It taps after the display "
-                             + "transform, so it behaves like the global curve.")
+                        note("A curve per mask — the tool Lightroom still does not put inside "
+                             + "a local adjustment. It taps after the display transform, so it "
+                             + "behaves like the global curve.")
                     }
                 }
             }
-        }
-    }
-
-    private func curveRows(_ maskID: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            curveSlider(maskID, "Highlights", \.highlights)
-            curveSlider(maskID, "Lights", \.lights)
-            curveSlider(maskID, "Darks", \.darks)
-            curveSlider(maskID, "Shadows", \.shadows)
-            LumenToggleRow(title: "Preserve luminance",
-                           isOn: Binding(
-                            get: { mask(maskID)?.adjust.curve?.preserveLuminance ?? true },
-                            set: { on in
-                                editMask(maskID, key: nil) { m in
-                                    var c = m.adjust.curve ?? CurveSet()
-                                    c.preserveLuminance = on
-                                    m.adjust.curve = c
-                                }
-                            }),
-                           help: "Chroma is held while the curve moves luminance")
-            note("Point nodes are edited on the curve panel's editor; the four "
-                 + "parametric regions and the channel curves are stored per mask.")
         }
     }
 
     private func wheelsSection(_ mask: Mask) -> some View {
-        let wheels = mask.adjust.wheels
+        let has = mask.adjust.wheels != nil
         return VStack(alignment: .leading, spacing: 2) {
-            LumenSectionHeader(title: "Grading", isExpanded: $wheelsExpanded,
-                               isModified: wheels != nil,
+            LumenSectionHeader(title: "Grading", isExpanded: $wheelsExpanded, isModified: has,
                                onReset: { editMask(mask.id, key: nil) { $0.adjust.wheels = nil } })
             if wheelsExpanded {
                 VStack(alignment: .leading, spacing: 4) {
                     LumenToggleRow(title: "Local grading wheels",
-                                   isOn: Binding(
-                                    get: { wheels != nil },
-                                    set: { on in
-                                        editMask(mask.id, key: nil) {
-                                            $0.adjust.wheels = on ? GradingWheels() : nil
-                                        }
-                                    }),
+                                   isOn: optionBinding(mask.id, has,
+                                                       on: { $0.adjust.wheels = GradingWheels() },
+                                                       off: { $0.adjust.wheels = nil }),
                                    help: "Three-way wheels plus Global, inside the mask")
-                    if wheels != nil {
-                        wheelRows(mask.id)
+                    if has {
+                        HStack(spacing: 8) {
+                            wheel(mask.id, "Shadows", \.shadows, "shadows")
+                            wheel(mask.id, "Midtones", \.mid, "mid")
+                        }
+                        HStack(spacing: 8) {
+                            wheel(mask.id, "Highlights", \.high, "high")
+                            wheel(mask.id, "Global", \.global, "global")
+                        }
+                        wheelsSlider(mask.id, "Blending", \.blending, 0...100, 50)
+                        wheelsSlider(mask.id, "Balance", \.balance, -100...100, 0, bipolar: true)
                     } else {
-                        note("Grading wheels inside a mask — the second thing Lightroom "
-                             + "does not have locally. They run in the same colour space "
-                             + "as the global grade and inherit its zone pivots.")
+                        note("Grading wheels inside a mask — the second thing Lightroom does "
+                             + "not have locally. Same colour space as the global grade, "
+                             + "inheriting its zone pivots.")
                     }
                 }
             }
         }
     }
 
-    private func wheelRows(_ maskID: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                wheel(maskID, "Shadows", \.shadows, "shadows")
-                wheel(maskID, "Midtones", \.mid, "mid")
-            }
-            HStack(spacing: 8) {
-                wheel(maskID, "Highlights", \.high, "high")
-                wheel(maskID, "Global", \.global, "global")
-            }
-            LumenSlider(title: "Blending",
-                        value: wheelsValue(maskID, "blending", 50,
-                                           get: { $0.blending },
-                                           set: { $0.blending = Num.clamp($1, 0, 100) }),
-                        range: 0...100, defaultValue: 50, step: 1, decimals: 0, bipolar: false)
-            LumenSlider(title: "Balance",
-                        value: wheelsValue(maskID, "balance", 0,
-                                           get: { $0.balance },
-                                           set: { $0.balance = Num.clamp($1, -100, 100) }),
-                        range: -100...100, defaultValue: 0, step: 1, decimals: 0)
-        }
-    }
-
-    private func wheel(_ maskID: String, _ title: String,
-                       _ path: WritableKeyPath<GradingWheels, Wheel>,
-                       _ key: String) -> some View {
-        LumenColorWheel(title: title,
-                        hue: wheelValue(maskID, path, \.hue, key + ".hue", 0),
-                        sat: wheelValue(maskID, path, \.sat, key + ".sat", 0),
-                        lum: wheelValue(maskID, path, \.lum, key + ".lum", 0))
-    }
-
     private func pointColourSection(_ mask: Mask) -> some View {
         let swatches = mask.adjust.pointColors
-        let index: Int? = swatches.isEmpty ? nil : Swift.min(Swift.max(selectedSwatch, 0),
-                                                             swatches.count - 1)
+        let index: Int? = swatches.isEmpty
+            ? nil : Swift.min(Swift.max(selectedSwatch, 0), swatches.count - 1)
         return VStack(alignment: .leading, spacing: 2) {
             LumenSectionHeader(title: "Point Colour", isExpanded: $pointExpanded,
                                isModified: !swatches.isEmpty,
@@ -763,16 +511,14 @@ struct MaskPanel: View {
             if pointExpanded {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 4) {
-                        ForEach(Array(swatches.indices), id: \.self) { i in
-                            Button {
-                                selectedSwatch = i
-                            } label: {
+                        ForEach(Array(swatches.indices), id: \.self) { s in
+                            Button { selectedSwatch = s } label: {
                                 RoundedRectangle(cornerRadius: 3)
-                                    .fill(MaskPanel.chipColor(swatches[i].sample))
+                                    .fill(MaskPanel.chipColor(swatches[s].sample))
                                     .frame(width: 20, height: 14)
                                     .overlay(RoundedRectangle(cornerRadius: 3)
-                                        .strokeBorder(i == index ? Lumen.primaryText : Lumen.separator,
-                                                      lineWidth: i == index ? 1.5 : 0.5))
+                                        .strokeBorder(s == index ? Lumen.primaryText : Lumen.separator,
+                                                      lineWidth: s == index ? 1.5 : 0.5))
                             }
                             .buttonStyle(.plain)
                         }
@@ -781,54 +527,21 @@ struct MaskPanel: View {
                         smallButton("Remove", "minus") { removeSwatch(mask.id) }
                     }
                     .frame(height: Lumen.rowHeight)
-
-                    if let i = index {
-                        pointColourRows(mask.id, i)
+                    if let s = index {
+                        swatchSlider(mask.id, s, "Hue", -60...60, 0,
+                                     get: { $0.shift.h }, set: { $0.shift.h = $1 })
+                        swatchSlider(mask.id, s, "Saturation", -100...100, 0,
+                                     get: { $0.shift.s }, set: { $0.shift.s = $1 })
+                        swatchSlider(mask.id, s, "Luminance", -100...100, 0,
+                                     get: { $0.shift.l }, set: { $0.shift.l = $1 })
+                        swatchSlider(mask.id, s, "Range", 0...100, 50,
+                                     get: { $0.range }, set: { $0.range = $1 }, bipolar: false)
+                        swatchSlider(mask.id, s, "Variance", -100...100, 0,
+                                     get: { $0.variance }, set: { $0.variance = $1 })
                     } else {
-                        note("Up to eight swatches per mask, each shifting one colour "
-                             + "without touching its neighbours on the hue circle.")
+                        note("Up to eight swatches per mask, each shifting one colour without "
+                             + "touching its neighbours on the hue circle.")
                     }
-                }
-            }
-        }
-    }
-
-    private func pointColourRows(_ maskID: String, _ i: Int) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            LumenSlider(title: "Hue", value: swatchValue(maskID, i, "h", -60, 60,
-                                                         get: { $0.shift.h },
-                                                         set: { $0.shift.h = $1 }),
-                        range: -60...60, defaultValue: 0, step: 1, decimals: 0)
-            LumenSlider(title: "Saturation", value: swatchValue(maskID, i, "s", -100, 100,
-                                                                get: { $0.shift.s },
-                                                                set: { $0.shift.s = $1 }),
-                        range: -100...100, defaultValue: 0, step: 1, decimals: 0)
-            LumenSlider(title: "Luminance", value: swatchValue(maskID, i, "l", -100, 100,
-                                                               get: { $0.shift.l },
-                                                               set: { $0.shift.l = $1 }),
-                        range: -100...100, defaultValue: 0, step: 1, decimals: 0)
-            LumenSlider(title: "Range", value: swatchValue(maskID, i, "range", 0, 100,
-                                                           get: { $0.range },
-                                                           set: { $0.range = $1 }),
-                        range: 0...100, defaultValue: 50, step: 1, decimals: 0, bipolar: false)
-            LumenSlider(title: "Variance", value: swatchValue(maskID, i, "variance", -100, 100,
-                                                              get: { $0.variance },
-                                                              set: { $0.variance = $1 }),
-                        range: -100...100, defaultValue: 0, step: 1, decimals: 0)
-        }
-    }
-
-    private func presenceSection(_ mask: Mask) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            LumenSectionHeader(title: "Presence", isExpanded: $presenceExpanded)
-            if presenceExpanded {
-                VStack(alignment: .leading, spacing: 2) {
-                    adjustSlider(mask.id, "Texture", \.texture, range: -100...100)
-                    adjustSlider(mask.id, "Clarity", \.clarity, range: -100...100)
-                    adjustSlider(mask.id, "Dehaze", \.dehaze, range: -100...100)
-                    adjustSlider(mask.id, "Grain", \.grainAmount, range: 0...100, bipolar: false)
-                    note("Texture, Clarity and Dehaze reuse the global base–detail "
-                         + "decomposition: sixteen masked clarity moves cost roughly one.")
                 }
             }
         }
@@ -836,30 +549,33 @@ struct MaskPanel: View {
 
     private func detailSection(_ mask: Mask) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            LumenSectionHeader(title: "Detail", isExpanded: $detailAdjustExpanded)
-            if detailAdjustExpanded {
+            LumenSectionHeader(title: "Presence & Detail", isExpanded: $detailExpanded)
+            if detailExpanded {
                 VStack(alignment: .leading, spacing: 2) {
-                    adjustSlider(mask.id, "Sharpness", \.sharpness, range: -100...100)
-                    adjustSlider(mask.id, "Noise", \.noise, range: 0...100, bipolar: false)
-                    adjustSlider(mask.id, "Noise (chroma)", \.noiseChroma, range: 0...100,
-                                 bipolar: false)
-                    adjustSlider(mask.id, "Moiré", \.moire, range: 0...100, bipolar: false)
-                    adjustSlider(mask.id, "Defringe", \.defringe, range: 0...100, bipolar: false)
-                    note("Local noise reduction is the classical tier; the AI denoise "
-                         + "splice is global by design.")
+                    adjustSlider(mask.id, "Texture", \.texture, -100...100)
+                    adjustSlider(mask.id, "Clarity", \.clarity, -100...100)
+                    adjustSlider(mask.id, "Dehaze", \.dehaze, -100...100)
+                    adjustSlider(mask.id, "Grain", \.grainAmount, 0...100, bipolar: false)
+                    adjustSlider(mask.id, "Sharpness", \.sharpness, -100...100)
+                    adjustSlider(mask.id, "Noise", \.noise, 0...100, bipolar: false)
+                    adjustSlider(mask.id, "Noise (chroma)", \.noiseChroma, 0...100, bipolar: false)
+                    adjustSlider(mask.id, "Moiré", \.moire, 0...100, bipolar: false)
+                    adjustSlider(mask.id, "Defringe", \.defringe, 0...100, bipolar: false)
+                    note("Texture, Clarity and Dehaze reuse the global base–detail "
+                         + "decomposition. Local noise reduction is the classical tier; the "
+                         + "AI denoise splice is global by design.")
                 }
             }
         }
     }
 
-    // MARK: - Mask and component mutation
+    // MARK: - Mutation
 
     private func addMask(kind: MaskKind) {
-        let component = MaskPanel.makeComponent(kind: kind, op: .add)
         var mask = Mask(name: "\(MaskPanel.kindName(kind)) \(masks.count + 1)",
-                        components: [component])
-        // The AI kinds ship with Refine at 10: an upsampled 1024 px matte needs the
-        // edge-aware snap to hold at 100% zoom, and a drawn shape does not.
+                        components: [MaskPanel.makeComponent(kind: kind, op: .add)])
+        // AI components ship with Refine at 10: an upsampled generation-resolution matte
+        // needs the edge-aware snap to hold at 100% zoom, and a drawn shape does not.
         if MaskPanel.aiKinds.contains(kind) { mask.refine.feather = 10 }
         let id = mask.id
         state.updateRecipe(coalescingKey: nil) { $0.masks.append(mask) }
@@ -867,67 +583,79 @@ struct MaskPanel: View {
         selectedComponent = 0
     }
 
-    private func addComponent(kind: MaskKind, to maskID: String) {
+    private func addComponent(kind: MaskKind, to id: String) {
         let component = MaskPanel.makeComponent(kind: kind, op: .add)
-        editMask(maskID, key: nil) { mask in
-            mask.components.append(component)
-            if MaskPanel.aiKinds.contains(kind), mask.refine == MaskRefine() {
-                mask.refine.feather = 10
-            }
+        editMask(id, key: nil) { m in
+            m.components.append(component)
+            if MaskPanel.aiKinds.contains(kind), m.refine == MaskRefine() { m.refine.feather = 10 }
         }
-        selectedComponent = Swift.max((mask(maskID)?.components.count ?? 1) - 1, 0)
+        selectedComponent = Swift.max((mask(id)?.components.count ?? 1) - 1, 0)
     }
 
-    private func removeComponent(_ maskID: String, _ index: Int) {
-        editMask(maskID, key: nil) { mask in
-            guard mask.components.indices.contains(index) else { return }
-            mask.components.remove(at: index)
+    private func removeComponent(_ id: String, _ index: Int) {
+        editMask(id, key: nil) { m in
+            guard m.components.indices.contains(index) else { return }
+            m.components.remove(at: index)
         }
-        let count = mask(maskID)?.components.count ?? 0
-        selectedComponent = Swift.max(Swift.min(index, count - 1), 0)
+        selectedComponent = Swift.max(Swift.min(index, (mask(id)?.components.count ?? 0) - 1), 0)
     }
 
-    private func duplicateMask(_ maskID: String) {
-        guard let source = mask(maskID) else { return }
+    private func addSample(_ id: String, _ i: Int) {
+        editComponent(id, i, key: nil) { c in
+            var list = c.samples ?? []
+            guard list.count < 8 else { return }
+            list.append([0.18, 0.18, 0.18])
+            c.samples = list
+        }
+    }
+
+    private func removeSample(_ id: String, _ i: Int) {
+        editComponent(id, i, key: nil) { c in
+            var list = c.samples ?? []
+            guard list.count > 1 else { return }
+            list.removeLast()
+            c.samples = list
+        }
+    }
+
+    private func duplicateMask(_ id: String) {
+        guard let source = mask(id) else { return }
         var copy = source
         copy.id = UUID().uuidString
         copy.name = source.name.isEmpty ? "Copy" : source.name + " copy"
-        let id = copy.id
+        let newID = copy.id
         state.updateRecipe(coalescingKey: nil) { recipe in
-            guard let i = recipe.masks.firstIndex(where: { $0.id == maskID }) else {
+            guard let i = recipe.masks.firstIndex(where: { $0.id == id }) else {
                 recipe.masks.append(copy)
                 return
             }
             recipe.masks.insert(copy, at: recipe.masks.index(after: i))
         }
-        selectedMaskID = id
+        selectedMaskID = newID
     }
 
-    private func deleteMask(_ maskID: String) {
-        state.updateRecipe(coalescingKey: nil) { recipe in
-            recipe.masks.removeAll { $0.id == maskID }
-        }
-        if state.soloMaskOverlay == maskID { state.soloMaskOverlay = nil }
+    private func deleteMask(_ id: String) {
+        state.updateRecipe(coalescingKey: nil) { $0.masks.removeAll { $0.id == id } }
+        if state.soloMaskOverlay == id { state.soloMaskOverlay = nil }
         selectedMaskID = masks.first?.id
         selectedComponent = 0
     }
 
-    private func addSwatch(_ maskID: String) {
-        editMask(maskID, key: nil) { mask in
-            guard mask.adjust.pointColors.count < 8 else { return }
-            mask.adjust.pointColors.append(PointColor(sample: [0.18, 0.18, 0.18]))
+    private func addSwatch(_ id: String) {
+        editMask(id, key: nil) { m in
+            guard m.adjust.pointColors.count < 8 else { return }
+            m.adjust.pointColors.append(PointColor(sample: [0.18, 0.18, 0.18]))
         }
-        selectedSwatch = Swift.max((mask(maskID)?.adjust.pointColors.count ?? 1) - 1, 0)
+        selectedSwatch = Swift.max((mask(id)?.adjust.pointColors.count ?? 1) - 1, 0)
     }
 
-    private func removeSwatch(_ maskID: String) {
+    private func removeSwatch(_ id: String) {
         let target = selectedSwatch
-        editMask(maskID, key: nil) { mask in
-            guard mask.adjust.pointColors.indices.contains(target) else { return }
-            mask.adjust.pointColors.remove(at: target)
+        editMask(id, key: nil) { m in
+            guard m.adjust.pointColors.indices.contains(target) else { return }
+            m.adjust.pointColors.remove(at: target)
         }
-        let count = mask(maskID)?.adjust.pointColors.count ?? 0
-        selectedSwatch = Swift.max(Swift.min(target, count - 1), 0)
+        selectedSwatch = Swift.max(Swift.min(target, (mask(id)?.adjust.pointColors.count ?? 0) - 1), 0)
     }
 
     private func editMask(_ id: String, key: String?, _ body: (inout Mask) -> Void) {
@@ -957,14 +685,14 @@ struct MaskPanel: View {
         return masks.first
     }
 
-    private func component(_ maskID: String, _ index: Int) -> MaskComponent? {
-        guard let mask = mask(maskID), mask.components.indices.contains(index) else { return nil }
-        return mask.components[index]
+    private func component(_ id: String, _ index: Int) -> MaskComponent? {
+        guard let m = mask(id), m.components.indices.contains(index) else { return nil }
+        return m.components[index]
     }
 
     private var activeComponentIndex: Int? {
-        guard let mask = activeMask, !mask.components.isEmpty else { return nil }
-        return Swift.min(Swift.max(selectedComponent, 0), mask.components.count - 1)
+        guard let m = activeMask, !m.components.isEmpty else { return nil }
+        return Swift.min(Swift.max(selectedComponent, 0), m.components.count - 1)
     }
 
     private func maskName(_ id: String) -> Binding<String> {
@@ -972,41 +700,50 @@ struct MaskPanel: View {
                 set: { v in editMask(id, key: "mask.name.\(id)") { $0.name = v } })
     }
 
-    private func maskValue(_ id: String, _ key: String,
-                           get: @escaping (Mask) -> Double,
+    private func maskValue(_ id: String, _ key: String, get: @escaping (Mask) -> Double,
                            set: @escaping (inout Mask, Double) -> Void) -> Binding<Double> {
         Binding(get: { mask(id).map(get) ?? 0 },
-                set: { v in editMask(id, key: "\(key).\(id)") { set(&$0, v) } })
+                set: { v in editMask(id, key: "mask.\(key).\(id)") { set(&$0, v) } })
     }
 
-    private func componentValue(_ id: String, _ index: Int, _ key: String, _ fallback: Double,
-                                get: @escaping (MaskComponent) -> Double,
-                                set: @escaping (inout MaskComponent, Double) -> Void) -> Binding<Double> {
-        Binding(get: { component(id, index).map(get) ?? fallback },
+    private func optionBinding(_ id: String, _ isOn: Bool, on: @escaping (inout Mask) -> Void,
+                               off: @escaping (inout Mask) -> Void) -> Binding<Bool> {
+        Binding(get: { isOn },
+                set: { want in editMask(id, key: nil) { m in want ? on(&m) : off(&m) } })
+    }
+
+    private func opBinding(_ id: String, _ i: Int) -> Binding<MaskOp> {
+        Binding(get: { component(id, i)?.op ?? .add },
+                set: { v in editComponent(id, i, key: nil) { $0.op = v } })
+    }
+
+    private func invertBinding(_ id: String, _ i: Int) -> Binding<Bool> {
+        Binding(get: { component(id, i)?.invert ?? false },
+                set: { v in editComponent(id, i, key: nil) { $0.invert = v } })
+    }
+
+    private func preserveBinding(_ id: String) -> Binding<Bool> {
+        Binding(get: { mask(id)?.adjust.curve?.preserveLuminance ?? true },
                 set: { v in
-                    editComponent(id, index, key: "mask.component.\(key).\(id).\(index)") {
-                        set(&$0, v)
+                    editMask(id, key: nil) { m in
+                        var c = m.adjust.curve ?? CurveSet()
+                        c.preserveLuminance = v
+                        m.adjust.curve = c
                     }
                 })
     }
 
-    private func opBinding(_ id: String, _ index: Int) -> Binding<MaskOp> {
-        Binding(get: { component(id, index)?.op ?? .add },
-                set: { v in editComponent(id, index, key: nil) { $0.op = v } })
-    }
-
-    private func listBinding(_ id: String, _ index: Int, _ key: String,
+    private func listBinding(_ id: String, _ i: Int, _ key: String,
                              isParts: Bool) -> Binding<Bool> {
         Binding(
             get: {
-                let c = component(id, index)
-                let list = isParts ? c?.personParts : c?.classes
-                return list?.contains(key) ?? false
+                let c = component(id, i)
+                return (isParts ? c?.personParts : c?.classes)?.contains(key) ?? false
             },
-            set: { on in
-                editComponent(id, index, key: nil) { c in
+            set: { want in
+                editComponent(id, i, key: nil) { c in
                     var list = (isParts ? c.personParts : c.classes) ?? []
-                    if on {
+                    if want {
                         if !list.contains(key) { list.append(key) }
                     } else {
                         list.removeAll { $0 == key }
@@ -1017,126 +754,209 @@ struct MaskPanel: View {
             })
     }
 
-    private func adjustSlider(_ id: String, _ title: String,
-                              _ path: WritableKeyPath<LocalAdjust, Double>,
-                              range: ClosedRange<Double>, step: Double = 1,
-                              decimals: Int = 0, bipolar: Bool = true) -> some View {
-        LumenSlider(title: title,
-                    value: Binding(
-                        get: { mask(id)?.adjust[keyPath: path] ?? 0 },
-                        set: { v in
-                            editMask(id, key: "mask.adjust.\(title).\(id)") {
-                                $0.adjust[keyPath: path] = Num.clamp(v, range.lowerBound,
-                                                                     range.upperBound)
-                            }
-                        }),
-                    range: range, defaultValue: 0, step: step, decimals: decimals,
-                    bipolar: bipolar)
+    private func brushValue(_ p: ReferenceWritableKeyPath<MaskBrushStore, Double>) -> Binding<Double> {
+        let store = brush
+        return Binding(get: { store[keyPath: p] }, set: { v in store[keyPath: p] = v })
     }
 
-    private func curveSlider(_ id: String, _ title: String,
-                             _ path: WritableKeyPath<ParametricCurve, Double>) -> some View {
-        LumenSlider(title: title,
-                    value: Binding(
-                        get: { mask(id)?.adjust.curve?.parametric[keyPath: path] ?? 0 },
-                        set: { v in
-                            editMask(id, key: "mask.curve.\(title).\(id)") { m in
-                                var c = m.adjust.curve ?? CurveSet()
-                                c.parametric[keyPath: path] = Num.clamp(v, -100, 100)
-                                m.adjust.curve = c
-                            }
-                        }),
+    private func brushFlag(_ p: ReferenceWritableKeyPath<MaskBrushStore, Bool>) -> Binding<Bool> {
+        let store = brush
+        return Binding(get: { store[keyPath: p] }, set: { v in store[keyPath: p] = v })
+    }
+
+    // MARK: - Slider builders
+
+    private func componentSlider(_ id: String, _ i: Int, _ t: String,
+                                 _ p: WritableKeyPath<MaskComponent, Double>,
+                                 _ r: ClosedRange<Double>, _ d: Double,
+                                 bipolar: Bool = true) -> some View {
+        LumenSlider(title: t,
+                    value: Binding(get: { component(id, i)?[keyPath: p] ?? d },
+                                   set: { v in
+                                       editComponent(id, i, key: "mask.c.\(t).\(id).\(i)") {
+                                           $0[keyPath: p] = Num.clamp(v, r.lowerBound, r.upperBound)
+                                       }
+                                   }),
+                    range: r, defaultValue: d, step: 1, decimals: 0, bipolar: bipolar)
+    }
+
+    /// The kind-specific keys are optional on the flat component struct: `nil` means "not
+    /// set", and the slider stands in the documented default until it is moved.
+    private func optionalSlider(_ id: String, _ i: Int, _ t: String,
+                                _ p: WritableKeyPath<MaskComponent, Double?>,
+                                _ r: ClosedRange<Double>, _ d: Double,
+                                bipolar: Bool = false) -> some View {
+        LumenSlider(title: t,
+                    value: Binding(get: { component(id, i)?[keyPath: p] ?? d },
+                                   set: { v in
+                                       editComponent(id, i, key: "mask.c.\(t).\(id).\(i)") {
+                                           $0[keyPath: p] = Num.clamp(v, r.lowerBound, r.upperBound)
+                                       }
+                                   }),
+                    range: r, defaultValue: d, step: 1, decimals: 0, bipolar: bipolar)
+    }
+
+    /// The luminance and depth bands, cross-clamped so `lo` can never pass `hi` — the
+    /// rasterizer rejects an inverted band, and inversion is the invert toggle's job.
+    /// Luminance handles are denominated in EV over the fixed −10…+4 axis the normalized
+    /// wire value sits on.
+    private func bandSlider(_ id: String, _ i: Int, _ t: String,
+                            isLow: Bool, depth: Bool) -> some View {
+        let r: ClosedRange<Double> = depth ? 0...1 : MaskPanel.evMin...MaskPanel.evMax
+        let fallback: Double = isLow ? r.lowerBound : r.upperBound
+        return LumenSlider(
+            title: t,
+            value: Binding(
+                get: {
+                    guard let c = component(id, i),
+                          let raw = depth ? (isLow ? c.depthLo : c.depthHi)
+                                          : (isLow ? c.lo : c.hi) else { return fallback }
+                    return depth ? Num.saturate(raw) : MaskPanel.ev(raw)
+                },
+                set: { v in
+                    let n = depth ? Num.saturate(v) : MaskPanel.normalizedEV(v)
+                    editComponent(id, i, key: "mask.c.\(t).\(id).\(i)") { c in
+                        switch (depth, isLow) {
+                        case (true, true): c.depthLo = Swift.min(n, c.depthHi ?? 1)
+                        case (true, false): c.depthHi = Swift.max(n, c.depthLo ?? 0)
+                        case (false, true): c.lo = Swift.min(n, c.hi ?? 1)
+                        case (false, false): c.hi = Swift.max(n, c.lo ?? 0)
+                        }
+                    }
+                }),
+            range: r, defaultValue: fallback, step: depth ? 0.01 : 0.1,
+            decimals: depth ? 2 : 1, bipolar: false)
+    }
+
+    private func refineSlider(_ id: String, _ t: String, _ p: WritableKeyPath<MaskRefine, Double>,
+                              _ r: ClosedRange<Double>, _ d: Double, step: Double = 1,
+                              decimals: Int = 0, bipolar: Bool = false) -> some View {
+        LumenSlider(title: t,
+                    value: maskValue(id, t, get: { $0.refine[keyPath: p] },
+                                     set: { $0.refine[keyPath: p] =
+                                         Num.clamp($1, r.lowerBound, r.upperBound) }),
+                    range: r, defaultValue: d, step: step, decimals: decimals, bipolar: bipolar)
+    }
+
+    private func levelsSlider(_ id: String, _ t: String, low: Bool) -> some View {
+        LumenSlider(title: t,
+                    value: maskValue(id, t,
+                                     get: { low ? $0.refine.levelsLo : $0.refine.levelsHi },
+                                     set: { m, v in
+                                         let c = Num.clamp(v, 0, 100)
+                                         if low { m.refine.levelsLo = Swift.min(c, m.refine.levelsHi) }
+                                         else { m.refine.levelsHi = Swift.max(c, m.refine.levelsLo) }
+                                     }),
+                    range: 0...100, defaultValue: low ? 0 : 100, step: 1, decimals: 0,
+                    bipolar: false)
+    }
+
+    private func adjustSlider(_ id: String, _ t: String,
+                              _ p: WritableKeyPath<LocalAdjust, Double>,
+                              _ r: ClosedRange<Double>, step: Double = 1,
+                              decimals: Int = 0, bipolar: Bool = true) -> some View {
+        LumenSlider(title: t,
+                    value: maskValue(id, t, get: { $0.adjust[keyPath: p] },
+                                     set: { $0.adjust[keyPath: p] =
+                                         Num.clamp($1, r.lowerBound, r.upperBound) }),
+                    range: r, defaultValue: 0, step: step, decimals: decimals, bipolar: bipolar)
+    }
+
+    private func curveSlider(_ id: String, _ t: String,
+                             _ p: WritableKeyPath<ParametricCurve, Double>) -> some View {
+        LumenSlider(title: t,
+                    value: maskValue(id, "curve." + t,
+                                     get: { $0.adjust.curve?.parametric[keyPath: p] ?? 0 },
+                                     set: { m, v in
+                                         var c = m.adjust.curve ?? CurveSet()
+                                         c.parametric[keyPath: p] = Num.clamp(v, -100, 100)
+                                         m.adjust.curve = c
+                                     }),
                     range: -100...100, defaultValue: 0, step: 1, decimals: 0)
     }
 
-    private func wheelsValue(_ id: String, _ key: String, _ fallback: Double,
-                             get: @escaping (GradingWheels) -> Double,
-                             set: @escaping (inout GradingWheels, Double) -> Void) -> Binding<Double> {
-        Binding(
-            get: { mask(id)?.adjust.wheels.map(get) ?? fallback },
-            set: { v in
-                editMask(id, key: "mask.wheels.\(key).\(id)") { m in
-                    var w = m.adjust.wheels ?? GradingWheels()
-                    set(&w, v)
-                    m.adjust.wheels = w
-                }
-            })
+    private func wheelsSlider(_ id: String, _ t: String,
+                              _ p: WritableKeyPath<GradingWheels, Double>,
+                              _ r: ClosedRange<Double>, _ d: Double,
+                              bipolar: Bool = false) -> some View {
+        LumenSlider(title: t,
+                    value: maskValue(id, "wheels." + t,
+                                     get: { $0.adjust.wheels?[keyPath: p] ?? d },
+                                     set: { m, v in
+                                         var w = m.adjust.wheels ?? GradingWheels()
+                                         w[keyPath: p] = Num.clamp(v, r.lowerBound, r.upperBound)
+                                         m.adjust.wheels = w
+                                     }),
+                    range: r, defaultValue: d, step: 1, decimals: 0, bipolar: bipolar)
     }
 
-    private func wheelValue(_ id: String, _ path: WritableKeyPath<GradingWheels, Wheel>,
-                            _ field: WritableKeyPath<Wheel, Double>,
-                            _ key: String, _ fallback: Double) -> Binding<Double> {
-        Binding(
-            get: { mask(id)?.adjust.wheels?[keyPath: path][keyPath: field] ?? fallback },
-            set: { v in
-                editMask(id, key: "mask.wheel.\(key).\(id)") { m in
-                    var w = m.adjust.wheels ?? GradingWheels()
-                    w[keyPath: path][keyPath: field] = v
-                    m.adjust.wheels = w
-                }
-            })
+    private func wheel(_ id: String, _ t: String, _ p: WritableKeyPath<GradingWheels, Wheel>,
+                       _ key: String) -> some View {
+        LumenColorWheel(title: t, hue: wheelValue(id, p, \.hue, key + ".hue"),
+                        sat: wheelValue(id, p, \.sat, key + ".sat"),
+                        lum: wheelValue(id, p, \.lum, key + ".lum"))
     }
 
-    private func swatchValue(_ id: String, _ index: Int, _ key: String,
-                             _ lo: Double, _ hi: Double,
-                             get: @escaping (PointColor) -> Double,
-                             set: @escaping (inout PointColor, Double) -> Void) -> Binding<Double> {
-        Binding(
-            get: {
-                guard let list = mask(id)?.adjust.pointColors,
-                      list.indices.contains(index) else { return 0 }
-                return get(list[index])
-            },
-            set: { v in
-                editMask(id, key: "mask.point.\(key).\(id).\(index)") { m in
-                    guard m.adjust.pointColors.indices.contains(index) else { return }
-                    set(&m.adjust.pointColors[index], Num.clamp(v, lo, hi))
-                }
-            })
+    private func wheelValue(_ id: String, _ p: WritableKeyPath<GradingWheels, Wheel>,
+                            _ f: WritableKeyPath<Wheel, Double>, _ key: String) -> Binding<Double> {
+        maskValue(id, "wheel." + key,
+                  get: { $0.adjust.wheels?[keyPath: p][keyPath: f] ?? 0 },
+                  set: { m, v in
+                      var w = m.adjust.wheels ?? GradingWheels()
+                      w[keyPath: p][keyPath: f] = v
+                      m.adjust.wheels = w
+                  })
     }
 
-    private func brushBinding(_ path: ReferenceWritableKeyPath<MaskBrushStore, Double>) -> Binding<Double> {
-        let store = brush
-        return Binding(get: { store[keyPath: path] },
-                       set: { v in store[keyPath: path] = v })
-    }
-
-    private func brushFlag(_ path: ReferenceWritableKeyPath<MaskBrushStore, Bool>) -> Binding<Bool> {
-        let store = brush
-        return Binding(get: { store[keyPath: path] },
-                       set: { v in store[keyPath: path] = v })
+    private func swatchSlider(_ id: String, _ index: Int, _ t: String,
+                              _ r: ClosedRange<Double>, _ d: Double,
+                              get: @escaping (PointColor) -> Double,
+                              set: @escaping (inout PointColor, Double) -> Void,
+                              bipolar: Bool = true) -> some View {
+        LumenSlider(title: t,
+                    value: maskValue(id, "point.\(t).\(index)",
+                                     get: { m in
+                                         guard m.adjust.pointColors.indices.contains(index)
+                                         else { return d }
+                                         return get(m.adjust.pointColors[index])
+                                     },
+                                     set: { m, v in
+                                         guard m.adjust.pointColors.indices.contains(index)
+                                         else { return }
+                                         set(&m.adjust.pointColors[index],
+                                             Num.clamp(v, r.lowerBound, r.upperBound))
+                                     }),
+                    range: r, defaultValue: d, step: 1, decimals: 0, bipolar: bipolar)
     }
 
     // MARK: - Small views
 
-    private func kindMenu(label: String, systemImage: String,
-                          action: @escaping (MaskKind) -> Void) -> some View {
+    private func kindMenu(label: String, action: @escaping (MaskKind) -> Void) -> some View {
         Menu {
             Section("Drawn") {
-                ForEach(MaskPanel.drawnKinds, id: \.self) { kind in
-                    Button(MaskPanel.kindName(kind)) { action(kind) }
+                ForEach(MaskPanel.drawnKinds, id: \.self) { k in
+                    Button(MaskPanel.kindName(k)) { action(k) }
                 }
             }
             Section("Range") {
-                ForEach(MaskPanel.rangeKinds, id: \.self) { kind in
-                    Button(MaskPanel.kindName(kind)) { action(kind) }
+                ForEach(MaskPanel.rangeKinds, id: \.self) { k in
+                    Button(MaskPanel.kindName(k)) { action(k) }
                 }
             }
             Section("AI — requires a model") {
-                ForEach(MaskPanel.aiKinds, id: \.self) { kind in
-                    Button("\(MaskPanel.kindName(kind))  ·  model") { action(kind) }
+                ForEach(MaskPanel.aiKinds, id: \.self) { k in
+                    Button(MaskPanel.kindName(k) + "  ·  model") { action(k) }
                 }
             }
         } label: {
             HStack(spacing: 3) {
-                Image(systemName: systemImage).font(.system(size: 9, weight: .semibold))
+                Image(systemName: "plus").font(.system(size: 9, weight: .semibold))
                 Text(label).font(.system(size: 10))
             }
         }
-        .menuStyle(.borderlessButton)
         .fixedSize()
-        .help("Every component type. The AI kinds run a model in the background and "
-              + "land as a cached matte.")
+        .help("Every component type. The AI kinds run a model in the background and land as "
+              + "a cached matte.")
     }
 
     private func smallButton(_ title: String, _ systemImage: String,
@@ -1146,31 +966,17 @@ struct MaskPanel: View {
                 Image(systemName: systemImage).font(.system(size: 9))
                 Text(title).font(.system(size: 10))
             }
-            .padding(.horizontal, 6)
-            .padding(.vertical, 3)
+            .padding(.horizontal, 6).padding(.vertical, 3)
             .background(Lumen.controlBackground)
             .clipShape(RoundedRectangle(cornerRadius: 4))
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .foregroundStyle(Lumen.primaryText)
-    }
-
-    private func placementNote(_ text: String, detail: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            note(text)
-            Text(detail)
-                .font(.system(size: 10, design: .monospaced))
-                .foregroundStyle(Lumen.secondaryText)
-        }
+        .buttonStyle(.plain).foregroundStyle(Lumen.primaryText)
     }
 
     private func note(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 10))
-            .foregroundStyle(Lumen.secondaryText)
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(.vertical, 2)
+        Text(text).font(.system(size: 10)).foregroundStyle(Lumen.secondaryText)
+            .fixedSize(horizontal: false, vertical: true).padding(.vertical, 2)
     }
 
     // MARK: - Static tables
@@ -1178,9 +984,7 @@ struct MaskPanel: View {
     static let evMin: Double = -10
     static let evMax: Double = 4
 
-    static func ev(_ normalized: Double) -> Double {
-        evMin + Num.saturate(normalized) * (evMax - evMin)
-    }
+    static func ev(_ n: Double) -> Double { evMin + Num.saturate(n) * (evMax - evMin) }
 
     static func normalizedEV(_ ev: Double) -> Double {
         Num.saturate((ev - evMin) / (evMax - evMin))
@@ -1219,12 +1023,13 @@ struct MaskPanel: View {
         }
     }
 
-    /// The nine person parts (plus Entire Person, the default) and the six landscape
-    /// classes, exactly as the spec fixes them.
+    /// The nine person parts plus Entire Person (the default), and the six landscape
+    /// classes — exactly the sets the spec fixes.
     static let personParts: [(key: String, label: String)] = [
-        ("entirePerson", "Entire Person"), ("faceSkin", "Face Skin"), ("bodySkin", "Body Skin"), ("eyebrows", "Eyebrows"),
-        ("eyeSclera", "Eye Sclera"), ("irisPupil", "Iris & Pupil"), ("lips", "Lips"),
-        ("teeth", "Teeth"), ("hair", "Hair"), ("clothes", "Clothes"),
+        ("entirePerson", "Entire Person"), ("faceSkin", "Face Skin"),
+        ("bodySkin", "Body Skin"), ("eyebrows", "Eyebrows"), ("eyeSclera", "Eye Sclera"),
+        ("irisPupil", "Iris & Pupil"), ("lips", "Lips"), ("teeth", "Teeth"),
+        ("hair", "Hair"), ("clothes", "Clothes"),
     ]
 
     static let landscapeClasses: [(key: String, label: String)] = [
@@ -1253,15 +1058,11 @@ struct MaskPanel: View {
         case .colorRange:
             c.samples = [[0.18, 0.18, 0.18]]
             c.rangeAmount = 50
-        case .similarity:
+        case .similarity, .similarityLine:
             c.samples = [[0.18, 0.18, 0.18]]
             c.chromaSel = 50
             c.lumaSel = 50
-        case .similarityLine:
-            c.samples = [[0.18, 0.18, 0.18]]
-            c.chromaSel = 50
-            c.lumaSel = 50
-            c.line = [0.5, 0.75, 0.5, 0.25]
+            if kind == .similarityLine { c.line = [0.5, 0.75, 0.5, 0.25] }
         case .depthRange:
             c.depthLo = 0
             c.depthHi = 1
@@ -1276,16 +1077,16 @@ struct MaskPanel: View {
         return c
     }
 
-    static func lineSummary(_ line: [Double]?) -> String {
-        guard let line, line.count == 4 else { return "no line yet" }
-        return String(format: "(%.3f, %.3f) → (%.3f, %.3f)", line[0], line[1], line[2], line[3])
+    static func lineSummary(_ c: MaskComponent) -> String {
+        guard let line = c.line, line.count == 4 else { return "no line yet" }
+        return String(format: "(%.2f, %.2f) → (%.2f, %.2f)", line[0], line[1], line[2], line[3])
     }
 
     static func ellipseSummary(_ c: MaskComponent) -> String {
-        guard let center = c.center, center.count == 2,
+        guard let centre = c.center, centre.count == 2,
               let radii = c.radii, radii.count == 2 else { return "no ellipse yet" }
-        return String(format: "centre (%.3f, %.3f)  radii (%.3f, %.3f)",
-                      center[0], center[1], radii[0], radii[1])
+        return String(format: "centre (%.2f, %.2f), radii (%.2f, %.2f)",
+                      centre[0], centre[1], radii[0], radii[1])
     }
 
     /// Working-space RGB is scene-linear, so a swatch gets a rough encode before it is

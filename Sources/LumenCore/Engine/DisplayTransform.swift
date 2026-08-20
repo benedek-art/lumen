@@ -126,6 +126,21 @@ public struct DisplayTransform: Sendable {
     private let insetMatrix: Mat3
     private let outsetMatrix: Mat3
 
+    /// Encoded output anchors: black, white and mid-grey on the shaping axis.
+    private let encodedBlack: Double
+    private let encodedWhite: Double
+
+    /// The curve is SHAPED on a perceptually encoded output axis, not on
+    /// display-linear values. This is not cosmetic. A two-power sigmoid built on
+    /// linear output needs an exponent near 9 to hit a log-log slope of 1.5 at
+    /// mid-grey, and its slope then collapses away from the pivot: four stops down it
+    /// renders four times darker than the contrast it promises. On the encoded axis
+    /// the same construction needs an exponent near 4.4 and tracks the promised slope
+    /// through the midtones, rolling off only where a shoulder and a toe belong.
+    /// Encoding still happens exactly once, at S17 — this is the curve's shaping
+    /// domain, not the output's.
+    public static let shapingCurve: TransferFunction = .srgb
+
     public static let midGrey: Double = 0.18
     /// Shape parameter of the skew term. 2 keeps the extra curvature gentle and
     /// keeps the monotonicity bound (`lambda < power/skewShape`) generous.
@@ -153,15 +168,25 @@ public struct DisplayTransform: Sendable {
         // peak. In HDR the extra headroom goes to speculars; diffuse white and
         // mid-grey stay where they are, which is why an HDR rendition looks like the
         // SDR one with the highlights let out rather than like a brighter picture.
-        let greyDisplay = DisplayTransform.midGrey
-        let py = Num.clamp((greyDisplay - self.black) / (w - self.black), 0.002, 0.98)
+        let curve = DisplayTransform.shapingCurve
+        let eb = curve.encode(self.black)
+        let ew = curve.encode(w)
+        let ep = curve.encode(DisplayTransform.midGrey)
+        self.encodedBlack = eb
+        self.encodedWhite = ew
+        let span = Swift.max(ew - eb, 1e-6)
+        let py = Num.clamp((ep - eb) / span, 0.01, 0.99)
         self.pivotY = py
 
         // Slope at the pivot, converted from the log-log `contrast` the UI shows.
-        // d log2(out)/d log2(x) = (W−B)·m / (out_pivot · ln2 · range); inverting that
-        // at out_pivot = 0.18 gives the normalized-space slope the two powers need.
+        // out = decode(Yn·span + eb), so d log2(out)/d log2(x) at the pivot is
+        // decode'(ep)·span·m / (0.18 · ln2 · range). Inverting that gives m.
         let contrast = Num.clamp(p.contrast, 0.1, 10)
-        let m = contrast * (hi - lo) * log(2.0) * greyDisplay / (w - self.black)
+        let h = 1e-6
+        let slopeOfDecode = Swift.max((curve.decode(ep + h) - curve.decode(ep - h)) / (2 * h),
+                                      1e-9)
+        let m = contrast * DisplayTransform.midGrey * log(2.0) * (hi - lo)
+            / (slopeOfDecode * span)
 
         let aToe = m * pivotX / py
         let aShoulder = m * (1 - pivotX) / (1 - py)
@@ -246,7 +271,8 @@ public struct DisplayTransform: Sendable {
         let ev = log2(x / DisplayTransform.midGrey)
         let X = (ev - minEV) / range
         let Y = normalizedCurve(X)
-        return black + (white - black) * Y
+        let encoded = encodedBlack + (encodedWhite - encodedBlack) * Y
+        return DisplayTransform.shapingCurve.decode(encoded)
     }
 
     /// Bake the scalar curve over the shaper's log domain — the form the GPU applies.

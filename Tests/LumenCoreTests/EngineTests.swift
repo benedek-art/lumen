@@ -80,10 +80,20 @@ final class EngineTests: XCTestCase {
         var a = DisplayTransformParams(); a.skew = -0.8
         var b = DisplayTransformParams(); b.skew = 0.8
         let ta = DisplayTransform(a), tb = DisplayTransform(b)
-        // Somewhere off the pivot the two curves must differ visibly, or the control
-        // is decorative.
-        let x = 0.18 * pow(2.0, -3.0)
-        XCTAssertGreaterThan(abs(ta.tone(x) - tb.tone(x)), 0.005)
+        // Off the pivot the two curves must differ visibly, or the control is
+        // decorative. Compared relatively, because deep in the toe an absolute
+        // threshold measures the toe's depth rather than skew's effect.
+        var worstRelative = 0.0
+        for i in 1..<40 {
+            let ev = -8 + Double(i) * 0.3
+            let x = 0.18 * pow(2.0, ev)
+            let va = ta.tone(x), vb = tb.tone(x)
+            let reference = Swift.max(va, vb)
+            guard reference > 1e-6 else { continue }
+            worstRelative = Swift.max(worstRelative, abs(va - vb) / reference)
+        }
+        XCTAssertGreaterThan(worstRelative, 0.05,
+                             "skew moved the curve by less than 5% anywhere")
     }
 
     func testHDRPeakRaisesWhiteButNotMidGrey() {
@@ -202,9 +212,10 @@ final class EngineTests: XCTestCase {
     // MARK: - Auto
 
     func testAutoLiftsAnUnderexposedFrame() {
-        // A histogram piled up four stops below mid-grey.
+        // The axis spans -12…+12 EV over 128 bins, so bin 42 is about four stops
+        // below mid-grey. Pile the frame up there.
         var bins = [Double](repeating: 0, count: 128)
-        for i in 60..<70 { bins[i] = 100 }
+        for i in 38..<47 { bins[i] = 100 }
         let stats = AutoTone.Statistics(histogram: bins, minEV: -12, maxEV: 12)
         let suggestion = AutoTone.suggest(from: stats)
         XCTAssertGreaterThan(suggestion.exposure, 0.5)

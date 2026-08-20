@@ -79,9 +79,11 @@ public enum ReferenceRenderer {
             image = DetailEngine.vignette(image, ev: plan.vignetteEV)
         }
 
-        // S14 + S15 — picture formation and the curve.
+        // S14 + S15 — picture formation and the curve. The table ends in
+        // display-linear, so this stage encodes going in and does not decode coming
+        // out; the graph's `throughShaperToDisplay` is the same asymmetry.
         let finish = plan.finishLUT
-        image = image.map { LumenLog.decode(finish.sample(LumenLog.encode($0))) }
+        image = image.map { finish.sample(LumenLog.encode($0)) }
 
         // Grain lives inside picture formation, in the density domain.
         if let film = plan.filmChain, film.grainAmount > 0 {

@@ -15,11 +15,21 @@ public struct ImageBuffer: Sendable {
     /// width × height × 4, interleaved RGBA.
     public var pixels: [Float]
 
+    /// A new buffer is opaque black, not transparent black. Photographs are opaque,
+    /// and an alpha of zero is indistinguishable from correct until it reaches
+    /// something that treats the data as premultiplied — at which point every colour
+    /// silently becomes zero.
     public init(width: Int, height: Int) {
         precondition(width > 0 && height > 0, "ImageBuffer needs a non-empty extent")
         self.width = width
         self.height = height
-        self.pixels = [Float](repeating: 0, count: width * height * 4)
+        var p = [Float](repeating: 0, count: width * height * 4)
+        var i = 3
+        while i < p.count {
+            p[i] = 1
+            i += 4
+        }
+        self.pixels = p
     }
 
     public init(width: Int, height: Int, pixels: [Float]) {

@@ -150,7 +150,10 @@ public struct RenderPlan: Sendable {
         if !colorGradeIsIdentity {
             c = LumenLog.decode(colorGradeLUT.sample(LumenLog.encode(c)))
         }
-        return LumenLog.decode(finishLUT.sample(LumenLog.encode(c)))
+        // The finish table already ENDS in display-linear — encode going in, nothing
+        // coming out. Decoding here would exponentiate the table's own interpolation
+        // error, which is exactly what it did until a golden caught it.
+        return finishLUT.sample(LumenLog.encode(c))
     }
 
     /// The same function with the LUT stages evaluated exactly rather than sampled —
