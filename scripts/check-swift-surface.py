@@ -824,7 +824,7 @@ def _type_index():
     return members, kinds, conforms
 
 
-FUNC_HEAD = re.compile(r"\b(?:func\s+\w+|init)\s*(?:<[^<>]*>)?\s*\(")
+FUNC_HEAD = re.compile(r"(?<![\w.])(?:func\s+\w+|init)\s*(?:<[^<>]*>)?\s*\(")
 
 
 def _function_scopes(text):
@@ -910,6 +910,166 @@ def pass_value_members():
     return False
 
 
+# Pass 7 — a receiver that is not bound to anything.
+#
+# `context.render(...)` inside a static method of a type whose statistics context is
+# called `statisticsContext`. Three CI jobs failed on it, twice, and none of the six
+# passes above could see it: they resolve capitalised identifiers, or members read off a
+# value carrying an explicit type annotation, and a bare lowercase receiver is neither.
+# The name existed on two OTHER types in the tree, which is exactly why a whole-tree
+# member set would not have caught it either — the scope has to be the enclosing type.
+#
+# Deliberately permissive, because a checker with false positives gets ignored:
+#   - anything bound ANYWHERE in the enclosing function counts, at any nesting depth
+#   - members of the enclosing type, its extensions, and anything it conforms to
+#   - every file-level binding in the tree, since a global is in scope everywhere
+#   - functions not inside a type are skipped rather than guessed at
+# What is left is a name with no binder in any of those places, which in Swift is a
+# compile error and nothing else.
+#
+# What it does NOT cover, so nobody reads more into a green line than is there: only
+# RECEIVERS. An undeclared name passed as a bare argument — `boxBlur(tensr, …)` — has no
+# `.member` after it and this pass says nothing about it. Bodies of computed properties
+# and standalone closures are not scanned either, because only `func` and `init` heads
+# are located. It is a check on one specific mistake, which is the one that has now
+# reached CI twice.
+
+BINDERS = [
+    # `let x`, `var x`, `guard let x`, `if var x`, `case let x`, `catch let x`
+    re.compile(r"(?:^|[^\w.])(?:let|var)\s+([a-z_]\w*)"),
+    # tuple destructuring: `let (a, b) = ...`
+    re.compile(r"(?:^|[^\w.])(?:let|var)\s*\(\s*((?:[a-z_]\w*\s*,\s*)*[a-z_]\w*)\s*\)"),
+    # `for x in`, `for (a, b) in`
+    re.compile(r"\bfor\s+(?:case\s+)?\(?\s*((?:[a-z_]\w*\s*,\s*)*[a-z_]\w*)\s*\)?\s+in\b"),
+    # closure parameters: `{ raw in`, `{ u, v in`, `{ (a, b) in`
+    re.compile(r"[{(]\s*\(?\s*((?:[a-z_]\w*\s*,\s*)*[a-z_]\w*)\s*\)?\s+in\b"),
+    # …and with a return type in the way: `{ raw -> Bool in`, `{ photo -> (…) in`,
+    # where the type may run over several lines and the `in` is far away.
+    re.compile(r"[{(]\s*\(?\s*((?:[a-z_]\w*\s*,\s*)*[a-z_]\w*)\s*\)?\s*->"),
+    # function parameters, with or without an external label
+    re.compile(r"[(,]\s*(?:[a-z_]\w*|_)\s+([a-z_]\w*)\s*:"),
+    re.compile(r"[(,]\s*([a-z_]\w*)\s*:"),
+    # associated values: `case .thing(let x)` is covered by the let rule; `x)` in a
+    # pattern with `case let .thing(x, y)` is not, so take those too
+    re.compile(r"\bcase\s+let\s+[.\w]*\(\s*((?:[a-z_]\w*\s*,\s*)*[a-z_]\w*)\s*\)"),
+]
+
+# Not member lookups on a value: language keywords, and the property-wrapper and
+# key-path forms whose leading punctuation the USE pattern cannot see.
+RECEIVER_EXEMPT = {"self", "super", "true", "false", "nil", "try", "await", "some",
+                   "any", "each", "repeat", "borrowing", "consuming"}
+
+
+def _declaration_list_names(text):
+    """Names bound by `let a = …, b = …` — every top-level comma segment, not just the
+    first. `let cx = center[0], cy = center[1]` binds two things; taking one is how a
+    perfectly ordinary line reads as a use of something undeclared."""
+    names = set()
+    for m in re.finditer(r"(?:^|[^\w.])(?:let|var)\s+", text):
+        i, n = m.end(), len(text)
+        depth, segment_start = 0, i
+        while i < n:
+            ch = text[i]
+            if ch in "([{":
+                depth += 1
+            elif ch in ")]}":
+                if depth == 0:
+                    break
+                depth -= 1
+            elif ch == "\n" and depth == 0:
+                break
+            elif ch == "," and depth == 0:
+                hit = re.match(r"\s*([a-z_]\w*)", text[segment_start:i])
+                if hit:
+                    names.add(hit.group(1))
+                segment_start = i + 1
+            i += 1
+        hit = re.match(r"\s*([a-z_]\w*)", text[segment_start:i])
+        if hit:
+            names.add(hit.group(1))
+    return names
+
+
+def _bindings(scope):
+    """Every name this scope binds, by any of the forms Swift offers."""
+    names = _declaration_list_names(scope)
+    for pattern in BINDERS:
+        for hit in pattern.findall(scope):
+            for part in hit.split(","):
+                names.add(part.strip())
+    return names
+
+
+def _file_level_names():
+    """Every top-level binding in the tree. A global is in scope in every file."""
+    names = set()
+    for path in FILES:
+        text = strip_all(path.read_text())
+        for piece in split_top(text):
+            names |= _declaration_list_names(piece.split("{")[0])
+    return names
+
+
+def _enclosing_types(text):
+    """(start, end, name) for each named type block, innermost last."""
+    spans = []
+    for m in TYPE_BLOCK.finditer(text):
+        brace = text.find("{", m.end() - 1)
+        if brace == -1:
+            continue
+        body = brace_body(text, brace)
+        spans.append((brace, brace + len(body), m.group(2).split(".")[-1]))
+    return spans
+
+
+def pass_unbound_receivers():
+    members, _kinds, conforms = _type_index()
+    globals_ = _file_level_names()
+    problems = []
+    for path in FILES:
+        text = strip_all(path.read_text())
+        spans = _enclosing_types(text)
+        functions = list(_function_scopes(text))
+        records = [(off, off + len(sc), sc) for off, sc in functions]
+        for offset, scope in functions:
+            owners = [name for start, end, name in spans if start <= offset < end]
+            if not owners:
+                continue                      # a free function: no type to scope against
+            available = set(globals_)
+            for owner in owners:
+                available |= members.get(owner, set())
+                for parent in conforms.get(owner, []):
+                    available |= members.get(parent, set())
+            # Anything the function itself binds, at any depth — plus, for a nested
+            # function, everything the functions it sits inside bind. A local `func`
+            # captures the enclosing scope, so `space` declared as the outer
+            # function's parameter is genuinely in scope in the inner one.
+            for start, end, enclosing in records:
+                if start <= offset < end:
+                    available |= _bindings(enclosing)
+            for m in USE.finditer(scope):
+                name = m.group(1)
+                if name in available or name in RECEIVER_EXEMPT:
+                    continue
+                # `$0.foo`, `$binding.foo`: the sigil is invisible to USE.
+                if m.start() > 0 and scope[m.start() - 1] == "$":
+                    continue
+                line = text.count("\n", 0, offset + m.start()) + 1
+                problems.append((path.relative_to(ROOT).as_posix(), line, name,
+                                 m.group(2), owners[-1]))
+
+    problems = sorted(set(problems))
+    if not problems:
+        print("scopes:   every lowercase receiver is bound by a parameter, a local, "
+              "a member or a global")
+        return True
+    print(f"scopes:   {len(problems)} receivers are not bound in their scope\n")
+    for path, line, name, member, owner in problems[:25]:
+        print(f"  {name}.{member:<22} no {name} in scope inside {owner}"
+              f"   {path}:{line}")
+    return False
+
+
 if __name__ == "__main__":
     ok = pass_symbols()
     print()
@@ -922,4 +1082,6 @@ if __name__ == "__main__":
     ok = pass_module_imports() and ok
     print()
     ok = pass_value_members() and ok
+    print()
+    ok = pass_unbound_receivers() and ok
     sys.exit(0 if ok else 1)
