@@ -65,11 +65,15 @@ filtered down to deduplicated diagnostics so a round is readable.
 > or the monthly reset — none of which a commit can do.
 >
 > What stands in for it meanwhile: the Python mirror below still executes on every
-> change, and two mechanical passes over the whole tree — every capitalized identifier
-> resolved against the declarations in-tree, and all 1,128 `Type(...)` call sites
-> checked against that type's declared initializers, both verified able to fail by
-> substituting wrong code. Those catch renames, typos and reshaped initializers. They
-> do not catch type errors, and they are not a compiler.
+> change, and `scripts/check-swift-surface.py` makes four mechanical passes over the
+> whole tree — every capitalized identifier resolves against the declarations in-tree,
+> every `Type(...)` call site matches one of that type's declared initializers, every
+> call to an actor-isolated member is awaited, and every `TypeName.member` names
+> something that type has. Each pass is verified able to fail by substituting wrong
+> code, and the third exists because a missing `await` was found by hand in code the
+> first two both accepted. They catch renames, typos, reshaped initializers and
+> isolation slips. They do not check a single type, they cannot see leading-dot enum
+> cases, and they are not a compiler.
 
 Three layers of checking, in order of strength:
 
