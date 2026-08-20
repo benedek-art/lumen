@@ -423,6 +423,16 @@ struct MaskPanel: View {
                     adjustSlider(mask.id, "Shadows", \.shadows, -100...100)
                     adjustSlider(mask.id, "Whites", \.whites, -100...100)
                     adjustSlider(mask.id, "Blacks", \.blacks, -100...100)
+                    // Whites and Blacks move the tone engine's ANCHORS, and globally
+                    // those anchors feed the display transform — that is the seam that
+                    // makes them mean "white point" and "black point". A mask's tone
+                    // work is a gain curve with no display transform of its own, so
+                    // here the anchors only reshape the Highlights and Shadows windows.
+                    // On their own the two do nothing, which is how a user first tries
+                    // them.
+                    note("Whites and Blacks reshape where Highlights and Shadows act "
+                         + "in this mask; on their own they do not move the picture, "
+                         + "because a mask has no white point of its own.")
                 }
             }
         }

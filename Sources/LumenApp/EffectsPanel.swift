@@ -263,6 +263,15 @@ struct EffectsPanel: View {
                 DevelopNote("No lens-profile database in v1, and Lumen never refuses a "
                             + "file: a lens we have no profile for still develops, "
                             + "uncorrected and honest about it.")
+                // `removeCA` and every field under Defringe have a wire format and no
+                // reader: grep across Sources/ finds them only in the `Recipe` struct.
+                // `lens.profile` is the one thing here that is consumed, at decode.
+                // Said plainly, the way `MaskPanel` says it about the local curve — a
+                // control that stores a value and changes no pixel costs the user the
+                // time to find that out.
+                DevelopNote("Remove chromatic aberration and Defringe are not wired "
+                            + "yet — they store their settings and no stage reads "
+                            + "them. Lens profile corrections do apply, at decode.")
             }
         }
     }

@@ -1089,6 +1089,48 @@ final class EngineIntegrationTests: XCTestCase {
             "the smaller gate did not produce coarser grain per unit pitch")
     }
 
+    /// Grain Size saturates at the bottom of its range on a small render, and that is
+    /// the pixel grid rather than a bug.
+    ///
+    /// `plateScale` floors at half a pixel because a plate cell finer than that cannot
+    /// be resolved — there is nothing to draw. On a 1200 px fit view of Portra 400 the
+    /// bottom half of the Size slider all lands on that floor; on Velvia 50, whose
+    /// grain is finest, it is the bottom 45% even at the 2560 px working resolution.
+    ///
+    /// Recorded as a test rather than left as a surprise, because the two wrong
+    /// responses are both tempting: lowering the floor (which draws sub-pixel noise
+    /// that aliases) or removing it (which divides by nothing). The behaviour that
+    /// matters is that EXPORT resolution is live across the whole slider.
+    func testGrainSizeSaturatesOnSmallRendersAndIsLiveOnExports() {
+        let profile = FilmGrainProfile(stock: FilmStock.portra400, size: 1, amount: 50,
+                                       pushPull: 0)
+        func scale(_ longEdge: Int, _ size: Double) -> Double {
+            FilmGrainProfile(stock: FilmStock.portra400, size: size, amount: 50,
+                             pushPull: 0)
+                .plateScale(longEdgePixels: longEdge, printSizeInches: 10)
+        }
+        _ = profile
+
+        // A fit view: the fine end of the slider is one value, at the floor.
+        XCTAssertEqual(scale(1200, 0.5), 0.5, accuracy: 1e-12)
+        XCTAssertEqual(scale(1200, 1.0), 0.5, accuracy: 1e-12)
+        XCTAssertGreaterThan(scale(1200, 2.0), 0.5)
+
+        // At export size every setting is distinct and monotone — which is the
+        // property that has to hold, because that is the file the photographer keeps.
+        var previous = 0.0
+        for step in 0...30 {
+            let size = 0.5 + Double(step) * 0.05
+            let value = scale(6000, size)
+            XCTAssertGreaterThan(value, previous,
+                                 "Grain Size \(size) drew no coarser than \(size - 0.05) "
+                                     + "at export resolution")
+            XCTAssertGreaterThan(value, 0.5,
+                                 "Grain Size \(size) hit the floor at export size")
+            previous = value
+        }
+    }
+
     /// The plate survives the trip through the GPU's texture at full amplitude.
     ///
     /// It did not: the store divided by 4 and the kernel recovered with ×2, so the GPU
