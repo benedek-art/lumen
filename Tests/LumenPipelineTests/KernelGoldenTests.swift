@@ -310,7 +310,10 @@ final class KernelGoldenTests: XCTestCase {
 
     // MARK: - The whole graph
 
-    func testGraphMatchesTheReferenceRendererOnANeutralRecipe() throws {
+    /// Named for what it is: the colour path, in draft, on a recipe with three sliders
+    /// moved. It is NOT neutral — the previous name would have had the next reader
+    /// assume neutrality was covered here, which it is not.
+    func testGraphMatchesTheReferenceRendererOnTheColourPath() throws {
         try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
         var recipe = Recipe()
         recipe.develop.tone.exposure = 0.5
@@ -352,11 +355,88 @@ final class KernelGoldenTests: XCTestCase {
                                                                       draft: true))
         guard let result = readBack(output, width: source.width, height: source.height)
         else { return XCTFail("render failed") }
+
+        // Assert it is a RAMP before asserting it is grey. `r == g == b` is true of
+        // any uniform frame, so on its own this passed on a render that wrote nothing
+        // — the `readBack` guard now catches that case, and this makes the test itself
+        // discriminating rather than relying on the helper.
+        XCTAssertGreaterThan(result[31, 2].g, result[0, 2].g * 8,
+                             "a 12-stop ramp came back nearly flat")
+        XCTAssertGreaterThan(result[16, 2].g, 0.01, "the ramp's middle is at black")
+
         for x in 0..<source.width {
             let c = result[x, 2]
             XCTAssertEqual(c.r, c.g, accuracy: 0.004, "grey picked up a cast at \(x)")
             XCTAssertEqual(c.g, c.b, accuracy: 0.004, "grey picked up a cast at \(x)")
         }
+    }
+
+    /// The spatial stages, compared against the reference at all.
+    ///
+    /// Every other graph comparison in this file passes `draft: true`, which skips the
+    /// spatial stages on both sides — so the GPU denoise, texture, clarity, dehaze,
+    /// capture sharpening, vignette and mask rasterization were compared to the
+    /// reference renderer NEVER. This is the one that turns them on.
+    ///
+    /// The tolerance is a SMOKE-TEST BOUND, not a measurement. These stages are
+    /// separable-kernel approximations of the reference's exact filters and I have no
+    /// GPU to measure the real divergence on, so 0.25 is set to catch a stage wired to
+    /// the wrong input, applied twice, or missing entirely — not to certify the last
+    /// percent of a blur. Tighten it to the measured value on the first green run;
+    /// leaving a number here that was guessed tight would just cost a red cycle.
+    ///
+    /// The second half of the test carries the real weight and needs no calibration:
+    /// turning the spatial stages off must move the picture. Without that, this would
+    /// be comparing two copies of the colour path and would pass with every spatial
+    /// kernel unwired.
+    func testGraphMatchesTheReferenceRendererWithTheSpatialStagesOn() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+        var recipe = Recipe()
+        recipe.develop.detail.texture = 40
+        recipe.develop.detail.clarity = 30
+        recipe.look.vignette = -1.0
+
+        let source = testImage(width: 64, height: 32)
+        let plan = RenderPlan(recipe: recipe, lutSize: LUT3D.exportSize)
+        let output = RenderGraph().build(ciImage(from: source), plan: plan,
+                                         options: RenderGraph.Options(longEdge: 64,
+                                                                      draft: false))
+        guard let gpu = readBack(output, width: source.width, height: source.height) else {
+            return XCTFail("graph render failed")
+        }
+        let reference = ReferenceRenderer.render(source, plan: plan)
+
+        var worst = 0.0
+        var worstAt = (0, 0)
+        for y in 0..<source.height {
+            for x in 0..<source.width {
+                let d = reference[x, y].maxAbsDifference(gpu[x, y])
+                if d > worst { worst = d; worstAt = (x, y) }
+            }
+        }
+        XCTAssertLessThan(worst, 0.25,
+                          "the spatial path diverged by \(worst) at \(worstAt)")
+
+        // And the stages actually ran: turning them off must move the picture, or this
+        // test is comparing two copies of the colour path and would pass with every
+        // spatial kernel unwired.
+        let plainPlan = RenderPlan(recipe: Recipe(), lutSize: LUT3D.exportSize)
+        guard let plain = readBack(
+            RenderGraph().build(ciImage(from: source), plan: plainPlan,
+                                options: RenderGraph.Options(longEdge: 64, draft: false)),
+            width: source.width, height: source.height) else {
+            return XCTFail("plain render failed")
+        }
+        var moved = 0.0
+        for y in 0..<source.height {
+            for x in 0..<source.width {
+                moved = Swift.max(moved, plain[x, y].maxAbsDifference(gpu[x, y]))
+            }
+        }
+        XCTAssertGreaterThan(moved, 0.05,
+                             "texture, clarity and a −1 EV vignette changed the frame "
+                                 + "by only \(moved) — the spatial stages are not "
+                                 + "running")
     }
 
     func testMidGreyLandsWhereTheTransformPromises() throws {
