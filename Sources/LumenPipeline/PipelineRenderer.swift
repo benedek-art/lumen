@@ -159,35 +159,105 @@ public final class PipelineRenderer {
         return (sdr, hdr)
     }
 
+    /// Apply the recipe's metadata policy to the image's property dictionary.
+    ///
+    /// The whole Metadata section of the export sheet had no reader: `MetadataPolicy`
+    /// appeared only in its own declaration and in the sheet's bindings. "Strip GPS" —
+    /// which `ExportRecipe`'s own header calls the one privacy decision that should
+    /// never need to be remembered — stripped nothing, because whatever the decode's
+    /// property dictionary carried went to the encoder untouched.
+    ///
+    /// This is deliberately only the SUBTRACTIVE half, and that half is sound under
+    /// either reading of what the encoder does with these properties: if it honours
+    /// them, the removed keys are gone; if it ignores them, nothing was going to be
+    /// written anyway. Either way the coordinates do not reach the file.
+    ///
+    /// The additive half — guaranteeing EXIF is present when it is switched ON, and
+    /// writing Copyright and Contact into IPTC — needs the file to be authored through
+    /// `CGImageDestination` rather than `CIContext.write*Representation`, which takes
+    /// no metadata argument. That is not done, and the panel now says so rather than
+    /// implying those fields land somewhere.
+    static func applyMetadataPolicy(_ image: CIImage,
+                                    _ policy: MetadataPolicy,
+                                    resolutionPPI: Double) -> CIImage {
+        var properties = image.properties
+
+        func drop(_ key: CFString) {
+            properties.removeValue(forKey: key as String)
+        }
+
+        if !policy.includeGPS {
+            drop(kCGImagePropertyGPSDictionary)
+        }
+        if !policy.includeEXIF {
+            drop(kCGImagePropertyExifDictionary)
+            drop(kCGImagePropertyExifAuxDictionary)
+            drop(kCGImagePropertyTIFFDictionary)
+            drop(kCGImagePropertyMakerAppleDictionary)
+        }
+        if !policy.includeKeywords {
+            drop(kCGImagePropertyIPTCDictionary)
+        }
+        if !policy.includeCameraSerial {
+            // The body's serial identifies the camera across every frame it ever shot,
+            // so it is removed from each dictionary that carries one rather than only
+            // from the obvious one.
+            for container in [kCGImagePropertyExifAuxDictionary,
+                              kCGImagePropertyExifDictionary] {
+                let key = container as String
+                guard var nested = properties[key] as? [String: Any] else { continue }
+                nested.removeValue(forKey: kCGImagePropertyExifBodySerialNumber as String)
+                nested.removeValue(forKey: kCGImagePropertyExifAuxSerialNumber as String)
+                properties[key] = nested
+            }
+        }
+
+        // Resolution never reached the written file at all: `resolutionPPI` drove the
+        // output-sharpening radius and nothing else, so the print TIFF a user asked for
+        // at 300 ppi opened in Photoshop at 72 dpi.
+        if resolutionPPI.isFinite, resolutionPPI > 0 {
+            properties[kCGImagePropertyDPIWidth as String] = resolutionPPI
+            properties[kCGImagePropertyDPIHeight as String] = resolutionPPI
+        }
+
+        // Explicit upcast: `properties` is [String: Any] and the API takes
+        // [AnyHashable: Any].
+        return image.settingProperties(properties as [AnyHashable: Any])
+    }
+
     private func write(_ image: CIImage, to destination: URL,
                        using recipe: ExportRecipe) throws {
         guard let colorSpace = Self.cgColorSpace(recipe.colorSpace) else {
             throw RenderError.unsupportedFormat(recipe.colorSpace.rawValue)
         }
+        let prepared = Self.applyMetadataPolicy(image, recipe.metadata,
+                                                resolutionPPI: recipe.resolutionPPI)
         let quality = Num.clamp(recipe.quality / 100.0, 0, 1)
         let qualityKey = CIImageRepresentationOption(
             rawValue: kCGImageDestinationLossyCompressionQuality as String)
         let options: [CIImageRepresentationOption: Any] = [qualityKey: quality]
 
+        // Every branch writes `prepared`, not `image` — the metadata policy is only
+        // applied if the thing carrying it is the thing that gets encoded.
         do {
             switch recipe.format {
             case .jpeg:
-                try context.writeJPEGRepresentation(of: image, to: destination,
+                try context.writeJPEGRepresentation(of: prepared, to: destination,
                                                     colorSpace: colorSpace,
                                                     options: options)
             case .heif:
-                try context.writeHEIFRepresentation(of: image, to: destination,
+                try context.writeHEIFRepresentation(of: prepared, to: destination,
                                                     format: .RGBA8,
                                                     colorSpace: colorSpace,
                                                     options: options)
             case .png:
                 try context.writePNGRepresentation(
-                    of: image, to: destination,
+                    of: prepared, to: destination,
                     format: recipe.bitDepth >= 16 ? .RGBA16 : .RGBA8,
                     colorSpace: colorSpace, options: [:])
             case .tiff:
                 try context.writeTIFFRepresentation(
-                    of: image, to: destination,
+                    of: prepared, to: destination,
                     format: recipe.bitDepth >= 16 ? .RGBA16 : .RGBA8,
                     colorSpace: colorSpace, options: [:])
             }

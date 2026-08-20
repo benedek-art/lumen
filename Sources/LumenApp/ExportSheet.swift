@@ -536,9 +536,12 @@ private struct ExportRecipeEditor: View {
             LumenToggleRow(title: "Strip GPS", isOn: invertedFlag(\.metadata.includeGPS),
                            help: "Client-safe by default, independent of everything else here.")
             LumenToggleRow(title: "EXIF", isOn: $recipe.metadata.includeEXIF,
-                           help: "Camera, lens, exposure.")
+                           help: "Camera, lens, exposure. Off removes them; on keeps "
+                               + "whatever the decode carried, which is not a promise "
+                               + "that every field is present.")
             LumenToggleRow(title: "Camera serial", isOn: $recipe.metadata.includeCameraSerial,
-                           help: "Off by default — a serial number identifies the body.")
+                           help: "Off by default — a serial number identifies the body "
+                               + "across every frame it ever shot.")
             LumenToggleRow(title: "Keywords", isOn: $recipe.metadata.includeKeywords)
             ExportFieldRow("Copyright") {
                 ExportTextEntry(text: optionalText(\.metadata.copyright), placeholder: "© …")
@@ -547,6 +550,14 @@ private struct ExportRecipeEditor: View {
                 ExportTextEntry(text: optionalText(\.metadata.contact),
                                 placeholder: "email or site")
             }
+            // Said plainly rather than left to be discovered in a delivered file: the
+            // switches above remove metadata and are reliable in that direction, but
+            // nothing here ADDS a field. Copyright and Contact are stored with the
+            // recipe and are not written into the image yet — that needs the file to be
+            // authored through CGImageDestination.
+            ExportNote("These switches remove metadata. Copyright and Contact are "
+                       + "stored with the recipe but are not written into the exported "
+                       + "file yet.")
         }
     }
 
