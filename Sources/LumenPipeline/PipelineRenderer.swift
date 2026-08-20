@@ -281,9 +281,9 @@ public final class PipelineRenderer {
                                           printSizeInches: film.printLongEdgeInches)
         let scaled = tile.transformed(by: CGAffineTransform(scaleX: CGFloat(Swift.max(scale, 0.5)),
                                                             y: CGFloat(Swift.max(scale, 0.5))))
-        guard let tiler = CIFilter(name: "CIAffineTile") else { return scaled }
-        tiler.setValue(scaled, forKey: kCIInputImageKey)
-        tiler.setValue(NSValue(cgAffineTransform: .identity), forKey: kCIInputTransformKey)
+        let tiler = CIFilter.affineTile()
+        tiler.inputImage = scaled
+        tiler.transform = .identity
         return (tiler.outputImage ?? scaled).cropped(to: extent)
     }
 
