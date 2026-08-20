@@ -169,10 +169,25 @@ public struct ColorEngine: Sendable {
     public static let satKneeChroma: Double = 0.18
     public static let satCeilingChroma: Double = 0.34
     /// Lum-vs-Sat rolloff: the tonal window inside which a *push* has full effect.
+    ///
+    /// The low end is a true floor — below `satRolloffLo0` there is no colour to push,
+    /// only chroma noise — and it sits about fourteen stops under mid-grey, so nothing
+    /// a photograph contains lives there.
+    ///
+    /// The high end is a TAPER, not a window. It used to be a second smoothstep
+    /// closing at brightness 1.0, which is roughly two and a half stops over mid-grey:
+    /// above that, Saturation and positive Vibrance did exactly nothing. Every bright
+    /// sky, every lit skin highlight, every white shirt in sun. Scene-referred data is
+    /// unbounded, so a display-referred number like "1.0" cannot be an endpoint in a
+    /// stage that runs before the display transform.
     public static let satRolloffLo0: Double = 0.02
     public static let satRolloffLo1: Double = 0.20
+    /// Where the highlight taper starts, and the scale over which it falls.
     public static let satRolloffHi0: Double = 0.86
-    public static let satRolloffHi1: Double = 1.00
+    public static let satRolloffHiWidth: Double = 0.35
+    /// What the taper approaches as brightness rises without bound. Never zero: the
+    /// point is that highlights saturate LESS, not that they stop being colours.
+    public static let satRolloffFloor: Double = 0.35
     /// Full positive Saturation raises the dye-density gamma to this above 1.
     public static let densityGammaRange: Double = 1.0
 
@@ -694,8 +709,13 @@ public struct ColorEngine: Sendable {
     /// apparent richness is saturation rolloff at the extremes. Both are internal and
     /// always on; exposing them as user curves would violate the one-intent rule.
     public static func lumSatRolloff(_ brightness: Double) -> Double {
-        Num.smoothstep(satRolloffLo0, satRolloffLo1, brightness)
-            * (1 - Num.smoothstep(satRolloffHi0, satRolloffHi1, brightness))
+        guard brightness.isFinite else { return 0 }
+        // Squared so the taper leaves the knee with zero slope: it meets the flat
+        // full-effect region C¹, and a kink in this factor is a crease across a
+        // gradient in the finished picture.
+        let u = Swift.max(0, brightness - satRolloffHi0) / satRolloffHiWidth
+        let taper = satRolloffFloor + (1 - satRolloffFloor) / (1 + u * u)
+        return Num.smoothstep(satRolloffLo0, satRolloffLo1, brightness) * taper
     }
 
     /// The subtractive branch: per-channel gamma on the chromaticity ratios against the

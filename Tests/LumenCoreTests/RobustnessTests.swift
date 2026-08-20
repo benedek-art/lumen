@@ -81,6 +81,44 @@ final class RobustnessTests: XCTestCase {
         XCTAssertEqual(out.width, source.width)
     }
 
+    // MARK: - Saturation must keep working in the highlights
+
+    /// The lum-vs-sat rolloff used to close a second smoothstep at brightness 1.0 —
+    /// about two and a half stops over mid-grey — so Saturation and positive Vibrance
+    /// did nothing at all above it. Every bright sky and every lit highlight. The
+    /// rolloff is a taper now: highlights saturate less, they do not stop being
+    /// colours.
+    func testSaturationStillWorksAboveDisplayWhite() {
+        for brightness in [1.0, 1.5, 2.0, 4.0, 20.0] {
+            XCTAssertGreaterThan(ColorEngine.lumSatRolloff(brightness), 0.2,
+                                 "saturation switched off at brightness \(brightness)")
+        }
+        // Full effect through the ordinary range, and nothing at true black.
+        XCTAssertEqual(ColorEngine.lumSatRolloff(0.5), 1.0, accuracy: 1e-9)
+        XCTAssertEqual(ColorEngine.lumSatRolloff(0), 0, accuracy: 1e-12)
+        XCTAssertEqual(ColorEngine.lumSatRolloff(.nan), 0, accuracy: 1e-12)
+
+        // Monotone non-increasing above the knee, and smooth: no step anywhere.
+        var previous = ColorEngine.lumSatRolloff(ColorEngine.satRolloffHi0)
+        var x = ColorEngine.satRolloffHi0
+        while x < 30 {
+            x += 0.01
+            let v = ColorEngine.lumSatRolloff(x)
+            XCTAssertLessThanOrEqual(v, previous + 1e-12, "rolloff rose at \(x)")
+            XCTAssertLessThan(previous - v, 0.02, "rolloff stepped at \(x)")
+            previous = v
+        }
+
+        // And the whole engine actually moves a bright saturated colour.
+        var adjust = ColorAdjust()
+        adjust.saturation = 60
+        let engine = ColorEngine(mixer: Mixer(), pointColors: [], color: adjust,
+                                 primaries: Primaries(), bw: nil)
+        let bright = RGB(1.33, 1.01, 0.13)          // ~2.5 stops over mid-grey
+        XCTAssertGreaterThan(engine.apply(bright).maxAbsDifference(bright), 0.01,
+                             "saturation did nothing to a highlight")
+    }
+
     // MARK: - Scene-referred means unbounded
 
     /// No scene-referred stage may change its behaviour at a particular brightness.
