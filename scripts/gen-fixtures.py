@@ -2607,14 +2607,26 @@ def gen_enginemath_fixture():
         for t in (-12.0, -8.0, -4.0, -1.0, 0.0, 1.0, 4.0, 8.0, 12.0):
             contrast.append({"contrast": c, "t": t, "mapped": contrast_mapped(t, c)})
 
+    # The anchor geometry is varied here as well as contrast and skew, because the
+    # anchors are exactly what Whites and Blacks manipulate (`ToneEngine.applyAnchors`)
+    # and they were cross-checked at a single point: one black target, one white
+    # anchor, one black anchor, in every row.
     display = []
-    for kw in ({}, {"contrast": 2.2, "skew": -0.3}, {"white_target": 400.0}):
+    for kw in ({},
+               {"contrast": 2.2, "skew": -0.3},
+               {"white_target": 400.0},
+               {"black_target": 0.8},
+               {"white_anchor_ev": 3.5, "black_anchor_ev": -11.0},
+               {"white_anchor_ev": 6.5, "black_anchor_ev": -6.0, "contrast": 2.0}):
         t = DisplayTransform(**kw)
         for ev in (-9.0, -6.0, -3.0, 0.0, 2.0, 5.0):
             display.append({
                 "contrast": kw.get("contrast", 1.5),
                 "skew": kw.get("skew", 0.0),
                 "whiteTarget": kw.get("white_target", 100.0),
+                "blackTarget": kw.get("black_target", 0.0152),
+                "whiteAnchorEV": kw.get("white_anchor_ev", 5.0),
+                "blackAnchorEV": kw.get("black_anchor_ev", -9.0),
                 "ev": ev,
                 "out": t.tone(MID_GREY * 2 ** ev),
             })

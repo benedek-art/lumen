@@ -229,130 +229,364 @@
   ],
   "displayTransform": [
     {
+      "blackAnchorEV": -9.0,
+      "blackTarget": 0.0152,
       "contrast": 1.5,
       "ev": -9.0,
       "out": 0.000152,
       "skew": 0.0,
+      "whiteAnchorEV": 5.0,
       "whiteTarget": 100.0
     },
     {
+      "blackAnchorEV": -9.0,
+      "blackTarget": 0.0152,
       "contrast": 1.5,
       "ev": -6.0,
       "out": 0.00044038804930204465,
       "skew": 0.0,
+      "whiteAnchorEV": 5.0,
       "whiteTarget": 100.0
     },
     {
+      "blackAnchorEV": -9.0,
+      "blackTarget": 0.0152,
       "contrast": 1.5,
       "ev": -3.0,
       "out": 0.007152800288269312,
       "skew": 0.0,
+      "whiteAnchorEV": 5.0,
       "whiteTarget": 100.0
     },
     {
+      "blackAnchorEV": -9.0,
+      "blackTarget": 0.0152,
       "contrast": 1.5,
       "ev": 0.0,
       "out": 0.18,
       "skew": 0.0,
+      "whiteAnchorEV": 5.0,
       "whiteTarget": 100.0
     },
     {
+      "blackAnchorEV": -9.0,
+      "blackTarget": 0.0152,
       "contrast": 1.5,
       "ev": 2.0,
       "out": 0.6269899334526849,
       "skew": 0.0,
+      "whiteAnchorEV": 5.0,
       "whiteTarget": 100.0
     },
     {
+      "blackAnchorEV": -9.0,
+      "blackTarget": 0.0152,
       "contrast": 1.5,
       "ev": 5.0,
       "out": 1.0,
       "skew": 0.0,
+      "whiteAnchorEV": 5.0,
       "whiteTarget": 100.0
     },
     {
+      "blackAnchorEV": -9.0,
+      "blackTarget": 0.0152,
       "contrast": 2.2,
       "ev": -9.0,
       "out": 0.000152,
       "skew": -0.3,
+      "whiteAnchorEV": 5.0,
       "whiteTarget": 100.0
     },
     {
+      "blackAnchorEV": -9.0,
+      "blackTarget": 0.0152,
       "contrast": 2.2,
       "ev": -6.0,
       "out": 0.00017685562636982185,
       "skew": -0.3,
+      "whiteAnchorEV": 5.0,
       "whiteTarget": 100.0
     },
     {
+      "blackAnchorEV": -9.0,
+      "blackTarget": 0.0152,
       "contrast": 2.2,
       "ev": -3.0,
       "out": 0.002669802360807476,
       "skew": -0.3,
+      "whiteAnchorEV": 5.0,
       "whiteTarget": 100.0
     },
     {
+      "blackAnchorEV": -9.0,
+      "blackTarget": 0.0152,
       "contrast": 2.2,
       "ev": 0.0,
       "out": 0.18,
       "skew": -0.3,
+      "whiteAnchorEV": 5.0,
       "whiteTarget": 100.0
     },
     {
+      "blackAnchorEV": -9.0,
+      "blackTarget": 0.0152,
       "contrast": 2.2,
       "ev": 2.0,
       "out": 0.7488333849339409,
       "skew": -0.3,
+      "whiteAnchorEV": 5.0,
       "whiteTarget": 100.0
     },
     {
+      "blackAnchorEV": -9.0,
+      "blackTarget": 0.0152,
       "contrast": 2.2,
       "ev": 5.0,
       "out": 1.0,
       "skew": -0.3,
+      "whiteAnchorEV": 5.0,
       "whiteTarget": 100.0
     },
     {
+      "blackAnchorEV": -9.0,
+      "blackTarget": 0.0152,
       "contrast": 1.5,
       "ev": -9.0,
       "out": 0.000152,
       "skew": 0.0,
+      "whiteAnchorEV": 5.0,
       "whiteTarget": 400.0
     },
     {
+      "blackAnchorEV": -9.0,
+      "blackTarget": 0.0152,
       "contrast": 1.5,
       "ev": -6.0,
       "out": 0.00044038804930204465,
       "skew": 0.0,
+      "whiteAnchorEV": 5.0,
       "whiteTarget": 400.0
     },
     {
+      "blackAnchorEV": -9.0,
+      "blackTarget": 0.0152,
       "contrast": 1.5,
       "ev": -3.0,
       "out": 0.007152800288269312,
       "skew": 0.0,
+      "whiteAnchorEV": 5.0,
       "whiteTarget": 400.0
     },
     {
+      "blackAnchorEV": -9.0,
+      "blackTarget": 0.0152,
       "contrast": 1.5,
       "ev": 0.0,
       "out": 0.1800000000000001,
       "skew": 0.0,
+      "whiteAnchorEV": 5.0,
       "whiteTarget": 400.0
     },
     {
+      "blackAnchorEV": -9.0,
+      "blackTarget": 0.0152,
       "contrast": 1.5,
       "ev": 2.0,
       "out": 0.844161151767263,
       "skew": 0.0,
+      "whiteAnchorEV": 5.0,
       "whiteTarget": 400.0
     },
     {
+      "blackAnchorEV": -9.0,
+      "blackTarget": 0.0152,
       "contrast": 1.5,
       "ev": 5.0,
       "out": 3.9999999999999996,
       "skew": 0.0,
+      "whiteAnchorEV": 5.0,
       "whiteTarget": 400.0
+    },
+    {
+      "blackAnchorEV": -9.0,
+      "blackTarget": 0.8,
+      "contrast": 1.5,
+      "ev": -9.0,
+      "out": 0.007999999999999998,
+      "skew": 0.0,
+      "whiteAnchorEV": 5.0,
+      "whiteTarget": 100.0
+    },
+    {
+      "blackAnchorEV": -9.0,
+      "blackTarget": 0.8,
+      "contrast": 1.5,
+      "ev": -6.0,
+      "out": 0.008141424759985255,
+      "skew": 0.0,
+      "whiteAnchorEV": 5.0,
+      "whiteTarget": 100.0
+    },
+    {
+      "blackAnchorEV": -9.0,
+      "blackTarget": 0.8,
+      "contrast": 1.5,
+      "ev": -3.0,
+      "out": 0.015072196256176796,
+      "skew": 0.0,
+      "whiteAnchorEV": 5.0,
+      "whiteTarget": 100.0
+    },
+    {
+      "blackAnchorEV": -9.0,
+      "blackTarget": 0.8,
+      "contrast": 1.5,
+      "ev": 0.0,
+      "out": 0.1800000000000001,
+      "skew": 0.0,
+      "whiteAnchorEV": 5.0,
+      "whiteTarget": 100.0
+    },
+    {
+      "blackAnchorEV": -9.0,
+      "blackTarget": 0.8,
+      "contrast": 1.5,
+      "ev": 2.0,
+      "out": 0.6269899334526847,
+      "skew": 0.0,
+      "whiteAnchorEV": 5.0,
+      "whiteTarget": 100.0
+    },
+    {
+      "blackAnchorEV": -9.0,
+      "blackTarget": 0.8,
+      "contrast": 1.5,
+      "ev": 5.0,
+      "out": 1.0,
+      "skew": 0.0,
+      "whiteAnchorEV": 5.0,
+      "whiteTarget": 100.0
+    },
+    {
+      "blackAnchorEV": -11.0,
+      "blackTarget": 0.0152,
+      "contrast": 1.5,
+      "ev": -9.0,
+      "out": 0.0001558488103346837,
+      "skew": 0.0,
+      "whiteAnchorEV": 3.5,
+      "whiteTarget": 100.0
+    },
+    {
+      "blackAnchorEV": -11.0,
+      "blackTarget": 0.0152,
+      "contrast": 1.5,
+      "ev": -6.0,
+      "out": 0.000672963391104131,
+      "skew": 0.0,
+      "whiteAnchorEV": 3.5,
+      "whiteTarget": 100.0
+    },
+    {
+      "blackAnchorEV": -11.0,
+      "blackTarget": 0.0152,
+      "contrast": 1.5,
+      "ev": -3.0,
+      "out": 0.00790556559545875,
+      "skew": 0.0,
+      "whiteAnchorEV": 3.5,
+      "whiteTarget": 100.0
+    },
+    {
+      "blackAnchorEV": -11.0,
+      "blackTarget": 0.0152,
+      "contrast": 1.5,
+      "ev": 0.0,
+      "out": 0.18,
+      "skew": 0.0,
+      "whiteAnchorEV": 3.5,
+      "whiteTarget": 100.0
+    },
+    {
+      "blackAnchorEV": -11.0,
+      "blackTarget": 0.0152,
+      "contrast": 1.5,
+      "ev": 2.0,
+      "out": 0.6789384904312197,
+      "skew": 0.0,
+      "whiteAnchorEV": 3.5,
+      "whiteTarget": 100.0
+    },
+    {
+      "blackAnchorEV": -11.0,
+      "blackTarget": 0.0152,
+      "contrast": 1.5,
+      "ev": 5.0,
+      "out": 1.0,
+      "skew": 0.0,
+      "whiteAnchorEV": 3.5,
+      "whiteTarget": 100.0
+    },
+    {
+      "blackAnchorEV": -6.0,
+      "blackTarget": 0.0152,
+      "contrast": 2.0,
+      "ev": -9.0,
+      "out": 0.000152,
+      "skew": 0.0,
+      "whiteAnchorEV": 6.5,
+      "whiteTarget": 100.0
+    },
+    {
+      "blackAnchorEV": -6.0,
+      "blackTarget": 0.0152,
+      "contrast": 2.0,
+      "ev": -6.0,
+      "out": 0.000152,
+      "skew": 0.0,
+      "whiteAnchorEV": 6.5,
+      "whiteTarget": 100.0
+    },
+    {
+      "blackAnchorEV": -6.0,
+      "blackTarget": 0.0152,
+      "contrast": 2.0,
+      "ev": -3.0,
+      "out": 0.0025412661615651635,
+      "skew": 0.0,
+      "whiteAnchorEV": 6.5,
+      "whiteTarget": 100.0
+    },
+    {
+      "blackAnchorEV": -6.0,
+      "blackTarget": 0.0152,
+      "contrast": 2.0,
+      "ev": 0.0,
+      "out": 0.18,
+      "skew": 0.0,
+      "whiteAnchorEV": 6.5,
+      "whiteTarget": 100.0
+    },
+    {
+      "blackAnchorEV": -6.0,
+      "blackTarget": 0.0152,
+      "contrast": 2.0,
+      "ev": 2.0,
+      "out": 0.7042716081662623,
+      "skew": 0.0,
+      "whiteAnchorEV": 6.5,
+      "whiteTarget": 100.0
+    },
+    {
+      "blackAnchorEV": -6.0,
+      "blackTarget": 0.0152,
+      "contrast": 2.0,
+      "ev": 5.0,
+      "out": 0.9937565899363088,
+      "skew": 0.0,
+      "whiteAnchorEV": 6.5,
+      "whiteTarget": 100.0
     }
   ],
   "film": [

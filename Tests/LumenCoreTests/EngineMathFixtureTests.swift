@@ -78,13 +78,20 @@ final class EngineMathFixtureTests: XCTestCase {
             params.contrast = double(row, "contrast")
             params.skew = double(row, "skew")
             params.whiteTarget = double(row, "whiteTarget")
+            // The anchors are what Whites and Blacks move, and they used to be fixed
+            // at their defaults in every row — so the anchor geometry was tied to the
+            // mirror at exactly one point.
+            params.blackTarget = double(row, "blackTarget")
+            params.whiteAnchorEV = double(row, "whiteAnchorEV")
+            params.blackAnchorEV = double(row, "blackAnchorEV")
             let transform = DisplayTransform(params)
             let ev = double(row, "ev")
             let scene = DisplayTransform.midGrey * pow(2.0, ev)
             XCTAssertEqual(transform.tone(scene), double(row, "out"), accuracy: 1e-9,
                            "display transform diverged at \(ev) EV "
                                + "(contrast \(params.contrast), skew \(params.skew), "
-                               + "peak \(params.whiteTarget))")
+                               + "peak \(params.whiteTarget), floor \(params.blackTarget), "
+                               + "anchors \(params.blackAnchorEV)…\(params.whiteAnchorEV))")
         }
     }
 
