@@ -127,9 +127,18 @@ final class RobustnessTests: XCTestCase {
     /// colour was compressed below roughly three and a half stops over mid-grey and
     /// passed through above it. A step in the middle of the working range.
     ///
-    /// Measured as a ratio, not a difference, because the values themselves grow
-    /// exponentially with exposure: the question is whether doubling the input
-    /// doubles the output, all the way up.
+    /// The quantity compared is the output divided by the SCENE SCALE — not by the
+    /// input channel. A per-channel ratio is meaningless for a channel that carries
+    /// almost no signal: at hue 90 the blue component of the test colour is a
+    /// thousandth of the red, so its "gain" came out at −64 and swung wildly for
+    /// arithmetic reasons that have nothing to do with continuity. Dividing by the
+    /// common scale asks the question that was actually meant: for a stage that treats
+    /// exposure as exposure, this vector barely moves as the scene brightens.
+    ///
+    /// The tolerance is relative to the response's own magnitude, because a grading
+    /// wheel is an offset at constant lightness, and the relative size of a fixed
+    /// offset grows without bound as luminance falls. That is a real property of the
+    /// tool, not a discontinuity.
     func testSceneReferredStagesAreContinuousInExposure() {
         var color = ColorAdjust()
         color.saturation = 60
@@ -142,36 +151,34 @@ final class RobustnessTests: XCTestCase {
 
         for hue in stride(from: 0.0, to: 360.0, by: 30.0) {
             let tint = OKLabTransform.working.toRGB(OKLCh(L: 0.5, C: 0.12, h: hue))
-            // A chroma the working space cannot reach at this lightness comes back with
-            // a negative channel, and a ratio against a near-zero divisor would then
-            // fail this test for arithmetic reasons rather than for continuity ones.
-            // Floor it: the question here is whether the stage steps, and a colour a
-            // little way inside the gamut asks it just as well.
-            let floored = RGB(Swift.max(tint.r, 1e-3),
-                              Swift.max(tint.g, 1e-3),
-                              Swift.max(tint.b, 1e-3))
-            let unit = floored / Swift.max(floored.maxComponent, 1e-6)
+            let unit = tint / Swift.max(tint.maxComponent, 1e-6)
             for engine in ["colour", "grade"] {
-                var previousRatio: RGB?
+                var previousResponse: RGB?
                 var ev = -6.0
                 while ev <= 8 {
-                    let scene = unit * (0.18 * pow(2.0, ev))
+                    let scale = 0.18 * pow(2.0, ev)
                     let out = engine == "colour"
-                        ? colorEngine.apply(scene)
-                        : gradeEngine.apply(scene)
-                    let ratio = RGB(out.r / Swift.max(scene.r, 1e-9),
-                                    out.g / Swift.max(scene.g, 1e-9),
-                                    out.b / Swift.max(scene.b, 1e-9))
-                    if let previous = previousRatio {
-                        // A tenth of a stop of input may not move the stage's gain by
-                        // more than a few percent. A switch moves it by tens.
+                        ? colorEngine.apply(unit * scale)
+                        : gradeEngine.apply(unit * scale)
+                    let response = out / scale
+                    if let previous = previousResponse {
+                        // Largest ABSOLUTE component: a response can be negative, and
+                        // `maxComponent` on an all-negative triple is the smallest one.
+                        let magnitude = Swift.max(1.0, Swift.max(abs(previous.r),
+                                                                 Swift.max(abs(previous.g),
+                                                                           abs(previous.b))))
+                        let step = response.maxAbsDifference(previous) / magnitude
+                        // A twentieth of a stop of input may not move the stage's
+                        // response by a tenth of its own size. Smooth shaping over a
+                        // multi-stop window moves it by a few percent per step; a
+                        // switch moves it by all of whatever it was switching.
                         XCTAssertLessThan(
-                            ratio.maxAbsDifference(previous), 0.15,
+                            step, 0.12,
                             "\(engine) stage stepped at \(ev) EV, hue \(hue): "
-                                + "gain went \(previous) → \(ratio)")
+                                + "response went \(previous) → \(response)")
                     }
-                    previousRatio = ratio
-                    ev += 0.1
+                    previousResponse = response
+                    ev += 0.05
                 }
             }
         }
