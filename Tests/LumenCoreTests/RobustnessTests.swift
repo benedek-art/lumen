@@ -447,6 +447,64 @@ final class RobustnessTests: XCTestCase {
         }
     }
 
+    /// The same rule for the stages the test above left out.
+    ///
+    /// The bug it was written for — an always-on gamut clip running inside a stage the
+    /// plan swaps out when it is identity — is a shape, not an incident, and it can
+    /// live in any of these just as easily. Tone reports `isIdentity` and nothing
+    /// checked that a pixel survives it; Detail and Denoise were allowed 1e-5, which is
+    /// room enough for a clip; and the Film Lab at Strength 0 has an explicit contract
+    /// that it is "bit-identical to having no film block at all", which nothing asserted.
+    func testEveryOtherIdentityStageIsAlsoExactlyIdentity() {
+        let probes = [RGB(0.3, 0.5, 0.2), RGB(0.9, 0.05, 0.02), RGB(1.6, 0.2, 0.05),
+                      RGB(4, 4, 4), RGB(-0.01, 0.2, 0.3), RGB(0.18, 0.18, 0.18)]
+
+        let tone = ToneEngine(tone: Tone())
+        XCTAssertTrue(tone.isIdentity, "a default Tone did not report itself identity")
+        for c in probes {
+            let t = Num.safeLog2(RGBColorSpace.rec2020.luminance(c) / 0.18)
+            XCTAssertEqual(tone.gain(at: t), 1, accuracy: 1e-12,
+                           "the tone stage applied a gain to \(c) at rest")
+        }
+
+        // Film at Strength 0 must equal the neutral rendering exactly — not "closely".
+        // Both paths go through the same display transform and the same gamut
+        // boundary; if they ever disagree, Strength becomes a discontinuous control at
+        // one end of its own range.
+        var off = FilmChain.defaultRecipe(for: FilmStock.portra400)
+        off.amount = 0
+        let filmOff = FilmChain(off, displayWhite: 1.0)
+        XCTAssertTrue(filmOff.isIdentity, "Strength 0 did not reduce to the neutral chain")
+        let neutral = DisplayTransform(
+            { var p = DisplayTransformParams.neutral; p.whiteTarget = 100; return p }(),
+            space: .rec2020)
+        for c in probes {
+            XCTAssertLessThan(
+                filmOff.apply(c).maxAbsDifference(neutral.apply(c, gamut: Gamut.sharedBoundary)),
+                1e-12, "the film chain at Strength 0 disagreed with the neutral "
+                    + "rendering on \(c)")
+        }
+
+        // Detail and Denoise are spatial, so they run on a frame rather than a pixel —
+        // but the rule is the same, and at 1e-12 rather than the 1e-5 those two are
+        // allowed elsewhere, which is room enough for a clip to hide in. The field
+        // deliberately runs past display white, since that is where a stray clamp bites.
+        let field = ImageBuffer(width: 16, height: 16) { u, v in
+            RGB(0.18 * pow(2, u * 6 - 3), 0.4 * v + 0.05, 1.8 * u)
+        }
+        let detailOff = DetailEngine.apply(
+            field, detail: Detail(),
+            decomposition: DetailEngine.Decomposition(image: field, workingRadius: 4))
+        XCTAssertLessThan(detailOff.maxAbsDifference(field), 1e-12,
+                          "the detail stage moved a pixel at rest")
+
+        let denoiseOff = ClassicalDenoise(ClassicNR(luma: 0, chroma: 0, hotPixels: 0),
+                                          profile: NoiseProfile.forISO(100),
+                                          isoDefaults: false).apply(field)
+        XCTAssertLessThan(denoiseOff.maxAbsDifference(field), 1e-12,
+                          "the denoise stage moved a pixel at rest")
+    }
+
     // MARK: - Monotonicity across the whole slider
 
     /// A brighter input must never render darker. The contrast relax window used to be

@@ -17,14 +17,20 @@ final class ColorScienceTests: XCTestCase {
         let expected = Mat3(0.4124, 0.3576, 0.1805,
                             0.2126, 0.7152, 0.0722,
                             0.0193, 0.1192, 0.9505)
-        XCTAssertLessThan(RGBColorSpace.srgb.toXYZ.maxAbsDifference(expected), 1e-3)
+        // 5e-5, not 1e-3: the published values are quoted to four decimals, so a
+        // tolerance of 1e-3 is looser than the data it checks against. An error of 9e-4
+        // in the 0.2126 luminance coefficient is a 0.4% luminance error, which shows as
+        // a cast. The derivation from chromaticities lands within 3.9e-5.
+        XCTAssertLessThan(RGBColorSpace.srgb.toXYZ.maxAbsDifference(expected), 5e-5)
     }
 
     func testRec2020LuminanceWeights() {
         let w = RGBColorSpace.rec2020.luminanceWeights
-        XCTAssertEqual(w.r, 0.2627, accuracy: 1e-3)
-        XCTAssertEqual(w.g, 0.6780, accuracy: 1e-3)
-        XCTAssertEqual(w.b, 0.0593, accuracy: 1e-3)
+        // Same reasoning: derived from the chromaticities, these land within 2e-6 of
+        // the published figures, so 1e-3 was three orders looser than the truth.
+        XCTAssertEqual(w.r, 0.2627, accuracy: 1e-5)
+        XCTAssertEqual(w.g, 0.6780, accuracy: 1e-5)
+        XCTAssertEqual(w.b, 0.0593, accuracy: 1e-5)
         XCTAssertEqual(w.sum, 1.0, accuracy: 1e-9)
     }
 
@@ -47,6 +53,26 @@ final class ColorScienceTests: XCTestCase {
             let round = back.apply(toP3.apply(c))
             XCTAssertLessThan(round.maxAbsDifference(c), 1e-9)
         }
+    }
+
+    /// A round trip is satisfied by a pair of identity matrices, so on its own it says
+    /// nothing about whether the conversion converts. These are the two things that
+    /// distinguish a real gamut change from a no-op: white is the fixed point every
+    /// same-white-point conversion must have, and a primary is what must move.
+    func testCrossSpaceConversionActuallyConverts() {
+        let toSRGB = RGBColorSpace.rec2020.matrix(to: .srgb)
+
+        // Both spaces are D65, so white maps to white exactly.
+        XCTAssertLessThan(toSRGB.apply(RGB.one).maxAbsDifference(RGB.one), 1e-9,
+                          "white did not survive a same-white-point conversion")
+
+        // Rec.2020 green is far outside sRGB — it lands at roughly
+        // (−0.588, 1.133, −0.101), which is what "wider gamut" means numerically.
+        // `testSoftProofFlagsOutOfGamutColours` already depends on this being true.
+        let green = toSRGB.apply(RGB(0, 1, 0))
+        XCTAssertLessThan(green.r, -0.3, "Rec.2020 green did not leave the sRGB gamut")
+        XCTAssertGreaterThan(green.g, 1.05, "Rec.2020 green did not exceed sRGB green")
+        XCTAssertLessThan(green.b, -0.05, "Rec.2020 green did not leave the sRGB gamut")
     }
 
     func testAdaptationToSameWhiteIsIdentity() {
@@ -93,6 +119,27 @@ final class ColorScienceTests: XCTestCase {
             previous = x
             kelvin += 250
         }
+    }
+
+    /// The locus, against published chromaticities rather than against itself.
+    ///
+    /// Everything else here is an inverse pair — `chromaticity` then
+    /// `temperatureAndTint` — which a locus that is entirely wrong round-trips through
+    /// perfectly. These are the only assertions in the suite that say where the white
+    /// balance slider's 5000 K and 6500 K actually are, and getting them wrong is a
+    /// visible cast on every photo.
+    func testTheLocusPassesThroughTheStandardIlluminants() {
+        // D65: the sRGB / Rec.2020 white point, and where the Temp slider's neutral
+        // sits. Derived here from the daylight locus, so this is a real cross-check.
+        let d65 = ColorTemperature.locus(kelvin: 6500)
+        XCTAssertEqual(d65.x, 0.3127, accuracy: 1e-3, "6500 K is not at D65")
+        XCTAssertEqual(d65.y, 0.3290, accuracy: 1e-3, "6500 K is not at D65")
+
+        // D50: the ICC profile connection space's white, and what a print viewing
+        // booth is built around.
+        let d50 = ColorTemperature.locus(kelvin: 5000)
+        XCTAssertEqual(d50.x, 0.34567, accuracy: 1e-3, "5000 K is not at D50")
+        XCTAssertEqual(d50.y, 0.35850, accuracy: 1e-3, "5000 K is not at D50")
     }
 
     func testTemperatureRoundTrip() {

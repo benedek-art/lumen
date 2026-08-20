@@ -82,6 +82,26 @@ final class KernelGoldenTests: XCTestCase {
             context.render(image, toBitmap: base, rowBytes: width * 16,
                            bounds: bounds, format: .RGBAf, colorSpace: nil)
         }
+        // A render that wrote nothing — a kernel silently unavailable, a colour-space
+        // mismatch, an extent CI decided was empty — leaves this buffer exactly as it
+        // was allocated. Every downstream assertion in this file is a comparison, and
+        // an all-zero frame satisfies a surprising number of them: "grey stays grey"
+        // reads 0 == 0 == 0 and passes at every pixel. This declares `-> ImageBuffer?`
+        // and never returned nil, so the `guard let` at each call site could not catch
+        // it either. One check here protects every test in the file.
+        //
+        // Alpha is excluded: `ImageBuffer.init(width:height:)` fills it with 1, but a
+        // render that wrote nothing into THIS buffer leaves alpha at 0 too, so a frame
+        // whose colour channels are all zero is either black-and-opaque (which no test
+        // here produces, since every source is a grey ramp or a step) or a dead read.
+        let wroteSomething = stride(from: 0, to: pixels.count, by: 4).contains {
+            pixels[$0] != 0 || pixels[$0 + 1] != 0 || pixels[$0 + 2] != 0
+        }
+        guard wroteSomething else {
+            XCTFail("the render produced an all-zero frame — the kernel wrote nothing, "
+                        + "and comparing against it would pass by accident")
+            return nil
+        }
         return ImageBuffer(width: width, height: height, pixels: pixels)
     }
 

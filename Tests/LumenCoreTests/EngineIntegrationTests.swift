@@ -224,7 +224,9 @@ final class EngineIntegrationTests: XCTestCase {
         let source = ramp()
         let decomposition = DetailEngine.Decomposition(image: source, workingRadius: 4)
         let out = DetailEngine.apply(source, detail: Detail(), decomposition: decomposition)
-        XCTAssertLessThan(out.maxAbsDifference(source), 1e-5)
+        // Bit-exact, not "close": all three sub-stages guard on their amount and return
+        // the input untouched, so 1e-5 was room for a clip to hide in.
+        XCTAssertLessThan(out.maxAbsDifference(source), 1e-12)
     }
 
     func testTextureChangesLocalContrastWithoutMovingTheMean() {
@@ -344,7 +346,9 @@ final class EngineIntegrationTests: XCTestCase {
                                       profile: NoiseProfile.forISO(100),
                                       isoDefaults: false)
         let out = engine.apply(source)
-        XCTAssertLessThan(out.maxAbsDifference(source), 1e-5)
+        // Bit-exact for the same reason: with no hot-pixel pass and both shrinkage
+        // constants at zero, `apply` returns its input.
+        XCTAssertLessThan(out.maxAbsDifference(source), 1e-12)
     }
 
     func testClassicalDenoiseReducesNoiseInAFlatPatch() {

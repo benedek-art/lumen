@@ -2616,7 +2616,10 @@ def gen_enginemath_fixture():
                            "out": list(shaped_chroma_scale(c, gain))})
 
     white_balance = []
-    for k in (2500.0, 4000.0, 5500.0, 8000.0, 20000.0):
+    # 5000 and 6500 are here because they are the two the Swift suite anchors against
+    # published chromaticities (D50 and D65). Tying exactly those points to the mirror
+    # means the two sides agree about the same numbers the external check names.
+    for k in (2500.0, 4000.0, 5000.0, 5500.0, 6500.0, 8000.0, 20000.0):
         for tint in (-80.0, 0.0, 80.0):
             x, y = wb_chromaticity(k, tint)
             got_k, got_t = temperature_and_tint((x, y))
