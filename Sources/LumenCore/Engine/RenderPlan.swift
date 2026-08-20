@@ -96,11 +96,25 @@ public struct RenderPlan: Sendable {
         if colorIdentity {
             self.colorGradeLUT = LUT3D.identity(size: 2)
         } else {
-            self.colorGradeLUT = LUT3D(size: lutSize) { encoded in
-                let scene = LumenLog.decode(encoded)
-                let out = grade.apply(color.apply(scene))
-                return LumenLog.encode(out)
+            // Everything `color` and `grade` were built from, plus the anchors the
+            // grade reads. Miss anything here and the cache returns a table for a
+            // recipe the photographer is no longer editing.
+            let bake = {
+                LUT3D(size: lutSize) { encoded in
+                    let scene = LumenLog.decode(encoded)
+                    let out = grade.apply(color.apply(scene))
+                    return LumenLog.encode(out)
+                }
             }
+            let key = PlanTableCache.key(
+                ["cg", "\(lutSize)", "\(space)",
+                 CanonicalJSON.canonicalNumber(toneEngine.whiteAnchorEV),
+                 CanonicalJSON.canonicalNumber(toneEngine.blackAnchorEV)],
+                [develop.mixer, develop.pointColors, develop.color,
+                 look.primaries, look.bw, look.wheels, look.printerLights])
+            self.colorGradeLUT = key.map {
+                PlanTableCache.table(.colorGrade, key: $0, size: lutSize, build: bake)
+            } ?? bake()
         }
 
         // ---- S14 + S15 -------------------------------------------------------
@@ -129,16 +143,48 @@ public struct RenderPlan: Sendable {
         let white = transform.white
         let scale = Swift.max(white, 1e-6)
         self.finishScale = scale
-        self.finishLUT = LUT3D(size: lutSize) { encoded in
-            let scene = LumenLog.decode(encoded)
-            let formed: RGB
-            if let chain {
-                formed = chain.apply(scene)
-            } else {
-                formed = transform.apply(scene, gamut: boundary)
+        // The single most expensive thing a plan does, and the one least likely to have
+        // changed since the last frame. `transform` comes from the render preset, the
+        // display white target and the tone ANCHORS — and the anchors move only with
+        // Whites and Blacks — so Exposure, Contrast, Highlights, Shadows, the zones, all
+        // of presence and denoise and sharpening, every mask and the vignette leave this
+        // table bit-identical while the user drags them.
+        //
+        // `boundary` is `Gamut.sharedBoundary`, one object for the whole process, so it
+        // is a constant rather than a key component.
+        let bakeFinish = {
+            LUT3D(size: lutSize) { encoded in
+                let scene = LumenLog.decode(encoded)
+                let formed: RGB
+                if let chain {
+                    formed = chain.apply(scene)
+                } else {
+                    formed = transform.apply(scene, gamut: boundary)
+                }
+                return curve.apply(formed, white: white, space: space) / scale
             }
-            return curve.apply(formed, white: white, space: space) / scale
         }
+        // `FilmLab` has no default value to stand in for "no film", and substituting a
+        // literal marker for an unencodable one would let a real stock collide with the
+        // absence of one. Absent keys as "-", present-but-unencodable fails the key.
+        let filmPart: String?
+        if let film = look.filmLab {
+            filmPart = (try? CanonicalJSON.tree(of: film)).map(CanonicalJSON.serialize)
+        } else {
+            filmPart = "-"
+        }
+        let finishKey = filmPart.flatMap { film in
+            PlanTableCache.key(
+                ["fin", "\(lutSize)", "\(space)", film,
+                 CanonicalJSON.canonicalNumber(white),
+                 CanonicalJSON.canonicalNumber(toneEngine.whiteAnchorEV),
+                 CanonicalJSON.canonicalNumber(toneEngine.blackAnchorEV),
+                 displayWhiteTarget.map(CanonicalJSON.canonicalNumber) ?? "-"],
+                [look.render, develop.curve])
+        }
+        self.finishLUT = finishKey.map {
+            PlanTableCache.table(.finish, key: $0, size: lutSize, build: bakeFinish)
+        } ?? bakeFinish()
 
         // ---- carried through --------------------------------------------------
         self.detail = develop.detail

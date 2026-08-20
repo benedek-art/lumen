@@ -6,3 +6,6 @@ xcuserdata/
 DerivedData/
 /dist/
 __pycache__/
+
+# Agent worktrees: real git repos living inside this one, never content of it.
+.claude/worktrees/
