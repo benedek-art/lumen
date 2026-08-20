@@ -520,8 +520,12 @@ private struct ExportRecipeEditor: View {
         let base = AppState.renderFilename(template: recipe.filenameTemplate,
                                            source: previewSource, recipeName: recipe.name)
         let file = base + "." + recipe.format.fileExtension
-        if let sub = recipe.subfolder, !sub.isEmpty { return sub + "/" + file }
-        return file
+        // Through the same sanitizer the exporter uses. Concatenating the raw string
+        // here meant the preview showed `../../secrets/x.jpg` for a subfolder the
+        // exporter would have written as `secrets/x.jpg` — a preview that lies about
+        // precisely the input a user would be checking it for.
+        let sub = ExportRecipe.sanitizedSubfolderPath(recipe.subfolder)
+        return sub.isEmpty ? file : sub + "/" + file
     }
 
     // MARK: Metadata

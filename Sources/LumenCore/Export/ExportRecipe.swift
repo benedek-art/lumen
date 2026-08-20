@@ -314,6 +314,42 @@ public struct ExportRecipe: Codable, Equatable, Sendable, Identifiable {
     public static var defaults: [ExportRecipe] {
         [webJPEG, printTIFF, hdrHEIC, archiveOriginalSize]
     }
+
+    /// The path components `subfolder` actually contributes, sanitized.
+    ///
+    /// Here rather than in the app layer, and shared, for two reasons. It is a security
+    /// boundary — `appendingPathComponent` appends a multi-component string verbatim
+    /// and the exporter then creates intermediate directories, so a subfolder of
+    /// `../../..` writes outside the folder the open panel granted, which is the one
+    /// thing that panel exists to decide. And the export sheet's filename PREVIEW was
+    /// building its own path by string concatenation with no sanitizing at all, so for
+    /// exactly the inputs that matter it showed the user a path the exporter would not
+    /// use. One function, both callers, one answer.
+    ///
+    /// `LumenApp` has no test target; `LumenCore` does.
+    public static func sanitizedSubfolderComponents(_ subfolder: String?) -> [String] {
+        guard let subfolder, !subfolder.isEmpty else { return [] }
+        var out: [String] = []
+        // Backslash separates too: a subfolder pasted from a Windows path would
+        // otherwise become one component containing separators.
+        for component in subfolder.split(whereSeparator: { $0 == "/" || $0 == "\\" }) {
+            let cleaned = component
+                .replacingOccurrences(of: ":", with: "-")
+                .trimmingCharacters(in: .whitespaces)
+            // "." and ".." are the two that mean "somewhere else"; a leading separator
+            // is already gone because `split` drops the empty component it produces,
+            // which is what keeps an absolute path from staying absolute.
+            guard !cleaned.isEmpty, cleaned != ".", cleaned != ".." else { continue }
+            out.append(cleaned)
+        }
+        return out
+    }
+
+    /// The same components as a display string — what a preview must show, so that the
+    /// preview and the written path cannot disagree.
+    public static func sanitizedSubfolderPath(_ subfolder: String?) -> String {
+        sanitizedSubfolderComponents(subfolder).joined(separator: "/")
+    }
 }
 
 // MARK: - HDR

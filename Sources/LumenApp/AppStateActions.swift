@@ -174,19 +174,12 @@ extension AppState {
 
     static func destination(directory: URL, source: URL, recipe: ExportRecipe) -> URL {
         var folder = directory
-        if let sub = recipe.subfolder, !sub.isEmpty {
-            // `appendingPathComponent` appends a multi-component string verbatim, and
-            // the caller then creates intermediate directories — so a subfolder of
-            // `../../..` writes outside the folder the open panel granted, which is
-            // the one thing that panel exists to decide. Split it, sanitize each
-            // component, and drop the ones that mean "go up".
-            for component in sub.split(separator: "/") {
-                let cleaned = component
-                    .replacingOccurrences(of: ":", with: "-")
-                    .trimmingCharacters(in: .whitespaces)
-                guard !cleaned.isEmpty, cleaned != ".", cleaned != ".." else { continue }
-                folder = folder.appendingPathComponent(cleaned, isDirectory: true)
-            }
+        // Sanitizing lives in LumenCore so the export sheet's preview can call the same
+        // function — it used to build its own path by concatenation, and so disagreed
+        // with what actually got written for exactly the inputs that matter. See
+        // `ExportRecipe.sanitizedSubfolderComponents`.
+        for component in ExportRecipe.sanitizedSubfolderComponents(recipe.subfolder) {
+            folder = folder.appendingPathComponent(component, isDirectory: true)
         }
         let base = renderFilename(template: recipe.filenameTemplate, source: source,
                                   recipeName: recipe.name)

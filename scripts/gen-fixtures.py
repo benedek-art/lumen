@@ -1486,9 +1486,15 @@ def gen_spatial_primitive_checks():
           "an accepted ref carried path syntax")
 
     # --- the export subfolder must not escape the chosen directory ---------
+    # Mirror of `ExportRecipe.sanitizedSubfolderComponents`, which now lives in
+    # LumenCore precisely so it can be tested. Until it moved there this function
+    # mirrored NOTHING: the real logic was inline in `AppStateActions.destination`,
+    # in a target with no test target, and the export sheet's preview built its own
+    # path by concatenation with no sanitizing at all — so the preview and the
+    # written path disagreed for exactly the inputs this exists to catch.
     def sanitize_subfolder(sub):
         out = []
-        for component in sub.split("/"):
+        for component in re.split(r"[/\\]", sub or ""):
             cleaned = component.replace(":", "-").strip()
             if not cleaned or cleaned in (".", ".."):
                 continue
@@ -1496,12 +1502,16 @@ def gen_spatial_primitive_checks():
         return out
 
     for hostile in ("../../..", "..", "./../etc", "a/../../b", "/etc/passwd",
-                    "//..//..//", "  ..  /x"):
+                    "//..//..//", "  ..  /x", "..\\..\\Windows", "C:/Users",
+                    ".", "", "/"):
         parts = sanitize_subfolder(hostile)
-        check(all(p not in (".", "..") and "/" not in p for p in parts),
+        check(all(p not in (".", "..") and "/" not in p and "\\" not in p
+                  for p in parts),
               f"subfolder {hostile!r} survived sanitizing as {parts}")
     check(sanitize_subfolder("Web/2026") == ["Web", "2026"],
           "an ordinary subfolder was mangled")
+    check(sanitize_subfolder("") == [] and sanitize_subfolder(None) == [],
+          "an absent subfolder produced components")
 
     print("  constant fixed point, edge preservation, no overshoot, hostile refs refused")
 

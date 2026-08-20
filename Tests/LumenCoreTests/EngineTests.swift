@@ -365,6 +365,53 @@ final class EngineTests: XCTestCase {
 
     // MARK: - Export
 
+    /// The export subfolder is a security boundary: `appendingPathComponent` appends a
+    /// multi-component string verbatim and the exporter then creates intermediate
+    /// directories, so `../../..` writes outside the folder the open panel granted —
+    /// the one thing that panel exists to decide.
+    ///
+    /// It had no test. The logic was inline in `AppStateActions`, a target with no test
+    /// target, and the reference implementation's "check" of it defined its own copy
+    /// inline and verified that — mirroring nothing. It now lives in `LumenCore` and
+    /// both the exporter and the sheet's preview call it.
+    func testExportSubfolderCannotEscapeTheChosenDirectory() {
+        for hostile in ["../../..", "..", "./../etc", "a/../../b", "/etc/passwd",
+                        "//..//..//", "  ..  /x", "..\\..\\Windows", "C:/Users",
+                        ".", "/", "../"] {
+            let parts = ExportRecipe.sanitizedSubfolderComponents(hostile)
+            for part in parts {
+                XCTAssertFalse(part == "." || part == "..",
+                               "\(hostile) survived as a traversal component")
+                XCTAssertFalse(part.contains("/") || part.contains("\\"),
+                               "\(hostile) survived carrying a separator: \(part)")
+                XCTAssertFalse(part.contains(":"),
+                               "\(hostile) survived carrying a colon: \(part)")
+                XCTAssertFalse(part.isEmpty)
+            }
+        }
+
+        // Ordinary subfolders are untouched — a sanitizer that mangled real input
+        // would be its own bug.
+        XCTAssertEqual(ExportRecipe.sanitizedSubfolderComponents("Web/2026"),
+                       ["Web", "2026"])
+        XCTAssertEqual(ExportRecipe.sanitizedSubfolderComponents("hdr"), ["hdr"])
+        XCTAssertEqual(ExportRecipe.sanitizedSubfolderComponents(nil), [])
+        XCTAssertEqual(ExportRecipe.sanitizedSubfolderComponents(""), [])
+
+        // "C:/Users" keeps its components, with the colon replaced — it is a mangled
+        // paste, not an attack, and dropping it silently would lose the user's folder.
+        XCTAssertEqual(ExportRecipe.sanitizedSubfolderComponents("C:/Users"),
+                       ["C-", "Users"])
+
+        // The preview and the written path must agree, which is why they share this.
+        for sub in ["Web/2026", "../../etc", "C:/Users", "", "a/../b"] {
+            XCTAssertEqual(ExportRecipe.sanitizedSubfolderPath(sub),
+                           ExportRecipe.sanitizedSubfolderComponents(sub)
+                               .joined(separator: "/"),
+                           "the preview path and the written path diverged for \(sub)")
+        }
+    }
+
     func testResizeNeverUpscalesByDefault() {
         var r = ExportRecipe(name: "t", resizeMode: .longEdge, resizeValue: 4000)
         let size = r.targetSize(sourceWidth: 2000, sourceHeight: 1000)
