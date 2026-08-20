@@ -225,6 +225,83 @@ These are tracked, not hidden.
   it would produce a tool that draws the wrong rectangle. The ratio menu is the whole
   crop surface for now, and it says so.
 
+### What the engine, masking, panel and dailies audits found
+
+Four more adversarial passes — the GPU kernel layer, the masking system end to end,
+every develop panel's bindings, and the scopes/zones/heal group — found the following.
+Everything below is FIXED unless it says otherwise.
+
+The two most-used presence sliders were doing about a twenty-fifth of what they said.
+`Texture` and `Clarity` take a gain exponent per stop, but the plane their detail bands
+come off is LumenLog-encoded — 24 stops squeezed into [0,1] — so `exp2(k·Δ)` computed
+`2^(k·ΔEV/24)`. Texture at +100 moved local contrast by 2.6% where the reference moves
+it by 100%, on every preview and every export and inside every mask. **Dehaze** blew the
+picture out from the other direction: airlight was the MEAN of the dark channel rather
+than its brightest fraction, which collapsed the transmission, and a 0.1 floor then
+allowed tenfold amplification — +50 put a tenth of a test frame above scene white and
++100 put nearly half of it there, clipping. The presence stages also ran in a different
+ORDER from the reference (dehaze first rather than last), so any two of the three set
+made the paths disagree by construction.
+
+**On-image mask gestures landed somewhere other than where they were dragged.** The
+canvas normalized against the cropped preview and stored the result as a
+source-normalized coordinate, and was handed the cropped extent as the source size — so
+on a left-half crop of a 6000 px frame a radial dropped at the visual centre was written
+1500 source pixels away, and a brush painted about three times wider than its cursor
+ring. **Painting one stroke could delete every earlier stroke** on that component: the
+canvas appends to the set it is handed, and that came from the memory cache alone, so a
+miss meant the next stroke replaced an hour of masking with itself. **Brush Automask**
+was dead on the shipping path, and the **mask overlay** — the app's only way to LOOK at
+a mask — always drew a flat tint over the whole frame, which reads as "this mask selects
+everything".
+
+**Protect Skin protected everything except skin.** `skinLineDegrees` was the NTSC I-bar
+measured from +b while both consumers read it from +a, so `skinWeight` scored zero on
+every representative skin tone and high on brick and fire-engine red — with the control
+on by default at 70, and the vectorscope's skin graticule equally wrong.
+
+Smaller, all fixed: the vignette was centred on the sensor rather than the crop;
+`ReferenceRenderer` dropped `finishScale`, so every HDR-target render on that path came
+out `1/white` too dark; the two paths used different grain seeds, so no golden could
+ever compare grain; a mask's Amount did not scale its Point Colour swatches; the
+histogram's "Working %" printed the encoded axis value, disagreeing with the loupe's
+readout by 2.6× in the shadows for the same pixel; the curve editor's histogram backdrop
+was always nil; `toneGainCubeCached` was a `lazy var` on a struct, so no `let`-held plan
+could call it and 32 768 samples were rebaked every frame; and double-clicking a slider
+label PINNED an "auto" value instead of clearing it — resetting Temp wrote 5500 K and
+changed the picture.
+
+### Still open, from those audits
+
+- **The Zones panel has no user interface.** The engine is complete and reaches pixels —
+  `ToneEngine.zonePanelStops` → `bakeGainLUT` → both render paths — but nothing in
+  `LumenApp` ever writes `develop.zones`, and the pivot ticks drawn on the histogram are
+  not draggable. `ZoneAdjust.wheel`, `.sat` and `.falloff` are a wire format no stage
+  reads. So the advanced tonal register docs/04 describes cannot be opened at all.
+- **Heal/clone does not exist on any path.** `Heal { strokesRef, count }` is declared and
+  wired into `Develop`, and there is no writer, no blob loader and no render stage. A
+  recipe arriving with `heal.count = 40` renders with all forty spots present and nothing
+  says so.
+- **Speed Edit (D44) is not implemented.** Correctly absent from the keyboard reference,
+  so nobody is sent looking for it.
+- **There is no eyedropper anywhere.** The white-balance solver has no way to sample
+  scene-linear values; Point Colour swatches and mask colour samples can only ever be
+  seeded at 18% grey, which makes Colour Range, both Similarity kinds and the local
+  Colour tint unable to reference a colour the user picked. All now labelled.
+- **The histogram draws the zone windows on the wrong axis.** Pivots are normalized
+  positions on the scene-EV axis; the histogram plots them on the display-encoded axis,
+  so the ticks sit up to 88 code values from where the zone system puts them. Today that
+  only misreports the "% of pixels" figure; it becomes a real editing error the moment
+  the pivots are made draggable.
+- **The advertised CPU fallback does not exist.** `renderReference` has no caller, the
+  "CPU fallback" badge is attached to GPU-rendered frames, and `coreAvailable` checks 4
+  of 15 kernels — so most kernel failures produce no badge at all, and each stage just
+  returns its input.
+- Creative sharpening is not resolution-scaled, so an export is less sharpened than the
+  frame the user judged; `RenderGraph.Options.lutSize` is dead and mask tables run at
+  33³ even on export; and the waveform grows blank columns on crops narrower than 256
+  proxy pixels.
+
 ### What the fourth audit found
 
 An adversarial pass over the catalog, export, XMP, HDR and app layers — everything
