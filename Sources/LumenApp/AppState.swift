@@ -341,7 +341,44 @@ final class AppState: ObservableObject {
     private(set) var catalog: CatalogService?
     let renderCoordinator = RenderCoordinator()
 
-    @Published var exportRecipes: [ExportRecipe] = ExportRecipe.defaults
+    /// The export recipes, as edited. Persisted on every change.
+    ///
+    /// This was pure memory: no UserDefaults, no @AppStorage, and nothing anywhere
+    /// reads or writes the `export_recipe` table the schema declares. The sheet's +,
+    /// duplicate and delete buttons and every setting on them — watermark text, naming
+    /// template, subfolder, size, colour space — survived exactly as long as the
+    /// process, and relaunching put the four stock recipes back with no warning.
+    ///
+    /// Written on `didSet` rather than at quit, because a crash must not cost the user
+    /// the delivery preset they just built.
+    @Published var exportRecipes: [ExportRecipe] = AppState.loadExportRecipes() {
+        didSet {
+            guard exportRecipes != oldValue else { return }
+            AppState.saveExportRecipes(exportRecipes)
+        }
+    }
+
+    private static let exportRecipesKey = "dev.lumenapp.exportRecipes"
+
+    private static func loadExportRecipes() -> [ExportRecipe] {
+        guard let data = UserDefaults.standard.data(forKey: exportRecipesKey),
+              let stored = try? JSONDecoder().decode([ExportRecipe].self, from: data),
+              !stored.isEmpty else {
+            return ExportRecipe.defaults
+        }
+        return stored
+    }
+
+    private static func saveExportRecipes(_ recipes: [ExportRecipe]) {
+        guard let data = try? JSONEncoder().encode(recipes) else {
+            // Nothing to do but keep the last good copy: overwriting it with nothing
+            // would turn a serialization bug into the loss of the user's presets.
+            NSLog("Lumen: could not serialize the export recipes; left the stored "
+                  + "copy alone")
+            return
+        }
+        UserDefaults.standard.set(data, forKey: exportRecipesKey)
+    }
     @Published var isExporting = false
     @Published var exportProgress: Double = 0
 
@@ -794,6 +831,29 @@ final class AppState: ObservableObject {
             let id = allPhotos.first(where: { $0.id == url })?.catalogID
             catalog.saveRecipe(recipe, url: url, catalogID: id)
         }
+    }
+
+    // MARK: Shutdown and maintenance
+
+    /// Everything that must happen before the process goes away.
+    ///
+    /// Sidecar writes coalesce over a two-second window, so quitting inside it dropped
+    /// them: the flags and ratings from the last moments of a culling session reached
+    /// the catalog and never reached the disk beside the photos. `close` flushes the
+    /// pending batch and then checkpoints and closes the database. It is synchronous
+    /// because `applicationWillTerminate` is the last moment anything runs.
+    func prepareToQuit() {
+        catalog?.close()
+    }
+
+    /// A consistent snapshot of the catalog, via `VACUUM INTO`.
+    func backUpCatalog() {
+        guard let catalog else {
+            statusMessage = "No catalog to back up"
+            return
+        }
+        catalog.backup()
+        statusMessage = "Backing up the catalog…"
     }
 
     func undo() { apply(history.undo()) }

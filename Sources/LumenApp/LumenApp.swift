@@ -5,11 +5,32 @@
 
 #if os(macOS)
 
+import AppKit
 import SwiftUI
+
+/// Exists for one reason: something has to run at quit.
+///
+/// `CatalogService.close` and `backup` had no callers anywhere — no delegate, no
+/// `.onDisappear`, no termination hook — so flags, ratings and recipes written in the
+/// last two seconds before ⌘Q never left the debounce window and never reached their
+/// sidecar, and the WAL was never checkpointed. `VACUUM INTO` backups were implemented
+/// and untakeable: a photographer had no way to back the catalog up from inside the
+/// app. `applicationWillTerminate` is synchronous, which is what this needs — the
+/// pending sidecar flush has to complete before the process goes away.
+final class LumenAppDelegate: NSObject, NSApplicationDelegate {
+    weak var state: AppState?
+
+    func applicationWillTerminate(_ notification: Notification) {
+        MainActor.assumeIsolated {
+            state?.prepareToQuit()
+        }
+    }
+}
 
 @main
 struct LumenApp: App {
     @StateObject private var state = AppState()
+    @NSApplicationDelegateAdaptor(LumenAppDelegate.self) private var delegate
 
     var body: some Scene {
         WindowGroup("Lumen") {
@@ -18,6 +39,7 @@ struct LumenApp: App {
                 // Neutral dark chrome, always: the surround must not bias a colour
                 // judgement about the photograph (docs/00 Law 7).
                 .preferredColorScheme(.dark)
+                .onAppear { delegate.state = state }
         }
         .commands {
             CommandGroup(replacing: .newItem) {
@@ -25,6 +47,12 @@ struct LumenApp: App {
                     .keyboardShortcut("o", modifiers: [.command])
                 Button("Ingest from Card…") { state.showIngestSheet = true }
                     .keyboardShortcut("i", modifiers: [.command, .shift])
+                Divider()
+                // `VACUUM INTO` was implemented in CatalogService and had no caller, so
+                // the one maintenance action a photographer actually wants was
+                // unreachable from inside the app.
+                Button("Back Up Catalog") { state.backUpCatalog() }
+                    .disabled(state.catalog == nil)
             }
 
             CommandGroup(replacing: .undoRedo) {
