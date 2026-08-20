@@ -22,6 +22,8 @@ Mirrored contracts (change BOTH sides together):
   MaskRaster.swift      <-> radial_alpha / edge_engagement
   DenoiseEngine.swift   <-> vst_inverse_blend
   DisplayTransform.swift<-> DisplayTransform
+  SpatialOps.swift      <-> box_blur / guided_filter
+  BlobStore.swift       <-> blob_filename
   XMPSidecar.swift      <-> xmp_serialize
   RenameTemplate.swift  <-> rename_render
 """
@@ -1199,6 +1201,159 @@ def gen_display_transform_checks():
 
 
 # ---------------------------------------------------------------------------
+# The spatial primitive everything is built on, and the blob-ref validator
+#
+#   SpatialOps.swift <-> box_blur / guided_filter
+#   BlobStore.swift  <-> blob_filename
+# ---------------------------------------------------------------------------
+
+def clamped(p, w, h, x, y):
+    return p[min(max(y, 0), h - 1) * w + min(max(x, 0), w - 1)]
+
+
+def box_blur(p, w, h, radius):
+    if radius <= 0:
+        return list(p)
+    r = min(radius, max(w, h))
+    n = float(2 * r + 1)
+    tmp = [0.0] * (w * h)
+    for y in range(h):
+        s = sum(clamped(p, w, h, k, y) for k in range(-r, r + 1))
+        tmp[y * w] = s / n
+        for x in range(1, w):
+            s += clamped(p, w, h, x + r, y) - clamped(p, w, h, x - r - 1, y)
+            tmp[y * w + x] = s / n
+    out = [0.0] * (w * h)
+    for x in range(w):
+        s = sum(clamped(tmp, w, h, x, k) for k in range(-r, r + 1))
+        out[x] = s / n
+        for y in range(1, h):
+            s += clamped(tmp, w, h, x, y + r) - clamped(tmp, w, h, x, y - r - 1)
+            out[y * w + x] = s / n
+    return out
+
+
+def guided_filter(inp, guide, w, h, radius, epsilon):
+    if radius <= 0:
+        return list(inp)
+    eps = max(epsilon, 1e-12)
+    mean_i = box_blur(guide, w, h, radius)
+    mean_p = box_blur(inp, w, h, radius)
+    corr_i = box_blur([g * g for g in guide], w, h, radius)
+    corr_ip = box_blur([g * p for g, p in zip(guide, inp)], w, h, radius)
+    a, b = [0.0] * (w * h), [0.0] * (w * h)
+    for i in range(w * h):
+        var_i = max(corr_i[i] - mean_i[i] * mean_i[i], 0.0)
+        cov = corr_ip[i] - mean_i[i] * mean_p[i]
+        av = cov / (var_i + eps)
+        a[i] = av
+        b[i] = mean_p[i] - av * mean_i[i]
+    mean_a = box_blur(a, w, h, radius)
+    mean_b = box_blur(b, w, h, radius)
+    return [mean_a[i] * guide[i] + mean_b[i] for i in range(w * h)]
+
+
+def blob_filename(ref):
+    """Mirror of BlobStore.filename(for:) — the untrusted-reference gate."""
+    parts = ref.split(":")
+    if len(parts) != 3 or parts[0] != "blob":
+        return None
+    algorithm, digest = parts[1], parts[2]
+    if algorithm != "xxh64" or len(digest) != 16:
+        return None
+    for ch in digest:
+        if not (ch.isdigit() or ("a" <= ch <= "f")):
+            return None
+    return algorithm + "-" + digest + ".blob"
+
+
+def gen_spatial_primitive_checks():
+    print("guided filter + blob reference validation ...")
+
+    w, h = 48, 16
+
+    # A constant plane must blur to itself EXACTLY, borders included. The whole
+    # edge convention (clamped repeats, divided by the full window) rests on it.
+    for radius in (1, 3, 8, 40):
+        flat = [0.37] * (w * h)
+        out = box_blur(flat, w, h, radius)
+        check(max(abs(v - 0.37) for v in out) < 1e-12,
+              f"constant plane did not blur to itself at radius {radius}")
+
+    # A constant plane is a fixed point of the guided filter too.
+    flat = [0.37] * (w * h)
+    gf = guided_filter(flat, flat, w, h, 4, 0.01)
+    check(max(abs(v - 0.37) for v in gf) < 1e-9, "guided filter moved a constant plane")
+
+    # The defining property, stated the way the docstring states it: epsilon is a
+    # VARIANCE threshold in the guide's own units, so the filter smooths anything
+    # flatter than sqrt(eps) and keeps anything above it. Testing that directly is
+    # worth more than testing "it smooths", and it is the semantics anyone reading
+    # a call site has to trust.
+    eps = 0.0008
+    threshold = math.sqrt(eps)                      # 0.0283
+    step = [0.2 if (i % w) < w // 2 else 0.8 for i in range(w * h)]
+
+    def interior_swing(amp):
+        noisy = [v + (amp if (i // w + i % w) % 2 == 0 else -amp)
+                 for i, v in enumerate(step)]
+        out = guided_filter(noisy, noisy, w, h, 4, eps)
+        left = [out[y * w + x] for y in range(4, h - 4) for x in range(4, w // 2 - 6)]
+        right = [out[y * w + x] for y in range(4, h - 4)
+                 for x in range(w // 2 + 6, w - 4)]
+        swing = max(max(left) - min(left), max(right) - min(right))
+        edge = sum(right) / len(right) - sum(left) / len(left)
+        return swing, edge, out
+
+    quiet_amp = threshold / 4
+    swing, edge, out = interior_swing(quiet_amp)
+    check(swing < 2 * quiet_amp * 0.35,
+          f"noise well under sqrt(eps) was kept: {swing:.4f} of {2 * quiet_amp:.4f}")
+    check(edge > 0.6 * 0.8, f"guided filter smeared the step: {edge:.3f} of 0.6")
+    # No overshoot — the whole reason this is an affine model and not a bilateral.
+    check(min(out) > 0.2 - 0.02 and max(out) < 0.8 + 0.02,
+          f"guided filter overshot: [{min(out):.3f}, {max(out):.3f}]")
+
+    loud_amp = threshold * 3.5
+    swing, edge, _ = interior_swing(loud_amp)
+    check(swing > 2 * loud_amp * 0.5,
+          f"detail well over sqrt(eps) was smoothed away: {swing:.4f} of {2 * loud_amp:.4f}")
+    check(edge > 0.6 * 0.8, f"guided filter smeared the step under load: {edge:.3f}")
+
+    # --- the blob reference gate ------------------------------------------
+    good = "blob:xxh64:0123456789abcdef"
+    check(blob_filename(good) == "xxh64-0123456789abcdef.blob", "a valid ref was refused")
+    hostile = [
+        "blob:xxh64:../../../etc/pas",     # right length, path characters
+        "blob:xxh64:0123456789ABCDEF",     # uppercase
+        "blob:xxh64:0123456789abcde",      # short
+        "blob:xxh64:0123456789abcdef0",    # long
+        "blob:sha256:0123456789abcdef",    # wrong algorithm
+        "blob:xxh64:0123456789abcde/",
+        "blob:xxh64:../a/../b/../c/x",
+        "file:xxh64:0123456789abcdef",
+        "blob:xxh64:",
+        "blob:xxh64",
+        "",
+        "blob:xxh64:0123456789abcde\n",
+        "blob:xxh64:zzzzzzzzzzzzzzzz",
+        "../../blob:xxh64:0123456789abcdef",
+    ]
+    for ref in hostile:
+        name = blob_filename(ref)
+        check(name is None,
+              f"hostile blob ref accepted: {ref!r} -> {name!r}")
+        if name is not None:
+            continue
+    # Nothing that survives can contain a path separator or a dot-segment.
+    check(all(("/" not in n and "\\\\" not in n and ".." not in n)
+              for n in [blob_filename(good)]),
+          "an accepted ref carried path syntax")
+
+    print("  constant fixed point, edge preservation, no overshoot, hostile refs refused")
+
+
+# ---------------------------------------------------------------------------
 
 def main():
     gen_canonical_fixture()
@@ -1212,6 +1367,7 @@ def main():
     gen_engine_checks()
     gen_spatial_checks()
     gen_display_transform_checks()
+    gen_spatial_primitive_checks()
     if FAILURES:
         print(f"\n{len(FAILURES)} verification failure(s)")
         sys.exit(1)
