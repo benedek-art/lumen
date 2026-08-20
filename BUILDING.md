@@ -135,6 +135,39 @@ Three layers of checking, in order of strength:
 reference — fix the Swift, not the fixture.** Change a fixture only for an intentional
 format change, and say so in the commit.
 
+## The units bug this codebase keeps making
+
+Four separate defects, found on four separate days, are the same mistake: **a
+constant denominated in EV, applied to a `LumenLog`-encoded plane.** One stop is
+`1/LumenLog.range` = 1/24 of an encoded unit, so a number carried across without
+converting is wrong by 24 if it is a slope and by 576 if it is a variance.
+
+| Where | Was | Should have been | What it did |
+|---|---|---|---|
+| `applySharpen`'s gain exponent | `k` | `k · range` | Texture and Clarity moved the picture by 1/25 of what they said |
+| Presence guided bases | ε = 0.0008, 0.004 | ε / range² | Bases blurred across 50.6% of a 3 EV step; Clarity left a 0.72 EV trench beside every hard edge |
+| Dehaze transmission refinement | ε = 0.0025 on the dark channel | `0.02 / range²` on log luminance | Transmission inherited the dark channel's blocky edges |
+| Structure tensor thresholds | raw gradient | gradient × range | Masking kept 17.8% of the sharpening on an edge instead of 73.7% |
+
+The tell is always the same: a threshold that sounds reasonable in stops —
+"a tenth of a stop", "0.02 EV/px" — sitting next to a plane produced by
+`logLuminance`, which is encoded and not EV.
+
+Two rules that would have caught all four:
+
+1. **Write the conversion, not the result.** `DetailEngine.baseEpsilon /
+   (LumenLog.range * LumenLog.range)`, never `1.736e-5`. The reader can check
+   the first and can only trust the second.
+2. **Say the unit at every boundary.** A kernel taking a threshold should say in
+   its doc comment which plane it expects, and `structureTensor` now scales into
+   EV at the source so there is one denomination downstream rather than each
+   reader choosing.
+
+The tone mask is the one place ε = 0.004 on an encoded plane is *correct*:
+`ReferenceRenderer.applyTone` encodes with `LumenLog` too and passes the same
+number, so both paths agree and the softness is a shared choice about a selection
+mask. Check the reference before "fixing" it.
+
 ## The architecture, in one page
 
 Rendering is a pure function of `(original, recipe, pipelineVersion, target)`. Nothing

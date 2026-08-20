@@ -196,7 +196,9 @@ public struct RenderGraph {
         return out
     }
 
-    /// The two detail-band gains, off one decomposition of `lum`.
+    /// Texture and Clarity, each the picture minus its own guided base. Neither
+    /// base is built unless its slider is off zero, so this is one guided filter
+    /// for a one-slider recipe rather than two for every recipe.
     private static func applyDetailBands(_ image: CIImage, detail d: Detail,
                                          lum: CIImage, longEdge: Int) -> CIImage {
         var out = image
