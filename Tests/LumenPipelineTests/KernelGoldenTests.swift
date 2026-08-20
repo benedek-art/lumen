@@ -77,6 +77,72 @@ final class KernelGoldenTests: XCTestCase {
                               + "per-channel again, not a luminance ratio")
     }
 
+    // MARK: - Presence must not put a rim on an edge
+
+    /// Clarity and Texture must not trench the dark side of an edge.
+    ///
+    /// A guided filter's ε is a contrast threshold squared, and these ran on a
+    /// `LumenLog`-encoded plane with values that meant 0.68 EV and 1.52 EV rather than
+    /// the reference's 0.1. A one-and-a-half stop edge was therefore inside the
+    /// threshold and the base blurred straight across it — measured, 50.6% of a 3 EV
+    /// step — so the band contained the edge and a gain on the band put a rim either
+    /// side. On a clean step, Clarity at +100 left 0.72 EV of trench against the
+    /// reference local Laplacian's 0.066.
+    ///
+    /// A clean step with texture only on the flat sides is the classic test, and it has
+    /// to be clean: on a noisy edge the rim hides inside the noise, which is why this
+    /// went unnoticed while every other test passed.
+    func testPresenceDoesNotRimAHardEdge() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+        let width = 128, height = 64
+        // 0.09 linear on the left, 0.72 on the right: three stops, hard. Fine texture
+        // on both flats and none within 12 px of the step.
+        let source = ImageBuffer(width: width, height: height) { u, _ in
+            let x = u * Double(width)
+            let base = x < Double(width) / 2 ? 0.09 : 0.72
+            let away = abs(x - Double(width) / 2) > 12
+            let texture = away ? 1.0 + 0.08 * sin(x / 2.0) : 1.0
+            return RGB(gray: base * texture)
+        }
+        let input = ciImage(from: source)
+
+        for (name, detail) in [("clarity", { () -> Detail in
+                                    var d = Detail(); d.clarity = 100; return d }()),
+                               ("texture", { () -> Detail in
+                                    var d = Detail(); d.texture = 100; return d }())] {
+            let output = RenderGraph.applyPresence(input, detail: detail, longEdge: 1600)
+            guard let before = readBack(input, width: width, height: height),
+                  let after = readBack(output, width: width, height: height)
+            else { return XCTFail("\(name) render failed") }
+
+            let row = height / 2
+            // The dark plateau's own maximum, away from the step.
+            var plateau = 0.0
+            for x in 20..<50 { plateau = Swift.max(plateau, Double(before[x, row].g)) }
+            // How far BELOW that the output dips in the eight pixels before the step.
+            var trench = 0.0
+            for x in (width / 2 - 8)..<(width / 2) {
+                trench = Swift.max(trench, plateau - Double(after[x, row].g))
+            }
+            // In stops, so the bar means the same thing at any exposure.
+            let trenchEV = trench > 0 ? log2((plateau + 1e-9) / Swift.max(plateau - trench, 1e-9))
+                                      : 0
+            XCTAssertLessThan(trenchEV, 0.30,
+                              "\(name) at +100 dug a \(trenchEV) EV trench on the dark "
+                                  + "side of a clean edge — the guided base is smoothing "
+                                  + "across the step, so the band carries the edge")
+
+            // And it still has to DO something, or a stage that returns its input passes.
+            var moved = 0.0
+            for x in 20..<50 {
+                moved = Swift.max(moved, before[x, row].maxAbsDifference(after[x, row]))
+            }
+            XCTAssertGreaterThan(moved, 1e-4,
+                                 "\(name) at +100 changed nothing on textured flat "
+                                     + "ground, so this proves nothing")
+        }
+    }
+
     /// Dehaze must not drive scene-linear pixels below zero.
     ///
     /// The transmission divides the recombination, so a transmission that reads too

@@ -201,19 +201,37 @@ public struct RenderGraph {
                                          lum: CIImage, longEdge: Int) -> CIImage {
         var out = image
 
-        // One decomposition, two bands: texture is the fine scale, clarity the mid
-        // scale. Both come off guided filters, so neither can halo.
-        // Rounded, not truncated, and floored at 2 like every other radius in this
-        // file. `Int(longEdge * 0.003)` is 0 for any long edge below 334 px — every
-        // thumbnail and grid preview in the app — and the old floor of 1 is the radius
-        // CIBoxBlur ignores, so Texture was inert across that whole range rather than
-        // merely coarse. The tone mask and dehaze already floor at 2 and 3; 1 was the
-        // outlier.
+        // Two bands, each the picture minus its own guided base. Rounded, not
+        // truncated, and floored at 2 like every other radius in this file.
+        // `Int(longEdge * 0.003)` is 0 for any long edge below 334 px — every thumbnail
+        // and grid preview in the app — and the old floor of 1 is the radius CIBoxBlur
+        // ignores, so Texture was inert across that whole range rather than merely
+        // coarse. The tone mask and dehaze already floor at 2 and 3; 1 was the outlier.
         let fine = Swift.max(Int((Double(longEdge) * 0.003).rounded()), 2)
         let mid = Swift.max(Int((Double(longEdge) * 0.02).rounded()), 3)
-        guard let baseFine = Self.guidedSelfFilter(lum, radius: fine, epsilon: 0.0008),
-              let baseMid = Self.guidedSelfFilter(lum, radius: mid, epsilon: 0.004)
-        else { return out }
+
+        // A guided filter's ε is a CONTRAST THRESHOLD SQUARED: `a = var / (var + ε)`, so
+        // √ε is the excursion across the window below which the window is treated as one
+        // surface. The reference names its own — `baseEpsilon = 0.01`, "√0.01 = 0.1 EV:
+        // anything flatter than a tenth of a stop across the window is one surface" —
+        // and it applies it to a plane in EV.
+        //
+        // This plane is `LumenLog`-encoded, where a stop is 1/24 of a unit, so an ε that
+        // means 0.1 EV here is smaller by `range²`. The values were 0.0008 and 0.004,
+        // which on this plane mean thresholds of 0.68 EV and 1.52 EV. A one-and-a-half
+        // stop edge was inside the threshold, so the mid base SMOOTHED ACROSS IT —
+        // measured, it preserved 49.4% of a 3 EV step and blurred the other 50.6%. The
+        // band then contained the edge, and a gain on the band put a rim either side of
+        // it: on a clean 3 EV step, Clarity at +100 left a trench of 0.72 EV on the dark
+        // side and 0.70 EV on the bright side, against the reference local Laplacian's
+        // 0.066 and 0.050. Eleven times the artefact, for slightly LESS local contrast
+        // than the reference produces. That is the crunchy, over-processed look, and the
+        // comment above used to say these filters could not halo.
+        //
+        // With the reference's ε the same step is preserved 99.8%, and the rim falls to
+        // 0.108 / 0.092 — within four hundredths of a stop of the local Laplacian —
+        // while the texture gain on the flat sides is unchanged at 1.63 against 1.63.
+        let epsilon = DetailEngine.baseEpsilon / (LumenLog.range * LumenLog.range)
 
         // `k` is a gain exponent PER STOP, and the plane these bands come off is
         // `logLuminance` — which is `LumenLog.encode`d, not EV. The encoding squeezes a
@@ -232,7 +250,8 @@ public struct RenderGraph {
         // across the whole 0.05–4 EV band.
         let perStop = LumenLog.range
 
-        if d.texture != 0 {
+        if d.texture != 0, let baseFine = Self.guidedSelfFilter(lum, radius: fine,
+                                                                epsilon: epsilon) {
             let k = d.texture / 100.0 * 0.9 * perStop
             // NEGATIVE Texture is gated by local structure and positive Texture is not.
             // That asymmetry is the whole difference between a skin smoother and a
@@ -264,11 +283,27 @@ public struct RenderGraph {
                 out = combined
             }
         }
-        if d.clarity != 0 {
+        if d.clarity != 0, let baseMid = Self.guidedSelfFilter(lum, radius: mid,
+                                                               epsilon: epsilon) {
             let k = d.clarity / 100.0 * 1.1 * perStop
+            // The picture minus its MID base, not the fine base minus the mid one.
+            //
+            // `Decomposition.base` is exactly this — `guidedFilter(logLum, logLum,
+            // workingRadius, baseEpsilon)` — and Clarity is what is left over after it.
+            // Differencing two bases instead put the band between two radii, which
+            // needed the outer one to blur across edges to have any content at all;
+            // that is what the oversized ε above was quietly paying for. Measured on
+            // the same clean step, this construction gives a texture gain of 1.627
+            // against the two-base form's 1.625 — the same strength — with a peak
+            // excursion of 0.089 EV against 0.620, because the 0.53 EV difference was
+            // all rim.
+            //
+            // It also costs one guided filter rather than two, and each is now built
+            // only if its own slider is off zero, so a Clarity-only recipe no longer
+            // runs the fine decomposition it never reads.
             if let gain = KernelLibrary.apply(KernelLibrary.detailGain,
                                               extent: out.extent,
-                                              [baseFine, baseMid, Float(k)]),
+                                              [lum, baseMid, Float(k)]),
                let combined = KernelLibrary.apply(KernelLibrary.multiply,
                                                   extent: out.extent, [out, gain]) {
                 out = combined
