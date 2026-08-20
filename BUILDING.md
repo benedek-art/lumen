@@ -1,89 +1,134 @@
 # Building Lumen
 
-Phase 1 (walking skeleton) is in progress. This file is the honest ledger of what
-exists, what has been verified where, and what to do first on a Mac.
+This is the honest ledger: what exists, where it has been verified, and what to do
+first on a Mac. Read the "Known gaps" section before drawing conclusions from anything
+above it.
 
-## Current state
+## Run it
 
-| Piece | Status |
-|---|---|
-| `Sources/LumenCore` | Written, machine-verified on Linux via the fixture system below, **compiled green and all tests passing on the CI macOS runner** |
-| `Tests/LumenCoreTests` | **21 tests, all passing on macOS CI** (see Actions tab) |
-| `Sources/LumenPipeline` | **Compiles on macOS CI**; runtime behavior reviewed by a 4-lens adversarial pass (decoder pinning, cached-filter state, crop axis all fixed from findings) — first *visual* verification happens on your Mac |
-| `Sources/LumenApp` | **Compiles on macOS CI**; UI behavior reviewed (focus routing, loupe state reset, thumbnail cache) — first launch happens on your Mac |
-| CI | `.github/workflows/ci.yml`: macos-15 `swift build` + `swift test`, plus a Linux job that regenerates fixtures with the Python reference and fails on drift |
-
-## Running it on a Mac (Xcode 16+ / Swift 6 toolchain)
+Requires macOS 15+ and the Swift 6 toolchain (Xcode 16+).
 
 ```sh
-swift test               # the golden-fixture suite (green on CI as of this commit)
-swift run LumenApp       # launch the walking skeleton directly
-scripts/build-app.sh     # or build dist/Lumen.app and `open` it
+swift test               # engine contracts + the GPU golden suite
+swift run LumenApp       # launch directly
+scripts/build-app.sh     # or build dist/Lumen.app and `open dist/Lumen.app`
 ```
 
-What the walking skeleton does today: open a folder of RAWs (Cmd+O), browse the
-grid on embedded previews, double-click or `E` into the loupe (draft-quality RAW
-render with an honest EMBEDDED PREVIEW badge until the real render lands), arrow
-keys to move, `G` back to grid, edit exposure / WB Kelvin+tint / highlights /
-shadows / NR toggle, export a JPEG. That is the docs/16 Phase-1 slice.
+The first thing to do is open a folder of your own RAWs (⌘O) and cull it: arrow keys to
+move, `P`/`X`/`U` to flag, `1`–`5` to rate, `6`–`9` to label, `E` for the loupe, `G`
+back to the grid. Press ⌘/ for the full keyboard reference. Then edit one frame and
+export it (⌘E).
 
-Notes:
+## Where the code lives
 
-1. **CI compiles and tests this code on every push** — but no one has *seen* the
-   app run yet. UI glitches, layout issues, and CIRAWFilter rendering surprises on
-   real camera files are expected discoveries for the first Mac session.
-2. **A failing `LumenCoreTests` test is the system working.** Every expected value in
-   `Tests/LumenCoreTests/Fixtures/` was computed and property-checked by
-   `scripts/gen-fixtures.py` (curve monotonicity, zone partition-of-unity, xxh64 vs the
-   reference C implementation, XMP round-trip through a real XML parser, DDL executed
-   in SQLite). A red test means the **Swift port** diverges from the verified
-   reference — fix the Swift, not the fixture. Change a fixture only for an
-   intentional format change, and say so in the commit.
-3. The fastest way to iterate is running Claude Code **locally on the Mac** in this
-   repo — it can compile, see errors, and fix them in a loop this cloud session cannot.
+| Target | Contents | Platforms |
+|---|---|---|
+| `LumenCore` | The whole engine as pure Swift: colour science, the display transform, tone, curves, colour and grade, the film chain, spatial filters, denoise, mask rasterization, scopes, the SQLite catalog, the recipe format. No UI, no Apple-only frameworks. | macOS + Linux |
+| `LumenPipeline` | The Core Image render path: fourteen small kernels, the graph, the RAW stage, export. No AppKit, no SwiftUI — deliberately, so it stays testable headless. | macOS |
+| `LumenApp` | The SwiftUI application. | macOS |
 
-## The fixture system
+## How this code was verified
 
-`scripts/gen-fixtures.py` (Python 3, `pip install xxhash`) is the executable mirror of
-LumenCore's algorithms. It generates `Tests/LumenCoreTests/Fixtures/*.json` and
-self-verifies on the spot. Mirrored pairs — **change both sides together**:
+There is no Swift toolchain on the machine this was written on, and swift.org is
+blocked by its egress policy. So the verification loop is **GitHub Actions' macOS
+runner**: every push compiles all four targets and runs both suites there, and the CI
+log is filtered down to deduplicated diagnostics so a round is readable.
 
-| Swift | Python mirror |
-|---|---|
-| `CanonicalJSON.swift` | `canonical_number` / `canonical_serialize` / `sparse` / `merge` |
-| `MonotoneCubic.swift` | `MonotoneCubic` |
-| `ZoneWeights.swift` | `zone_weights` / `exposure_stops` |
-| `MaskAlgebra.swift` | `mask_combined` |
-| `XMPSidecar.swift` | `xmp_serialize` (byte-exact template) |
-| `RenameTemplate.swift` | `rename_render` |
-| `Schema.swift` DDL | extracted by regex and executed in SQLite |
+Three layers of checking, in order of strength:
 
-`Tests/LumenCoreTests/Fixtures/default-recipe.json` is the committed statement of
-`Recipe()`'s full default JSON; the suite fails if the Swift structs drift from it.
+1. **`LumenPipelineTests` runs the real Core Image graph on the macOS runner.** It
+   compiles every kernel, renders synthetic frames through the actual pipeline, reads
+   the pixels back, and compares them against the f32 reference implementation in
+   `LumenCore`. This is what makes a GPU path trustworthy from a machine with no GPU:
+   if a shader drifts from its reference, the next push says so.
+2. **`LumenCoreTests` asserts contracts, not numbers.** The display transform hits all
+   four of its anchors; the wavelet stack reconstructs exactly at unit gains; the
+   guided filter smooths interiors while holding a step edge; a chroma move preserves
+   perceived brightness and a luminance move preserves chroma ratios; every film stock
+   anchors mid-grey and stays monotone; tile plans cover the frame exactly; every Auto
+   output lands inside its slider's range. These survive refactors that change numbers.
+3. **The Linux fixture lane** regenerates `Tests/LumenCoreTests/Fixtures` with
+   `scripts/gen-fixtures.py` — an executable mirror of the canonical-JSON, curve, zone,
+   mask-algebra, XMP and schema logic — and fails if the committed fixtures drifted.
 
-## Known deviations & Phase-1 placeholders (deliberate, tracked)
+**A failing `LumenCoreTests` fixture test means the Swift diverged from the verified
+reference — fix the Swift, not the fixture.** Change a fixture only for an intentional
+format change, and say so in the commit.
 
-- **xxh64, not xxh3** for `recipe_fp` and blob refs (docs/15 says xxh3). The `xxh64:`
-  prefix makes the algorithm self-describing; upgrading later is a migration, not a
-  breakage. Rationale: xxh64 is portable and was verified against the reference
-  implementation tonight; xxh3 was not implementable-with-verification on this box.
-- **Highlights/shadows in Phase 1** ride Apple's `localToneMapAmount` /
-  `boostShadowAmount` as approximations (`AppleRawSource.swift`). Lumen's own EV-zone
-  engine (docs/04) replaces them in Phase 3 — behind the same recipe fields.
-- **The loupe is a SwiftUI Image**, not the Metal/EDR layer yet. The render plumbing
-  (draft decode, coordinator actor, one-graph-for-preview-and-export) is the real
-  architecture; only the view swaps later (docs/16 Phase 1 calls the Metal loupe
-  load-bearing — build it right once the skeleton runs).
-- Per-photo recipes live in memory (`AppState.recipes`); the catalog (Phase 2) gives
-  them the schema already shipped in `Schema.swift` + XMP sidecars already shipped in
-  `XMPSidecar.swift`.
+## The architecture, in one page
 
-## Linux verification loop (what this repo's cloud sessions can run)
+Rendering is a pure function of `(original, recipe, pipelineVersion, target)`. Nothing
+is destructive; the original file is never written to.
+
+Nearly every colour-bearing stage — printer lights, the colour tools, the grade, the
+film chain, the display transform, the tone curve — is a pure RGB→RGB function. Rather
+than port each one into a shader and hope the two stay in step, the engine evaluates
+the composed function once in Swift and bakes it into lookup tables the GPU fetches:
+
+```
+S6  linear matrix     white balance (CAT16) · exposure · printer lights, fused into one 3×3
+S7  tone              six sliders + zones, as a gain curve over an edge-aware guided mask
+S8  presence          texture / clarity / dehaze off ONE base–detail decomposition
+S9  colour   ┐
+S10 grade    ┘        one 3-D table over the log domain
+S11 local             mask sub-recipes, blended in scene-linear
+S12 sharpen
+S13 effects           vignette, then halation — in that order, because that is the light path
+S14 render   ┐        THE display transform, or a film stock's negative+print chain
+S15 curve    ┘        one 3-D table, log domain in, display-linear out
+S16 geometry          crop ∘ rotate, one resample
+```
+
+The custom-shader surface is therefore fourteen small kernels
+(`Sources/LumenPipeline/Kernels.swift`) — the log shaper, image-by-image arithmetic for
+the guided filter, mask compositing, grain, vignette, dehaze and halation. Everything
+else is a stock filter or a table.
+
+If a kernel fails to compile on a given machine, `KernelLibrary.isAvailable` goes false
+and the renderer says so in the viewer rather than rendering something wrong.
+
+## Known gaps and deliberate deviations
+
+These are tracked, not hidden.
+
+- **No one has run this app on a real Mac yet.** CI compiles it and runs the suites;
+  the first launch on real camera files is still ahead. Expect layout surprises and
+  `CIRAWFilter` behaviour on specific bodies to need attention. That is the honest
+  state, and it is why the first session on a Mac should be `swift run LumenApp` with a
+  folder of your own frames.
+- **The loupe is a SwiftUI image view, not the Metal/EDR layer.** The render plumbing —
+  draft decode, coordinator actor, one graph for preview and export — is the real
+  architecture; only the view swaps when the EDR viewport lands. HDR *export* maths is
+  implemented and tested; the HDR *viewport* is not.
+- **AI denoise and AI masks are modelled but not wired to models.** The cached-splice
+  blend, the artifact key, the tile plan and the mask components all exist and are
+  tested; no Core ML model is bundled, so the AI mask kinds rasterize to nothing and
+  `denoise.mode = .ai` currently falls back to the classical tier.
+- **Tier-1 classical denoise runs in the reference implementation, not yet in the GPU
+  graph.** Apple's decode-stage noise reduction stands in on the live path, driven by
+  the same slider values. `.off` really is off.
+- **xxh64, not xxh3**, for `recipe_fp` and blob refs (docs/15 says xxh3). The `xxh64:`
+  prefix makes the algorithm self-describing, so upgrading later is a migration rather
+  than a breakage.
+- **SQLite directly, not GRDB.** No external dependency: the build is hermetic and the
+  C API is small enough to wrap correctly. `Sources/LumenCore/Catalog/SQLite.swift`.
+- **Ingest copies nothing yet.** The one-screen flow, templates and verification
+  settings exist; the copy engine behind them does not, and the UI says so instead of
+  pretending the button works.
+- Several controls the specs describe have no wire format yet (per-band mixer
+  core/feather, film exposure, halation size, vignette shape, printer-light quarter
+  points). Those controls are absent rather than fabricated; adding them is one
+  `pipelineVersion` bump.
+
+## Working on this from a machine without Xcode
 
 ```sh
-python3 scripts/gen-fixtures.py   # regenerates fixtures + runs all Linux-side checks
+python3 scripts/gen-fixtures.py   # regenerates fixtures + all Linux-side checks
 ```
 
-Exit code 0 means: canonical/sparse serialization behaves, hashes match xxhash's C
+Exit code 0 means canonical/sparse serialization behaves, hashes match xxhash's C
 implementation, curves are monotone, zone weights sum to 1, mask semantics hold, XMP
 parses, and both databases' DDL executes with the cull query on its index.
+
+Everything else goes through CI. The workflow prints only sorted, deduplicated
+diagnostics, so one round is a short read rather than a four-thousand-line scroll.

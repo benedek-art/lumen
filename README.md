@@ -23,17 +23,27 @@ Apple's platform is what makes it one-person-sized *well*.
 
 ## Status
 
-**Phase 1 — walking skeleton in progress.** The planning package below (v2) is complete — the
-product of a full research sweep (August 2026): the color-grading and editing literature, a
-slider-by-slider teardown of Lightroom Classic 15.5, deep teardowns of Capture One, DxO, Topaz,
-the Mac-native field, the culling tools, the open-source engines, and cinema color, with every
-feature carrying a named verdict against the best in class.
+**The app exists.** Roughly 32,000 lines of Swift across three targets: the engine, the
+Core Image render path, and the SwiftUI application. Browse a folder, cull it at key-repeat
+speed, develop with Lumen's own tone and colour stack, mask, grade, apply a film stock, and
+export several recipes at once.
 
-Code so far: `LumenCore` (recipe model, canonical JSON + fingerprints, curve/zone/mask reference
-math, XMP sidecars, catalog schema) builds green with all tests passing on CI's macOS runner,
-cross-verified against an executable Python reference; the walking-skeleton app (browse → loupe →
-basic sliders → JPEG export) compiles and awaits its first launch. See [BUILDING.md](BUILDING.md)
-for the honest ledger and how to run it.
+What is built, by phase:
+
+| Phase | State |
+|---|---|
+| 1 — Walking skeleton | Done, and replaced. Apple's RAW stage now runs *flat*: its tone curve, shadow boost and gamut mapping are off, and picture formation is Lumen's. |
+| 2 — Catalog + culling | SQLite catalog with migrations, folder scan, the full bare-key culling grammar, filter/sort in SQL, preview cache with direction-aware prefetch, recipes in both the catalog and XMP sidecars. |
+| 3 — Develop engine | The whole stack: CAT16 white balance, the six-slider tone contract on an edge-aware guided mask, THE display transform, curves, presence off one decomposition, capture and creative sharpening, crop, deterministic Auto, history and snapshots. |
+| 4 — Masking | Component stacks with add/subtract/intersect, every geometric and range component rasterized, the refine chain, local adjustments including the local curve and local wheels Lightroom lacks. AI components await models. |
+| 5 — Denoise | Profiled VST + wavelet classical NR, the cached AI-splice model, ISO-adaptive defaults, tiling. Runs in the reference implementation; the GPU path still rides Apple's decode-stage NR. |
+| 6 — Colour depth | Eight-band mixer, point colour, three-way wheels with visible pivots, printer lights in twelfths of a stop, primaries, B&W — all in an H-K-aware perceptual model. |
+| 7 — Film Lab, output, HDR | Six stocks with real characteristic curves, halation and density-domain grain; multi-recipe export; ISO 21496-1 gain-map maths. The HDR *viewport* is not built. |
+| 8 — Dailies | Scopes, histogram with draggable zones, compare and survey. Heal and AI culling assists are not built. |
+
+Nobody has run it on a Mac yet — CI compiles it and runs both suites on every push, but the
+first launch on real camera files is still ahead. [BUILDING.md](BUILDING.md) is the honest
+ledger: how to run it, how it was verified without a local toolchain, and every known gap.
 
 ## What "better, for me" means — measurably
 
