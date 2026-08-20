@@ -154,8 +154,16 @@ final class KeyDispatcher {
             viewport.beforeMode = viewport.beforeMode == wanted ? .off : wanted
             if viewport.beforeMode != .off { state.showLoupe() }
         case "r":
+            // R opens the crop tool and R again leaves it, which is the grammar every
+            // photographer already has in their fingers. It toggles rather than sets
+            // because `showCrop` had NO writer anywhere in the app: CropOverlayView —
+            // a complete interactive crop with drag handles, thirds guides and a
+            // dimmed surround, writing through the same coalesced recipe path the
+            // panel uses — was unreachable dead code, and the crop surface was an
+            // eight-item ratio menu.
             state.activeSection = .effects       // crop lives with the effects group
             state.showLoupe()
+            LoupeViewport.shared.showCrop.toggle()
         case "m":
             state.activeSection = .masks
             state.showLoupe()
@@ -327,7 +335,7 @@ enum KeyReference {
             Entry(keys: "D", action: "Detail panel"),
             Entry(keys: "L", action: "Look panel"),
             Entry(keys: "M", action: "Masks"),
-            Entry(keys: "R", action: "Effects panel, where crop ratios live"),
+            Entry(keys: "R", action: "Crop tool on the image; again to leave it"),
             Entry(keys: "\\", action: "Before / after, full frame"),
             Entry(keys: "Y", action: "Before / after, side by side"),
             Entry(keys: "⇧Y", action: "Before / after, split with a divider"),

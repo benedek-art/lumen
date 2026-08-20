@@ -624,7 +624,10 @@ struct LoupeView: View {
                     .frame(width: drawn.width, height: drawn.height)
             }
 
-            if viewport.showCrop {
+            // Gated on the section as well as the flag, so leaving Effects by any
+            // route puts the crop tool away rather than leaving a dimmed surround and
+            // live drag handles over an image the user has moved on from.
+            if viewport.showCrop && state.activeSection == .effects {
                 CropOverlayView(crop: cropBinding)
                     .frame(width: drawn.width, height: drawn.height)
             }
