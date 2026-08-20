@@ -425,6 +425,110 @@ class MonotoneCubic:
                 + h01 * ys[lo + 1] + h11 * h * m[lo + 1])
 
 
+# ---------------------------------------------------------------------------
+# The four-region parametric curve (CurveStack.bakeParametric)
+#
+# Here because of what its monotonicity limiter used to be: a `scale *= 0.8`
+# ladder rather than a solve. The scale a setting needs falls smoothly as the
+# slider moves, but a geometric ladder can only answer 1, 0.8, 0.64, … so the
+# applied shift sawtoothed and the curve jumped BACKWARDS by 16% in one notch —
+# Darks reversed at 46, 57, 71 and 89. The end of the slider was not its
+# strongest setting either: Lights at 100 was 15% weaker than Lights at 60.
+#
+# The check that catches that class is "moving a control further must never do
+# less", and no check in this file had it for any control. It does now.
+# ---------------------------------------------------------------------------
+
+PARAMETRIC_RANGE = 0.35
+
+
+def region_centres(splits=(0.25, 0.5, 0.75)):
+    s = sorted(splits)
+    a = clamp(s[0], 0.02, 0.96)
+    b = clamp(s[1], a + 0.01, 0.97)
+    c = clamp(s[2], b + 0.01, 0.98)
+    return [a / 2, (a + b) / 2, (b + c) / 2, (c + 1) / 2]
+
+
+def parametric_delta(x, amounts, centres):
+    w = zone_weights(x, centres)
+    s = sum(w[i] * amounts[i] for i in range(4))
+    # The envelope pins both endpoints, so the curve can never move black or white.
+    return s * (4 * x * (1 - x)) * PARAMETRIC_RANGE
+
+
+def parametric_is_monotone(scale, amounts, centres, probes=256):
+    previous = 0.0
+    for i in range(probes + 1):
+        x = i / probes
+        y = x + parametric_delta(x, amounts, centres) * scale
+        if i > 0 and y < previous - 1e-9:
+            return False
+        previous = y
+    return True
+
+
+def solve_parametric_scale(amounts, centres):
+    """Bisection, mirroring the Swift. A ladder here would reproduce the artefact
+    rather than detect it."""
+    if parametric_is_monotone(1.0, amounts, centres):
+        return 1.0
+    lo, hi = 0.0, 1.0
+    for _ in range(40):
+        mid = 0.5 * (lo + hi)
+        if parametric_is_monotone(mid, amounts, centres):
+            lo = mid
+        else:
+            hi = mid
+    return lo
+
+
+def gen_parametric_checks():
+    print("parametric curve: monotone in x AND monotone in the slider ...")
+    centres = region_centres()
+    names = ["Shadows", "Darks", "Lights", "Highlights"]
+
+    for index, name in enumerate(names):
+        for direction in (1, -1):
+            previous_effect = None
+            peak, peak_at = -1e18, 0
+            for setting in range(0, 101):
+                amounts = [0.0] * 4
+                amounts[index] = direction * setting / 100
+                scale = solve_parametric_scale(amounts, centres)
+
+                # 1. The baked curve is monotone in x. This is what the limiter is for.
+                check(parametric_is_monotone(scale, amounts, centres),
+                      f"{name} {direction * setting} produced a non-monotone curve")
+
+                # 2. The RESPONSE is monotone in the slider — push it further, get at
+                # least as much. This is the one the ladder failed.
+                effect = abs(parametric_delta(centres[index], amounts, centres) * scale)
+                if previous_effect is not None:
+                    check(effect >= previous_effect - 1e-12,
+                          f"{name} at {direction * setting} moved the curve LESS than "
+                          f"at {direction * (setting - 1)}: {effect:.6f} vs "
+                          f"{previous_effect:.6f} — the slider jumps backwards")
+                if effect > peak:
+                    peak, peak_at = effect, setting
+                previous_effect = effect
+
+            # 3. And the end of the slider is its strongest setting, not a local dip.
+            check(peak_at == 100 or abs(peak - previous_effect) < 1e-12,
+                  f"{name}'s strongest setting is {peak_at}, not 100 "
+                  f"(peak {peak:.6f}, end {previous_effect:.6f})")
+
+    # The limiter must not be scaling anything at ordinary settings, or it has
+    # quietly weakened the control everywhere instead of only where it had to.
+    for index in range(4):
+        amounts = [0.0] * 4
+        amounts[index] = 0.25
+        check(solve_parametric_scale(amounts, centres) > 0.999,
+              f"{names[index]} at 25 was already being limited")
+
+    print("  4 sliders x 2 directions x 101 settings: no backward step, peak at 100")
+
+
 def gen_curves_fixture():
     print("curves.json ...")
     curve_cases = [
@@ -2819,6 +2923,7 @@ def main():
     gen_tone_checks()
     gen_colour_stage_checks()
     gen_grade_checks()
+    gen_parametric_checks()
     gen_film_checks()
     gen_enginemath_fixture()
     if FAILURES:
