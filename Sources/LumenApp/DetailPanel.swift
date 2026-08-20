@@ -249,6 +249,11 @@ struct DetailPanel: View {
                 DevelopNote("Instant, non-destructive, and enough for most frames. "
                             + "Colour starts mild rather than at zero because chroma "
                             + "blotches are the artefact nobody wants to see.")
+                // Hot Pixels is implemented in `ClassicalDenoise` and that engine does
+                // not run in the graph, so this slider has no consumer on the shipping
+                // path. Said plainly rather than left to look live.
+                DevelopNote("Hot Pixels applies on the reference renderer only; the "
+                            + "decode stage standing in for Classic has no equivalent.")
             }
         case .ai:
             VStack(alignment: .leading, spacing: 2) {
@@ -259,6 +264,12 @@ struct DetailPanel: View {
                 DevelopNote("The AI pass is a cached artefact, never a new file on disk, "
                             + "and Amount blends it after it computes — so the slider "
                             + "stays instant once the pass has run.")
+                // Until Tier 2 exists, Amount drives the decoder's own denoise. That is
+                // a stand-in and worth saying: what it must NOT do is what it did
+                // before, which was drive nothing while the two hidden Classic sliders
+                // drove everything.
+                DevelopNote("No model has shipped yet, so Amount currently drives the "
+                            + "decoder's own noise reduction as a stand-in.")
             }
         }
     }

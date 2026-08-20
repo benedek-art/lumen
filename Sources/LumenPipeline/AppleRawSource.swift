@@ -105,7 +105,8 @@ public final class AppleRawSource {
         filter.extendedDynamicRangeAmount = 1.0
 
         // Capture sharpening rides Apple's at-demosaic sharpener until Lumen's own RL
-        // deconvolution moves into the graph. `auto` keeps the camera default.
+        // deconvolution moves into the graph.
+        //
         // `auto` is the ON switch, not a choice between two strengths. The panel says
         // so — with it off it prints "Capture sharpening is off for this photo", and
         // with it on it offers an Overrides disclosure — and the two branches here were
@@ -123,19 +124,18 @@ public final class AppleRawSource {
         filter.sharpnessAmount = defaultSharpness
             * Float(dev.detail.capture.strengthFraction)
 
-        // Noise reduction: Lumen's Tier 1 is the reference implementation and does not
-        // yet run in the GPU graph, so Apple's stage stands in for `.classic`. Tracked
-        // in BUILDING.md; `.off` really is off.
-        if dev.denoise.mode == .off {
-            filter.luminanceNoiseReductionAmount = 0
-            filter.colorNoiseReductionAmount = 0
-        } else {
-            let classic = dev.denoise.classic
-            filter.luminanceNoiseReductionAmount =
-                Float(Num.clamp(classic.luma / 100.0, 0, 1))
-            filter.colorNoiseReductionAmount =
-                Float(Num.clamp(classic.chroma / 100.0, 0, 1))
-        }
+        // Noise reduction: Lumen's Tier 1 is the reference implementation and neither
+        // tier runs in the GPU graph yet, so Apple's stage stands in. Tracked in
+        // BUILDING.md; `.off` really is off.
+        //
+        // The mapping lives on `Denoise` so it can be tested — this stage needs a
+        // camera RAW to reach at all, and the wiring here was wrong in a way the panel
+        // hid: `.ai` read the two Classic sliders, which the AI panel does not show,
+        // and ignored `amount`, which is the only one it does. Switching Classic → AI
+        // changed nothing and the AI Amount slider changed nothing.
+        let denoise = dev.denoise.appleStandIn
+        filter.luminanceNoiseReductionAmount = Float(denoise.luma)
+        filter.colorNoiseReductionAmount = Float(denoise.chroma)
 
         filter.isLensCorrectionEnabled = dev.geometry.lens.profile
 

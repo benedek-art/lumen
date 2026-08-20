@@ -577,6 +577,66 @@ final class EngineTests: XCTestCase {
         }
     }
 
+    /// The denoise mode switch has to switch something, and the visible slider has to
+    /// be the one that acts.
+    ///
+    /// In `.ai` the RAW stage read `classic.luma` and `classic.chroma` — which the AI
+    /// panel does not show — and ignored `amount`, which is the only slider it does
+    /// show. So switching Classic → AI rendered identically and dragging the AI Amount
+    /// slider did nothing, while two hidden values drove the result.
+    func testTheDenoiseModeSwitchAndItsVisibleSliderBothAct() {
+        // Off is off, whatever else is set.
+        let off = Denoise(mode: .off, amount: 100,
+                          classic: ClassicNR(luma: 90, chroma: 90)).appleStandIn
+        XCTAssertEqual(off.luma, 0, accuracy: 1e-12)
+        XCTAssertEqual(off.chroma, 0, accuracy: 1e-12)
+
+        // Classic follows the two sliders Classic shows.
+        let classic = Denoise(mode: .classic,
+                              classic: ClassicNR(luma: 40, chroma: 60)).appleStandIn
+        XCTAssertEqual(classic.luma, 0.4, accuracy: 1e-12)
+        XCTAssertEqual(classic.chroma, 0.6, accuracy: 1e-12)
+
+        // AI follows `amount`, and does NOT follow the hidden Classic values. The
+        // hidden numbers are deliberately different from every amount used here — set
+        // them equal and the test cannot tell the two sources apart.
+        let hidden = ClassicNR(luma: 15, chroma: 30)
+        let quiet = Denoise(mode: .ai, amount: 10, classic: hidden).appleStandIn
+        let loud = Denoise(mode: .ai, amount: 90, classic: hidden).appleStandIn
+        XCTAssertGreaterThan(loud.luma, quiet.luma + 0.1,
+                             "the AI Amount slider did not change the luminance pass")
+        XCTAssertGreaterThan(loud.chroma, quiet.chroma + 0.1,
+                             "the AI Amount slider did not change the colour pass")
+        XCTAssertNotEqual(loud.chroma, 0.30, accuracy: 1e-9,
+                          "AI mode is still reading the hidden Classic chroma")
+        XCTAssertNotEqual(loud.luma, 0.15, accuracy: 1e-9,
+                          "AI mode is still reading the hidden Classic luma")
+
+        // And the switch itself changes the result for the same recipe.
+        var recipe = Denoise(mode: .classic, amount: 90,
+                             classic: ClassicNR(luma: 10, chroma: 10))
+        let asClassic = recipe.appleStandIn
+        recipe.mode = .ai
+        let asAI = recipe.appleStandIn
+        XCTAssertNotEqual(asClassic.chroma, asAI.chroma, accuracy: 1e-9,
+                          "Classic and AI rendered the same for the same recipe")
+
+        // Total: nothing escapes 0…1, including hostile input.
+        let hostile: [Double] = [-50, 0, 500, .infinity, -.infinity, .nan]
+        for value in hostile {
+            for mode in [Denoise.Mode.off, .classic, .ai] {
+                let pair = Denoise(mode: mode, amount: value,
+                                   classic: ClassicNR(luma: value, chroma: value))
+                    .appleStandIn
+                XCTAssertTrue(pair.luma.isFinite && pair.luma >= 0 && pair.luma <= 1,
+                              "\(mode) at \(value) gave luma \(pair.luma)")
+                XCTAssertTrue(pair.chroma.isFinite && pair.chroma >= 0
+                                  && pair.chroma <= 1,
+                              "\(mode) at \(value) gave chroma \(pair.chroma)")
+            }
+        }
+    }
+
     // MARK: - Export
 
     /// The export subfolder is a security boundary: `appendingPathComponent` appends a

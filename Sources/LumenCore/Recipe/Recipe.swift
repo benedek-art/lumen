@@ -414,6 +414,13 @@ public struct ManualSharpen: Codable, Equatable, Sendable {
 }
 
 /// Two-tier denoise (D26). `ai` results are cached artifacts, never files (docs/07).
+///
+/// `appleStandIn` is what the RAW stage applies until Lumen's own Tier 1 and Tier 2
+/// engines run in the graph. It exists as a named, tested mapping because the wiring was
+/// wrong in a way the panel hid: in `.ai` mode the stage read `classic.luma` and
+/// `classic.chroma`, which the panel does not show in that mode, and ignored `amount`,
+/// which is the only slider it does show. Switching Classic → AI changed nothing, and
+/// dragging the AI Amount slider changed nothing.
 public struct Denoise: Codable, Equatable, Sendable {
     public enum Mode: String, Codable, Sendable {
         case off, classic, ai
@@ -429,6 +436,32 @@ public struct Denoise: Codable, Equatable, Sendable {
         self.amount = amount
         self.model = model
         self.classic = classic
+    }
+
+    /// Luminance and colour fractions, 0…1, for the RAW decoder's own denoise stage.
+    ///
+    /// Off is off. Classic follows the two sliders the Classic panel shows. AI follows
+    /// `amount`, which is the ONLY slider the AI panel shows — and which the wiring
+    /// previously ignored in favour of two hidden Classic values, so the mode switch
+    /// and the visible slider were both inert.
+    ///
+    /// The AI mapping is a stand-in, not the model: Tier 2 is a cached artifact that
+    /// does not run in the graph yet. Weighting colour above luminance mirrors the
+    /// Classic defaults, where chroma sits at 25 and luma at 0 — colour noise is the
+    /// one every sensor has and the one a decoder can cheaply help with.
+    public var appleStandIn: (luma: Double, chroma: Double) {
+        func fraction(_ v: Double) -> Double {
+            Num.clamp(v.isFinite ? v : 0, 0, 100) / 100
+        }
+        switch mode {
+        case .off:
+            return (0, 0)
+        case .classic:
+            return (fraction(classic.luma), fraction(classic.chroma))
+        case .ai:
+            let blend = fraction(amount)
+            return (blend * 0.6, blend)
+        }
     }
 }
 
