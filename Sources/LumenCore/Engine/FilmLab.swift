@@ -222,7 +222,7 @@ public struct FilmStock: Sendable {
     /// Wide latitude, low contrast, warm shadows and clean highlights — the portrait
     /// default. Divergence between the channel gammas is deliberately tiny: Portra's
     /// character is latitude, not crossover.
-    public static let portra400 = FilmStock(
+    public static let portra400: FilmStock = FilmStock(
         id: "lumen/portra400",
         name: "Lumen Portra 400",
         kind: .negative,
@@ -251,7 +251,7 @@ public struct FilmStock: Sendable {
 
     /// The consumer emulsion: steeper red than blue, so highlights run golden and
     /// shadows cool — a real crossover, authored rather than apologized for.
-    public static let gold200 = FilmStock(
+    public static let gold200: FilmStock = FilmStock(
         id: "lumen/gold200",
         name: "Lumen Gold 200",
         kind: .negative,
@@ -281,7 +281,7 @@ public struct FilmStock: Sendable {
     /// Fine grain, high system gamma, strong inter-layer inhibition: saturation that
     /// arrives as density rather than as separation, which is why it darkens as it
     /// saturates instead of going neon.
-    public static let ektar100 = FilmStock(
+    public static let ektar100: FilmStock = FilmStock(
         id: "lumen/ektar100",
         name: "Lumen Ektar 100",
         kind: .negative,
@@ -310,7 +310,7 @@ public struct FilmStock: Sendable {
 
     /// Monochrome negative on a graded paper. No dye layers, so no chromatic grain
     /// structure and no red-dominant halation — the halo here is neutral.
-    public static let triX400 = FilmStock(
+    public static let triX400: FilmStock = FilmStock(
         id: "lumen/trix400",
         name: "Lumen Tri-X 400",
         kind: .negative,
@@ -340,7 +340,7 @@ public struct FilmStock: Sendable {
     /// Transparency: one inversion, inside the emulsion, and no print stage. High
     /// gamma and a short exposure scale — the stock that punishes exposure error and
     /// rewards it. Halation is zero: slide stocks have an effective backing.
-    public static let velvia50 = FilmStock(
+    public static let velvia50: FilmStock = FilmStock(
         id: "lumen/velvia50",
         name: "Lumen Velvia 50",
         kind: .reversal,
@@ -368,7 +368,7 @@ public struct FilmStock: Sendable {
     /// carrying the whole scale, and a steep print that puts the contrast back. The
     /// gate is Super 35, so grain and halation are coarser per pixel than the stills
     /// stocks at the same scan resolution — as they are in reality.
-    public static let cine250D = FilmStock(
+    public static let cine250D: FilmStock = FilmStock(
         id: "lumen/cine250d",
         name: "Lumen Cine 250D",
         kind: .negative,
@@ -442,7 +442,7 @@ public struct HalationProfile: Sendable {
     /// Bounces summed. Radii go as σ₁·√k.
     public static let bounceCount: Int = 3
     /// Geometric decay between bounces.
-    public static let decay: Double = 0.5
+    public static let bounceDecay: Double = 0.5
     /// Highlight reconstruction: stops of energy restored to a fully clipped sample.
     public static let boostRange: Double = 0.3
     /// Highlight reconstruction: EV below the clip at which the ramp reaches zero.
@@ -463,6 +463,9 @@ public struct HalationProfile: Sendable {
     public let redness: Double
     /// Size multiplier, 0.5×…2×.
     public let sizeMultiplier: Double
+    /// Geometric decay between bounces, carried per-instance so the spatial stage can
+    /// walk `sigmas` and scale as it goes without reaching for a type constant.
+    public let decay: Double
     /// Scene-linear level treated as the clip (seeded by S1's clipping mask).
     public let clipLevel: Double
     public let longEdgePixels: Int
@@ -487,11 +490,12 @@ public struct HalationProfile: Sendable {
         var k: Int = 1
         while k <= HalationProfile.bounceCount {
             sig.append(sigma1 * Double(k).squareRoot())
-            w.append(pow(HalationProfile.decay, Double(k - 1)))
+            w.append(pow(HalationProfile.bounceDecay, Double(k - 1)))
             k += 1
         }
         self.sigmas = sig
         self.weights = w
+        self.decay = HalationProfile.bounceDecay
 
         let base: RGB = stock.halationStrength
         let pureRed: RGB = RGB(base.r, 0, 0)
@@ -552,6 +556,30 @@ public struct HalationProfile: Sendable {
     public func combine(_ base: RGB, blurred: RGB) -> RGB {
         base + strength * blurred
     }
+
+    // MARK: The GPU stand-in
+
+    // The shader form of the reconstruction is a hard pedestal — `max(E − threshold, 0)
+    // · boost` — because a smoothstep in log space is not worth a per-pixel `log2` in
+    // the glow pass. The two are matched at the reference ramp's half-power point
+    // rather than at its foot, which is where a linear stand-in and a smoothstep agree
+    // best (docs/14 §1.4: the GPU kernel approximates this file, within tolerance).
+
+    /// Scene-linear onset for the shader's pedestal.
+    public var threshold: Double {
+        clipLevel * pow(2.0, -HalationProfile.protectEV / 2.0)
+    }
+
+    /// Multiplier for the shader's pedestal — the reconstruction headroom.
+    public var boost: Double {
+        pow(2.0, HalationProfile.boostRange)
+    }
+
+    /// Per-channel strengths, under the name the spatial stage uses.
+    public var strengths: RGB { strength }
+
+    /// Blur radii in pixels, under the name the spatial stage uses.
+    public var sigmasInPixels: [Double] { sigmas }
 }
 
 // MARK: - Grain
@@ -637,7 +665,7 @@ public struct FilmGrainProfile: Sendable {
     public static func printLongEdgeInches(_ spec: String?) -> Double {
         guard let spec = spec else { return FilmGrainProfile.defaultPrintLongEdgeInches }
         let lowered: String = spec.lowercased()
-        let parts = lowered.split(whereSeparator: { $0 == "x" || $0 == "*" })
+        let parts: [Substring] = lowered.split(whereSeparator: { $0 == "x" || $0 == "*" })
         var longest: Double = 0
         for p in parts {
             let cleaned: String = String(p).trimmingCharacters(in: CharacterSet(charactersIn: " \t\"in'"))
@@ -662,8 +690,8 @@ public struct FilmGrainProfile: Sendable {
     public static func plate(size: Int, seed: UInt64, sigma: Double) -> [Float] {
         let n: Int = Swift.max(size, 2)
         let count: Int = n * n
-        var acc: [Double] = [Double](repeating: 0, count: count)
         guard sigma.isFinite, sigma > 0 else { return [Float](repeating: 0, count: count) }
+        var acc: [Double] = [Double](repeating: 0, count: count)
 
         let octaves: Int = 4
         let baseFrequency: Int = Swift.max(1, n / 16)
@@ -727,21 +755,21 @@ public struct FilmGrainProfile: Sendable {
 
     /// Bilinear, wrapping sample of a plate produced by `plate(size:seed:sigma:)`.
     /// Coordinates are in plate cells and may be any finite value.
-    public static func sample(_ plate: [Float], size: Int, x: Double, y: Double) -> Double {
+    public static func sample(_ values: [Float], size: Int, x: Double, y: Double) -> Double {
         let n: Int = Swift.max(size, 1)
-        guard plate.count >= n * n, x.isFinite, y.isFinite else { return 0 }
+        guard values.count >= n * n, x.isFinite, y.isFinite else { return 0 }
         let fx: Double = x - (x / Double(n)).rounded(.down) * Double(n)
         let fy: Double = y - (y / Double(n)).rounded(.down) * Double(n)
-        let x0: Int = Swift.min(Int(fx), n - 1)
-        let y0: Int = Swift.min(Int(fy), n - 1)
+        let x0: Int = Swift.min(Swift.max(Int(fx), 0), n - 1)
+        let y0: Int = Swift.min(Swift.max(Int(fy), 0), n - 1)
         let x1: Int = (x0 + 1) % n
         let y1: Int = (y0 + 1) % n
         let tx: Double = fx - Double(x0)
         let ty: Double = fy - Double(y0)
-        let v00: Double = Double(plate[y0 * n + x0])
-        let v10: Double = Double(plate[y0 * n + x1])
-        let v01: Double = Double(plate[y1 * n + x0])
-        let v11: Double = Double(plate[y1 * n + x1])
+        let v00: Double = Double(values[y0 * n + x0])
+        let v10: Double = Double(values[y0 * n + x1])
+        let v01: Double = Double(values[y1 * n + x0])
+        let v11: Double = Double(values[y1 * n + x1])
         let a: Double = v00 + (v10 - v00) * tx
         let b: Double = v01 + (v11 - v01) * tx
         return a + (b - a) * ty
@@ -886,7 +914,7 @@ public struct FilmChain: Sendable {
         self.neutral = DisplayTransform(np, space: .rec2020)
 
         let grainStock: FilmStock = found ?? FilmStock.portra400
-        let profile = FilmGrainProfile(stock: grainStock,
+        let profile: FilmGrainProfile = FilmGrainProfile(stock: grainStock,
                                        size: recipe.grain.size,
                                        amount: recipe.grain.amount,
                                        pushPull: push)
@@ -972,6 +1000,47 @@ public struct FilmChain: Sendable {
         FilmGrainProfile.printLongEdgeInches(recipe.printSize)
     }
 
+    // MARK: Scalars the spatial stages read
+
+    /// Halation Amount, normalized. Zero without a stock, and zero for a stock whose
+    /// measured strengths are all zero (the transparencies), so the spatial stage can
+    /// skip the whole glow pass on one comparison.
+    public var halationAmount: Double {
+        guard let s = stock else { return 0 }
+        let m: Double = Swift.max(s.halationStrength.r,
+                                  Swift.max(s.halationStrength.g, s.halationStrength.b))
+        guard m > 0 else { return 0 }
+        return Num.clamp(recipe.halation / 100.0, 0, 1)
+    }
+
+    /// Grain amplitude in density units at peak — the scalar the density-domain grain
+    /// kernel multiplies √(p(1−p)) by. Zero when the chain is identity, since grain
+    /// belongs to picture formation and there is no picture formation to put it in.
+    public var grainAmount: Double {
+        guard solved != nil else { return 0 }
+        return grain.amount * FilmGrainProfile.densityScale
+    }
+
+    /// Scalar Dmax of the picture-forming stage — the denominator of `p = D / Dmax`
+    /// when grain is applied against the *printed* density rather than the negative's.
+    public var grainDMax: Double {
+        guard let s = stock else { return 4.0 }
+        let d: RGB = s.printCurve?.dMax ?? s.negative.dMax
+        return Swift.max((d.r + d.g + d.b) / 3.0, 1e-6)
+    }
+
+    /// Halation parameters at a render size, using this recipe's Amount and the
+    /// stock's own Redness. Never nil: without a stock the strengths are zero, which
+    /// the caller's `strengths.maxComponent > 0` guard already handles.
+    public func halation(longEdgePixels: Int) -> HalationProfile {
+        HalationProfile(stock: stock ?? FilmStock.portra400,
+                        amount: stock == nil ? 0 : recipe.halation,
+                        size: 1.0,
+                        redness: nil,
+                        longEdgePixels: longEdgePixels,
+                        clipLevel: 1.0)
+    }
+
     // MARK: Baking
 
     /// Bake the chain over the `LumenLog` domain — the 3-D LUT the GPU stage fetches
@@ -996,7 +1065,7 @@ public struct FilmChain: Sendable {
             negative.gamma[i] = Swift.max(negative.gamma[i] * factor, 0.02)
         }
 
-        let negStage = FilmStage(negative,
+        let negStage: FilmStage = FilmStage(negative,
                                  rising: stock.kind == .negative,
                                  anchor: FilmCharacteristic.midGreyAnchor)
         // The print's own log-exposure origin is absorbed by the calibration gain, so
@@ -1008,7 +1077,7 @@ public struct FilmChain: Sendable {
 
         let shadow: RGB = stock.crossover.shadowTint + stock.crossover.pushTint * push
 
-        let seed = SolvedChain(negative: negStage,
+        let seed: SolvedChain = SolvedChain(negative: negStage,
                                printStage: printStage,
                                coupling: FilmChain.couplingMatrix(interlayer: stock.crossover.interlayer,
                                                                   coupler: stock.crossover.coupler),
@@ -1041,9 +1110,9 @@ public struct FilmChain: Sendable {
     /// property of construction rather than of tuning.
     ///
     /// For a print chain the gain is the enlarger lamp, downstream of every
-    /// channel-mixing step, so one bisection per channel is exact. For a transparency
-    /// the gain is scene-side and the couplers mix channels after it, so three
-    /// Gauss–Seidel sweeps converge it. Both cost microseconds, once.
+    /// channel-mixing step, so the first bisection per channel is already exact. For a
+    /// transparency the gain is scene-side and the couplers mix channels after it, so
+    /// the sweeps iterate; six lands every shipped stock inside 1e-6. Build-time only.
     private static func solveGains(_ base: SolvedChain, white: Double) -> SolvedChain {
         var s: SolvedChain = base
         let grey: RGB = RGB(gray: DisplayTransform.midGrey)
@@ -1051,7 +1120,7 @@ public struct FilmChain: Sendable {
         let usePrintGain: Bool = base.printStage != nil
 
         var sweep: Int = 0
-        while sweep < 3 {
+        while sweep < 6 {
             for i in 0..<3 {
                 let x: Double = FilmChain.bisect(target: target, lo: -14, hi: 14, steps: 52) { logGain in
                     var trial: SolvedChain = s
@@ -1116,7 +1185,7 @@ public struct FilmChain: Sendable {
         }
         e = e * s.filmGain
 
-        let neg = s.negative.response(e)
+        let neg: (density: RGB, tone: RGB) = s.negative.response(e)
         var d: RGB = s.coupling.apply(neg.density)
 
         // Crossover: the toe and shoulder casts the stock carries, plus whatever push
@@ -1146,7 +1215,7 @@ public struct FilmChain: Sendable {
         if let p = s.printStage {
             // Print exposure = the light the enlarger pushes through the negative.
             let printExposure: RGB = t * s.printGain
-            let pd = p.response(printExposure).density
+            let pd: RGB = p.response(printExposure).density
             finalT = RGB(pow(10.0, -pd.r), pow(10.0, -pd.g), pow(10.0, -pd.b))
             last = p
         } else {

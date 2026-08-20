@@ -77,6 +77,47 @@ public enum KernelLibrary {
     }
     """
 
+    /// Presence: turn a band of the base–detail decomposition into a gain field.
+    /// `hi` and `lo` are two log-luminance scales from the guided filter, so the
+    /// difference is a band of detail and the gain is halo-free by construction —
+    /// the guided filter has no gradient reversal, which is the whole reason it beats
+    /// a bilateral base for this job.
+    static let detailGainSource = """
+    kernel vec4 lumenDetailGain(__sample hi, __sample lo, float k) {
+        float g = exp2(k * (hi.r - lo.r));
+        return vec4(g, g, g, 1.0);
+    }
+    """
+
+    /// Dehaze recombination: I' = (I − A)/max(t, t0) + A, on the transmission map the
+    /// guided filter refined. `A` arrives already neutralized of its colour cast, which
+    /// is what stops recovered skies from going magenta.
+    static let dehazeSource = """
+    kernel vec4 lumenDehaze(__sample image, __sample transmission, vec3 airlight,
+                            float floorT) {
+        float t = max(transmission.r, floorT);
+        vec3 out = (image.rgb - airlight) / t + airlight;
+        return vec4(out, image.a);
+    }
+    """
+
+    /// Add a blurred glow field back into the image in linear light — halation's
+    /// recombination, and the same shape any additive bloom needs.
+    static let addGlowSource = """
+    kernel vec4 lumenAddGlow(__sample image, __sample glow, vec3 strength) {
+        return vec4(image.rgb + glow.rgb * strength, image.a);
+    }
+    """
+
+    /// Highlight energy above the clip point, which is what actually scatters in the
+    /// film base. Everything below `threshold` contributes nothing.
+    static let highlightEnergySource = """
+    kernel vec4 lumenHighlightEnergy(__sample image, float threshold, float boost) {
+        vec3 e = max(image.rgb - vec3(threshold), vec3(0.0)) * boost;
+        return vec4(e, 1.0);
+    }
+    """
+
     /// Composite an adjusted image over a base through a single-channel mask.
     /// Linear interpolation, unclamped — the local stage blends scene-referred values.
     static let blendMaskSource = """
@@ -129,30 +170,33 @@ public enum KernelLibrary {
     public static let blendMask = make(blendMaskSource)
     public static let grain = make(grainSource)
     public static let vignette = make(vignetteSource)
+    public static let detailGain = make(detailGainSource)
+    public static let dehaze = make(dehazeSource)
+    public static let addGlow = make(addGlowSource)
+    public static let highlightEnergy = make(highlightEnergySource)
 
-    /// All ten compiled. False means this macOS build rejected the kernel language and
-    /// the renderer must use the CPU reference path.
-    public static var isAvailable: Bool {
-        logEncode != nil && logDecode != nil && multiply != nil && square != nil
-            && luminance != nil && guidedCoefficients != nil && guidedApply != nil
-            && blendMask != nil && grain != nil && vignette != nil
-    }
+    /// Every kernel compiled. False means this macOS build rejected the kernel
+    /// language and the renderer must use the CPU reference path.
+    public static var isAvailable: Bool { unavailableKernels.isEmpty }
 
     /// Names of the kernels that failed, for the diagnostic the UI shows rather than
     /// pretending everything is fine.
     public static var unavailableKernels: [String] {
-        var missing: [String] = []
-        if logEncode == nil { missing.append("logEncode") }
-        if logDecode == nil { missing.append("logDecode") }
-        if multiply == nil { missing.append("multiply") }
-        if square == nil { missing.append("square") }
-        if luminance == nil { missing.append("luminance") }
-        if guidedCoefficients == nil { missing.append("guidedCoefficients") }
-        if guidedApply == nil { missing.append("guidedApply") }
-        if blendMask == nil { missing.append("blendMask") }
-        if grain == nil { missing.append("grain") }
-        if vignette == nil { missing.append("vignette") }
-        return missing
+        let all: [(String, CIColorKernel?)] = [
+            ("logEncode", logEncode), ("logDecode", logDecode),
+            ("multiply", multiply), ("square", square), ("luminance", luminance),
+            ("guidedCoefficients", guidedCoefficients), ("guidedApply", guidedApply),
+            ("blendMask", blendMask), ("grain", grain), ("vignette", vignette),
+            ("detailGain", detailGain), ("dehaze", dehaze), ("addGlow", addGlow),
+            ("highlightEnergy", highlightEnergy),
+        ]
+        return all.filter { $0.1 == nil }.map { $0.0 }
+    }
+
+    /// The kernels the core colour path cannot run without. Presence, film and mask
+    /// stages degrade individually; without these the whole graph is wrong.
+    public static var coreAvailable: Bool {
+        logEncode != nil && logDecode != nil && multiply != nil && luminance != nil
     }
 
     private static func make(_ source: String) -> CIColorKernel? {

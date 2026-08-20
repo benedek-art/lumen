@@ -192,21 +192,21 @@ public struct NoiseProfile: Sendable, Equatable {
         let binCount = Swift.max(estimatorBins, 1)
         var binVariances = [[Double]](repeating: [], count: binCount)
         var binMeanSum = [Double](repeating: 0, count: binCount)
-        var binCount_ = [Int](repeating: 0, count: binCount)
+        var binPopulation = [Int](repeating: 0, count: binCount)
         for i in 0..<means.count {
             var idx = Int((means[i] - lo) / span * Double(binCount))
             if idx < 0 { idx = 0 }
             if idx >= binCount { idx = binCount - 1 }
             binVariances[idx].append(variances[i])
             binMeanSum[idx] += means[i]
-            binCount_[idx] += 1
+            binPopulation[idx] += 1
         }
 
         var px: [Double] = []
         var py: [Double] = []
         var pw: [Double] = []
         for k in 0..<binCount {
-            let c = binCount_[k]
+            let c = binPopulation[k]
             if c < 6 { continue }
             let flat = percentile(binVariances[k], 0.1) * flatBlockCorrection
             px.append(binMeanSum[k] / Double(c))
@@ -937,6 +937,15 @@ public struct AIDenoiseSplice: Sendable {
         return out
     }
 
+    /// The Amount a recipe asks of Tier 2, or nil when Tier 2 is not the active mode — the
+    /// toggle of docs/07 §3.1. Nil is "do not splice", which is distinct from Amount 0: the
+    /// toggle staying on through an invalidation is what keeps the stale badge honest.
+    public static func amount(for denoise: Denoise) -> Double? {
+        guard denoise.mode == .ai else { return nil }
+        guard denoise.amount.isFinite else { return nil }
+        return Num.clamp(denoise.amount, 0, 100)
+    }
+
     /// The artifact cache key, exactly the tuple docs/15 §15.7 and docs/07 §3.5 specify:
     /// `(photo_id, kind, component_id, model_id + model_version, prefix_hash, pipeline_version)`.
     ///
@@ -1007,7 +1016,11 @@ public struct AIDenoiseSplice: Sendable {
                     || (ch >= "A" && ch <= "Z")
                     || (ch >= "0" && ch <= "9")
                     || ch == "." || ch == "-" || ch == "_"
-                out.append(ok ? Character(ch) : "-")
+                if ok {
+                    out.append(Character(ch))
+                } else {
+                    out.append(Character("-"))
+                }
             }
             return out.isEmpty ? "-" : out
         }
@@ -1288,6 +1301,27 @@ public enum ISODefaults {
         return ClassicNR(luma: lumaUserSet ? params.luma : 0,
                          chroma: chromaUserSet ? params.chroma : 0,
                          hotPixels: params.hotPixels)
+    }
+
+    /// The Tier-1 block a whole `Denoise` recipe resolves to, honouring `mode`:
+    ///  - `.off` — Tier 1 is off, including Hot Pixels. Off means off.
+    ///  - `.classic` — the recipe's own `classic` block, untouched.
+    ///  - `.ai` — the auto-zero coupling above, so Tier 1 runs as a finishing pass over an
+    ///    already-denoised image rather than compensating twice.
+    ///
+    /// `userSet` bits are parameters because the recipe does not carry them yet (docs/07 §12.7).
+    public static func classic(for denoise: Denoise,
+                               lumaUserSet: Bool = false,
+                               chromaUserSet: Bool = false) -> ClassicNR {
+        switch denoise.mode {
+        case .off:
+            return ClassicNR(luma: 0, chroma: 0, hotPixels: 0)
+        case .classic:
+            return denoise.classic
+        case .ai:
+            return coupled(denoise.classic, aiEnabled: true,
+                           lumaUserSet: lumaUserSet, chromaUserSet: chromaUserSet)
+        }
     }
 }
 
