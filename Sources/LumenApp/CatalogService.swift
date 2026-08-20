@@ -71,7 +71,14 @@ final class CatalogService: @unchecked Sendable {
                     let size = (attributes?[.size] as? NSNumber)?.int64Value ?? 0
                     let mtime = ((attributes?[.modificationDate] as? Date)?
                         .timeIntervalSince1970).map { Int64($0) } ?? 0
-                    return ScannedFile(filename: file.lastPathComponent,
+                    // The folder scan is recursive and `photo` is UNIQUE per
+                    // (folder, filename), so the basename is not an identity: one card
+                    // with day1/ and day2/ subfolders puts two different frames named
+                    // DSC_0001.NEF on one row, and the second edit overwrites the
+                    // first. The path relative to the registered folder is unique by
+                    // construction, and equals the basename for files sitting directly
+                    // in it — which is why this only ever bit multi-folder imports.
+                    return ScannedFile(filename: ScannedFile.catalogName(for: file, in: folder),
                                        fileSize: size, fileMTime: mtime,
                                        ext: file.pathExtension.lowercased())
                 }
@@ -79,8 +86,9 @@ final class CatalogService: @unchecked Sendable {
                                    at: CatalogStore.now())
 
                 for file in files {
-                    guard let row = try store.photo(folderID: folderID,
-                                                    filename: file.lastPathComponent)
+                    guard let row = try store.photo(
+                        folderID: folderID,
+                        filename: ScannedFile.catalogName(for: file, in: folder))
                     else { continue }
                     let recipe = try store.currentRecipe(photoID: row.id)
                     result[file] = Self.merge(row: row, recipe: recipe, file: file)
@@ -321,8 +329,20 @@ final class CatalogService: @unchecked Sendable {
         }
     }
 
+    /// Where a photo's sidecar lives.
+    ///
+    /// RAW files get `NAME.xmp` — the Adobe convention every other tool reads. Anything
+    /// else gets `NAME.EXT.xmp`, which is also the Adobe convention, and which is the
+    /// part that was missing: stripping the extension from both halves of a RAW+JPEG
+    /// pair pointed `DSC_0001.NEF` and `DSC_0001.JPG` at one `DSC_0001.xmp`. Both are
+    /// browsable, so on a card shot RAW+JPEG editing the JPEG overwrote the RAW's
+    /// recipe and vice versa — half the frames on the card, with the promise that
+    /// losing the catalog costs speed and never work quietly false for all of them.
     static func sidecarURL(for photo: URL) -> URL {
-        photo.deletingPathExtension().appendingPathExtension("xmp")
+        guard PhotoFormats.isRaw(photo) else {
+            return photo.appendingPathExtension("xmp")
+        }
+        return photo.deletingPathExtension().appendingPathExtension("xmp")
     }
 
     static func readSidecar(for photo: URL) -> SidecarContent? {

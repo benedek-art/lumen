@@ -331,6 +331,17 @@ public struct CollectionRow: Equatable, Sendable {
 
 /// One file as the directory listing found it (docs/15 §15.9: the diff key is
 /// (filename, file_size, file_mtime); `quickSig` is the move/dupe detector).
+///
+/// `filename` is the file's path RELATIVE TO ITS REGISTERED FOLDER, not its basename.
+/// The distinction is the whole identity of a photo, because the folder scan is
+/// recursive and `photo` is `UNIQUE(folder_id, filename)`: keyed on the basename,
+/// `day1/DSC_0001.NEF` and `day2/DSC_0001.NEF` are one row. Camera counters wrap and
+/// DCIM folders reuse names, so a single card routinely contains both. Editing one and
+/// then the other saved both recipes onto the same row, and the first frame's work was
+/// gone — with the sidecar unable to rescue it, since the merge rule is catalog-wins.
+///
+/// For a file sitting directly in the registered folder the two are the same string,
+/// which is why the collision only ever showed up on multi-folder imports.
 public struct ScannedFile: Equatable, Sendable {
     public var filename: String
     public var fileSize: Int64
@@ -345,6 +356,28 @@ public struct ScannedFile: Equatable, Sendable {
         self.fileMTime = fileMTime
         self.quickSig = quickSig
         self.ext = ext
+    }
+
+    /// A photo's identity within its registered folder: the path from that folder down
+    /// to the file, `/`-joined. See `filename` above for why this is not the basename.
+    ///
+    /// Here rather than in `CatalogService` because it decides which photo row a recipe
+    /// is saved onto, and `LumenApp` has no test target. On `ScannedFile` rather than
+    /// on `CatalogStore` because `CatalogStore` has a separate stub for platforms
+    /// without SQLite, and a rule that exists on only one of them is a rule that is
+    /// about to drift.
+    ///
+    /// Falls back to the basename when `file` is not inside `folder` at all — wrong in
+    /// the same way the old behaviour was, rather than an empty string that would
+    /// collide with every other stray.
+    public static func catalogName(for file: URL, in folder: URL) -> String {
+        let root = folder.standardizedFileURL.pathComponents
+        let full = file.standardizedFileURL.pathComponents
+        guard full.count > root.count,
+              Array(full.prefix(root.count)) == root else {
+            return file.lastPathComponent
+        }
+        return full.dropFirst(root.count).joined(separator: "/")
     }
 }
 

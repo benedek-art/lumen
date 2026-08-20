@@ -222,6 +222,71 @@ final class CatalogTests: XCTestCase {
         XCTAssertEqual(restored, recipe,
                        "the second copy of the work is not the same as the first")
     }
+
+    // MARK: - A photo's identity inside its folder
+
+    /// The folder scan is recursive and `photo` is UNIQUE(folder_id, filename), so if
+    /// the name is the basename then two frames are one row. Camera counters wrap and
+    /// DCIM folders reuse names, so one card routinely holds `day1/DSC_0001.NEF` and
+    /// `day2/DSC_0001.NEF`.
+    func testTwoFilesWithTheSameBasenameGetDifferentCatalogNames() {
+        let folder = URL(fileURLWithPath: "/Shoot", isDirectory: true)
+        let first = URL(fileURLWithPath: "/Shoot/day1/DSC_0001.NEF")
+        let second = URL(fileURLWithPath: "/Shoot/day2/DSC_0001.NEF")
+
+        let a = ScannedFile.catalogName(for: first, in: folder)
+        let b = ScannedFile.catalogName(for: second, in: folder)
+        XCTAssertNotEqual(a, b,
+                          "both frames resolve to \(a) — they will share one catalog "
+                              + "row, and the second edit will overwrite the first")
+        XCTAssertEqual(a, "day1/DSC_0001.NEF")
+        XCTAssertEqual(b, "day2/DSC_0001.NEF")
+    }
+
+    /// The common case has to keep working unchanged: a file sitting directly in the
+    /// opened folder is still named by its basename, so nothing about a flat folder's
+    /// catalog rows moves.
+    func testAFileDirectlyInTheFolderIsStillNamedByItsBasename() {
+        let folder = URL(fileURLWithPath: "/Shoot", isDirectory: true)
+        let file = URL(fileURLWithPath: "/Shoot/DSC_0001.NEF")
+        XCTAssertEqual(ScannedFile.catalogName(for: file, in: folder), "DSC_0001.NEF")
+    }
+
+    func testCatalogNameHandlesTrailingSlashesAndDotSegments() {
+        let plain = URL(fileURLWithPath: "/Shoot", isDirectory: true)
+        let file = URL(fileURLWithPath: "/Shoot/day1/DSC_0001.NEF")
+        XCTAssertEqual(ScannedFile.catalogName(for: file, in: plain),
+                       "day1/DSC_0001.NEF")
+        XCTAssertEqual(
+            ScannedFile.catalogName(for: URL(fileURLWithPath: "/Shoot/./day1/DSC_0001.NEF"),
+                                    in: plain),
+            "day1/DSC_0001.NEF",
+            "a dot segment produced a different identity for the same file")
+    }
+
+    /// A file that is not under the folder at all has no relative name. Falling back to
+    /// the basename is wrong in the same bounded way the old behaviour was; returning
+    /// an empty string would make every such stray collide with every other.
+    func testAFileOutsideTheFolderFallsBackToItsBasename() {
+        let folder = URL(fileURLWithPath: "/Shoot", isDirectory: true)
+        let stray = URL(fileURLWithPath: "/Elsewhere/DSC_0002.NEF")
+        XCTAssertEqual(ScannedFile.catalogName(for: stray, in: folder), "DSC_0002.NEF")
+    }
+
+    /// Deep nesting is ordinary on a card that has been organised by date.
+    func testNestedSubfoldersKeepTheirWholePath() {
+        let folder = URL(fileURLWithPath: "/Shoot", isDirectory: true)
+        let deep = URL(fileURLWithPath: "/Shoot/2026/05/01/DSC_0001.NEF")
+        XCTAssertEqual(ScannedFile.catalogName(for: deep, in: folder),
+                       "2026/05/01/DSC_0001.NEF")
+    }
+
+    /// The name still has to yield the right extension — the catalog derives `ext`
+    /// from it, and that is what tells RAW from rendered.
+    func testTheExtensionStillFallsOutOfARelativeName() {
+        XCTAssertEqual(CatalogStore.fileExtension(of: "day1/DSC_0001.NEF"), "nef")
+        XCTAssertEqual(CatalogStore.fileExtension(of: "2026/05/01/a.b.CR3"), "cr3")
+    }
 }
 
 #endif
