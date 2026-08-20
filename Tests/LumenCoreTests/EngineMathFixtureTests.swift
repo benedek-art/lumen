@@ -162,6 +162,55 @@ final class EngineMathFixtureTests: XCTestCase {
         }
     }
 
+    // MARK: - Grading zones
+
+    /// Zone geometry and the grade's monotonicity solve.
+    ///
+    /// `solveLumScale` is the sibling of ToneEngine's zonal solve — the same failure,
+    /// the same closed form — and it was wrong twice before it was right: once for
+    /// missing the coupling entirely, once for sampling the axis on a fixed step that
+    /// walked straight over the narrow crossfade whose slope it existed to measure.
+    /// The tone solve has been tied to the mirror since this file was written; this
+    /// gives the grade solve the same tie, so a third mistake in it cannot pass by
+    /// agreeing with nothing.
+    func testGradeZonesAndLumScaleMatchTheReference() throws {
+        for row in try rows(fixture(), "grade") {
+            var wheels = GradingWheels()
+            wheels.blending = double(row, "blending")
+            wheels.balance = double(row, "balance")
+            wheels.shadows.lum = double(row, "shadowsLum")
+            wheels.mid.lum = double(row, "midLum")
+            wheels.high.lum = double(row, "highLum")
+            let engine = GradeEngine(wheels: wheels, printerLights: PrinterLights())
+            let label = "blending \(wheels.blending) balance \(wheels.balance) "
+                + "wheels \(wheels.shadows.lum)/\(wheels.mid.lum)/\(wheels.high.lum)"
+
+            XCTAssertEqual(engine.windows.shadowHalfWidth, double(row, "halfWidth"),
+                           accuracy: 1e-12, "half width diverged for \(label)")
+            XCTAssertEqual(engine.windows.shadowPivot, double(row, "shadowPivot"),
+                           accuracy: 1e-12, "shadow pivot diverged for \(label)")
+            XCTAssertEqual(engine.windows.highlightPivot,
+                           double(row, "highlightPivot"), accuracy: 1e-12,
+                           "highlight pivot diverged for \(label)")
+            XCTAssertEqual(engine.lumScale, double(row, "lumScale"), accuracy: 1e-9,
+                           "lum scale diverged for \(label)")
+
+            guard let weights = row["weights"] as? [[String: Any]] else {
+                return XCTFail("grade row carried no weights for \(label)")
+            }
+            for sample in weights {
+                let x = double(sample, "x")
+                let w = engine.windows.weights(atNormalized: x)
+                XCTAssertEqual(w.shadows, double(sample, "shadows"), accuracy: 1e-12,
+                               "shadow weight diverged at x=\(x) for \(label)")
+                XCTAssertEqual(w.mid, double(sample, "mid"), accuracy: 1e-12,
+                               "mid weight diverged at x=\(x) for \(label)")
+                XCTAssertEqual(w.high, double(sample, "high"), accuracy: 1e-12,
+                               "highlight weight diverged at x=\(x) for \(label)")
+            }
+        }
+    }
+
     // MARK: - The film chain
 
     /// The grey ramp through every stock, against the mirror that walks it for
