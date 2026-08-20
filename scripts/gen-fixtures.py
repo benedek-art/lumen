@@ -1032,7 +1032,13 @@ def radial_alpha(w, h, cx, cy, rx, ry, rotation_deg, feather, x, y):
         return 1.0
     if r >= 1:
         return 0.0
-    return smoothstep(1.0, rin, r)
+    # `1 - smoothstep(rin, 1, r)`. The reversed form this mirrored — and that the
+    # Swift had — hit smoothstep's degenerate-edge guard on every call, because rin
+    # is always below 1, and returned 0 for the whole falloff. The radial mask had
+    # no soft edge at all; Feather only moved a hard one inward. Both mirrors of
+    # this pattern were wrong together, which is why the property checks below
+    # (extent only, `> 0` and `<= 0`) never noticed.
+    return 1.0 - smoothstep(rin, 1.0, r)
 
 
 def edge_engagement(shift):
@@ -2635,6 +2641,46 @@ def gen_enginemath_fixture():
                 "out": list(vibrance_saturation(c, 0.0, saturation, density=0.0)),
             })
 
+    # The radial mask on a 3:2 frame at several rotations — the case the long-edge-units
+    # fix was made for. The Swift test that covers this uses a 32×32 frame at rotation 0,
+    # where the bug is arithmetically absent: a 45° ellipse rendered at 33.7° with the
+    # wrong eccentricity only on a non-square frame. So the fix has been verified here
+    # and nowhere on the Swift side.
+    radial = []
+    for rotation in (0.0, 30.0, 45.0, 90.0, 135.0):
+        for feather in (30.0, 60.0, 100.0):
+            samples = []
+            for y in range(1, 32, 3):
+                for x in range(1, 48, 3):
+                    samples.append({"x": x, "y": y,
+                                    "alpha": radial_alpha(48, 32, 0.5, 0.5, 0.3, 0.18,
+                                                          rotation, feather, x, y)})
+            # A grid of nothing but 0 and 1 would compare two step functions and never
+            # reach the falloff, which is where the rotation actually shows.
+            partial = sum(1 for s in samples if 1e-6 < s["alpha"] < 1 - 1e-6)
+            # A narrow feather genuinely lands fewer pixels in the band, so the floor
+            # is set for the narrowest case here (feather 30 gives 12–18).
+            check(partial >= 10,
+                  f"radial grid at rotation {rotation}, feather {feather} has only "
+                  f"{partial} partially-covered samples — it does not test the falloff")
+            radial.append({"width": 48, "height": 32,
+                           "center": [0.5, 0.5], "radii": [0.3, 0.18],
+                           "rotation": rotation, "feather": feather,
+                           "samples": samples})
+
+    # And the rotations must actually differ from one another, or the fixture pins a
+    # function that ignores its rotation argument — which is exactly the bug class the
+    # long-edge-units fix belongs to.
+    for feather in (30.0, 60.0, 100.0):
+        rows = [r for r in radial if r["feather"] == feather]
+        base = [s["alpha"] for s in rows[0]["samples"]]
+        for other in rows[1:]:
+            moved = sum(1 for a, s in zip(base, other["samples"])
+                        if abs(a - s["alpha"]) > 1e-6)
+            check(moved >= 10,
+                  f"rotating to {other['rotation']}° at feather {feather} moved only "
+                  f"{moved} samples — the ellipse is not rotating")
+
     white_balance = []
     # 5000 and 6500 are here because they are the two the Swift suite anchors against
     # published chromaticities (D50 and D65). Tying exactly those points to the mirror
@@ -2713,6 +2759,7 @@ def gen_enginemath_fixture():
         "shapedChromaScalePush": chroma_push,
         "whiteBalance": white_balance,
         "perceptual": perceptual,
+        "radialAlpha": radial,
     }
     with open(os.path.join(FIXTURES, "enginemath.json"), "w") as f:
         json.dump(payload, f, indent=2, sort_keys=True)
@@ -2721,7 +2768,8 @@ def gen_enginemath_fixture():
              + sum(len(t["stops"]) for t in tone) + len(chroma)
              + len(white_balance) + len(perceptual)
              + sum(len(f["samples"]) for f in film)
-             + sum(len(g["weights"]) + 1 for g in grade) + len(chroma_push))
+             + sum(len(g["weights"]) + 1 for g in grade) + len(chroma_push)
+             + sum(len(r["samples"]) for r in radial))
     print(f"  {total} sampled values across ten engine surfaces")
 
 

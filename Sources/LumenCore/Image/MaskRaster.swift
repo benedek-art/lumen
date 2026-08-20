@@ -385,7 +385,14 @@ public enum MaskRaster {
                 } else if r >= 1 {
                     p[x, y] = 0
                 } else {
-                    p[x, y] = smoothstep(1, rin, r)
+                    // `1 - smoothstep(rin, 1, r)`, NOT `smoothstep(1, rin, r)`.
+                    // `Num.smoothstep` guards a degenerate edge pair with
+                    // `if e1 <= e0 { return x < e0 ? 0 : 1 }`, and `rin` is always
+                    // below 1 — so the reversed form took that branch on every call
+                    // and returned 0 for the entire falloff. The mask was hard-edged:
+                    // 1 inside `rin`, 0 outside it, and Feather did nothing but shrink
+                    // the core. Both endpoints still meet the branches above exactly.
+                    p[x, y] = 1 - smoothstep(rin, 1, r)
                 }
             }
         }
@@ -674,7 +681,11 @@ public enum MaskRaster {
         guard rho.isFinite else { return 0 }
         if rho <= hardness { return 1 }
         if rho >= 1 { return 0 }
-        return smoothstep(1, hardness, rho)
+        // Same reversed-argument bug as `radialPlane`, and the same fix. This one made
+        // every brush stamp a hard-edged disc, so a soft brush painted aliased edges
+        // that the mask's own Feather control could not recover — it only moved the
+        // hard edge inward. See the note there.
+        return 1 - smoothstep(hardness, 1, rho)
     }
 
     /// Catmull-Rom (uniform, τ = 0.5) through the recorded points, resampled at

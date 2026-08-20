@@ -245,6 +245,38 @@ final class EngineMathFixtureTests: XCTestCase {
         }
     }
 
+    // MARK: - Radial masks
+
+    /// The radial mask on a 3:2 frame at five rotations — the shape the long-edge-units
+    /// fix was made for, and the shape the Swift-side test could not see, because it
+    /// uses a square frame at rotation 0 where the bug is arithmetically absent.
+    func testRadialMaskMatchesTheReference() throws {
+        for row in try rows(fixture(), "radialAlpha") {
+            let width = Int(double(row, "width"))
+            let height = Int(double(row, "height"))
+            guard let centre = row["center"] as? [NSNumber],
+                  let radii = row["radii"] as? [NSNumber],
+                  let samples = row["samples"] as? [[String: Any]] else {
+                return XCTFail("malformed radialAlpha row")
+            }
+            var component = MaskComponent(op: .add, kind: .radial)
+            component.center = centre.map(\.doubleValue)
+            component.radii = radii.map(\.doubleValue)
+            component.rotation = double(row, "rotation")
+            component.feather = double(row, "feather")
+            let plane = MaskRaster.rasterize(component: component,
+                                             size: (width: width, height: height))
+            let label = "rotation \(component.rotation ?? 0) "
+                + "feather \(component.feather ?? 0)"
+            for sample in samples {
+                let x = Int(double(sample, "x"))
+                let y = Int(double(sample, "y"))
+                XCTAssertEqual(plane[x, y], double(sample, "alpha"), accuracy: 1e-6,
+                               "radial mask diverged at (\(x), \(y)) for \(label)")
+            }
+        }
+    }
+
     // MARK: - The film chain
 
     /// The grey ramp through every stock, against the mirror that walks it for

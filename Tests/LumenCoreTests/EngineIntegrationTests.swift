@@ -522,6 +522,66 @@ final class EngineIntegrationTests: XCTestCase {
         XCTAssertLessThan(plane[0, 0], 0.1)
     }
 
+    /// Feather has to produce an actual gradient, not just move a hard edge.
+    ///
+    /// It did not. `radialPlane`'s falloff branch read `smoothstep(1, rin, r)`, and
+    /// `Num.smoothstep` guards a reversed edge pair with `if e1 <= e0 { return x < e0 ?
+    /// 0 : 1 }` — `rin` is always below 1, so that branch fired on every call and
+    /// returned 0 across the whole falloff. The mask was a hard-edged ellipse at every
+    /// Feather setting; the slider only shrank the opaque core. The test above cannot
+    /// see it, since 1 at the centre and 0 at the corner are true either way.
+    func testFeatherProducesAGradientAndNotJustASmallerHardEdge() {
+        var component = MaskComponent(op: .add, kind: .radial)
+        component.center = [0.5, 0.5]
+        component.radii = [0.35, 0.35]
+        component.feather = 80
+        let plane = MaskRaster.rasterize(component: component,
+                                         size: (width: 64, height: 64))
+
+        // Walking out from the centre, alpha must fall through intermediate values
+        // rather than stepping straight from 1 to 0.
+        var partial = 0
+        var previous = 1.0
+        for x in 32..<64 {
+            let alpha = plane[x, 32]
+            XCTAssertLessThanOrEqual(alpha, previous + 1e-6,
+                                     "the mask brightened on the way out at x=\(x)")
+            if alpha > 0.02 && alpha < 0.98 { partial += 1 }
+            previous = alpha
+        }
+        XCTAssertGreaterThan(partial, 6,
+                             "only \(partial) pixels along the radius were partially "
+                                 + "covered — Feather 80 is drawing a hard edge")
+
+        // A wider feather must reach further in, or the control does nothing.
+        component.feather = 20
+        let tight = MaskRaster.rasterize(component: component,
+                                         size: (width: 64, height: 64))
+        XCTAssertGreaterThan(tight[40, 32], plane[40, 32],
+                             "Feather 20 was no more opaque mid-falloff than Feather 80")
+    }
+
+    /// The same bug lived in `stampProfile`, so every brush stamp was a hard-edged
+    /// disc and a soft brush painted aliased edges.
+    func testBrushStampsHaveASoftShoulder() {
+        var partial = 0
+        var previous = 1.0
+        for step in 0...40 {
+            let rho = Double(step) / 40
+            let alpha = MaskRaster.stampProfile(rho, hardness: 0.2)
+            XCTAssertLessThanOrEqual(alpha, previous + 1e-9,
+                                     "the stamp brightened outward at rho \(rho)")
+            if alpha > 0.02 && alpha < 0.98 { partial += 1 }
+            previous = alpha
+        }
+        XCTAssertGreaterThan(partial, 20,
+                             "only \(partial) of 41 samples across the stamp were "
+                                 + "partially covered — the shoulder is a step")
+        // The endpoints still meet the flat core and the rim exactly.
+        XCTAssertEqual(MaskRaster.stampProfile(0.2, hardness: 0.2), 1, accuracy: 1e-12)
+        XCTAssertEqual(MaskRaster.stampProfile(1, hardness: 0.2), 0, accuracy: 1e-12)
+    }
+
     func testInvalidComponentRasterizesToNothingRatherThanCrashing() {
         let component = MaskComponent(op: .add, kind: .linear)  // no line
         let plane = MaskRaster.rasterize(component: component,
