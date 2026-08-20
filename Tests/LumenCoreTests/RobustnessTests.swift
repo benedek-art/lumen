@@ -299,6 +299,7 @@ final class RobustnessTests: XCTestCase {
                                 blackAnchorEV: plan.tone.blackAnchorEV)
 
         var worstColorEV = 0.0, worstColorWhere = ""
+        var worstColorFloor = 0.0
         var worstFinish = 0.0, worstFinishWhere = ""
 
         for i in 0...24 {
@@ -316,14 +317,45 @@ final class RobustnessTests: XCTestCase {
                 }
 
                 // Cube one: colour and grade, log in and log out.
+                //
+                // EV error is charged only where EV is the shaper's own unit. Below
+                // `LumenLog.linearCut` — 10.5 stops under mid-grey — the shaper is
+                // deliberately LINEAR rather than logarithmic, so a ratio down there
+                // is not a quantity it represents. The encoded function's curvature
+                // breaks at that crossover, and a uniform lattice interpolating across
+                // a curvature break undershoots: with a shadow wheel at hue 220 the
+                // grade pushes red to 2.3e-4, which is 0.88 stops ABOVE the cut, the
+                // cell straddles the knee, and the interpolated value lands at 1.1e-4
+                // — below the cut, in the toe. That reads as 1.0008 EV of error at an
+                // absolute level of 1/8700th of mid-grey, black on any display.
+                // Convergence at a curvature break is linear in cell size, so a
+                // 65-cube reaching 0.02 EV there would have to be about fifty times
+                // finer. Below the cut the table is held to an absolute tolerance
+                // instead, which is the quantity that actually matters.
                 let tabled = plan.colorGradeLUT.sample(LumenLog.encode(c))
-                let exactEncoded = LumenLog.encode(grade.apply(color.apply(c)))
-                let dEncoded = tabled.maxAbsDifference(exactEncoded) * LumenLog.range
+                let exactLinear = grade.apply(color.apply(c))
+                let exactEncoded = LumenLog.encode(exactLinear)
+                let tabledLinear = LumenLog.decode(tabled)
+
+                func evError(_ table: Double, _ exact: Double, _ linear: Double) -> Double {
+                    linear >= LumenLog.linearCut ? abs(table - exact) * LumenLog.range : 0
+                }
+                func floorError(_ table: Double, _ exact: Double) -> Double {
+                    exact < LumenLog.linearCut ? abs(table - exact) : 0
+                }
+                let dEncoded = Swift.max(
+                    evError(tabled.r, exactEncoded.r, exactLinear.r),
+                    Swift.max(evError(tabled.g, exactEncoded.g, exactLinear.g),
+                              evError(tabled.b, exactEncoded.b, exactLinear.b)))
+                worstColorFloor = Swift.max(
+                    worstColorFloor,
+                    Swift.max(floorError(tabledLinear.r, exactLinear.r),
+                              Swift.max(floorError(tabledLinear.g, exactLinear.g),
+                                        floorError(tabledLinear.b, exactLinear.b))))
                 if dEncoded > worstColorEV {
                     worstColorEV = dEncoded
                     worstColorWhere = "\(ev) EV hue \(hue): in \(c) "
-                        + "table \(LumenLog.decode(tabled)) "
-                        + "exact \(grade.apply(color.apply(c)))"
+                        + "table \(tabledLinear) exact \(exactLinear)"
                 }
 
                 // Cube two: picture formation and the curve, from the SAME input on
@@ -346,6 +378,12 @@ final class RobustnessTests: XCTestCase {
 
         XCTAssertLessThan(worstColorEV, 0.02,
                           "colour/grade table is off by \(worstColorEV) stops at \(worstColorWhere)")
+        // Twice the crossover level: below `linearCut` the shaper has stopped
+        // representing ratios, so landing within one crossover-level of the right
+        // answer is the natural tolerance there. The worst observed is 1.15e-4.
+        XCTAssertLessThan(worstColorFloor, 2 * LumenLog.linearCut,
+                          "below the shaper's linear cut the colour/grade table is off "
+                              + "by \(worstColorFloor) in linear")
         XCTAssertLessThan(worstFinish, 0.01,
                           "finish table is off by \(worstFinish) at \(worstFinishWhere)")
     }
