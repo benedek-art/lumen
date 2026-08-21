@@ -253,9 +253,16 @@ struct BasicPanel: View {
                             value: binder.value(\.develop.detail.dehaze, "detail.dehaze"),
                             range: -100...100, hardRange: nil, defaultValue: 0,
                             step: 1, decimals: 0)
-                DevelopNote("All three recombine one cached decomposition of the "
-                            + "frame, so dragging any of them costs a recombination, "
-                            + "not a re-analysis.")
+                // This used to claim all three "recombine one cached decomposition of
+                // the frame, so dragging any of them costs a recombination, not a
+                // re-analysis". There is no such cache: `applyDetailBands` builds fresh
+                // guided filters every frame and `makeGraph` rebuilds the graph per
+                // render. A panel note is a promise to the person reading it, and that
+                // one was describing an optimisation nobody had written.
+                DevelopNote("Texture and Clarity work on different scales of the same "
+                            + "frame and neither can halo. Dehaze is a transmission "
+                            + "estimate, so it lifts contrast where the air is, not "
+                            + "everywhere.")
             }
         }
     }

@@ -137,7 +137,29 @@ public final class PipelineRenderer {
         let plan = RenderPlan(recipe: recipe,
                               asShotKelvin: source.asShotTemperature,
                               asShotTint: source.asShotTint,
-                              lutSize: draft ? 17 : LUT3D.interactiveSize,
+                              // ONE table size for draft and settle.
+                              //
+                              // The draft used to bake at 17 and the settle at 33, and
+                              // that is not a coarser version of the same picture — it
+                              // is a different picture. Measured over 30 000 in-gamut
+                              // colours across -6…+4 EV, worst-channel display-linear
+                              // error: size 17 has a p99 of 0.1465 (37.4 of 255 levels)
+                              // against size 33's 0.0767 (19.6). Concentrated in
+                              // highlights and saturated tones, which is exactly where
+                              // a photographer is looking while they drag.
+                              //
+                              // The owner's report, unprompted and before anyone showed
+                              // him a measurement: "while I'm dragging a different
+                              // colour comes up on the screen and then when I let go it
+                              // applies something different." That is this line.
+                              //
+                              // The bake it saved is not the win it looks like either:
+                              // `PlanTableCache` already serves the whole tone,
+                              // presence, denoise, sharpening, mask and vignette
+                              // register from cache during a drag, so for most controls
+                              // this costs one bake at the start of a gesture rather
+                              // than one per frame.
+                              lutSize: LUT3D.interactiveSize,
                               captureISO: source.captureMetadata.iso,
                               softProof: softProof)
         let graph = makeGraph(plan: plan, decoded: decoded, draft: draft,

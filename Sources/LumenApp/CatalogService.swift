@@ -250,15 +250,33 @@ final class CatalogService: @unchecked Sendable {
         // turning a render failure into the loss of the user's edit, silently, in the
         // copy whose entire purpose is to survive losing the catalog. Every such
         // failure also shared one fingerprint, so they collided in the cache.
-        guard let json = try? CanonicalJSON.canonicalRecipeJSON(recipe),
-              let fingerprint = try? RecipeFingerprint.fingerprint(recipe) else {
-            NSLog("Lumen catalog: refusing to write an uncanonicalizable recipe for %@",
-                  url.lastPathComponent)
-            onFailure?("Could not save the edit for \(url.lastPathComponent) — "
-                       + "it contains a value the recipe format cannot represent")
-            return
-        }
+        // Canonicalizing happens on the QUEUE, not here.
+        //
+        // This used to run before the hop, so every frame of every slider drag paid for
+        // it on the main actor: `canonicalRecipeJSON` is a full `JSONEncoder.encode`
+        // plus a `JSONDecoder.decode` into an indirect enum tree, and it does that for
+        // the recipe AND for a freshly built `Recipe()` baseline; `fingerprint` then
+        // calls the same function again on `renderIdentity`. Four encodes and four
+        // decodes of the whole recipe, per mouse event, to produce a string that was
+        // immediately handed to a background queue anyway.
+        //
+        // `updateRecipe` loops over `editTargets`, so a forty-frame batch drag was
+        // paying it forty times per event. That does not lag, it locks — and it is the
+        // largest single cost on the path between the cursor and the picture.
+        //
+        // Nothing here needs the result synchronously. The guard that refuses to write
+        // an uncanonicalizable recipe still runs, just one hop later, and still writes
+        // NOTHING rather than falling back to "{}" — which is what once put an empty
+        // recipe over a sidecar and lost the edit it existed to protect.
         queue.async {
+            guard let json = try? CanonicalJSON.canonicalRecipeJSON(recipe),
+                  let fingerprint = try? RecipeFingerprint.fingerprint(recipe) else {
+                NSLog("Lumen catalog: refusing to write an uncanonicalizable recipe for %@",
+                      url.lastPathComponent)
+                self.onFailure?("Could not save the edit for \(url.lastPathComponent) — "
+                                + "it contains a value the recipe format cannot represent")
+                return
+            }
             if let id = catalogID {
                 do {
                     try self.store.saveRecipe(recipe, photoID: id, isCurrent: true)

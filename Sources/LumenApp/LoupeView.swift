@@ -331,8 +331,14 @@ final class PhotoRenderModel: ObservableObject {
 
         let draftGeneration: UInt64 = PhotoRenderModel.nextGeneration()
         latestGeneration = draftGeneration
+        // Half the settled request, floored at the old fixed size: enough that the
+        // draft reads as the same photograph at fit, cheap enough to stay ahead of the
+        // cursor. The colour is now identical to the settle by construction, so what
+        // remains between draft and settle is sharpness alone — which reads as the
+        // picture resolving rather than as the picture changing.
+        let draftTarget = Swift.max(draftLongEdge, Swift.min(fullLongEdge / 2, 2048))
         let draft = await coordinator.render(url: url, recipe: recipe,
-                                             maxLongEdge: Swift.max(draftLongEdge, 64),
+                                             maxLongEdge: Swift.max(draftTarget, 64),
                                              draft: true, generation: draftGeneration,
                                              strokeSets: strokeSets,
                                              showingUncropped: showingUncropped,
@@ -436,6 +442,12 @@ struct LoupeView: View {
     /// Above this we stop asking for more pixels; a real 1:1 on a 45 MP frame is the
     /// tiled Metal viewport's job, and the badge says which one you are looking at.
     static let maxRenderLongEdge: Int = 4096
+    /// Floor for the draft pass. The draft now follows the VIEWPORT rather than being
+    /// pinned here — a fixed 1024 was being blown up two to three times into a Retina
+    /// loupe, so the frame under the cursor during a drag was soft as well as being a
+    /// different colour, and both resolved only after the settle. This stays as the
+    /// lower bound for a tiny window and as the fallback when the container size is not
+    /// yet known.
     static let draftLongEdge: Int = 1024
 
     @StateObject private var model: PhotoRenderModel = PhotoRenderModel()
