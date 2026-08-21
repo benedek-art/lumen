@@ -201,7 +201,7 @@ cannot separate "weak" from "absent" when the frame contains nothing for the sta
 act on. It now runs on a frame with 12 px structure and compares the GPU's movement to
 the reference's on the same frame, which is the ratio that was 1/48.
 
-### Texture — measured, then fixed
+### Texture — measured, not fixed
 
 The same measurement, run on the stage beside Clarity: **1.8× to 17× under the
 reference**, at Texture ±40, on seven frames.
@@ -286,77 +286,74 @@ correctly calls flat. Closing that means dilating the gate to the band's reach, 
 another Metal pass; the gate above is two lines on a plane the GPU already samples. The
 cheap 5.2× came first on purpose.
 
-#### The strength, fixed: the first defect
+#### The strength: attempted, measured, reverted again
 
-With the rim gated on both paths, the band port that was reverted in 4a58716 goes back
-in. Its two red goldens were the reason it came out, and the first of them was this
-document's own finding rather than a mistake in the port: an à-trous band *carries* the
-edge — that is what it is for — so a gain on it rims a step unless something closes.
-Nothing closed, on either path, which is what the section above fixed. The port supplies
-the strength; the gate makes the strength safe to ship. Neither is any use alone, which
-is exactly what "three defects hiding each other" meant.
+With the rim gated, the band port reverted in 4a58716 was put back and taken out a second
+time. Recording it so the third attempt starts here rather than at the beginning.
 
-So the shipping band is now the reference's own — `Σ wℓ · (sℓ − sℓ₊₁)` over the à-trous
-stack, weighted by the raised-cosine window `bandCenter` places for the resolution —
-instead of one guided base at a fixed radius times 0.9. Two errors compounded in that
-old construction: the guided base is edge-preserving at a 0.1 EV threshold, so it keeps
-86% of any texture whose local excursion clears a tenth of a stop, and Texture acted on
-the residue; and 0.9 is not the reference's coefficient, which normalizes the window to
-`referenceBandWeight(halfWidth: 1.6)` = 1.617.
+**What the attempt proved.** Two of the three defects closed, and macOS CI confirmed both:
+positive Texture reached **1.00× parity** with the reference (the assertion the port added
+passed), and `testPresenceDoesNotRimAHardEdge` passed *with the à-trous band in place* —
+which it could not do before the gate existed. The port's original red goldens were not
+mistakes in the port.
 
-The window is also what makes the control scale-honest: `bandCenter` tracks the long
-edge, so the same setting means the same amount of texture on a fit view and on a 61 MP
-export. One fixed radius cannot, and the guided base was one fixed radius.
-
-The gate is load-bearing in a way it was not before, so it is no longer optional on
-either sign — if the structure pass fails there is no Texture, because an ungated gain
-on this band is a visible halo and shipping that is worse than the stage sitting out a
-render that is already broken upstream.
-
-#### The third was not a defect in the gate
-
-The golden came back red exactly where expected — negative Texture moved the edge by
-0.04258 and the texture by 0.01364, backwards, the same numbers as the first attempt.
-The parity assertion and the presence bar both passed, so the strength and the rim were
-answered; this was the one left.
-
-It is not the gate. The reference does the same thing on the same frame when its
-coherence window is the same width:
+**What it ran into.** `testNegativeTextureSmoothsTextureMoreThanEdges` went red at edge
+0.04258 / texture 0.01364. That was not the gate. The golden hands `applyPresence` a
+`longEdge` of 1600 with a 64 px frame, and `structureRadius` sizes the coherence window
+off that number — 8, where the reference sizes it off the buffer and gets 1. The reference
+inverts identically at the same width:
 
 ```
   window   texture     edge     ordering
   1        0.01764   0.00029    correct     <- what a 64 px buffer earns
-  2        0.01764   0.00041    correct
   4        0.01744   0.00563    correct
   8        0.01679   0.04736    INVERTED
   GPU      0.01364   0.04258    INVERTED
 ```
 
-The GPU was reproducing the reference's radius-8 behaviour, and it was using radius 8
-because the golden hands `applyPresence` a `longEdge` of 1600 with a 64 px frame.
-`structureRadius` sizes the window off that number — `max(Int(1600 · 0.02), 3) / 4` = 8
-— where the reference sizes it off the buffer it was actually given, `max(Int(64 · 0.02),
-3) / 4` floored at 1. A structure tensor averaged over a window that is a quarter of the
-frame has stopped telling an edge from the texture beside it, and that is all that
-happened.
+Clamping the window to what the buffer earns fixed that golden — and broke the rim one, at
+0.38 EV against the 0.30 bar. Widening the window fixes the rim and costs discrimination;
+narrowing it fixes discrimination and costs the rim.
 
-In the app the two agree, because `Options.longEdge` *is* the decoded buffer's long edge.
-That is why this never showed on a photograph. It is still worth closing, because the
-code should not depend on a caller's parameter matching the buffer it also passed:
-`structureWindow` now clamps the requested window to the one the buffer's own extent
-earns, which is a no-op whenever they agree and every render in the app is a case where
-they agree.
+**The real shape of it.** The gate has two radii and the code has one. It is *measured* on
+the structure tensor at a window proportional to the frame — that proportionality is what
+tells a coherent edge from the texture beside it — and *applied* to an à-trous band that
+reaches several pixels. A closure only as wide as the measurement leaves the band's edge
+energy in pixels the tensor has already, correctly, called flat. That residue is the rim,
+and no single radius satisfies both. Three ways of proving it:
 
-Two smaller divergences went with it. `structureRadius` rounded where the reference
-truncates, and floored at 2 where the reference floors at 1 — a leftover from when
-`CIBoxBlur(1)` returned its input unchanged, which `boxBlur`'s `2r + 1` conversion had
-already made unnecessary.
+```
+  measurement window     1        2        3        4        6        8
+  rim (EV, +100)       0.2668   0.1774   0.1327   0.1148   0.1108   0.1104
+  discriminates?        yes      yes      yes      yes       NO       NO
+```
 
-So all three are answered, and the third turned out to be a measurement about a test
-parameter rather than a defect in a kernel. The Linux test that pins it asserts both
-halves — that the gate discriminates at the window the buffer earns, *and* that an 8×
-window still inverts the ordering — because the first alone would pass on a clamp that
-quietly disabled the gate.
+The rim plateaus at 4 — the band's reach — and discrimination fails from 6. Flooring the
+measurement at 4 satisfies both of those and gates small buffers flat: local Texture
+stopped moving entirely on the 24×16 frame.
+
+**Why dilation is not yet the answer either.** Decoupling the two radii — measure narrow,
+dilate the closure to the band's reach — does work on its own terms, and by a wide margin:
+rim 0.2668 → **0.1108**, authority on flat texture bit-identical, discrimination passing at
+*both* narrow and wide measurement windows. It fails somewhere else. On a frame carrying a
+strong smooth gradient — the local-adjust test's 8 EV ramp over 16 px — the tensor reads
+coherence near 1 almost everywhere, the few open pixels get closed by the dilation, and
+positive Texture dies completely (0.0 against a 1e-4 bar).
+
+That last one is the finding worth keeping, because it is not about dilation. **The
+positive gate is too aggressive on a strong smooth gradient.** A ramp is not an edge and a
+photographer expects Texture to work on a sky, but `coherence` is ratio × strength and a
+steep ramp scores high on both. The gate that shipped is safe only because it is narrow
+enough not to reach the open pixels; widening it in any direction exposes the same thing.
+
+So the next attempt is not "port the band again". It is: make the gate distinguish a
+*gradient* from an *edge* — a ramp has consistent orientation and near-zero second
+derivative where an edge does not — and only then decouple the two radii. Until that
+holds, the band port trades quiet weakness for a dead slider on skies, which is worse.
+
+What is left of the three: Texture is still 2–6× weak. The rim is fixed. The negative-side
+window divergence is understood and fixed in the reverted work, and should be re-applied
+with the next attempt rather than rediscovered.
 
 ### The sweep: every slider, measured
 

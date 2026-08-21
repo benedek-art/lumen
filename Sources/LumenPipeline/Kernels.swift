@@ -313,10 +313,24 @@ public enum KernelLibrary {
     /// The gate multiplies the BAND, not the result: gating the gain afterwards would
     /// pull the whole multiply toward zero rather than toward one, which darkens
     /// wherever the gate closes instead of leaving the pixel alone.
+    ///
+    /// `negative` picks which of the two gate shapes `DetailEngine.applyTexture` uses,
+    /// and the two are not the same function for a reason. Negative Texture closes on
+    /// any structure at all (`1 − coherence`), because smoothing an edge is never
+    /// wanted. Positive Texture closes only on genuine coherent edges, because an
+    /// ungated gain on a band that still contains the edge rims it: measured against
+    /// the reference on a clean 3 EV step, 1.39 EV of trench at +100 against the
+    /// 0.30 EV bar the presence golden holds Clarity to. Mirroring the negative gate
+    /// instead would have flattened hair and fabric weave — measured at 0.19 coherence
+    /// where a hard step measures 1.00 — which are the subjects the positive control
+    /// exists for, so the gate only starts closing above them.
     static let detailGainGatedSource = """
     kernel vec4 lumenDetailGainGated(__sample hi, __sample lo, __sample gate,
-                                     float k, float useGate) {
-        float open = mix(1.0, 1.0 - clamp(gate.r, 0.0, 1.0), useGate);
+                                     float k, float negative,
+                                     float gateLo, float gateHi) {
+        float c = clamp(gate.r, 0.0, 1.0);
+        float closed = mix(smoothstep(gateLo, gateHi, c), c, negative);
+        float open = 1.0 - closed;
         float g = exp2(k * open * (hi.r - lo.r));
         return vec4(g, g, g, 1.0);
     }
@@ -370,58 +384,6 @@ public enum KernelLibrary {
             ? 0.0
             : (sigmaEV * pow(t, alpha) - mag) * sign(dEV);
         float g = exp2(added);
-        return vec4(g, g, g, 1.0);
-    }
-    """
-
-    /// The reference's Texture band: a raised-cosine window over à-trous scales,
-    /// `Σ wℓ · (sℓ − sℓ₊₁)`, evaluated from the six successive smooths.
-    ///
-    /// Texture used to come off ONE guided base at the fine radius, gained by
-    /// `amount · 0.9`. Two things were wrong with that and they compounded. The guided
-    /// base is edge-preserving with a threshold of 0.1 EV, so it keeps 86% of any
-    /// texture whose local excursion exceeds a tenth of a stop — which is essentially
-    /// all real texture — and the band Texture acted on was the residue. And 0.9 is not
-    /// the reference's coefficient: `applyTexture` normalizes its window to
-    /// `referenceBandWeight(halfWidth: 1.6)`, which is 1.617. Measured against the
-    /// reference on seven frames at Texture ±40, the GPU applied between 1/1.8 and
-    /// 1/17 of the gain.
-    ///
-    /// A window rather than one band because that is what makes the control scale
-    /// honest: `bandCenter` tracks the long edge, so the same setting means the same
-    /// amount of texture on a fit view and on a 61 MP export. One fixed radius cannot.
-    static let atrousBandSource = """
-    kernel vec4 lumenAtrousBand(__sample s0, __sample s1, __sample s2, __sample s3,
-                                __sample s4, __sample s5, float w0, float w1, float w2,
-                                float w3, float w4) {
-        float band = w0 * (s0.r - s1.r) + w1 * (s1.r - s2.r) + w2 * (s2.r - s3.r)
-                   + w3 * (s3.r - s4.r) + w4 * (s4.r - s5.r);
-        return vec4(band, band, band, 1.0);
-    }
-    """
-
-    /// Apply a band as a gain in stops, closed where the neighbourhood is a coherent
-    /// edge.
-    ///
-    /// An à-trous band CARRIES the edge — that is what it is for — so a gain on it rims
-    /// a step unless something closes. Measured on the presence golden's clean 3 EV
-    /// step, the reference's own ungated positive Texture dug 1.39 EV against a 0.30 EV
-    /// bar, and this band ported without a gate dug 1.21 EV. Both signs are gated here
-    /// for that reason.
-    ///
-    /// The two shapes differ, and `negative` picks between them. Negative Texture closes
-    /// on any structure at all (`1 − coherence`), the asymmetry that makes it a skin
-    /// smoother rather than an edge softener. Positive Texture closes only on genuine
-    /// coherent edges, because hair and fabric weave measure 0.19 coherence against a
-    /// hard step's 1.00 and they are what the positive control exists to raise —
-    /// borrowing the negative shape would have flattened exactly those.
-    static let bandGainSource = """
-    kernel vec4 lumenBandGain(__sample band, __sample gate, float k, float negative,
-                              float gateLo, float gateHi, float range) {
-        float c = clamp(gate.r, 0.0, 1.0);
-        float closed = mix(smoothstep(gateLo, gateHi, c), c, negative);
-        float open = 1.0 - closed;
-        float g = exp2(k * open * band.r * range);
         return vec4(g, g, g, 1.0);
     }
     """
@@ -751,8 +713,6 @@ public enum KernelLibrary {
     public static let subtract = make(subtractSource)
     public static let thresholdMask = make(thresholdMaskSource)
     public static let detailRemap = make(detailRemapSource)
-    public static let atrousBand = make(atrousBandSource)
-    public static let bandGain = make(bandGainSource)
     public static let structureTensor = make(structureTensorSource)
     public static let coherence = make(coherenceSource)
     public static let detailGainGated = make(detailGainGatedSource)
@@ -791,8 +751,7 @@ public enum KernelLibrary {
             ("blendMask", blendMask), ("grain", grain), ("vignette", vignette),
             ("detailGain", detailGain), ("dehaze", dehaze), ("addGlow", addGlow),
             ("sharpenDelta", sharpenDelta), ("lumaRatio", lumaRatio),
-            ("subtract", subtract), ("thresholdMask", thresholdMask), ("detailRemap", detailRemap), ("atrousBand", atrousBand),
-            ("bandGain", bandGain),
+            ("subtract", subtract), ("thresholdMask", thresholdMask), ("detailRemap", detailRemap),
             ("structureTensor", structureTensor),
             ("coherence", coherence), ("detailGainGated", detailGainGated),
             ("tensorMagnitude", tensorMagnitude),
