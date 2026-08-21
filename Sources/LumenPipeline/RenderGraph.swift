@@ -988,7 +988,30 @@ public struct RenderGraph {
         guard sigma > 0 else { return image }
         let filter = CIFilter.gaussianBlur()
         filter.inputImage = image.clampedToExtent()
-        filter.radius = Float(Swift.max(sigma * 3, 0.5))
+        // `CIGaussianBlur.radius` IS the standard deviation. Measured on the runner by
+        // blurring an impulse and taking the second moment of the response, which is
+        // sigma by definition:
+        //
+        //     radius passed    2.0   6.0   9.0
+        //     measured sigma   2.0   6.01  8.95
+        //
+        // It was `sigma * 3`, on the stated grounds that the parameter is a support
+        // radius. It is not, and that made every Gaussian in the shipping graph three
+        // times wider than it asked for — the sharpen stage's unsharp term, mask
+        // feather, halation.
+        //
+        // How it surfaced: the Sharpen Detail slider ran backwards even after its fine
+        // band was rebuilt from the reference's a-trous stack. `usm = lum − G(3·sigma)`
+        // is a far wider high-pass than a band whose smooths measure sigma 1.0 and 2.0,
+        // so mixing toward the finer band could only ever attenuate. The direction
+        // assertion in `testDetailSliderMovesThePicture` is what refused to let that
+        // pass twice.
+        //
+        // Same class as `CIBoxBlur.radius` being the window width rather than the
+        // half-width, found the same way on the same day. Two Core Image blur
+        // parameters, both documented in comments as fact, both wrong, both measurable
+        // in one impulse response.
+        filter.radius = Float(Swift.max(sigma, 0.5))
         return filter.outputImage?.cropped(to: image.extent)
     }
 
