@@ -1314,6 +1314,29 @@ final class KernelGoldenTests: XCTestCase {
                                  + "band collapsed, a few e-4 means the gain is being "
                                  + "computed in the shaper's encoded units, not stops")
 
+        // Against the reference, not against zero. Texture cleared the presence bar
+        // above while applying between 1/1.8 and 1/17 of the gain `applyTexture`
+        // specifies — a single edge-preserving guided band times a coefficient of 0.9,
+        // where the reference sums a raised-cosine window over the à-trous stack
+        // normalized to 1.617. Both halves of that are invisible to a presence bar.
+        var textureRecipe = Recipe()
+        textureRecipe.develop.denoise.mode = .off
+        let texturePlain = try render(source) { $0.develop.denoise.mode = .off }
+        let textureGPU = movement(source, texturePlain, try render(source) {
+            $0.develop.denoise.mode = .off
+            $0.develop.detail.texture = 40
+        })
+        let textureReferencePlain = ReferenceRenderer.render(
+            source, plan: RenderPlan(recipe: textureRecipe))
+        textureRecipe.develop.detail.texture = 40
+        let textureReference = movement(
+            source, textureReferencePlain,
+            ReferenceRenderer.render(source, plan: RenderPlan(recipe: textureRecipe)))
+        XCTAssertEqual(textureGPU / textureReference, 1, accuracy: 0.5,
+                       "Texture +40 moved the frame by \(textureGPU) where the reference "
+                           + "moves it \(textureReference) — the two are supposed to be "
+                           + "the same band window now, not merely the same sign")
+
         // Clarity gets its own frame, and its own bar, measured against the reference
         // on that frame rather than borrowed from Texture's derivation.
         //

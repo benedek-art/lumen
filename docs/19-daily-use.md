@@ -201,6 +201,32 @@ cannot separate "weak" from "absent" when the frame contains nothing for the sta
 act on. It now runs on a frame with 12 px structure and compares the GPU's movement to
 the reference's on the same frame, which is the ratio that was 1/48.
 
+### Texture
+
+The same measurement, run on the stage beside Clarity: **1.8× to 17× under the
+reference**, at Texture ±40, on seven frames.
+
+Two causes, both structural. The band came off a single edge-preserving guided base,
+whose threshold is 0.1 EV — so it keeps 86% of any texture whose local excursion exceeds
+a tenth of a stop, which is essentially all real texture, and Texture acted on the
+residue. And the coefficient was `amount × 0.9`, where `DetailEngine.applyTexture`
+normalizes its window to `referenceBandWeight(halfWidth: 1.6)` = 1.617.
+
+The GPU now builds the reference's own band: `Σ wℓ · (sℓ − sℓ₊₁)` over the à-trous
+stack, with the raised-cosine window `bandCenter` places for the resolution. Positive
+Texture measures **1.00× the reference on every frame tested** — an exact match, not an
+approximation. Negative Texture, which is gated by local structure, measures 0.94–1.00×
+above 256 px; below that the GPU floors the coherence window at radius 2 where the
+reference floors at 1, which is a deliberate departure documented at `structureRadius`.
+
+That window is also what makes Texture scale-honest — `bandCenter` is
+`1 + clamp(log2(longEdge / 2560), −1, 2)`, so the same setting means the same amount of
+texture in a fit view and in a 61 MP export. One fixed radius cannot do that, and the
+guided base was one fixed radius.
+
+Only the smooths a non-zero weight reads are built: three à-trous passes at the default
+centre, five at the largest.
+
 ## Phase 3 — the daily workflow
 
 - **Save a look.** Not a preset browser of other people's presets — the owner's own
