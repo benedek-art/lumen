@@ -47,7 +47,30 @@ public struct DetailEngine: Sendable {
     public static let waveletLevels: Int = 5
     /// Gaussian-pyramid depth for the local Laplacian. Deeper buys nothing for Clarity,
     /// whose remap is midtone-weighted and dies out at the coarse end anyway.
-    public static let pyramidLevels: Int = 5
+    /// Pyramid depth at the reference resolution. See `pyramidLevels(longEdge:)`.
+    public static let basePyramidLevels: Int = 5
+
+    /// The resolution `basePyramidLevels` is calibrated at, shared with the Texture
+    /// band's own centre so the two presence stages track the frame the same way.
+    public static let pyramidReferenceLongEdge: Double = 2560
+
+    /// Pyramid depth for Clarity, tracked to the FRAME rather than fixed.
+    ///
+    /// It was a constant 5, so the local Laplacian reached 16 px whatever the picture
+    /// was — 5% of a 300 px preview and 1.3% of a 1200 px render. Clarity therefore
+    /// acted on a different fraction of the PICTURE at every resolution, which is
+    /// exactly the promise a fit preview makes and cannot keep: measured, a 4x scale
+    /// change moved the render by 7.4 code values, where every per-pixel stage moves by
+    /// 0.5 and Texture — which tracks the long edge on purpose — moves by 2.8.
+    ///
+    /// One level per doubling, because a Gaussian pyramid's reach doubles per level.
+    /// That is the same relationship `bandCenter` uses for Texture, written the same way
+    /// so the two cannot drift apart in intent.
+    public static func pyramidLevels(longEdge: Int) -> Int {
+        let steps = log2(Double(Swift.max(longEdge, 1)) / pyramidReferenceLongEdge)
+        guard steps.isFinite else { return basePyramidLevels }
+        return Int(Num.clamp((Double(basePyramidLevels) + steps.rounded()), 2, 9))
+    }
     /// Guided-filter regularization for the base, in EV². √0.01 = 0.1 EV: anything flatter
     /// than a tenth of a stop across the window is one surface.
     public static let baseEpsilon: Double = 0.01
@@ -131,7 +154,8 @@ public struct DetailEngine: Sendable {
             self.details = stack.details
             self.residual = stack.residual
 
-            self.pyramid = DetailEngine.gaussianPyramid(logLum, levels: DetailEngine.pyramidLevels)
+            self.pyramid = DetailEngine.gaussianPyramid(
+                logLum, levels: DetailEngine.pyramidLevels(longEdge: Swift.max(w, h)))
 
             let structure = DetailEngine.structureTensor(logLum, radius: Swift.max(radius / 4, 1))
             self.gradient = structure.magnitude
@@ -303,7 +327,8 @@ public struct DetailEngine: Sendable {
         if d.pyramid.count >= 2 && d.pyramid[0].width == w && d.pyramid[0].height == h {
             pyramid = d.pyramid
         } else {
-            pyramid = gaussianPyramid(input, levels: pyramidLevels)
+            pyramid = gaussianPyramid(input,
+                                      levels: pyramidLevels(longEdge: Swift.max(w, h)))
         }
         guard pyramid.count >= 2 else { return image }
 
