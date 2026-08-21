@@ -1681,6 +1681,43 @@ final class KernelGoldenTests: XCTestCase {
     /// So this asks the question directly, on the same `applyMatrix` every colour stage
     /// in the graph uses. If it passes, the clamp is elsewhere and this stays as the
     /// regression test that says so.
+    /// A colour matrix must apply the matrix, not its transpose.
+    ///
+    /// `applyMatrix` applied the TRANSPOSE of everything handed to it, and not one test
+    /// in the suite could see it. The reason is worth keeping: every test that touched
+    /// a matrix used `Mat3.diagonal`, which is its own transpose, and the one test that
+    /// used a real colour matrix — `testTheVSTAndRotationRoundTrip` — rotates into
+    /// Y0U0V0 and straight back, where `(M^-1)^T M^T = (M M^-1)^T = I`. A transposed
+    /// pair round trips perfectly. It measured 6e-8 while the basis in between was wrong.
+    ///
+    /// So this uses an ASYMMETRIC matrix with no special structure and checks the
+    /// result against the CPU's own `Mat3.apply`, which is the definition. Transposing
+    /// it changes the answer at every channel.
+    func testAColourMatrixIsNotItsOwnTranspose() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+        let width = 4, height = 4
+        var m = Mat3.identity
+        m.m = [[0.7, 0.2, 0.1],
+               [0.05, 0.6, 0.35],
+               [0.25, 0.15, 0.9]]
+        let v = RGB(0.30, 0.55, 0.80)
+        let expected = m.apply(v)
+        var transposed = Mat3.identity
+        for i in 0..<3 { for j in 0..<3 { transposed.m[i][j] = m.m[j][i] } }
+        let wrong = transposed.apply(v)
+        // The case has to distinguish the two, or it cannot fail for the bug it names.
+        XCTAssertGreaterThan(expected.maxAbsDifference(wrong), 0.05,
+                             "this matrix and its transpose agree too closely to tell "
+                                 + "them apart")
+
+        let source = ImageBuffer(width: width, height: height) { _, _ in v }
+        let out = RenderGraph.applyMatrix(ciImage(from: source), m)
+        guard let got = readBack(out, width: width, height: height) else { return }
+        XCTAssertLessThan(got[1, 1].maxAbsDifference(expected), 1e-5,
+                          "applyMatrix gave \(got[1, 1]); the matrix says \(expected) "
+                              + "and its transpose says \(wrong)")
+    }
+
     func testAColourMatrixKeepsNegativesAndValuesAboveOne() throws {
         try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
         let width = 4, height = 4

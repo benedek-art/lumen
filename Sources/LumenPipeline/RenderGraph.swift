@@ -441,12 +441,33 @@ public struct RenderGraph {
         if m.maxAbsDifference(.identity) < 1e-12 { return image }
         let filter = CIFilter.colorMatrix()
         filter.inputImage = image
-        // CIColorMatrix multiplies each INPUT channel by its vector and sums, so the
-        // vectors are the matrix's columns, not its rows. Getting this backwards
-        // transposes every colour transform in the app and looks almost right.
-        filter.rVector = CIVector(x: m.m[0][0], y: m.m[1][0], z: m.m[2][0], w: 0)
-        filter.gVector = CIVector(x: m.m[0][1], y: m.m[1][1], z: m.m[2][1], w: 0)
-        filter.bVector = CIVector(x: m.m[0][2], y: m.m[1][2], z: m.m[2][2], w: 0)
+        // `rVector` is the ROW of the matrix that produces the output's red — that is,
+        // `out.r = dot(inputColor, rVector)` — not the column that the input's red
+        // feeds. The comment here used to assert the opposite, and the code followed
+        // it, so `applyMatrix` applied the TRANSPOSE of every matrix handed to it.
+        //
+        // Measured on the runner rather than argued. A Rec.2020 green at
+        // `(0.0646, 0.7053, 0.0542)` through `workingToProof`:
+        //
+        //   M   . v = (-0.31114404,  0.79053580, -0.01147569)   what the CPU computes
+        //   M^T . v = ( 0.01843850,  0.75562130,  0.05004020)   what the GPU produced
+        //
+        // agreeing with the transpose to eight figures.
+        //
+        // Nothing caught it because nothing could. `Mat3.diagonal` is its own
+        // transpose, so every scale and every `finishScale` was unaffected and any test
+        // built on one passes either way. And the denoise stage rotates into Y0U0V0 and
+        // back out, where `(M^-1)^T M^T = (M M^-1)^T = I` — a transposed pair round
+        // trips perfectly, which is exactly what `testTheVSTAndRotationRoundTrip`
+        // measured at 6e-8 while the basis in between was wrong.
+        //
+        // What it cost: the soft proof's gamut test read a green as in-gamut because
+        // the transpose put it back inside the cube, and the denoise stage's luma and
+        // chroma planes were not luma and chroma — which is why that golden fails on
+        // "luma only" AND "colour only" with every primitive underneath it correct.
+        filter.rVector = CIVector(x: m.m[0][0], y: m.m[0][1], z: m.m[0][2], w: 0)
+        filter.gVector = CIVector(x: m.m[1][0], y: m.m[1][1], z: m.m[1][2], w: 0)
+        filter.bVector = CIVector(x: m.m[2][0], y: m.m[2][1], z: m.m[2][2], w: 0)
         filter.aVector = CIVector(x: 0, y: 0, z: 0, w: 1)
         filter.biasVector = CIVector(x: 0, y: 0, z: 0, w: 0)
         return filter.outputImage ?? image
