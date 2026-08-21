@@ -1096,9 +1096,16 @@ public struct RenderGraph {
     /// Clamping to the extent's own radius is a no-op whenever the two agree, which is
     /// every render the app performs.
     static func structureWindow(requested: Int, extent: CGRect) -> Int {
-        let long = Int(Swift.max(extent.width, extent.height))
-        guard long > 0 else { return Swift.max(requested, 1) }
-        return Swift.max(Swift.min(requested, structureRadius(longEdge: long)), 1)
+        // `Int(CGFloat.infinity)` TRAPS in Swift rather than saturating, and a
+        // `clampedToExtent()` image has an infinite extent, so the finiteness check is
+        // load-bearing rather than defensive tidiness: without it a caller handing over
+        // an unclamped image crashes the render instead of degrading it. Nothing in the
+        // graph does today — `logLuminance` builds at the source's own extent and the
+        // chain starts from a decoded buffer — but "nothing does today" is not a
+        // guarantee anyone can read off the signature.
+        let side = Swift.max(extent.width, extent.height)
+        guard side.isFinite, side >= 1 else { return Swift.max(requested, 1) }
+        return Swift.max(Swift.min(requested, structureRadius(longEdge: Int(side))), 1)
     }
 
     static func structureRadius(longEdge: Int) -> Int {
