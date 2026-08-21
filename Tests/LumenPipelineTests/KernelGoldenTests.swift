@@ -1594,12 +1594,26 @@ final class KernelGoldenTests: XCTestCase {
         // the negative red that IS the entire out-of-gamut signal here. Printing each
         // one names it instead of narrowing by elimination for another round.
         let extent = CGRect(x: 0, y: 0, width: width, height: height)
+        // NOT `readBack`: it fails any all-zero frame, which is right for a render
+        // whose output should carry a picture and wrong here, where `over` is
+        // legitimately (0,0,0) — the green's positive excursion is 0.791, below the
+        // threshold of one. Using it cost a round: the guard fired on a correct value
+        // and reported "the kernel wrote nothing" about a kernel that had written
+        // exactly the right answer.
         func peek(_ label: String, _ img: CIImage?) {
-            guard let img, let read = readBack(img, width: width, height: height) else {
+            guard let img else {
                 print("GAMUT CHAIN \(label): nil")
                 return
             }
-            print("GAMUT CHAIN \(label): \(read[1, 1])")
+            var pixels = [Float](repeating: -999, count: width * height * 4)
+            pixels.withUnsafeMutableBytes { raw in
+                guard let base = raw.baseAddress else { return }
+                context.render(img, toBitmap: base, rowBytes: width * 16,
+                               bounds: CGRect(x: 0, y: 0, width: width, height: height),
+                               format: .RGBAf, colorSpace: nil)
+            }
+            print("GAMUT CHAIN \(label): "
+                  + "(\(pixels[4]), \(pixels[5]), \(pixels[6]))")
         }
         let inProofImage = RenderGraph.applyMatrix(image, transform.workingToProof)
         peek("inProof", inProofImage)
