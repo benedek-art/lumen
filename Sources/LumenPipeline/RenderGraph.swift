@@ -630,9 +630,22 @@ public struct RenderGraph {
             // It also costs one guided filter rather than two, and each is now built
             // only if its own slider is off zero, so a Clarity-only recipe no longer
             // runs the fine decomposition it never reads.
-            if let gain = KernelLibrary.apply(KernelLibrary.detailGain,
-                                              extent: out.extent,
-                                              [lum, baseMid, Float(k)]),
+            // Weighted toward the midtones, the way the reference weights its remap
+            // levels. Without it Clarity is exposure-invariant by construction — a
+            // shadow six stops down gets the same local-contrast boost as a face, which
+            // is how the control ends up amplifying shadow noise and fighting the
+            // highlight rolloff simultaneously.
+            let midGrey = Float(LumenLog.encode(0.18))
+            let falloff = KernelLibrary.apply(
+                KernelLibrary.tonalFalloff, extent: out.extent,
+                [lum, midGrey, Float(LumenLog.range),
+                 Float(DetailEngine.clarityMidtoneEV)])
+            let gain = falloff.flatMap {
+                KernelLibrary.apply(KernelLibrary.detailGainGated, extent: out.extent,
+                                    [lum, baseMid, $0, Float(k), Float(1.0)])
+            } ?? KernelLibrary.apply(KernelLibrary.detailGain, extent: out.extent,
+                                     [lum, baseMid, Float(k)])
+            if let gain,
                let combined = KernelLibrary.apply(KernelLibrary.multiply,
                                                   extent: out.extent, [out, gain]) {
                 out = combined

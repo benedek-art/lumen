@@ -325,6 +325,29 @@ public enum KernelLibrary {
     /// Keep the pixels where a plane is at or above a threshold, zero elsewhere, and
     /// carry the selection weight in alpha so a masked mean can be recovered from two
     /// area averages.
+    /// How far a tone is from mid-grey, as the complement of the reference's Gaussian
+    /// midtone weight. 0 in the midtones, approaching 1 at both ends.
+    ///
+    /// `DetailEngine`'s local Laplacian weights each remap level by
+    /// `exp(−gamma^2 / (2 * clarityMidtoneEV^2))`, so Clarity acts on the midtones and
+    /// tapers out of the deep shadows and the blown highlights. The GPU had no such
+    /// term at all: `exp2` of a log-domain difference is exposure-invariant by
+    /// construction, so a shadow at −6 EV got exactly the same local-contrast boost as
+    /// a face — which is how Clarity ends up amplifying shadow noise and fighting the
+    /// highlight rolloff at the same time.
+    ///
+    /// Returned as the complement because `detailGainGated` takes a gate that CLOSES
+    /// the gain: `open = 1 − gate` recovers the reference's weight exactly.
+    static let tonalFalloffSource = """
+    kernel vec4 lumenTonalFalloff(__sample plane, float centre, float range,
+                                  float sigmaEV) {
+        float dEV = (plane.r - centre) * range;
+        float w = exp(-(dEV * dEV) / (2.0 * sigmaEV * sigmaEV));
+        float f = 1.0 - w;
+        return vec4(f, f, f, 1.0);
+    }
+    """
+
     static let thresholdMaskSource = """
     kernel vec4 lumenThresholdMask(__sample image, __sample plane, float threshold) {
         float keep = step(threshold, plane.r);
@@ -649,6 +672,7 @@ public enum KernelLibrary {
     public static let sharpenDelta = make(sharpenDeltaSource)
     public static let subtract = make(subtractSource)
     public static let thresholdMask = make(thresholdMaskSource)
+    public static let tonalFalloff = make(tonalFalloffSource)
     public static let structureTensor = make(structureTensorSource)
     public static let coherence = make(coherenceSource)
     public static let detailGainGated = make(detailGainGatedSource)
@@ -687,7 +711,7 @@ public enum KernelLibrary {
             ("blendMask", blendMask), ("grain", grain), ("vignette", vignette),
             ("detailGain", detailGain), ("dehaze", dehaze), ("addGlow", addGlow),
             ("sharpenDelta", sharpenDelta), ("lumaRatio", lumaRatio),
-            ("subtract", subtract), ("thresholdMask", thresholdMask),
+            ("subtract", subtract), ("thresholdMask", thresholdMask), ("tonalFalloff", tonalFalloff),
             ("structureTensor", structureTensor),
             ("coherence", coherence), ("detailGainGated", detailGainGated),
             ("tensorMagnitude", tensorMagnitude),
