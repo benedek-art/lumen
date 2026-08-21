@@ -399,6 +399,30 @@ public final class PipelineRenderer {
             }
         }
 
+        // Copyright and contact never reached the written file either. Both have a text
+        // field in the export sheet and a slot in `MetadataPolicy`, and nothing anywhere
+        // read them — a photographer typing a copyright line got a file with no
+        // copyright in it, which is the one metadata field whose absence is the point of
+        // filling it in.
+        //
+        // Written AFTER the drops above, and creating the dictionaries if those drops
+        // removed them. Writing before would reintroduce the same defect one layer down:
+        // an export with EXIF off drops the whole TIFF dictionary, so a copyright placed
+        // in it first would go out with the bathwater.
+        func put(_ value: String?, _ key: CFString, in container: CFString) {
+            guard let value, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            else { return }
+            var nested = properties[container as String] as? [String: Any] ?? [:]
+            nested[key as String] = value
+            properties[container as String] = nested
+        }
+        put(policy.copyright, kCGImagePropertyTIFFCopyright,
+            in: kCGImagePropertyTIFFDictionary)
+        put(policy.copyright, kCGImagePropertyIPTCCopyrightNotice,
+            in: kCGImagePropertyIPTCDictionary)
+        put(policy.contact, kCGImagePropertyIPTCContact,
+            in: kCGImagePropertyIPTCDictionary)
+
         // Resolution never reached the written file at all: `resolutionPPI` drove the
         // output-sharpening radius and nothing else, so the print TIFF a user asked for
         // at 300 ppi opened in Photoshop at 72 dpi.
