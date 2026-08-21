@@ -292,12 +292,14 @@ struct LibraryFilter: Equatable, Sendable {
         query.lenses = lenses.sorted()
         query.keywords = keywords.sorted()
         if !isoBands.isEmpty {
-            // One chip, so one predicate: the union of the lit bands. Two adjacent
-            // bands are a contiguous range; two far-apart ones widen it, which is the
-            // honest reading of "OR within a criterion" for a numeric column.
-            let low = isoBands.map { $0.range.lowerBound }.min() ?? 0
-            let high = isoBands.map { $0.range.upperBound }.max() ?? 0
-            query.isoRange = low...high
+            // One predicate per lit band, OR-ed — NOT one range spanning them all.
+            //
+            // This used to take the minimum lower bound and the maximum upper bound and
+            // call the span "the honest reading of OR within a criterion". It is not:
+            // lighting "≤ 400" and "≥ 6401" asked for two bands and returned every ISO
+            // 800 frame between them. Adjacent bands still collapse naturally, because
+            // adjacent BETWEENs cover the same rows either way.
+            query.isoRanges = isoBands.map { $0.range }.sorted { $0.lowerBound < $1.lowerBound }
         }
         switch stackState {
         case .any: query.stackState = .any

@@ -97,7 +97,17 @@ final class CatalogService: @unchecked Sendable {
                         filename: ScannedFile.catalogName(for: file, in: folder))
                     else { continue }
                     let recipe = try store.currentRecipe(photoID: row.id)
-                    result[file] = Self.merge(row: row, recipe: recipe, file: file)
+                    let state = Self.merge(row: row, recipe: recipe, file: file)
+                    // A sidecar fills in where the catalog is silent — and until now it
+                    // filled in ONLY the copy handed to the grid. Membership and
+                    // ordering are SQL-backed (the whole filter bar compiles to
+                    // `PhotoQuery`), so a five-star recovered from a sidecar showed five
+                    // stars in its cell and vanished under the five-star filter, and a
+                    // recovered recipe rendered while the Edited chip excluded it. The
+                    // view and the query disagreed about the same photograph.
+                    Self.persistRecovered(state, row: row, storedRecipe: recipe,
+                                          store: store)
+                    result[file] = state
                 }
             } catch {
                 NSLog("Lumen catalog: folder registration failed — %@",
@@ -173,6 +183,39 @@ final class CatalogService: @unchecked Sendable {
                            label: appLabel(merged.label),
                            recipe: merged.recipe,
                            iso: row.iso)
+    }
+
+    /// Write back whatever the sidecar filled in, so the catalog agrees with the grid.
+    ///
+    /// Only fields the merge actually CHANGED are written: `SidecarMerge.resolve` never
+    /// overwrites a value the catalog holds, so a difference here means the catalog was
+    /// silent and the sidecar spoke. Writing unconditionally would be a no-op storm on
+    /// every folder open, and writing a recipe that came from the catalog back into the
+    /// catalog would make a new version row per launch.
+    private static func persistRecovered(_ state: StoredState, row: PhotoRow,
+                                         storedRecipe: Recipe?, store: CatalogStore) {
+        do {
+            if state.rating != row.rating {
+                try store.setRating(state.rating, photoID: row.id)
+            }
+            let mergedFlag = coreFlag(state.flag)
+            if mergedFlag != row.flag {
+                try store.setFlag(mergedFlag, photoID: row.id)
+            }
+            let mergedLabel = state.label == .none ? nil : state.label.displayName.lowercased()
+            if mergedLabel != row.label {
+                try store.setLabel(coreLabel(appLabel(mergedLabel)), photoID: row.id)
+            }
+            if storedRecipe == nil, let recovered = state.recipe {
+                try store.saveRecipe(recovered, photoID: row.id, at: CatalogStore.now())
+            }
+        } catch {
+            // A recovery that cannot be persisted is not worth failing the folder open
+            // over: the grid still shows the merged state for this session, and the next
+            // launch will try again from the same sidecar.
+            NSLog("Lumen catalog: could not persist sidecar recovery — %@",
+                  String(describing: error))
+        }
     }
 
     // MARK: - Culling state
@@ -587,6 +630,15 @@ final class CatalogService: @unchecked Sendable {
     }
 
     func close() {
+        // Drain first, THEN flush. `saveCullingState` and `saveRecipe` are `queue.async`
+        // and call `enqueueSidecar` at the END of their work, so on a backlogged queue —
+        // a metadata backfill is the usual cause — a rating pressed just before quitting
+        // is still queued when `close()` runs. Flushing first wrote an empty batch; the
+        // `queue.sync` below then let that save run, enqueue its sidecar, and close the
+        // store, and the app terminated with the edit in the catalog and no sidecar. The
+        // sidecar is the recovery copy, so the one edit most likely to be lost was the
+        // last one made.
+        queue.sync {}
         flushSidecars()
         queue.sync { store.close() }
     }

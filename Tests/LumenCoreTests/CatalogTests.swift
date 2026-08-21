@@ -306,13 +306,26 @@ final class CatalogTests: XCTestCase {
         XCTAssertEqual(try store.countPhotos(matching: camera, folderID: folderID), 3)
 
         var noisy = PhotoQuery()
-        noisy.isoRange = 6401...4_000_000
+        noisy.isoRanges = [6401...4_000_000]
         XCTAssertEqual(try store.photos(matching: noisy, folderID: folderID).map(\.id),
                        [ids[2]])
 
+        // Two DISJOINT bands are a union, not the interval that spans them. The ISO
+        // values in this folder are 100, 6400, 12800 and 200, so "≤ 400" and "≥ 6401"
+        // must return the two low frames and the 12800 one, and must NOT return 6400.
+        // Collapsing the chips to min...max returned all four.
+        var disjoint = PhotoQuery()
+        disjoint.isoRanges = [0...400, 6401...4_000_000]
+        let matched = try store.photos(matching: disjoint, folderID: folderID).map(\.id)
+        XCTAssertEqual(Set(matched), Set([ids[0], ids[3], ids[2]]),
+                       "disjoint ISO bands did not stay disjoint")
+        XCTAssertFalse(matched.contains(ids[1]),
+                       "ISO 6400 sits in the gap between the two lit bands and was "
+                           + "returned anyway — the bands were collapsed to their span")
+
         // Two criteria AND by default...
         var both = camera
-        both.isoRange = 6401...4_000_000
+        both.isoRanges = [6401...4_000_000]
         XCTAssertEqual(try store.countPhotos(matching: both, folderID: folderID), 1)
 
         // ...and OR when the bar's Any toggle is on (D39).

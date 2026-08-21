@@ -494,7 +494,14 @@ public struct PhotoQuery: Sendable {
     // Metadata chips
     public var cameras: [String] = []
     public var lenses: [String] = []
-    public var isoRange: ClosedRange<Int>? = nil
+    /// ISO bands, as a UNION rather than a span.
+    ///
+    /// This was one `ClosedRange`, built by taking the minimum lower bound and the
+    /// maximum upper bound of every lit chip — which is only the union when the chips
+    /// are adjacent. Lighting "≤ 400" and "≥ 6401" produced `0...4_000_000` and returned
+    /// every ISO 800 photo in the library, against a filter bar that states OR-within-a-
+    /// criterion. The union of two disjoint sets is not the interval that spans them.
+    public var isoRanges: [ClosedRange<Int>] = []
     public var apertureRange: ClosedRange<Double>? = nil
     public var captureRange: ClosedRange<Int64>? = nil
     public var keywords: [String] = []
@@ -2198,10 +2205,19 @@ public final class CatalogStore {
             criteria.append("photo.job IN (\(CatalogStore.placeholders(query.jobs.count)))")
             for job in query.jobs { parameters.append(.text(job)) }
         }
-        if let range = query.isoRange {
-            criteria.append("photo.iso BETWEEN ? AND ?")
-            parameters.append(.int(range.lowerBound))
-            parameters.append(.int(range.upperBound))
+        if !query.isoRanges.isEmpty {
+            // One OR group, so a disjoint pair of bands stays disjoint. Parenthesised
+            // because the surrounding criteria are joined with AND (or OR under
+            // `matchAny`), and an unbracketed OR would silently rewrite the whole
+            // predicate.
+            let clause = query.isoRanges
+                .map { _ in "photo.iso BETWEEN ? AND ?" }
+                .joined(separator: " OR ")
+            criteria.append("(\(clause))")
+            for range in query.isoRanges {
+                parameters.append(.int(range.lowerBound))
+                parameters.append(.int(range.upperBound))
+            }
         }
         if let range = query.apertureRange {
             criteria.append("photo.aperture BETWEEN ? AND ?")
