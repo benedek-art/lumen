@@ -1140,6 +1140,17 @@ public struct RenderGraph {
         return KernelLibrary.apply(KernelLibrary.logEncode, extent: image.extent, [lum])
     }
 
+    /// `CIBoxBlur` with the parameter passed straight through, for the one test whose
+    /// job is to measure what that parameter means. Nothing in the render calls this —
+    /// the render calls `boxBlur`, which converts. Kept beside it so the two cannot
+    /// drift apart while the conversion is being characterised.
+    static func boxBlurRaw(_ image: CIImage, radius: Int) -> CIImage? {
+        let filter = CIFilter.boxBlur()
+        filter.inputImage = image.clampedToExtent()
+        filter.radius = Float(radius)
+        return filter.outputImage?.cropped(to: image.extent)
+    }
+
     static func boxBlur(_ image: CIImage, radius: Int) -> CIImage? {
         guard radius > 0 else { return image }
         // CIBoxBlur returns its input unchanged at radius 1, and a guided filter built

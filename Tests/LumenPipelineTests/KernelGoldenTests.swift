@@ -191,41 +191,62 @@ final class KernelGoldenTests: XCTestCase {
         let width = 64, height = 32
         let source = texturedTestImage(width: width, height: height)
 
-        var mask = Mask(id: "m1", name: "grad")
-        var component = MaskComponent(op: .add, kind: .linear)
-        // A left-to-right ramp: alpha 0 at x = 0, alpha 1 at x = width.
-        component.line = [0, 0.5, 1, 0.5]
-        mask.components = [component]
-        mask.adjust.exposure = 1.0
-        mask.adjust.curve = CurveSet(point: [[0, 0], [0.5, 0.68], [1, 1]])
+        func maskedRender(exposure: Double, curve: CurveSet?)
+            -> (gpu: ImageBuffer, reference: ImageBuffer)? {
+            var mask = Mask(id: "m1", name: "grad")
+            var component = MaskComponent(op: .add, kind: .linear)
+            component.line = [0, 0.5, 1, 0.5]      // left-to-right ramp
+            mask.components = [component]
+            mask.adjust.exposure = exposure
+            mask.adjust.curve = curve
 
-        var recipe = Recipe()
-        recipe.masks = [mask]
-        // Off for the same reason the presence golden turns it off: `Recipe()` denoises
-        // by default, the graph runs S3 and `ReferenceRenderer.render` does not, so the
-        // comparison would be dominated by a stage this test is not about.
-        recipe.develop.denoise.mode = .off
-        let plan = RenderPlan(recipe: recipe, lutSize: LUT3D.exportSize)
+            var recipe = Recipe()
+            recipe.masks = [mask]
+            // `Recipe()` denoises — chroma defaults to 25 — and the graph runs S3 while
+            // `ReferenceRenderer.render` starts at S6. Comparing them on a default
+            // recipe measures a stage this test is not about.
+            recipe.develop.denoise.mode = .off
+            let plan = RenderPlan(recipe: recipe, lutSize: LUT3D.exportSize)
 
-        // Rasterize exactly as `PipelineRenderer.makeGraph` does, then hand the graph
-        // the same alpha the reference will fold.
-        let alpha = MaskRaster.combine(mask: mask, size: (width: width, height: height))
-        guard let alphaImage = PipelineRenderer.image(
-            from: alpha, targetExtent: CGRect(x: 0, y: 0, width: width, height: height))
-        else { return XCTFail("no mask alpha") }
-
-        var graph = RenderGraph()
-        graph.maskImages[mask.id] = alphaImage
-        let output = graph.build(ciImage(from: source), plan: plan,
-                                 options: RenderGraph.Options(longEdge: width,
-                                                              draft: false))
-        guard let gpu = readBack(output, width: width, height: height) else {
-            return XCTFail("graph render failed")
+            let alpha = MaskRaster.combine(mask: mask,
+                                           size: (width: width, height: height))
+            guard let alphaImage = PipelineRenderer.image(
+                from: alpha,
+                targetExtent: CGRect(x: 0, y: 0, width: width, height: height))
+            else { return nil }
+            var graph = RenderGraph()
+            graph.maskImages[mask.id] = alphaImage
+            let output = graph.build(ciImage(from: source), plan: plan,
+                                     options: RenderGraph.Options(longEdge: width,
+                                                                  draft: false))
+            guard let gpu = readBack(output, width: width, height: height) else {
+                return nil
+            }
+            return (gpu, ReferenceRenderer.render(source, plan: plan))
         }
-        let reference = ReferenceRenderer.render(source, plan: plan)
 
-        // Plain render, so "the mask did something" is measured against no mask at all
-        // rather than against the input.
+        // ---- Tap one: the scene-referred exposure lift, in S11. ----
+        //
+        // Asserted exactly, because nothing here is baked: the graph and the reference
+        // both multiply by the same gain under the same alpha, so a divergence means
+        // the mask is not reaching S11, or is reaching it upside down.
+        guard let lift = maskedRender(exposure: 1.0, curve: nil) else {
+            return XCTFail("masked render failed")
+        }
+        var worst = 0.0
+        var worstAt = (0, 0)
+        for y in 0..<height {
+            for x in 0..<width {
+                let d = lift.reference[x, y].maxAbsDifference(lift.gpu[x, y])
+                if d > worst { worst = d; worstAt = (x, y) }
+            }
+        }
+        XCTAssertLessThan(worst, 0.02,
+                          "a masked exposure lift diverged from the reference by "
+                              + "\(worst) at \(worstAt)")
+
+        // The mask must have a GRADIENT: one that selects everything, or nothing,
+        // renders the same wrong picture on both paths and passes the check above.
         var plainRecipe = Recipe()
         plainRecipe.develop.denoise.mode = .off
         let plainPlan = RenderPlan(recipe: plainRecipe, lutSize: LUT3D.exportSize)
@@ -234,33 +255,49 @@ final class KernelGoldenTests: XCTestCase {
                                 options: RenderGraph.Options(longEdge: width,
                                                              draft: false)),
             width: width, height: height) else { return XCTFail("plain render failed") }
-
-        var worst = 0.0
-        var worstAt = (0, 0)
-        for y in 0..<height {
-            for x in 0..<width {
-                let d = reference[x, y].maxAbsDifference(gpu[x, y])
-                if d > worst { worst = d; worstAt = (x, y) }
-            }
-        }
-        XCTAssertLessThan(worst, 0.06,
-                          "the masked graph diverged from the reference by \(worst) at "
-                              + "\(worstAt)")
-
-        // The mask has to have a GRADIENT, or a mask that selects everything — or
-        // nothing — passes the comparison above by rendering the same wrong picture on
-        // both paths.
         let row = height / 2
-        let leftMoved = plain[2, row].maxAbsDifference(gpu[2, row])
-        let rightMoved = plain[width - 3, row].maxAbsDifference(gpu[width - 3, row])
+        let leftMoved = plain[2, row].maxAbsDifference(lift.gpu[2, row])
+        let rightMoved = plain[width - 3, row].maxAbsDifference(lift.gpu[width - 3, row])
         XCTAssertGreaterThan(rightMoved, 0.02,
-                             "the selected end of the mask moved by \(rightMoved) — the "
-                                 + "local stages are not reaching pixels through the "
-                                 + "graph at all")
+                             "the selected end moved by \(rightMoved) — the local "
+                                 + "stages are not reaching pixels through the graph")
         XCTAssertGreaterThan(rightMoved, leftMoved * 3,
-                             "the mask moved the unselected end by \(leftMoved) against "
+                             "the unselected end moved \(leftMoved) against "
                                  + "\(rightMoved) at the selected end — the alpha is "
                                  + "flat, or upside down, or the raster is mirrored")
+
+        // ---- Tap two: the display-referred point curve, after picture formation. ----
+        //
+        // Deliberately NOT compared pixel-for-pixel against the reference. The graph
+        // bakes the local curve into a `LocalCurvePlan` table and the reference
+        // evaluates it exactly, so the gap here is the table's own interpolation error
+        // on a steep curve — a real number worth characterising, but not evidence that
+        // the tap is wired wrong, which is what this test exists to catch. What IS
+        // asserted is that the curve reaches pixels through the graph and does so
+        // under the mask: delete the `applyLocalCurves` call and both of these fail.
+        let curve = CurveSet(point: [[0, 0], [0.5, 0.68], [1, 1]])
+        guard let curved = maskedRender(exposure: 0, curve: curve) else {
+            return XCTFail("curved render failed")
+        }
+        let curveRight = lift.gpu[width - 3, row].maxAbsDifference(curved.gpu[width - 3, row])
+        let curveLeft = lift.gpu[2, row].maxAbsDifference(curved.gpu[2, row])
+        XCTAssertGreaterThan(curveRight, 0.02,
+                             "the local point curve moved the selected end by "
+                                 + "\(curveRight) — `applyLocalCurves` is not running "
+                                 + "on the shipping path")
+        XCTAssertGreaterThan(curveRight, curveLeft * 3,
+                             "the local curve moved the unselected end \(curveLeft) "
+                                 + "against \(curveRight) selected — it is not being "
+                                 + "gated by the mask at all")
+
+        var curveWorst = 0.0
+        for y in 0..<height {
+            for x in 0..<width {
+                curveWorst = Swift.max(
+                    curveWorst, curved.reference[x, y].maxAbsDifference(curved.gpu[x, y]))
+            }
+        }
+        print("LOCAL CURVE table-vs-exact worst: \(curveWorst)")
     }
 
     // MARK: - Presence must not put a rim on an edge
@@ -1372,52 +1409,57 @@ final class KernelGoldenTests: XCTestCase {
     /// parameter is a SUPPORT radius and needed multiplying by three to mean sigma.
     func testCIBoxBlurUsesTheWindowTheReferenceUses() throws {
         try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
-        let side = 33, radius = 8
+        let side = 65
 
-        // An impulse names the window directly: a correct (2r+1)² box answers with
-        // 1/289 over exactly 17 pixels.
-        var impulse = Plane(width: side, height: side)
-        impulse[side / 2, side / 2] = 1.0
-        guard let blurredImpulse = RenderGraph.boxBlur(ciImage(from: broadcast(impulse)),
-                                                       radius: radius),
-              let got = readBack(blurredImpulse, width: side, height: side)
-        else { return XCTFail("box blur produced nothing") }
-
-        let mid = side / 2
-        var lit = 0
-        var peak = 0.0
-        for x in 0..<side where got[x, mid].r > 1e-7 {
-            lit += 1
-            peak = Swift.max(peak, Double(got[x, mid].r))
-        }
-        let impliedSide = peak > 0 ? (1.0 / peak).squareRoot() : 0
-        print("CIBoxBlur(radius: \(radius)) impulse: \(lit) px lit across the centre "
-              + "row, peak \(peak), implying a \(impliedSide)-wide box; the reference "
-              + "uses \(2 * radius + 1)")
-
-        // And the real assertion, on a smooth ramp where only the window can differ.
-        var ramp = Plane(width: side, height: side)
-        for y in 0..<side {
-            for x in 0..<side {
-                ramp[x, y] = Double(x) * 0.03 + Double(y) * 0.011
-            }
-        }
-        let expected = SpatialOps.boxBlur(ramp, radius: radius)
-        guard let blurredRamp = RenderGraph.boxBlur(ciImage(from: broadcast(ramp)),
+        // MEASURE the mapping, do not assume it. The first run of this test answered
+        // that `CIBoxBlur(radius: 8)` lights 7 pixels with a peak of 1/49 — a 7-wide
+        // box where the reference uses 17 — so the parameter is not the half-width. One
+        // data point is not a mapping, and Apple documents none, so probe a spread of
+        // radii and print the implied width for each. Whatever `boxBlur` converts with
+        // has to be right at every radius the app actually asks for: 2 and 3 on a
+        // thumbnail, 8 for the blotch pass, ~51 for Clarity's mid band at 2560 px.
+        var implied: [(asked: Int, width: Double)] = []
+        for radius in [2, 3, 4, 6, 8, 12, 16, 24, 32] {
+            var impulse = Plane(width: side, height: side)
+            impulse[side / 2, side / 2] = 1.0
+            guard let blurred = RenderGraph.boxBlurRaw(ciImage(from: broadcast(impulse)),
                                                     radius: radius),
-              let gotRamp = readBack(blurredRamp, width: side, height: side)
-        else { return XCTFail("ramp blur produced nothing") }
-        var worst = 0.0
-        var at = (0, 0)
-        for y in 0..<side {
-            for x in 0..<side {
-                let d = abs(Double(gotRamp[x, y].r) - expected[x, y])
-                if d > worst { worst = d; at = (x, y) }
-            }
+                  let got = readBack(blurred, width: side, height: side)
+            else { continue }
+            var peak = 0.0
+            for x in 0..<side { peak = Swift.max(peak, Double(got[x, side / 2].r)) }
+            let width = peak > 0 ? (1.0 / peak).squareRoot() : 0
+            implied.append((radius, width))
         }
-        XCTAssertLessThan(worst, 5e-3,
-                          "CIBoxBlur and the reference box differ by \(worst) at \(at) "
-                              + "on a plain ramp — the window, not the arithmetic")
+        let table = implied
+            .map { "CIBoxBlur(\($0.asked)) -> \(($0.width * 1000).rounded() / 1000) wide" }
+            .joined(separator: ", ")
+        print("BOX BLUR MAPPING: \(table)")
+
+        // And the assertion that matters: `RenderGraph.boxBlur` must reproduce the
+        // reference's window, whatever conversion it needs to get there.
+        for radius in [2, 3, 8, 16] {
+            var ramp = Plane(width: side, height: side)
+            for y in 0..<side {
+                for x in 0..<side { ramp[x, y] = Double(x) * 0.03 + Double(y) * 0.011 }
+            }
+            let expected = SpatialOps.boxBlur(ramp, radius: radius)
+            guard let blurred = RenderGraph.boxBlur(ciImage(from: broadcast(ramp)),
+                                                    radius: radius),
+                  let got = readBack(blurred, width: side, height: side)
+            else { return XCTFail("box blur produced nothing at radius \(radius)") }
+            var worst = 0.0
+            var at = (0, 0)
+            for y in 0..<side {
+                for x in 0..<side {
+                    let d = abs(Double(got[x, y].r) - expected[x, y])
+                    if d > worst { worst = d; at = (x, y) }
+                }
+            }
+            XCTAssertLessThan(worst, 5e-3,
+                              "at radius \(radius) the GPU box and the reference box "
+                                  + "differ by \(worst) at \(at) on a plain ramp")
+        }
     }
 
     func testCrossGuidedFilterOnSignedChroma() throws {
