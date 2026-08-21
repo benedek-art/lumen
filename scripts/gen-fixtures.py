@@ -3000,6 +3000,7 @@ def gen_colour_stage_checks():
 LUM_RANGE_STOPS = 0.5
 NOMINAL_HALF_WIDTH_EV = 1.5
 MINIMUM_HALF_WIDTH_EV = 0.05
+BLENDING_KNEE = 0.8
 MINIMUM_PIVOT_GAP = 0.02
 BALANCE_RANGE_EV = 2.0
 
@@ -3018,8 +3019,16 @@ class ZoneWindows:
         max_half = (ph - ps) / 2
         requested = NOMINAL_HALF_WIDTH_EV * (min(max(blending, 0.0), 100.0) / 50) / span
         floor_half = min(MINIMUM_HALF_WIDTH_EV / span, max_half)
-        half = min(max(requested, floor_half), max_half)
+        # Eased onto the ceiling, not clipped at it. See ZoneWindows: a hard
+        # min(requested, max_half) bound at Blending 79.3 on the default pivots, so
+        # every setting from 80 to 100 rendered byte-identical.
+        eased = (max_half * soft_knee(requested / max_half, BLENDING_KNEE)
+                 if max_half > 0 else 0.0)
+        half = min(max(eased, floor_half), max_half)
         self.half_width = half
+        self.shadow_half_width = half
+        self.shadow_pivot = ps
+        self.highlight_pivot = ph
         self.shadow_crossfade = [ps - half, ps + half]
         self.highlight_crossfade = [ph - half, ph + half]
 
@@ -3075,6 +3084,26 @@ def gen_grade_checks():
                 check(abs(s + m + h - 1) < 1e-9,
                       f"zone weights sum to {s + m + h:.6f} at x={x:.3f}")
                 x += 0.002
+
+    # Blending is alive over its WHOLE travel. A hard `min(requested, max_half)` bound
+    # at 79.3 on the default pivots, so every setting from 80 to 100 produced identical
+    # zone windows — measured on a colour chart, a byte-identical render. Every
+    # assertion above passed through that: a partition of unity is still a partition of
+    # unity when the control has stopped responding.
+    for balance in (-100.0, 0.0, 100.0):
+        previous = None
+        for step in range(0, 101):
+            half = ZoneWindows(blending=float(step), balance=balance).shadow_half_width
+            if previous is not None and step >= 2:
+                check(half > previous + 1e-12,
+                      f"Blending {step} (balance {balance}) produced the same window as "
+                      f"{step - 1}: half-width {half:.12f} — the control is dead here")
+            previous = half
+    # And it still cannot reach the ceiling, because past it the mid zone goes negative.
+    top = ZoneWindows(blending=100.0)
+    ceiling = (top.highlight_pivot - top.shadow_pivot) / 2
+    check(top.shadow_half_width < ceiling,
+          f"Blending 100 reached the half-width ceiling exactly ({ceiling:.6f})")
 
     # The failure this found: at Blending 0 the crossfade collapses to the 0.05 EV
     # floor, and a shadow wheel at +1 against a highlight wheel at −1 asks brightness

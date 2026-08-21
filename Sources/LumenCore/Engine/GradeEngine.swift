@@ -61,6 +61,10 @@ public struct ZoneWindows: Sendable {
     public static let nominalHalfWidthEV: Double = 1.5
     /// Never let a crossfade collapse to a hard edge; that is where banding lives.
     public static let minimumHalfWidthEV: Double = 0.05
+
+    /// Fraction of the half-width ceiling below which Blending is applied exactly.
+    /// Same knee as the tone engine, the parametric curve and the Luminance ring.
+    public static let blendingKnee: Double = 0.8
     /// Minimum separation between the pivots on the normalized axis.
     public static let minimumPivotGap: Double = 0.02
 
@@ -125,7 +129,23 @@ public struct ZoneWindows: Sendable {
         let requested: Double =
             ZoneWindows.nominalHalfWidthEV * (Num.clamp(blending, 0, 100) / 50) / span
         let floorHalf: Double = Swift.min(ZoneWindows.minimumHalfWidthEV / span, maxHalf)
-        let half: Double = Swift.min(Swift.max(requested, floorHalf), maxHalf)
+        // Eased onto the ceiling, not clipped at it.
+        //
+        // `Swift.min(requested, maxHalf)` was a dead control. At the default pivots and
+        // anchors the ceiling binds at Blending 79.3, so measured on a colour chart
+        // every setting from 80 to 100 rendered BYTE-IDENTICAL — the top fifth of the
+        // slider did nothing whatever. The same shape as the Highlights slider's old
+        // hard cap, and the parametric curve's, found the same way.
+        //
+        // The ceiling itself is real and not a taste question: at it the two crossfades
+        // meet at a point, and past it the mid zone's weight goes negative. So this
+        // approaches it and never reaches it — `softKnee` is exact below
+        // `blendingKnee × maxHalf` and asymptotic after, which leaves the mid zone a
+        // vanishing but positive sliver at Blending 100 instead of a hard stop at 79.
+        let eased: Double = maxHalf > 0
+            ? maxHalf * Num.softKnee(requested / maxHalf, knee: ZoneWindows.blendingKnee)
+            : 0
+        let half: Double = Swift.min(Swift.max(eased, floorHalf), maxHalf)
         self.shadowHalfWidth = half
         self.highlightHalfWidth = half
         self.shadowCrossfade = [ps - half, ps + half]

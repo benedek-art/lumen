@@ -1074,6 +1074,59 @@ final class RobustnessTests: XCTestCase {
         }
     }
 
+    /// Blending is alive over its whole travel, and still cannot reach its ceiling.
+    ///
+    /// `ZoneWindows` clipped the requested half-width at `(highPivot − shadowPivot)/2`
+    /// with a hard `min`. On the default pivots and anchors that ceiling binds at
+    /// Blending 79.3, so every setting from 80 to 100 produced identical zone windows —
+    /// measured on a colour chart, a byte-identical render. The whole top fifth of the
+    /// control did nothing.
+    ///
+    /// Every assertion that existed passed through it. A partition of unity is still a
+    /// partition of unity when the control has stopped responding, and the composed
+    /// response is still monotone.
+    func testBlendingKeepsWideningOverItsWholeTravel() {
+        for balance in [-100.0, 0, 100] {
+            for pivots in [GradingWheels.defaultPivots, [0.1, 0.9], [0.45, 0.55]] {
+                var previous = -Double.infinity
+                for step in 0...100 {
+                    var wheels = GradingWheels()
+                    wheels.blending = Double(step)
+                    wheels.balance = balance
+                    wheels.pivots = pivots
+                    let half = ZoneWindows(wheels: wheels).shadowHalfWidth
+                    if step >= 2 {
+                        XCTAssertGreaterThan(
+                            half, previous,
+                            "Blending \(step) (balance \(balance), pivots \(pivots)) "
+                                + "produced the same window as \(step - 1): "
+                                + "\(half) — the control is dead here")
+                    }
+                    previous = half
+                }
+
+                // And never reaches the ceiling: at it the two crossfades meet at a
+                // point, and past it the mid zone's weight goes negative.
+                var wheels = GradingWheels()
+                wheels.blending = 100
+                wheels.balance = balance
+                wheels.pivots = pivots
+                let windows = ZoneWindows(wheels: wheels)
+                let ceiling = (windows.highlightPivot - windows.shadowPivot) / 2
+                XCTAssertLessThan(windows.shadowHalfWidth, ceiling,
+                                  "Blending 100 reached the ceiling exactly at balance "
+                                      + "\(balance), pivots \(pivots)")
+                var x = 0.0
+                while x <= 1 {
+                    let w = windows.weights(atNormalized: x)
+                    XCTAssertGreaterThanOrEqual(w.mid, -1e-12,
+                                                "mid weight went negative at \(x)")
+                    x += 0.002
+                }
+            }
+        }
+    }
+
     /// A local Colour tint has to change the picture, and hold luminance while it does.
     ///
     /// It changed nothing here: the reference renderer's local stage never read
