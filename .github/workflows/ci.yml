@@ -74,7 +74,7 @@ jobs:
           echo "=== first failures per test ==="
           grep -E ": error: -\[" test.log | sed 's#/Users/runner/work/lumen/lumen/##' \
             | sed 's/^.*error: //' \
-            | awk '{ key = $1; if (seen[key]++ < 2) print }' | head -24
+            | awk '{ key = $1 " " $2; if (seen[key]++ < 2) print }' | head -40
           exit $status
 
   # The fast lane. Nine tests are 92% of the suite's wall clock — measured, from the
@@ -115,10 +115,13 @@ jobs:
             | sed 's#/Users/runner/work/lumen/lumen/##' | sort -u | head -40
           echo "=== summary ==="
           grep -E "Executed [0-9]+ test" fast.log | tail -1
-          echo "=== failures ==="
+          echo "=== failing tests ==="
+          grep -E ": error: -\[" fast.log \
+            | sed -E 's/^.*error: -\[([^]]*)\].*/\1/' | sort | uniq -c | sort -rn | head -30
+          echo "=== first failures per test ==="
           grep -E ": error: -\[" fast.log | sed 's#/Users/runner/work/lumen/lumen/##' \
-            | sed 's/^.*error: //' | awk '{ key = $1; if (seen[key]++ < 2) print }' \
-            | head -20
+            | sed 's/^.*error: //' \
+            | awk '{ key = $1 " " $2; if (seen[key]++ < 2) print }' | head -40
           exit $status
 
   # The thing a photographer can actually open. Runs on every push regardless of the
