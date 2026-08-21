@@ -165,6 +165,48 @@ final class ScaleHonestyTests: XCTestCase {
                        "a zero long edge must not produce a different answer to one pixel")
     }
 
+    /// Masks are normalized to the frame, so a gradient placed on a fit preview has to
+    /// select the same part of the picture in the full-resolution export.
+    ///
+    /// This is the half of "edit on a preview, save the full file" that a slider sweep
+    /// cannot reach: the adjustment can be perfectly scale-honest and still land in the
+    /// wrong place if the SELECTION moves.
+    func testAMaskSelectsTheSamePartOfThePictureAtEitherResolution() {
+        func masked(_ kind: MaskKind, _ configure: (inout MaskComponent) -> Void) -> Double {
+            var component = MaskComponent(op: .add, kind: kind)
+            configure(&component)
+            var adjust = LocalAdjust()
+            adjust.exposure = 1.2
+            adjust.sat = -60
+            let mask = Mask(name: "m", components: [component], adjust: adjust)
+            let d = measureStage { $0.masks = [mask] }
+            print(String(format: "  MASK     %-18@ %.4f", kind.rawValue, d))
+            return d
+        }
+
+        let linear = masked(.linear) { $0.line = [0.2, 0.15, 0.75, 0.85] }
+        // Measured 0.43, 0.62 and 0.41 against a resample floor of 0.37 — masks are
+        // normalized, so they sit essentially at the floor. The bar is twice the worst.
+        XCTAssertLessThan(linear, 1.5,
+                          "a linear gradient mask lands \(linear) code values apart "
+                              + "between a 300 px preview and a 1200 px render")
+
+        let radial = masked(.radial) {
+            $0.center = [0.45, 0.55]
+            $0.radii = [0.3, 0.22]
+            $0.rotation = 20
+            $0.feather = 40
+        }
+        XCTAssertLessThan(radial, 1.5,
+                          "a radial mask lands \(radial) code values apart across a 4x "
+                              + "scale change")
+
+        let luma = masked(.lumaRange) { $0.lo = 0.15; $0.hi = 0.6 }
+        XCTAssertLessThan(luma, 1.5,
+                          "a luminance-range mask lands \(luma) code values apart "
+                              + "across a 4x scale change")
+    }
+
     /// What the whole thing is for: a full edit, made once, rendering as the same picture
     /// at both sizes.
     func testACompleteEditSurvivesAFourfoldScaleChange() {
