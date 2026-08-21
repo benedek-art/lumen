@@ -101,13 +101,18 @@ final class EngineMathFixtureTests: XCTestCase {
         for row in try rows(fixture(), "tone") {
             let tone = Tone(contrast: double(row, "contrast"),
                             highlights: double(row, "highlights"),
-                            shadows: double(row, "shadows"))
+                            shadows: double(row, "shadows"),
+                            whites: double(row, "whites"),
+                            blacks: double(row, "blacks"))
             let engine = ToneEngine(tone: tone)
-            let label = "hi \(tone.highlights) sh \(tone.shadows) contrast \(tone.contrast)"
+            let label = "hi \(tone.highlights) sh \(tone.shadows) contrast "
+                + "\(tone.contrast) w \(tone.whites) b \(tone.blacks)"
 
-            // The monotonicity solve is the interesting one: it is a numerical
-            // search per window, so a mismatch means the two searches disagree rather
-            // than that one arithmetic expression was mistyped.
+            // The monotonicity solve is the interesting one: it sweeps the composed
+            // response looking for the point that binds, so a mismatch means the two
+            // sweeps disagree rather than that one arithmetic expression was mistyped.
+            XCTAssertEqual(engine.zonalScale, double(row, "zonalScale"), accuracy: 1e-9,
+                           "the zonal limit diverged for \(label)")
             XCTAssertEqual(engine.effectiveHighlights,
                            double(row, "effectiveHighlights"), accuracy: 1e-9,
                            "applied highlights diverged for \(label)")

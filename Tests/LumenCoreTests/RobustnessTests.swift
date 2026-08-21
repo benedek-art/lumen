@@ -851,6 +851,22 @@ final class RobustnessTests: XCTestCase {
     /// Every assertion that existed still passed, because they check fixed points,
     /// anchor geometry and monotonicity in x — all of which a slider that returns zero
     /// also satisfies.
+    /// Smallest step the composed response takes over the whole range, at a scale
+    /// forced on it. Negative means a brighter input renders darker somewhere.
+    private func worstStep(_ tone: Tone, scale: Double) -> Double {
+        let forced = ToneEngine(tone: tone, forcingZonalScale: scale)
+        var t = forced.blackAnchorEV - 2
+        var previous = t + forced.stops(at: t)
+        var worst = Double.infinity
+        while t < forced.whiteAnchorEV + 2 {
+            t += ToneEngine.monotoneStepEV
+            let mapped = t + forced.stops(at: t)
+            worst = Swift.min(worst, mapped - previous)
+            previous = mapped
+        }
+        return worst
+    }
+
     func testHighlightsAndShadowsKeepDoingMoreAndLeaveEachOtherAlone() {
         for contrast in [0.0, -60, 60] {
             for direction in [1.0, -1.0] {
@@ -880,22 +896,77 @@ final class RobustnessTests: XCTestCase {
             }
         }
 
-        // Independence. The windows share no domain, so there is no honest reason for
-        // one to move the other.
+        // Independence, WHERE IT IS AVAILABLE. The windows share no domain, so nothing
+        // couples them until the four of them together would run the response downhill
+        // — and then one of them has to give. `zonalScale` is the whole story: it is
+        // exactly 1 when there is room, and every applied amount is exact there.
         for contrast in [0.0, -60, 60] {
             for whites in [0.0, 100] {
                 let alone = ToneEngine(tone: Tone(contrast: contrast, shadows: 60,
-                                                  whites: whites)).effectiveShadows
+                                                  whites: whites))
                 for highlights in [-100.0, -50, 50, 100] {
                     let together = ToneEngine(tone: Tone(contrast: contrast,
                                                          highlights: highlights,
                                                          shadows: 60, whites: whites))
-                        .effectiveShadows
-                    XCTAssertEqual(together, alone, accuracy: 1e-12,
+                    guard together.zonalScale >= 1 - 1e-12 else { continue }
+                    XCTAssertEqual(together.effectiveShadows, alone.effectiveShadows,
+                                   accuracy: 1e-12,
                                    "Highlights \(highlights) moved Shadows +60 from "
-                                       + "\(alone) to \(together)")
+                                       + "\(alone.effectiveShadows) to "
+                                       + "\(together.effectiveShadows) with the scale "
+                                       + "at 1")
                 }
             }
+        }
+
+        // Positive contrast steepens the base slope past anything the four windows can
+        // ask for, so nothing binds and every slider is exact — the state a photograph
+        // is normally edited in.
+        for contrast in [80.0, 100] {
+            for highlights in [-100.0, 0, 100] {
+                for shadows in [-100.0, 0, 100] {
+                    for whites in [-100.0, 100] {
+                        for blacks in [-100.0, 100] {
+                            let e = ToneEngine(tone: Tone(contrast: contrast,
+                                                          highlights: highlights,
+                                                          shadows: shadows,
+                                                          whites: whites, blacks: blacks))
+                            XCTAssertGreaterThanOrEqual(
+                                e.zonalScale, 1 - 1e-12,
+                                "contrast \(contrast) h\(highlights) s\(shadows) "
+                                    + "w\(whites) b\(blacks) was scaled to "
+                                    + "\(e.zonalScale) with slope to spare")
+                        }
+                    }
+                }
+            }
+        }
+
+        // Where it DOES bind, it takes as little as it can. The response still rises at
+        // the solved limit and stops rising 2% above it — without this, every other
+        // assertion here would also pass if the limiter were simply timid.
+        for (c, h, sh, w, b) in [(-100.0, -100.0, 100.0, -100.0, 100.0),
+                                 (-100.0, 0.0, 0.0, 0.0, 100.0),
+                                 (0.0, -100.0, 100.0, -100.0, 100.0)] {
+            let tone = Tone(contrast: c, highlights: h, shadows: sh,
+                            whites: w, blacks: b)
+            let solved = ToneEngine(tone: tone)
+            let label = "c\(c) h\(h) s\(sh) w\(w) b\(b)"
+            XCTAssertLessThan(solved.zonalScale, 1,
+                              "\(label) was expected to bind and did not")
+
+            // The solved scale, undone, is the limit the knee eased away from.
+            let limit = ToneEngine.solveZonalLimit(tone: tone,
+                                                   whiteAnchorEV: solved.whiteAnchorEV,
+                                                   blackAnchorEV: solved.blackAnchorEV)
+            XCTAssertLessThan(solved.zonalScale, limit,
+                              "\(label) applies the limit exactly, so the top of the "
+                                  + "slider is dead")
+            XCTAssertGreaterThanOrEqual(worstStep(tone, scale: limit), -1e-9,
+                                        "\(label) already falls AT the limit \(limit)")
+            XCTAssertLessThan(worstStep(tone, scale: limit * 1.02), -1e-9,
+                              "\(label) is still monotone 2% above the limit "
+                                  + "\(limit) — the limiter is being timid")
         }
 
         // And the limiter is not touching ordinary settings: below the knee the slider
@@ -1236,17 +1307,36 @@ final class RobustnessTests: XCTestCase {
         }
     }
 
+    /// End to end, through the plan the renderer actually builds — the only check here
+    /// that would still catch an inversion if the limiter and the reference agreed with
+    /// each other and both were wrong.
+    ///
+    /// Contrast used to be the only slider in it. Whites and Blacks could not invert
+    /// anything while they only moved the display anchors, but they carry tonal shelves
+    /// now, and the recipe that inverts hardest — a flattened contrast curve with all
+    /// four windows pulling against it — was entirely outside what was covered.
     func testRenderedLuminanceIsMonotoneAtExtremeSettings() {
-        for contrast in [-100.0, 0, 100] {
+        let settings: [(Double, Double, Double, Double, Double)] = [
+            (-100, 0, 0, 0, 0), (0, 0, 0, 0, 0), (100, 0, 0, 0, 0),
+            (0, -100, 100, -100, 100), (0, 100, -100, 100, -100),
+            (-100, -100, 100, -100, 100), (-100, 0, 0, 0, 100),
+            (100, -100, 100, -100, 100), (25, -45, 35, 15, -15),
+        ]
+        for (contrast, highlights, shadows, whites, blacks) in settings {
             var recipe = Recipe()
             recipe.develop.tone.contrast = contrast
+            recipe.develop.tone.highlights = highlights
+            recipe.develop.tone.shadows = shadows
+            recipe.develop.tone.whites = whites
+            recipe.develop.tone.blacks = blacks
+            let label = "c\(contrast) h\(highlights) s\(shadows) w\(whites) b\(blacks)"
             let plan = RenderPlan(recipe: recipe, lutSize: LUT3D.exportSize)
             var previous = -Double.infinity
             for i in 0...80 {
                 let ev = -10 + Double(i) * 0.25
                 let value = plan.exactColor(RGB(gray: 0.18 * pow(2.0, ev))).g
                 XCTAssertGreaterThanOrEqual(value, previous - 1e-6,
-                                            "contrast \(contrast) inverted at \(ev) EV")
+                                            "\(label) inverted at \(ev) EV")
                 previous = value
             }
         }

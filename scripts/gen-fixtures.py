@@ -2322,6 +2322,8 @@ DEFAULT_BLACK_ANCHOR_EV = -9.0
 
 
 ZONAL_KNEE = 0.8
+MONOTONE_STEP_EV = 0.05
+SEARCH_CEILING = 4.0
 
 
 def soft_knee(u, knee=0.8):
@@ -2382,8 +2384,8 @@ class ToneEngine:
         self.blacks = b
         self.white_anchor_ev = DEFAULT_WHITE_ANCHOR_EV - WHITE_BLACK_RANGE_EV * w
         self.black_anchor_ev = DEFAULT_BLACK_ANCHOR_EV - WHITE_BLACK_RANGE_EV * b
-        self.effective_highlights = self._solve_effective("highlights")
-        self.effective_shadows = self._solve_effective("shadows")
+        self._set_scale(1.0)
+        self._solve_zonal_scale()
 
     def _zonal_stops(self, t):
         s = 0.0
@@ -2392,35 +2394,60 @@ class ToneEngine:
         if self.effective_shadows != 0:
             s += self.effective_shadows * HL_SH_RANGE_EV * self.shadow_weight(t)
         if self.whites != 0:
-            s += self.whites * WHITE_TONE_EV * self.white_weight(t)
+            s += self.whites * self.zonal_scale * WHITE_TONE_EV * self.white_weight(t)
         if self.blacks != 0:
-            s += self.blacks * BLACK_TONE_EV * self.black_weight(t)
+            s += self.blacks * self.zonal_scale * BLACK_TONE_EV * self.black_weight(t)
         return s
 
-    def _solve_effective(self, window):
-        """Per window, then eased onto the cap. See ToneEngine.solveEffective — a
-        single scale over the SUM coupled two sliders whose windows are disjoint, so
-        Highlights at −100 cut a Shadows setting of +60 down to +33.8; and a hard cap
-        left the top 43% of Highlights applying one identical value."""
-        raw = self.highlights if window == "highlights" else self.shadows
-        if raw == 0:
-            return 0.0
-        step, margin, cap = 0.02, 0.02, 1.0
-        t = 0.0 if window == "highlights" else self.black_anchor_ev
-        through = self.white_anchor_ev if window == "highlights" else 0.0
-        while t <= through:
-            a = t + step
-            fixed = (contrast_mapped(a, self.contrast, self.pivot)
-                     - contrast_mapped(t, self.contrast, self.pivot)) / step
-            if window == "highlights":
-                dw = self.highlight_weight(a) - self.highlight_weight(t)
-            else:
-                dw = self.shadow_weight(a) - self.shadow_weight(t)
-            contribution = dw / step * HL_SH_RANGE_EV * (-1 if raw < 0 else 1)
-            if contribution < 0:
-                cap = min(cap, max((fixed - margin) / -contribution, 0.0))
-            t += step
-        return soft_limited(raw, min(max(cap, 0.0), 1.0))
+    def _set_scale(self, scale):
+        self.zonal_scale = scale
+        self.effective_highlights = self.highlights * scale
+        self.effective_shadows = self.shadows * scale
+
+    def _solve_zonal_scale(self):
+        """ONE scale over the whole zonal sum, closed form, then eased onto the limit.
+
+        See ToneEngine.solveZonalScale. Per-window caps were never a guarantee about
+        the total — each solved against the contrast slope alone and ignored the other
+        three windows — and they coupled what they did constrain, so Highlights' applied
+        amount swung 3.9x across the Contrast range. A clamp on the baked curve alone
+        removes the coupling and pays for it in flat patches: Highlights -100 with
+        Shadows +100, an ordinary "flatten it" move, left 160 of 1024 samples flat.
+
+        `mapped(t) = contrast_mapped(t) + scale * zonal(t)` is linear in `scale`, so
+        "mapped never falls" is one inequality per interval and the smallest ratio over
+        the intervals where the zonal sum falls IS the limit. The knee then keeps the
+        top of the slider alive: the limit is inversely proportional to the request, so
+        `scale * request` is constant the moment a hard cap binds."""
+        if (self.highlights == 0 and self.shadows == 0
+                and self.whites == 0 and self.blacks == 0):
+            self.zonal_limit = SEARCH_CEILING
+            self._set_scale(1.0)
+            return
+        self.zonal_limit = self._zonal_limit()
+        limit = self.zonal_limit
+        if limit <= 0:
+            self._set_scale(0.0)
+        else:
+            self._set_scale(min(1.0, limit * soft_knee(1.0 / limit, ZONAL_KNEE)))
+
+    def _zonal_limit(self):
+        """The largest scale on the zonal sum that keeps `mapped` non-decreasing."""
+        self._set_scale(1.0)
+        t = self.black_anchor_ev - 2
+        end = self.white_anchor_ev + 2
+        previous_zonal = self._zonal_stops(t)
+        previous_fixed = contrast_mapped(t, self.contrast, self.pivot)
+        limit = SEARCH_CEILING
+        while t < end:
+            t += MONOTONE_STEP_EV
+            zonal = self._zonal_stops(t)
+            fixed = contrast_mapped(t, self.contrast, self.pivot)
+            d_zonal = zonal - previous_zonal
+            if d_zonal < 0:
+                limit = min(limit, max((fixed - previous_fixed) / -d_zonal, 0.0))
+            previous_zonal, previous_fixed = zonal, fixed
+        return limit
 
     @property
     def exposure_gain(self):
@@ -2516,26 +2543,38 @@ def gen_tone_checks():
 
     # The whole S7 response must be monotone in the input at every setting, or a
     # brighter part of the scene renders darker than a dimmer one.
-    for contrast in (-100, -60, -50, 0, 50, 60, 85, 100):
-        for h in (-100, -80, -40, 0, 40, 80, 100):
-            for s in (-100, -80, 0, 80, 100):
-                e = ToneEngine(contrast=contrast, highlights=h, shadows=s)
-                prev, t = -1e18, -13.0
-                while t <= 13:
-                    # Output EV = input + the stops S7 adds there.
-                    out = t + e.stops(t)
-                    check(out >= prev - 1e-9,
-                          f"tone inverted at {t} EV (contrast {contrast}, "
-                          f"hi {h}, sh {s}): {out:.5f} after {prev:.5f}")
-                    prev = out
-                    t += 0.05
+    # Whites and Blacks are in this sweep because they carry tonal shelves now. While
+    # they only moved the anchors they could not invert anything, so leaving them out
+    # was correct; the moment they gained a shelf, the setting that inverts hardest
+    # (Contrast -100 with Highlights -100, Shadows +100, Whites -100, Blacks +100) sat
+    # entirely outside what was being checked.
+    for contrast in (-100, -50, 0, 50, 100):
+        for h in (-100, -40, 0, 40, 100):
+            for s in (-100, -40, 0, 40, 100):
+                for w in (-100, 0, 100):
+                    for b in (-100, 0, 100):
+                        e = ToneEngine(contrast=contrast, highlights=h, shadows=s,
+                                       whites=w, blacks=b)
+                        prev, t = -1e18, -13.0
+                        while t <= 13:
+                            # Output EV = input + the stops S7 adds there.
+                            out = t + e.stops(t)
+                            check(out >= prev - 1e-9,
+                                  f"tone inverted at {t} EV (contrast {contrast}, "
+                                  f"hi {h}, sh {s}, w {w}, b {b}): {out:.5f} after "
+                                  f"{prev:.5f}")
+                            prev = out
+                            t += 0.05
 
     # --- the composed picture ---------------------------------------------
     # Shaper domain -> tone -> display transform. This is the closest thing to
     # "the picture is right" that runs without a GPU.
     for contrast in (-60, 0, 60):
-        for h, s in ((0, 0), (-80, 80), (80, -80)):
-            tone = ToneEngine(contrast=contrast, highlights=h, shadows=s)
+        for h, s, w, b in ((0, 0, 0, 0), (-80, 80, 0, 0), (80, -80, 0, 0),
+                           (0, 0, -100, 100), (0, 0, 100, -100),
+                           (-100, 100, -100, 100), (-45, 35, 15, -15)):
+            tone = ToneEngine(contrast=contrast, highlights=h, shadows=s,
+                              whites=w, blacks=b)
             dt = DisplayTransform(white_anchor_ev=tone.white_anchor_ev,
                                   black_anchor_ev=tone.black_anchor_ev)
             prev, ev = -1e18, -12.0
@@ -2547,11 +2586,11 @@ def gen_tone_checks():
                       f"composed render left the display range at {ev} EV: {out}")
                 check(out >= prev - 1e-9,
                       f"composed render inverted at {ev} EV (contrast {contrast}, "
-                      f"hi {h}, sh {s})")
+                      f"hi {h}, sh {s}, w {w}, b {b})")
                 prev = out
                 ev += 0.05
             # Mid-grey survives the whole chain when nothing asks it to move.
-            if contrast == 0 and h == 0 and s == 0:
+            if contrast == 0 and h == 0 and s == 0 and w == 0 and b == 0:
                 check(abs(dt.tone(MID_GREY * tone.gain(0.0)) - MID_GREY) < 2e-3,
                       "a default recipe did not land mid-grey on 0.18")
 
@@ -2583,18 +2622,85 @@ def gen_tone_checks():
                               f"({applied:.9f}) — the control is dead here")
                     previous = applied
 
-    # Moving one must not move the other. Their windows are disjoint, so there is
-    # no honest reason for it, and the shared scale was doing it.
-    for contrast in (0.0, -60.0, 60.0):
+    # Moving one must not move the other — WHERE THAT IS POSSIBLE. Their windows are
+    # disjoint, so there is no reason for a healthy setting to couple them, and the old
+    # per-window caps coupled them anyway (Highlights -100 turned Shadows +60 into an
+    # effective +33.8). What replaced them is one scale over the whole zonal sum, which
+    # is 1.0 — no coupling at all — unless the four windows TOGETHER would run the tone
+    # response downhill. Then something has to give, and a shared scale gives least.
+    for contrast in (0.0, 60.0, 100.0):
         for whites in (0.0, 100.0):
             baseline = ToneEngine(shadows=60, contrast=contrast,
                                   whites=whites).effective_shadows
             for h in (-100.0, -50.0, 50.0, 100.0):
-                got = ToneEngine(shadows=60, highlights=h, contrast=contrast,
-                                 whites=whites).effective_shadows
-                check(abs(got - baseline) < 1e-12,
-                      f"Highlights {h} moved Shadows +60 from {baseline:.6f} to "
-                      f"{got:.6f} (contrast {contrast}, whites {whites})")
+                e = ToneEngine(shadows=60, highlights=h, contrast=contrast, whites=whites)
+                if e.zonal_scale >= 1 - 1e-12:
+                    check(abs(e.effective_shadows - baseline) < 1e-12,
+                          f"Highlights {h} moved Shadows +60 from {baseline:.6f} to "
+                          f"{e.effective_shadows:.6f} with the scale at 1 (contrast "
+                          f"{contrast}, whites {whites})")
+
+    # Positive contrast steepens the base slope, so nothing the four windows can ask for
+    # inverts it and the scale never binds at all.
+    for contrast in (80.0, 100.0):
+        for h in (-100.0, 0.0, 100.0):
+            for sh in (-100.0, 0.0, 100.0):
+                for w in (-100.0, 100.0):
+                    for b in (-100.0, 100.0):
+                        e = ToneEngine(contrast=contrast, highlights=h, shadows=sh,
+                                       whites=w, blacks=b)
+                        check(e.zonal_scale >= 1 - 1e-12,
+                              f"contrast {contrast} h{h} s{sh} w{w} b{b} scaled to "
+                              f"{e.zonal_scale:.4f} with slope to spare")
+
+    # Daily-use range: five sliders inside ±60 (±40 for the end points) is a strong edit,
+    # and it is applied EXACTLY. Where it does bind, it is because contrast has been
+    # flattened, and it costs at most a few percent.
+    worst, worst_at = 1.0, None
+    for c in range(-60, 61, 20):
+        for h in range(-60, 61, 20):
+            for sh in range(-60, 61, 20):
+                for w in range(-40, 41, 20):
+                    for b in range(-40, 41, 20):
+                        e = ToneEngine(contrast=c, highlights=h, shadows=sh,
+                                       whites=w, blacks=b)
+                        if e.zonal_scale < worst:
+                            worst, worst_at = e.zonal_scale, (c, h, sh, w, b)
+                        check(e.zonal_scale >= 1 - 1e-12 or c < 0,
+                              f"moderate edit c{c} h{h} s{sh} w{w} b{b} scaled to "
+                              f"{e.zonal_scale:.4f} without negative contrast")
+    check(worst > 0.93, f"a moderate edit lost {(1 - worst) * 100:.1f}% at {worst_at}")
+
+    # The limiter takes as LITTLE as possible: at the solved limit the response is still
+    # non-decreasing, and 2% above it is not. Without this the whole thing could be
+    # passing every other check by being timid.
+    for c, h, sh, w, b in ((-100, -100, 100, -100, 100), (-100, 0, 0, 0, 100),
+                           (-60, -60, 60, 0, 40), (0, -100, 100, -100, 100)):
+        e = ToneEngine(contrast=c, highlights=h, shadows=sh, whites=w, blacks=b)
+        limit = e.zonal_limit
+        check(limit < SEARCH_CEILING,
+              f"c{c} h{h} s{sh} w{w} b{b} was expected to bind and did not")
+
+        def mapped_falls(scale, e=e, c=c):
+            e._set_scale(scale)
+            t, worst_drop = e.black_anchor_ev - 2, 0.0
+            previous = t + e.stops(t)
+            while t < e.white_anchor_ev + 2:
+                t += MONOTONE_STEP_EV
+                m = t + e.stops(t)
+                worst_drop = min(worst_drop, m - previous)
+                previous = m
+            return worst_drop
+
+        check(mapped_falls(limit) >= -1e-9,
+              f"c{c} h{h} s{sh} w{w} b{b} already falls AT the limit {limit:.6f}")
+        check(mapped_falls(limit * 1.02) < -1e-9,
+              f"c{c} h{h} s{sh} w{w} b{b} is still monotone 2% above the limit "
+              f"{limit:.6f} — the limiter is being timid")
+        e._solve_zonal_scale()
+        check(e.zonal_scale < limit,
+              f"c{c} h{h} s{sh} w{w} b{b} applies the limit exactly, so the top of the "
+              f"slider is dead")
 
     print("  zonal fixed points, anchor geometry, and a monotone composed picture")
     print("  every setting of Highlights and Shadows applies more than the last, "
@@ -3281,10 +3387,18 @@ def gen_enginemath_fixture():
             })
 
     tone = []
-    for h, sh, c in ((0.0, 0.0, 0.0), (-80.0, 80.0, 0.0), (-100.0, 100.0, 60.0),
-                     (50.0, -50.0, -40.0)):
-        e = ToneEngine(highlights=h, shadows=sh, contrast=c)
-        entry = {"highlights": h, "shadows": sh, "contrast": c,
+    # The last four bind the zonal limiter — one slider, or four at once, against a
+    # flattened contrast curve. Without them this fixture came out byte-identical when
+    # the whole solve was replaced, which means it was covering the arithmetic and not
+    # the decision.
+    for h, sh, c, w, b in ((0.0, 0.0, 0.0, 0.0, 0.0), (-80.0, 80.0, 0.0, 0.0, 0.0),
+                           (-100.0, 100.0, 60.0, 0.0, 0.0), (50.0, -50.0, -40.0, 0.0, 0.0),
+                           (0.0, 0.0, 0.0, 100.0, -100.0), (-40.0, 30.0, 20.0, 15.0, -25.0),
+                           (0.0, 0.0, -100.0, 0.0, 100.0),
+                           (-100.0, 100.0, -100.0, -100.0, 100.0)):
+        e = ToneEngine(highlights=h, shadows=sh, contrast=c, whites=w, blacks=b)
+        entry = {"highlights": h, "shadows": sh, "contrast": c, "whites": w, "blacks": b,
+                 "zonalScale": e.zonal_scale,
                  "effectiveHighlights": e.effective_highlights,
                  "effectiveShadows": e.effective_shadows, "stops": []}
         for t in (-8.0, -4.0, -1.0, 0.0, 1.0, 3.0, 5.0):

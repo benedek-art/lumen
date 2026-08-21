@@ -59,12 +59,66 @@ Shadows          74.6      Whites      18.2      Blacks       2.9
   at code 9.4, so it has nowhere to act.
 - **Highlights delivers 87% of its effect in its first half** (0→−50 moves 30 levels,
   −50→−100 moves 4.7) and its strength varies **×3.9 with Contrast** and ×1.8 with
-  Whites, through `solveEffective`'s soft cap.
+  Whites, through the per-window soft cap that `solveZonalScale` replaced.
 - **Sharpen Detail runs backwards.** Measured gain at a 2 px period, Amount 100:
   Detail 0 → 1.99, Detail 100 → 1.16. The reference goes 2.00 → 2.00.
 - **80% of the Colour denoise slider is inert.** Chroma kept: 0→100%, 10→10.5%,
   20→2.8%, then flat to 100. Every shipped ISO anchor from ISO 400 up sits in the dead
   zone, so the Colour half of the ISO defaults changes nothing.
+
+### Where the six sliders are now
+
+Same measurement — peak sRGB code separation between the two ends of the travel, over
+−8…+5 EV — after rebuilding the zonal windows as shelves and replacing the per-window
+monotonicity caps with one solved scale over the whole zonal sum:
+
+```
+Exposure ±2 EV  169.5      Contrast    81.6      Highlights  55.8
+Shadows          46.8      Whites      47.6      Blacks      23.1
+```
+
+Blacks was 2.9 and Whites 18.2, because both only moved the display anchors, into a toe
+and a shoulder that had already compressed the tones they were aiming at. They carry a
+tonal shelf of their own now, on top of the anchor move, sitting above and below where
+Highlights and Shadows have already saturated so the two pairs act on different tones.
+
+Highlights and Shadows read lower than the 79.4 and 74.6 above and are stronger
+controls than those numbers were. Those were bumps: peak gain halfway to the anchor,
+falling back to zero AT it, so Highlights −100 did nothing whatever to the brightest
+values — 87% of its effect landed in the first half of its travel. A shelf saturates
+instead of returning, which spends the range where a photographer is looking:
+
+| | first half | second half |
+|---|---|---|
+| Highlights −100 | 16.3 | 23.0 |
+| Shadows +100 | 13.2 | 19.6 |
+| Whites +100 | 16.3 | 24.5 |
+| Blacks +100 | 6.8 | 8.0 |
+
+Every slider now splits 40–56 / 60–44 instead of 87 / 13. And Highlights −100 pulls a
+scene value at +4 EV from code 250 to 214, and at +5 EV from 255 to 234 — recovery from
+clipped white, which is the one thing the control is for and the one thing the bump
+could not do.
+
+**The sliders stopped moving each other.** `effectiveHighlights` at Highlights 100 is
+1.0000 at every Contrast setting from −100 to +100; it used to run 0.218 → 0.857, a
+×3.9 swing in what one slider meant depending on where a different one sat. Shadows +60
+applies 0.6000 with Highlights at −100, +100 or absent; it used to become 0.338.
+
+What replaced the per-window caps is one scale over the whole zonal sum, and because
+`mapped(t) = contrastMapped(t) + scale × zonal(t)` is linear in that scale, the largest
+safe value is closed-form rather than searched: one sweep, 0.048 ms, against 10.9 ms
+for the bisection it started as. It is exactly 1 — no coupling at all — for 98.8% of
+edits with all five sliders inside ±60 (±40 on the end points), and for every setting
+whatever at Contrast ≥ +80, where the base slope has room to spare. It binds only where
+the four windows together would run the response downhill, and there it eases onto the
+limit rather than clipping at it, so the top of the slider still moves: Contrast −100
+with Blacks sweeping 0→100 walks code 20.9 → 48.0 with a step at every stop.
+
+**Nothing flattens any more.** The baked tone curve's monotonicity clamp fires on 0 of
+1024 samples for every one of the 242 combinations of all five sliders at ±100. Clamping
+alone, without the solve, left 160 flat at two sliders and 497 at five — 16% and 49% of
+the tonal axis rendering as a single value.
 
 ## Phase 3 — the daily workflow
 
