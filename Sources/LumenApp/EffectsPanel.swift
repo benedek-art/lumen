@@ -262,11 +262,17 @@ struct EffectsPanel: View {
     /// Reports what the stored rectangle *is*, not what was last clicked — the same
     /// grammar the white-balance preset row uses.
     private var currentAspectName: String {
-        let crop = recipe.develop.geometry.crop
-        if crop == Crop() { return "Original" }
-        let frame = effectiveFrameAspect
-        guard crop.h > 0 else { return "Custom" }
-        let ratio = (crop.w * frame) / crop.h
+        let geometry = recipe.develop.geometry
+        if geometry.crop == Crop() { return "Original" }
+        // Against the USABLE frame at the current angle, which is what the crop is a
+        // fraction of. Reading it back against the source's own aspect makes the menu
+        // disagree with the rectangle it just wrote as soon as the photo is straightened.
+        guard let size = frameSizeForCrop,
+              let ratio = CropGeometry.displayedAspect(geometry.crop,
+                                                       sourceWidth: size.width,
+                                                       sourceHeight: size.height,
+                                                       degrees: geometry.angle)
+        else { return "Custom" }
         for aspect in cropAspects {
             if let target = aspect.ratio, abs(target - ratio) < 0.005 {
                 return aspect.name
@@ -275,23 +281,32 @@ struct EffectsPanel: View {
         return "Custom"
     }
 
+    /// The source frame in pixels, which the crop arithmetic needs — an aspect alone is
+    /// not enough once a straighten angle is involved, because the inscribed rectangle
+    /// depends on both edges.
+    private var frameSizeForCrop: (width: Double, height: Double)? {
+        if let size = state.primaryFrameSize, size.width > 0, size.height > 0 {
+            return (Double(size.width), Double(size.height))
+        }
+        let aspect = effectiveFrameAspect
+        guard aspect > 0 else { return nil }
+        return (aspect, 1)
+    }
+
     private func applyAspect(_ aspect: CropAspect) {
-        let frame = effectiveFrameAspect
+        guard let size = frameSizeForCrop else { return }
+        // The lock is a mode the user chose, so picking a ratio arms it and "Original"
+        // clears it. Without it the menu wrote a 3:2 rectangle and the very next corner
+        // drag made it free-form again, after which the menu read it back as "Custom".
+        viewport.cropAspectLock = aspect.ratio
         binder.edit("geometry.crop.aspect") { recipe in
-            guard let ratio = aspect.ratio, ratio > 0, frame > 0 else {
+            guard let ratio = aspect.ratio, ratio > 0 else {
                 recipe.develop.geometry.crop = Crop()
                 return
             }
-            // Largest centred rectangle of the requested ratio inside the frame,
-            // expressed in the normalized source coordinates the recipe stores.
-            var w = 1.0
-            var h = 1.0
-            if ratio >= frame {
-                h = frame / ratio
-            } else {
-                w = ratio / frame
-            }
-            recipe.develop.geometry.crop = Crop(x: (1 - w) / 2, y: (1 - h) / 2, w: w, h: h)
+            recipe.develop.geometry.crop = CropGeometry.centred(
+                aspect: ratio, sourceWidth: size.width, sourceHeight: size.height,
+                degrees: recipe.develop.geometry.angle)
         }
     }
 
@@ -301,6 +316,9 @@ struct EffectsPanel: View {
     }
 
     private func resetGeometry() {
+        // Outside the edit closure: that one mutates a recipe and may not run here, and
+        // the lock is view state.
+        viewport.cropAspectLock = nil
         binder.edit("geometry.reset") { recipe in
             recipe.develop.geometry.crop = Crop()
             recipe.develop.geometry.angle = 0

@@ -70,6 +70,16 @@ final class LoupeViewport: ObservableObject {
     @Published var splitPosition: Double = 0.5
 
     @Published var showCrop: Bool = false
+    /// Width ÷ height in pixels the crop drag must hold, or nil for a free crop.
+    ///
+    /// Set by the ratio menu and cleared by "Original", so it is a mode the user chose
+    /// rather than one inferred from whatever the rectangle happens to measure. Inferring
+    /// it would mean a free crop that lands within a rounding error of 16:9 silently
+    /// stops letting you nudge one edge.
+    ///
+    /// UI state, not recipe state: the rectangle is what gets saved, and the lock only
+    /// governs how the next drag behaves.
+    @Published var cropAspectLock: Double?
     /// True while the straighten ruler is armed. It disarms itself when the drag ends,
     /// so it reads as a tool you fire rather than a mode you have to remember to leave.
     @Published var showStraighten: Bool = false
@@ -685,7 +695,9 @@ struct LoupeView: View {
             // rectangle is drawn against the frame it is expressed in rather than
             // inside a picture that has already been cut to it.
             if viewport.showCrop && state.activeSection == .effects {
-                CropOverlayView(crop: cropBinding)
+                CropOverlayView(crop: cropBinding,
+                                lockedAspect: viewport.cropAspectLock,
+                                frameAspect: cropFrameAspect)
                     .frame(width: drawn.width, height: drawn.height)
 
                 // Above the crop rectangle, so the ruler's drag belongs to the ruler
@@ -986,6 +998,24 @@ struct LoupeView: View {
     }
 
     // MARK: Crop
+
+    /// The USABLE frame's width ÷ height in pixels — the inscribed rectangle at the
+    /// current straighten angle, not the source frame.
+    ///
+    /// The crop is normalized to that frame, so it is what converts the ratio menu's
+    /// pixel ratio into the normalized one a drag works in. Using the source's aspect
+    /// instead is the same class of error that once made "1:1" produce an 8:9 rectangle
+    /// on a 4:3 body; it just needs a straighten angle rather than an unusual sensor.
+    private var cropFrameAspect: Double {
+        guard let size = state.primaryFrameSize, size.width > 0, size.height > 0 else {
+            return 1
+        }
+        let usable = CropGeometry.usableSize(width: Double(size.width),
+                                             height: Double(size.height),
+                                             degrees: recipe.develop.geometry.angle)
+        guard usable.height > 0 else { return 1 }
+        return usable.width / usable.height
+    }
 
     /// Dragging the crop rectangle writes through `updateRecipe` with a coalescing key,
     /// exactly like the crop panel's sliders — one drag is one undo step, and the on-image

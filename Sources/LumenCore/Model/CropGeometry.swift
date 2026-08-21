@@ -185,3 +185,181 @@ public enum CropGeometry {
             && abs(sy) <= sourceHeight / 2 + tolerance
     }
 }
+
+// MARK: - Dragging
+
+extension CropGeometry {
+
+    /// Which part of the rectangle a drag has hold of.
+    ///
+    /// Eight, not four. The overlay offered corners only, so the one-axis adjustment
+    /// every crop ends with — "a little off the top" — meant dragging a corner and
+    /// fixing the width it also changed.
+    public enum Handle: String, CaseIterable, Sendable {
+        case topLeft, top, topRight, right, bottomRight, bottom, bottomLeft, left
+
+        var movesLeft: Bool { self == .topLeft || self == .left || self == .bottomLeft }
+        var movesRight: Bool { self == .topRight || self == .right || self == .bottomRight }
+        var movesTop: Bool { self == .topLeft || self == .top || self == .topRight }
+        var movesBottom: Bool {
+            self == .bottomLeft || self == .bottom || self == .bottomRight
+        }
+        var isCorner: Bool {
+            self == .topLeft || self == .topRight || self == .bottomLeft || self == .bottomRight
+        }
+    }
+
+    /// The crop a drag produces, in normalized coordinates.
+    ///
+    /// `lockedAspect` is width ÷ height in PIXELS, which is what a ratio menu means and
+    /// what the user sees. The crop is normalized to the usable frame, so the normalized
+    /// ratio is `lockedAspect / frameAspect` — getting that conversion wrong is how "1:1"
+    /// produced an 8:9 rectangle on a 4:3 body, which this codebase has already been bitten
+    /// by once in the ratio menu.
+    ///
+    /// Locked drags keep the ratio through the CLAMP as well, which is the half that is
+    /// easy to miss: pushing a locked crop into a corner has to shrink both axes, because
+    /// clamping one of them is exactly how a lock silently becomes "Custom".
+    public static func resize(_ origin: Crop, handle: Handle,
+                              dx: Double = 0, dy: Double = 0,
+                              lockedAspect: Double? = nil,
+                              frameAspect: Double = 1) -> Crop {
+        let start = normalized(origin)
+        guard dx.isFinite, dy.isFinite else { return start }
+
+        let ratio = lockedRatio(lockedAspect, frameAspect: frameAspect)
+
+        // Anchor: the corner or edge the drag does NOT move.
+        let anchorX = handle.movesLeft ? start.x + start.w : start.x
+        let anchorY = handle.movesTop ? start.y + start.h : start.y
+        let signX: Double = handle.movesLeft ? -1 : 1
+        let signY: Double = handle.movesTop ? -1 : 1
+
+        var w = start.w
+        var h = start.h
+        if handle.movesLeft { w = start.w - dx }
+        if handle.movesRight { w = start.w + dx }
+        if handle.movesTop { h = start.h - dy }
+        if handle.movesBottom { h = start.h + dy }
+        w = Swift.max(w, minimumCropFraction)
+        h = Swift.max(h, minimumCropFraction)
+
+        if let ratio {
+            if handle.isCorner {
+                // Honour whichever axis the drag pushed further, so the corner tracks
+                // the pointer instead of lagging on one axis.
+                w = Swift.max(w, h * ratio)
+                h = w / ratio
+            } else if handle.movesLeft || handle.movesRight {
+                h = w / ratio
+            } else {
+                w = h * ratio
+            }
+        }
+
+        var rect = place(anchorX: anchorX, anchorY: anchorY, signX: signX, signY: signY,
+                         w: w, h: h, handle: handle, start: start, locked: ratio != nil)
+
+        if let ratio {
+            rect = shrinkIntoFrame(rect, anchorX: anchorX, anchorY: anchorY,
+                                   signX: signX, signY: signY, ratio: ratio,
+                                   handle: handle, start: start)
+        }
+        return normalized(rect)
+    }
+
+    /// The crop a move-drag produces: the rectangle slides, and never resizes.
+    public static func move(_ origin: Crop, dx: Double, dy: Double) -> Crop {
+        let start = normalized(origin)
+        guard dx.isFinite, dy.isFinite else { return start }
+        var out = start
+        out.x = Num.clamp(start.x + dx, 0, Swift.max(1 - start.w, 0))
+        out.y = Num.clamp(start.y + dy, 0, Swift.max(1 - start.h, 0))
+        return out
+    }
+
+    /// Width ÷ height a ratio menu should report for a crop, in pixels.
+    ///
+    /// Against the USABLE frame, not the source: a straightened photograph's crop is a
+    /// fraction of the inscribed rectangle, so reading it back against the source's own
+    /// aspect makes the menu disagree with the rectangle it just wrote.
+    public static func displayedAspect(_ crop: Crop, sourceWidth: Double,
+                                       sourceHeight: Double, degrees: Double) -> Double? {
+        let usable = usableSize(width: sourceWidth, height: sourceHeight, degrees: degrees)
+        let c = normalized(crop)
+        let h = c.h * usable.height
+        guard h > 0, usable.width > 0 else { return nil }
+        return (c.w * usable.width) / h
+    }
+
+    /// The crop a ratio menu should write: `aspect` in pixels, centred, as large as fits.
+    public static func centred(aspect: Double, sourceWidth: Double, sourceHeight: Double,
+                               degrees: Double) -> Crop {
+        let usable = usableSize(width: sourceWidth, height: sourceHeight, degrees: degrees)
+        guard aspect > 0, aspect.isFinite, usable.width > 0, usable.height > 0 else {
+            return Crop()
+        }
+        let frameAspect = usable.width / usable.height
+        var w = 1.0, h = 1.0
+        if aspect > frameAspect { h = frameAspect / aspect } else { w = aspect / frameAspect }
+        return normalized(Crop(x: (1 - w) / 2, y: (1 - h) / 2, w: w, h: h))
+    }
+
+    // MARK: Drag internals
+
+    private static func lockedRatio(_ lockedAspect: Double?, frameAspect: Double) -> Double? {
+        guard let lockedAspect, lockedAspect.isFinite, lockedAspect > 0,
+              frameAspect.isFinite, frameAspect > 0 else { return nil }
+        return lockedAspect / frameAspect
+    }
+
+    /// Rebuild the rectangle from its anchor. An edge handle keeps the extent it does
+    /// not drive — unless a lock derived it, in which case it grows about that edge's
+    /// midpoint, which is what keeps a locked edge drag from walking sideways.
+    private static func place(anchorX: Double, anchorY: Double,
+                              signX: Double, signY: Double,
+                              w: Double, h: Double, handle: Handle,
+                              start: Crop, locked: Bool) -> Crop {
+        var x: Double
+        var y: Double
+        if handle.movesLeft || handle.movesRight {
+            x = signX > 0 ? anchorX : anchorX - w
+        } else {
+            x = locked ? start.x + (start.w - w) / 2 : start.x
+        }
+        if handle.movesTop || handle.movesBottom {
+            y = signY > 0 ? anchorY : anchorY - h
+        } else {
+            y = locked ? start.y + (start.h - h) / 2 : start.y
+        }
+        return Crop(x: x, y: y, w: w, h: h)
+    }
+
+    /// Shrink a locked rectangle about its anchor until it fits the unit square.
+    ///
+    /// Clamping the offending edge instead is what turns a 16:9 crop into "Custom" the
+    /// moment it touches the top of the frame.
+    private static func shrinkIntoFrame(_ rect: Crop, anchorX: Double, anchorY: Double,
+                                        signX: Double, signY: Double, ratio: Double,
+                                        handle: Handle, start: Crop) -> Crop {
+        var w = rect.w
+        var h = rect.h
+        // How much room the anchor leaves in each direction the rectangle grows.
+        let roomX = handle.movesLeft || handle.movesRight
+            ? (signX > 0 ? 1 - anchorX : anchorX)
+            : 1.0
+        let roomY = handle.movesTop || handle.movesBottom
+            ? (signY > 0 ? 1 - anchorY : anchorY)
+            : 1.0
+        if roomX > 0, w > roomX { w = roomX; h = w / ratio }
+        if roomY > 0, h > roomY { h = roomY; w = h * ratio }
+        // The floor is ratio-preserving too. Flooring each axis on its own is the same
+        // mistake as clamping each edge on its own — a locked crop dragged past the
+        // minimum came out at the FRAME's aspect rather than its own, so the lock broke
+        // at exactly the moment the drag got extreme.
+        if w < minimumCropFraction { w = minimumCropFraction; h = w / ratio }
+        if h < minimumCropFraction { h = minimumCropFraction; w = h * ratio }
+        return place(anchorX: anchorX, anchorY: anchorY, signX: signX, signY: signY,
+                     w: w, h: h, handle: handle, start: start, locked: true)
+    }
+}

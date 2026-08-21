@@ -189,3 +189,170 @@ final class CropGeometryTests: XCTestCase {
         XCTAssertEqual(r.outputHeight, 5504)
     }
 }
+
+/// Dragging: eight handles, an aspect lock that survives the clamp, and a floor.
+final class CropDragTests: XCTestCase {
+
+    /// 3:2 source, so a normalized ratio and a pixel ratio are never accidentally equal
+    /// and a conversion error cannot pass unnoticed.
+    private let frameAspect = 1.5
+
+    private func pixelAspect(_ c: Crop) -> Double { (c.w * frameAspect) / c.h }
+
+    // MARK: Free dragging
+
+    func testACornerDragMovesOnlyThatCorner() {
+        let start = Crop(x: 0.2, y: 0.2, w: 0.6, h: 0.6)
+        let out = CropGeometry.resize(start, handle: .topLeft, dx: 0.1, dy: 0.05)
+        XCTAssertEqual(out.x, 0.3, accuracy: 1e-12)
+        XCTAssertEqual(out.y, 0.25, accuracy: 1e-12)
+        // The opposite corner is the anchor and must not have moved.
+        XCTAssertEqual(out.x + out.w, 0.8, accuracy: 1e-12)
+        XCTAssertEqual(out.y + out.h, 0.8, accuracy: 1e-12)
+    }
+
+    func testAnEdgeDragMovesOnlyThatEdge() {
+        let start = Crop(x: 0.2, y: 0.2, w: 0.6, h: 0.6)
+        for (handle, dx, dy) in [(CropGeometry.Handle.top, 0.0, 0.1),
+                                 (.bottom, 0.0, -0.1),
+                                 (.left, 0.1, 0.0),
+                                 (.right, -0.1, 0.0)] {
+            let out = CropGeometry.resize(start, handle: handle, dx: dx, dy: dy)
+            if handle == .top || handle == .bottom {
+                XCTAssertEqual(out.x, start.x, accuracy: 1e-12, "\(handle) moved x")
+                XCTAssertEqual(out.w, start.w, accuracy: 1e-12, "\(handle) changed width")
+            } else {
+                XCTAssertEqual(out.y, start.y, accuracy: 1e-12, "\(handle) moved y")
+                XCTAssertEqual(out.h, start.h, accuracy: 1e-12, "\(handle) changed height")
+            }
+        }
+    }
+
+    func testEveryHandleStaysInsideTheFrameAndAboveTheFloor() {
+        let start = Crop(x: 0.3, y: 0.3, w: 0.4, h: 0.4)
+        for handle in CropGeometry.Handle.allCases {
+            for d in stride(from: -2.0, through: 2.0, by: 0.13) {
+                for locked in [nil, 1.0, 16.0 / 9.0] as [Double?] {
+                    let out = CropGeometry.resize(start, handle: handle, dx: d, dy: d,
+                                                  lockedAspect: locked,
+                                                  frameAspect: frameAspect)
+                    XCTAssertGreaterThanOrEqual(out.x, -1e-12, "\(handle) d\(d)")
+                    XCTAssertGreaterThanOrEqual(out.y, -1e-12, "\(handle) d\(d)")
+                    XCTAssertLessThanOrEqual(out.x + out.w, 1 + 1e-9, "\(handle) d\(d)")
+                    XCTAssertLessThanOrEqual(out.y + out.h, 1 + 1e-9, "\(handle) d\(d)")
+                    XCTAssertGreaterThanOrEqual(out.w, CropGeometry.minimumCropFraction - 1e-12)
+                    XCTAssertGreaterThanOrEqual(out.h, CropGeometry.minimumCropFraction - 1e-12)
+                }
+            }
+        }
+    }
+
+    // MARK: The lock
+
+    /// The defect this exists for: pick 3:2 from the menu, drag a corner, and the crop
+    /// silently became free-form — the menu then read the rectangle back and reported
+    /// "Custom".
+    func testALockedDragKeepsThePixelAspect() {
+        let start = CropGeometry.centred(aspect: 1.5, sourceWidth: 6000,
+                                         sourceHeight: 4000, degrees: 0)
+        for handle in CropGeometry.Handle.allCases {
+            for d in stride(from: -0.5, through: 0.5, by: 0.05) {
+                let out = CropGeometry.resize(start, handle: handle, dx: d, dy: d * 0.6,
+                                              lockedAspect: 1.5, frameAspect: frameAspect)
+                XCTAssertEqual(pixelAspect(out), 1.5, accuracy: 1e-6,
+                               "\(handle) at \(d) drifted to \(pixelAspect(out))")
+            }
+        }
+    }
+
+    /// And through the CLAMP, which is the half that is easy to miss: pushing a locked
+    /// crop into a corner has to shrink both axes. Clamping the offending edge alone is
+    /// exactly how a lock becomes "Custom" the moment it touches the frame.
+    func testALockedDragKeepsTheAspectAgainstTheFrameEdge() {
+        let start = Crop(x: 0.05, y: 0.05, w: 0.3, h: 0.3)
+        for aspect in [1.0, 1.5, 16.0 / 9.0, 2.0 / 3.0] {
+            for handle in CropGeometry.Handle.allCases {
+                let out = CropGeometry.resize(start, handle: handle, dx: -3, dy: -3,
+                                              lockedAspect: aspect,
+                                              frameAspect: frameAspect)
+                XCTAssertEqual(pixelAspect(out), aspect, accuracy: 1e-6,
+                               "\(handle) at aspect \(aspect) drifted against the edge")
+                XCTAssertLessThanOrEqual(out.x + out.w, 1 + 1e-9)
+                XCTAssertLessThanOrEqual(out.y + out.h, 1 + 1e-9)
+            }
+        }
+    }
+
+    func testALockedEdgeDragGrowsAboutTheOppositeEdgesMidpoint() {
+        let start = Crop(x: 0.2, y: 0.3, w: 0.4, h: 0.4)
+        let out = CropGeometry.resize(start, handle: .right, dx: 0.1,
+                                      lockedAspect: 1.0, frameAspect: frameAspect)
+        // The left edge is the anchor and holds.
+        XCTAssertEqual(out.x, start.x, accuracy: 1e-12)
+        // The height follows the lock, centred on where it was — not walking upward.
+        XCTAssertEqual(out.y + out.h / 2, start.y + start.h / 2, accuracy: 1e-12)
+        XCTAssertEqual(pixelAspect(out), 1.0, accuracy: 1e-9)
+    }
+
+    // MARK: The ratio menu
+
+    func testTheMenuReadsBackWhatItWrote() {
+        for aspect in [1.0, 1.5, 16.0 / 9.0, 4.0 / 5.0, 2.0 / 3.0] {
+            for (w, h) in [(6000.0, 4000.0), (4000.0, 6000.0), (5000.0, 5000.0)] {
+                for degrees in [0.0, 3.5, -12.0] {
+                    let crop = CropGeometry.centred(aspect: aspect, sourceWidth: w,
+                                                    sourceHeight: h, degrees: degrees)
+                    let read = CropGeometry.displayedAspect(crop, sourceWidth: w,
+                                                            sourceHeight: h,
+                                                            degrees: degrees)
+                    XCTAssertEqual(read ?? 0, aspect, accuracy: 1e-6,
+                                   "\(w)x\(h) at \(degrees)° wrote \(aspect) and read "
+                                       + "back \(read ?? 0)")
+                }
+            }
+        }
+    }
+
+    /// The menu's ratio is read against the USABLE frame. Reading it against the source's
+    /// aspect instead is the same class of error that once made "1:1" produce an 8:9
+    /// rectangle on a 4:3 body — it just needs a straighten angle to show up.
+    func testTheMenusRatioIsAgainstTheUsableFrameNotTheSource() {
+        let w = 6000.0, h = 4000.0, degrees = 20.0
+        let crop = CropGeometry.centred(aspect: 1.0, sourceWidth: w, sourceHeight: h,
+                                        degrees: degrees)
+        let usable = CropGeometry.usableSize(width: w, height: h, degrees: degrees)
+        let naive = (crop.w * (w / h)) / crop.h
+        XCTAssertNotEqual(naive, 1.0, accuracy: 0.05,
+                          "the source-aspect reading happens to agree here, so this "
+                              + "test cannot show the difference")
+        XCTAssertEqual(CropGeometry.displayedAspect(crop, sourceWidth: w, sourceHeight: h,
+                                                    degrees: degrees) ?? 0,
+                       1.0, accuracy: 1e-6)
+        XCTAssertNotEqual(usable.width / usable.height, w / h, accuracy: 0.01)
+    }
+
+    func testCentredCropsAreCentredAndMaximal() {
+        for aspect in [1.0, 1.5, 16.0 / 9.0, 0.5] {
+            let crop = CropGeometry.centred(aspect: aspect, sourceWidth: 6000,
+                                            sourceHeight: 4000, degrees: 0)
+            XCTAssertEqual(crop.x + crop.w / 2, 0.5, accuracy: 1e-9)
+            XCTAssertEqual(crop.y + crop.h / 2, 0.5, accuracy: 1e-9)
+            // One axis must be flush with the frame, or it is not the largest that fits.
+            XCTAssertTrue(abs(crop.w - 1) < 1e-9 || abs(crop.h - 1) < 1e-9,
+                          "aspect \(aspect) left slack on both axes: \(crop)")
+        }
+    }
+
+    // MARK: Moving
+
+    func testMovingNeverResizes() {
+        let start = Crop(x: 0.2, y: 0.2, w: 0.5, h: 0.5)
+        for d in stride(from: -2.0, through: 2.0, by: 0.17) {
+            let out = CropGeometry.move(start, dx: d, dy: -d)
+            XCTAssertEqual(out.w, start.w, accuracy: 1e-12)
+            XCTAssertEqual(out.h, start.h, accuracy: 1e-12)
+            XCTAssertGreaterThanOrEqual(out.x, -1e-12)
+            XCTAssertLessThanOrEqual(out.x + out.w, 1 + 1e-12)
+        }
+    }
+}

@@ -664,10 +664,16 @@ struct CropOverlayView: View {
     @Binding var crop: Crop
     var showsThirds: Bool = true
     var isInteractive: Bool = true
+    /// Width ÷ height in PIXELS the drag must hold, or nil for a free crop. What the
+    /// ratio menu means, and what the user sees.
+    var lockedAspect: Double?
+    /// The usable frame's own width ÷ height in pixels. The crop is normalized to that
+    /// frame, so it is what converts a pixel ratio into a normalized one.
+    var frameAspect: Double = 1
 
-    /// Smallest crop a drag may produce, as a fraction of the frame.
-    private static let minimumSize: Double = 0.05
     private static let handleSize: CGFloat = 14
+    /// How far from an edge a drag still counts as that edge.
+    private static let edgeThickness: CGFloat = 12
 
     @State private var dragOrigin: Crop?
 
@@ -703,10 +709,17 @@ struct CropOverlayView: View {
                         .offset(x: rect.minX, y: rect.minY)
                         .gesture(moveGesture(in: size))
 
-                    corner(at: CGPoint(x: rect.minX, y: rect.minY), size: size, dx: -1, dy: -1)
-                    corner(at: CGPoint(x: rect.maxX, y: rect.minY), size: size, dx: 1, dy: -1)
-                    corner(at: CGPoint(x: rect.minX, y: rect.maxY), size: size, dx: -1, dy: 1)
-                    corner(at: CGPoint(x: rect.maxX, y: rect.maxY), size: size, dx: 1, dy: 1)
+                    // Edges before corners, so a corner's hit area wins where they
+                    // overlap — the corner is the finer adjustment and the harder to hit.
+                    edge(.top, in: rect, size: size)
+                    edge(.bottom, in: rect, size: size)
+                    edge(.left, in: rect, size: size)
+                    edge(.right, in: rect, size: size)
+
+                    corner(.topLeft, at: CGPoint(x: rect.minX, y: rect.minY), size: size)
+                    corner(.topRight, at: CGPoint(x: rect.maxX, y: rect.minY), size: size)
+                    corner(.bottomLeft, at: CGPoint(x: rect.minX, y: rect.maxY), size: size)
+                    corner(.bottomRight, at: CGPoint(x: rect.maxX, y: rect.maxY), size: size)
                 }
             }
         }
@@ -715,12 +728,12 @@ struct CropOverlayView: View {
     // MARK: Geometry
 
     private func pixelRect(in size: CGSize) -> CGRect {
-        let x = clamp01(crop.x)
-        let y = clamp01(crop.y)
-        let w = Swift.min(Swift.max(crop.w.isFinite ? crop.w : 1, CropOverlayView.minimumSize), 1 - x)
-        let h = Swift.min(Swift.max(crop.h.isFinite ? crop.h : 1, CropOverlayView.minimumSize), 1 - y)
-        return CGRect(x: CGFloat(x) * size.width, y: CGFloat(y) * size.height,
-                      width: CGFloat(w) * size.width, height: CGFloat(h) * size.height)
+        // `CropGeometry.normalized` is the same guard the renderer runs, so the rectangle
+        // drawn here and the rectangle rendered cannot disagree about a crop that arrived
+        // from a sidecar with a NaN in it.
+        let c = CropGeometry.normalized(crop)
+        return CGRect(x: CGFloat(c.x) * size.width, y: CGFloat(c.y) * size.height,
+                      width: CGFloat(c.w) * size.width, height: CGFloat(c.h) * size.height)
     }
 
     private func thirds(in rect: CGRect) -> Path {
@@ -738,14 +751,521 @@ struct CropOverlayView: View {
         return path
     }
 
-    private func corner(at point: CGPoint, size: CGSize, dx: Int, dy: Int) -> some View {
+    private func corner(_ handle: CropGeometry.Handle, at point: CGPoint,
+                        size: CGSize) -> some View {
         RoundedRectangle(cornerRadius: 1)
             .fill(Lumen.primaryText)
             .frame(width: CropOverlayView.handleSize / 2, height: CropOverlayView.handleSize / 2)
             .frame(width: CropOverlayView.handleSize, height: CropOverlayView.handleSize)
             .contentShape(Rectangle())
             .position(point)
-            .gesture(resizeGesture(in: size, dx: dx, dy: dy))
+            .gesture(resizeGesture(handle, in: size))
+    }
+
+    /// An edge handle: a thin grab strip along the side, drawn as a short bar at its
+    /// midpoint so the target is discoverable without covering the picture.
+    ///
+    /// The overlay offered corners only, so the adjustment every crop ends with — "a
+    /// little off the top" — meant dragging a corner and then fixing the width it had
+    /// also changed.
+    private func edge(_ handle: CropGeometry.Handle, in rect: CGRect,
+                      size: CGSize) -> some View {
+        let horizontal = handle == .top || handle == .bottom
+        let length = horizontal ? rect.width : rect.height
+        let bar = Swift.max(Swift.min(length * 0.25, 40), 8)
+        let centre: CGPoint
+        switch handle {
+        case .top: centre = CGPoint(x: rect.midX, y: rect.minY)
+        case .bottom: centre = CGPoint(x: rect.midX, y: rect.maxY)
+        case .left: centre = CGPoint(x: rect.minX, y: rect.midY)
+        default: centre = CGPoint(x: rect.maxX, y: rect.midY)
+        }
+        return ZStack {
+            RoundedRectangle(cornerRadius: 1)
+                .fill(Lumen.primaryText)
+                .frame(width: horizontal ? bar : 2, height: horizontal ? 2 : bar)
+            Rectangle()
+                .fill(Color.clear)
+                .contentShape(Rectangle())
+                .frame(width: horizontal ? length : CropOverlayView.edgeThickness,
+                       height: horizontal ? CropOverlayView.edgeThickness : length)
+        }
+        .position(centre)
+        .gesture(resizeGesture(handle, in: size))
+    }
+
+    // MARK: Gestures
+
+    private func moveGesture(in size: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 1)
+            .onChanged { value in
+                guard size.width > 0, size.height > 0 else { return }
+                let origin = dragOrigin ?? crop
+                if dragOrigin == nil { dragOrigin = origin }
+                crop = CropGeometry.move(origin,
+                                         dx: Double(value.translation.width / size.width),
+                                         dy: Double(value.translation.height / size.height))
+            }
+            .onEnded { _ in dragOrigin = nil }
+    }
+
+    /// Every resize goes through `CropGeometry.resize`, which is in LumenCore and tested.
+    ///
+    /// The arithmetic used to live here, and it ignored the aspect entirely: picking 3:2
+    /// from the menu and then dragging a corner silently made the crop free-form, after
+    /// which the menu read the rectangle back and reported "Custom". A view cannot be
+    /// tested from a machine with no renderer, which is why it moved rather than being
+    /// patched in place.
+    private func resizeGesture(_ handle: CropGeometry.Handle,
+                               in size: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 1)
+            .onChanged { value in
+                guard size.width > 0, size.height > 0 else { return }
+                let origin = dragOrigin ?? crop
+                if dragOrigin == nil { dragOrigin = origin }
+                crop = CropGeometry.resize(
+                    origin, handle: handle,
+                    dx: Double(value.translation.width / size.width),
+                    dy: Double(value.translation.height / size.height),
+                    lockedAspect: lockedAspect, frameAspect: frameAspect)
+            }
+            .onEnded { _ in dragOrigin = nil }
+    }
+
+    private func clamp01(_ v: Double) -> Double {
+        guard v.isFinite else { return 0 }
+        return Swift.min(Swift.max(v, 0), 1)
+    }
+}
+
+// MARK: - Clipping overlay
+
+/// The `J` clipping-threshold overlay. Clipped pixels are painted in the colour that
+/// names exactly which channels went — R/G/B for one, yellow/magenta/cyan for two, and
+/// the mode's saturated colour for all three — and everything else is left transparent
+/// so the overlay reads against the photograph. `fullFrame` switches to the alt-drag
+/// threshold view, which floods the unclipped pixels with the mode's flat ground.
+///
+/// The classification rule itself comes from `LumenCore.ClippingOverlay`, so the
+/// overlay, the histogram's corner triangles and the goldens all share one definition
+/// of "clipped".
+struct ClippingOverlayView: View {
+
+    let sampler: PixelSampler
+    let mode: ClippingOverlay.Mode
+    var fullFrame: Bool = false
+
+    @State private var overlay: CGImage?
+
+    private struct BuildKey: Equatable {
+        let sampler: UUID
+        let mode: ClippingOverlay.Mode
+        let fullFrame: Bool
+    }
+
+    var body: some View {
+        Group {
+            if let overlay {
+                Image(decorative: overlay, scale: 1, orientation: .up)
+                    .resizable()
+                    .interpolation(.none)
+                    .antialiased(false)
+            } else {
+                Color.clear
+            }
+        }
+        .allowsHitTesting(false)
+        .task(id: BuildKey(sampler: sampler.id, mode: mode, fullFrame: fullFrame)) {
+            await rebuild()
+        }
+    }
+
+    /// Classification runs off the main actor; only the finished image is applied here.
+    @MainActor
+    private func rebuild() async {
+        let source = sampler
+        let wanted = mode
+        let flood = fullFrame
+        let built: CGImage? = await Task.detached(priority: .userInitiated) {
+            ClippingOverlayView.build(sampler: source, mode: wanted, fullFrame: flood)
+        }.value
+        guard !Task.isCancelled else { return }
+        overlay = built
+    }
+
+    /// One pass over the sampled proxy. The bytes are sRGB-encoded, and the encoding is
+    /// monotone with 0↔0 and 1↔1, so "at the floor" and "at the ceiling" mean the same
+    /// thing there as they do in readout-linear — which is all the classifier asks.
+    nonisolated static func build(sampler: PixelSampler,
+                                  mode: ClippingOverlay.Mode,
+                                  fullFrame: Bool) -> CGImage? {
+        let width = sampler.width
+        let height = sampler.height
+        guard width > 0, height > 0 else { return nil }
+        let source = sampler.bytes
+        let pixelCount = width * height
+        guard source.count >= pixelCount * 4 else { return nil }
+
+        var out = [UInt8](repeating: 0, count: pixelCount * 4)
+        let background: RGB = mode.background
+        let saturated: RGB = mode.saturatedColour
+
+        var p: Int = 0
+        while p < pixelCount {
+            let i = p * 4
+            let c = RGB(Double(source[i]) / 255,
+                        Double(source[i + 1]) / 255,
+                        Double(source[i + 2]) / 255)
+            let painted: RGB? = ClippingOverlay.colour(
+                mask: ClippingOverlay.mask(c, mode: mode), allChannels: saturated)
+            if let painted {
+                out[i] = byte(painted.r)
+                out[i + 1] = byte(painted.g)
+                out[i + 2] = byte(painted.b)
+                out[i + 3] = 255
+            } else if fullFrame {
+                out[i] = byte(background.r)
+                out[i + 1] = byte(background.g)
+                out[i + 2] = byte(background.b)
+                out[i + 3] = 255
+            }
+            p += 1
+        }
+
+        guard let space = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
+        guard let provider = CGDataProvider(data: Data(out) as CFData) else { return nil }
+        return CGImage(width: width, height: height,
+                       bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: width * 4,
+                       space: space,
+                       bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+                       provider: provider, decode: nil, shouldInterpolate: false,
+                       intent: .defaultIntent)
+    }
+
+    private nonisolated static func byte(_ v: Double) -> UInt8 {
+        guard v.isFinite else { return 0 }
+        let scaled = (Swift.min(Swift.max(v, 0), 1) * 255).rounded()
+        return UInt8(Swift.min(Swift.max(scaled, 0), 255))
+    }
+}
+
+// MARK: - Mask overlay
+
+/// The solo-mask overlay: all six of docs/08 §8.6's modes, over the pixels the loupe
+/// is showing.
+///
+/// It draws an opaque layer computed by `MaskOverlay.composite`, exactly as
+/// `ClippingOverlayView` does, rather than tinting through a SwiftUI `.mask`. Two
+/// reasons: four of the six modes have to change the UNMASKED pixels (grey them,
+/// black them, white them), which a tint layer cannot do; and the mask form was
+/// silently broken anyway, because `.mask` reads the masking view's alpha channel and
+/// the grey raster it was handed had none.
+///
+/// With no alpha yet — the raster is computed off the main actor — it draws nothing at
+/// all. A flat wash while the numbers are in flight reads as "this mask selects
+/// everything", which is the exact misreading this view exists to prevent.
+struct MaskOverlayView: View {
+
+    let alpha: Plane?
+    let sampler: PixelSampler?
+    /// The geometry the preview underneath has already been through, and the frame the
+    /// alpha is expressed against. A mask raster is in SOURCE coordinates — uncropped
+    /// and unrotated, because that is the invariant that lets a crop re-rasterize a
+    /// mask instead of orphaning it — while the picture on screen has been cropped and
+    /// straightened. Stretching one onto the other put the overlay somewhere other than
+    /// the mask on any cropped photograph.
+    var geometry: Geometry = Geometry()
+    var sourceSize: CGSize = .zero
+    var mode: MaskOverlay.Mode = .colorOverlay
+    var tint: MaskOverlay.Tint = .red
+    var strength: Double = MaskOverlay.defaultStrength
+
+    @State private var overlay: CGImage?
+
+    private struct BuildKey: Equatable {
+        let sampler: UUID?
+        let width: Int
+        let height: Int
+        let checksum: Float
+        let geometry: Geometry
+        let mode: MaskOverlay.Mode
+        let tint: MaskOverlay.Tint
+        let strength: Double
+    }
+
+    var body: some View {
+        Group {
+            if let overlay {
+                Image(decorative: overlay, scale: 1, orientation: .up)
+                    .resizable()
+                    .interpolation(.high)
+            } else {
+                Color.clear
+            }
+        }
+        .allowsHitTesting(false)
+        .task(id: buildKey) { await rebuild() }
+    }
+
+    /// The alpha plane is a value type with no identity, so the key carries its extent
+    /// and the sum of its values — enough for "the mask changed" without hashing a
+    /// megapixel on every layout pass.
+    private var buildKey: BuildKey {
+        var checksum: Float = 0
+        if let alpha {
+            var i = 0
+            let stride = Swift.max(1, alpha.values.count / 4096)
+            while i < alpha.values.count {
+                checksum += alpha.values[i]
+                i += stride
+            }
+        }
+        return BuildKey(sampler: sampler?.id,
+                        width: alpha?.width ?? 0, height: alpha?.height ?? 0,
+                        checksum: checksum, geometry: geometry,
+                        mode: mode, tint: tint, strength: strength)
+    }
+
+    @MainActor
+    private func rebuild() async {
+        guard let alpha else {
+            overlay = nil
+            return
+        }
+        let picture = sampler
+        let wanted = mode
+        let colour = tint
+        let amount = strength
+        let frame = geometry
+        let native = sourceSize
+        let built: CGImage? = await Task.detached(priority: .userInitiated) {
+            MaskOverlayView.build(alpha: alpha, sampler: picture, geometry: frame,
+                                  sourceSize: native, mode: wanted,
+                                  tint: colour, strength: amount)
+        }.value
+        guard !Task.isCancelled else { return }
+        overlay = built
+    }
+
+    /// Composited at the PICTURE's resolution when there is one, so the mask edge is
+    /// drawn against the pixels it is judged against rather than against a 1024-px
+    /// raster's staircase. The alpha is sampled bilinearly, which is what makes that
+    /// legitimate: mask rasters are smooth by construction.
+    nonisolated static func build(alpha: Plane, sampler: PixelSampler?,
+                                  geometry: Geometry, sourceSize: CGSize,
+                                  mode: MaskOverlay.Mode, tint: MaskOverlay.Tint,
+                                  strength: Double) -> CGImage? {
+        let needsPicture = mode.readsPicture
+        // The sampler's extent for every mode, including the Matte: the layer is drawn
+        // over the DISPLAYED frame, so it has to carry the displayed frame's aspect. A
+        // matte built at the source raster's aspect would be stretched on any crop.
+        let width = sampler?.width ?? alpha.width
+        let height = sampler?.height ?? alpha.height
+        guard width > 0, height > 0 else { return nil }
+        let bytes = sampler?.bytes
+        let usable = needsPicture && bytes != nil
+            && (bytes?.count ?? 0) >= width * height * 4
+        // Five of the six modes are opaque layers built FROM the picture. Without the
+        // picture they would paint a black frame with a tint on it, which is a worse
+        // lie than drawing nothing, so they wait for the sampler instead.
+        if needsPicture && !usable { return nil }
+
+        // The alpha lives in source coordinates; the picture on screen has been cropped
+        // and straightened. `sourceNormalized` is the exact inverse of the transform
+        // the renderer applied — the same one `MaskCanvas` uses to place a gesture —
+        // so the overlay lands on the pixels the mask selects. With no frame size
+        // supplied there is nothing to invert and the plane is stretched, which is
+        // right for an uncropped photograph and no worse than before for a cropped one.
+        let reproject = sourceSize.width > 0 && sourceSize.height > 0
+        var out = [UInt8](repeating: 0, count: width * height * 4)
+        for y in 0..<height {
+            let v = (Double(y) + 0.5) / Double(height)
+            for x in 0..<width {
+                let u = (Double(x) + 0.5) / Double(width)
+                var su = u
+                var sv = v
+                if reproject {
+                    let point = PipelineRenderer.sourceNormalized(
+                        displayedX: u, displayedY: v, geometry: geometry,
+                        sourceSize: sourceSize)
+                    su = Double(point.x)
+                    sv = Double(point.y)
+                }
+                let a = alpha.bilinear(su * Double(alpha.width),
+                                       sv * Double(alpha.height))
+                var picture = RGB.zero
+                if usable, let bytes {
+                    let i = (y * width + x) * 4
+                    picture = RGB(Double(bytes[i]) / 255,
+                                  Double(bytes[i + 1]) / 255,
+                                  Double(bytes[i + 2]) / 255)
+                }
+                let c = MaskOverlay.composite(picture: picture, alpha: a, mode: mode,
+                                              tint: tint, strength: strength)
+                let i = (y * width + x) * 4
+                out[i] = byte(c.r)
+                out[i + 1] = byte(c.g)
+                out[i + 2] = byte(c.b)
+                out[i + 3] = 255
+            }
+        }
+
+        guard let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let provider = CGDataProvider(data: Data(out) as CFData) else { return nil }
+        return CGImage(width: width, height: height,
+                       bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: width * 4,
+                       space: space,
+                       bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+                       provider: provider, decode: nil, shouldInterpolate: true,
+                       intent: .defaultIntent)
+    }
+
+    private nonisolated static func byte(_ v: Double) -> UInt8 {
+        guard v.isFinite else { return 0 }
+        let scaled = (Swift.min(Swift.max(v, 0), 1) * 255).rounded()
+        return UInt8(Swift.min(Swift.max(scaled, 0), 255))
+    }
+}
+
+// MARK: - Crop overlay
+
+/// The crop rectangle over the drawn image, with the rule-of-thirds guides inside it and
+/// the area outside dimmed. The rect is `Recipe.Geometry.Crop`, normalized to the source
+/// frame, so dragging it here writes the same value the crop panel does — one path into
+/// the recipe, one undo grammar.
+struct CropOverlayView: View {
+
+    @Binding var crop: Crop
+    var showsThirds: Bool = true
+    var isInteractive: Bool = true
+    /// Width ÷ height in PIXELS the drag must hold, or nil for a free crop. What the
+    /// ratio menu means, and what the user sees.
+    var lockedAspect: Double?
+    /// The usable frame's own width ÷ height in pixels. The crop is normalized to that
+    /// frame, so it is what converts a pixel ratio into a normalized one.
+    var frameAspect: Double = 1
+
+    private static let handleSize: CGFloat = 14
+    /// How far from an edge a drag still counts as that edge.
+    private static let edgeThickness: CGFloat = 12
+
+    @State private var dragOrigin: Crop?
+
+    var body: some View {
+        GeometryReader { geometry in
+            let size = geometry.size
+            let rect = pixelRect(in: size)
+            ZStack(alignment: .topLeading) {
+                Path { path in
+                    path.addRect(CGRect(origin: .zero, size: size))
+                    path.addRect(rect)
+                }
+                .fill(Color.black.opacity(0.5), style: FillStyle(eoFill: true))
+                .allowsHitTesting(false)
+
+                Rectangle()
+                    .strokeBorder(Lumen.primaryText.opacity(0.9), lineWidth: 1)
+                    .frame(width: rect.width, height: rect.height)
+                    .offset(x: rect.minX, y: rect.minY)
+                    .allowsHitTesting(false)
+
+                if showsThirds {
+                    thirds(in: rect)
+                        .stroke(Lumen.primaryText.opacity(0.35), lineWidth: 0.5)
+                        .allowsHitTesting(false)
+                }
+
+                if isInteractive {
+                    Rectangle()
+                        .fill(Color.clear)
+                        .contentShape(Rectangle())
+                        .frame(width: rect.width, height: rect.height)
+                        .offset(x: rect.minX, y: rect.minY)
+                        .gesture(moveGesture(in: size))
+
+                    // Edges before corners, so a corner's hit area wins where they
+                    // overlap — the corner is the finer adjustment and the harder to hit.
+                    edge(.top, in: rect, size: size)
+                    edge(.bottom, in: rect, size: size)
+                    edge(.left, in: rect, size: size)
+                    edge(.right, in: rect, size: size)
+
+                    corner(.topLeft, at: CGPoint(x: rect.minX, y: rect.minY), size: size)
+                    corner(.topRight, at: CGPoint(x: rect.maxX, y: rect.minY), size: size)
+                    corner(.bottomLeft, at: CGPoint(x: rect.minX, y: rect.maxY), size: size)
+                    corner(.bottomRight, at: CGPoint(x: rect.maxX, y: rect.maxY), size: size)
+                }
+            }
+        }
+    }
+
+    // MARK: Geometry
+
+    private func pixelRect(in size: CGSize) -> CGRect {
+        // `CropGeometry.normalized` is the same guard the renderer runs, so the rectangle
+        // drawn here and the rectangle rendered cannot disagree about a crop that arrived
+        // from a sidecar with a NaN in it.
+        let c = CropGeometry.normalized(crop)
+        return CGRect(x: CGFloat(c.x) * size.width, y: CGFloat(c.y) * size.height,
+                      width: CGFloat(c.w) * size.width, height: CGFloat(c.h) * size.height)
+    }
+
+    private func thirds(in rect: CGRect) -> Path {
+        var path = Path()
+        guard rect.width > 0, rect.height > 0 else { return path }
+        for i in 1...2 {
+            let fraction = CGFloat(i) / 3
+            let x = rect.minX + rect.width * fraction
+            path.move(to: CGPoint(x: x, y: rect.minY))
+            path.addLine(to: CGPoint(x: x, y: rect.maxY))
+            let y = rect.minY + rect.height * fraction
+            path.move(to: CGPoint(x: rect.minX, y: y))
+            path.addLine(to: CGPoint(x: rect.maxX, y: y))
+        }
+        return path
+    }
+
+    private func corner(_ handle: CropGeometry.Handle, at point: CGPoint,
+                        size: CGSize) -> some View {
+        RoundedRectangle(cornerRadius: 1)
+            .fill(Lumen.primaryText)
+            .frame(width: CropOverlayView.handleSize / 2, height: CropOverlayView.handleSize / 2)
+            .frame(width: CropOverlayView.handleSize, height: CropOverlayView.handleSize)
+            .contentShape(Rectangle())
+            .position(point)
+            .gesture(resizeGesture(handle, in: size))
+    }
+
+    /// An edge handle: a thin grab strip along the side, drawn as a short bar at its
+    /// midpoint so the target is discoverable without covering the picture.
+    ///
+    /// The overlay offered corners only, so the adjustment every crop ends with — "a
+    /// little off the top" — meant dragging a corner and then fixing the width it had
+    /// also changed.
+    private func edge(_ handle: CropGeometry.Handle, in rect: CGRect,
+                      size: CGSize) -> some View {
+        let horizontal = handle == .top || handle == .bottom
+        let length = horizontal ? rect.width : rect.height
+        let bar = Swift.max(Swift.min(length * 0.25, 40), 8)
+        let centre: CGPoint
+        switch handle {
+        case .top: centre = CGPoint(x: rect.midX, y: rect.minY)
+        case .bottom: centre = CGPoint(x: rect.midX, y: rect.maxY)
+        case .left: centre = CGPoint(x: rect.minX, y: rect.midY)
+        default: centre = CGPoint(x: rect.maxX, y: rect.midY)
+        }
+        return ZStack {
+            RoundedRectangle(cornerRadius: 1)
+                .fill(Lumen.primaryText)
+                .frame(width: horizontal ? bar : 2, height: horizontal ? 2 : bar)
+            Rectangle()
+                .fill(Color.clear)
+                .contentShape(Rectangle())
+                .frame(width: horizontal ? length : CropOverlayView.edgeThickness,
+                       height: horizontal ? CropOverlayView.edgeThickness : length)
+        }
+        .position(centre)
+        .gesture(resizeGesture(handle, in: size))
     }
 
     // MARK: Gestures
