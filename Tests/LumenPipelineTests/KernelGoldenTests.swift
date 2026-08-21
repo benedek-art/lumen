@@ -201,6 +201,10 @@ final class KernelGoldenTests: XCTestCase {
 
         var recipe = Recipe()
         recipe.masks = [mask]
+        // Off for the same reason the presence golden turns it off: `Recipe()` denoises
+        // by default, the graph runs S3 and `ReferenceRenderer.render` does not, so the
+        // comparison would be dominated by a stage this test is not about.
+        recipe.develop.denoise.mode = .off
         let plan = RenderPlan(recipe: recipe, lutSize: LUT3D.exportSize)
 
         // Rasterize exactly as `PipelineRenderer.makeGraph` does, then hand the graph
@@ -222,7 +226,9 @@ final class KernelGoldenTests: XCTestCase {
 
         // Plain render, so "the mask did something" is measured against no mask at all
         // rather than against the input.
-        let plainPlan = RenderPlan(recipe: Recipe(), lutSize: LUT3D.exportSize)
+        var plainRecipe = Recipe()
+        plainRecipe.develop.denoise.mode = .off
+        let plainPlan = RenderPlan(recipe: plainRecipe, lutSize: LUT3D.exportSize)
         guard let plain = readBack(
             RenderGraph().build(ciImage(from: source), plan: plainPlan,
                                 options: RenderGraph.Options(longEdge: width,
@@ -1021,6 +1027,23 @@ final class KernelGoldenTests: XCTestCase {
         recipe.develop.detail.texture = 40
         recipe.develop.detail.clarity = 30
         recipe.look.vignette = -1.0
+        // Denoise OFF, and this is not a detail — it is the difference between this
+        // golden testing what it claims and testing nothing.
+        //
+        // `Recipe()` denoises: `ClassicNR.chroma` defaults to 25, so `isIdentity` is
+        // false and the graph runs S3 on a default recipe. `ReferenceRenderer.render`
+        // starts at S6 and never denoises — the CPU path picks S3 up one level higher,
+        // in `PipelineRenderer.renderReference`. So a golden that compares `build`
+        // against `ReferenceRenderer.render` on a default recipe is comparing a
+        // denoised picture with an undenoised one, and every difference it reports
+        // belongs to a stage it is not testing.
+        //
+        // This passed until the denoise kernels started working. They were compiled as
+        // colour kernels, the nine-argument hot-pixel kernel among them, and the stage
+        // was quietly skipped; fixing the kernels turned S3 on for every recipe and
+        // turned this golden red for a reason that had nothing to do with presence.
+        // Denoise has its own goldens, which is where it belongs.
+        recipe.develop.denoise.mode = .off
 
         // `testImage` is a pure horizontal ramp — 20 stops over 64 px and constant down
         // each column. There is no texture in it, so a correct Texture slider moves it
@@ -1334,6 +1357,69 @@ final class KernelGoldenTests: XCTestCase {
     /// here runs on log luminance in [0,1]. If box blurring a signed plane is not what
     /// the reference does, this says so on its own rather than through the blotch
     /// golden three stages downstream.
+    /// What `CIBoxBlur` actually computes, against the box the reference computes.
+    ///
+    /// `testCrossGuidedFilterOnSignedChroma` says the two guided filters disagree and
+    /// blames the box blur, but it cannot tell a wrong WINDOW from wrong coefficient
+    /// arithmetic downstream — both show up as one number at one pixel. This splits
+    /// them: it compares the blur alone, on a plane with no signed values and no hard
+    /// edge, where nothing but the window can differ.
+    ///
+    /// The reference is separable, `(2r+1)` wide, normalised by `2r+1` per axis, and
+    /// clamps at the edge. If `CIBoxBlur.radius` is not that same half-width, this fails
+    /// and prints the impulse response that names the real window — which is exactly the
+    /// mistake this codebase already made once with `CIGaussianBlur.radius`, where the
+    /// parameter is a SUPPORT radius and needed multiplying by three to mean sigma.
+    func testCIBoxBlurUsesTheWindowTheReferenceUses() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+        let side = 33, radius = 8
+
+        // An impulse names the window directly: a correct (2r+1)² box answers with
+        // 1/289 over exactly 17 pixels.
+        var impulse = Plane(width: side, height: side)
+        impulse[side / 2, side / 2] = 1.0
+        guard let blurredImpulse = RenderGraph.boxBlur(ciImage(from: broadcast(impulse)),
+                                                       radius: radius),
+              let got = readBack(blurredImpulse, width: side, height: side)
+        else { return XCTFail("box blur produced nothing") }
+
+        let mid = side / 2
+        var lit = 0
+        var peak = 0.0
+        for x in 0..<side where got[x, mid].r > 1e-7 {
+            lit += 1
+            peak = Swift.max(peak, Double(got[x, mid].r))
+        }
+        let impliedSide = peak > 0 ? (1.0 / peak).squareRoot() : 0
+        print("CIBoxBlur(radius: \(radius)) impulse: \(lit) px lit across the centre "
+              + "row, peak \(peak), implying a \(impliedSide)-wide box; the reference "
+              + "uses \(2 * radius + 1)")
+
+        // And the real assertion, on a smooth ramp where only the window can differ.
+        var ramp = Plane(width: side, height: side)
+        for y in 0..<side {
+            for x in 0..<side {
+                ramp[x, y] = Double(x) * 0.03 + Double(y) * 0.011
+            }
+        }
+        let expected = SpatialOps.boxBlur(ramp, radius: radius)
+        guard let blurredRamp = RenderGraph.boxBlur(ciImage(from: broadcast(ramp)),
+                                                    radius: radius),
+              let gotRamp = readBack(blurredRamp, width: side, height: side)
+        else { return XCTFail("ramp blur produced nothing") }
+        var worst = 0.0
+        var at = (0, 0)
+        for y in 0..<side {
+            for x in 0..<side {
+                let d = abs(Double(gotRamp[x, y].r) - expected[x, y])
+                if d > worst { worst = d; at = (x, y) }
+            }
+        }
+        XCTAssertLessThan(worst, 5e-3,
+                          "CIBoxBlur and the reference box differ by \(worst) at \(at) "
+                              + "on a plain ramp — the window, not the arithmetic")
+    }
+
     func testCrossGuidedFilterOnSignedChroma() throws {
         try XCTSkipUnless(KernelLibrary.guidedCrossCoefficients != nil,
                           "guided kernels unavailable")
