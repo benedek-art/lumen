@@ -130,6 +130,23 @@ Scores in this document are claims, and claims get checked. After each batch:
 The rule that makes this honest: **a score may only go up when something can be traced
 from a control to a pixel.** Not when code is written.
 
+## Two numbers measured on the runner
+
+Both were guesses until a test printed them.
+
+**`CIBoxBlur.radius` is the window WIDTH, not the half-width.** Blurring an impulse
+and reading the peak — `1/N²` for an N-wide box — gives `CIBoxBlur(2)->1, (3)->3,
+(4)->3, (6)->5, (8)->7, (12)->11, (16)->15, (24)->23, (32)->31`. An even argument
+gives width−1, an odd one gives width. Every guided filter in the render had been
+passing the half-width, so Clarity, Texture, the dehaze transmission and the denoise
+blotch pass all averaged over less than half the neighbourhood they asked for — an
+8 became a 7-wide box where the reference uses 17. Fixed by passing `2r+1`.
+
+**The local point curve's table costs 0.083 worst-case** against evaluating it
+exactly, on a steep curve at export table size. That is why the masked-curve golden
+asserts behaviour — that the curve reaches pixels, under the mask — rather than
+comparing pixel-for-pixel with the reference: the gap is the table, not the wiring.
+
 ## What an independent audit found
 
 An agent that wrote none of this traced every claimed-done item from control to

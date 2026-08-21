@@ -1153,20 +1153,32 @@ public struct RenderGraph {
 
     static func boxBlur(_ image: CIImage, radius: Int) -> CIImage? {
         guard radius > 0 else { return image }
-        // CIBoxBlur returns its input unchanged at radius 1, and a guided filter built
-        // on an identity blur is itself exactly the identity: mean(I) = I makes the
-        // variance zero, the covariance zero, a = 0 and b = I, so a·I + b = I. The
-        // caller then gets its own image back with no error and no diagnostic.
+        // `CIBoxBlur.radius` is the WINDOW WIDTH, not the half-width. Measured on the
+        // macOS runner by blurring an impulse and reading the peak, which is 1/(N²) for
+        // an N-wide box:
         //
-        // That is how Texture died. `applyDetailBands` floored its fine radius at 1,
-        // which every render below 334 px landed on, so the fine band was identically
-        // zero and exp2(k·0) = 1 — Texture moved a 64 px frame by exactly 0.0 while
-        // the CPU reference moved it by a measured 5.6e-3 in the encoded plane. The
-        // floor lives here as well as at that call site because no caller can ever
-        // mean "blur by an amount this primitive ignores".
+        //   CIBoxBlur(2)->1   (3)->3   (4)->3   (6)->5   (8)->7
+        //             (12)->11  (16)->15  (24)->23  (32)->31
+        //
+        // An even argument gives width−1, an odd one gives width, so passing an odd
+        // `2r+1` lands exactly on the reference's `(2r+1)`-wide window.
+        //
+        // What passing `r` cost: every guided filter in the render — Clarity, Texture,
+        // the dehaze transmission, the denoise blotch pass — averaged over less than
+        // half the neighbourhood it asked for. `CIBoxBlur(8)` is a 7-wide box where
+        // `SpatialOps.boxBlur(radius: 8)` is 17 wide. It is the same class of mistake as
+        // `CIGaussianBlur.radius` being a SUPPORT radius rather than sigma, which this
+        // file already fixed once by multiplying by three, and it went unseen for the
+        // same reason: a blur that is merely too narrow still looks like a blur.
+        //
+        // The old floor at 2 is gone with it. It existed because `CIBoxBlur(1)` returns
+        // its input unchanged and a guided filter on an identity blur IS the identity —
+        // which is how Texture died below 334 px. Under this conversion the smallest
+        // real radius asks for 3 and gets a genuine 3-wide box, so nothing needs a floor
+        // to avoid a primitive's dead zone.
         let filter = CIFilter.boxBlur()
         filter.inputImage = image.clampedToExtent()
-        filter.radius = Float(Swift.max(radius, 2))
+        filter.radius = Float(2 * radius + 1)
         return filter.outputImage?.cropped(to: image.extent)
     }
 

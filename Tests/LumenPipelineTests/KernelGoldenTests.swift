@@ -195,7 +195,15 @@ final class KernelGoldenTests: XCTestCase {
             -> (gpu: ImageBuffer, reference: ImageBuffer)? {
             var mask = Mask(id: "m1", name: "grad")
             var component = MaskComponent(op: .add, kind: .linear)
-            component.line = [0, 0.5, 1, 0.5]      // left-to-right ramp
+            // VERTICAL, deliberately. `texturedTestImage` is a horizontal ramp of about
+            // twenty stops and is constant down each column, so a left-to-right mask put
+            // its selected end exactly where the picture is already in the highlight
+            // rolloff — a full +1 EV under alpha 1 moved the output by 0.0059, and the
+            // test read that as "the local stages are not reaching pixels" when what it
+            // had actually built was a mask whose bright end the display transform
+            // flattens. Running the gradient down the frame instead means any
+            // difference between two rows of ONE column is the mask and nothing else.
+            component.line = [0.5, 0, 0.5, 1]
             mask.components = [component]
             mask.adjust.exposure = exposure
             mask.adjust.curve = curve
@@ -255,15 +263,16 @@ final class KernelGoldenTests: XCTestCase {
                                 options: RenderGraph.Options(longEdge: width,
                                                              draft: false)),
             width: width, height: height) else { return XCTFail("plain render failed") }
-        let row = height / 2
-        let leftMoved = plain[2, row].maxAbsDifference(lift.gpu[2, row])
-        let rightMoved = plain[width - 3, row].maxAbsDifference(lift.gpu[width - 3, row])
-        XCTAssertGreaterThan(rightMoved, 0.02,
-                             "the selected end moved by \(rightMoved) — the local "
+        // One column, in the middle of the ramp where the tone curve still has slope.
+        let column = width / 2
+        let unselected = plain[column, 1].maxAbsDifference(lift.gpu[column, 1])
+        let selected = plain[column, height - 2].maxAbsDifference(lift.gpu[column, height - 2])
+        XCTAssertGreaterThan(selected, 0.02,
+                             "the selected end moved by \(selected) — the local "
                                  + "stages are not reaching pixels through the graph")
-        XCTAssertGreaterThan(rightMoved, leftMoved * 3,
-                             "the unselected end moved \(leftMoved) against "
-                                 + "\(rightMoved) at the selected end — the alpha is "
+        XCTAssertGreaterThan(selected, unselected * 3,
+                             "the unselected end moved \(unselected) against "
+                                 + "\(selected) at the selected end — the alpha is "
                                  + "flat, or upside down, or the raster is mirrored")
 
         // ---- Tap two: the display-referred point curve, after picture formation. ----
@@ -279,16 +288,21 @@ final class KernelGoldenTests: XCTestCase {
         guard let curved = maskedRender(exposure: 0, curve: curve) else {
             return XCTFail("curved render failed")
         }
-        let curveRight = lift.gpu[width - 3, row].maxAbsDifference(curved.gpu[width - 3, row])
-        let curveLeft = lift.gpu[2, row].maxAbsDifference(curved.gpu[2, row])
-        XCTAssertGreaterThan(curveRight, 0.02,
+        guard let plainCurve = maskedRender(exposure: 0, curve: nil) else {
+            return XCTFail("baseline render failed")
+        }
+        let curveSelected = plainCurve.gpu[column, height - 2]
+            .maxAbsDifference(curved.gpu[column, height - 2])
+        let curveUnselected = plainCurve.gpu[column, 1]
+            .maxAbsDifference(curved.gpu[column, 1])
+        XCTAssertGreaterThan(curveSelected, 0.02,
                              "the local point curve moved the selected end by "
-                                 + "\(curveRight) — `applyLocalCurves` is not running "
-                                 + "on the shipping path")
-        XCTAssertGreaterThan(curveRight, curveLeft * 3,
-                             "the local curve moved the unselected end \(curveLeft) "
-                                 + "against \(curveRight) selected — it is not being "
-                                 + "gated by the mask at all")
+                                 + "\(curveSelected) — `applyLocalCurves` is not "
+                                 + "running on the shipping path")
+        XCTAssertGreaterThan(curveSelected, curveUnselected * 3,
+                             "the local curve moved the unselected end "
+                                 + "\(curveUnselected) against \(curveSelected) "
+                                 + "selected — it is not gated by the mask at all")
 
         var curveWorst = 0.0
         for y in 0..<height {
