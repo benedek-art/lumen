@@ -860,7 +860,12 @@ public struct ClassicalDenoise: Sendable {
     public static func edgeMap(_ plane: Plane, blurSigma: Double,
                                lo: Double, hi: Double) -> Plane {
         let usable = blurSigma.isFinite && blurSigma > 0
-        let s = usable ? SpatialOps.gaussianBlur(plane, sigma: blurSigma) : plane
+        // The BOX approximation, deliberately: the GPU twin of this map is three
+        // radius-1 box passes per axis, and `testEdgeMapMatchesTheReference` pins the
+        // two to 1e-4. Only the identical operator clears that, and an edge map is an
+        // internal stabilizer — unlike Sharpen Radius, nothing here is a control whose
+        // response has to be continuous in sigma.
+        let s = usable ? SpatialOps.boxApproximatedGaussian(plane, sigma: blurSigma) : plane
         let scale = usable ? 1.0 / (2.0 * Double.pi.squareRoot() * blurSigma) : 1.0
         let e0 = lo * scale
         let e1 = hi * scale

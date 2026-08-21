@@ -116,6 +116,24 @@ public enum SpatialOps {
     public static func gaussianBlur(_ plane: Plane, sigma: Double) -> Plane {
         guard sigma > 0.05 else { return plane }
         if sigma <= exactGaussianMaxSigma { return exactGaussian(plane, sigma: sigma) }
+        return boxApproximatedGaussian(plane, sigma: sigma)
+    }
+
+    /// The three-box approximation, explicitly.
+    ///
+    /// Kept as its own entry point because one caller needs THIS operator rather than a
+    /// Gaussian: the denoise edge map's GPU twin is three radius-1 box passes per axis,
+    /// and the golden that pins them together asserts agreement to 1e-5 of the plane's
+    /// span — a bar only the identical algorithm can clear. Making `gaussianBlur` exact
+    /// broke it by 0.498 on a plane spanning 42.55, which is the two approximations
+    /// disagreeing exactly as much as they always did, newly visible.
+    ///
+    /// The distinction is real and not a dodge: Sharpen Radius is a control a
+    /// photographer drags and its response has to be continuous, while the edge map is
+    /// an internal stabilizer whose only requirement is that both render paths compute
+    /// the same thing.
+    public static func boxApproximatedGaussian(_ plane: Plane, sigma: Double) -> Plane {
+        guard sigma > 0.05 else { return plane }
         var out = plane
         for r in boxRadiiForGaussian(sigma: sigma) { out = boxBlur(out, radius: r) }
         return out
