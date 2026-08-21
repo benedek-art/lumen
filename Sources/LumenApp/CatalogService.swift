@@ -207,7 +207,7 @@ final class CatalogService: @unchecked Sendable {
                 try store.setLabel(coreLabel(appLabel(mergedLabel)), photoID: row.id)
             }
             if storedRecipe == nil, let recovered = state.recipe {
-                try store.saveRecipe(recovered, photoID: row.id, at: CatalogStore.now())
+                try store.saveRecipe(recovered, photoID: row.id, isCurrent: true)
             }
         } catch {
             // A recovery that cannot be persisted is not worth failing the folder open

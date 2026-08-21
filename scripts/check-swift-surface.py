@@ -506,6 +506,143 @@ def brace_body(text, brace_index):
     return ""
 
 
+METHOD_DECL = re.compile(r"\bfunc\s+([a-z]\w*)\s*(?:<[^<>]*>)?\s*\(")
+METHOD_CALL = re.compile(r"(?<![\w.])(?:[a-z]\w*|\))\s*\.\s*([a-z]\w*)\s*\(")
+
+# Method names that also exist on stdlib or platform types, where an in-tree
+# declaration of the same name says nothing about a call on something else.
+METHOD_SKIP = {
+    "append", "insert", "remove", "removeAll", "contains", "map", "flatMap",
+    "compactMap", "filter", "reduce", "forEach", "sorted", "sort", "first", "last",
+    "min", "max", "joined", "split", "prefix", "suffix", "dropFirst", "dropLast",
+    "hasPrefix", "hasSuffix", "replacingOccurrences", "trimmingCharacters", "encode",
+    "decode", "write", "read", "index", "distance", "advanced", "rounded", "clamped",
+    "cropped", "transformed", "applying", "union", "intersection", "subtracting",
+    "randomElement", "shuffled", "reversed", "enumerated", "zip", "withUnsafeBytes",
+    "withUnsafeBufferPointer", "load", "store", "apply", "callAsFunction", "sync",
+    "async", "resume", "cancel", "lock", "unlock", "wait", "signal", "sample",
+    "value", "values", "keys", "count", "isEmpty", "description", "hash", "copy",
+    "move", "stroke", "fill", "draw", "render", "string", "step", "prepare", "bind",
+    "addLine", "closeSubpath", "component", "components", "preview", "artifact",
+    "parse", "start", "stop", "reset", "update", "scale", "rotate", "translate",
+    "combine", "cgImage",
+}
+
+
+def collect_methods():
+    """method name -> [(labels, required labels)] for every in-tree func."""
+    out = {}
+    for path in FILES:
+        text = strip_comments(path.read_text())
+        for m in METHOD_DECL.finditer(text):
+            name = m.group(1)
+            open_i = m.end() - 1
+            close = match_paren(text, open_i)
+            if close is None:
+                continue
+            labels, required, ok = [], [], True
+            for param in split_top(text[open_i + 1:close - 1]):
+                if not param.strip():
+                    continue
+                lm = LABEL.match(param)
+                if not lm:
+                    ok = False
+                    break
+                external = lm.group(1) or lm.group(2)
+                label = None if external == "_" else external
+                labels.append(label)
+                rest = param.split(":", 1)
+                if len(rest) > 1 and "=" not in rest[1]:
+                    required.append(label)
+            if ok:
+                out.setdefault(name, []).append((labels, required))
+    return out
+
+
+def pass_method_labels():
+    """Argument labels at a method call site must match some in-tree declaration.
+
+    Pass 2 does this for initializers and stops there, which is how
+    `store.saveRecipe(recipe, photoID: id, at: now)` reached CI: `saveRecipe` exists,
+    so pass 4 and pass 7 both resolve it happily, and neither looks at the labels. The
+    real declarations take `isCurrent:` or `kind:name:isCurrent:`, and there is no
+    overload ending at `at:`. It cost a macOS round trip to find out, on a build that
+    had been green.
+
+    Deliberately name-based rather than type-resolved: this is a text checker, not a
+    compiler, and a name declared in-tree with NO declaration accepting the labels
+    used is wrong whatever the receiver turns out to be. Names shared with the stdlib
+    are skipped, because there an in-tree declaration proves nothing about the call.
+    """
+    methods = collect_methods()
+    problems, checked = [], 0
+
+    for path in FILES:
+        text = strip_comments(path.read_text())
+        for m in METHOD_CALL.finditer(text):
+            name = m.group(1)
+            if name in METHOD_SKIP or name not in methods:
+                continue
+            open_i = m.end() - 1
+            close = match_paren(text, open_i)
+            if close is None:
+                continue
+            trailing = text[close:close + 40].lstrip().startswith("{")
+
+            call_labels, parse_ok = [], True
+            for arg in split_top(text[open_i + 1:close - 1]):
+                if not arg.strip():
+                    continue
+                lm = LABEL.match(arg)
+                if lm and lm.group(1) is None:
+                    call_labels.append(lm.group(2))
+                elif lm is None:
+                    call_labels.append(None)
+                else:
+                    parse_ok = False
+                    break
+            if not parse_ok:
+                continue
+
+            def matches(labels, required):
+                gi = 0
+                for label in labels:
+                    if gi < len(call_labels) and call_labels[gi] == label:
+                        gi += 1
+                return gi == len(call_labels) and all(r in call_labels for r in required)
+
+            def accepts(sig):
+                labels, required = sig
+                # A `{` after a method call is a trailing closure OR the body of the
+                # `if`/`guard`/`while` the call sits in. Pass 2 can assume the former
+                # because `Type(...) {` is nearly always a closure; here both readings
+                # are live, so accept either. Costs a narrow class of miss and removes
+                # every `if x.f(y) {` false positive.
+                if matches(labels, required):
+                    return True
+                if trailing and labels:
+                    trimmed = labels[:-1]
+                    return matches(trimmed, [r for r in required if r in trimmed])
+                return False
+
+            checked += 1
+            if not any(accepts(s) for s in methods[name]):
+                line = text.count("\n", 0, m.start()) + 1
+                problems.append((path.relative_to(ROOT).as_posix(), line, name,
+                                 call_labels, methods[name]))
+
+    if not problems:
+        print(f"labels:   {checked} method call sites match a declared signature")
+        return True
+    print(f"labels:   {len(problems)} method calls whose labels match no declaration\n")
+    for rel, line, name, used, known in problems[:20]:
+        shown = ", ".join(l or "_" for l in used)
+        forms = " | ".join(", ".join(l or "_" for l in sig[0]) for sig in known[:3])
+        print(f"  {rel}:{line}  {name}({shown})")
+        print(f"      declared: {forms}")
+    return False
+
+
 def pass_actor_await():
     actors = {}
     for path in FILES:
@@ -1196,6 +1333,7 @@ if __name__ == "__main__":
     ok = pass_inits() and ok
     print()
     ok = pass_actor_await() and ok
+    ok = pass_method_labels() and ok
     print()
     ok = pass_members() and ok
     print()
