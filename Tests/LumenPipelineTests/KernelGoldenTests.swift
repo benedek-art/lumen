@@ -263,8 +263,21 @@ final class KernelGoldenTests: XCTestCase {
                                 options: RenderGraph.Options(longEdge: width,
                                                              draft: false)),
             width: width, height: height) else { return XCTFail("plain render failed") }
-        // One column, in the middle of the ramp where the tone curve still has slope.
-        let column = width / 2
+        // Column 44 of 64, NOT the middle. `testImage` maps `ev = -14 + u * 20`, so the
+        // middle column sits at -3.8 EV — nearly four stops below middle grey, where the
+        // display transform has so little slope that a full +1 EV under alpha 0.99 moves
+        // the output by 0.006. Measured against the reference renderer, per column:
+        //
+        //   col 20  ev -7.6  selected 0.0001      col 44  ev -0.1  selected 0.2066
+        //   col 32  ev -3.8  selected 0.0061      col 48  ev +1.2  selected 0.2235
+        //   col 40  ev -1.3  selected 0.0918      col 56  ev +3.7  selected 0.0276
+        //
+        // Both earlier versions of this test sampled where the picture cannot move: the
+        // first put the mask's selected end at +5.2 EV in the highlight rolloff, the
+        // second at -3.8 EV in the shadows. Each time the assertion was right and the
+        // geometry was wrong, and each cost a nine-minute round trip to find out. 44 is
+        // -0.1 EV, and the selected end moves 138x the unselected one there.
+        let column = (width * 11) / 16
         let unselected = plain[column, 1].maxAbsDifference(lift.gpu[column, 1])
         let selected = plain[column, height - 2].maxAbsDifference(lift.gpu[column, height - 2])
         XCTAssertGreaterThan(selected, 0.02,
