@@ -1058,7 +1058,8 @@ public struct RenderGraph {
               let tensor = KernelLibrary.apply(
                 KernelLibrary.structureTensor, extent: plane.extent,
                 [gx, gy, Float(LumenLog.range)]),
-              let smoothed = Self.boxBlur(tensor, radius: Swift.max(radius, 2)),
+              let smoothed = Self.boxBlur(tensor, radius: Self.structureWindow(
+                requested: radius, extent: plane.extent)),
               let magnitude = KernelLibrary.apply(KernelLibrary.tensorMagnitude,
                                                   extent: plane.extent, [smoothed]),
               let coherence = KernelLibrary.apply(
@@ -1076,9 +1077,40 @@ public struct RenderGraph {
     /// other. A per-pixel gradient measured on a 1600 px fit preview is four times the
     /// same edge measured on a 6000 px export, so a fixed threshold against it means
     /// something different in the loupe than in the file that comes out.
+    /// The coherence window actually used, never wider than the buffer can support.
+    ///
+    /// `structureRadius` sizes the window off the render's `longEdge`, which in the app
+    /// IS the decoded buffer's long edge. A caller that passes a long edge larger than
+    /// the buffer it hands over — a preview sized for a full-resolution render, or a
+    /// test frame — would otherwise average the structure tensor over a window that is
+    /// a large fraction of the whole picture, and a tensor smoothed that wide stops
+    /// telling an edge from the texture beside it.
+    ///
+    /// Measured on the reference, on the 64 px frame the negative-Texture golden uses:
+    /// at the reference's own window of 1 it moves the texture 0.01764 and the edge
+    /// 0.00029, and at a window of 8 it moves the texture 0.01679 and the edge 0.04736
+    /// — the ordering inverts, and the gate reads as broken when only the window is.
+    /// The GPU measured 0.01364 and 0.04258 there, which is the reference's radius-8
+    /// behaviour, not a defect in the kernel.
+    ///
+    /// Clamping to the extent's own radius is a no-op whenever the two agree, which is
+    /// every render the app performs.
+    static func structureWindow(requested: Int, extent: CGRect) -> Int {
+        let long = Int(Swift.max(extent.width, extent.height))
+        guard long > 0 else { return Swift.max(requested, 1) }
+        return Swift.max(Swift.min(requested, structureRadius(longEdge: long)), 1)
+    }
+
     static func structureRadius(longEdge: Int) -> Int {
-        let working = Swift.max(Int((Double(longEdge) * 0.02).rounded()), 3)
-        return Swift.max(working / 4, 2)
+        // Mirrors the reference exactly: `ReferenceRenderer` builds its decomposition
+        // with `max(Int(longEdge * 0.02), 3)` and `Decomposition` takes the coherence
+        // window as `max(workingRadius / 4, 1)`. This truncated where the reference
+        // truncates — it rounded — and floored at 2 where the reference floors at 1.
+        // The floor at 2 was left over from when `CIBoxBlur(1)` returned its input
+        // unchanged; `boxBlur` now passes `2r + 1`, so radius 1 is a genuine 3-wide box
+        // and needs no floor to stay out of the primitive's dead zone.
+        let working = Swift.max(Int(Double(longEdge) * 0.02), 3)
+        return Swift.max(working / 4, 1)
     }
 
     /// Contrast, in EV per pixel, below which a direction is not evidence of an edge.

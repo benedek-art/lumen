@@ -313,13 +313,50 @@ either sign — if the structure pass fails there is no Texture, because an unga
 on this band is a visible halo and shipping that is worse than the stage sitting out a
 render that is already broken upstream.
 
-What is left of the three: the GPU's coherence gate leaking at edges on the *negative*
-side — the reference moves a coherent edge by 0.00000 and the texture beside it by
-0.00207, and the GPU moved the edge by 0.0426 against 0.0136 of texture, backwards. That
-measurement was taken with the ported band and the un-gated positive path; it is the one
-of the three this pass does not claim to have answered, and the golden that asserts it
-is the check on whether the coherence work that landed before the revert already covers
-it.
+#### The third was not a defect in the gate
+
+The golden came back red exactly where expected — negative Texture moved the edge by
+0.04258 and the texture by 0.01364, backwards, the same numbers as the first attempt.
+The parity assertion and the presence bar both passed, so the strength and the rim were
+answered; this was the one left.
+
+It is not the gate. The reference does the same thing on the same frame when its
+coherence window is the same width:
+
+```
+  window   texture     edge     ordering
+  1        0.01764   0.00029    correct     <- what a 64 px buffer earns
+  2        0.01764   0.00041    correct
+  4        0.01744   0.00563    correct
+  8        0.01679   0.04736    INVERTED
+  GPU      0.01364   0.04258    INVERTED
+```
+
+The GPU was reproducing the reference's radius-8 behaviour, and it was using radius 8
+because the golden hands `applyPresence` a `longEdge` of 1600 with a 64 px frame.
+`structureRadius` sizes the window off that number — `max(Int(1600 · 0.02), 3) / 4` = 8
+— where the reference sizes it off the buffer it was actually given, `max(Int(64 · 0.02),
+3) / 4` floored at 1. A structure tensor averaged over a window that is a quarter of the
+frame has stopped telling an edge from the texture beside it, and that is all that
+happened.
+
+In the app the two agree, because `Options.longEdge` *is* the decoded buffer's long edge.
+That is why this never showed on a photograph. It is still worth closing, because the
+code should not depend on a caller's parameter matching the buffer it also passed:
+`structureWindow` now clamps the requested window to the one the buffer's own extent
+earns, which is a no-op whenever they agree and every render in the app is a case where
+they agree.
+
+Two smaller divergences went with it. `structureRadius` rounded where the reference
+truncates, and floored at 2 where the reference floors at 1 — a leftover from when
+`CIBoxBlur(1)` returned its input unchanged, which `boxBlur`'s `2r + 1` conversion had
+already made unnecessary.
+
+So all three are answered, and the third turned out to be a measurement about a test
+parameter rather than a defect in a kernel. The Linux test that pins it asserts both
+halves — that the gate discriminates at the window the buffer earns, *and* that an 8×
+window still inverts the ordering — because the first alone would pass on a clamp that
+quietly disabled the gate.
 
 ### The sweep: every slider, measured
 
