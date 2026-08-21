@@ -2309,6 +2309,14 @@ def gen_white_balance_checks():
 
 HL_SH_RANGE_EV = 2.0
 WHITE_BLACK_RANGE_EV = 1.5
+HIGHLIGHT_SHELF_END = 1.0
+SHADOW_SHELF_END = 0.5
+END_SHELF_START = 0.20
+END_SHELF_END = 0.80
+BLACK_SHELF_START = 0.15
+BLACK_SHELF_END = 0.62
+WHITE_TONE_EV = 1.3
+BLACK_TONE_EV = 2.2
 DEFAULT_WHITE_ANCHOR_EV = 5.0
 DEFAULT_BLACK_ANCHOR_EV = -9.0
 
@@ -2370,6 +2378,8 @@ class ToneEngine:
         self.shadows = min(max(shadows, -100.0), 100.0) / 100
         w = min(max(whites, -100.0), 100.0) / 100
         b = min(max(blacks, -100.0), 100.0) / 100
+        self.whites = w
+        self.blacks = b
         self.white_anchor_ev = DEFAULT_WHITE_ANCHOR_EV - WHITE_BLACK_RANGE_EV * w
         self.black_anchor_ev = DEFAULT_BLACK_ANCHOR_EV - WHITE_BLACK_RANGE_EV * b
         self.effective_highlights = self._solve_effective("highlights")
@@ -2381,6 +2391,10 @@ class ToneEngine:
             s += self.effective_highlights * HL_SH_RANGE_EV * self.highlight_weight(t)
         if self.effective_shadows != 0:
             s += self.effective_shadows * HL_SH_RANGE_EV * self.shadow_weight(t)
+        if self.whites != 0:
+            s += self.whites * WHITE_TONE_EV * self.white_weight(t)
+        if self.blacks != 0:
+            s += self.blacks * BLACK_TONE_EV * self.black_weight(t)
         return s
 
     def _solve_effective(self, window):
@@ -2413,12 +2427,34 @@ class ToneEngine:
         return 2.0 ** self.exposure
 
     def highlight_weight(self, t):
+        # SHELVES, not bumps. See ToneEngine.highlightWeight: a bump returns to zero at
+        # the anchor, so Highlights -100 did nothing to the brightest values, and its
+        # steep slope forced the monotonicity cap that put 79% of the slider's travel in
+        # its first half and made its strength vary 3.6x with Contrast.
         hi = self.white_anchor_ev
-        if hi <= 0 or t <= 0 or t >= hi:
+        if hi <= 0:
             return 0.0
-        return raised_cosine(math.sin(math.pi * (t / hi)))
+        return smoothstep(0.0, hi * HIGHLIGHT_SHELF_END, t)
+
+    def white_weight(self, t):
+        hi = self.white_anchor_ev
+        if hi <= 0:
+            return 0.0
+        return smoothstep(hi * END_SHELF_START, hi * END_SHELF_END, t)
+
+    def black_weight(self, t):
+        lo = self.black_anchor_ev
+        if lo >= 0:
+            return 0.0
+        return smoothstep(-lo * BLACK_SHELF_START, -lo * BLACK_SHELF_END, -t)
 
     def shadow_weight(self, t):
+        lo = self.black_anchor_ev
+        if lo >= 0:
+            return 0.0
+        return smoothstep(0.0, -lo * SHADOW_SHELF_END, -t)
+
+    def _unused_shadow_weight(self, t):
         lo = self.black_anchor_ev
         if lo >= 0 or t >= 0 or t <= lo:
             return 0.0
@@ -2444,11 +2480,22 @@ def gen_tone_checks():
             check(abs(e.stops(0.0)) < 1e-12,
                   f"highlights {h} / shadows {s} moved mid-grey by {e.stops(0.0)}")
 
-    # Each window vanishes at its own anchor, so Highlights cannot touch the
-    # shadows and Shadows cannot touch the highlights.
+    # Each window vanishes at MID-GREY, so Highlights cannot touch the shadows and
+    # Shadows cannot touch the highlights. It used to be asserted the other way round —
+    # that each vanishes at its own ANCHOR — and that was the bump shape, which meant
+    # Highlights -100 did nothing at all to the brightest values. A shelf reaches full
+    # strength at its far end, which is what makes highlight recovery recover anything.
     e = ToneEngine(highlights=100, shadows=-100)
-    check(abs(e.highlight_weight(e.white_anchor_ev)) < 1e-12, "highlights reach the white anchor")
-    check(abs(e.shadow_weight(e.black_anchor_ev)) < 1e-12, "shadows reach the black anchor")
+    check(abs(e.highlight_weight(0.0)) < 1e-12, "highlights leak into mid-grey")
+    check(abs(e.shadow_weight(0.0)) < 1e-12, "shadows leak into mid-grey")
+    check(e.highlight_weight(e.white_anchor_ev) > 0.99, "highlights do not reach the white point")
+    check(e.shadow_weight(e.black_anchor_ev * SHADOW_SHELF_END) > 0.99,
+          "shadows do not reach full strength where the toe still has room")
+    # Whites and Blacks now carry real authority instead of only moving the endpoint.
+    check(ToneEngine(whites=100).stops(3.5) > 0.4, "Whites has no reach into the highlights")
+    check(ToneEngine(blacks=100).stops(-4.0) > 0.4, "Blacks has no reach into the shadows")
+    check(abs(ToneEngine(whites=100, blacks=100).stops(0.0)) < 1e-12,
+          "Whites/Blacks moved mid-grey")
     for t in (-8.0, -5.0, -2.0):
         check(e.highlight_weight(t) == 0.0, f"highlights leaked into the shadows at {t} EV")
     for t in (2.0, 4.0, 4.9):

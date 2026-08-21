@@ -139,19 +139,55 @@ final class EngineTests: XCTestCase {
 
     // MARK: - Tone engine
 
-    func testHighlightsCannotReachTheWhitePoint() {
+    /// Highlights is a SHELF: nothing at mid-grey, full strength at the white anchor.
+    ///
+    /// It used to be a bump — a raised cosine that peaked halfway to the anchor and
+    /// returned to zero AT it — and this test asserted that shape. Two things followed.
+    /// Highlights −100 did nothing whatsoever to the brightest values, so the one
+    /// control a photographer reaches for to pull back a blown sky left the sky exactly
+    /// where it was and darkened the tones below it instead. And a bump's steep slope
+    /// forced the monotonicity limiter to cap the amount near 0.56, which measured as
+    /// 79% of the slider's effect living in its first half and its strength varying
+    /// 3.6x across the Contrast range.
+    ///
+    /// Reaching the white point is the correct behaviour and is what makes recovery
+    /// work. Mid-grey staying untouched is the part that must not change.
+    func testHighlightsIsAShelfThatReachesTheHighlights() {
         let e = ToneEngine(tone: Tone(highlights: 100))
-        XCTAssertEqual(e.highlightWeight(e.whiteAnchorEV), 0, accuracy: 1e-9)
-        XCTAssertEqual(e.highlightWeight(0), 0, accuracy: 1e-9)
-        // and it does something in between
-        XCTAssertGreaterThan(e.highlightWeight(e.whiteAnchorEV / 2), 0.9)
+        XCTAssertEqual(e.highlightWeight(0), 0, accuracy: 1e-9,
+                       "Highlights must not touch mid-grey")
+        XCTAssertGreaterThan(e.highlightWeight(e.whiteAnchorEV), 0.99,
+                             "Highlights must reach the white point, or it cannot "
+                                 + "recover a blown highlight")
+        // Monotone rising, so every part of the range gets more than the part below it.
+        var previous = -1.0
+        for step in 0...20 {
+            let w = e.highlightWeight(Double(step) / 20 * e.whiteAnchorEV)
+            XCTAssertGreaterThanOrEqual(w, previous)
+            previous = w
+        }
     }
 
-    func testShadowsCannotReachTheBlackPoint() {
+    /// Shadows is the mirror shelf, and it saturates at HALF the black anchor.
+    ///
+    /// Not at the anchor, because the two ends of the range are not symmetric in what a
+    /// viewer can see: the display transform's toe puts −9 EV at sRGB code 0.5 and −5.5
+    /// at 2.5, so a shelf reaching full strength at the anchor spends itself where
+    /// there is nothing to move. Measured, that was Shadows +100 worth 9.1 code values
+    /// against Highlights' 38.5. Saturating at −4.5 EV takes it to 32.7.
+    func testShadowsIsAShelfAimedWhereShadowsAreVisible() {
         let e = ToneEngine(tone: Tone(shadows: 100))
-        XCTAssertEqual(e.shadowWeight(e.blackAnchorEV), 0, accuracy: 1e-9)
-        XCTAssertEqual(e.shadowWeight(0), 0, accuracy: 1e-9)
-        XCTAssertGreaterThan(e.shadowWeight(e.blackAnchorEV / 2), 0.9)
+        XCTAssertEqual(e.shadowWeight(0), 0, accuracy: 1e-9,
+                       "Shadows must not touch mid-grey")
+        XCTAssertGreaterThan(e.shadowWeight(e.blackAnchorEV * ToneEngine.shadowShelfEnd),
+                             0.99, "Shadows must be at full strength by the point the "
+                                 + "toe stops leaving room to move")
+        var previous = -1.0
+        for step in 0...20 {
+            let w = e.shadowWeight(Double(step) / 20 * e.blackAnchorEV)
+            XCTAssertGreaterThanOrEqual(w, previous)
+            previous = w
+        }
     }
 
     func testHighlightsAndShadowsStayOutOfEachOthersTerritory() {
@@ -161,14 +197,32 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(s.stops(at: 3), 0, accuracy: 1e-9)
     }
 
-    func testWhitesAndBlacksMoveTheAnchorsNotTheGain() {
+    /// Whites and Blacks move the anchors AND carry a tonal shelf of their own.
+    ///
+    /// This used to assert they contribute no gain — "that is the whole point" — and
+    /// the anchors alone were not enough to make them mean anything. Measured on a
+    /// −9…+5 EV grey ramp in sRGB code values, full travel was worth 12.3 for Whites
+    /// and 1.2 for Blacks: the toe and shoulder have already compressed those regions,
+    /// so moving where the endpoint lands moves almost no visible pixel. A slider worth
+    /// one code value out of 255 is one a photographer would call broken, and Blacks is
+    /// not an obscure control.
+    ///
+    /// The anchor move is kept — it is what defines the endpoint — and the shelves give
+    /// them authority. Both now measure 14–38 code values, in the same band as
+    /// Highlights and Shadows.
+    func testWhitesAndBlacksMoveBothTheAnchorsAndTheCurve() {
         let neutral = ToneEngine()
         let bright = ToneEngine(tone: Tone(whites: 100, blacks: 100))
         XCTAssertLessThan(bright.whiteAnchorEV, neutral.whiteAnchorEV)
         XCTAssertLessThan(bright.blackAnchorEV, neutral.blackAnchorEV)
-        // They contribute no gain of their own — that is the whole point.
-        XCTAssertEqual(bright.stops(at: 0), 0, accuracy: 1e-9)
-        XCTAssertEqual(bright.stops(at: 2), 0, accuracy: 1e-9)
+        // Mid-grey is still theirs to leave alone.
+        XCTAssertEqual(bright.stops(at: 0), 0, accuracy: 1e-9,
+                       "Whites and Blacks must not move mid-grey")
+        // And each reaches real authority in its own end of the range.
+        XCTAssertGreaterThan(ToneEngine(tone: Tone(whites: 100)).stops(at: 3.5), 0.4,
+                             "Whites has no reach into the highlights")
+        XCTAssertGreaterThan(ToneEngine(tone: Tone(blacks: 100)).stops(at: -4), 0.4,
+                             "Blacks has no reach into the shadows")
     }
 
     func testWhitesBrightensThroughTheTransform() {
@@ -226,7 +280,13 @@ final class EngineTests: XCTestCase {
 
     func testIdentityToneIsDetected() {
         XCTAssertTrue(ToneEngine().isIdentity)
-        XCTAssertTrue(ToneEngine(tone: Tone(exposure: 2, whites: 50)).isIdentity)
+        // Exposure alone is still identity for the GAIN curve — it is a matrix scale
+        // applied upstream. Whites is not, since it now carries a shelf; leaving it out
+        // of the guard collapsed `toneGainLUT` to two samples and threw that shelf away
+        // before it reached a pixel.
+        XCTAssertTrue(ToneEngine(tone: Tone(exposure: 2)).isIdentity)
+        XCTAssertFalse(ToneEngine(tone: Tone(whites: 50)).isIdentity)
+        XCTAssertFalse(ToneEngine(tone: Tone(blacks: 50)).isIdentity)
         XCTAssertFalse(ToneEngine(tone: Tone(highlights: -10)).isIdentity)
     }
 

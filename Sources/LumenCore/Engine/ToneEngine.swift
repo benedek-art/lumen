@@ -31,6 +31,58 @@ public struct ToneEngine: Sendable {
     /// ±100 on Whites/Blacks ⇒ this many stops of end-point shift.
     public static let whiteBlackRangeEV: Double = 1.5
 
+    /// Where the Highlights and Shadows shelves reach full strength, as a fraction of
+    /// the anchor. They SATURATE rather than returning to zero.
+    ///
+    /// These were raised cosines of a sine — bumps, peaking halfway to the anchor and
+    /// falling back to zero AT it. Two things followed, both bad. A bump means
+    /// Highlights −100 does nothing at all to the brightest values, so the one control
+    /// a photographer reaches for to recover a blown sky left the sky exactly where it
+    /// was and pulled the tones below it down instead. And a bump of height `h` over
+    /// support `W` has a maximum slope near `4.35h/W`, which at 2 EV over 5 EV is 1.74
+    /// against the identity's 1.0 — so the monotonicity limiter had to cap the amount
+    /// at roughly 0.56, and the cap moved with the contrast slope and with the anchors.
+    /// Measured, that made Highlights spend 79% of its travel in its first half and
+    /// vary in strength by 3.6x across the Contrast range.
+    ///
+    /// A shelf has one transition instead of two: `smoothstep` maxes out at `1.5h/W`,
+    /// which at 2 EV over 5 EV is 0.6. Monotone at full deflection with margin, so the
+    /// limiter no longer binds and the slider means the same thing wherever its
+    /// neighbours are.
+    public static let highlightShelfEnd: Double = 1.0
+
+    /// The same for Shadows, as a fraction of |black anchor|.
+    ///
+    /// Not 1.0, because the two ends of the range are not symmetric in what a viewer
+    /// can see. The black anchor is 9 stops below mid-grey and the display transform's
+    /// toe puts −9 EV at sRGB code 0.5, −7.25 at 0.6, −5.5 at 2.5. A shelf that only
+    /// reaches full strength at the anchor spends itself where there is nothing to
+    /// move: measured, Shadows +100 was worth 9.1 code values because at −4 EV — where
+    /// a photograph's shadows actually live, code 8 — the shelf had only reached 0.42.
+    /// Saturating at half the anchor puts full strength at −4.5 EV instead.
+    public static let shadowShelfEnd: Double = 0.5
+
+    /// Where the Whites and Blacks shelves run, as a fraction of the anchor. They start
+    /// above where Highlights and Shadows have already saturated, so the two controls
+    /// act on different parts of the range instead of fighting for the same one.
+    public static let endShelfStart: Double = 0.20
+    public static let endShelfEnd: Double = 0.80
+
+    /// Blacks' shelf, as a fraction of |black anchor|. Deeper than Shadows' and wider,
+    /// so the two controls act on different tones and their slopes do not peak
+    /// together — Shadows' steepest point is around −2.2 EV, Blacks' around −5.9.
+    public static let blackShelfStart: Double = 0.15
+    public static let blackShelfEnd: Double = 0.62
+
+    /// ±100 on Whites/Blacks ⇒ this many stops of tonal shift at the extreme, on top of
+    /// the anchor move. Sized so the shelf's slope (1.5 / (0.8 x anchor) x range) plus
+    /// the Highlights shelf's stays under the identity's 1.0 at every point.
+    public static let whiteToneEV: Double = 1.3
+    /// Blacks needs more stops than Whites for the same visible authority, because the
+    /// toe compresses far harder than the shoulder: one stop at +4 EV is worth about 12
+    /// code values, one stop at −5 EV about 4.
+    public static let blackToneEV: Double = 2.2
+
     /// Default anchors with all sliders at zero: 5 stops of highlight headroom above
     /// mid-grey and 9 stops of shadow range below it — the working latitude of a
     /// modern full-frame sensor.
@@ -169,6 +221,14 @@ public struct ToneEngine: Sendable {
         if effectiveShadows != 0 {
             s += effectiveShadows * Self.highlightShadowRangeEV * shadowWeight(t)
         }
+        let whites = Num.clamp(tone.whites, -100, 100) / 100
+        if whites != 0 {
+            s += whites * Self.whiteToneEV * whiteWeight(t)
+        }
+        let blacks = Num.clamp(tone.blacks, -100, 100) / 100
+        if blacks != 0 {
+            s += blacks * Self.blackToneEV * blackWeight(t)
+        }
         return s
     }
 
@@ -183,16 +243,41 @@ public struct ToneEngine: Sendable {
     public func highlightWeight(_ t: Double) -> Double {
         let hi = whiteAnchorEV
         guard hi > 0 else { return 0 }
-        if t <= 0 || t >= hi { return 0 }
-        return Num.raisedCosine(sin(.pi * (t / hi)))
+        return Num.smoothstep(0, hi * Self.highlightShelfEnd, t)
+    }
+
+    /// Whites: a shelf in the top of the range, above where Highlights has saturated.
+    ///
+    /// Whites used to move the white ANCHOR and nothing else. Measured on a -9…+5 EV
+    /// grey ramp, full travel was worth 26.7 code values up and 12.3 down — and Blacks,
+    /// on the same measurement, was worth 0.20. The anchor sets where the transform's
+    /// endpoint lands, which is a real thing to control, but the toe and shoulder have
+    /// already compressed those regions, so on its own it is a slider a photographer
+    /// would call dead. The anchor move is kept; this adds the tonal authority.
+    public func whiteWeight(_ t: Double) -> Double {
+        let hi = whiteAnchorEV
+        guard hi > 0 else { return 0 }
+        return Num.smoothstep(hi * Self.endShelfStart, hi * Self.endShelfEnd, t)
     }
 
     /// Shadows window: mirror image below mid-grey, zero at the black anchor.
     public func shadowWeight(_ t: Double) -> Double {
         let lo = blackAnchorEV
         guard lo < 0 else { return 0 }
-        if t >= 0 || t <= lo { return 0 }
-        return Num.raisedCosine(sin(.pi * (t / lo)))
+        // Mirrored into ASCENDING form. `Num.smoothstep` degenerates to a step when
+        // `e1 <= e0` (`ColorMath.swift:226`), so writing the shadow shelf as
+        // `smoothstep(0, lo, t)` with a negative anchor returned 0 below mid-grey and 1
+        // above it — the exact inverse of a shadow window, which made Shadows +100
+        // behave as a global two-stop lift. Negating both the bounds and the argument
+        // keeps the range ascending and the shelf where its name says it is.
+        return Num.smoothstep(0, -lo * Self.shadowShelfEnd, -t)
+    }
+
+    /// Blacks: the mirror of Whites, a shelf in the bottom of the range.
+    public func blackWeight(_ t: Double) -> Double {
+        let lo = blackAnchorEV
+        guard lo < 0 else { return 0 }
+        return Num.smoothstep(-lo * Self.blackShelfStart, -lo * Self.blackShelfEnd, -t)
     }
 
     /// Where the slope starts and finishes relaxing back to 1, in stops from the
@@ -255,17 +340,65 @@ public struct ToneEngine: Sendable {
     /// Bake gain against the shaper's encoded domain: the GPU reads the guided mask,
     /// log-encodes it, and fetches this. One texture fetch replaces the whole panel.
     public func bakeGainLUT(size: Int = 1024) -> LUT1D {
-        LUT1D(size: size) { y in
-            let lum = LumenLog.decode(y)
-            let t = Num.safeLog2(lum / 0.18)
-            return gain(at: t)
+        // Monotonicity is enforced HERE, on the baked curve, rather than by capping
+        // each window's amount in isolation.
+        //
+        // `solveEffective` caps Highlights and Shadows so that each one alone keeps
+        // `t + stops(t)` increasing. That was never a guarantee about the total: with
+        // Whites and Blacks now contributing tonal shelves of their own, a plausible
+        // flat-look recipe — Highlights −100, Shadows +100, Whites −100, Blacks +100,
+        // Contrast −100 — drove the slope to −0.57, and a negative slope means a
+        // brighter input renders darker. On a photograph that is solarization.
+        //
+        // Capping the windows against each other would have worked and would have cost
+        // the thing this whole pass exists to fix: an amount that depends on its
+        // neighbours is a slider whose meaning changes under the hand, which is what
+        // made Highlights vary 3.6x with Contrast. Enforcing it on the curve instead
+        // leaves every slider independent through its normal range and degrades
+        // gracefully only where the combination genuinely cannot be honoured — and
+        // there it flattens rather than inverting, which is the right failure.
+        let count = Swift.max(size, 2)
+        var samples = [Double](repeating: 1, count: count)
+        var mapped = [Double](repeating: 0, count: count)
+        var domain = [Double](repeating: 0, count: count)
+        for i in 0..<count {
+            let y = Double(i) / Double(count - 1)
+            let t = Num.safeLog2(LumenLog.decode(y) / 0.18)
+            domain[i] = t
+            mapped[i] = t + stops(at: t)
         }
+        // One forward pass: never let the mapped value fall below the one before it.
+        // The domain is increasing, so this is exactly "no brighter input renders
+        // darker", and it touches nothing that was already monotone.
+        for i in 1..<mapped.count where mapped[i] < mapped[i - 1] {
+            mapped[i] = mapped[i - 1]
+        }
+        for i in 0..<count {
+            samples[i] = pow(2, mapped[i] - domain[i])
+        }
+        return LUT1D(samples: samples)
     }
 
     /// True when nothing in the tone stack changes a pixel — lets the renderer skip
     /// the stage entirely rather than multiplying by 1.0 across 45 megapixels.
     public var isIdentity: Bool {
+        // Whites and Blacks belong here now, and their absence was silently discarding
+        // them. They used to move the display transform's ANCHORS and contribute
+        // nothing to the gain LUT, so leaving them out was correct — the anchors are
+        // applied separately by `applyAnchors`. The moment they gained a tonal shelf,
+        // this guard started collapsing `toneGainLUT` to a 2-sample identity for any
+        // recipe that moved only those two, throwing the shelf away before it reached a
+        // pixel.
+        //
+        // It cost three rounds of tuning to notice, because the measured authority came
+        // back byte-identical across three different sets of constants — 12.35 code
+        // values for Whites every time — while the monotonicity probe, which reads
+        // `stops()` directly rather than through the plan, moved as expected. An
+        // identity guard that does not know about an input is the same failure as a
+        // cache key that does not: it does not error, it just quietly renders the wrong
+        // picture.
         tone.contrast == 0 && tone.highlights == 0 && tone.shadows == 0
+            && tone.whites == 0 && tone.blacks == 0
             && zonePanelIsIdentity
     }
 
