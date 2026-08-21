@@ -847,6 +847,21 @@ final class KernelGoldenTests: XCTestCase {
         }
     }
 
+    /// The same ramp with MID-scale structure: a 12 px period, which is what Clarity
+    /// acts on. `texturedTestImage`'s ripple is `cos(x·π)` — Nyquist, deliberately, so
+    /// the FINE band can see it — and Clarity's band, built at radius 3 on this frame,
+    /// cannot. Asserting that Clarity moved that frame was asking the mid band about a
+    /// picture built to contain nothing it responds to; it measured 0.00098 against a
+    /// bar of 0.001 and the real number it was reporting was the ramp leaking through.
+    private func midScaleTestImage(width: Int = 64, height: Int = 32) -> ImageBuffer {
+        ImageBuffer(width: width, height: height) { u, v in
+            let x = Int(u * Double(width)), y = Int(v * Double(height))
+            let ev = -3.0 + 6.0 * Double(x) / Double(width - 1)
+            let m = 1.0 + 0.25 * cos(Double(x) * 2 * .pi / 12) * cos(Double(y) * 2 * .pi / 12)
+            return RGB(gray: 0.18 * pow(2, ev) * m)
+        }
+    }
+
     private func ciImage(from buffer: ImageBuffer) -> CIImage {
         let data = buffer.pixels.withUnsafeBufferPointer { Data(buffer: $0) }
         return CIImage(bitmapData: data,
@@ -1250,31 +1265,32 @@ final class KernelGoldenTests: XCTestCase {
         // instead of in stops — a factor of twenty-four — and this is the test that was
         // supposed to notice. A check that a group of stages did *something* is not a
         // check on any one of them.
-        func render(_ mutate: (inout Recipe) -> Void) throws -> ImageBuffer {
+        func render(_ frame: ImageBuffer,
+                    _ mutate: (inout Recipe) -> Void) throws -> ImageBuffer {
             var r = Recipe()
             mutate(&r)
-            // `source` above is the textured frame; these renders share it.
             let p = RenderPlan(recipe: r, lutSize: LUT3D.exportSize)
             guard let out = readBack(
-                RenderGraph().build(ciImage(from: source), plan: p,
+                RenderGraph().build(ciImage(from: frame), plan: p,
                                     options: RenderGraph.Options(longEdge: 64,
                                                                  draft: false)),
-                width: source.width, height: source.height) else {
+                width: frame.width, height: frame.height) else {
                 throw XCTSkip("render failed")
             }
             return out
         }
 
-        let plain = try render { _ in }
-        func movement(from other: ImageBuffer) -> Double {
+        /// Peak movement a slider produces on `frame`, GPU or reference.
+        func movement(_ frame: ImageBuffer, _ a: ImageBuffer, _ b: ImageBuffer) -> Double {
             var moved = 0.0
-            for y in 0..<source.height {
-                for x in 0..<source.width {
-                    moved = Swift.max(moved, plain[x, y].maxAbsDifference(other[x, y]))
+            for y in 0..<frame.height {
+                for x in 0..<frame.width {
+                    moved = Swift.max(moved, a[x, y].maxAbsDifference(b[x, y]))
                 }
             }
             return moved
         }
+        let plain = try render(source) { _ in }
 
         // The bar is 0.001, and it is derived rather than picked. This 64x32 frame is
         // 20 EV across 64 columns, so its fine-detail band measures 9.9e-3 in the
@@ -1291,17 +1307,48 @@ final class KernelGoldenTests: XCTestCase {
         //   contract honoured ~4e-3
         // so 0.001 clears the second by 7x and sits 4x under the third. The measured
         // value is in the message either way, so a miss here is self-diagnosing.
-        let texture = movement(from: try render { $0.develop.detail.texture = 40 })
+        let texture = movement(source, plain,
+                               try render(source) { $0.develop.detail.texture = 40 })
         XCTAssertGreaterThan(texture, 0.001,
                              "Texture +40 moved the frame by \(texture) — 0.0 means the "
                                  + "band collapsed, a few e-4 means the gain is being "
                                  + "computed in the shaper's encoded units, not stops")
 
-        let clarity = movement(from: try render { $0.develop.detail.clarity = 30 })
+        // Clarity gets its own frame, and its own bar, measured against the reference
+        // on that frame rather than borrowed from Texture's derivation.
+        //
+        // A PRESENCE bar cannot catch what was wrong here. Clarity applied between
+        // 1/2.6 and 1/48 of the gain `DetailEngine.applyClarity` specifies — on the old
+        // frame, 0.00098 against the reference's 0.0096 — and a bar of 0.001 is one
+        // measurement away from passing either way. So this compares the two paths
+        // directly. They are different algorithms, a single-band remap against a local
+        // Laplacian, and will not agree closely; a ratio is what pins how far apart
+        // they are allowed to drift.
+        var clarityRecipe = Recipe()
+        clarityRecipe.develop.denoise.mode = .off
+        let midFrame = midScaleTestImage()
+        let midPlain = try render(midFrame) { $0.develop.denoise.mode = .off }
+        let clarity = movement(midFrame, midPlain, try render(midFrame) {
+            $0.develop.denoise.mode = .off
+            $0.develop.detail.clarity = 30
+        })
+        let referencePlain = ReferenceRenderer.render(
+            midFrame, plan: RenderPlan(recipe: clarityRecipe))
+        clarityRecipe.develop.detail.clarity = 30
+        let referenceClarity = movement(
+            midFrame, referencePlain,
+            ReferenceRenderer.render(midFrame,
+                                     plan: RenderPlan(recipe: clarityRecipe)))
         XCTAssertGreaterThan(clarity, 0.001,
                              "Clarity +30 moved the frame by \(clarity)")
+        XCTAssertGreaterThan(clarity / referenceClarity, 0.2,
+                             "Clarity +30 moved the frame by \(clarity) where the "
+                                 + "reference moves it \(referenceClarity) — the GPU is "
+                                 + "applying \(referenceClarity / clarity)x less gain "
+                                 + "than the stage it is supposed to implement")
 
-        let vignette = movement(from: try render { $0.look.vignette = -1.0 })
+        let vignette = movement(source, plain,
+                                try render(source) { $0.look.vignette = -1.0 })
         XCTAssertGreaterThan(vignette, 0.05,
                              "a −1 EV vignette moved the frame by \(vignette)")
     }

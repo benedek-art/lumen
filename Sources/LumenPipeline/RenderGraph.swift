@@ -614,7 +614,6 @@ public struct RenderGraph {
         }
         if d.clarity != 0, let baseMid = Self.guidedSelfFilter(lum, radius: mid,
                                                                epsilon: epsilon) {
-            let k = d.clarity / 100.0 * 1.1 * perStop
             // The picture minus its MID base, not the fine base minus the mid one.
             //
             // `Decomposition.base` is exactly this — `guidedFilter(logLum, logLum,
@@ -630,21 +629,17 @@ public struct RenderGraph {
             // It also costs one guided filter rather than two, and each is now built
             // only if its own slider is off zero, so a Clarity-only recipe no longer
             // runs the fine decomposition it never reads.
-            // Weighted toward the midtones, the way the reference weights its remap
-            // levels. Without it Clarity is exposure-invariant by construction — a
-            // shadow six stops down gets the same local-contrast boost as a face, which
-            // is how the control ends up amplifying shadow noise and fighting the
-            // highlight rolloff simultaneously.
-            let midGrey = Float(LumenLog.encode(0.18))
-            let falloff = KernelLibrary.apply(
-                KernelLibrary.tonalFalloff, extent: out.extent,
-                [lum, midGrey, Float(LumenLog.range),
-                 Float(DetailEngine.clarityMidtoneEV)])
-            let gain = falloff.flatMap {
-                KernelLibrary.apply(KernelLibrary.detailGainGated, extent: out.extent,
-                                    [lum, baseMid, $0, Float(k), Float(1.0)])
-            } ?? KernelLibrary.apply(KernelLibrary.detailGain, extent: out.extent,
-                                     [lum, baseMid, Float(k)])
+            // The reference's own remap, and the reference's own parameterization: the
+            // slider sets the remap exponent, not a gain. `detailRemap` carries the
+            // midtone Gaussian and the σ cut-off, so Clarity is no longer
+            // exposure-invariant — a shadow six stops down used to get exactly the
+            // local-contrast boost a face got, which is how the control ends up
+            // amplifying shadow noise and fighting the highlight rolloff at once.
+            let gain = KernelLibrary.apply(
+                KernelLibrary.detailRemap, extent: out.extent,
+                [lum, baseMid, Float(d.clarity / 100),
+                 Float(DetailEngine.clarityDetailEV), Float(LumenLog.encode(0.18)),
+                 Float(LumenLog.range), Float(DetailEngine.clarityMidtoneEV)])
             if let gain,
                let combined = KernelLibrary.apply(KernelLibrary.multiply,
                                                   extent: out.extent, [out, gain]) {

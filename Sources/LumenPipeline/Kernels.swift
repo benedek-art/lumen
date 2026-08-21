@@ -325,26 +325,52 @@ public enum KernelLibrary {
     /// Keep the pixels where a plane is at or above a threshold, zero elsewhere, and
     /// carry the selection weight in alpha so a masked mean can be recovered from two
     /// area averages.
-    /// How far a tone is from mid-grey, as the complement of the reference's Gaussian
-    /// midtone weight. 0 in the midtones, approaching 1 at both ends.
+    /// Clarity, as the reference parameterizes it: the Aubry remap on the detail band,
+    /// applied at one scale.
     ///
-    /// `DetailEngine`'s local Laplacian weights each remap level by
-    /// `exp(−gamma^2 / (2 * clarityMidtoneEV^2))`, so Clarity acts on the midtones and
-    /// tapers out of the deep shadows and the blown highlights. The GPU had no such
-    /// term at all: `exp2` of a log-domain difference is exposure-invariant by
-    /// construction, so a shadow at −6 EV got exactly the same local-contrast boost as
-    /// a face — which is how Clarity ends up amplifying shadow noise and fighting the
-    /// highlight rolloff at the same time.
+    /// `DetailEngine.applyClarity` is a local Laplacian. Every one of its six reference
+    /// levels remaps the image through `r(x) = γ + sign(d)·σ·(|d|/σ)^α` for `|d| ≤ σ`
+    /// and the identity beyond, with `α = max(1 − 0.7·amount·w, 0.05)` and `w` a
+    /// Gaussian on the tone. `α < 1` expands sub-σ detail; the identity branch is why
+    /// an edge larger than σ passes at unit slope. This applies that same point
+    /// function to a single band, which is what a Core Image graph can afford.
     ///
-    /// Returned as the complement because `detailGainGated` takes a gate that CLOSES
-    /// the gain: `open = 1 − gate` recovers the reference's weight exactly.
-    static let tonalFalloffSource = """
-    kernel vec4 lumenTonalFalloff(__sample plane, float centre, float range,
-                                  float sigmaEV) {
-        float dEV = (plane.r - centre) * range;
-        float w = exp(-(dEV * dEV) / (2.0 * sigmaEV * sigmaEV));
-        float f = 1.0 - w;
-        return vec4(f, f, f, 1.0);
+    /// What it replaces: `exp2(k · Δ)` with `k = amount/100 · 1.1 · range`, a linear
+    /// gain on the band with an amplitude nobody had checked against the reference.
+    /// Measured against `applyClarity` on five frames, that construction applied
+    /// between 1/2.6 and 1/48 of the reference's gain — Clarity +30 on the spatial
+    /// golden's own frame moved it 0.00098 where the reference moves it 0.0096. The
+    /// remap lands between 0.5x and 1.3x instead, because a power law with α < 1
+    /// expands a SMALL band much harder than a linear gain does: at Δ = 0.1 EV and
+    /// Clarity +30 it adds 50% where `k` adds 33%, and the edge-preserving base leaves
+    /// exactly such small bands.
+    ///
+    /// The tone weight is computed here rather than passed in as an image, which drops
+    /// a filter node and the `tonalFalloff` kernel that fed it.
+    ///
+    /// Halo, measured on a clean 3 EV step: 0.0117 EV at +30 and 0.127 EV at +100,
+    /// against the reference local Laplacian's 0.0014 and 0.0049 and against 0.72 EV
+    /// for the two-base construction that preceded the current one. The multi-scale
+    /// pyramid suppresses the rim in a way one band cannot — it selects each output
+    /// coefficient by the pixel's own local average, so `d` never sweeps through the
+    /// sub-σ range on the way across an edge. Closing that gap is the local Laplacian
+    /// on the GPU, and it is not this change.
+    static let detailRemapSource = """
+    kernel vec4 lumenDetailRemap(__sample hi, __sample lo, float amount, float sigmaEV,
+                                 float centre, float range, float midtoneEV) {
+        float dEV = (hi.r - lo.r) * range;
+        float gammaEV = (hi.r - centre) * range;
+        float w = exp(-(gammaEV * gammaEV) / (2.0 * midtoneEV * midtoneEV));
+        float alpha = max(1.0 - 0.7 * amount * w, 0.05);
+        float mag = abs(dEV);
+        float t = min(mag / sigmaEV, 1.0);
+        // `pow` is undefined at 0 on some drivers; the branch also skips the whole
+        // remap for the edges it is defined to pass through untouched.
+        float added = (mag >= sigmaEV || mag < 1e-7)
+            ? 0.0
+            : (sigmaEV * pow(t, alpha) - mag) * sign(dEV);
+        float g = exp2(added);
+        return vec4(g, g, g, 1.0);
     }
     """
 
@@ -672,7 +698,7 @@ public enum KernelLibrary {
     public static let sharpenDelta = make(sharpenDeltaSource)
     public static let subtract = make(subtractSource)
     public static let thresholdMask = make(thresholdMaskSource)
-    public static let tonalFalloff = make(tonalFalloffSource)
+    public static let detailRemap = make(detailRemapSource)
     public static let structureTensor = make(structureTensorSource)
     public static let coherence = make(coherenceSource)
     public static let detailGainGated = make(detailGainGatedSource)
@@ -711,7 +737,7 @@ public enum KernelLibrary {
             ("blendMask", blendMask), ("grain", grain), ("vignette", vignette),
             ("detailGain", detailGain), ("dehaze", dehaze), ("addGlow", addGlow),
             ("sharpenDelta", sharpenDelta), ("lumaRatio", lumaRatio),
-            ("subtract", subtract), ("thresholdMask", thresholdMask), ("tonalFalloff", tonalFalloff),
+            ("subtract", subtract), ("thresholdMask", thresholdMask), ("detailRemap", detailRemap),
             ("structureTensor", structureTensor),
             ("coherence", coherence), ("detailGainGated", detailGainGated),
             ("tensorMagnitude", tensorMagnitude),

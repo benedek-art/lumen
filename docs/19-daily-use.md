@@ -169,6 +169,38 @@ against 7.90 ms** for the forty-sweep bisection it replaced. `ZoneWeights` no lo
 allocates a weight vector per sample either, which the tone engine's zone panel was also
 paying for.
 
+### Clarity
+
+The GPU was applying between **1/2.6 and 1/48 of the gain the reference specifies**.
+Measured against `DetailEngine.applyClarity` on five frames, at Clarity +30: 0.00988 EV
+against 0.02704 on a 24 px texture, 0.00420 against 0.02553 on a 64 px one, and 0.00025
+against 0.01193 on the spatial golden's own frame.
+
+Two causes, and the second hid the first. The gain was `exp2(k·Δ)` — a linear gain on
+the detail band with an amplitude nobody had checked against the reference — while the
+reference parameterizes Clarity by a remap EXPONENT, `α = max(1 − 0.7·amount·w, 0.05)`
+applied as `σ·(|Δ|/σ)^α`. A power law with α < 1 expands a small band far harder than a
+linear gain does: at Δ = 0.1 EV and Clarity +30 it adds 50% where `k` adds 33%. And the
+band is small, because the base is edge-preserving by design. The GPU now applies the
+reference's own remap to a single band. Strength lands between 0.5× and 1.3× of the
+reference instead of between 0.02× and 0.4×.
+
+The gap that remains is the algorithm. The reference is a local Laplacian over six
+remap levels and a five-level pyramid; one band cannot reproduce it, and the difference
+shows up as a rim beside a hard edge — measured on a clean 3 EV step, 0.0117 EV at
+Clarity +30 and 0.127 EV at +100, against the local Laplacian's 0.0014 and 0.0049. For
+scale, the two-base construction that preceded the current one left 0.72 EV there. A
+local Laplacian on the GPU is what closes it, and that is not done.
+
+**The test that should have caught this could not.** It asserted that Clarity +30 moved
+a 64×32 frame by more than 0.001, on a frame whose only texture is `cos(x·π)` — Nyquist
+detail, put there deliberately so the FINE band could see it. Clarity's band is built at
+radius 3 on that frame and responds to almost none of it, so the assertion was reading
+the ramp leaking through, and it read 0.00098 against a bar of 0.001. A presence bar
+cannot separate "weak" from "absent" when the frame contains nothing for the stage to
+act on. It now runs on a frame with 12 px structure and compares the GPU's movement to
+the reference's on the same frame, which is the ratio that was 1/48.
+
 ## Phase 3 — the daily workflow
 
 - **Save a look.** Not a preset browser of other people's presets — the owner's own
