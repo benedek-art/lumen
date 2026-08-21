@@ -1223,6 +1223,65 @@ final class RobustnessTests: XCTestCase {
         }
     }
 
+    /// A grading wheel's hue is continuous all the way round, and 360° is 0°.
+    ///
+    /// The 86-control sweep read every wheel's hue as DEAD at full travel, and it was
+    /// the metric that was wrong rather than the control: hue is CIRCULAR, so measuring
+    /// "authority at ±full travel against a neutral" compares 0° with 360°, which are
+    /// the same setting, and reports no movement. The honest bar for a circular control
+    /// is that every step changes the picture and the ends meet.
+    ///
+    /// Evaluated through `GradeEngine` rather than a full render: the property is about
+    /// the wheels themselves, and building a `RenderPlan` per step — which bakes a 65³
+    /// cube — made the same assertions take 35 seconds.
+    func testAGradingWheelsHueIsContinuousAndClosed() {
+        // Saturated probes across the hue circle AND across the whole tonal range. The
+        // first version of this used −2…+2 EV, which on a −9…+5 EV axis is all mid zone:
+        // the shadows wheel had almost nothing to act on and a 180° rotation moved the
+        // probes by 0.007, so the test failed for want of a shadow rather than for want
+        // of a working control.
+        let probes: [RGB] = (0..<12).flatMap { i -> [RGB] in
+            let angle = Double(i) / 12 * 2 * .pi
+            let base = RGB(0.5 + 0.5 * cos(angle),
+                           0.5 + 0.5 * cos(angle - 2 * .pi / 3),
+                           0.5 + 0.5 * cos(angle + 2 * .pi / 3))
+            return [-7.0, -5.0, -2.0, 0.0, 2.0, 4.0].map { base * (0.18 * pow(2, $0)) }
+        }
+
+        func colours(_ wheels: GradingWheels) -> [RGB] {
+            let grade = GradeEngine(wheels: wheels, printerLights: PrinterLights())
+            return probes.map { grade.apply($0) }
+        }
+        func separation(_ a: [RGB], _ b: [RGB]) -> Double {
+            zip(a, b).map { $0.maxAbsDifference($1) }.max() ?? 0
+        }
+
+        let zones: [(String, WritableKeyPath<GradingWheels, Wheel>)] = [
+            ("global", \.global), ("shadows", \.shadows), ("mid", \.mid), ("high", \.high),
+        ]
+        for (name, path) in zones {
+            func at(_ hue: Double) -> [RGB] {
+                var wheels = GradingWheels()
+                wheels[keyPath: path] = Wheel(hue: hue, sat: 0.6, lum: 0)
+                return colours(wheels)
+            }
+            let start = at(0)
+            var previous = start
+            for step in 1...36 {
+                let now = at(Double(step) * 10)
+                XCTAssertGreaterThan(separation(previous, now), 1e-9,
+                                     "\(name): hue \(step * 10)° renders identically to "
+                                         + "\(step * 10 - 10)° — the control is dead here")
+                previous = now
+            }
+            XCTAssertLessThan(separation(start, at(360)), 1e-9,
+                              "\(name): hue 360° does not render as 0°")
+            // And it is genuinely doing something, or "continuous" is satisfied by noise.
+            XCTAssertGreaterThan(separation(start, at(180)), 0.01,
+                                 "\(name): a 180° hue rotation barely moved the picture")
+        }
+    }
+
     /// A local Colour tint has to change the picture, and hold luminance while it does.
     ///
     /// It changed nothing here: the reference renderer's local stage never read

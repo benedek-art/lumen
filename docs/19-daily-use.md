@@ -319,6 +319,74 @@ some of it back by 100. That is the "70 as wiring, not as behaviour" line above,
 numbers attached: the useful part of the Colour slider is roughly its first quarter, and
 the rest is bleeding colour for no gain.
 
+### The gaps in the sweep, closed
+
+The 86-control sweep skipped five controls and mis-measured a sixth. All six are alive:
+
+| Control | Full travel | Notes |
+|---|---|---|
+| Exposure | 194 code values | applied at S6, so the S7 sweep never saw it |
+| Contrast pivot | 72 | |
+| Grading zone pivots | 43 and 65 | |
+| Mixer band core / feather arcs | 7–29 | 16 controls, 8 bands × 2 sides × 2 rings |
+| Point Colour hue / sat / lum / range / variance | 63–150 | |
+| Grading wheel hue | continuous | see below |
+
+**A grading wheel's hue was never dead — the metric was wrong.** Hue is circular, so
+"authority at ±full travel against a neutral" compares 0° with 360°, which are the same
+setting, and reports no movement. Measured properly, every 10° step from 0 to 360 changes
+the picture in all four zones and 360° renders exactly as 0°. That is a permanent test
+now, run against `GradeEngine` directly rather than through a render — building a
+`RenderPlan` per step bakes a 65³ cube and took 51 seconds for what now takes 0.049.
+
+**Three "dead" readings in the first run were the probe's fault, not the code's**, and
+they are the same mistake this document keeps recording in other people's tests: driving
+a control past its own bounds. Point Colour Hue is a **±60° slider** — the panel's range
+and the engine's `pointHueShiftLimit` agree exactly — and the probe pushed it to ±100.
+The mixer's arc handles were pushed past `bandCoreMaxDegrees`. A control that saturates
+outside its own slider is not a dead control.
+
+What is left is one genuine saturation, and it is deliberate: a band's **feather** is
+inert over the bottom 5% of its travel, because `fb = max(fb, bandMinReachDegrees − cb)`
+widens the feather to hold a minimum smooth reach. The comment on it says why — the core
+is what the user drew and the feather is how it lets go — and a guaranteed smooth falloff
+is worth more than 3° of one slider.
+
+### Crop
+
+Crop had **no test of any kind**: the arithmetic lived in `PipelineRenderer`, which is
+`#if os(macOS)`. Two defects, both fixed, both now tested from Linux.
+
+**Straighten exposed the empty corners.** `applyGeometry` took the crop as a fraction of
+`out.extent.applying(orientation)` — the axis-aligned *bounding box* of the rotated
+frame, which is 12% larger in area than a 3:2 picture at 5°. So the default crop of the
+whole frame on any straightened photograph included all four of the triangular wedges
+rotation leaves behind, and nothing in the repository computed an inscribed rectangle to
+save it. The frame a crop is a fraction of is now the largest rectangle that fits inside
+the rotated picture, so any crop is inside the picture by construction at every angle.
+
+**The aspect lock did not survive a drag.** Pick 3:2, drag a corner, and the crop
+silently became free-form — after which the menu read the rectangle back and reported
+"Custom". There were also only four handles, so "a little off the top" meant dragging a
+corner and then fixing the width it had also changed. Eight handles now, and the lock
+holds through the drag, the clamp and the floor — clamping the offending edge on its own
+is exactly how a lock becomes "Custom" the moment it touches the frame.
+
+### Export
+
+Sizing is correct and now pinned: across three sensor shapes, three straighten angles,
+three crops and all six resize modes, the rendered size matches the size the sheet
+promises to within a pixel. `export()` does not resize to `targetSize` — it crops, asks
+for the dimensions, then hands the renderer the long edge of that answer — and nothing
+had checked that those two agree.
+
+**Copyright and contact were never written.** Both have a text field in the export sheet
+and a slot in `MetadataPolicy`, and nothing read them: a photographer who typed a
+copyright line got a file with no copyright in it. Copyright now goes to TIFF Copyright
+and IPTC CopyrightNotice, contact to IPTC Contact, and both are written *after* the
+metadata drops rather than before — an export with EXIF off drops the whole TIFF
+dictionary, so writing first would have put the copyright in the bathwater.
+
 ## Phase 3 — the daily workflow
 
 - **Save a look.** Not a preset browser of other people's presets — the owner's own
