@@ -69,7 +69,7 @@ looks like and needs no new UI.
 | Collections / keywords / stacks | ~~8~~ **done** | Sidebar section, album scoping, target album, keyword add/remove into FTS, stack create/collapse/promote/dissolve. Virtual copies still open: a version is a second edit row and the grid is one cell per URL, so it needs a model change |
 | Filter bar → SQL | ~~30~~ **done** | Whole bar compiles to `PhotoQuery`, with camera/lens/ISO/keyword/stack chips, live facet counts and the All/Any toggle |
 | Sort orders | ~~30~~ **done** | 12 of 12 on real EXIF, ordered in SQL. Two defects found while wiring: `capture_at` alone shuffles a burst (nine frames share a second — now breaks on `capture_subsec`), and the aspect sort was inert because `setMetadata` never maintained `photo.aspect` |
-| Ingest copy engine | 5 | A planning UI with no copier and no hashing anywhere in the repo |
+| Ingest copy engine | 5 | A planning UI with no copier and no hashing anywhere in the repo. The missing hash costs more than ingest: `photo.quick_sig` is a declared column with no producer, so `CatalogStore.scan` cannot match a renamed or moved original to its row — it creates a fresh photo and marks the old one missing, and the ratings, collection membership and edit association go with it |
 
 ### Batch 4 — Masking
 
