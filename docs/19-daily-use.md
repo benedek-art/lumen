@@ -201,31 +201,49 @@ cannot separate "weak" from "absent" when the frame contains nothing for the sta
 act on. It now runs on a frame with 12 px structure and compares the GPU's movement to
 the reference's on the same frame, which is the ratio that was 1/48.
 
-### Texture
+### Texture — measured, not fixed
 
 The same measurement, run on the stage beside Clarity: **1.8× to 17× under the
 reference**, at Texture ±40, on seven frames.
 
-Two causes, both structural. The band came off a single edge-preserving guided base,
-whose threshold is 0.1 EV — so it keeps 86% of any texture whose local excursion exceeds
-a tenth of a stop, which is essentially all real texture, and Texture acted on the
-residue. And the coefficient was `amount × 0.9`, where `DetailEngine.applyTexture`
-normalizes its window to `referenceBandWeight(halfWidth: 1.6)` = 1.617.
+```
+  frame                     +40 off by    −40 off by
+  64x32 Nyquist ripple        17.1x          4.0x
+  256x256, 2 px detail         2.1x          2.0x
+  256x256, 4 px detail         6.0x          6.0x
+  256x256, 8 px detail         3.9x          3.7x
+  256x256, 16 px detail        2.1x          2.0x
+  1024x256, 4 px detail        5.9x          5.9x
+  1024x256, 16 px detail       1.8x          1.8x
+```
 
-The GPU now builds the reference's own band: `Σ wℓ · (sℓ − sℓ₊₁)` over the à-trous
-stack, with the raised-cosine window `bandCenter` places for the resolution. Positive
-Texture measures **1.00× the reference on every frame tested** — an exact match, not an
-approximation. Negative Texture, which is gated by local structure, measures 0.94–1.00×
-above 256 px; below that the GPU floors the coherence window at radius 2 where the
-reference floors at 1, which is a deliberate departure documented at `structureRadius`.
+Two causes. The band comes off a single edge-preserving guided base whose threshold is
+0.1 EV, so it keeps 86% of any texture whose local excursion exceeds a tenth of a stop —
+essentially all real texture — and Texture acts on the residue. And the coefficient is
+`amount × 0.9`, where `DetailEngine.applyTexture` normalizes its window to
+`referenceBandWeight(halfWidth: 1.6)` = 1.617.
 
-That window is also what makes Texture scale-honest — `bandCenter` is
-`1 + clamp(log2(longEdge / 2560), −1, 2)`, so the same setting means the same amount of
-texture in a fit view and in a 61 MP export. One fixed radius cannot do that, and the
-guided base was one fixed radius.
+**Porting the reference's band exactly was tried and reverted, and what it found is the
+reason this is still open.** Building `Σ wℓ · (sℓ − sℓ₊₁)` over the à-trous stack made
+positive Texture measure 1.00× the reference on every frame — and turned two goldens red:
 
-Only the smooths a non-zero weight reads are built: three à-trous passes at the default
-centre, five at the largest.
+- `testPresenceDoesNotRimAHardEdge`: Texture +100 dug a 1.21 EV trench beside a clean
+  3 EV step, against a bar of 0.30. **The reference digs 1.39 EV on the same frame.** So
+  the bar asserts a property the specification does not have, and the GPU was clearing it
+  by being too weak to rim. À-trous bands carry edges; that is what they are.
+- `testNegativeTextureSmoothsTextureMoreThanEdges`: the coherence gate moved the edge by
+  0.0426 and the texture by 0.0136. The reference on the same frame moves the edge by
+  **0.00000** and the texture by 0.00207 — its gate closes completely at an edge. So the
+  GPU's coherence is not closing, and that test was passing only because the guided base
+  left nothing at the edge for the gate to fail on.
+
+So there are three defects here, not one, and they were hiding each other: Texture is
+2–6× weak, the reference's positive Texture rims at 1.4 EV, and the GPU's coherence gate
+does not close at edges. Fixing the first alone makes the picture worse, which is why the
+port was reverted rather than shipped. The shape of the real fix is an edge-aware band
+that still carries the à-trous window's content and scale honesty — guided smooths in
+place of the à-trous ones, or an explicit edge gate on positive Texture as well as
+negative — and it has to change the reference and the GPU together.
 
 ## Phase 3 — the daily workflow
 

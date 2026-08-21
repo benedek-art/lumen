@@ -374,44 +374,6 @@ public enum KernelLibrary {
     }
     """
 
-    /// The reference's Texture band: a raised-cosine window over à-trous scales,
-    /// `Σ wℓ · (sℓ − sℓ₊₁)`, evaluated from the six successive smooths.
-    ///
-    /// Texture used to come off ONE guided base at the fine radius, gained by
-    /// `amount · 0.9`. Two things were wrong with that and they compounded. The guided
-    /// base is edge-preserving with a threshold of 0.1 EV, so it keeps 86% of any
-    /// texture whose local excursion exceeds a tenth of a stop — which is essentially
-    /// all real texture — and the band Texture acted on was the residue. And 0.9 is not
-    /// the reference's coefficient: `applyTexture` normalizes its window to
-    /// `referenceBandWeight(halfWidth: 1.6)`, which is 1.617. Measured against the
-    /// reference on seven frames at Texture ±40, the GPU applied between 1/1.8 and
-    /// 1/17 of the gain.
-    ///
-    /// A window rather than one band because that is what makes the control scale
-    /// honest: `bandCenter` tracks the long edge, so the same setting means the same
-    /// amount of texture on a fit view and on a 61 MP export. One fixed radius cannot.
-    static let atrousBandSource = """
-    kernel vec4 lumenAtrousBand(__sample s0, __sample s1, __sample s2, __sample s3,
-                                __sample s4, __sample s5, float w0, float w1, float w2,
-                                float w3, float w4) {
-        float band = w0 * (s0.r - s1.r) + w1 * (s1.r - s2.r) + w2 * (s2.r - s3.r)
-                   + w3 * (s3.r - s4.r) + w4 * (s4.r - s5.r);
-        return vec4(band, band, band, 1.0);
-    }
-    """
-
-    /// Apply a band as a gain in stops, optionally closed where the neighbourhood is a
-    /// coherent edge. `open = 1` for positive Texture, `1 − coherence` for negative —
-    /// the asymmetry that makes −Texture a skin smoother rather than an edge softener.
-    static let bandGainSource = """
-    kernel vec4 lumenBandGain(__sample band, __sample gate, float k, float useGate,
-                              float range) {
-        float open = mix(1.0, 1.0 - clamp(gate.r, 0.0, 1.0), useGate);
-        float g = exp2(k * open * band.r * range);
-        return vec4(g, g, g, 1.0);
-    }
-    """
-
     static let thresholdMaskSource = """
     kernel vec4 lumenThresholdMask(__sample image, __sample plane, float threshold) {
         float keep = step(threshold, plane.r);
@@ -737,8 +699,6 @@ public enum KernelLibrary {
     public static let subtract = make(subtractSource)
     public static let thresholdMask = make(thresholdMaskSource)
     public static let detailRemap = make(detailRemapSource)
-    public static let atrousBand = make(atrousBandSource)
-    public static let bandGain = make(bandGainSource)
     public static let structureTensor = make(structureTensorSource)
     public static let coherence = make(coherenceSource)
     public static let detailGainGated = make(detailGainGatedSource)
@@ -777,8 +737,7 @@ public enum KernelLibrary {
             ("blendMask", blendMask), ("grain", grain), ("vignette", vignette),
             ("detailGain", detailGain), ("dehaze", dehaze), ("addGlow", addGlow),
             ("sharpenDelta", sharpenDelta), ("lumaRatio", lumaRatio),
-            ("subtract", subtract), ("thresholdMask", thresholdMask), ("detailRemap", detailRemap), ("atrousBand", atrousBand),
-            ("bandGain", bandGain),
+            ("subtract", subtract), ("thresholdMask", thresholdMask), ("detailRemap", detailRemap),
             ("structureTensor", structureTensor),
             ("coherence", coherence), ("detailGainGated", detailGainGated),
             ("tensorMagnitude", tensorMagnitude),

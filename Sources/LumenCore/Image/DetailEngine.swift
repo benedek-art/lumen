@@ -851,27 +851,6 @@ public struct DetailEngine: Sendable {
     /// middle of docs/06's 2–8 px target band at the 2560-px working resolution; the log2
     /// term shifts the band with resolution so the same physical detail is addressed on a
     /// 61 MP file as on a 24 MP one.
-    /// Public because the GPU has to reproduce this window exactly, and a second copy
-    /// of the arithmetic in `RenderGraph` is a second thing to keep in step. Texture's
-    /// scale honesty — the same setting meaning the same amount of texture at every
-    /// resolution — is entirely these three functions.
-    public static func bandCenter(longEdge: Int) -> Double {
-        bandCenter(width: longEdge, height: longEdge)
-    }
-
-    /// Total weight of the band window at `longEdge`, per level, already normalized so
-    /// a truncated window carries the same total as an untruncated one.
-    public static func bandWeights(longEdge: Int, halfWidth: Double = 1.6) -> [Double] {
-        let centre = bandCenter(width: longEdge, height: longEdge)
-        let raw = (0..<waveletLevels).map {
-            bandWeight(level: $0, center: centre, halfWidth: halfWidth)
-        }
-        let realized = raw.reduce(0, +)
-        guard realized > 1e-9 else { return raw }
-        let normalization = referenceBandWeight(halfWidth: halfWidth) / realized
-        return raw.map { $0 * normalization }
-    }
-
     private static func bandCenter(width: Int, height: Int) -> Double {
         let longEdge = Double(Swift.max(width, height))
         guard longEdge > 0 else { return 1.0 }
