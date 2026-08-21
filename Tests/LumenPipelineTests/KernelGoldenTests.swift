@@ -552,6 +552,66 @@ final class KernelGoldenTests: XCTestCase {
     /// to put it, and once because the fine band was blurred at a fixed sigma that
     /// equalled the working radius at its default, making the two components of the
     /// cross-fade bit-identical. Both times every test in the suite passed.
+    /// What `CIGaussianBlur.radius` actually means, measured rather than assumed.
+    ///
+    /// `RenderGraph.gaussianBlur` sets `filter.radius = sigma * 3`, on the stated
+    /// grounds that the parameter is a SUPPORT radius rather than a standard deviation.
+    /// That conversion has never been measured. It matters now because the sharpen
+    /// stage mixes two high-pass bands and the mix direction depends entirely on which
+    /// is wider: `usm = lum − G(radius)` against the reference's a-trous band
+    /// `lum − 0.5·(s1 + s2)`, whose smooths have sigma 1.0 and 2.24 by construction
+    /// (B3-spline variance is 1 at step 1, 4 at step 2).
+    ///
+    /// In Fourier terms the a-trous band should be the WIDER high-pass and therefore
+    /// the larger one — yet `testDetailSliderMovesThePicture` measures Detail 100
+    /// sharpening roughly half as hard as Detail 0. Either the reasoning is wrong or
+    /// the sigma conversion is, and `CIBoxBlur.radius` turned out this morning to be
+    /// the window WIDTH rather than the half-width, so an unmeasured Core Image blur
+    /// parameter is not something to keep assuming about.
+    ///
+    /// Measures the second moment of the impulse response, which IS sigma.
+    func testWhatCIGaussianBlurRadiusMeans() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+        let side = 129
+        for askedSigma in [0.5, 1.0, 2.0, 3.0] {
+            var impulse = Plane(width: side, height: side)
+            impulse[side / 2, side / 2] = 1.0
+            guard let blurred = RenderGraph.gaussianBlur(ciImage(from: broadcast(impulse)),
+                                                         sigma: askedSigma),
+                  let got = readBack(blurred, width: side, height: side)
+            else { continue }
+            var sum = 0.0, second = 0.0
+            for x in 0..<side {
+                let v = Double(got[x, side / 2].r)
+                let d = Double(x - side / 2)
+                sum += v
+                second += v * d * d
+            }
+            let measured = sum > 0 ? (second / sum).squareRoot() : 0
+            print(String(format: "GAUSSIAN asked sigma %.1f -> measured sigma %.3f "
+                                 + "(radius passed to CI: %.1f)",
+                         askedSigma, measured, Swift.max(askedSigma * 3, 0.5)))
+        }
+
+        // And the a-trous smooths the sharpen stage compares against, same measurement.
+        for step in [1, 2] {
+            var impulse = Plane(width: side, height: side)
+            impulse[side / 2, side / 2] = 1.0
+            guard let sm = RenderGraph.bSplinePass(ciImage(from: broadcast(impulse)),
+                                                   step: step),
+                  let got = readBack(sm, width: side, height: side) else { continue }
+            var sum = 0.0, second = 0.0
+            for x in 0..<side {
+                let v = Double(got[x, side / 2].r)
+                let d = Double(x - side / 2)
+                sum += v
+                second += v * d * d
+            }
+            print(String(format: "ATROUS step %d -> measured sigma %.3f",
+                         step, sum > 0 ? (second / sum).squareRoot() : 0))
+        }
+    }
+
     func testDetailSliderMovesThePicture() throws {
         try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
         let width = 64, height = 64
