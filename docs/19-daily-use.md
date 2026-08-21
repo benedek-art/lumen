@@ -245,6 +245,80 @@ that still carries the à-trous window's content and scale honesty — guided sm
 place of the à-trous ones, or an explicit edge gate on positive Texture as well as
 negative — and it has to change the reference and the GPU together.
 
+### The sweep: every slider, measured
+
+Clarity at 1/48 and Texture at 1/17 both sat behind green tests. That is not a
+reassuring hit rate, so every remaining control was swept the same way — authority at
+full travel, and whether each of twenty steps changes the render at all.
+
+**86 controls measured. Two dead, both fixed.**
+
+| Group | Controls | Result |
+|---|---|---|
+| Global colour | vibrance, saturation, density, skin protection, mixer uniformity | alive, monotone |
+| Colour Mixer | 8 bands × hue/sat/lum = 24 | alive, monotone, 30–160 code values at full travel |
+| B&W mix | 8 bands | alive, monotone |
+| White balance | temperature, tint | alive, monotone |
+| Grading wheels | 4 zones × sat/hue/lum, balance | alive, monotone |
+| Colour balance grid | hue shift, vibrance, 3 axes × 4 zones | alive, monotone |
+| Printer lights | master, R, G, B | alive, monotone |
+| Primaries | 3 hues, 3 purities, tint hue/purity | alive, monotone |
+| Presence | texture, clarity, dehaze | alive, monotone |
+| Sharpen | amount, detail, masking, halo | alive, monotone |
+| Vignette | | alive, monotone |
+| Denoise | 7 ClassicNR sliders | alive |
+| **Grading Blending** | | **dead from 80 to 100 — fixed** |
+| **Sharpen Radius** | | **7-position switch across 0.5…3.0 — fixed** |
+
+**Blending** clipped its crossfade half-width at `(highPivot − shadowPivot)/2` with a
+hard `min`. On the default pivots that binds at 79.3, so every setting from 80 up
+rendered byte-identical. The ceiling is real — past it the mid zone's weight goes
+negative — so the request is eased onto it with the same knee the tone engine and the
+parametric curve use.
+
+**Sharpen Radius** was worse: `SpatialOps.gaussianBlur` is a three-box approximation
+with integer widths, so thirteen of twenty settings across the whole range rendered
+byte-identical. It is also a GPU/reference disagreement no golden could catch, because
+`CIGaussianBlur` is continuous in sigma while the reference stepped. Below sigma 8 the
+reference now uses an exact separable Gaussian at 4σ support; boxes stay above it, where
+a feather radius is tens of pixels and one integer step is under a percent.
+
+### What the sweep found that is not a defect
+
+- A grading wheel's **hue** reads as "no movement at full travel" because the control is
+  circular: 0° and 360° are the same setting.
+- **`color.density`** is inert when Saturation is negative. That is what a dye-density
+  model means — but the panel shows the dial either way, so half its uses are a control
+  that cannot do anything.
+- **`denoise.hotPixels`** saturates by about 35: once every hot pixel is caught, more is
+  more of nothing. On subtler spikes the threshold would still matter.
+
+Two of the "dead" readings were **the probe's fault, not the code's**, and both are worth
+recording because they are the same trap this document keeps finding in other people's
+tests. `colorDetail` measured dead on a near-neutral frame — it scales the shrinkage
+threshold where the *chroma* edge map is high, and a neutral frame has no chroma edges.
+`hotPixels` measured dead on a frame with no hot pixels. Both came alive the moment the
+frame contained what the control acts on.
+
+### Denoise behaviour, quantified
+
+The sliders are wired. What they do is a separate question, and the numbers are not
+flattering. RMS error against the clean frame, ISO 6400, hot-pixel sites and the edge
+excluded, plus what survives of a saturated colour edge (clean = 0.5200):
+
+```
+                  off      25      50      75     100    colour edge at 100
+  Luminance     0.0180  0.0150  0.0145  0.0149  0.0154        0.5149
+  Colour        0.0180  0.0097  0.0105  0.0115  0.0126        0.3364
+  Colour Smooth 0.0091  0.0100  0.0109  0.0119  0.0129        0.3264
+```
+
+**Colour at 100 is worse than Colour at 25 on both axes** — more residual error and 35%
+of a saturated colour edge gone. Luminance has a shallow optimum around 50 and gives
+some of it back by 100. That is the "70 as wiring, not as behaviour" line above, with
+numbers attached: the useful part of the Colour slider is roughly its first quarter, and
+the rest is bleeding colour for no gain.
+
 ## Phase 3 — the daily workflow
 
 - **Save a look.** Not a preset browser of other people's presets — the owner's own
