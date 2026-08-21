@@ -1545,6 +1545,97 @@ final class KernelGoldenTests: XCTestCase {
     /// Every case also asserts the stage MOVED the frame. A denoise that returns its
     /// input matches nothing and would otherwise sail through a comparison against a
     /// reference that also did nothing.
+    /// The variance-stabilizing transform and the Y0U0V0 rotation, round-tripped.
+    ///
+    /// Four primitive goldens now cover the a-trous step, the edge blur, the edge map
+    /// and the cross guided filter, and all four PASS while
+    /// `testDenoiseMatchesTheReferenceEngine` fails by 71% of the stage's own effect.
+    /// Correct primitives inside a wrong stage means the fault is in the composition,
+    /// and `grep` says the VST and the rotation have zero coverage of any kind — the
+    /// only part of `applyDenoise` no test touches. Every defect found in this file
+    /// today has been in exactly that position.
+    ///
+    /// A round trip is the sharpest thing to ask of them: forward, rotate, rotate back,
+    /// inverse. It should return the input. The rotation carries SIGNED chroma, which is
+    /// the value class this codebase keeps losing — `CISubtractBlendMode` clamped it,
+    /// `CIBoxBlur` averaged the wrong window over it — so if `CIColorMatrix` clamps or
+    /// the transform is not its own inverse, this says so without needing the reference
+    /// engine at all.
+    func testTheVSTAndRotationRoundTrip() throws {
+        try XCTSkipUnless(KernelLibrary.denoiseAvailable, "denoise kernels unavailable")
+        let iso = 6400.0
+        let width = 64, height = 64
+        let source = noisyFrame(width: width, height: height,
+                                profile: NoiseProfile.forISO(iso))
+        let plan = denoisePlan(ClassicNR(luma: 60, chroma: 50, colorSmoothness: 0),
+                               iso: iso)
+        let gpu = plan.classicalDenoise.gpuPlan(width: width, height: height,
+                                                noiseScale: 1)
+        let extent = CGRect(x: 0, y: 0, width: width, height: height)
+        let shot = gpu.profile.a
+        let offset = 0.375 * shot * shot + gpu.profile.b
+
+        guard let forward = KernelLibrary.apply(
+            KernelLibrary.denoiseForward, extent: extent,
+            [ciImage(from: source), Float(shot), Float(offset),
+             Float(gpu.pedestalSignal), Float(gpu.sqrtPedestal),
+             Float(Swift.max(gpu.signalFloor, -1e30)), Float(gpu.encodedScale)])
+        else { return XCTFail("forward VST produced nothing") }
+
+        // The stabilized plane's magnitudes, which decide whether half-float can hold
+        // it — the shipping context is RGBAh while this test's is RGBAf.
+        if let stabilized = readBack(forward, width: width, height: height) {
+            var lo = Double.infinity, hi = -Double.infinity
+            for y in 0..<height {
+                for x in 0..<width {
+                    lo = Swift.min(lo, Double(stabilized[x, y].r))
+                    hi = Swift.max(hi, Double(stabilized[x, y].r))
+                }
+            }
+            // Half has a 10-bit mantissa, so its step near a value is
+            // `2^(floor(log2 v) - 10)`. Printed because the SHIPPING context is RGBAh
+            // while this test's is RGBAf: if the stabilized plane spans tens of units,
+            // half cannot resolve the thresholds being compared against it, and every
+            // preview and export would denoise differently from every golden.
+            let halfStep = lo.isFinite && hi > 0
+                ? pow(2.0, (log2(hi)).rounded(.down) - 10.0) : 0
+            print("VST PLANE spans \(lo) ... \(hi); half-float step at the top is "
+                  + "\(halfStep)")
+        }
+
+        let rotated = Self.roundTripRotate(forward)
+        guard let restored = KernelLibrary.apply(
+            KernelLibrary.denoiseInverse, extent: extent,
+            [rotated, Float(shot), Float(gpu.pedestalSignal), Float(gpu.sqrtPedestal),
+             Float(1.0 / gpu.encodedScale),
+             Float(Swift.max(gpu.minimumForwardRelative, -1e30)),
+             Float(gpu.referenceLevel), Float(gpu.unbiasedGain), Float(0)])
+        else { return XCTFail("inverse VST produced nothing") }
+        guard let got = readBack(restored, width: width, height: height) else { return }
+
+        var worst = 0.0
+        var at = (0, 0)
+        var span = 0.0
+        for y in 0..<height {
+            for x in 0..<width {
+                let d = got[x, y].maxAbsDifference(source[x, y])
+                if d > worst { worst = d; at = (x, y) }
+                span = Swift.max(span, source[x, y].maxComponent)
+            }
+        }
+        print("VST ROUND TRIP worst \(worst) at \(at) on a frame spanning \(span)")
+        XCTAssertLessThan(worst, span * 0.01,
+                          "forward -> rotate -> unrotate -> inverse lost \(worst) at "
+                              + "\(at) on a frame spanning \(span) — the VST or the "
+                              + "Y0U0V0 rotation is not its own inverse")
+    }
+
+    /// Rotate into Y0U0V0 and straight back out, through the same helper the stage uses.
+    private static func roundTripRotate(_ image: CIImage) -> CIImage {
+        let there = RenderGraph.applyMatrix(image, ClassicalDenoise.toY0U0V0)
+        return RenderGraph.applyMatrix(there, ClassicalDenoise.fromY0U0V0)
+    }
+
     func testDenoiseMatchesTheReferenceEngine() throws {
         try XCTSkipUnless(KernelLibrary.denoiseAvailable, "denoise kernels unavailable")
         let iso = 6400.0
