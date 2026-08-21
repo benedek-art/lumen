@@ -80,6 +80,23 @@ public struct DetailEngine: Sendable {
     /// Width in EV of the midtone weight on Clarity's remap, so Clarity expands local
     /// contrast without reaching the white and black points docs/04 owns.
     public static let clarityMidtoneEV: Double = 3.0
+    /// Where positive Texture's edge gate starts and finishes closing, on the
+    /// structure tensor's coherence.
+    ///
+    /// Positive Texture is a gain on a band that still contains hard edges, so an
+    /// ungated gain rims them — measured on a clean 3 EV step, 0.43 EV of trench at
+    /// +25 and 1.39 EV at +100, against the 0.30 EV bar the presence golden holds
+    /// Clarity to. The negative side was gated by `1 − coherence` from the start and
+    /// the positive side was not, which is the whole defect.
+    ///
+    /// The gate cannot simply mirror the negative one: `1 − coherence` at full depth
+    /// would also flatten hair, fabric weave and foliage, which are the subjects
+    /// positive Texture exists for. Measured coherence separates them cleanly — fine
+    /// parallel lines sit at 0.19, a smooth ramp at 0.00, and a hard step at 1.00 —
+    /// so a gate that only starts closing at 0.35 leaves the first two at full
+    /// authority and shuts on the third.
+    public static let texturePositiveGateLo: Double = 0.35
+    public static let texturePositiveGateHi: Double = 0.85
     /// He et al.'s haze-retention constant: keep 5% of the haze so distance still reads.
     public static let dehazeOmega: Double = 0.95
     /// docs/06's Distance disclosure default (0–100). Caps the transmission floor.
@@ -274,8 +291,16 @@ public struct DetailEngine: Sendable {
             let band = fit(d.details[i], width: w, height: h)
             for y in 0..<h {
                 for x in 0..<w {
-                    // Positive: uniform gain. Negative: gated by local structure.
-                    let gate = a >= 0 ? 1.0 : (1.0 - Num.saturate(coherence[x, y]))
+                    // Both signs are gated by local structure, for opposite reasons:
+                    // negative Texture must not dissolve an edge, positive Texture must
+                    // not rim one. Negative closes fully because smoothing an edge is
+                    // never wanted; positive closes only on genuine coherent edges, so
+                    // hair and weave keep the whole slider (see the gate constants).
+                    let c = Num.saturate(coherence[x, y])
+                    let gate = a >= 0
+                        ? 1.0 - Num.smoothstep(Self.texturePositiveGateLo,
+                                               Self.texturePositiveGateHi, c)
+                        : 1.0 - c
                     delta[x, y] = delta[x, y] + a * weight * gate * band[x, y]
                 }
             }

@@ -1710,4 +1710,101 @@ final class RobustnessTests: XCTestCase {
         XCTAssertLessThan(worst, 0.035,
                           "export table error reached \(worst) at \(where_)")
     }
+
+    // MARK: - Positive Texture must not rim an edge
+
+    /// Positive Texture gains a band that still contains hard edges, so an ungated
+    /// gain rims them. Measured on the same clean step the presence golden uses, the
+    /// reference's own positive Texture dug a 1.39 EV trench at +100 — 4.6x the
+    /// 0.30 EV bar that golden holds Clarity to — and it was already over the bar at
+    /// +25, at 0.43 EV. The negative side had been gated by `1 - coherence` since it
+    /// was written and the positive side had not.
+    ///
+    /// This asserts both halves of the fix, because either alone is a defect: the rim
+    /// has to come down AND the control has to keep its authority on the coherent fine
+    /// detail it exists for. Mirroring the negative gate would have passed the first
+    /// and failed the second.
+    func testPositiveTextureDoesNotRimAHardEdge() {
+        let width = 128, height = 64
+        // 0.09 linear on the left, 0.72 on the right: three stops, hard. Fine texture
+        // on both flats and none within 12 px of the step.
+        let step = ImageBuffer(width: width, height: height) { u, _ in
+            let x = u * Double(width)
+            let base = x < Double(width) / 2 ? 0.09 : 0.72
+            let away = abs(x - Double(width) / 2) > 12
+            let texture = away ? 1.0 + 0.08 * sin(x / 2.0) : 1.0
+            return RGB(gray: base * texture)
+        }
+        let d = DetailEngine.Decomposition(image: step, workingRadius: 4)
+        let row = height / 2
+
+        for amount in [25.0, 50.0, 100.0] {
+            let out = DetailEngine.applyTexture(step, amount: amount, decomposition: d)
+
+            var plateau = 0.0
+            for x in 20..<50 { plateau = Swift.max(plateau, step[x, row].g) }
+            var trench = 0.0
+            for x in (width / 2 - 8)..<(width / 2) {
+                trench = Swift.max(trench, plateau - out[x, row].g)
+            }
+            let trenchEV = trench > 0
+                ? log2((plateau + 1e-9) / Swift.max(plateau - trench, 1e-9)) : 0
+            XCTAssertLessThan(trenchEV, 0.30,
+                              "positive Texture at +\(amount) dug a \(trenchEV) EV "
+                                  + "trench on the dark side of a clean edge")
+
+            // It still has to DO something on the textured flats, or a stage that
+            // gated itself into a no-op would pass the line above.
+            var moved = 0.0
+            for x in 20..<50 {
+                moved = Swift.max(moved, abs(step[x, row].g - out[x, row].g))
+            }
+            XCTAssertGreaterThan(moved, 1e-4,
+                                 "positive Texture at +\(amount) changed nothing on "
+                                     + "textured flat ground, so the rim proves nothing")
+        }
+    }
+
+    /// The gate must cost positive Texture nothing on coherent FINE detail.
+    ///
+    /// Hair, fabric weave and foliage are coherent, and they are exactly what someone
+    /// reaches for positive Texture to bring up. Measured, fine parallel lines sit at
+    /// 0.19 coherence and a hard step at 1.00, which is why the gate opens where it
+    /// does. If someone later widens it down toward the fine-detail end, this fails.
+    func testPositiveTextureKeepsItsAuthorityOnFineDetail() {
+        let width = 128, height = 64
+        let hair = ImageBuffer(width: width, height: height) { _, v in
+            let y = v * Double(height)
+            return RGB(gray: 0.30 * (1.0 + 0.15 * sin(y * Double.pi / 1.5)))
+        }
+        let d = DetailEngine.Decomposition(image: hair, workingRadius: 4)
+
+        // The gate is a function of coherence alone, so pin the measured separation
+        // that justifies where it opens.
+        var worstCoherence = 0.0
+        for y in 8..<(height - 8) {
+            for x in 8..<(width - 8) {
+                worstCoherence = Swift.max(worstCoherence, Num.saturate(d.coherence[x, y]))
+            }
+        }
+        XCTAssertLessThan(worstCoherence, DetailEngine.texturePositiveGateLo,
+                          "fine parallel detail reached \(worstCoherence) coherence, at "
+                              + "or above the gate's opening threshold — positive "
+                              + "Texture is now gating the detail it exists to raise")
+
+        var previous = 0.0
+        for amount in [25.0, 50.0, 100.0] {
+            let out = DetailEngine.applyTexture(hair, amount: amount, decomposition: d)
+            var moved = 0.0
+            for y in 8..<(height - 8) {
+                for x in 8..<(width - 8) {
+                    moved = Swift.max(moved, abs(hair[x, y].g - out[x, y].g))
+                }
+            }
+            XCTAssertGreaterThan(moved, previous,
+                                 "positive Texture at +\(amount) did no more to fine "
+                                     + "detail than at the setting below it")
+            previous = moved
+        }
+    }
 }

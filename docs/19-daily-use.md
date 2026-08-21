@@ -245,6 +245,50 @@ that still carries the à-trous window's content and scale honesty — guided sm
 place of the à-trous ones, or an explicit edge gate on positive Texture as well as
 negative — and it has to change the reference and the GPU together.
 
+#### The rim, fixed: the second defect
+
+Positive Texture had no gate at all, on either path — `applyTexture` read
+`a >= 0 ? 1.0 : (1 − coherence)` and the render graph passed `gate = nil` and called the
+ungated kernel. The band it gains still contains the edge, so the gain rims it. Measured
+on the presence golden's own clean 3 EV step:
+
+```
+              rim (EV)   authority on flat texture
+  +25          0.4291                     0.000524
+  +50          0.7478                     0.001050
+  +100         1.3852                     0.002111    bar: 0.30
+```
+
+It is over the bar at every setting, +25 included.
+
+The gate cannot simply mirror the negative one. `1 − coherence` at full depth would also
+flatten hair, fabric weave and foliage, which are the subjects positive Texture exists
+for. Coherence separates them cleanly enough to gate on — measured across three frames,
+fine parallel lines sit at **0.19**, a smooth ramp at **0.00**, and a hard step at
+**1.00** — so the positive gate is `1 − smoothstep(0.35, 0.85, coherence)`: fully open
+below the fine-detail end, fully closed on a genuine edge.
+
+```
+              rim (EV)   authority on flat texture
+  +25          0.1495                     0.000524
+  +50          0.1886                     0.001050
+  +100         0.2668                     0.002111    bar: 0.30
+```
+
+Under the bar at every setting, and the authority column is **bit-identical** — the gate
+costs nothing where it is open, which on this frame is everywhere except the step.
+
+The residual 0.2668 EV does not move when the thresholds move: on this frame coherence
+is binary, so threshold placement cannot explain it. It is the structure tensor's support
+being narrower than the band's — the tensor is smoothed at `workingRadius / 4` = 1 px
+while the band reaches several — so the band carries edge energy into pixels the gate
+correctly calls flat. Closing that means dilating the gate to the band's reach, which is
+another Metal pass; the gate above is two lines on a plane the GPU already samples. The
+cheap 5.2× came first on purpose.
+
+What is left of the three: Texture is still 2–6× weak, and the GPU's coherence gate still
+leaks at edges on the negative side.
+
 ### The sweep: every slider, measured
 
 Clarity at 1/48 and Texture at 1/17 both sat behind green tests. That is not a

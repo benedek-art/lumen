@@ -313,10 +313,24 @@ public enum KernelLibrary {
     /// The gate multiplies the BAND, not the result: gating the gain afterwards would
     /// pull the whole multiply toward zero rather than toward one, which darkens
     /// wherever the gate closes instead of leaving the pixel alone.
+    ///
+    /// `negative` picks which of the two gate shapes `DetailEngine.applyTexture` uses,
+    /// and the two are not the same function for a reason. Negative Texture closes on
+    /// any structure at all (`1 − coherence`), because smoothing an edge is never
+    /// wanted. Positive Texture closes only on genuine coherent edges, because an
+    /// ungated gain on a band that still contains the edge rims it: measured against
+    /// the reference on a clean 3 EV step, 1.39 EV of trench at +100 against the
+    /// 0.30 EV bar the presence golden holds Clarity to. Mirroring the negative gate
+    /// instead would have flattened hair and fabric weave — measured at 0.19 coherence
+    /// where a hard step measures 1.00 — which are the subjects the positive control
+    /// exists for, so the gate only starts closing above them.
     static let detailGainGatedSource = """
     kernel vec4 lumenDetailGainGated(__sample hi, __sample lo, __sample gate,
-                                     float k, float useGate) {
-        float open = mix(1.0, 1.0 - clamp(gate.r, 0.0, 1.0), useGate);
+                                     float k, float negative,
+                                     float gateLo, float gateHi) {
+        float c = clamp(gate.r, 0.0, 1.0);
+        float closed = mix(smoothstep(gateLo, gateHi, c), c, negative);
+        float open = 1.0 - closed;
         float g = exp2(k * open * (hi.r - lo.r));
         return vec4(g, g, g, 1.0);
     }

@@ -582,25 +582,31 @@ public struct RenderGraph {
         if d.texture != 0, let baseFine = Self.guidedSelfFilter(lum, radius: fine,
                                                                 epsilon: epsilon) {
             let k = d.texture / 100.0 * 0.9 * perStop
-            // NEGATIVE Texture is gated by local structure and positive Texture is not.
-            // That asymmetry is the whole difference between a skin smoother and a
-            // negative-Clarity glow: ungated, it attacks an eyelash as readily as a
-            // pore, so the face goes waxy while the edges go soft. docs/06 names the
-            // gate as the point of the control.
+            // BOTH signs are gated by local structure, for opposite reasons, and the
+            // two gate shapes differ. Negative Texture closes on any structure at all:
+            // ungated it attacks an eyelash as readily as a pore, so the face goes waxy
+            // while the edges go soft, and docs/06 names the gate as the point of the
+            // control. Positive Texture closes only on genuine coherent edges, because
+            // the band it gains still contains the edge — ungated here, as this was,
+            // it rimmed a clean 3 EV step by 1.39 EV against a 0.30 EV bar. It cannot
+            // simply borrow the negative shape: hair and fabric weave measure 0.19
+            // coherence against a hard step's 1.00, and they are what the positive
+            // control is for.
             //
             // The radius is the reference's `workingRadius / 4`, not `mid`. It was
             // `mid` here — four times too wide — which, together with the two errors in
             // the coherence kernel itself, had the gate closing on the flat skin it is
             // meant to smooth and opening on the edges it is meant to protect.
-            let gate = d.texture < 0
-                ? Self.localStructure(lum, radius: Self.structureRadius(longEdge: longEdge))?
-                    .coherence
-                : nil
+            let gate = Self.localStructure(
+                lum, radius: Self.structureRadius(longEdge: longEdge))?.coherence
             let gained: CIImage?
             if let gate {
                 gained = KernelLibrary.apply(
                     KernelLibrary.detailGainGated, extent: out.extent,
-                    [lum, baseFine, gate, Float(k), Float(1.0)])
+                    [lum, baseFine, gate, Float(k),
+                     Float(d.texture < 0 ? 1.0 : 0.0),
+                     Float(DetailEngine.texturePositiveGateLo),
+                     Float(DetailEngine.texturePositiveGateHi)])
             } else {
                 gained = KernelLibrary.apply(KernelLibrary.detailGain,
                                              extent: out.extent,
