@@ -745,24 +745,27 @@ public final class PipelineRenderer {
     /// rectangles it derives. Factored out so the INVERSE below is built from the same
     /// expression rather than a second copy of it that can drift.
     static func geometryRects(_ geo: Geometry, sourceSize: CGSize)
-        -> (orientation: CGAffineTransform, straightened: CGRect, target: CGRect) {
+        -> (orientation: CGAffineTransform, usable: CGRect, target: CGRect) {
         var orientation = CGAffineTransform.identity
         if geo.flipH { orientation = orientation.scaledBy(x: -1, y: 1) }
         if geo.angle != 0 { orientation = orientation.rotated(by: -geo.angle * .pi / 180) }
 
         let extent = CGRect(origin: .zero, size: sourceSize)
-        let straightened = orientation.isIdentity ? extent : extent.applying(orientation)
-        var target = straightened
-        let crop = geo.crop
-        if crop.x != 0 || crop.y != 0 || crop.w != 1 || crop.h != 1,
-           straightened.width > 0, straightened.height > 0 {
-            target = CGRect(x: straightened.origin.x + crop.x * straightened.width,
-                            y: straightened.origin.y
-                                + (1 - crop.y - crop.h) * straightened.height,
-                            width: crop.w * straightened.width,
-                            height: crop.h * straightened.height)
-        }
-        return (orientation, straightened, target)
+        let rotated = orientation.isIdentity ? extent : extent.applying(orientation)
+        let resolved = CropGeometry.resolve(sourceWidth: Double(sourceSize.width),
+                                            sourceHeight: Double(sourceSize.height),
+                                            geometry: geo)
+        // The rotated picture keeps its centre, so the inscribed frame is centred on it.
+        // `resolved` is top-left-origin; Core Image extents are y-up.
+        let usable = CGRect(x: rotated.midX - CGFloat(resolved.usableWidth) / 2,
+                            y: rotated.midY - CGFloat(resolved.usableHeight) / 2,
+                            width: CGFloat(resolved.usableWidth),
+                            height: CGFloat(resolved.usableHeight))
+        let target = CGRect(x: usable.minX + CGFloat(resolved.x),
+                            y: usable.maxY - CGFloat(resolved.y) - CGFloat(resolved.height),
+                            width: CGFloat(resolved.width),
+                            height: CGFloat(resolved.height))
+        return (orientation, usable, target)
     }
 
     /// A point in the DISPLAYED frame — normalized 0…1, top-left origin, as a view
@@ -918,29 +921,38 @@ public final class PipelineRenderer {
         let geo = recipe.develop.geometry
         var out = image
 
-        var orientation = CGAffineTransform.identity
-        if geo.flipH { orientation = orientation.scaledBy(x: -1, y: 1) }
-        if geo.angle != 0 { orientation = orientation.rotated(by: -geo.angle * .pi / 180) }
-
-        // Work out the crop rectangle on the straightened frame first.
-        let straightened = orientation.isIdentity
-            ? out.extent
-            : out.extent.applying(orientation)
-        var target = straightened
-        let crop = geo.crop
-        if !skipCrop,
-           crop.x != 0 || crop.y != 0 || crop.w != 1 || crop.h != 1,
-           straightened.width > 0, straightened.height > 0 {
-            // Recipe crop is top-left-origin (image convention); Core Image extents are
-            // bottom-up, so the y term flips.
-            target = CGRect(x: straightened.origin.x + crop.x * straightened.width,
-                            y: straightened.origin.y
-                                + (1 - crop.y - crop.h) * straightened.height,
-                            width: crop.w * straightened.width,
-                            height: crop.h * straightened.height)
+        // `geometryRects` works in a zero-origin frame, and both the rotation and the
+        // scale below are about the ORIGIN rather than the image's centre — so an image
+        // arriving at a non-zero origin would have its crop offset by exactly that
+        // origin. Making the assumption true costs nothing when it already is, and the
+        // function ends by re-normalizing anyway.
+        if out.extent.origin != .zero {
+            out = out.transformed(by: CGAffineTransform(translationX: -out.extent.origin.x,
+                                                        y: -out.extent.origin.y))
         }
 
-        // Fold the output scale into the same transform, so there is one resample.
+        // The frame the crop is a fraction of is `CropGeometry`'s INSCRIBED rectangle,
+        // not the rotated frame's bounding box.
+        //
+        // It was `out.extent.applying(orientation)`, which returns the axis-aligned
+        // bounding box of the transformed rectangle — strictly larger than the picture,
+        // 12% larger in area for a 3:2 frame at 5°. The crop was a fraction of that, so
+        // the default crop of the whole frame on a straightened photograph included the
+        // four empty wedges rotation leaves behind, and nothing in the repository
+        // computed an inscribed rectangle to save it.
+        //
+        // The arithmetic is in LumenCore so it can be tested from a machine with no
+        // renderer, which is also why this file could carry the bug: it is `#if
+        // os(macOS)` and had no test of any kind.
+        var effective = geo
+        if skipCrop { effective.crop = Crop() }
+        // ONE definition, shared with the inverse the mask tools invert. `geometryRects`
+        // was factored out for exactly that reason and `applyGeometry` still carried its
+        // own copy of the arithmetic, so the two had already drifted — the comment on it
+        // says "rather than a second copy of it that can drift" above a second copy.
+        let rects = geometryRects(effective, sourceSize: out.extent.size)
+        let orientation = rects.orientation
+        let target = rects.target
         var scale: CGFloat = 1
         if let maxLongEdge {
             let long = Swift.max(target.width, target.height)
