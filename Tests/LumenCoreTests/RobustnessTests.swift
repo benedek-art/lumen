@@ -1127,6 +1127,102 @@ final class RobustnessTests: XCTestCase {
         }
     }
 
+    /// The reference Gaussian is continuous in sigma, and measures the sigma it is asked
+    /// for.
+    ///
+    /// It was a three-box approximation whose widths are integers, so the output only
+    /// changed when a width changed. Measured through the reference renderer across the
+    /// Sharpen Radius range of 0.5…3.0 at Amount 100, thirteen of twenty settings
+    /// rendered byte-identical: the control was a seven-position switch. The GPU's
+    /// `CIGaussianBlur` is continuous, so the two paths could not agree there either.
+    func testTheReferenceGaussianIsContinuousInSigma() {
+        // An impulse, so every tap of the kernel shows up in the result.
+        func impulse(_ n: Int) -> Plane {
+            var p = Plane(width: n, height: n)
+            p[n / 2, n / 2] = 1
+            return p
+        }
+        let field = impulse(41)
+
+        var previous: Plane?
+        var sigma = 0.3
+        while sigma <= 3.0 {
+            let now = SpatialOps.gaussianBlur(field, sigma: sigma)
+            if let previous {
+                var moved = 0.0
+                for y in 0..<now.height {
+                    for x in 0..<now.width {
+                        moved = Swift.max(moved, abs(now[x, y] - previous[x, y]))
+                    }
+                }
+                XCTAssertGreaterThan(moved, 1e-9,
+                                     "sigma \(sigma) blurred identically to "
+                                         + "\(sigma - 0.05) — the blur is a staircase")
+            }
+            previous = now
+            sigma += 0.05
+        }
+
+        // It measures what it is asked for. The second moment of the impulse response's
+        // MARGINAL is sigma by definition — marginal, not one row: a row through a 2-D
+        // response is scaled by the perpendicular Gaussian's peak, so its sum is
+        // `1/(σ√2π)` rather than 1, and asserting otherwise measures nothing but that
+        // mistake.
+        func measuredSigma(_ target: Double) -> Double {
+            // Sized to hold the whole kernel: a field narrower than the support clips
+            // the tails, and the clipped mass reads as a narrower blur.
+            let n = 2 * Int((target * 4).rounded(.up)) + 11
+            let response = SpatialOps.gaussianBlur(impulse(n), sigma: target)
+            let centre = n / 2
+            var mass = 0.0, second = 0.0
+            for x in 0..<response.width {
+                var marginal = 0.0
+                for y in 0..<response.height { marginal += response[x, y] }
+                mass += marginal
+                second += marginal * Double(x - centre) * Double(x - centre)
+            }
+            XCTAssertEqual(mass, 1, accuracy: 1e-6,
+                           "sigma \(target) did not preserve the impulse's mass")
+            return (second / mass).squareRoot()
+        }
+
+        for target in [1.0, 2.0, 3.0, 6.0] {
+            XCTAssertEqual(measuredSigma(target), target, accuracy: target * 0.02,
+                           "sigma \(target) measured \(measuredSigma(target))")
+        }
+
+        // Below sigma 1 a sampled Gaussian's discrete variance is genuinely under σ²
+        // — the kernel is only a few taps wide — so the bar there is that it keeps
+        // GETTING WIDER, which is what a radius slider promises.
+        var lastMeasured = -1.0
+        var probe = 0.3
+        while probe <= 3.0 {
+            let now = measuredSigma(probe)
+            XCTAssertGreaterThan(now, lastMeasured,
+                                 "sigma \(probe) measured \(now), no wider than the "
+                                     + "setting below it")
+            lastMeasured = now
+            probe += 0.1
+        }
+
+        // And a flat field survives exactly, at every sigma, including across the
+        // exact/box crossover — a blur that does not preserve a constant darkens the
+        // picture by its own truncation error.
+        var flat = Plane(width: 24, height: 24)
+        for y in 0..<24 { for x in 0..<24 { flat[x, y] = 0.37 } }
+        for sigma in [0.5, 3.0, 7.9, SpatialOps.exactGaussianMaxSigma, 8.1, 20.0] {
+            let out = SpatialOps.gaussianBlur(flat, sigma: sigma)
+            for y in 0..<out.height {
+                for x in 0..<out.width {
+                    // `Plane` stores f32, so 0.37 is not representable exactly; the
+                    // bar is the blur's own error, not the storage's.
+                    XCTAssertEqual(out[x, y], flat[x, y], accuracy: 1e-6,
+                                   "sigma \(sigma) moved a flat field at (\(x), \(y))")
+                }
+            }
+        }
+    }
+
     /// A local Colour tint has to change the picture, and hold luminance while it does.
     ///
     /// It changed nothing here: the reference renderer's local stage never read

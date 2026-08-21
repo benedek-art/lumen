@@ -97,8 +97,25 @@ public enum SpatialOps {
     /// `m = round((12σ² − n·wl² − 4n·wl − 3n) / (−4·wl − 4))` passes and `wu` for the rest.
     /// Mixing two widths is what lets three integer boxes hit a non-integer σ; using one
     /// width three times quantizes σ badly at the small radii capture sharpening lives at.
+    /// Below this sigma the blur is an EXACT separable Gaussian rather than the
+    /// three-box approximation.
+    ///
+    /// The box widths are integers, so the result only changes when a width changes.
+    /// Measured across the Sharpen Radius range of 0.5…3.0 at Amount 100, thirteen of
+    /// twenty settings rendered BYTE-IDENTICAL: the control was a seven-position switch
+    /// wearing a slider's clothes. The GPU's `CIGaussianBlur` is continuous in sigma, so
+    /// the two paths could not agree there either, and no golden could have told a
+    /// staircase from a smooth ramp.
+    ///
+    /// Boxes are kept above it because a mask feather or a halation radius runs to tens
+    /// of pixels, where an exact kernel is hundreds of taps and one integer step in a
+    /// box width is under a percent — invisible, and not worth paying for. At sigma 8
+    /// the step is already 1.6%.
+    public static let exactGaussianMaxSigma: Double = 8
+
     public static func gaussianBlur(_ plane: Plane, sigma: Double) -> Plane {
         guard sigma > 0.05 else { return plane }
+        if sigma <= exactGaussianMaxSigma { return exactGaussian(plane, sigma: sigma) }
         var out = plane
         for r in boxRadiiForGaussian(sigma: sigma) { out = boxBlur(out, radius: r) }
         return out
@@ -106,8 +123,64 @@ public enum SpatialOps {
 
     public static func gaussianBlur(_ image: ImageBuffer, sigma: Double) -> ImageBuffer {
         guard sigma > 0.05 else { return image }
+        if sigma <= exactGaussianMaxSigma {
+            var out = image
+            for c in 0..<3 {
+                writeChannel(exactGaussian(channelPlane(image, c), sigma: sigma),
+                             into: &out, channel: c)
+            }
+            return out
+        }
         var out = image
         for r in boxRadiiForGaussian(sigma: sigma) { out = boxBlur(out, radius: r) }
+        return out
+    }
+
+    /// A true separable Gaussian, normalized over the taps it actually keeps so the
+    /// blur preserves the mean exactly rather than losing the truncated tails.
+    static func exactGaussian(_ plane: Plane, sigma: Double) -> Plane {
+        guard sigma.isFinite, sigma > 0 else { return plane }
+        // FOUR sigma, not three. Normalizing over the taps that are kept makes the
+        // blur preserve a flat field either way, but truncation still bites the
+        // kernel's SHAPE: a 3σ window has a second moment of 0.973σ², so the blur
+        // measures 1.4% narrower than it was asked for, and the GPU's `CIGaussianBlur`
+        // measures the sigma it is given. At 4σ the error is 0.06%, and the cost at the
+        // Sharpen range's widest setting is six extra taps.
+        let radius = Swift.max(Int((sigma * 4).rounded(.up)), 1)
+        var kernel = [Double](repeating: 0, count: 2 * radius + 1)
+        let denominator = 2 * sigma * sigma
+        var total = 0.0
+        for i in 0...(2 * radius) {
+            let d = Double(i - radius)
+            let w = exp(-d * d / denominator)
+            kernel[i] = w
+            total += w
+        }
+        guard total > 0 else { return plane }
+        for i in kernel.indices { kernel[i] /= total }
+
+        let w = plane.width
+        let h = plane.height
+        var horizontal = Plane(width: w, height: h)
+        for y in 0..<h {
+            for x in 0..<w {
+                var acc = 0.0
+                for t in 0...(2 * radius) {
+                    acc += kernel[t] * plane.clampedSample(x + t - radius, y)
+                }
+                horizontal[x, y] = acc
+            }
+        }
+        var out = Plane(width: w, height: h)
+        for y in 0..<h {
+            for x in 0..<w {
+                var acc = 0.0
+                for t in 0...(2 * radius) {
+                    acc += kernel[t] * horizontal.clampedSample(x, y + t - radius)
+                }
+                out[x, y] = acc
+            }
+        }
         return out
     }
 
