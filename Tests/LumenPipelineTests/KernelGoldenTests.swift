@@ -1545,6 +1545,54 @@ final class KernelGoldenTests: XCTestCase {
     /// Every case also asserts the stage MOVED the frame. A denoise that returns its
     /// input matches nothing and would otherwise sail through a comparison against a
     /// reference that also did nothing.
+    /// A colour matrix has to keep negatives and values above one.
+    ///
+    /// The whole pipeline assumes this. Scene-referred light runs past 1.0 by design,
+    /// the Y0U0V0 rotation produces signed chroma, and the soft proof's gamut test is
+    /// `Σ max(v−1,0) + max(−v,0)` in the destination's primaries — which is ZERO for
+    /// any pixel whose out-of-gamut excursion is negative, if the matrix that got it
+    /// there clamped.
+    ///
+    /// That is not hypothetical. `testSoftProofFlagsWhatSRGBCannotHold` fails on exactly
+    /// four assertions, and the CPU arithmetic says why: a Rec.2020 green lands at
+    /// `(-0.311, 0.791, -0.012)` in sRGB primaries. Its positive excursion is 0.791,
+    /// BELOW one, so its entire out-of-gamut signal is the negative red. Clamp that and
+    /// the excess is 0, the gate never lifts, and the greenest pixel sRGB cannot hold
+    /// renders as though it were perfectly in gamut.
+    ///
+    /// So this asks the question directly, on the same `applyMatrix` every colour stage
+    /// in the graph uses. If it passes, the clamp is elsewhere and this stays as the
+    /// regression test that says so.
+    func testAColourMatrixKeepsNegativesAndValuesAboveOne() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+        let width = 4, height = 4
+        let source = ImageBuffer(width: width, height: height) { _, _ in
+            RGB(-0.30, 0.75, 2.50)
+        }
+        // Identity: the values must survive a matrix that does nothing but exist.
+        let through = RenderGraph.applyMatrix(ciImage(from: source),
+                                              Mat3.diagonal(RGB(gray: 1.0)) )
+        guard let kept = readBack(through, width: width, height: height) else { return }
+        XCTAssertEqual(Double(kept[1, 1].r), -0.30, accuracy: 1e-4,
+                       "a colour matrix clamped a negative to \(kept[1, 1].r) — every "
+                           + "signed value in the pipeline dies here, including the "
+                           + "soft proof's negative out-of-gamut excursions")
+        XCTAssertEqual(Double(kept[1, 1].b), 2.50, accuracy: 1e-3,
+                       "a colour matrix clamped \(kept[1, 1].b) to display white — "
+                           + "scene-referred light runs past 1.0 by design")
+
+        // And negation, which is what the gamut test uses to fold the under-zero side
+        // into the same clamp as the over-one side.
+        let negated = RenderGraph.applyMatrix(ciImage(from: source),
+                                              Mat3.diagonal(RGB(gray: -1.0)))
+        guard let flipped = readBack(negated, width: width, height: height) else { return }
+        XCTAssertEqual(Double(flipped[1, 1].r), 0.30, accuracy: 1e-4,
+                       "negating -0.30 gave \(flipped[1, 1].r)")
+        XCTAssertEqual(Double(flipped[1, 1].g), -0.75, accuracy: 1e-4,
+                       "negating 0.75 gave \(flipped[1, 1].g) — the negative side of "
+                           + "the gamut test is being clamped away")
+    }
+
     /// The variance-stabilizing transform and the Y0U0V0 rotation, round-tripped.
     ///
     /// Four primitive goldens now cover the a-trous step, the edge blur, the edge map
