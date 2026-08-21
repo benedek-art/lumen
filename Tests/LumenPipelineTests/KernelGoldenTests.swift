@@ -741,7 +741,18 @@ final class KernelGoldenTests: XCTestCase {
         return ImageBuffer(width: width, height: height) { u, v in
             let x = Int(u * Double(width)), y = Int(v * Double(height))
             let c = base[Swift.min(x, width - 1), Swift.min(y, height - 1)]
-            let ripple = 1.0 + 0.06 * sin(Double(x) * .pi) * cos(Double(y) * .pi * 0.5)
+            // `cos`, not `sin`. `sin(x * .pi)` is ZERO at every integer x — measured,
+            // 1.22e-16 — so this function added no texture whatsoever and every test
+            // built on it has been running against a plain ramp while its comments
+            // claimed otherwise. `cos(x * .pi)` alternates +1/-1, which is fine detail
+            // at the Nyquist limit and exactly what the fine band exists to see.
+            //
+            // Measured against the reference renderer, Texture +40 with Clarity +30
+            // moves the frame 0.0076 on the old image and 0.0253 on this one. The old
+            // 0.0076 was the guided filter finding structure in the RAMP, not in any
+            // texture — the control was being tested on the one thing it is designed
+            // not to touch.
+            let ripple = 1.0 + 0.06 * cos(Double(x) * .pi) * cos(Double(y) * .pi * 0.5)
             return c * ripple
         }
     }
