@@ -1556,6 +1556,59 @@ final class KernelGoldenTests: XCTestCase {
     /// Every case also asserts the stage MOVED the frame. A denoise that returns its
     /// input matches nothing and would otherwise sail through a comparison against a
     /// reference that also did nothing.
+    /// `applyGamutWarning` on its own, fed a value the CPU says must be flagged.
+    ///
+    /// `testSoftProofFlagsWhatSRGBCannotHold` renders the whole graph and reports that a
+    /// Rec.2020 green comes back as the proofed picture rather than the warning colour.
+    /// Everything the CPU can check about that is correct: `finishLUTBeforeProof` is
+    /// populated, `finishScale` is 1.0, the table puts the green at
+    /// `(0.0646, 0.7053, 0.0542)`, the proof matrix takes that to
+    /// `(-0.311, 0.791, -0.012)`, and the excess is 0.3226 — comfortably past the
+    /// 2.4e-4 epsilon. `isOutOfGamut` agrees. And `CIColorMatrix` keeps negatives, which
+    /// the test above now pins.
+    ///
+    /// So the loss is inside this stage, and the whole-graph test cannot say where
+    /// because eight nodes sit between its input and its assertion. This one hands the
+    /// stage the exact display-domain value the table produces, as both the picture and
+    /// the unproofed reference, and asks for the flag. Nothing upstream is involved.
+    func testTheGamutFlagPaintsOnAKnownOutOfGamutValue() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+        let proof = SoftProof(enabled: true, space: .srgb,
+                              intent: .relativeColorimetric, showGamutWarning: true)
+        guard let transform = proof.transform(working: .rec2020) else {
+            return XCTFail("no proof transform")
+        }
+        let width = 4, height = 4
+        // The finish table's own output for a Rec.2020 green, measured on the CPU.
+        let display = RGB(0.0646, 0.7053, 0.0542)
+        let inProof = transform.workingToProof.apply(display)
+        print("GAMUT PROBE display \(display) -> proof primaries \(inProof); "
+              + "outOfGamut \(transform.isOutOfGamut(display))")
+
+        let source = ImageBuffer(width: width, height: height) { _, _ in display }
+        let image = ciImage(from: source)
+        let flagged = RenderGraph.applyGamutWarning(image, beforeProof: image,
+                                                    proof: transform, finishScale: 1.0)
+        guard let got = readBack(flagged, width: width, height: height) else { return }
+        print("GAMUT PROBE stage returned \(got[1, 1])")
+
+        // And the in-gamut control, which must NOT be painted.
+        let grey = ImageBuffer(width: width, height: height) { _, _ in RGB(gray: 0.18) }
+        let greyImage = ciImage(from: grey)
+        let unflagged = RenderGraph.applyGamutWarning(greyImage, beforeProof: greyImage,
+                                                      proof: transform, finishScale: 1.0)
+        guard let leftAlone = readBack(unflagged, width: width, height: height) else {
+            return
+        }
+        print("GAMUT PROBE in-gamut grey returned \(leftAlone[1, 1])")
+
+        XCTAssertLessThan(got[1, 1].maxAbsDifference(SoftProof.warningColor), 0.02,
+                          "the stage did not flag a value whose excess is 0.32: "
+                              + "\(got[1, 1])")
+        XCTAssertLessThan(leftAlone[1, 1].maxAbsDifference(RGB(gray: 0.18)), 0.01,
+                          "the stage painted over an in-gamut neutral: \(leftAlone[1, 1])")
+    }
+
     /// A colour matrix has to keep negatives and values above one.
     ///
     /// The whole pipeline assumes this. Scene-referred light runs past 1.0 by design,
