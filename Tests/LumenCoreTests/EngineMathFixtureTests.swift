@@ -131,6 +131,47 @@ final class EngineMathFixtureTests: XCTestCase {
         }
     }
 
+    // MARK: - The parametric curve
+
+    /// The four-region bake had no cross-language fixture at all. `curves.json` covers
+    /// `MonotoneCubic`, which is the POINT curve; nothing covered this, so both sides
+    /// could have drifted apart silently and neither noticed when the whole limiter
+    /// was replaced.
+    func testParametricCurveMatchesTheReference() throws {
+        for row in try rows(fixture(), "parametric") {
+            var p = ParametricCurve()
+            p.shadows = double(row, "shadows")
+            p.darks = double(row, "darks")
+            p.lights = double(row, "lights")
+            p.highlights = double(row, "highlights")
+            let label = "s\(p.shadows) d\(p.darks) l\(p.lights) h\(p.highlights)"
+
+            let centres = CurveStack.regionCentres(p.splits)
+            let bumps = CurveStack.parametricBumps(centres)
+            let amounts = [p.shadows, p.darks, p.lights, p.highlights].map { $0 / 100 }
+            guard let wantAmplitude = row["amplitude"] as? [NSNumber],
+                  wantAmplitude.count == 4 else {
+                return XCTFail("parametric row carried no amplitudes for \(label)")
+            }
+            for r in 0..<4 where amounts[r] != 0 {
+                XCTAssertEqual(
+                    CurveStack.regionAmplitude(bumps[r], sign: amounts[r] < 0 ? -1 : 1),
+                    wantAmplitude[r].doubleValue, accuracy: 1e-9,
+                    "region \(r) amplitude diverged for \(label)")
+            }
+
+            guard let curve = row["curve"] as? [[String: Any]] else {
+                return XCTFail("parametric row carried no curve for \(label)")
+            }
+            let baked = CurveStack.bakeParametric(p)
+            for sample in curve {
+                let x = double(sample, "x")
+                XCTAssertEqual(baked.evaluate(x), double(sample, "y"), accuracy: 1e-9,
+                               "the baked curve diverged at \(x) for \(label)")
+            }
+        }
+    }
+
     // MARK: - Chroma scaling
 
     func testShapedChromaScaleMatchesTheReference() throws {

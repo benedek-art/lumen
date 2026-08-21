@@ -64,10 +64,106 @@ public struct CurveStack: Sendable {
         return [a / 2, (a + b) / 2, (b + c) / 2, (c + 1) / 2]
     }
 
-    /// Peak shift, in encoded units, that ±100 on a parametric slider produces at the
-    /// centre of its region. Chosen so a full-slider move is decisive without being
-    /// able to flatten the curve on its own.
-    public static let parametricRange: Double = 0.35
+    /// Slope the curve must still have at full deflection of ONE region.
+    ///
+    /// This replaced `parametricRange`, a fixed peak shift of 0.35 encoded units that
+    /// every region shared. The regions are not the same width — the middle two are
+    /// half the outer two at the default splits, and the splits are user-movable down
+    /// to 0.02 apart — so one number could not be right for all of them, and it was
+    /// right for none: measured, the monotonicity limiter bound at 47 on Darks and
+    /// Lights and at 70 on Shadows and Highlights, so between 30% and 53% of every
+    /// parametric slider applied the identical curve. The end of the control did
+    /// nothing, silently, which is the failure `Num.softKnee` exists to prevent and
+    /// which the limiter's own comment says it fixed. It fixed the SAWTOOTH. The dead
+    /// top was still there underneath.
+    ///
+    /// And where it bound, it bound at slope zero exactly — the limiter's definition of
+    /// safe — so full deflection put a dead-flat segment in the curve. Flat is not an
+    /// inversion, but on a photograph it is a posterized band, and it was reachable on
+    /// every one of the four sliders on its own.
+    ///
+    /// Sizing each region's amplitude from its OWN shape, to a slope floor instead of a
+    /// zero floor, makes the whole travel live and the flat spot unreachable. It costs
+    /// peak authority: Darks ±100 moves 30.6 code values where it used to move 38.3.
+    /// The 38.3 was only ever reachable at setting 47 and above, all of which rendered
+    /// the same picture.
+    public static let parametricMinSlope: Double = 0.2
+
+    /// Grid the limiter certifies, and the grid the checks probe.
+    ///
+    /// Fixed at 1024 rather than tied to `size` on purpose: a size-dependent solve
+    /// would hand a 512-sample preview and a 1024-sample export different curves.
+    ///
+    /// This used to claim the bake grids were subsets of this one and inherited the
+    /// guarantee. They are not, at ANY size. `LUT1D(size:)` samples `i / (size − 1)` —
+    /// 1/511 apart for a 512-point table, 1/1023 for a 1024-point one — while this
+    /// probes `i / 1024`. 511 and 1023 share no factor with 1024, so the two grids meet
+    /// only at the endpoints, and the common refinement is 522,753 points. The
+    /// certificate was real and it was about a curve nobody bakes. Hence the forward
+    /// clamp in `bakeParametric`: the solve chooses the SHAPE, and the clamp makes the
+    /// invariant exact on whatever grid is actually stored.
+    static let parametricProbes: Int = 1024
+
+    /// Fraction of the combination limit below which the sliders are applied exactly.
+    /// Same knee as the tone engine and the grading wheels; same reason.
+    ///
+    /// `parametricMinSlope == 1 − parametricKnee` is not a coincidence and the two
+    /// cannot be set independently. A lone slider at ±100 leaves the curve with slope
+    /// `parametricMinSlope`, and the combination limiter — which allows slope down to 0
+    /// — would let it go `1 / (1 − parametricMinSlope)` times further. That ratio is
+    /// 1.25, exactly `1 / parametricKnee`, so a lone slider sits precisely at the knee
+    /// and is applied EXACTLY at every setting. Raise the slope floor and lone sliders
+    /// start getting eased for no reason; lower it and full deflection approaches a
+    /// flat segment again.
+    static let parametricKnee: Double = 0.8
+
+    /// The four region bumps — weight × endpoint envelope — sampled on the probe grid.
+    ///
+    /// Sampled once and handed to both solves. `ZoneWeights.weights` allocates, and the
+    /// bisection this replaced called it 41,000 times per bake: measured, 7.9 ms for a
+    /// binding setting, on the path a slider drag runs every frame.
+    static func parametricBumps(_ centres: [Double]) -> [[Double]] {
+        let probes = parametricProbes
+        var bumps = [[Double]](repeating: [Double](repeating: 0, count: probes + 1),
+                               count: 4)
+        for i in 0...probes {
+            let x = Double(i) / Double(probes)
+            let (lower, weight) = ZoneWeights.crossfade(x: x, pivots: centres)
+            // The envelope pins both endpoints, so the curve can never move black or
+            // white.
+            let envelope = 4 * x * (1 - x)
+            bumps[lower][i] = weight * envelope
+            if lower + 1 < 4 { bumps[lower + 1][i] = (1 - weight) * envelope }
+        }
+        return bumps
+    }
+
+    /// Largest multiplier on a shift sampled over the probe grid that leaves the curve
+    /// `x + m·delta(x)` with slope at or above `floor` everywhere.
+    ///
+    /// Closed form: the slope is `1 + m·Δdelta/Δx`, linear in `m`, so every interval
+    /// where the shift falls gives one bound and the smallest of them is the answer.
+    /// `.infinity` means nothing constrains it. Both solves below are this function —
+    /// the per-region amplitude against `parametricMinSlope`, and the combination scale
+    /// against zero.
+    static func slopeLimit(_ delta: [Double], floor: Double) -> Double {
+        let dx = 1.0 / Double(parametricProbes)
+        var limit = Double.infinity
+        for i in 1..<delta.count {
+            let step = delta[i] - delta[i - 1]
+            if step < 0 { limit = Swift.min(limit, (1 - floor) * dx / -step) }
+        }
+        return limit
+    }
+
+    /// The peak shift ±100 on one region is worth, given where the splits put it.
+    /// Solved from the region's own shape rather than shared, because the regions are
+    /// not the same width and the splits move.
+    static func regionAmplitude(_ bump: [Double], sign: Double) -> Double {
+        let signed = sign < 0 ? bump.map { -$0 } : bump
+        let limit = slopeLimit(signed, floor: parametricMinSlope)
+        return limit.isFinite ? limit : 0
+    }
 
     /// Bake the four-region parametric curve. The region weights are the same
     /// partition-of-unity crossfade the tone zones use — one falloff grammar across
@@ -81,102 +177,63 @@ public struct CurveStack: Sendable {
             return LUT1D(size: size) { $0 }
         }
         let centres = regionCentres(p.splits)
+        let bumps = parametricBumps(centres)
 
-        func delta(_ x: Double) -> Double {
-            let w = ZoneWeights.weights(x: x, pivots: centres)
-            var s = 0.0
-            for i in 0..<4 { s += w[i] * amounts[i] }
-            let envelope = 4 * x * (1 - x)     // 0 at both ends, 1 at the middle
-            return s * envelope * parametricRange
+        // Each region carries as much as its own shape allows, so a slider on its own
+        // is monotone by construction and never meets the limiter below.
+        var amplitude = [Double](repeating: 0, count: 4)
+        for r in 0..<4 where amounts[r] != 0 {
+            amplitude[r] = regionAmplitude(bumps[r], sign: amounts[r] < 0 ? -1 : 1)
         }
 
-        // Monotonicity limiter: the largest scale that keeps the sampled derivative
-        // non-negative everywhere.
+        let probes = parametricProbes
+
+        // What the sliders ask for, before any limit, on the probe grid.
+        var requested = [Double](repeating: 0, count: probes + 1)
+        for i in 0...probes {
+            var d = 0.0
+            for r in 0..<4 where amounts[r] != 0 { d += bumps[r][i] * amounts[r] * amplitude[r] }
+            requested[i] = d
+        }
+
+        // ONE scale over the sum, for the combinations that still conflict — Shadows up
+        // against Darks down meet on the same stretch of the axis and cannot both be
+        // honoured. `y(x) = x + scale·requested(x)` is linear in the scale, so the
+        // largest safe value is closed form: one sweep, the smallest ratio over the
+        // intervals where the sum falls. The bisection this replaced agreed with it and
+        // cost forty sweeps.
         //
-        // Found by bisection, NOT by a `scale *= 0.8` ladder. The ladder was a real
-        // artefact, not a nicety: the scale a given slider setting needs falls smoothly
-        // as you drag, but a geometric ladder can only answer 1, 0.8, 0.64, 0.512, …
-        // so the applied shift SAWTOOTHED. Every time the ladder stepped, the curve
-        // jumped backwards by 16% in one slider notch — measured, Darks reversed at 46,
-        // 57, 71 and 89, Lights at 49, 61, 76 and 94. A drop of 0.028 on the encoded
-        // axis is about 7 of 255 levels, arriving mid-drag, so the image visibly
-        // bounced as the photographer pushed the slider up.
-        //
-        // It also meant the end of the slider was not its strongest setting: Lights at
-        // 100 landed 15% weaker than Lights at 60. Bisection makes the response
-        // non-decreasing across all four sliders, both directions, and puts the maximum
-        // at 100 where the label promises it.
-        func isMonotone(_ scale: Double) -> Bool {
-            var previous = 0.0
-            // Probe the grid the curve is actually baked on. This was 256 while
-            // production bakes 1024, so the limiter certified monotonicity on a grid
-            // four times coarser than the one it was asked to guarantee, and the
-            // samples in between dipped: at Highlights −100 / Lights +100 a baked
-            // 512-sample curve stepped backwards by 6.8e-7, and six of the nine
-            // extreme slider combinations did it at all. Raising this to 1024 takes
-            // every one of them to exactly zero while moving the solved scale by
-            // 0.014% — the limiter was already in the right place, it was just
-            // looking at every fourth sample.
-            //
-            // Certifying the grid is sufficient as well as necessary: LUT1D
-            // interpolates linearly between stored samples, and linear interpolation
-            // between non-decreasing samples is non-decreasing. So a curve monotone at
-            // every stored sample is monotone everywhere it will ever be read.
-            //
-            // Fixed at 1024 rather than tied to `size` on purpose: a size-dependent
-            // scale would hand a 512-sample preview and a 1024-sample export different
-            // curves.
-            //
-            // This used to claim the bake grids were subsets of this one and inherited
-            // the guarantee. They are not, at ANY size. `LUT1D(size:)` samples
-            // `i / (size − 1)` — 1/511 apart for a 512-point table, 1/1023 for a
-            // 1024-point one — while this probes `i / 1024`. 511 and 1023 share no
-            // factor with 1024, so the two grids meet only at the endpoints, and the
-            // common refinement is 522,753 points: far too many to bisect over forty
-            // times. The certificate was real and it was about a curve nobody bakes.
-            //
-            // Hence the clamp below. This bisection still chooses the SHAPE — a single
-            // global scale, so the curve keeps its form instead of being flattened in
-            // patches — and the clamp makes the invariant exact on whatever grid is
-            // actually stored. Proof by sampling where the samples are the output.
-            let probes = 1024
-            for i in 0...probes {
-                let x = Double(i) / Double(probes)
-                let y = x + delta(x) * scale
-                if i > 0 && y < previous - 1e-9 { return false }
-                previous = y
-            }
-            return true
-        }
+        // Then eased onto, not clipped at. The limit is inversely proportional to what
+        // is asked for, so `scale × request` is constant the moment a hard cap binds —
+        // which is exactly how the top of every slider went dead before.
+        // Floor of zero, not `parametricMinSlope`: two adjacent regions pulled hard
+        // against each other IS a request for a plateau, and honouring it is the
+        // difference between a limiter and a house style. Measured, Shadows +100 with
+        // Darks −100 bottoms out at slope 0.0126 — an 80:1 compression band at the
+        // boundary, monotone, with no flat sample anywhere on the curve. The point
+        // curve stays the unlimited tool; these four sliders are the safe one.
+        let limit = slopeLimit(requested, floor: 0)
+        let scale = limit.isFinite
+            ? Swift.min(1, limit * Num.softKnee(1 / limit, knee: parametricKnee))
+            : 1
 
-        var finalScale = 1.0
-        if !isMonotone(1) {
-            var lo = 0.0        // always monotone: the curve is the identity
-            var hi = 1.0        // known not to be
-            for _ in 0..<40 {
-                let mid = 0.5 * (lo + hi)
-                if isMonotone(mid) { lo = mid } else { hi = mid }
-            }
-            finalScale = lo
-        }
         // Non-decreasing by construction, on the grid that will be read.
         //
-        // The limiter lands within about 2e-9 of monotone and no closer, because it
-        // certifies a different grid and tolerates 1e-9 on that one. Measured, a
-        // 512-point bake at Highlights −100 / Lights +100 stepped backwards by 1.8e-9
-        // — invisible on any axis (a 16-bit level is 1.5e-5, four orders of magnitude
-        // larger) but a broken invariant, and the kind that gets designed around later.
-        //
-        // A forward max is enough because `LUT1D` interpolates linearly: linear
-        // interpolation between non-decreasing samples is non-decreasing, so pinning
-        // the stored samples pins the whole curve. It repairs only what the limiter
-        // left behind, which is why it cannot flatten anything visible — a clamp on
-        // its own, without the global scale above, would.
+        // The solve above certifies `parametricProbes`, and the stored grid is a
+        // different one at every size — see the note there. A forward max is enough
+        // because `LUT1D` interpolates linearly: linear interpolation between
+        // non-decreasing samples is non-decreasing, so pinning the stored samples pins
+        // the whole curve. It repairs only what the different grid leaves behind, which
+        // is why it cannot flatten anything visible — a clamp on its own, without the
+        // solve above, would.
         var samples = [Double](repeating: 0, count: size)
         var running = -Double.infinity
+        let signed = (0..<4).map { amounts[$0] * amplitude[$0] }
         for i in 0..<size {
             let x = Double(i) / Double(size - 1)
-            running = Swift.max(running, Num.saturate(x + delta(x) * finalScale))
+            let d = ZoneWeights.blend(x: x, pivots: centres, values: signed)
+            let envelope = 4 * x * (1 - x)
+            running = Swift.max(running, Num.saturate(x + d * envelope * scale))
             samples[i] = running
         }
         return LUT1D(samples: samples)
@@ -332,3 +389,4 @@ public struct LocalCurve: Sendable {
         return scale == 1 ? curved : c.mix(curved, scale)
     }
 }
+

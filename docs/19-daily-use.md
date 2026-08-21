@@ -120,6 +120,55 @@ with Blacks sweeping 0→100 walks code 20.9 → 48.0 with a step at every stop.
 alone, without the solve, left 160 flat at two sliders and 497 at five — 16% and 49% of
 the tonal axis rendering as a single value.
 
+### The curve
+
+The point curve was already exact — it lands on its own control points to 0.000000, so
+a photographer who places a point gets that point. The four parametric sliders were not.
+
+**Between 30% and 53% of every parametric slider applied the identical curve.** Darks
+and Lights stalled at setting 47, Shadows and Highlights at 70, and every setting above
+that rendered the same picture. The cause was one shared peak shift — 0.35 encoded units
+for all four regions — which the monotonicity limiter then cut back to whatever each
+region's own width could actually carry. The regions are not the same width: the middle
+two are half the outer two at the default splits, and the splits are user-movable down
+to 0.02 apart, so one number was never going to be right for four of them.
+
+**And where it bound, it bound at slope zero.** A single slider at full deflection put a
+dead-flat segment in the curve — a posterized band, reachable on all four sliders on
+their own. The limiter's definition of safe was "not an inversion", and flat is not an
+inversion.
+
+Both are gone. Each region's amplitude is now solved from its own shape, to a slope
+floor of 0.2 rather than to zero, so a lone slider is monotone by construction and never
+meets the limiter at all:
+
+```
+                 at 50    at 100   second half   min slope at 100
+  Shadows ±100    12.8     25.7        50%            0.20
+  Darks   ±100    15.3     30.6        50%            0.20
+  Lights  ±100    16.2     32.4        50%            0.20
+  Highl.  ±100    13.3     26.7        50%            0.20
+```
+
+Exactly half the effect in each half of the travel, every region, both directions, and
+no setting between 1 and 100 that repeats the one before it. Peak authority costs 15–20%
+against the old numbers — Darks moved 38.3 code values, now 30.6 — and the old peak was
+only ever reachable at setting 47 and above, all of which rendered the same picture.
+
+The floor and the knee are one decision, not two: a lone slider leaves the curve with
+slope `parametricMinSlope`, and the combination limiter would let it go
+`1 / (1 − 0.2) = 1.25` times further, which is exactly `1 / 0.8`. So the lone slider sits
+precisely at the knee and is applied exactly. Combinations that genuinely conflict —
+Shadows up against Darks down — are eased onto their limit rather than clipped at it, and
+bottom out at slope 0.0126: a hard compression band, monotone, with no flat sample
+anywhere. That is what asking two neighbours to fight means, and the point curve stays
+the unlimited tool for anyone who wants more.
+
+The solve is closed form, like the tone one and for the same reason: **0.50 ms per bake,
+against 7.90 ms** for the forty-sweep bisection it replaced. `ZoneWeights` no longer
+allocates a weight vector per sample either, which the tone engine's zone panel was also
+paying for.
+
 ## Phase 3 — the daily workflow
 
 - **Save a look.** Not a preset browser of other people's presets — the owner's own

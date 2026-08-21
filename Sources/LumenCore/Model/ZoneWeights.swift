@@ -18,25 +18,42 @@ import Foundation
 
 public enum ZoneWeights {
 
-    /// Weights of each zone at position x. `pivots.count` = zone count.
-    public static func weights(x: Double, pivots: [Double]) -> [Double] {
+    /// The crossfade at `x`, without materialising a weight vector: the index of the
+    /// lower zone and its weight. The zone one above carries the remainder, and every
+    /// other zone is zero — a raised-cosine crossfade only ever touches two.
+    ///
+    /// Every caller here is a per-sample loop over a 1024-point grid, and `weights`
+    /// allocates an array on each call. `CurveStack.bakeParametric` did it 41,000 times
+    /// per bake and `ToneEngine.zonePanelStops` once per LUT sample, both on the path a
+    /// slider drag runs every frame.
+    @inlinable public static func crossfade(x: Double, pivots: [Double])
+        -> (index: Int, weight: Double) {
         let n = pivots.count
         precondition(n >= 1)
-        var w = [Double](repeating: 0, count: n)
-        if n == 1 || x <= pivots[0] {
-            w[0] = 1
-            return w
-        }
-        if x >= pivots[n - 1] {
-            w[n - 1] = 1
-            return w
-        }
+        if n == 1 || x <= pivots[0] { return (0, 1) }
+        if x >= pivots[n - 1] { return (n - 1, 1) }
         var i = 0
         while i < n - 1 && !(x >= pivots[i] && x < pivots[i + 1]) { i += 1 }
         let u = (x - pivots[i]) / (pivots[i + 1] - pivots[i])
-        let wi = 0.5 * (1 + cos(.pi * u))
+        return (i, 0.5 * (1 + cos(.pi * u)))
+    }
+
+    /// `Σ wᵢ · valuesᵢ` at `x`. The blend the zone system is for, allocation-free.
+    @inlinable public static func blend(x: Double, pivots: [Double],
+                                        values: [Double]) -> Double {
+        precondition(values.count == pivots.count)
+        let (i, w) = crossfade(x: x, pivots: pivots)
+        guard i + 1 < values.count else { return values[i] * w }
+        return values[i] * w + values[i + 1] * (1 - w)
+    }
+
+    /// Weights of each zone at position x. `pivots.count` = zone count.
+    public static func weights(x: Double, pivots: [Double]) -> [Double] {
+        let n = pivots.count
+        var w = [Double](repeating: 0, count: n)
+        let (i, wi) = crossfade(x: x, pivots: pivots)
         w[i] = wi
-        w[i + 1] = 1 - wi
+        if i + 1 < n { w[i + 1] = 1 - wi }
         return w
     }
 
@@ -45,10 +62,6 @@ public enum ZoneWeights {
     public static func exposureStops(
         x: Double, pivots: [Double], zoneEV: [Double], globalEV: Double
     ) -> Double {
-        precondition(zoneEV.count == pivots.count)
-        let w = weights(x: x, pivots: pivots)
-        var stops = globalEV
-        for (i, wi) in w.enumerated() { stops += wi * zoneEV[i] }
-        return stops
+        globalEV + blend(x: x, pivots: pivots, values: zoneEV)
     }
 }

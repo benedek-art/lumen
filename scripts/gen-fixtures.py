@@ -562,7 +562,26 @@ class MonotoneCubic:
 # less", and no check in this file had it for any control. It does now.
 # ---------------------------------------------------------------------------
 
-PARAMETRIC_RANGE = 0.35
+# Slope the curve must still have at full deflection of ONE region — see
+# CurveStack.parametricMinSlope. This replaced a fixed peak shift of 0.35 encoded units
+# shared by all four regions, which the monotonicity limiter then cut back to whatever
+# each region's own width could carry: measured, that bound at setting 47 on Darks and
+# Lights and 70 on Shadows and Highlights, so between 30% and 53% of every parametric
+# slider applied the identical curve. And it bound at slope zero exactly, so full
+# deflection of a single slider put a dead-flat segment in the curve.
+#
+# PARAMETRIC_MIN_SLOPE == 1 - PARAMETRIC_KNEE is the exact condition that leaves a lone
+# slider applied exactly at every setting; the two cannot be set independently.
+PARAMETRIC_MIN_SLOPE = 0.2
+PARAMETRIC_KNEE = 0.8
+
+# 1024, matching CurveStack.parametricProbes. At 256 both sides certified monotonicity
+# on a grid four times coarser than the 1024 the curve is baked on, and the samples in
+# between dipped — six of the nine extreme slider combinations stepped backwards, the
+# worst by 6.8e-7. Probing the bake grid is sufficient as well as necessary, because
+# LUT1D interpolates linearly between stored samples and linear interpolation between
+# non-decreasing samples is non-decreasing.
+PARAMETRIC_PROBES = 1024
 
 
 def region_centres(splits=(0.25, 0.5, 0.75)):
@@ -573,43 +592,88 @@ def region_centres(splits=(0.25, 0.5, 0.75)):
     return [a / 2, (a + b) / 2, (b + c) / 2, (c + 1) / 2]
 
 
-def parametric_delta(x, amounts, centres):
+def parametric_bumps(centres, probes=PARAMETRIC_PROBES):
+    """The four region bumps — weight x endpoint envelope — on the probe grid.
+
+    The envelope pins both endpoints, so the curve can never move black or white."""
+    bumps = [[0.0] * (probes + 1) for _ in range(4)]
+    for i in range(probes + 1):
+        x = i / probes
+        w = zone_weights(x, centres)
+        envelope = 4 * x * (1 - x)
+        for r in range(4):
+            bumps[r][i] = w[r] * envelope
+    return bumps
+
+
+def slope_limit(delta, floor, probes=PARAMETRIC_PROBES):
+    """Largest multiplier on `delta` leaving `x + m*delta(x)` with slope >= floor.
+
+    Closed form: the slope is `1 + m*d(delta)/dx`, linear in m, so every interval where
+    the shift falls gives one bound and the smallest is the answer. The bisection this
+    replaced agreed with it and cost forty sweeps of the same grid."""
+    dx = 1.0 / probes
+    limit = math.inf
+    for i in range(1, len(delta)):
+        step = delta[i] - delta[i - 1]
+        if step < 0:
+            limit = min(limit, (1 - floor) * dx / -step)
+    return limit
+
+
+def region_amplitude(bump, sign):
+    """What +/-100 on one region is worth, solved from that region's own shape."""
+    signed = [-v for v in bump] if sign < 0 else bump
+    limit = slope_limit(signed, PARAMETRIC_MIN_SLOPE)
+    return limit if math.isfinite(limit) else 0.0
+
+
+def parametric_plan(amounts, centres):
+    """(per-region amplitude, requested shift on the probe grid, applied scale)."""
+    bumps = parametric_bumps(centres)
+    amplitude = [region_amplitude(bumps[r], -1 if amounts[r] < 0 else 1)
+                 if amounts[r] != 0 else 0.0 for r in range(4)]
+    requested = [sum(bumps[r][i] * amounts[r] * amplitude[r] for r in range(4))
+                 for i in range(PARAMETRIC_PROBES + 1)]
+    # Floor of zero for the combination: two adjacent regions pulled hard against each
+    # other IS a request for a plateau. The point curve stays the unlimited tool.
+    limit = slope_limit(requested, 0.0)
+    scale = min(1.0, limit * soft_knee(1.0 / limit, PARAMETRIC_KNEE)) \
+        if math.isfinite(limit) else 1.0
+    return amplitude, requested, scale
+
+
+def parametric_delta(x, amounts, centres, amplitude=None):
+    if amplitude is None:
+        amplitude = parametric_plan(amounts, centres)[0]
     w = zone_weights(x, centres)
-    s = sum(w[i] * amounts[i] for i in range(4))
-    # The envelope pins both endpoints, so the curve can never move black or white.
-    return s * (4 * x * (1 - x)) * PARAMETRIC_RANGE
+    s = sum(w[r] * amounts[r] * amplitude[r] for r in range(4))
+    return s * (4 * x * (1 - x))
 
 
-# 1024, matching CurveStack.isMonotone. At 256 both sides certified monotonicity on a
-# grid four times coarser than the 1024 the curve is baked on, and the samples in
-# between dipped — six of the nine extreme slider combinations stepped backwards, the
-# worst by 6.8e-7. Probing the bake grid is sufficient as well as necessary, because
-# LUT1D interpolates linearly between stored samples and linear interpolation between
-# non-decreasing samples is non-decreasing.
-def parametric_is_monotone(scale, amounts, centres, probes=1024):
+def bake_parametric(amounts, centres, size=1024):
+    amplitude, _, scale = parametric_plan(amounts, centres)
+    samples, running = [], -math.inf
+    for i in range(size):
+        x = i / (size - 1)
+        running = max(running, clamp(x + parametric_delta(x, amounts, centres,
+                                                          amplitude) * scale, 0.0, 1.0))
+        samples.append(running)
+    return samples
+
+
+def parametric_is_monotone(scale, amounts, centres, probes=PARAMETRIC_PROBES,
+                           amplitude=None):
+    if amplitude is None:
+        amplitude = parametric_plan(amounts, centres)[0]
     previous = 0.0
     for i in range(probes + 1):
         x = i / probes
-        y = x + parametric_delta(x, amounts, centres) * scale
+        y = x + parametric_delta(x, amounts, centres, amplitude) * scale
         if i > 0 and y < previous - 1e-9:
             return False
         previous = y
     return True
-
-
-def solve_parametric_scale(amounts, centres):
-    """Bisection, mirroring the Swift. A ladder here would reproduce the artefact
-    rather than detect it."""
-    if parametric_is_monotone(1.0, amounts, centres):
-        return 1.0
-    lo, hi = 0.0, 1.0
-    for _ in range(40):
-        mid = 0.5 * (lo + hi)
-        if parametric_is_monotone(mid, amounts, centres):
-            lo = mid
-        else:
-            hi = mid
-    return lo
 
 
 def gen_parametric_checks():
@@ -624,7 +688,7 @@ def gen_parametric_checks():
             for setting in range(0, 101):
                 amounts = [0.0] * 4
                 amounts[index] = direction * setting / 100
-                scale = solve_parametric_scale(amounts, centres)
+                amplitude, _, scale = parametric_plan(amounts, centres)
 
                 # 1. The baked curve is monotone in x, checked on the grid it is BAKED
                 # on (1024) rather than on whatever grid the solver happened to use.
@@ -635,35 +699,94 @@ def gen_parametric_checks():
                 # the Swift limiter probed 256 while production bakes 1024, and six of
                 # nine extreme settings stepped backwards in between. Pinning the
                 # verification here means coarsening the solver breaks this check.
-                check(parametric_is_monotone(scale, amounts, centres, probes=1024),
+                check(parametric_is_monotone(scale, amounts, centres, probes=1024,
+                                             amplitude=amplitude),
                       f"{name} {direction * setting} produced a non-monotone curve")
 
                 # 2. The RESPONSE is monotone in the slider — push it further, get at
                 # least as much. This is the one the ladder failed.
-                effect = abs(parametric_delta(centres[index], amounts, centres) * scale)
+                effect = abs(parametric_delta(centres[index], amounts, centres,
+                                              amplitude) * scale)
                 if previous_effect is not None:
                     check(effect >= previous_effect - 1e-12,
                           f"{name} at {direction * setting} moved the curve LESS than "
                           f"at {direction * (setting - 1)}: {effect:.6f} vs "
                           f"{previous_effect:.6f} — the slider jumps backwards")
+                    # 3. And it is not merely non-decreasing: it must still be DOING
+                    # something. Every setting from 47 up used to apply the identical
+                    # curve on Darks and Lights, and from 70 up on Shadows and
+                    # Highlights, because the limiter clipped instead of easing. The
+                    # old checks all passed through that — a dead control satisfies
+                    # "no backward step" perfectly.
+                    check(setting < 2 or effect > previous_effect + 1e-9,
+                          f"{name} at {direction * setting} applied exactly what "
+                          f"{direction * (setting - 1)} did ({effect:.9f}) — the "
+                          f"control is dead here")
                 if effect > peak:
                     peak, peak_at = effect, setting
                 previous_effect = effect
 
-            # 3. And the end of the slider is its strongest setting, not a local dip.
-            check(peak_at == 100 or abs(peak - previous_effect) < 1e-12,
+            # 4. And the end of the slider is its strongest setting, not a local dip.
+            check(peak_at == 100,
                   f"{name}'s strongest setting is {peak_at}, not 100 "
                   f"(peak {peak:.6f}, end {previous_effect:.6f})")
 
-    # The limiter must not be scaling anything at ordinary settings, or it has
-    # quietly weakened the control everywhere instead of only where it had to.
+    # A lone slider is applied EXACTLY, at every setting and in both directions. That
+    # is what sizing each region's amplitude to `1 - PARAMETRIC_KNEE` buys, and it is
+    # the property the old shared range could not have: with one peak shift for four
+    # regions of different widths, the limiter had to take the difference back.
     for index in range(4):
-        amounts = [0.0] * 4
-        amounts[index] = 0.25
-        check(solve_parametric_scale(amounts, centres) > 0.999,
-              f"{names[index]} at 25 was already being limited")
+        for direction in (1, -1):
+            for setting in (25, 50, 75, 100):
+                amounts = [0.0] * 4
+                amounts[index] = direction * setting / 100
+                _, _, scale = parametric_plan(amounts, centres)
+                check(scale > 1 - 1e-9,
+                      f"{names[index]} at {direction * setting} alone was limited to "
+                      f"{scale:.6f}")
 
-    print("  4 sliders x 2 directions x 101 settings: no backward step, peak at 100")
+    # And the travel is spread evenly over it: half the effect in each half of the
+    # slider, because the applied amount is now linear in the setting.
+    for index in range(4):
+        for direction in (1, -1):
+            def effect(setting, index=index, direction=direction):
+                amounts = [0.0] * 4
+                amounts[index] = direction * setting / 100
+                amplitude, _, scale = parametric_plan(amounts, centres)
+                return abs(parametric_delta(centres[index], amounts, centres,
+                                            amplitude) * scale)
+            half, full = effect(50), effect(100)
+            check(abs(half / full - 0.5) < 0.01,
+                  f"{names[index]} {direction * 100} puts {100 * half / full:.0f}% of "
+                  f"its travel in the first half")
+
+    # A single slider at full deflection leaves the curve with real slope, so it can
+    # never posterize on its own. It used to bottom out at exactly zero — the limiter's
+    # own definition of safe — which is a flat band on a photograph.
+    for index in range(4):
+        for direction in (1, -1):
+            amounts = [0.0] * 4
+            amounts[index] = float(direction)
+            samples = bake_parametric(amounts, centres)
+            worst = min(b - a for a, b in zip(samples, samples[1:])) * (len(samples) - 1)
+            check(worst > PARAMETRIC_MIN_SLOPE - 1e-6,
+                  f"{names[index]} {direction * 100} left the curve with slope "
+                  f"{worst:.6f}, under the {PARAMETRIC_MIN_SLOPE} floor")
+
+    # Combinations may plateau — that is what asking two neighbours to fight means —
+    # but never flatten and never invert.
+    for signs in range(16):
+        amounts = [1.0 if signs & (1 << r) else -1.0 for r in range(4)]
+        samples = bake_parametric(amounts, centres)
+        steps = [b - a for a, b in zip(samples, samples[1:])]
+        check(min(steps) >= 0, f"{amounts} inverted the curve")
+        check(min(steps) * (len(samples) - 1) > 1e-3,
+              f"{amounts} left a flat segment: slope {min(steps) * (len(samples) - 1)}")
+        check(abs(samples[0]) < 1e-12 and abs(samples[-1] - 1) < 1e-12,
+              f"{amounts} moved black or white")
+
+    print("  4 sliders x 2 directions x 101 settings: every one applies more than the")
+    print("  last, a lone slider is never limited, and the slope floor holds")
 
 
 def gen_curves_fixture():
@@ -3386,6 +3509,31 @@ def gen_enginemath_fixture():
                 "out": t.tone(MID_GREY * 2 ** ev),
             })
 
+    # The parametric curve had no cross-language fixture at all: `curves.json` covers
+    # MonotoneCubic, which is the POINT curve, and nothing covered the four-region bake.
+    # Both sides could have drifted apart silently, and when the whole limiter was
+    # replaced neither fixture noticed.
+    centres = region_centres()
+    parametric = []
+    for shadows, darks, lights, highlights in (
+            (100, 0, 0, 0), (0, -100, 0, 0), (0, 0, 55, 0), (0, 0, 0, -40),
+            (100, -100, 0, 0), (-60, 40, -40, 60), (100, 100, 100, 100),
+            (-100, 100, -100, 100)):
+        amounts = [shadows / 100, darks / 100, lights / 100, highlights / 100]
+        amplitude, _, scale = parametric_plan(amounts, centres)
+        samples = bake_parametric(amounts, centres)
+        parametric.append({
+            "shadows": float(shadows), "darks": float(darks),
+            "lights": float(lights), "highlights": float(highlights),
+            "amplitude": amplitude, "scale": scale,
+            # Sampled AT stored indices, so `x` lands exactly on a LUT sample and the
+            # Swift side reads the stored value instead of interpolating between two.
+            # Sampling at i/16 instead made every row differ in the fourth decimal —
+            # a real mismatch, and entirely the fixture's fault.
+            "curve": [{"x": round(i * 1023 / 16) / 1023,
+                       "y": samples[round(i * 1023 / 16)]} for i in range(17)],
+        })
+
     tone = []
     # The last four bind the zonal limiter — one slider, or four at once, against a
     # flattened contrast curve. Without them this fixture came out byte-identical when
@@ -3552,6 +3700,7 @@ def gen_enginemath_fixture():
         "contrast": contrast,
         "displayTransform": display,
         "tone": tone,
+        "parametric": parametric,
         "shapedChromaScale": chroma,
         "shapedChromaScalePush": chroma_push,
         "whiteBalance": white_balance,

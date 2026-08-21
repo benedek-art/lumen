@@ -979,6 +979,101 @@ final class RobustnessTests: XCTestCase {
         }
     }
 
+    /// The parametric sliders, held to the same bar as the tone sliders: every setting
+    /// applies more than the last, a lone slider is never limited, and full deflection
+    /// leaves the curve with real slope.
+    ///
+    /// The limiter that was here solved one shared peak shift of 0.35 encoded units
+    /// down to whatever each region's own width could carry. Measured, that bound at
+    /// setting 47 on Darks and Lights and at 70 on Shadows and Highlights, so between
+    /// 30% and 53% of every parametric slider applied the identical curve — and it
+    /// bound at slope zero exactly, so a single slider at full deflection put a
+    /// dead-flat segment in the curve. Every assertion in the suite passed through
+    /// both: "monotone in x" and "no backward step in the slider" are satisfied
+    /// perfectly by a control that has stopped responding.
+    func testParametricSlidersStayAliveOverTheirWholeTravel() {
+        let names = ["Shadows", "Darks", "Lights", "Highlights"]
+        func curve(_ slot: Int, _ v: Double) -> ParametricCurve {
+            var p = ParametricCurve()
+            switch slot {
+            case 0: p.shadows = v
+            case 1: p.darks = v
+            case 2: p.lights = v
+            default: p.highlights = v
+            }
+            return p
+        }
+        /// Peak displacement the baked curve produces, on the encoded axis.
+        func effect(_ p: ParametricCurve) -> Double {
+            let lut = CurveStack.bakeParametric(p)
+            var peak = 0.0
+            for (i, v) in lut.samples.enumerated() {
+                peak = Swift.max(peak, abs(v - Double(i) / Double(lut.count - 1)))
+            }
+            return peak
+        }
+        /// Smallest slope anywhere on the baked curve.
+        func minSlope(_ p: ParametricCurve) -> Double {
+            let lut = CurveStack.bakeParametric(p)
+            let dx = 1.0 / Double(lut.count - 1)
+            var worst = Double.infinity
+            for i in 1..<lut.count {
+                worst = Swift.min(worst, (lut.samples[i] - lut.samples[i - 1]) / dx)
+            }
+            return worst
+        }
+
+        for slot in 0..<4 {
+            for direction in [1.0, -1.0] {
+                var previous = -1.0
+                for setting in 0...100 {
+                    let now = effect(curve(slot, direction * Double(setting)))
+                    if setting >= 2 {
+                        XCTAssertGreaterThan(
+                            now, previous + 1e-9,
+                            "\(names[slot]) at \(direction * Double(setting)) applied "
+                                + "exactly what \(direction * Double(setting - 1)) did "
+                                + "(\(now)) — the control is dead here")
+                    }
+                    previous = now
+                }
+
+                // Linear in the setting, because a lone slider is never limited: half
+                // the travel does half the work, both directions, every region.
+                let half = effect(curve(slot, direction * 50))
+                let full = effect(curve(slot, direction * 100))
+                XCTAssertEqual(half / full, 0.5, accuracy: 0.01,
+                               "\(names[slot]) \(direction * 100) puts "
+                                   + "\(100 * half / full)% of its travel in the first "
+                                   + "half")
+
+                // And it cannot posterize on its own.
+                XCTAssertGreaterThan(
+                    minSlope(curve(slot, direction * 100)),
+                    CurveStack.parametricMinSlope - 1e-6,
+                    "\(names[slot]) \(direction * 100) left the curve with slope "
+                        + "\(minSlope(curve(slot, direction * 100)))")
+            }
+        }
+
+        // Combinations may plateau — asking two neighbours to fight IS a request for
+        // one — but never flatten, never invert, and never move black or white.
+        for signs in 0..<16 {
+            var p = ParametricCurve()
+            p.shadows = signs & 1 != 0 ? 100 : -100
+            p.darks = signs & 2 != 0 ? 100 : -100
+            p.lights = signs & 4 != 0 ? 100 : -100
+            p.highlights = signs & 8 != 0 ? 100 : -100
+            let label = "s\(p.shadows) d\(p.darks) l\(p.lights) h\(p.highlights)"
+            XCTAssertGreaterThan(minSlope(p), 1e-3,
+                                 "\(label) left a flat segment: slope \(minSlope(p))")
+            let lut = CurveStack.bakeParametric(p)
+            XCTAssertEqual(lut.samples[0], 0, accuracy: 1e-12, "\(label) moved black")
+            XCTAssertEqual(lut.samples[lut.count - 1], 1, accuracy: 1e-12,
+                           "\(label) moved white")
+        }
+    }
+
     /// A local Colour tint has to change the picture, and hold luminance while it does.
     ///
     /// It changed nothing here: the reference renderer's local stage never read
