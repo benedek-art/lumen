@@ -201,7 +201,7 @@ cannot separate "weak" from "absent" when the frame contains nothing for the sta
 act on. It now runs on a frame with 12 px structure and compares the GPU's movement to
 the reference's on the same frame, which is the ratio that was 1/48.
 
-### Texture — measured, not fixed
+### Texture — measured, then fixed
 
 The same measurement, run on the stage beside Clarity: **1.8× to 17× under the
 reference**, at Texture ±40, on seven frames.
@@ -286,8 +286,40 @@ correctly calls flat. Closing that means dilating the gate to the band's reach, 
 another Metal pass; the gate above is two lines on a plane the GPU already samples. The
 cheap 5.2× came first on purpose.
 
-What is left of the three: Texture is still 2–6× weak, and the GPU's coherence gate still
-leaks at edges on the negative side.
+#### The strength, fixed: the first defect
+
+With the rim gated on both paths, the band port that was reverted in 4a58716 goes back
+in. Its two red goldens were the reason it came out, and the first of them was this
+document's own finding rather than a mistake in the port: an à-trous band *carries* the
+edge — that is what it is for — so a gain on it rims a step unless something closes.
+Nothing closed, on either path, which is what the section above fixed. The port supplies
+the strength; the gate makes the strength safe to ship. Neither is any use alone, which
+is exactly what "three defects hiding each other" meant.
+
+So the shipping band is now the reference's own — `Σ wℓ · (sℓ − sℓ₊₁)` over the à-trous
+stack, weighted by the raised-cosine window `bandCenter` places for the resolution —
+instead of one guided base at a fixed radius times 0.9. Two errors compounded in that
+old construction: the guided base is edge-preserving at a 0.1 EV threshold, so it keeps
+86% of any texture whose local excursion clears a tenth of a stop, and Texture acted on
+the residue; and 0.9 is not the reference's coefficient, which normalizes the window to
+`referenceBandWeight(halfWidth: 1.6)` = 1.617.
+
+The window is also what makes the control scale-honest: `bandCenter` tracks the long
+edge, so the same setting means the same amount of texture on a fit view and on a 61 MP
+export. One fixed radius cannot, and the guided base was one fixed radius.
+
+The gate is load-bearing in a way it was not before, so it is no longer optional on
+either sign — if the structure pass fails there is no Texture, because an ungated gain
+on this band is a visible halo and shipping that is worse than the stage sitting out a
+render that is already broken upstream.
+
+What is left of the three: the GPU's coherence gate leaking at edges on the *negative*
+side — the reference moves a coherent edge by 0.00000 and the texture beside it by
+0.00207, and the GPU moved the edge by 0.0426 against 0.0136 of texture, backwards. That
+measurement was taken with the ported band and the un-gated positive path; it is the one
+of the three this pass does not claim to have answered, and the golden that asserts it
+is the check on whether the coherence work that landed before the revert already covers
+it.
 
 ### The sweep: every slider, measured
 

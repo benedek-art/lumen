@@ -536,7 +536,6 @@ public struct RenderGraph {
         // and grid preview in the app — and the old floor of 1 is the radius CIBoxBlur
         // ignores, so Texture was inert across that whole range rather than merely
         // coarse. The tone mask and dehaze already floor at 2 and 3; 1 was the outlier.
-        let fine = Swift.max(Int((Double(longEdge) * 0.003).rounded()), 2)
         let mid = Swift.max(Int((Double(longEdge) * 0.02).rounded()), 3)
 
         // A guided filter's ε is a CONTRAST THRESHOLD SQUARED: `a = var / (var + ε)`, so
@@ -579,40 +578,45 @@ public struct RenderGraph {
         // across the whole 0.05–4 EV band.
         let perStop = LumenLog.range
 
-        if d.texture != 0, let baseFine = Self.guidedSelfFilter(lum, radius: fine,
-                                                                epsilon: epsilon) {
-            let k = d.texture / 100.0 * 0.9 * perStop
-            // BOTH signs are gated by local structure, for opposite reasons, and the
-            // two gate shapes differ. Negative Texture closes on any structure at all:
+        if d.texture != 0, let band = Self.atrousBand(lum, longEdge: longEdge) {
+            // `amount` alone. The `0.9` that used to sit here was not the reference's
+            // coefficient — `applyTexture` normalizes its window to
+            // `referenceBandWeight(halfWidth: 1.6)` = 1.617, and `bandWeights` above
+            // carries that normalization — and the band it multiplied came off a single
+            // edge-preserving guided base, which keeps 86% of any texture whose local
+            // excursion exceeds 0.1 EV. Measured against the reference on seven frames
+            // at ±40, the two errors together applied between 1/1.8 and 1/17 of the
+            // specified gain.
+            let k = d.texture / 100.0
+            // BOTH signs are gated, and the gate is load-bearing here in a way it was
+            // not for the guided band this replaces. An à-trous band CARRIES the edge —
+            // that is what it is for — so a gain on it rims a step unless something
+            // closes. That is exactly why porting this band the first time turned the
+            // presence golden red at 1.21 EV against a 0.30 bar, and why the port went
+            // back until the gate existed.
+            //
+            // The two shapes differ. Negative Texture closes on any structure at all:
             // ungated it attacks an eyelash as readily as a pore, so the face goes waxy
             // while the edges go soft, and docs/06 names the gate as the point of the
             // control. Positive Texture closes only on genuine coherent edges, because
-            // the band it gains still contains the edge — ungated here, as this was,
-            // it rimmed a clean 3 EV step by 1.39 EV against a 0.30 EV bar. It cannot
-            // simply borrow the negative shape: hair and fabric weave measure 0.19
-            // coherence against a hard step's 1.00, and they are what the positive
-            // control is for.
+            // hair and fabric weave measure 0.19 coherence against a hard step's 1.00,
+            // and they are what the positive control is for.
             //
             // The radius is the reference's `workingRadius / 4`, not `mid`. It was
             // `mid` here — four times too wide — which, together with the two errors in
             // the coherence kernel itself, had the gate closing on the flat skin it is
             // meant to smooth and opening on the edges it is meant to protect.
-            let gate = Self.localStructure(
-                lum, radius: Self.structureRadius(longEdge: longEdge))?.coherence
-            let gained: CIImage?
-            if let gate {
-                gained = KernelLibrary.apply(
-                    KernelLibrary.detailGainGated, extent: out.extent,
-                    [lum, baseFine, gate, Float(k),
-                     Float(d.texture < 0 ? 1.0 : 0.0),
+            //
+            // No gate, no Texture: an ungated gain on this band is a visible halo, and
+            // shipping that is worse than the stage sitting out a render whose
+            // structure pass has already failed.
+            if let gate = Self.localStructure(
+                lum, radius: Self.structureRadius(longEdge: longEdge))?.coherence,
+               let gained = KernelLibrary.apply(
+                    KernelLibrary.bandGain, extent: out.extent,
+                    [band, gate, Float(k), Float(d.texture < 0 ? 1.0 : 0.0),
                      Float(DetailEngine.texturePositiveGateLo),
-                     Float(DetailEngine.texturePositiveGateHi)])
-            } else {
-                gained = KernelLibrary.apply(KernelLibrary.detailGain,
-                                             extent: out.extent,
-                                             [lum, baseFine, Float(k)])
-            }
-            if let gained,
+                     Float(DetailEngine.texturePositiveGateHi), Float(perStop)]),
                let combined = KernelLibrary.apply(KernelLibrary.multiply,
                                                   extent: out.extent, [out, gained]) {
                 out = combined
@@ -1264,6 +1268,33 @@ public struct RenderGraph {
 
     /// He/Sun/Tang guided filter, self-guided: the edge-aware smoother behind the tone
     /// mask, the presence decomposition and mask feathering.
+    /// The reference's Texture band: `Σ wℓ · (sℓ − sℓ₊₁)` over the à-trous stack, with
+    /// the window `DetailEngine.bandWeights` places for this resolution.
+    ///
+    /// Only the smooths a non-zero weight actually reads are built. At the default
+    /// centre that is three passes, not five: `bandCenter` is `1 + clamp(log2(longEdge /
+    /// 2560), −1, 2)`, so a fit view sits at 0 and a 61 MP export at 3, and the window
+    /// is 1.6 levels wide either side.
+    static func atrousBand(_ lum: CIImage, longEdge: Int) -> CIImage? {
+        let weights = DetailEngine.bandWeights(longEdge: longEdge)
+        guard let top = weights.lastIndex(where: { $0 > 1e-9 }) else { return nil }
+        var smooths: [CIImage] = [lum]
+        for level in 0...top {
+            guard let next = bSplinePass(smooths[level], step: 1 << level) else { return nil }
+            smooths.append(next)
+        }
+        // The kernel reads six planes and five weights. Unread slots are handed the
+        // last smooth with a weight of zero, which contributes nothing and keeps the
+        // signature fixed rather than compiling five variants of the same kernel.
+        let last = smooths[smooths.count - 1]
+        let planes = (0..<6).map { $0 < smooths.count ? smooths[$0] : last }
+        let w = (0..<5).map { Float($0 < weights.count && $0 <= top ? weights[$0] : 0) }
+        return KernelLibrary.apply(
+            KernelLibrary.atrousBand, extent: lum.extent,
+            [planes[0], planes[1], planes[2], planes[3], planes[4], planes[5],
+             w[0], w[1], w[2], w[3], w[4]])
+    }
+
     static func guidedSelfFilter(_ image: CIImage, radius: Int,
                                  epsilon: Double) -> CIImage? {
         guidedFilter(input: image, guide: image, radius: radius, epsilon: epsilon)
