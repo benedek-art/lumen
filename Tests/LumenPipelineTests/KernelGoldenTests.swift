@@ -1537,7 +1537,13 @@ final class KernelGoldenTests: XCTestCase {
         // quietly go back to comparing the two by someone re-pointing it at
         // `gaussianBlur`.
         let exact = SpatialOps.gaussianBlur(plane, sigma: ClassicalDenoise.edgeBlurSigma)
-        XCTAssertGreaterThan(worstDifference(expected, exact).0, span(plane) * 1e-3,
+        var operatorGap = 0.0
+        for y in 0..<plane.height {
+            for x in 0..<plane.width {
+                operatorGap = Swift.max(operatorGap, abs(expected[x, y] - exact[x, y]))
+            }
+        }
+        XCTAssertGreaterThan(operatorGap, span(plane) * 1e-3,
                              "the box approximation and the exact Gaussian agree to "
                                  + "within 1e-3 of the span — one of them has changed")
     }
