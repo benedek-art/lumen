@@ -1587,6 +1587,46 @@ final class KernelGoldenTests: XCTestCase {
 
         let source = ImageBuffer(width: width, height: height) { _, _ in display }
         let image = ciImage(from: source)
+
+        // Walk the stage's own chain, node by node, with the same helpers it uses.
+        // Every kernel is present and `isAvailable` is true, so nothing is nil and the
+        // gate is genuinely computing zero — which means one of these five nodes loses
+        // the negative red that IS the entire out-of-gamut signal here. Printing each
+        // one names it instead of narrowing by elimination for another round.
+        let extent = CGRect(x: 0, y: 0, width: width, height: height)
+        func peek(_ label: String, _ img: CIImage?) {
+            guard let img, let read = readBack(img, width: width, height: height) else {
+                print("GAMUT CHAIN \(label): nil")
+                return
+            }
+            print("GAMUT CHAIN \(label): \(read[1, 1])")
+        }
+        let inProofImage = RenderGraph.applyMatrix(image, transform.workingToProof)
+        peek("inProof", inProofImage)
+        let negatedImage = RenderGraph.applyMatrix(inProofImage,
+                                                   Mat3.diagonal(RGB(gray: -1)))
+        peek("negated", negatedImage)
+        let overImage = KernelLibrary.apply(KernelLibrary.highlightEnergy,
+                                            extent: extent,
+                                            [inProofImage, Float(1.0), Float(1.0)])
+        peek("over", overImage)
+        let underImage = KernelLibrary.apply(KernelLibrary.highlightEnergy,
+                                             extent: extent,
+                                             [negatedImage, Float(0.0), Float(1.0)])
+        peek("under", underImage)
+        if let overImage, let underImage {
+            let excessImage = KernelLibrary.apply(KernelLibrary.addGlow, extent: extent,
+                                                  [overImage, underImage,
+                                                   CIVector(x: 1, y: 1, z: 1)])
+            peek("excess", excessImage)
+            if let excessImage {
+                peek("summed", KernelLibrary.apply(KernelLibrary.luminance,
+                                                   extent: extent,
+                                                   [excessImage,
+                                                    CIVector(x: 1, y: 1, z: 1)]))
+            }
+        }
+
         let flagged = RenderGraph.applyGamutWarning(image, beforeProof: image,
                                                     proof: transform, finishScale: 1.0)
         guard let got = readBack(flagged, width: width, height: height) else { return }
