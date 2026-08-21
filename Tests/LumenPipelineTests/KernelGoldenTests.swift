@@ -1496,8 +1496,21 @@ final class KernelGoldenTests: XCTestCase {
         }
     }
 
-    /// The three radius-1 box passes that stand in for a σ = 1.5 Gaussian.
-    func testEdgeBlurMatchesTheReferenceGaussian() throws {
+    /// The three radius-1 box passes the edge map's pre-blur is built from, against the
+    /// reference's own three box passes.
+    ///
+    /// It compared them against `SpatialOps.gaussianBlur(_:sigma: 1.5)`, which was the
+    /// same thing only while that function WAS the box approximation. It is exact below
+    /// sigma 8 now — because Sharpen Radius, which reads it, was a seven-position switch
+    /// otherwise — and the two differ by 0.498 on a plane spanning 42.55. That is the
+    /// box approximation's own error against a real Gaussian, which it always had; the
+    /// test was reading it as agreement because both sides were approximating
+    /// identically.
+    ///
+    /// `boxApproximatedGaussian` is what the edge map calls and what this asserts. The
+    /// bar stays at 1e-5 of the span, because the two sides are once again the same
+    /// algorithm and nothing but f32 should separate them.
+    func testEdgeBlurMatchesTheReferenceBoxApproximation() throws {
         try XCTSkipUnless(KernelLibrary.box3 != nil, "box3 unavailable")
         let plane = testPlane()
         var blurred = ciImage(from: broadcast(plane))
@@ -1513,11 +1526,20 @@ final class KernelGoldenTests: XCTestCase {
         }
         guard let got = readBack(blurred, width: plane.width, height: plane.height)
         else { return XCTFail("blur render failed") }
-        let expected = SpatialOps.gaussianBlur(plane, sigma: ClassicalDenoise.edgeBlurSigma)
+        let expected = SpatialOps.boxApproximatedGaussian(
+            plane, sigma: ClassicalDenoise.edgeBlurSigma)
         let (worst, at) = worstDifference(got, expected)
         XCTAssertLessThan(worst, span(plane) * 1e-5,
-                          "three box passes differ from gaussianBlur(1.5) by \(worst) "
-                              + "at \(at), on a plane spanning \(span(plane))")
+                          "the GPU's three box passes differ from the reference's by "
+                              + "\(worst) at \(at), on a plane spanning \(span(plane))")
+
+        // And the exact Gaussian is genuinely a DIFFERENT operator, so this test cannot
+        // quietly go back to comparing the two by someone re-pointing it at
+        // `gaussianBlur`.
+        let exact = SpatialOps.gaussianBlur(plane, sigma: ClassicalDenoise.edgeBlurSigma)
+        XCTAssertGreaterThan(worstDifference(expected, exact).0, span(plane) * 1e-3,
+                             "the box approximation and the exact Gaussian agree to "
+                                 + "within 1e-3 of the span — one of them has changed")
     }
 
     /// The edge map, which is what decides how much of each band survives. A stage
