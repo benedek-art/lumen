@@ -909,18 +909,40 @@ public struct RenderGraph {
         let masking = Num.clamp(sharpen.masking, 0, 100) / 100
         let halo = Num.clamp(sharpen.haloSuppression, 0, 100) / 100
 
-        // The fine band must sit BELOW the working radius, not at a fixed 1.0.
-        // `ManualSharpen.radius` defaults to 1.0, so a fixed 1.0 made these two the
-        // same filter on the same input: `fine` and `usm` came out bit-identical and
-        // `mix(usm, fineEV, detail)` was constant in `detail`. Measured against the
-        // reference, the Detail slider moved a frame by exactly 0.000000 EV across its
-        // entire range at the default radius — the failure this rewrite existed to
-        // remove, reintroduced one line lower.
-        let fineSigma = radius * 0.4
+        // The fine band is the reference's, exactly: the two finest a-trous bands,
+        // `details[0] + 0.5 * details[1]`.
+        //
+        // It used to be `lum - gaussianBlur(lum, sigma: radius * 0.4)`, and that made
+        // the Detail slider run BACKWARDS. A narrower blur is closer to the identity, so
+        // `lum - G(0.4r)` is smaller in amplitude than `usm = lum - G(r)` at every
+        // spatial frequency — which makes `mix(usm, fine, detail)` a monotone
+        // ATTENUATOR in `detail`. Measured at Amount 100, gain against the unsharpened
+        // frame by period:
+        //
+        //     period    2px    3     4     6     8    16
+        //     Detail 0  1.99  1.89  1.71  1.42  1.27  1.07
+        //     Detail 100 1.16  1.12  1.08  1.04  1.02  1.01   <- turning it UP
+        //     reference  2.00  1.97  1.88  1.70  1.54  1.20
+        //
+        // At 100 the control was effectively off. The one golden covering it asserted
+        // that Detail 0 and Detail 100 differ by more than 1e-4, which a sign inversion
+        // satisfies perfectly.
+        //
+        // Algebra, with s1 and s2 the a-trous smooths at steps 1 and 2:
+        //     d0 = lum - s1,  d1 = s1 - s2
+        //     d0 + 0.5*d1 = lum - 0.5*(s1 + s2)
+        // `bSplinePass` is the same operator as `SpatialOps.atrousSmooth` — pinned by
+        // `testAtrousStepMatchesTheReference` — and `blendMask(a, b, 0.5)` is the mean,
+        // so the reference's band is reproducible here without a new kernel.
         guard let lum = Self.logLuminance(image),
               let blurred = Self.gaussianBlur(lum, sigma: radius),
-              let finestBlur = Self.gaussianBlur(lum, sigma: fineSigma),
-              let fine = Self.subtract(lum, finestBlur),
+              let smooth1 = Self.bSplinePass(lum, step: 1),
+              let smooth2 = Self.bSplinePass(smooth1, step: 2),
+              let half = Self.constant(RGB(gray: 0.5), extent: image.extent),
+              let meanSmooth = KernelLibrary.apply(KernelLibrary.blendMask,
+                                                   extent: image.extent,
+                                                   [smooth1, smooth2, half]),
+              let fine = Self.subtract(lum, meanSmooth),
               let structure = Self.localStructure(
                 lum, radius: Self.structureRadius(longEdge: longEdge)),
               let delta = KernelLibrary.apply(

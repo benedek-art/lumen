@@ -574,6 +574,36 @@ final class KernelGoldenTests: XCTestCase {
         XCTAssertGreaterThan(worst, 1e-4,
                              "Detail moved the frame by \(worst) across its whole range "
                                  + "— the slider reaches no pixels")
+
+        // DIRECTION, not just difference.
+        //
+        // The assertion above passed for eighteen months while the slider ran
+        // backwards: `mix(usm, fine, detail)` with a `fine` band smaller in amplitude
+        // than `usm` is a monotone attenuator, so Detail 100 was measurably different
+        // from Detail 0 and also nearly off. Measured gain against the unsharpened
+        // frame at a 2 px period was 1.99 at Detail 0 and 1.16 at Detail 100. "They
+        // differ" is satisfied perfectly by a sign inversion, which is why a test that
+        // only asserts a difference is worth so much less than it looks.
+        //
+        // Detail's job is to weight the sharpening toward the finest scales, so raising
+        // it must not REDUCE the excursion around an edge.
+        guard let plain = readBack(input, width: width, height: height) else { return }
+        func excursion(_ frame: ImageBuffer) -> Double {
+            var total = 0.0
+            for y in 0..<height {
+                for x in 0..<width {
+                    total += abs(Double(frame[x, y].g) - Double(plain[x, y].g))
+                }
+            }
+            return total
+        }
+        let lowEnergy = excursion(a)
+        let highEnergy = excursion(b)
+        XCTAssertGreaterThan(highEnergy, lowEnergy * 0.95,
+                             "Detail 100 sharpened LESS than Detail 0 "
+                                 + "(\(highEnergy) vs \(lowEnergy)) — the slider runs "
+                                 + "backwards, which is what happens when the fine band "
+                                 + "is a narrower high-pass than the unsharp term")
     }
 
     /// Negative Texture must smooth isotropic texture harder than it smooths an edge.

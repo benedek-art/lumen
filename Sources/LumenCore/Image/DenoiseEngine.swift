@@ -436,7 +436,7 @@ public struct ClassicalDenoise: Sendable {
     /// Luma master scale at Luminance 100, in σ.
     public static let lumaMaxK: Double = 4.0
     /// Chroma master scale at Color 100, in σ.
-    public static let chromaMaxK: Double = 8.0
+    public static let chromaMaxK: Double = 4.0
     /// How much a strong luma edge backs the luma threshold off.
     public static let lumaEdgeProtection: Double = 0.80
     /// How far Luminance Contrast can pull the coarsest luma band's threshold down.
@@ -532,17 +532,49 @@ public struct ClassicalDenoise: Sendable {
     // MARK: Slider mappings
 
     /// Luminance → master shrink scale in σ. Gentle by doctrine (docs/07 §2.3).
+    ///
+    /// The exponent is what spreads the control across its travel, and it was 0.7 —
+    /// concave, so the curve reached its useful range early and spent the rest of the
+    /// slider past it. A soft threshold at kσ leaves roughly this much of a unit band:
+    ///
+    ///     k      0.5   1.0   1.5   2.0   2.5   3.0   3.5   4.0
+    ///     kept  64.7  38.7  21.2  10.6   4.7   1.9   0.7   0.1  %
+    ///
+    /// so everything past about 3σ is the same picture. At 0.7 the slider reached 2.46σ
+    /// by 50 and 3.12σ by 70: measured on an ISO 6400 flat field, luma noise kept ran
+    /// 47.8% / 26.9% / 15.4% / 8.9% / 5.4% at sliders 10…50 and then 3.7 / 3.0 / 2.7 /
+    /// 2.6 / 2.6 — the top forty points of travel were worth 2.8 points of noise while
+    /// continuing to eat texture, since fine-band correlation with real detail falls
+    /// from 0.155 at 50 to 0.025 at 100.
+    ///
+    /// Linear in k spreads it evenly: 38.7% kept at 25, 10.6% at 50, 1.9% at 75, 0.1%
+    /// at 100. Every quarter of the slider now buys about as much as the last.
     public static func lumaK(_ slider: Double) -> Double {
         let s = Num.saturate(clampSlider(slider) / 100)
         guard s > 0 else { return 0 }
-        return lumaMaxK * pow(s, 0.7)
+        return lumaMaxK * pow(s, 1.0)
     }
 
     /// Color → master shrink scale in σ. Aggressive by doctrine (docs/07 §2.3).
+    ///
+    /// `chromaMaxK` was 8.0, which is more than twice the point where a soft threshold
+    /// has already annihilated the band. The curve crossed 3.5σ at slider 25, so
+    /// **three quarters of the Colour slider did nothing at all** — measured, chroma
+    /// noise kept went 100% / 10.5% / 2.8% at 0 / 10 / 20 and then sat at 2.0% from 25
+    /// to 100. Worse, every ISO-adaptive anchor from ISO 400 up resolves into that dead
+    /// zone, so the Colour half of the ISO defaults was decorative.
+    ///
+    /// Aggressive-by-doctrine is kept, and it is a real constraint rather than a
+    /// preference: `testColourRemovesChromaNoiseAndLeavesLumaAlone` requires Colour 25 —
+    /// Lightroom's default, and the setting most photographs are edited at — to leave
+    /// under a fifth of the chroma noise. An exponent of 0.8 spread the travel nicely
+    /// and left 25.9%, so it failed, correctly. 0.65 leaves 18.0% at 25 and still
+    /// spreads the rest: 4.4% at 50, 1.0% at 75, 0.1% at 100, against the old curve's
+    /// 2.0% flat from 25 upward.
     public static func chromaK(_ slider: Double) -> Double {
         let s = Num.saturate(clampSlider(slider) / 100)
         guard s > 0 else { return 0 }
-        return chromaMaxK * pow(s, 0.6)
+        return chromaMaxK * pow(s, 0.65)
     }
 
     /// Hot Pixels → the median-deviation gate `k` (docs/07 §12.5, defined here).
