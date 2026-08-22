@@ -2,8 +2,12 @@
 // The multi-recipe export dialog (D40, docs/11 §A2): a checkbox list of recipes on the
 // left, the focused recipe's settings on the right, a footer that says exactly how many
 // files one Export click is about to write. Several recipes checked at once is the whole
-// point — the web JPEG, the print TIFF and the HDR HEIC leave together, off one render
-// that forks at the resize node.
+// point — the web JPEG, the print TIFF and the HDR HEIC leave together, off one gesture.
+//
+// One gesture, not one render. This line used to end "off one render that forks at the
+// resize node", and no render forks: each checked recipe renders the full develop chain
+// from the decode (see `ExportRecipe`'s header). The footer's file count is honest; the
+// time it takes scales with the number of boxes ticked.
 //
 // The sheet keeps no local copy of anything. Every control writes straight back into
 // `state.exportRecipes`, so editing a recipe here edits it everywhere; there is no

@@ -326,8 +326,25 @@ public final class PipelineRenderer {
                                 options: RenderGraph.Options(longEdge: longEdge,
                                                              draft: false,
                                                              lutSize: LUT3D.exportSize))
-        // The render forks at the resize node: everything above is shared across every
-        // checked recipe, which is why three recipes cost far less than three exports.
+        // The resize is where a shared render WOULD fork, and today nothing forks here.
+        //
+        // This function is called once per (photo × checked recipe) by
+        // `AppStateActions.export`, and every call arrives at this line having just
+        // built its own `RenderGraph` and rendered the whole develop chain from the
+        // decode. Three checked recipes cost three full develop renders, not one render
+        // and three tails. The only thing genuinely reused across them is the decoded
+        // `CIImage`, which `ImageSource` caches — real, and a small fraction of the
+        // work at export scale.
+        //
+        // The comment that used to sit here claimed the sharing as fact, and so did
+        // `ExportRecipe`, `ExportSheet` and docs/11. It is a good design and it is not
+        // built: the natural shape is for `exportedImage` to take an already-rendered
+        // master and apply only geometry, resize, grain, sharpen, watermark and dither
+        // — everything from here down. What makes it more than a refactor is that
+        // `RenderPlan` is built from `exportRecipe.renderWhiteTargetPercent`, so two
+        // recipes with different HDR white targets do NOT share a master and the
+        // sharing has to be keyed on that. It also needs measuring on a Mac before
+        // anyone claims a number for it.
         let cropped = Self.applyGeometry(image, recipe: recipe)
         let extent = cropped.extent
         let target = exportRecipe.targetSize(sourceWidth: Int(extent.width),

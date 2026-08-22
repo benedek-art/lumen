@@ -145,8 +145,21 @@ extension AppState {
 
     // MARK: - Export
 
-    /// One Export click emits every checked recipe (D40). The render forks at the
-    /// resize node, so three recipes cost far less than three exports.
+    /// One Export click emits every checked recipe (D40) — and this loop is the reason
+    /// that costs what three exports cost.
+    ///
+    /// It used to say "the render forks at the resize node, so three recipes cost far
+    /// less than three exports", which is exactly what the two nested loops below do
+    /// not do: photos × recipes, each iteration a separate `renderCoordinator.export`,
+    /// each of those a fresh `RenderGraph` and a full develop render. Only the decode is
+    /// reused. The claim survived in four places at once — here, `ExportRecipe`,
+    /// `ExportSheet` and docs/11 — which is how a design note becomes a fact nobody
+    /// re-checks.
+    ///
+    /// The sharing is worth building and is not built. `PipelineRenderer.export` names
+    /// the shape and the one complication: `RenderPlan` reads
+    /// `exportRecipe.renderWhiteTargetPercent`, so recipes with different HDR white
+    /// targets cannot share a master.
     func export(to directory: URL) {
         let targets = selectedPhotos.isEmpty
             ? (primarySelection.map { [$0] } ?? [])

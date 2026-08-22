@@ -1,9 +1,20 @@
 // ExportRecipe.swift
 // The multi-recipe export model (D40, docs/11): a set of named recipes, any number of
 // which can be checked at once, so one Export click emits the web JPEG, the print TIFF
-// and the HDR HEIC together. The render forks at the resize node — everything upstream
-// is computed once and shared, which is why three recipes cost far less than three
-// exports.
+// and the HDR HEIC together. That gesture is real, it works, and Lightroom Classic still
+// cannot do it.
+//
+// What it does NOT do is share the render. This header used to say "the render forks at
+// the resize node — everything upstream is computed once and shared, which is why three
+// recipes cost far less than three exports", and that is false:
+// `AppStateActions.export` loops photos × recipes and each iteration calls
+// `PipelineRenderer.export`, which builds a fresh `RenderGraph` and renders the full
+// develop chain end to end. Three checked recipes cost three full renders. The one thing
+// reused is the decoded `CIImage`, from `ImageSource`'s own cache.
+//
+// Stated here rather than quietly dropped, because the false version was load-bearing on
+// a user's behaviour: it is the sentence that tells a photographer checking a fourth
+// recipe is nearly free.
 
 import Foundation
 
