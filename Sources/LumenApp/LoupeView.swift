@@ -5,8 +5,11 @@
 //
 // Three behaviours this file exists to keep honest:
 //   · Two-tier progressive refine (docs/12 §B2): a draft pass lands within a frame,
-//     the quality pass ~250 ms after interaction settles. Stale results are discarded
-//     by generation number and never reach the screen.
+//     the quality pass once a short debounce says the hand has stopped. The whole of
+//     it — debounce plus both passes — is budgeted at 200 ms from the last input, and
+//     the split between the debounce and the passes is `RefineBudget` in LumenCore
+//     rather than a bare sleep here. Stale results are discarded by generation number
+//     and never reach the screen.
 //   · Honest badges (docs/10 handoff honesty, docs/12 §B14): when the render fell back
 //     to the camera's embedded preview, or the kernel library was unavailable, the
 //     viewer says so. It never shows something that is not the edit without saying it.
@@ -282,10 +285,20 @@ final class PhotoRenderModel: ObservableObject {
     @Published private(set) var note: String?
     @Published private(set) var isUnreadable: Bool = false
 
-    /// The settle debounce before the quality pass. The refine budget is ≤200 ms after
-    /// the drag pause (docs/12 §B2); 250 ms is the settle window plus the pass itself,
-    /// and it is one constant so it can be retuned in one place.
-    static let settleNanoseconds: UInt64 = 250_000_000
+    /// The settle debounce before the quality pass.
+    ///
+    /// It used to be 250 ms, under a comment claiming that 250 ms "is the settle window
+    /// plus the pass itself". It was not, and the order of the statements below says
+    /// so: the sleep runs and THEN the quality pass is asked for, so full quality
+    /// landed at 250 ms plus render time against a docs/12 budget of 200 ms — a loop
+    /// that no render could meet, however fast. The comment described a design nobody
+    /// had written.
+    ///
+    /// The constant now comes from `RefineBudget`, which splits the 200 ms into the
+    /// debounce and what is left for the passes, and asserts in LumenCore that the
+    /// first is a small fraction of the second. What is still unmeasured is whether a
+    /// real pass fits in the remainder; that is audit UX-01, and it needs a Mac.
+    static let settleNanoseconds: UInt64 = RefineBudget.loupe.settleNanoseconds
 
     /// How many times the quality pass will re-ask when it comes back empty. See the
     /// comment at the retry loop: nil from the coordinator can mean "superseded by a
@@ -359,6 +372,9 @@ final class PhotoRenderModel: ObservableObject {
             apply(draft, url: url)
         }
 
+        // The debounce, and nothing but the debounce: everything after this point still
+        // has to happen inside the deadline, so the wait is the part of the budget that
+        // buys the least and is kept the smallest.
         try? await Task.sleep(nanoseconds: PhotoRenderModel.settleNanoseconds)
         guard !Task.isCancelled, latestGeneration == draftGeneration else { return }
 
