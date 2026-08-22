@@ -17,7 +17,9 @@
 //     away before their slot came up.
 //   · direction-aware prefetch, 8 ahead / 2 behind the cursor (D34). Fixed policy,
 //     not a preference; a direction flip re-aims the window so a reversal costs at
-//     most one page.
+//     most one page. The ring's index arithmetic and the size ladder both live in
+//     `LumenCore.ThumbnailLadder` / `PrefetchRing`, where they have tests; what stays
+//     here is the queue, the cache and the AppKit.
 //
 // Scheduling bookkeeping lives on the main actor deliberately: it is a few dictionary
 // operations per cell, and keeping it here is what lets the scroll path ask
@@ -29,16 +31,16 @@ import AppKit
 import CoreGraphics
 import Foundation
 import ImageIO
+import LumenCore
 
 // MARK: - Decode (off-actor, no shared state)
 
-/// Sizes the cache is allowed to hold. Requests snap up to one of these so a
-/// thumbnail-size slider drag reuses decodes instead of spawning one per pixel step.
-private let thumbnailLevels: [Int] = [256, 512, 1024, 2048]
-
+/// The level a request snaps to, so a thumbnail-size slider drag reuses decodes
+/// instead of spawning one per pixel step. The ladder itself is `ThumbnailLadder` in
+/// LumenCore: it has to be the same ladder the prefetch plans against, and while it
+/// was a private constant in this file nothing could check that it was.
 private func thumbnailBucket(for size: Int) -> Int {
-    for level in thumbnailLevels where size <= level { return level }
-    return thumbnailLevels[thumbnailLevels.count - 1]
+    ThumbnailLadder.bucket(for: size)
 }
 
 /// Formats where "decode the whole image as a thumbnail" is acceptable because there
@@ -212,34 +214,43 @@ final class ThumbnailLoader: ObservableObject {
     /// Direction-aware prefetch around the cursor: `aheadCount` in the direction of
     /// travel, `behindCount` the other way (D34). Reversing direction re-aims the
     /// window on the next call, so a page-back costs one page, not eight.
-    func prefetch(around anchor: URL?, in urls: [URL], size: Int) {
+    ///
+    /// `surface` is not decoration. The window is warmed at every level
+    /// `ThumbnailLadder.warmSizes` names for that surface, because the strip under the
+    /// loupe pages the LOUPE: warming only the strip's own 256 left the viewer's
+    /// 1600-pixel request (the 2048 level) cold on every advance, which is the
+    /// pre-decoded cache the paging budget is built on, missing every time. The levels
+    /// are requested in the order that function returns them, at descending priority,
+    /// so the heavier level can never starve the cells that are visible now.
+    func prefetch(around anchor: URL?, in urls: [URL], size: Int,
+                  surface: PagingSurface) {
         guard let anchor, let index = urls.firstIndex(of: anchor) else { return }
-        if let last = lastAnchorIndex, index != last {
-            travelDirection = index >= last ? 1 : -1
-        }
+        travelDirection = PrefetchRing.direction(from: lastAnchorIndex, to: index,
+                                                 current: travelDirection)
         lastAnchorIndex = index
 
-        var ahead: [URL] = [urls[index]]
-        var behind: [URL] = []
-        if Self.aheadCount > 0 {
-            for step in 1...Self.aheadCount {
-                let i = index + step * travelDirection
-                if i >= 0 && i < urls.count { ahead.append(urls[i]) }
-            }
-        }
-        if Self.behindCount > 0 {
-            for step in 1...Self.behindCount {
-                let i = index - step * travelDirection
-                if i >= 0 && i < urls.count { behind.append(urls[i]) }
-            }
-        }
+        let ring = PrefetchRing(ahead: Self.aheadCount, behind: Self.behindCount)
+        let window = ring.window(anchor: index, count: urls.count,
+                                 direction: travelDirection)
+        let ahead: [URL] = window.ahead.map { urls[$0] }
+        let behind: [URL] = window.behind.map { urls[$0] }
 
-        request(ahead, size: size, priority: Priority.lookahead)
-        request(behind, size: size, priority: Priority.prefetch)
-
-        var keep = Set(ahead)
-        keep.formUnion(behind)
-        pruneSpeculative(keeping: keep, pixels: thumbnailBucket(for: size))
+        var keep: Set<Key> = []
+        var managed: Set<Int> = []
+        for (rank, level) in ThumbnailLadder.warmSizes(for: surface,
+                                                       browsePixels: size).enumerated() {
+            // Rank 0 is the level being drawn right now; anything behind it is a bet on
+            // the next keystroke and queues below the visible work.
+            let aheadPriority = rank == 0 ? Priority.lookahead : Priority.prefetch
+            let behindPriority = rank == 0 ? Priority.prefetch : Priority.background
+            request(ahead, size: level, priority: aheadPriority)
+            request(behind, size: level, priority: behindPriority)
+            let pixels = thumbnailBucket(for: level)
+            managed.insert(pixels)
+            for url in ahead { keep.insert(Key(url: url, pixels: pixels)) }
+            for url in behind { keep.insert(Key(url: url, pixels: pixels)) }
+        }
+        pruneSpeculative(keeping: keep, levels: managed)
     }
 
     // MARK: Compatibility surface
@@ -357,10 +368,21 @@ final class ThumbnailLoader: ObservableObject {
         jobs[key] = job
     }
 
-    private func pruneSpeculative(keeping keep: Set<URL>, pixels: Int) {
+    /// Drop the speculative jobs the newest window does not name, at the levels that
+    /// window manages.
+    ///
+    /// Two changes from pruning by url at one level. The keep set is keyed by (url,
+    /// level), because a window is now warmed at more than one level. And the sweep is
+    /// bounded to `levels`: the loupe and the strip both aim rings at the same cursor,
+    /// so a sweep across every level would have each caller throw away the other's
+    /// pending work on every keystroke. The cost of the bound is that a level nobody
+    /// aims at any more — the grid slider crossing a bucket edge — keeps at most one
+    /// ring of pending decodes until they run.
+    private func pruneSpeculative(keeping keep: Set<Key>, levels: Set<Int>) {
         for (key, job) in jobs {
             guard job.waiters.isEmpty, job.task == nil, job.priority < Priority.visible else { continue }
-            if key.pixels == pixels && keep.contains(key.url) { continue }
+            guard levels.contains(key.pixels) else { continue }
+            if keep.contains(key) { continue }
             jobs.removeValue(forKey: key)
         }
     }

@@ -5,11 +5,20 @@
 // take, and so a click is always an alternative to ←/→.
 //
 // Cells are a fixed small size here on purpose: the strip must not re-decode when the
-// grid's thumbnail slider moves, and one cache level for the strip means the ring
-// prefetch (8 ahead / 2 behind) warms exactly the frames paging is about to reach.
+// grid's thumbnail slider moves.
+//
+// That fixed size used to be the ONLY level this view's ring prefetch warmed, under a
+// comment claiming the ring "warms exactly the frames paging is about to reach". It
+// did not. Paging happens in the loupe above the strip, and the loupe asks the same
+// cache for `ThumbnailLadder.loupeInstantPixels` — a different level entirely, so
+// every advance found it cold and paid an embedded-JPEG decode before the pipeline
+// even started. The strip passes `surface: .filmstrip` now, and the loader warms every
+// level `ThumbnailLadder.warmSizes` names for that surface; which levels those are is
+// asserted in LumenCore against the number the loupe actually requests.
 
 #if os(macOS)
 
+import LumenCore
 import SwiftUI
 
 struct FilmstripView: View {
@@ -23,6 +32,15 @@ struct FilmstripView: View {
     private static let padding: CGFloat = 6
     /// One fixed cache level: the strip must not re-decode when the grid slider moves.
     private static let pixels: Int = 256
+
+    /// The strip is on screen in every view mode, so which levels its ring warms is a
+    /// fact about the view above it. Under the loupe the strip IS the paging surface
+    /// and has to warm the viewer's level as well as its own; in the grid it is a
+    /// second row of thumbnails, and warming 2048s there would compete with the contact
+    /// sheet's own scroll for the same eight decode workers.
+    private var stripSurface: PagingSurface {
+        state.viewMode == .loupe ? .filmstrip : .grid
+    }
 
     var body: some View {
         let photos = state.photos
@@ -66,7 +84,8 @@ struct FilmstripView: View {
                     proxy.scrollTo(id, anchor: .center)
                 }
                 state.thumbnails.prefetch(around: state.primarySelection?.id,
-                                          in: photos.map(\.id), size: pixels)
+                                          in: photos.map(\.id), size: pixels,
+                                          surface: stripSurface)
             }
             .onChange(of: state.primarySelection?.id) { _, id in
                 guard let id else { return }
@@ -75,7 +94,8 @@ struct FilmstripView: View {
                 withAnimation(.easeOut(duration: 0.12)) {
                     proxy.scrollTo(id, anchor: .center)
                 }
-                state.thumbnails.prefetch(around: id, in: photos.map(\.id), size: pixels)
+                state.thumbnails.prefetch(around: id, in: photos.map(\.id),
+                                          size: pixels, surface: stripSurface)
             }
         }
         .frame(height: height)

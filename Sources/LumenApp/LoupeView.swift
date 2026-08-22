@@ -328,7 +328,8 @@ final class PhotoRenderModel: ObservableObject {
             note = nil
             revision &+= 1
             if let thumbnails,
-               let preview = await thumbnails.load(url: url, maxPixel: 1600),
+               let preview = await thumbnails.load(
+                   url: url, maxPixel: ThumbnailLadder.loupeInstantPixels),
                let cg = preview.cgImage(forProposedRect: nil, context: nil, hints: nil) {
                 guard !Task.isCancelled else { return }
                 image = cg
@@ -517,6 +518,7 @@ struct LoupeView: View {
             .onAppear {
                 containerSize = container
                 focused = true
+                warmNeighbours()
             }
             .onChange(of: container) { _, newValue in
                 containerSize = newValue
@@ -548,7 +550,24 @@ struct LoupeView: View {
         .onChange(of: photo.id) { _, _ in
             viewport.resetForNewPhoto()
             sampler = nil
+            warmNeighbours()
         }
+    }
+
+    /// Aim the ring at the level THIS view reads from, on every advance.
+    ///
+    /// The viewer used to depend entirely on the filmstrip for that, and the strip
+    /// warmed its own 256 only — so the instant path's request landed in an empty
+    /// bucket every single time. Warming from here as well means F, which hides the
+    /// strip, hides the strip rather than also turning off the cache the paging budget
+    /// is built on. The strip's call and this one aim the same window at the same
+    /// cursor, so the second one costs a dictionary lookup per file.
+    @MainActor
+    private func warmNeighbours() {
+        state.thumbnails.prefetch(around: photo.id,
+                                  in: state.photos.map(\.id),
+                                  size: ThumbnailLadder.loupeInstantPixels,
+                                  surface: .loupe)
     }
 
     private struct BeforeKey: Equatable {
