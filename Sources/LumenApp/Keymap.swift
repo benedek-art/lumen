@@ -340,10 +340,10 @@ extension View {
 /// The text itself is `LumenCore.KeyGrammar`, and this is the adapter that gives each
 /// row the identity `ForEach` wants. The claim that used to sit here — that the
 /// reference is "data, so the Help sheet cannot drift from the dispatcher" — was false
-/// when it was written: seven of the app's ⌘-shortcuts were in neither this list nor
-/// the switch above. Being data is not a mechanism. The mechanism is
-/// `KeyGrammarTests`, which reads these sources and fails when a key is attached in one
-/// place and named in neither.
+/// when it was written: nine of the app's nineteen ⌘-shortcuts were in neither this
+/// list nor the switch above, ⌘/ among them, which is the chord that opens this sheet.
+/// Being data is not a mechanism. The mechanism is `KeyGrammarTests`, which reads these
+/// sources and fails when a key is attached in one place and named in neither.
 enum KeyReference {
     struct Entry: Identifiable {
         let id = UUID()

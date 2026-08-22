@@ -3,10 +3,16 @@
 // compares the sources against.
 //
 // `Keymap.swift` used to say, of its own reference, that it is "data, so the Help sheet
-// cannot drift from the dispatcher". It had already drifted. Seven ⌘-shortcuts attached
-// to SwiftUI buttons — ⌘B target album, ⌘K keyword, ⌘G and ⇧⌘G stacks, ⇧⌘I ingest,
-// ⇧⌘A Auto Tone, ⇧⌘R reset, ⌘\ clear filter — were in neither the dispatcher NOR the
-// reference. Being data is not a mechanism. A mechanism is something that fails.
+// cannot drift from the dispatcher". It had already drifted. Of the nineteen chords the
+// app attaches, NINE were in neither the dispatcher nor the reference: ⌘B target album,
+// ⌘K keyword, ⌘G and ⇧⌘G stacks, ⇧⌘I ingest, ⇧⌘A Auto Tone, ⇧⌘R reset settings,
+// ⌘\ clear filter — and ⌘/, the shortcut that opens the reference, missing from the
+// reference it opens. Being data is not a mechanism. A mechanism is something that
+// fails.
+//
+// Nine, not the seven the audit found by reading: the audit counted ⌘G and ⇧⌘G as one
+// line and did not notice ⌘/ at all. That two-count difference is the argument for this
+// file in one sentence — the scan below produced the exact list, by file, in a second.
 //
 // WHAT IS ENFORCED MECHANICALLY, by `KeyGrammarTests` reading the Swift sources:
 //
