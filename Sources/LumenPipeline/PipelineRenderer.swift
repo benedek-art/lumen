@@ -24,6 +24,37 @@ public enum RenderError: Error {
     case renderFailed
     case unsupportedFormat(String)
     case writeFailed(URL)
+    /// An export refused because the GPU path cannot form a picture. Carries the names
+    /// of the kernels that failed to compile, so the caller can say which.
+    case kernelsUnavailable([String])
+}
+
+/// What a renderer believes about its kernels.
+///
+/// A value with a `live` default rather than a direct read of `KernelLibrary` at each
+/// call site, and it exists for exactly one reason: `KernelLibrary`'s kernels are
+/// `static let`, compiled once at first touch, so on a healthy runner they CANNOT be
+/// made to fail — and the export path's behaviour when they do is therefore untestable
+/// without a seam. This is the seam, and it is the whole of it. Nothing in the app
+/// writes it; the app gets `.live`.
+public struct KernelAvailability: Sendable {
+    /// The kernels the core colour path cannot run without. False means the graph
+    /// cannot form a picture at all.
+    public let coreAvailable: Bool
+    /// Names of every kernel that failed, core or not — the stages that would silently
+    /// no-op through `KernelLibrary.apply(...) ?? image`.
+    public let unavailable: [String]
+
+    public init(coreAvailable: Bool, unavailable: [String]) {
+        self.coreAvailable = coreAvailable
+        self.unavailable = unavailable
+    }
+
+    /// What this build actually compiled.
+    public static var live: KernelAvailability {
+        KernelAvailability(coreAvailable: KernelLibrary.coreAvailable,
+                           unavailable: KernelLibrary.unavailableKernels)
+    }
 }
 
 public final class PipelineRenderer {
@@ -61,9 +92,14 @@ public final class PipelineRenderer {
     private var matteOrder: [URL] = []
     private static let matteCacheLimit = 12
 
+    /// What this renderer believes about its kernels. `.live` in the app; a test can
+    /// substitute a degraded build, which is the only way the refusal below can be
+    /// exercised on a machine whose kernels all compile.
+    public var availability: KernelAvailability = .live
+
     /// True when the GPU path is intact. False means kernels failed to compile and the
     /// renderer is producing a reduced result the UI must label.
-    public var isGPUPathAvailable: Bool { KernelLibrary.coreAvailable }
+    public var isGPUPathAvailable: Bool { availability.coreAvailable }
 
     // MARK: - AI mattes
 
@@ -109,7 +145,7 @@ public final class PipelineRenderer {
                            maxLongEdge: maxLongEdge, draft: false)
     }
 
-    public var unavailableKernels: [String] { KernelLibrary.unavailableKernels }
+    public var unavailableKernels: [String] { availability.unavailable }
 
     // MARK: - Preview
 
@@ -185,9 +221,47 @@ public final class PipelineRenderer {
 
     // MARK: - Export
 
+    /// Writes the file and returns the names of the kernels that were NOT available,
+    /// so the caller can report a reduced delivery instead of counting it as clean.
+    ///
+    /// Empty means every stage in the graph ran. It is not an error — a missing
+    /// non-core kernel leaves a real picture with one stage absent — but it is not a
+    /// success either, and the status line said "Exported N files" for both.
     public func export(source: any ImageSource, recipe: Recipe, to destination: URL,
                        using exportRecipe: ExportRecipe,
-                       strokeSets: [String: BrushStrokeSet] = [:]) throws {
+                       strokeSets: [String: BrushStrokeSet] = [:]) throws -> [String] {
+        let image = try exportedImage(source: source, recipe: recipe,
+                                      using: exportRecipe, strokeSets: strokeSets)
+        try write(image, to: destination, using: exportRecipe)
+        return availability.unavailable
+    }
+
+    /// The delivered pixels, one step before the encoder.
+    ///
+    /// Split out from `export` so the file that gets written can be MEASURED without
+    /// going through an encoder and back: every claim about what an export contains was
+    /// otherwise a claim about a PNG's bytes, decoded through whatever colour space the
+    /// reader chose, which is a poor instrument for asking whether a stage ran.
+    func exportedImage(source: any ImageSource, recipe: Recipe,
+                       using exportRecipe: ExportRecipe,
+                       strokeSets: [String: BrushStrokeSet] = [:]) throws -> CIImage {
+        // An export is a promise in a way a preview is not, so it refuses rather than
+        // delivers.
+        //
+        // The preview path made this decision twice already: it checks
+        // `coreAvailable`, renders through `renderReference` when it is false, and
+        // labels a merely-reduced render with the names of whatever else failed
+        // (RenderCoordinator.swift:100-125). Export had no equivalent — it built the
+        // graph unconditionally, every `KernelLibrary.apply(...) ?? image` no-opped a
+        // missing stage into the delivered file, and with the core four missing it
+        // wrote the fallback-tone approximation with no error at all. A file on disk
+        // outlives the session that noticed the GPU was broken; a frame on screen does
+        // not. There is no reference fallback here on purpose: `renderReference` has no
+        // geometry stage (GEO-17), so it cannot honour a crop, and delivering an
+        // uncropped file would be a different silent wrong answer.
+        guard availability.coreAvailable else {
+            throw RenderError.kernelsUnavailable(availability.unavailable)
+        }
         guard let decoded = source.decode(recipe: recipe, draft: false, scaleFactor: 1.0) else {
             throw RenderError.decodeFailed
         }
@@ -204,7 +278,8 @@ public final class PipelineRenderer {
 
         let graph = makeGraph(plan: plan, decoded: decoded, draft: false,
                               strokeSets: strokeSets,
-                              aiMattes: mattes[source.url] ?? [:])
+                              aiMattes: mattes[source.url] ?? [:],
+                              deferGrain: true)
         var image = graph.build(decoded, plan: plan,
                                 options: RenderGraph.Options(longEdge: longEdge,
                                                              draft: false,
@@ -218,6 +293,50 @@ public final class PipelineRenderer {
         image = Self.applyGeometry(image, recipe: recipe,
                                    scaleTo: Swift.max(target.width, target.height),
                                    allowUpscale: exportRecipe.allowUpscale)
+        // Grain, on the grid that is DELIVERED — which is why `makeGraph` was asked to
+        // withhold the plate above.
+        //
+        // The preview decodes at roughly its own display size, so it grains at the size
+        // it shows. This grained at the DECODE's size and then resampled, and the two
+        // are not the same file. Not by much of an amplitude — measured on the
+        // reference path, a 3x average costs σ about 4%, and about 1% where the plate
+        // scales freely, because `plateScale` already tracks the render's long edge and
+        // the plate's energy sits in its coarsest octave. The audit's "cutting grain
+        // sigma about 3x" is wrong by an order of magnitude and
+        // `testFilmGrainHasTheSameAmplitudeAtEveryRenderSize` records the real numbers.
+        //
+        // What it does change is the half-pixel floor. `plateScale` refuses to draw a
+        // grain cell finer than half a pixel because there is nothing there to draw —
+        // and a resample AFTER the plate has been scaled divides straight past that
+        // floor, so a heavily downsized delivery carried a pattern finer than the model
+        // allows and finer than the preview showed. Graining here puts the floor where
+        // the photographer will see it. C1 grains at output resolution for the same
+        // family of reasons (docs/03:116-118), and this is also cheaper: the kernel
+        // runs over the output's pixels rather than the decode's.
+        //
+        // Before the output sharpen, which is where it already sat relative to it: the
+        // only thing this moved is the resize.
+        //
+        // And the plate is scaled for the delivery's PIXELS-PER-GATE, not for its
+        // pixel count. A crop takes pixels away and takes the same fraction of the
+        // negative away with them, so the grain's pixel footprint does not change;
+        // handing `plateScale` the cropped long edge instead would make every cropped
+        // export's grain finer than the negative's by exactly the crop factor. The
+        // uncropped equivalent of this delivery is `decode × delivered ÷ cropped`,
+        // which is also, for an uncropped frame, just the delivered long edge — and
+        // which is the footprint the old decode-then-resize order happened to produce,
+        // since a resample scales the grain with everything else. That part of it was
+        // right and is kept.
+        let plateLongEdge = FilmGrainProfile.plateLongEdge(
+            decodeLongEdge: longEdge,
+            croppedLongEdge: Int(Swift.max(extent.width, extent.height).rounded()),
+            deliveredLongEdge: Int(Swift.max(image.extent.width,
+                                             image.extent.height).rounded()))
+        if let film = plan.filmChain, film.grainAmount > 0,
+           let plate = Self.grainPlate(film: film, extent: image.extent,
+                                       plateLongEdge: plateLongEdge) {
+            image = graph.applyGrain(image, plate: plate, film: film)
+        }
         image = Self.applyOutputSharpen(image, exportRecipe.sharpen,
                                         resolutionPPI: exportRecipe.resolutionPPI)
         if let watermark = exportRecipe.watermark, !watermark.text.isEmpty {
@@ -227,8 +346,7 @@ public final class PipelineRenderer {
         // a resample after it would average the pattern away.
         image = Self.applyDither(image, colorSpace: exportRecipe.colorSpace,
                                  bitDepth: exportRecipe.effectiveBitDepth)
-
-        try write(image, to: destination, using: exportRecipe)
+        return image
     }
 
     // MARK: - Dither
@@ -493,9 +611,17 @@ public final class PipelineRenderer {
     /// the reference implementation and handed in as single-channel images; the grain
     /// plate is generated once per stock and tiled. Leaving either empty is how the
     /// local stage and film grain silently did nothing.
+    ///
+    /// `deferGrain` withholds the film grain plate so `RenderGraph.build` skips the
+    /// grain stage — for the export path, which applies grain itself on the OUTPUT
+    /// pixel grid after the resize. Withholding the plate rather than adding a flag to
+    /// `Options` because that is already how the graph is told a stage has nothing to
+    /// run on, and because building a full-resolution plate the export will not use is
+    /// the waste this is here to avoid.
     private func makeGraph(plan: RenderPlan, decoded: CIImage, draft: Bool,
                            strokeSets: [String: BrushStrokeSet],
-                           aiMattes: [String: Plane]) -> RenderGraph {
+                           aiMattes: [String: Plane],
+                           deferGrain: Bool = false) -> RenderGraph {
         var graph = RenderGraph()
         guard !draft else { return graph }
         let extent = decoded.extent
@@ -539,7 +665,7 @@ public final class PipelineRenderer {
             }
         }
 
-        if let film = plan.filmChain, film.grainAmount > 0 {
+        if let film = plan.filmChain, film.grainAmount > 0, !deferGrain {
             graph.grainPlate = Self.grainPlate(film: film, extent: extent)
         }
         return graph
@@ -683,9 +809,18 @@ public final class PipelineRenderer {
     /// read as film. A monochrome stock takes the single-plate path, both because its
     /// layers must stay correlated and because building three identical ones would be
     /// waste.
-    static func grainPlate(film: FilmChain, extent: CGRect) -> CIImage? {
+    /// `plateLongEdge` is the long edge `plateScale` is asked about, which is NOT
+    /// always the extent's. `plateScale` converts a gate pitch into pixels through
+    /// pixels-per-gate-millimetre, so it assumes the long edge it is given covers the
+    /// whole gate. A cropped delivery does not: it has fewer pixels AND covers less of
+    /// the negative, and those cancel — the grain keeps its pixel footprint, exactly as
+    /// it does in a darkroom. So a caller holding a crop has to hand over the long edge
+    /// the delivery WOULD have if it were uncropped. Defaults to the extent's own long
+    /// edge, which is right whenever the image being grained is the whole frame.
+    static func grainPlate(film: FilmChain, extent: CGRect,
+                           plateLongEdge: Int? = nil) -> CIImage? {
         let size = 128
-        let long = Int(Swift.max(extent.width, extent.height))
+        let long = plateLongEdge ?? Int(Swift.max(extent.width, extent.height))
 
         /// One channel's tile: its noise in `channel`, zero in the others, so the three
         /// sum to a packed RGB plate. Alpha is carried by the red tile alone — addition

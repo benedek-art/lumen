@@ -327,6 +327,119 @@ final class KernelGoldenTests: XCTestCase {
         print("LOCAL CURVE table-vs-exact worst: \(curveWorst)")
     }
 
+    // MARK: - A mask's colour table is baked for the render it is in
+
+    /// A masked colour edit must be baked at the size the RENDER asked for, not at the
+    /// preview's.
+    ///
+    /// `LocalPlan` hardcoded `LUT3D.interactiveSize`, so every masked contrast, temp,
+    /// tint, hue, saturation, vibrance, point colour and grading wheel in a DELIVERED
+    /// file came out of a 33-cube while the global colour/grade table, the finish table
+    /// and the local point curve two stages later all came out of a 65. The curve was
+    /// the tell: it has taken `options.lutSize` since it was written, sitting six lines
+    /// from a table that did not.
+    ///
+    /// Two assertions, because either alone can be satisfied by the wrong code. The
+    /// first says `LocalPlan` bakes what it is handed — it fails the moment a size is
+    /// hardcoded again. The second says the size REACHES PIXELS through the shipping
+    /// graph, which is the proof the first one cannot give: a plan built at 65 that
+    /// nothing hands 65 to is exactly the defect this replaces.
+    func testAMaskedColourEditIsBakedAtTheRendersOwnTableSize() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+
+        // A colour-only local set. Exposure is deliberately absent: it is a matrix
+        // multiply upstream of the table and would move pixels whatever the table size
+        // is, which would let the second half of this test pass on the broken code.
+        var adjust = LocalAdjust()
+        adjust.contrast = 45
+        adjust.temp = 30
+        adjust.sat = 35
+        adjust.vibrance = 20
+
+        // ---- The table is the size it was asked for. ----
+        let anchors = RenderPlan(recipe: Recipe()).tone
+        for size in [LUT3D.interactiveSize, LUT3D.exportSize] {
+            let local = LocalPlan(adjust: adjust, scale: 1,
+                                  whiteAnchorEV: anchors.whiteAnchorEV,
+                                  blackAnchorEV: anchors.blackAnchorEV, size: size)
+            XCTAssertFalse(local.isIdentity,
+                           "a mask with contrast, temp, saturation and vibrance "
+                               + "declared itself identity, so this test measures "
+                               + "a two-point cube and proves nothing")
+            XCTAssertEqual(local.lut.size, size,
+                           "LocalPlan baked \(local.lut.size) when the render asked "
+                               + "for \(size)")
+        }
+
+        // ---- The size reaches pixels through the graph that ships. ----
+        let width = 64, height = 32
+        let source = texturedTestImage(width: width, height: height)
+
+        // Vertical, for the reason the mask golden above states: the frame is constant
+        // down each column, so any difference between two ROWS of one column is the
+        // mask and nothing else.
+        var mask = Mask(id: "m1", name: "grad")
+        var component = MaskComponent(op: .add, kind: .linear)
+        component.line = [0.5, 0, 0.5, 1]
+        mask.components = [component]
+        mask.adjust = adjust
+
+        var recipe = Recipe()
+        recipe.masks = [mask]
+        recipe.develop.denoise.mode = .off
+        // ONE plan for both renders, at export size, so the global colour/grade and
+        // finish tables are bit-identical across the pair and the only thing that can
+        // differ is the local table.
+        let plan = RenderPlan(recipe: recipe, lutSize: LUT3D.exportSize)
+
+        let alpha = MaskRaster.combine(mask: mask,
+                                       size: (width: width, height: height))
+        guard let alphaImage = PipelineRenderer.image(
+            from: alpha,
+            targetExtent: CGRect(x: 0, y: 0, width: width, height: height))
+        else { return XCTFail("mask raster failed") }
+        var graph = RenderGraph()
+        graph.maskImages[mask.id] = alphaImage
+
+        func render(lutSize: Int) -> ImageBuffer? {
+            let out = graph.build(ciImage(from: source), plan: plan,
+                                  options: RenderGraph.Options(longEdge: width,
+                                                               draft: false,
+                                                               lutSize: lutSize))
+            return readBack(out, width: width, height: height)
+        }
+        guard let interactive = render(lutSize: LUT3D.interactiveSize),
+              let exported = render(lutSize: LUT3D.exportSize)
+        else { return XCTFail("masked render failed") }
+
+        // The blend is `mix(original, adjusted, alpha)`, so the gap between the two
+        // table sizes is scaled by alpha at every pixel: it must be largest where the
+        // mask selects and vanish where it does not. That split is what separates "the
+        // local table changed" from "something global changed".
+        var selected = 0.0
+        var unselected = 0.0
+        for y in 0..<height {
+            for x in 0..<width {
+                let d = interactive[x, y].maxAbsDifference(exported[x, y])
+                if y >= height / 2 {
+                    selected = Swift.max(selected, d)
+                } else {
+                    unselected = Swift.max(unselected, d)
+                }
+            }
+        }
+        XCTAssertGreaterThan(selected, 0,
+                             "the two table sizes rendered identical pixels — "
+                                 + "`options.lutSize` does not reach the masked "
+                                 + "colour table, so an export bakes it at preview "
+                                 + "precision")
+        XCTAssertGreaterThan(selected, unselected,
+                             "the table size moved the unselected end by \(unselected) "
+                                 + "against \(selected) selected — what changed is not "
+                                 + "the mask's own table")
+        print(String(format: "LOCAL TABLE 33-vs-65 worst under the mask: %.6f", selected))
+    }
+
     // MARK: - Presence must not put a rim on an edge
 
     /// Clarity and Texture must not trench the dark side of an edge.
@@ -785,6 +898,176 @@ final class KernelGoldenTests: XCTestCase {
             XCTAssertTrue(sample.isFinite, "non-finite sample at \(x),\(y)")
             XCTAssertEqual(sample.g, 0.25, accuracy: 0.02, "wrong value at \(x),\(y)")
         }
+    }
+
+    // MARK: - Grain lands on the grid that is delivered
+
+    /// Two exports of the same picture at the same delivered size must contain the same
+    /// grain, whether or not the export had to resize to get there.
+    ///
+    /// `export` applied grain inside `build`, at DECODE resolution, and then resampled
+    /// to the target — so a 900 px file delivered at 300 px carried a grain pattern
+    /// three times finer than the one a 300 px render of the same recipe produces, and
+    /// three times finer than the preview the photographer approved. σ is a poor
+    /// instrument for that: measured on the reference path, a 3x average costs the
+    /// amplitude only about 4% (`testFilmGrainHasTheSameAmplitudeAtEveryRenderSize`),
+    /// which is why this compares the PICTURES and not their standard deviations. Two
+    /// uncorrelated grain fields of the same σ differ by √2·σ; the same field twice
+    /// differs by nothing.
+    ///
+    /// A flat field, so every difference between the two files is grain. Denoise off,
+    /// output sharpening off, no watermark: each of those would put structure into the
+    /// comparison that is not the thing being measured.
+    ///
+    /// Uncropped, deliberately. A crop is the case where the delivered pixel count is
+    /// NOT the long edge the plate must be scaled for, and that arithmetic is pinned
+    /// where it can actually be run:
+    /// `testAGrainPlateIsScaledForPixelsPerGateAndNotForPixelCount` in LumenCore.
+    func testGrainIsAppliedOnTheGridThatIsDelivered() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+
+        let delivered = 300
+        var recipe = Recipe()
+        recipe.develop.denoise.mode = .off
+        recipe.look.filmLab = FilmLab(stock: "lumen/portra400", amount: 100,
+                                      grain: FilmGrain(size: 1, amount: 100))
+        let exportRecipe = ExportRecipe(name: "grain", format: .png, bitDepth: 16,
+                                        colorSpace: .srgb, resizeMode: .longEdge,
+                                        resizeValue: Double(delivered))
+        let renderer = PipelineRenderer()
+
+        func delivery(sourceLongEdge: Int) throws -> ImageBuffer {
+            let w = sourceLongEdge, h = sourceLongEdge * 2 / 3
+            let flat = ImageBuffer(width: w, height: h) { _, _ in RGB(gray: 0.18) }
+            let image = try renderer.exportedImage(source: StubSource(ciImage(from: flat)),
+                                                   recipe: recipe, using: exportRecipe)
+            let ow = Int(image.extent.width.rounded())
+            let oh = Int(image.extent.height.rounded())
+            XCTAssertEqual(ow, delivered,
+                           "a \(sourceLongEdge) px source delivered \(ow) px")
+            guard let pixels = readBack(image, width: ow, height: oh) else {
+                throw RenderError.renderFailed
+            }
+            return pixels
+        }
+
+        // Native: 300 px in, 300 px out, no resize anywhere in the path.
+        let native = try delivery(sourceLongEdge: delivered)
+        // Downsized: the same picture, three times larger, delivered at the same size.
+        let downsized = try delivery(sourceLongEdge: delivered * 3)
+
+        // Inset, because Lanczos at the border of the larger frame legitimately differs
+        // from no resampling at all.
+        let inset = 6
+        var sum = 0.0, sumSquares = 0.0, difference = 0.0, count = 0.0
+        for y in inset..<(native.height - inset) {
+            for x in inset..<(native.width - inset) {
+                let a = native[x, y].g
+                sum += a
+                sumSquares += a * a
+                difference += (a - downsized[x, y].g) * (a - downsized[x, y].g)
+                count += 1
+            }
+        }
+        let mean = sum / Swift.max(count, 1)
+        let sigma = Swift.max(sumSquares / Swift.max(count, 1) - mean * mean, 0)
+            .squareRoot()
+        let rms = (difference / Swift.max(count, 1)).squareRoot()
+        print(String(format: "EXPORT GRAIN mean %.4f  sigma %.5f  rms difference %.5f",
+                     mean, sigma, rms))
+
+        // Grain has to be present, or the comparison below is between two flat fields
+        // and passes for a pipeline that dropped the stage entirely.
+        XCTAssertGreaterThan(sigma, 0.02 * mean,
+                             "the delivered file varies by \(sigma) on a mean of "
+                                 + "\(mean) — under 2% of the level is not a grain, so "
+                                 + "the comparison below proves nothing")
+        // The two deliveries are the same plate, at the same scale, over the same flat
+        // picture, so they should agree to the resampler's own error. Grain applied
+        // before the resize instead puts two UNCORRELATED fields side by side, which
+        // lands near √2·σ — a factor of ten above this bar.
+        XCTAssertLessThan(rms, 0.15 * sigma,
+                          "two exports of the same picture at the same delivered size "
+                              + "differ by \(rms) against a grain σ of \(sigma) — the "
+                              + "resized one is not carrying the grain of the size it "
+                              + "was delivered at")
+    }
+
+    // MARK: - An export is a promise
+
+    /// A picture the GPU cannot form must not be delivered as though it were the edit.
+    ///
+    /// The preview path has checked `coreAvailable` and fallen back to the reference
+    /// since it was written. Export had no equivalent: it built the graph
+    /// unconditionally, every `KernelLibrary.apply(...) ?? image` no-opped a missing
+    /// stage into the file, and `AppState.export` recorded a failure only when
+    /// something threw — so with the core four missing it wrote the fallback-tone
+    /// approximation and the status line said "Exported 1 file".
+    ///
+    /// `KernelLibrary`'s kernels are `static let` and compile once, so on a healthy
+    /// runner they cannot be made to fail and this behaviour could not be tested at
+    /// all. `PipelineRenderer.availability` is the seam that makes it testable, and
+    /// these two tests are the only reason it exists.
+    func testAnExportRefusesToDeliverAPictureTheGPUCannotForm() {
+        let renderer = PipelineRenderer()
+        renderer.availability = KernelAvailability(
+            coreAvailable: false, unavailable: ["logEncode", "logDecode", "multiply"])
+        let flat = ImageBuffer(width: 32, height: 24) { _, _ in RGB(gray: 0.18) }
+        let destination = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lumen-out15-refused-\(UUID().uuidString).png")
+        defer { try? FileManager.default.removeItem(at: destination) }
+
+        do {
+            _ = try renderer.export(source: StubSource(ciImage(from: flat)),
+                                    recipe: Recipe(), to: destination,
+                                    using: ExportRecipe(name: "t", format: .png))
+            XCTFail("export delivered a file with the core colour kernels missing")
+        } catch RenderError.kernelsUnavailable(let missing) {
+            XCTAssertEqual(missing, ["logEncode", "logDecode", "multiply"],
+                           "the refusal did not carry the names the caller has to "
+                               + "report")
+        } catch {
+            XCTFail("export threw \(error) rather than naming the kernels that were "
+                        + "not there")
+        }
+        // Refusing has to mean nothing was written. A truncated or half-written
+        // delivery is the failure this replaces, wearing an error message.
+        XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path),
+                       "a refused export left a file on disk anyway")
+    }
+
+    /// A file written with one stage absent is not a failure and is not clean either,
+    /// and the caller has to be told which stage.
+    func testAnExportNamesTheStagesThatSilentlyDidNothing() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+        let renderer = PipelineRenderer()
+        let flat = ImageBuffer(width: 32, height: 24) { _, _ in RGB(gray: 0.18) }
+        let destination = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lumen-out15-reduced-\(UUID().uuidString).png")
+        defer { try? FileManager.default.removeItem(at: destination) }
+
+        // A healthy build reports nothing missing, and the file is clean.
+        let clean = try renderer.export(source: StubSource(ciImage(from: flat)),
+                                        recipe: Recipe(), to: destination,
+                                        using: ExportRecipe(name: "t", format: .png))
+        XCTAssertEqual(clean, [],
+                       "this runner compiled every kernel and the export still "
+                           + "reported \(clean) missing")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: destination.path),
+                      "a clean export wrote nothing")
+
+        // A non-core kernel missing still delivers — grain, vignette and the presence
+        // stages degrade individually — but the list has to come back so the status
+        // line can name them instead of counting the file as clean.
+        renderer.availability = KernelAvailability(coreAvailable: true,
+                                                   unavailable: ["grain", "vignette"])
+        let reduced = try renderer.export(source: StubSource(ciImage(from: flat)),
+                                          recipe: Recipe(), to: destination,
+                                          using: ExportRecipe(name: "t", format: .png))
+        XCTAssertEqual(reduced, ["grain", "vignette"],
+                       "a reduced export reported \(reduced) — `AppState.export` has "
+                           + "nothing to put in the status line and counts the file "
+                           + "as clean, which is the defect")
     }
 
     // MARK: - Availability

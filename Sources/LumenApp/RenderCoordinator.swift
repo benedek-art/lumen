@@ -146,13 +146,16 @@ actor RenderCoordinator {
                                           draft: false, strokeSets: strokeSets)
     }
 
+    /// Returns the names of the kernels that were unavailable, so the caller can report
+    /// a reduced file instead of counting it as a clean one. Empty means every stage
+    /// ran; a throw means nothing was delivered.
     func export(url: URL, recipe: Recipe, to destination: URL,
                 exportRecipe: ExportRecipe,
-                strokeSets: [String: BrushStrokeSet] = [:]) throws {
+                strokeSets: [String: BrushStrokeSet] = [:]) throws -> [String] {
         let source = try self.source(for: url)
         generateMattesNow(source: source, recipe: recipe)
-        try renderer.export(source: source, recipe: recipe, to: destination,
-                            using: exportRecipe, strokeSets: strokeSets)
+        return try renderer.export(source: source, recipe: recipe, to: destination,
+                                   using: exportRecipe, strokeSets: strokeSets)
     }
 
     /// The matte pass, run INLINE, for the delivery paths.

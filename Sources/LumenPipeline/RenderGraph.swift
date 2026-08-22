@@ -808,7 +808,8 @@ public struct RenderGraph {
         for mask in plan.masks {
             guard let alpha = maskImages[mask.id] else { continue }
             let adjusted = Self.applyLocalAdjust(out, mask: mask, plan: plan,
-                                                 longEdge: options.longEdge)
+                                                 longEdge: options.longEdge,
+                                                 lutSize: options.lutSize)
             guard let blended = KernelLibrary.apply(KernelLibrary.blendMask,
                                                     extent: out.extent,
                                                     [out, adjusted, alpha])
@@ -822,7 +823,7 @@ public struct RenderGraph {
     /// over the global ones, so this is the same maths as the global path with a
     /// different parameter set — never a parallel implementation.
     static func applyLocalAdjust(_ image: CIImage, mask: Mask, plan: RenderPlan,
-                                 longEdge: Int) -> CIImage {
+                                 longEdge: Int, lutSize: Int) -> CIImage {
         let scale = Num.clamp(mask.amount, 0, 200) / 100.0
         let a = mask.adjust
         var out = image
@@ -833,10 +834,22 @@ public struct RenderGraph {
         }
 
         // The rest of the local set is per-pixel colour work, so it bakes into a table
-        // exactly like the global path does.
+        // exactly like the global path does — AT THE SIZE THIS RENDER ASKED FOR.
+        //
+        // `LocalPlan` used to hardcode `LUT3D.interactiveSize`, so a delivered file's
+        // masked contrast, temp, tint, hue, saturation, vibrance, point colours and
+        // grading wheels came out of a 33-cube while everything beside them — the
+        // global colour/grade table, the finish table, and the local point curve two
+        // stages down, which has taken `options.lutSize` since it was written — came
+        // out of a 65. Measured over 30 000 in-gamut colours (docs/18), size 33 has a
+        // worst-channel error of 0.197 stops with 10.6% of samples past 0.02 EV
+        // against 0.074 and 4.1% at 65, so every masked colour edit in an export
+        // carried preview-grade error that the preview it was judged on also carried
+        // and the file did not have to.
         let localPlan = LocalPlan(adjust: a, scale: scale,
                                   whiteAnchorEV: plan.tone.whiteAnchorEV,
-                                  blackAnchorEV: plan.tone.blackAnchorEV)
+                                  blackAnchorEV: plan.tone.blackAnchorEV,
+                                  size: lutSize)
         if !localPlan.isIdentity {
             out = throughShaper(out) { encoded in
                 ColorCube.filter(localPlan.lut, image: encoded)
@@ -1448,7 +1461,15 @@ struct LocalPlan {
     let lut: LUT3D
     let isIdentity: Bool
 
-    init(adjust: LocalAdjust, scale: Double, whiteAnchorEV: Double, blackAnchorEV: Double) {
+    /// `size` is the render's table size, not a default: an export bakes at
+    /// `LUT3D.exportSize` and a preview at `LUT3D.interactiveSize`, and there is
+    /// deliberately no default value here so that a new call site has to say which
+    /// render it is baking for. Nothing caches this table — `PlanTableCache` refuses
+    /// anything above the interactive size on purpose — so the size is not part of any
+    /// cache key; it is baked once per mask per render, which at export is 274 625
+    /// samples per mask instead of 35 937.
+    init(adjust: LocalAdjust, scale: Double, whiteAnchorEV: Double,
+         blackAnchorEV: Double, size: Int) {
         // `pointColors` belongs in this list. Leaving it out meant a mask whose ONLY
         // edit was a sampled swatch declared itself identity, got a 2-point identity
         // table, and returned its input — the Point Colour control did nothing at all
@@ -1503,7 +1524,7 @@ struct LocalPlan {
                           printerLights: PrinterLights(),
                           whiteAnchorEV: whiteAnchorEV, blackAnchorEV: blackAnchorEV)
 
-        self.lut = LUT3D(size: LUT3D.interactiveSize) { encoded in
+        self.lut = LUT3D(size: size) { encoded in
             var c = LumenLog.decode(encoded)
             let lum = Swift.max(RGBColorSpace.rec2020.luminance(c), 0)
             c = c * tone.gain(at: Num.safeLog2(lum / 0.18))

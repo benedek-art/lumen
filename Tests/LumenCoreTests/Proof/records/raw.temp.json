@@ -1,0 +1,15 @@
+{
+  "authority" : 94.46789993576488,
+  "deadSteps" : 0,
+  "frame" : "colourChart",
+  "frontLoading" : 0.9678362585012237,
+  "hueRotation" : 131.454350613178,
+  "id" : "raw.temp",
+  "isMonotone" : true,
+  "meanSeparation" : 42.73219408285011,
+  "panel" : "Basic",
+  "shippingReader" : "Sources\/LumenPipeline\/RenderGraph.swift:86",
+  "smallestLiveStep" : 2.0535952292047455,
+  "travelHigh" : 9000,
+  "travelLow" : 3000
+}

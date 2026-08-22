@@ -169,7 +169,7 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     # Foundation
     "Foundation", "Data", "Date", "DateComponents", "DateFormatter", "TimeInterval",
     "URL", "URLResourceKey", "URLSession", "URLRequest", "URLResponse", "UUID",
-    "FileManager", "FileHandle", "FileWrapper", "Bundle", "JSONEncoder", "JSONDecoder",
+    "FileManager", "FileHandle", "ProcessInfo", "FileWrapper", "Bundle", "JSONEncoder", "JSONDecoder",
     "JSONSerialization", "PropertyListEncoder", "PropertyListDecoder",
     "PropertyListSerialization", "NSError", "NSString", "NSNumber", "NSObject",
     "NSLock", "NSRecursiveLock", "NSRegularExpression", "NSLog", "NSAttributedString",
@@ -509,6 +509,18 @@ def brace_body(text, brace_index):
 METHOD_DECL = re.compile(r"\bfunc\s+([a-z]\w*)\s*(?:<[^<>]*>)?\s*\(")
 METHOD_CALL = re.compile(r"(?<![\w.])(?:[a-z]\w*|\))\s*\.\s*([a-z]\w*)\s*\(")
 
+# The same call, but through a TYPE rather than a value: `Self.applyLocalAdjust(...)`,
+# `RenderGraph.gaussianBlur(...)`. METHOD_CALL requires a lowercase receiver, so every
+# static call site was invisible to this pass — which matters most in exactly the code
+# this script exists for: `RenderGraph` reaches its stages through `Self.` throughout,
+# and none of it compiles on the machine the script runs on. Found by deleting a newly
+# required argument at one of those call sites and watching the checker stay silent.
+#
+# Gated on the receiver being `Self` or a type declared IN-TREE, so a platform call like
+# `CGImageDestination.finalize()` is never judged against an in-tree signature that
+# happens to share its name.
+METHOD_CALL_TYPED = re.compile(r"(?<![\w.])(Self|[A-Z]\w*)\s*\.\s*([a-z]\w*)\s*\(")
+
 # Method names that also exist on stdlib or platform types, where an in-tree
 # declaration of the same name says nothing about a call on something else.
 METHOD_SKIP = {
@@ -577,10 +589,24 @@ def pass_method_labels():
     methods = collect_methods()
     problems, checked = [], 0
 
+    intree_types = set()
+    for path in FILES:
+        body = strip_comments(path.read_text())
+        intree_types.update(DECL.findall(body))
+        intree_types.update(EXTENSION.findall(body))
+
+    def call_sites(text):
+        """Every method call this pass can judge, value-receiver and type-receiver."""
+        for m in METHOD_CALL.finditer(text):
+            yield m, m.group(1)
+        for m in METHOD_CALL_TYPED.finditer(text):
+            receiver = m.group(1)
+            if receiver == "Self" or receiver in intree_types:
+                yield m, m.group(2)
+
     for path in FILES:
         text = strip_comments(path.read_text())
-        for m in METHOD_CALL.finditer(text):
-            name = m.group(1)
+        for m, name in call_sites(text):
             if name in METHOD_SKIP or name not in methods:
                 continue
             open_i = m.end() - 1
