@@ -77,6 +77,23 @@ public struct Recipe: Codable, Equatable, Sendable {
             return stripped
         }
         if copy.look.bw?.enabled == false { copy.look.bw = nil }
+        // `look.lut` goes the same way, for a blunter reason: NO STAGE READS IT.
+        // `LUTReference` round-trips through the recipe, the sidecar and the catalog,
+        // and there is no reader on any path — not `RenderGraph`, not `export`, not the
+        // reference renderer. `LUT3D.fromCubeFile` exists and has only test callers.
+        //
+        // So two recipes differing only in a LUT render the same picture, and this
+        // projection is defined as "what actually reaches a pixel". Leaving it in meant
+        // a hand-edited sidecar carrying `look.lut` got a different `recipe_fp`, threw
+        // away every cached preview and artifact for that photo, re-rendered the frame,
+        // and produced identical bytes — and the library called it edited.
+        //
+        // WHEN A LUT STAGE IS BUILT, DELETE THIS LINE IN THE SAME COMMIT. A LUT that
+        // renders but is not hashed is the mirror defect: the user drags Amount and the
+        // cache hands back the previous picture.
+        // `testALookCarryingALUTRendersTheSamePictureAsOneWithout` fails the moment this
+        // line is wrong in either direction, and says which.
+        copy.look.lut = nil
         return copy
     }
 }

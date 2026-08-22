@@ -13,6 +13,7 @@ public struct Look: Codable, Equatable, Sendable {
     public var bw: BlackAndWhite?
     public var vignette: Double         // EV, −3.00…+1.00 (docs/06); 0 = off
     public var render: RenderParams
+    /// A creative LUT. **Stored and never applied** — see `LUTReference`.
     public var lut: LUTReference?
 
     public init(wheels: GradingWheels = GradingWheels(),
@@ -84,6 +85,23 @@ public struct RenderParams: Codable, Equatable, Sendable {
 /// A user `.cube` LUT applied at one of the two documented taps (docs/14 §2.3):
 /// `display` = after the transform (the common case for SDR-referred LUT packs),
 /// `log` = before it, on a fixed log encoding.
+/// A creative LUT, as the wire format will name one — **and nothing renders it.**
+///
+/// This is a reserved slot, not a feature. There is no stage that reads it on any path:
+/// not `RenderGraph`, not `export`, not `ReferenceRenderer`. `LUT3D.fromCubeFile` can
+/// parse a `.cube` and has only test callers, and there is no UI that would ever set
+/// `Look.lut` — the only way a recipe acquires one is a hand-edited sidecar, and that
+/// sidecar renders exactly like one without it.
+///
+/// Said here, at the definition, because a `Codable` field that survives the recipe, the
+/// sidecar and the catalog looks from every one of those three places like a capability.
+/// `Recipe.renderIdentity` strips it, so the inertness is mechanical rather than a
+/// promise in a comment: two recipes differing only in a LUT are equal to the fingerprint
+/// and to `rendersSameAs`, which is the truth about the pixels they produce.
+///
+/// `tap` and `amount` describe how a LUT WOULD be applied — after the display transform
+/// or in log, blended by percent. They are design, not behaviour, and they will only
+/// start meaning something when a stage reads them.
 public struct LUTReference: Codable, Equatable, Sendable {
     public enum Tap: String, Codable, Sendable { case display, log }
     public var ref: String        // "blob:xxh64:<hash>" or a bundled LUT id

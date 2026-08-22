@@ -355,4 +355,51 @@ final class CanonicalJSONTests: XCTestCase {
                           try RecipeFingerprint.fingerprint(kept),
                           "turning the treatment on did not change the fingerprint")
     }
+
+    /// LIB-22: `look.lut` is a stored field NO STAGE READS, so it must not be able to
+    /// claim otherwise through the fingerprint.
+    ///
+    /// A LUT reference round-trips through the recipe, the sidecar and the catalog, and
+    /// there is no reader on any shipping path. The only way one exists at all is a
+    /// hand-edited sidecar — and that sidecar rendered a picture identical to one
+    /// without it, while `recipe_fp` said otherwise: every cached preview and artifact
+    /// for the photo thrown away, the frame re-rendered to produce the same bytes, and
+    /// an edited badge on a photograph that renders exactly as it was shot.
+    ///
+    /// **This test is also the tripwire for the day a LUT stage is built.** It fails
+    /// then, and the fix is to delete the `copy.look.lut = nil` line in
+    /// `Recipe.renderIdentity` and rewrite this test to assert the opposite — a LUT
+    /// that renders without being hashed is the same bug pointing the other way.
+    func testALookCarryingALUTRendersTheSamePictureAsOneWithout() throws {
+        var carried = Recipe()
+        carried.look.lut = LUTReference(ref: "blob:xxh64:0123456789abcdef",
+                                        name: "Kodachrome", tap: .log, amount: 62)
+
+        XCTAssertNotNil(carried.look.lut,
+                        "the LUT did not survive being set, so this test proves nothing")
+        XCTAssertTrue(carried.rendersSameAs(Recipe()),
+                      "a LUT that no stage reads was counted as a different picture")
+        XCTAssertEqual(try RecipeFingerprint.fingerprint(carried),
+                       try RecipeFingerprint.fingerprint(Recipe()),
+                       "a LUT that no stage reads invalidated the cache")
+
+        // Every knob on the reference is equally inert, including the ones whose names
+        // promise the most: the tap it would be applied at, and the amount it would be
+        // blended by.
+        var reblended = carried
+        reblended.look.lut?.amount = 5
+        reblended.look.lut?.tap = .display
+        XCTAssertEqual(try RecipeFingerprint.fingerprint(reblended),
+                       try RecipeFingerprint.fingerprint(carried),
+                       "changing a LUT's tap or amount changed the render identity of a "
+                           + "field nothing renders")
+
+        // And it is still THERE — stripped from the render identity, kept in the recipe.
+        // The photographer's stated intent survives; it just does not lie about pixels.
+        let wire = try CanonicalJSON.canonicalRecipeJSON(carried)
+        let round = try CanonicalJSON.decodeRecipe(from: Data(wire.utf8))
+        XCTAssertEqual(round.look.lut, carried.look.lut,
+                       "the LUT was dropped from the wire format instead of from the "
+                           + "render identity")
+    }
 }
