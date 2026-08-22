@@ -1878,11 +1878,14 @@ final class AppState: ObservableObject {
                 // colour and the compared colour diverged by every global edit the
                 // photograph carried, and the mask could miss the pixel that was
                 // clicked.
-                let sample = target.samplesTheMaskStage
-                    ? await renderCoordinator.sampleMaskReference(
+                let sample: RGB?
+                if target.samplesTheMaskStage {
+                    sample = await renderCoordinator.sampleMaskReference(
                         url: url, recipe: current, sourceX: sourceX, sourceY: sourceY)
-                    : await renderCoordinator.sampleWorking(
+                } else {
+                    sample = await renderCoordinator.sampleWorking(
                         url: url, recipe: current, sourceX: sourceX, sourceY: sourceY)
+                }
                 pickTarget = nil
                 guard let sample else {
                     statusMessage = "Could not read a colour there."
