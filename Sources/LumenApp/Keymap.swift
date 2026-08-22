@@ -244,7 +244,13 @@ final class KeyDispatcher {
                 state.showLoupe()
                 return true
             }
-            state.zoomLevel = state.zoomLevel == 0 ? 1 : 0
+            // Through the viewport verb, like Z and − above it. This line used to read
+            // `state.zoomLevel = state.zoomLevel == 0 ? 1 : 0`: the same two ratios and
+            // none of the anchoring, so Space zoomed about the centre of the window
+            // while a click zoomed where you pointed — on the key whose own
+            // documentation says "centred on the cursor". Exactly the bug the comment
+            // above claims was fixed for Z, reintroduced one case later.
+            LoupeViewport.shared.toggleZoom(in: state)
 
         default:
             return false

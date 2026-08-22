@@ -46,26 +46,25 @@ final class CompareSync: ObservableObject {
     @Published var center: CGPoint = CGPoint(x: 0.5, y: 0.5)
 
     func fit() {
-        zoom = 0
+        zoom = ZoomLadder.fit
         center = CGPoint(x: 0.5, y: 0.5)
     }
 
     func setZoom(_ ratio: Double, at unitPoint: CGPoint?) {
-        let clamped: Double = ratio.isFinite ? Swift.max(0, Swift.min(ratio, 16)) : 0
+        let clamped: Double = ZoomLadder.clamp(ratio)
         zoom = clamped
-        if clamped <= 0 {
+        if ZoomLadder.isFit(clamped) {
             center = CGPoint(x: 0.5, y: 0.5)
         } else if let unitPoint {
             center = unitPoint
         }
     }
 
+    /// The same rung the loupe's Space and Z land on, from the same function. A third
+    /// implementation of "fit ↔ 1:1" is a third chance for the panes and the viewer to
+    /// disagree about where a key lands.
     func toggleZoom(at unitPoint: CGPoint?) {
-        if zoom > 0 {
-            fit()
-        } else {
-            setZoom(1, at: unitPoint)
-        }
+        setZoom(ZoomLadder.toggleTarget(from: zoom), at: unitPoint)
     }
 }
 

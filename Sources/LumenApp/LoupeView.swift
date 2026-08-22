@@ -34,20 +34,20 @@ import SwiftUI
 /// The zoom ladder. `AppState.zoomLevel` is the source of truth: 0 means "fit",
 /// anything else is a ratio of image pixels to device pixels — so 1.0 is true 1:1
 /// on the panel, and 2.0 puts one image pixel on a 2×2 block of device pixels.
+///
+/// The arithmetic is `ZoomLadder` in LumenCore and this is the app's name for it. It
+/// forwards rather than reimplementing: three surfaces zoom — the loupe, the compare
+/// panes and the keymap — and every time one of them has computed its own next ratio,
+/// the mouse and the keyboard have ended up on different ladders.
 enum LoupeZoom {
-    static let fit: Double = 0
-    static let oneToOne: Double = 1
-    static let twoToOne: Double = 2
+    static let fit: Double = ZoomLadder.fit
+    static let oneToOne: Double = ZoomLadder.oneToOne
+    static let twoToOne: Double = ZoomLadder.twoToOne
 
     /// What `cycleZoom` walks through.
-    static let ladder: [Double] = [fit, oneToOne, twoToOne]
+    static let ladder: [Double] = ZoomLadder.ladder
 
-    static func label(_ ratio: Double) -> String {
-        if ratio <= 0 { return "FIT" }
-        if abs(ratio - 1) < 0.001 { return "1:1" }
-        if abs(ratio - 2) < 0.001 { return "2:1" }
-        return String(format: "%.0f%%", ratio * 100)
-    }
+    static func label(_ ratio: Double) -> String { ZoomLadder.label(ratio) }
 }
 
 /// Viewport state that outlives any one `LoupeView` body and that the keymap needs a
@@ -115,8 +115,8 @@ final class LoupeViewport: ObservableObject {
         } else {
             anchorNextZoomAtCursor = false
         }
-        let clamped: Double = ratio.isFinite ? Swift.max(0, Swift.min(ratio, 16)) : 0
-        if clamped <= 0 { pan = .zero }
+        let clamped: Double = ZoomLadder.clamp(ratio)
+        if ZoomLadder.isFit(clamped) { pan = .zero }
         state.zoomLevel = clamped
     }
 
@@ -125,14 +125,19 @@ final class LoupeViewport: ObservableObject {
         setZoom(ratio, at: lastCursor, in: state)
     }
 
-    /// `Space`: fit ↔ 1:1, centred on the cursor (docs/12 §B15 defaults).
+    /// `Space` and `Z`: fit ↔ 1:1, centred on the cursor (docs/12 §B15 defaults).
+    ///
+    /// Space reaches this now. It used to set `state.zoomLevel` from the keymap
+    /// directly — `zoomLevel == 0 ? 1 : 0` — which is the same ratio and none of the
+    /// anchoring, so the one key whose documentation promised "centred on the cursor"
+    /// was the one key that zoomed about the middle of the window.
     @MainActor
     func toggleZoom(at point: CGPoint?, in state: AppState) {
-        if state.zoomLevel > 0 {
-            setZoom(LoupeZoom.fit, at: nil, in: state)
-        } else {
-            setZoom(LoupeZoom.oneToOne, at: point ?? lastCursor, in: state)
-        }
+        let target: Double = ZoomLadder.toggleTarget(from: state.zoomLevel)
+        let anchor: CGPoint? = ZoomLadder.anchorsAtCursor(target: target)
+            ? (point ?? lastCursor)
+            : nil
+        setZoom(target, at: anchor, in: state)
     }
 
     @MainActor
@@ -141,13 +146,9 @@ final class LoupeViewport: ObservableObject {
     /// Walks fit → 1:1 → 2:1 → fit.
     @MainActor
     func cycleZoom(in state: AppState) {
-        let current: Double = state.zoomLevel
-        var index: Int = 0
-        for (i, step) in LoupeZoom.ladder.enumerated() where abs(step - current) < 0.001 {
-            index = i
-        }
-        let next: Int = (index + 1) % LoupeZoom.ladder.count
-        setZoom(LoupeZoom.ladder[next], at: lastCursor, in: state)
+        let target: Double = ZoomLadder.cycleTarget(from: state.zoomLevel)
+        setZoom(target, at: ZoomLadder.anchorsAtCursor(target: target) ? lastCursor : nil,
+                in: state)
     }
 
     @MainActor
@@ -161,15 +162,15 @@ final class LoupeViewport: ObservableObject {
 
     @MainActor
     func zoomIn(in state: AppState) {
-        let current: Double = state.zoomLevel > 0 ? state.zoomLevel : LoupeZoom.oneToOne
-        setZoom(current * 2, at: lastCursor, in: state)
+        setZoom(ZoomLadder.zoomInTarget(from: state.zoomLevel), at: lastCursor, in: state)
     }
 
     @MainActor
     func zoomOut(in state: AppState) {
-        guard state.zoomLevel > 0 else { return }
-        let next: Double = state.zoomLevel / 2
-        setZoom(next < 0.35 ? LoupeZoom.fit : next, at: lastCursor, in: state)
+        guard !ZoomLadder.isFit(state.zoomLevel) else { return }
+        let target: Double = ZoomLadder.zoomOutTarget(from: state.zoomLevel)
+        setZoom(target, at: ZoomLadder.anchorsAtCursor(target: target) ? lastCursor : nil,
+                in: state)
     }
 
     // MARK: Pan verbs
