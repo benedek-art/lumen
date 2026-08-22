@@ -27,7 +27,12 @@ import CoreImage
 import Foundation
 import LumenCore
 
-@MainActor
+/// Deliberately NOT `@MainActor`. The call sites are `plate(_:ratio:drawn:)` in the loupe
+/// and the two in Compare — plain methods on a `View`, which are nonisolated even though
+/// `body` is not, so a main-actor member would be unreachable from exactly the three
+/// places that need it. Every one of those call sites runs while SwiftUI is evaluating a
+/// body, which is the main thread; the memo is not shared with anything else, and the
+/// worst a race could cost is one wasted filter pass.
 enum InspectionGain {
 
     private static let context: CIContext = CIContext()
