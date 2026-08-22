@@ -98,19 +98,10 @@ struct CompareView: View {
         .background(Lumen.viewerBackground)
     }
 
-    /// What is being compared. A real multi-selection is the answer; with one photo
-    /// selected the obvious second frame is its neighbour, which is what "compare this
-    /// to the next one" means during a cull.
-    private var comparisonSet: [PhotoItem] {
-        let selected = state.selectedPhotos
-        if selected.count >= 2 { return selected }
-        guard let primary = state.primarySelection else { return selected }
-        let all = state.photos
-        if let index = all.firstIndex(of: primary), index + 1 < all.count {
-            return [primary, all[index + 1]]
-        }
-        return [primary]
-    }
+    /// What is being compared. The rule lives on `AppState` because the arrow keys move
+    /// the cursor INSIDE this set and must be looking at the same set the panes draw;
+    /// a copy here is how the key and the view come to disagree.
+    private var comparisonSet: [PhotoItem] { state.comparisonSet }
 
     private var empty: some View {
         VStack(spacing: 8) {

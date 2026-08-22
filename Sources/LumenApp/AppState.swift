@@ -1621,6 +1621,24 @@ final class AppState: ObservableObject {
 
     // MARK: Selection
 
+    /// What Compare and Survey are showing.
+    ///
+    /// A real multi-selection is the answer; with one photo selected the obvious second
+    /// frame is its neighbour, which is what "compare this to the next one" means during
+    /// a cull. It lives here rather than in the view because the arrow keys have to know
+    /// what set they are moving inside — the view drawing it and the key moving through
+    /// it disagreeing about which set that is would be the same class of bug again.
+    var comparisonSet: [PhotoItem] {
+        let selected = selectedPhotos
+        if selected.count >= 2 { return selected }
+        guard let primary = primarySelection else { return selected }
+        let all = photos
+        if let index = all.firstIndex(of: primary), index + 1 < all.count {
+            return [primary, all[index + 1]]
+        }
+        return [primary]
+    }
+
     func select(_ photo: PhotoItem, extending: Bool = false, toggling: Bool = false) {
         let changedPhoto = primarySelection?.id != photo.id
         if toggling {
@@ -1639,13 +1657,31 @@ final class AppState: ObservableObject {
         }
         primarySelection = photo
         guard changedPhoto else { return }
-        // Every path lands here, including ⌘-click and ⇧-click, which used to return
-        // early and leave the histogram describing the previous frame.
-        //
-        // Mask selection is per-photo, so it does not travel: mask "c-9F3B" on this
-        // photo is not the same object as mask 1 on the next one, and carrying the
-        // index across would point the on-image handles at a component that is not
-        // there.
+        cursorDidChange(to: photo)
+    }
+
+    /// Move the cursor to a photo WITHOUT rebuilding the selection.
+    ///
+    /// Compare and Survey are views of the selection: the frames on screen are the
+    /// selected photos. A key that moves attention between them must not edit them, and
+    /// `select` — which resets `selection` to a single photo — did exactly that, so →
+    /// in a six-frame survey collapsed it to two.
+    func moveCursor(to photo: PhotoItem) {
+        let changedPhoto = primarySelection?.id != photo.id
+        primarySelection = photo
+        guard changedPhoto else { return }
+        cursorDidChange(to: photo)
+    }
+
+    /// Everything that has to follow the cursor, wherever the cursor was moved from.
+    ///
+    /// Every path lands here, including ⌘-click and ⇧-click, which used to return early
+    /// and leave the histogram describing the previous frame.
+    ///
+    /// Mask selection is per-photo, so it does not travel: mask "c-9F3B" on this photo
+    /// is not the same object as mask 1 on the next one, and carrying the index across
+    /// would point the on-image handles at a component that is not there.
+    private func cursorDidChange(to photo: PhotoItem) {
         activeMaskID = nil
         activeComponentIndex = 0
         loadStrokeSets(for: recipe(for: photo))
@@ -1656,17 +1692,33 @@ final class AppState: ObservableObject {
     func selectNext() { moveSelection(by: 1) }
     func selectPrevious() { moveSelection(by: -1) }
 
+    /// One arrow press. Which list it walks — the roll, or the selection being
+    /// compared — is `ArrowNavigation.step`, in LumenCore, where it has tests; this
+    /// method supplies the indices and carries out the answer.
     func moveSelection(by delta: Int) {
         let list = photos
-        guard !list.isEmpty else { return }
-        guard let current = primarySelection,
-              let index = list.firstIndex(of: current) else {
-            select(list[0])
+        // The photos actually chosen, in the order the panes draw them — the same
+        // branch `comparisonSet` takes, so the set the key walks and the set on screen
+        // cannot be two different sets. Below two, a comparison is the cull gesture
+        // "this one against the next one" and the arrows browse the roll as usual.
+        let selected = selectedPhotos
+        let step = ArrowNavigation.step(
+            delta: delta,
+            libraryCursor: primarySelection.flatMap { list.firstIndex(of: $0) },
+            libraryCount: list.count,
+            selectionCursor: primarySelection.flatMap { selected.firstIndex(of: $0) },
+            selectionCount: selected.count,
+            comparing: viewMode == .compare || viewMode == .survey)
+        switch step {
+        case .stay:
             return
+        case .selectSingle(let index):
+            guard list.indices.contains(index) else { return }
+            select(list[index])
+        case .moveWithinSelection(let index):
+            guard selected.indices.contains(index) else { return }
+            moveCursor(to: selected[index])
         }
-        let next = Swift.min(Swift.max(index + delta, 0), list.count - 1)
-        guard next != index else { return }
-        select(list[next])
     }
 
     func selectAll() { selection = Set(photos.map(\.id)) }
