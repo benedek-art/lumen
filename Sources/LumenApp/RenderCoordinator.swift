@@ -27,6 +27,28 @@ struct RenderResult: @unchecked Sendable {
     let note: String?
 }
 
+/// What the renderer knows about one file's AI mattes after a pass, plus the files its
+/// bounded cache dropped along the way.
+///
+/// The third field is the one that had to exist. `PipelineRenderer` holds the mattes
+/// behind a bound of twelve files; `AppState` held a ledger of the same facts that was
+/// never trimmed, so browsing thirteen photographs with Vision masks and returning to
+/// the first left the app certain it had a matte the renderer had thrown away — the
+/// render read nothing, the panel said READY, and no edit short of an unrelated one
+/// could clear it. A copy of somebody else's bounded cache is only honest if the
+/// evictions come back with it.
+struct MattePass: Sendable {
+    /// Kinds this file now has a matte for.
+    let available: Set<String>
+    /// Kinds a pass has been RUN for on this file, whatever it found. The difference
+    /// between `available` and this is "Vision looked and found nothing", which the
+    /// panel says out loud and must not say about a request nobody made.
+    let attempted: Set<String>
+    /// Files whose mattes are gone. Any entry a caller holds for one of these is now a
+    /// lie and must be dropped, not refreshed.
+    let evicted: [URL]
+}
+
 actor RenderCoordinator {
 
     private let renderer = PipelineRenderer()
@@ -37,6 +59,14 @@ actor RenderCoordinator {
     /// memory at once; the eviction is safe because a source is recreatable.
     private static let sourceCacheLimit = 12
     private var sourceOrder: [URL] = []
+
+    /// Files the renderer's bounded matte cache has dropped since the app last asked.
+    ///
+    /// An export or a full-size render generates mattes inline and can therefore evict
+    /// somebody else's, with no return value going anywhere near the app. Holding the
+    /// evictions here until the next `ensureMattes` is what lets a ledger kept outside
+    /// this actor find out at all.
+    private var evictedMattes: Set<URL> = []
 
     /// A render that takes part in coalescing: it claims the newest ticket, and any
     /// request holding an older one is dropped wherever it happens to be.
@@ -167,11 +197,27 @@ actor RenderCoordinator {
     /// failure this project has already shipped twice. A second per photo is the right
     /// price for the file being the picture.
     private func generateMattesNow(source: any ImageSource, recipe: Recipe) {
-        let wanted = VisionMattes.kinds(in: recipe)
-        guard !wanted.isEmpty, !renderer.hasAttemptedMattes(for: source.url) else { return }
+        // Per KIND. This used to ask whether the file had been attempted at all, so a
+        // recipe that gained a People mask after a Subject mask exported with the
+        // People component selecting nothing.
+        let missing = missingMatteKinds(url: source.url, recipe: recipe)
+        guard !missing.isEmpty else { return }
         guard let picture = renderer.matteSourceImage(source: source) else { return }
-        renderer.storeMattes(VisionMattes.generate(image: picture, kinds: wanted),
-                             for: source.url)
+        record(evicted: renderer.storeMattes(
+            VisionMattes.generate(image: picture, kinds: missing),
+            requested: Set(missing.map { $0.rawValue }), for: source.url))
+    }
+
+    /// The kinds this recipe wants that no pass has looked for yet on this file.
+    private func missingMatteKinds(url: URL, recipe: Recipe) -> Set<MaskKind> {
+        let wanted = VisionMattes.kinds(in: recipe)
+        guard !wanted.isEmpty else { return [] }
+        let done = renderer.attemptedMatteKinds(for: url)
+        return wanted.filter { !done.contains($0.rawValue) }
+    }
+
+    private func record(evicted: [URL]) {
+        for url in evicted { evictedMattes.insert(url) }
     }
 
     /// One mask's alpha, for the loupe's overlay. Small by construction — the raster is
@@ -184,24 +230,38 @@ actor RenderCoordinator {
     }
 
     /// Generate the Vision mattes this recipe's masks need, if they are not cached
-    /// already, and return every kind the file now has one for (docs/08 §8.7).
+    /// already, and hand back what the renderer knows afterwards (docs/08 §8.7).
     ///
     /// Never blocks a render. The segmentation runs on `VisionMatteWorker`, a
     /// different actor, so the `await` below SUSPENDS this one — frames keep being
     /// drawn from the cache while a matte is computed, which is the whole of the §8.7
     /// contract and the thing LrC's masking is most criticised for missing.
     ///
-    /// One pass per file: the result is stored even when it is empty, so a photograph
-    /// with no subject in it is not re-segmented on every slider move.
-    func ensureMattes(url: URL, recipe: Recipe) async -> Set<String> {
-        let wanted = VisionMattes.kinds(in: recipe)
-        guard !wanted.isEmpty else { return [] }
-        if renderer.hasAttemptedMattes(for: url) { return renderer.matteKinds(for: url) }
-        guard let source = try? self.source(for: url),
-              let picture = renderer.matteSourceImage(source: source) else { return [] }
-        let produced = await VisionMatteWorker.shared.mattes(image: picture, kinds: wanted)
-        renderer.storeMattes(produced, for: url)
-        return renderer.matteKinds(for: url)
+    /// One pass per file AND KIND: the result is recorded even when a kind produced
+    /// nothing, so a photograph with no subject in it is not re-segmented on every
+    /// slider move — and a kind added later is not skipped because a different one was
+    /// already done.
+    ///
+    /// Always safe to call. The authoritative check is here rather than in the caller
+    /// deliberately: the cache this reads is the renderer's own, it is bounded, and a
+    /// caller that decided for itself whether a pass was needed would be deciding from
+    /// a copy that eviction can silently invalidate. Two dictionary lookups is what the
+    /// fast path costs.
+    func ensureMattes(url: URL, recipe: Recipe) async -> MattePass {
+        let missing = missingMatteKinds(url: url, recipe: recipe)
+        if !missing.isEmpty,
+           let source = try? self.source(for: url),
+           let picture = renderer.matteSourceImage(source: source) {
+            let produced = await VisionMatteWorker.shared.mattes(image: picture,
+                                                                kinds: missing)
+            record(evicted: renderer.storeMattes(
+                produced, requested: Set(missing.map { $0.rawValue }), for: url))
+        }
+        let dropped = evictedMattes.subtracting([url])
+        evictedMattes.removeAll()
+        return MattePass(available: renderer.matteKinds(for: url),
+                         attempted: renderer.attemptedMatteKinds(for: url),
+                         evicted: Array(dropped))
     }
 
     func nativeSize(for url: URL) -> (width: Int, height: Int)? {
@@ -212,8 +272,11 @@ actor RenderCoordinator {
     func invalidate(url: URL) {
         sources.removeValue(forKey: url)
         sourceOrder.removeAll { $0 == url }
-        // The matte was computed from this file's pixels, so it goes with them.
+        // The matte was computed from this file's pixels, so it goes with them — and
+        // anyone holding a copy of the ledger hears about it the same way they hear
+        // about an eviction, since to them the two are the same event.
         renderer.forgetMattes(for: url)
+        evictedMattes.insert(url)
     }
 
     /// One scene-linear sample, for the eyedroppers.

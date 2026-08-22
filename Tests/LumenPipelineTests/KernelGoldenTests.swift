@@ -1229,6 +1229,78 @@ final class KernelGoldenTests: XCTestCase {
                               + "was delivered at")
     }
 
+    // MARK: - The AI matte ledger
+
+    /// The matte ledger answers per KIND, and it says what it threw away.
+    ///
+    /// Two shipped defects, one ledger, and no kernel involved in either — which is why
+    /// this test needs no GPU and would have caught both on any Mac.
+    ///
+    /// It was per FILE. "Has a pass run for this photograph" is the wrong question:
+    /// add a Subject mask, the pass runs for `{aiSubject}` and the file is marked done;
+    /// add a People mask afterwards and every guard on both the preview and the export
+    /// path short-circuits, so the People matte is never generated at all — and the
+    /// panel then prints "Vision found no person in this frame" about a request nobody
+    /// issued.
+    ///
+    /// And the renderer's cache is bounded at twelve files while the app's copy of the
+    /// same facts was never trimmed. Browse thirteen photographs carrying Vision masks,
+    /// return to the first, and the app skipped the regeneration while the render read
+    /// an empty matte and the panel still said READY. `storeMattes` now returns what it
+    /// evicted, so the only place that can drop a matte is the only place that reports
+    /// one — the two cannot drift apart the way two independent ledgers did.
+    func testTheMatteLedgerIsPerKindAndReportsWhatItEvicts() {
+        let renderer = PipelineRenderer()
+        let first = URL(fileURLWithPath: "/tmp/lumen-matte-ledger-first.raw")
+        let subject = MaskKind.aiSubject.rawValue
+        let person = MaskKind.aiPerson.rawValue
+        let plane = Plane(width: 2, height: 2)
+
+        // A pass that looked for Subject and found one.
+        XCTAssertTrue(renderer.storeMattes([subject: plane], requested: [subject],
+                                           for: first).isEmpty,
+                      "the first store of thirteen evicted something")
+        XCTAssertEqual(renderer.matteKinds(for: first), [subject])
+        XCTAssertEqual(renderer.attemptedMatteKinds(for: first), [subject])
+
+        // The whole of the first defect: People has not been looked for, on a file that
+        // HAS been looked at.
+        XCTAssertFalse(renderer.attemptedMatteKinds(for: first).contains(person),
+                       "the ledger says People was attempted because Subject was — "
+                           + "which is the per-file answer to a per-kind question, and "
+                           + "it is what stopped the second Vision mask ever being "
+                           + "computed")
+
+        // A pass that looked for People and found nobody. Recorded as attempted, so it
+        // is not re-segmented on every edit; NOT recorded as available, so the panel
+        // can still tell "found nothing" from "not asked".
+        renderer.storeMattes([:], requested: [person], for: first)
+        XCTAssertTrue(renderer.attemptedMatteKinds(for: first).contains(person))
+        XCTAssertFalse(renderer.matteKinds(for: first).contains(person),
+                       "a kind that produced no plane is being reported as available")
+        XCTAssertTrue(renderer.matteKinds(for: first).contains(subject),
+                      "the second pass overwrote the first one's matte")
+
+        // Twelve more files push the first out of a twelve-file cache, and the store
+        // has to SAY so — a caller holding a copy has no other way to find out.
+        var evicted: [URL] = []
+        for i in 0..<12 {
+            let other = URL(fileURLWithPath: "/tmp/lumen-matte-ledger-\(i).raw")
+            evicted += renderer.storeMattes([subject: plane], requested: [subject],
+                                            for: other)
+        }
+        XCTAssertEqual(evicted, [first],
+                       "the cache dropped \(evicted) on its way past twelve files; the "
+                           + "file it dropped is the one whose ledger entry elsewhere "
+                           + "is now a lie")
+        XCTAssertTrue(renderer.matteKinds(for: first).isEmpty,
+                      "the evicted file still reports a matte")
+        XCTAssertTrue(renderer.attemptedMatteKinds(for: first).isEmpty,
+                      "the file's mattes went and its attempt ledger stayed — the two "
+                          + "dictionaries that used to disagree, now in one value so "
+                          + "that they cannot")
+    }
+
     // MARK: - An export is a promise
 
     /// A picture the GPU cannot form must not be delivered as though it were the edit.

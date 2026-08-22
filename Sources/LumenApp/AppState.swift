@@ -536,11 +536,23 @@ final class AppState: ObservableObject {
     /// brush blob, and a `.task(id:)` that does not name it renders the mask empty and
     /// stays that way until an unrelated edit moves the recipe.
     @Published private(set) var availableMattes: [URL: Set<String>] = [:]
-    /// Files a generation pass has already FINISHED for, whatever it found. Without
-    /// this a photograph with no subject in it would be re-segmented on every edit.
-    /// Separate from `pendingMattes` so "still working" and "looked and found nothing"
-    /// are different states — the panel says different things about them.
-    private var attemptedMattes: Set<URL> = []
+    /// Which KINDS a generation pass has already finished for, per file, whatever it
+    /// found. Separate from `pendingMattes` so "still working" and "looked and found
+    /// nothing" are different states — the panel says different things about them.
+    ///
+    /// This was a `Set<URL>`: a file was attempted or it was not. Two consequences,
+    /// both shipped. Adding a Subject mask ran the pass for `{aiSubject}` and marked
+    /// the FILE done, so adding a People mask afterwards never generated its matte and
+    /// the panel reported "Vision found no person in this frame" about a request
+    /// nobody had made. And it was never trimmed, while the renderer's matte cache is
+    /// bounded at twelve files — so after browsing thirteen photographs with Vision
+    /// masks, the first one's entry here said ready about a matte that had been
+    /// evicted, the mask rendered as nothing, and no edit could clear it.
+    ///
+    /// Both entries below are a COPY of state `PipelineRenderer` owns. They are
+    /// replaced from its answer on every pass and dropped when it says a file was
+    /// evicted; nothing here decides on its own that a pass can be skipped.
+    private var attemptedMattes: [URL: Set<String>] = [:]
     private var pendingMattes: Set<URL> = []
 
     func maskMatteKinds(for url: URL) -> Set<String> { availableMattes[url] ?? [] }
@@ -567,33 +579,68 @@ final class AppState: ObservableObject {
         case .vision:
             guard let url = primarySelection?.id else { return .working }
             if maskMatteKinds(for: url).contains(kind.rawValue) { return .ready }
-            return attemptedMattes.contains(url) && !pendingMattes.contains(url)
+            if pendingMattes.contains(url) { return .working }
+            // Per KIND. Asking whether the FILE had been attempted made this say
+            // NOTHING FOUND about a kind added after the pass ran — a specific,
+            // actionable error message about a request that was never issued, which is
+            // worse than a vague one.
+            return (attemptedMattes[url] ?? []).contains(kind.rawValue)
                 ? .notFound : .working
         }
     }
 
     /// Ask for whatever Vision mattes the current photo's masks need. Cheap and
-    /// idempotent: it returns immediately when there is nothing to compute or the pass
-    /// has already run for this file.
+    /// idempotent: it returns immediately when the recipe has no AI component at all,
+    /// which is the overwhelming majority of photographs, and the coordinator's own
+    /// fast path is two dictionary lookups when every kind has already been tried.
+    ///
+    /// There is deliberately NO "this file was already attempted" short circuit here.
+    /// The ledger below is a copy of a bounded cache the renderer owns, so a guard
+    /// written against it can only be as fresh as the last thing that happened to tell
+    /// it — and the thing that used to be missing, an eviction, is exactly the case
+    /// where skipping the pass renders the mask as nothing. The authoritative check
+    /// lives beside the cache, in `RenderCoordinator.ensureMattes`.
     func ensureMaskMattes() {
         guard let photo = primarySelection else { return }
         let url = photo.id
         let recipe = recipe(for: photo)
         guard !VisionMattes.kinds(in: recipe).isEmpty else { return }
-        guard !attemptedMattes.contains(url), !pendingMattes.contains(url) else { return }
+        guard !pendingMattes.contains(url) else { return }
         pendingMattes.insert(url)
         Task { [weak self] in
             guard let self else { return }
             // `await`: the coordinator is an actor, and the segmentation it runs is on
             // a third one, so neither this actor nor the render loop is blocked.
-            let kinds = await self.renderCoordinator.ensureMattes(url: url, recipe: recipe)
+            let pass = await self.renderCoordinator.ensureMattes(url: url, recipe: recipe)
             self.pendingMattes.remove(url)
-            self.attemptedMattes.insert(url)
-            guard !kinds.isEmpty else { return }
-            self.availableMattes[url] = kinds
-            // The overlay is a picture of the mask, and the mask just changed.
-            self.refreshMaskOverlay()
+            self.applyMattePass(pass, for: url)
         }
+    }
+
+    /// Replace this file's ledger with what the renderer reported, and drop every file
+    /// it says it evicted.
+    ///
+    /// The eviction half is not housekeeping. `LoupeView`'s render key names
+    /// `availableMattes` precisely so that a matte ARRIVING re-renders the frame — and
+    /// a matte that was evicted and then regenerated arrives at the same value it had
+    /// before, so unless the entry is removed when the eviction is reported the key
+    /// never moves and the loupe keeps showing the empty-mask render.
+    private func applyMattePass(_ pass: MattePass, for url: URL) {
+        for dropped in pass.evicted where dropped != url {
+            attemptedMattes.removeValue(forKey: dropped)
+            if availableMattes[dropped] != nil {
+                availableMattes.removeValue(forKey: dropped)
+            }
+        }
+        attemptedMattes[url] = pass.attempted
+        let before = availableMattes[url]
+        if pass.available.isEmpty {
+            if before != nil { availableMattes.removeValue(forKey: url) }
+        } else if before != pass.available {
+            availableMattes[url] = pass.available
+        }
+        // The overlay is a picture of the mask, and the mask only changed if this did.
+        if before != availableMattes[url] { refreshMaskOverlay() }
     }
 
     /// `O`: show or hide the overlay for the mask the panel has selected. With no mask
