@@ -453,6 +453,39 @@ final class CatalogService: @unchecked Sendable {
         }
     }
 
+    // MARK: - Raw-truth statistics
+
+    /// The cached scene-linear measurement for a photograph, or nil when there is none
+    /// this build can use.
+    ///
+    /// `cache.raw_stats` has been in the schema since the first migration with nothing
+    /// writing to it — the reason `RawStatistics` had two round-trip tests and no
+    /// product. These two calls are the writer and the reader, and the provenance
+    /// argument is not decoration: a row measured on something else is not an answer to
+    /// this question, and the store refuses to serve it as one.
+    func rawStatistics(photoID: Int64,
+                       provenance: RawStatistics.Provenance) async -> RawStatistics? {
+        await onQueue("raw statistics read", fallback: nil) {
+            (store: CatalogStore) -> RawStatistics? in
+            try store.rawStatistics(photoID: photoID, provenance: provenance)
+        }
+    }
+
+    /// Cache a measurement. Raw pixels never change, so this is written once per file
+    /// per analyzer revision and read forever.
+    func recordRawStatistics(_ stats: RawStatistics, photoID: Int64) {
+        queue.async { [store] in
+            do {
+                try store.recordRawStatistics(stats, photoID: photoID)
+            } catch {
+                // cache.db is disposable (D52). A failed write costs one recomputation
+                // and must never reach the user as an error.
+                NSLog("Lumen catalog: raw statistics write failed — %@",
+                      String(describing: error))
+            }
+        }
+    }
+
     /// The values a metadata chip offers, with live counts.
     func facets(_ facet: PhotoFacet, folderPath: String?) async -> [FacetValue] {
         await onQueue("metadata chip values", fallback: []) { store in

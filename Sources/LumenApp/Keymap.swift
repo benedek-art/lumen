@@ -201,6 +201,14 @@ final class KeyDispatcher {
             state.activeSection = .look
         case "d":
             state.activeSection = .detail
+        // H is the develop histogram, which bins the RENDERED picture — the instrument
+        // docs/10 §10.5 calls the one that lies, because the render has been through
+        // the tone stage and the display transform before it is counted. ⇧H is the
+        // other one: statistics measured on the decoded scene-linear frame, before
+        // every Lumen stage, with per-channel clipped percentages. Not the sensor's
+        // mosaic — Lumen has no CFA reader — and the panel is named for what it is.
+        case "h" where flags.contains(.shift):
+            state.showRawTruth.toggle()
         case "h":
             state.showHistogram.toggle()
         // docs/09 gives soft proofing a bare `S`, which this grammar had already spent on
@@ -234,13 +242,29 @@ final class KeyDispatcher {
         case "=", "+":
             LoupeViewport.shared.zoomIn(in: state)
 
-        // ---- Thumbnail size ----------------------------------------------------
-        case "[":
-            state.gridThumbnailSize = max(state.gridThumbnailSize - 24,
-                                          AppState.minThumbnailSize)
-        case "]":
-            state.gridThumbnailSize = min(state.gridThumbnailSize + 24,
-                                          AppState.maxThumbnailSize)
+        // ---- Thumbnail size, and the two momentary inspections ------------------
+        //
+        // `[` and `]` are wanted by two features. They already sized the contact sheet's
+        // cells, and docs/10 §10.5 gives them to Shadow Boost and Highlight Inspect —
+        // momentary holds that answer "is there anything in the shadows" and "does the
+        // highlight structure survive" without writing an edit. Neither feature can be
+        // dropped: the size step is a control that works, and the holds are half of the
+        // FastRawViewer pillar.
+        //
+        // The split is by surface, and it is `InspectionHolds` in LumenCore rather than
+        // three conditionals here, because the collision, the key-repeat policy and the
+        // key-up pairing are exactly the kind of rule that cannot be tested in this
+        // target. `gridThumbnailSize` is drawn by the contact sheet and by the filter
+        // bar's slider and by nothing else, so in the loupe, Compare and Survey these
+        // keys were already moving a number nobody could see — and those three are
+        // precisely where the picture is large enough to inspect.
+        case "[", "]":
+            return apply(InspectionHolds.resolve(key: String(key),
+                                                 surface: Self.surface(state.viewMode),
+                                                 isKeyDown: true,
+                                                 isRepeat: event.isARepeat,
+                                                 holdActive: holdActive.map { String($0) }),
+                         state: state)
 
         // ---- Hold-key overlays -------------------------------------------------
         case " ":
@@ -265,13 +289,57 @@ final class KeyDispatcher {
     }
 
     private func handleKeyUp(_ event: NSEvent, state: AppState) -> Bool {
-        guard let key = event.charactersIgnoringModifiers?.first,
-              holdActive == key else { return false }
+        guard let key = event.charactersIgnoringModifiers?.first else { return false }
+
+        // The inspection holds answer their own key-up, through the same rule that
+        // answered the key-down. Asking the rule rather than testing `holdActive` here
+        // is what makes "a `]` release does not cancel a held `[`" a fact a test can
+        // check instead of a line of this file nobody can run.
+        if InspectionHolds.keys.contains(String(key)) {
+            return apply(InspectionHolds.resolve(key: String(key),
+                                                 surface: Self.surface(state.viewMode),
+                                                 isKeyDown: false,
+                                                 holdActive: holdActive.map { String($0) }),
+                         state: state)
+        }
+
+        guard holdActive == key else { return false }
         holdActive = nil
         if key == " " {
             state.showGrid()
         }
         return true
+    }
+
+    /// Carry out what `InspectionHolds` decided. Every branch is claimed: these two
+    /// keys belong to this dispatcher in every view, so an ignored one is swallowed
+    /// rather than passed on to be interpreted by something else.
+    private func apply(_ action: BracketAction, state: AppState) -> Bool {
+        switch action {
+        case .ignore:
+            break
+        case .stepThumbnailSize(let delta):
+            state.gridThumbnailSize = min(max(state.gridThumbnailSize + delta,
+                                              AppState.minThumbnailSize),
+                                          AppState.maxThumbnailSize)
+        case .beginHold(let hold):
+            holdActive = hold.key.first
+            state.inspectionHold = hold
+        case .endHold:
+            holdActive = nil
+            state.inspectionHold = nil
+        }
+        return true
+    }
+
+    /// Which surface the rule is being asked about.
+    private static func surface(_ mode: ViewMode) -> InspectionSurface {
+        switch mode {
+        case .grid: return .grid
+        case .loupe: return .loupe
+        case .compare: return .compare
+        case .survey: return .survey
+        }
     }
 
     private func specialKey(_ event: NSEvent, state: AppState,

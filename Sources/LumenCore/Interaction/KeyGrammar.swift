@@ -146,6 +146,11 @@ public enum KeyGrammar {
             KeyRow(keys: "⇧Y", action: "Before / after, split with a divider"),
             KeyRow(keys: "⌥Y", action: "Before / after, top and bottom"),
             KeyRow(keys: "H", action: "Histogram"),
+            // The develop histogram bins the rendered picture. ⇧H is the other
+            // instrument: scene-linear statistics measured on the decode, before every
+            // Lumen stage and before the display transform, with per-channel clipped
+            // percentages. It is not the sensor's mosaic and the panel says so.
+            KeyRow(keys: "⇧H", action: "Scene-linear clipping panel"),
             KeyRow(keys: "S", action: "Scopes"),
             // `,` and `.` with ⌃ / ⌥ / ⇧ step the printer lights, one point per press.
             // They are SwiftUI shortcuts on the panel's steppers rather than dispatcher
@@ -157,7 +162,13 @@ public enum KeyGrammar {
         KeyGroup(title: "View controls", rows: [
             KeyRow(keys: "Z", action: "Zoom 1:1 / fit, under the cursor"),
             KeyRow(keys: "+ = −", action: "Zoom in / out"),
-            KeyRow(keys: "[ ]", action: "Thumbnail size"),
+            // Two features, one pair of keys, split by what is on screen — the rule is
+            // `InspectionHolds` and this line is what the sheet prints of it. In the
+            // grid the keys size the cells, exactly as they always did; where one
+            // photograph is large they are the momentary inspections of docs/10 §10.5,
+            // which release on key-up and never touch the recipe.
+            KeyRow(keys: "[ ]", action: "In the grid: thumbnail size. In the loupe, "
+                  + "Compare and Survey: hold for shadow boost / highlight inspect"),
             KeyRow(keys: "F", action: "Filmstrip"),
         ]),
         // Every one of these is a `.keyboardShortcut` on a SwiftUI button or menu item,
