@@ -514,16 +514,37 @@ public final class PipelineRenderer {
     /// never need to be remembered — stripped nothing, because whatever the decode's
     /// property dictionary carried went to the encoder untouched.
     ///
-    /// This is deliberately only the SUBTRACTIVE half, and that half is sound under
-    /// either reading of what the encoder does with these properties: if it honours
-    /// them, the removed keys are gone; if it ignores them, nothing was going to be
-    /// written anyway. Either way the coordinates do not reach the file.
+    /// **The two halves of this function rest on different amounts of evidence, and the
+    /// difference is the most important thing on this page.**
     ///
-    /// The additive half — guaranteeing EXIF is present when it is switched ON, and
-    /// writing Copyright and Contact into IPTC — needs the file to be authored through
-    /// `CGImageDestination` rather than `CIContext.write*Representation`, which takes
-    /// no metadata argument. That is not done, and the panel now says so rather than
-    /// implying those fields land somewhere.
+    /// The SUBTRACTIVE half — the `drop` calls below — is sound under either reading of
+    /// what `CIContext.write*Representation` does with the dictionary
+    /// `settingProperties` attaches. If it honours it, the removed keys are gone. If it
+    /// ignores it, nothing was going to be written anyway. Either way the coordinates do
+    /// not reach the file, and Strip GPS means what it says.
+    ///
+    /// The ADDITIVE half — Copyright, Contact and the DPI pair below — is sound under
+    /// only ONE of those readings. It is written here, correctly ordered after the
+    /// drops, and whether the encoder serialises properties that were ADDED rather than
+    /// merely preserved **has not been verified on a Mac by anyone**. The older comment
+    /// in this spot asserted that `CIContext.write*Representation` "takes no metadata
+    /// argument" and concluded the additive half was impossible; that is the pessimistic
+    /// reading, and it is not obviously right — `settingProperties` exists precisely to
+    /// carry a dictionary forward to an encoder. It is also not obviously wrong. Nobody
+    /// has opened a written file and looked.
+    ///
+    /// So: this code writes a copyright line, and the export sheet says it writes one
+    /// and says it is unconfirmed. That is the honest position while the fact is
+    /// unknown. It is one afternoon at a Mac to settle — export a JPEG and a TIFF with a
+    /// copyright set, read them back with `CGImageSourceCopyPropertiesAtIndex`, and
+    /// check `kCGImagePropertyTIFFCopyright` and `kCGImagePropertyIPTCCopyrightNotice`
+    /// — after which either this comment loses its hedge or the file has to be authored
+    /// through `CGImageDestination`, which takes an explicit properties dictionary and
+    /// removes the question. Zero tests touch this function on either platform.
+    ///
+    /// One thing the additive half is NOT: a way to guarantee EXIF is present when the
+    /// switch is on. Nothing here fabricates camera fields the decode did not carry, and
+    /// the sheet's EXIF row says so in those words.
     static func applyMetadataPolicy(_ image: CIImage,
                                     _ policy: MetadataPolicy,
                                     resolutionPPI: Double) -> CIImage {
@@ -569,6 +590,9 @@ public final class PipelineRenderer {
         // removed them. Writing before would reintroduce the same defect one layer down:
         // an export with EXIF off drops the whole TIFF dictionary, so a copyright placed
         // in it first would go out with the bathwater.
+        //
+        // This is the additive half the header hedges. It is written; whether the
+        // encoder serialises it is unconfirmed, and the sheet says as much.
         func put(_ value: String?, _ key: CFString, in container: CFString) {
             guard let value, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             else { return }

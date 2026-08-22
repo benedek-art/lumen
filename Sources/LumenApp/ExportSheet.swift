@@ -570,14 +570,25 @@ private struct ExportRecipeEditor: View {
                 ExportTextEntry(text: optionalText(\.metadata.contact),
                                 placeholder: "email or site")
             }
-            // Said plainly rather than left to be discovered in a delivered file: the
-            // switches above remove metadata and are reliable in that direction, but
-            // nothing here ADDS a field. Copyright and Contact are stored with the
-            // recipe and are not written into the image yet — that needs the file to be
-            // authored through CGImageDestination.
-            ExportNote("These switches remove metadata. Copyright and Contact are "
-                       + "stored with the recipe but are not written into the exported "
-                       + "file yet.")
+            // Said plainly rather than left to be discovered in a delivered file, and
+            // the two halves are said separately because they rest on different amounts
+            // of evidence.
+            //
+            // The switches above REMOVE metadata, and that is reliable whichever way
+            // Core Image treats the property dictionary: either the encoder honours it
+            // and the keys are gone, or it ignores it and they were never going to be
+            // written. Copyright and Contact are now ADDED — the note used to say they
+            // were not written at all, which stopped being true when
+            // `applyMetadataPolicy` gained the `put` calls — but the additive direction
+            // is only sound under one of those two readings, and nobody has opened a
+            // delivered file on a Mac and checked. Telling the user it is written and
+            // unconfirmed is the only caption that is true today; promising it outright
+            // would be a guess wearing a fact's clothes, and saying nothing at all would
+            // hand a photographer a client delivery they believe is protected.
+            ExportNote("These switches remove metadata, which is reliable. Copyright "
+                       + "and Contact are written into the file — not yet verified by "
+                       + "reading a delivered file back, so check one before you rely "
+                       + "on it.")
         }
     }
 
