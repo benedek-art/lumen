@@ -351,7 +351,15 @@ enum SortOrder: String, CaseIterable, Identifiable, Sendable {
     case filename = "File name"
     case fileType = "File type"
     case aspectRatio = "Aspect ratio"
-    case userOrder = "User order"
+    /// The order photos were ADDED to the album, not one the user arranged.
+    ///
+    /// It was called "User order" and captioned "drag to reorder inside an album", and
+    /// there is no drag-reorder anywhere in Lumen — `onMove` appears in no file, and
+    /// `album_photo.position` has exactly one writer, `addToAlbum`, which assigns
+    /// `MAX(position) + 1` per photo at insert. Nothing can change a position
+    /// afterwards except removing the photo and adding it again. The spec still asks
+    /// for the gesture (docs/10 §sort keys); the menu no longer claims it is here.
+    case userOrder = "Album order"
     case sharpness = "Sharpness score"
     case aesthetic = "Aesthetic score"
 
@@ -1495,7 +1503,12 @@ final class AppState: ObservableObject {
                 }
             }
             catalog = service
-            catalogStatus = nil
+            // The open-time integrity check has already run and already acted (§15.8).
+            // Told, not asked: by the time this line executes the catalog on disk is
+            // either the one that passed or the newest backup that did, and the only
+            // thing left is to say so. A healthy catalog has no notice and stays silent.
+            catalogStatus = service.recovery.notice
+            if let notice = service.recovery.notice { statusMessage = notice }
         } catch {
             catalog = nil
             catalogStatus = "Catalog unavailable — edits live in memory this session "

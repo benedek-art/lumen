@@ -247,6 +247,75 @@ final class CatalogTests: XCTestCase {
         store.close()
     }
 
+    /// LIB-26b: the subsecond field's DIGIT WIDTH is part of its value.
+    ///
+    /// The test above uses three-digit subseconds throughout, which is why it stayed
+    /// green while the reader was calling `Int(_:)` on the raw string. EXIF
+    /// SubsecTimeOriginal is a fraction with its decimal point left out, so "7" is
+    /// 0.7 s and "070" is 0.07 s — and read as plain integers they sort 7 before 70,
+    /// which is backwards. Mixed widths across one burst invert the whole run.
+    func testSubSecondsAreFractionsSoADigitWidthCannotInvertABurst() {
+        // The case the old reading gets backwards: 0.07 s is earlier than 0.7 s, and
+        // "070" is the longer string.
+        let early = PhotoMetadata.parseEXIFSubsec("070")
+        let late = PhotoMetadata.parseEXIFSubsec("7")
+        XCTAssertNotNil(early)
+        XCTAssertNotNil(late)
+        XCTAssertLessThan(early ?? 0, late ?? 0,
+                          "\"070\" is 0.07 s and \"7\" is 0.7 s, so the first is earlier "
+                              + "— read as integers they come back the other way round")
+
+        // The whole width ladder for one fraction: every spelling of seven tenths is
+        // the same instant, whatever the field's width.
+        XCTAssertEqual(PhotoMetadata.parseEXIFSubsec("7"), 700_000)
+        XCTAssertEqual(PhotoMetadata.parseEXIFSubsec("70"), 700_000)
+        XCTAssertEqual(PhotoMetadata.parseEXIFSubsec("700"), 700_000)
+        XCTAssertEqual(PhotoMetadata.parseEXIFSubsec("700000"), 700_000)
+
+        // Ordinary two- and three-digit fields keep their meaning.
+        XCTAssertEqual(PhotoMetadata.parseEXIFSubsec("07"), 70_000)
+        XCTAssertEqual(PhotoMetadata.parseEXIFSubsec("123"), 123_000)
+        XCTAssertEqual(PhotoMetadata.parseEXIFSubsec("0"), 0)
+        XCTAssertEqual(PhotoMetadata.parseEXIFSubsec("000"), 0)
+
+        // Below a camera's clock, and truncated rather than rounded so that a pair
+        // truncation leaves in order cannot be carried into a tie.
+        XCTAssertEqual(PhotoMetadata.parseEXIFSubsec("1234567"), 123_456)
+        XCTAssertEqual(PhotoMetadata.parseEXIFSubsec("1234569"), 123_456)
+
+        // A field that is not a run of ASCII digits sorts as "no subsecond", which ties
+        // the way a pre-EXIF burst does, rather than as a guess that orders confidently
+        // and wrongly.
+        XCTAssertNil(PhotoMetadata.parseEXIFSubsec(""))
+        XCTAssertNil(PhotoMetadata.parseEXIFSubsec("   "))
+        XCTAssertNil(PhotoMetadata.parseEXIFSubsec("12x"))
+        XCTAssertNil(PhotoMetadata.parseEXIFSubsec("-1"))
+        XCTAssertNil(PhotoMetadata.parseEXIFSubsec("1.5"))
+        XCTAssertNil(PhotoMetadata.parseEXIFSubsec("٧"))  // Arabic-Indic 7: isNumber, not ASCII
+        XCTAssertEqual(PhotoMetadata.parseEXIFSubsec(" 45 "), 450_000)
+    }
+
+    /// The same defect where the user meets it: one burst, one second, mixed widths.
+    func testABurstWithMixedSubSecondWidthsStillSortsForwards() throws {
+        let store = try makeStore()
+        let (folderID, ids) = try seed(store, count: 3)
+        // As three cameras spell the same run of frames: 0.07 s, 0.4 s, 0.7 s.
+        let asWritten = ["070", "40", "7"]
+        for (offset, id) in ids.enumerated() {
+            try store.setMetadata(
+                PhotoMetadata(captureAt: 1_700_000_000,
+                              captureSubsec: PhotoMetadata.parseEXIFSubsec(asWritten[offset])),
+                photoID: id)
+        }
+        var query = PhotoQuery()
+        query.sortKey = .captureTime
+        XCTAssertEqual(try store.photos(matching: query, folderID: folderID).map(\.id),
+                       [ids[0], ids[1], ids[2]],
+                       "the burst inverted: the widest subsecond string is the SMALLEST "
+                           + "fraction, and reading the field as an integer says otherwise")
+        store.close()
+    }
+
     /// The edit-time sort reads `edit.updated_at`, which only `saveRecipe` writes.
     func testEditTimeSortsByWhenTheRecipeWasLastSaved() throws {
         let store = try makeStore()
@@ -343,6 +412,60 @@ final class CatalogTests: XCTestCase {
         XCTAssertEqual(cameras.count, 2)
         XCTAssertEqual(try store.facetCounts(.lens, folderID: folderID).first,
                        FacetValue(value: "FE 85mm F1.4 GM", count: 3))
+        store.close()
+    }
+
+    /// LIB-10: the text chip's fast path has to learn what the backfill learned.
+    ///
+    /// The FTS row is built at upsert time, minutes before any EXIF exists, so
+    /// `camera` and `lens` were indexed as empty strings and stayed that way — while
+    /// the chip's placeholder promises "Name, camera, keyword" and the FTS branch is
+    /// preferred whenever FTS5 is compiled in. The LIKE fallback found "sony"; the
+    /// fast path could not, which is the worst shape of this bug: the search got
+    /// worse on the machines where it was supposed to get faster.
+    func testTextSearchFindsACameraTheBackfillFilledInAfterTheScan() throws {
+        let store = try makeStore()
+        let (folderID, ids) = try seed(store, count: 3)
+        try XCTSkipUnless(store.isTextIndexAvailable,
+                          "this SQLite has no FTS5, so the query under test is the "
+                              + "LIKE fallback and proves nothing about the index")
+
+        for (offset, id) in ids.enumerated() {
+            try store.setMetadata(
+                PhotoMetadata(camera: offset == 0 ? "Sony A7 IV" : "Nikon Z8",
+                              lens: offset == 0 ? "FE 35mm F1.4 GM" : "Z 50mm f/1.8 S"),
+                photoID: id)
+        }
+
+        var camera = PhotoQuery()
+        camera.text = "sony"
+        XCTAssertEqual(try store.photos(matching: camera, folderID: folderID).map(\.id),
+                       [ids[0]],
+                       "the text index never learned the camera the backfill wrote")
+
+        var lens = PhotoQuery()
+        lens.text = "35mm"
+        XCTAssertEqual(try store.photos(matching: lens, folderID: folderID).map(\.id),
+                       [ids[0]],
+                       "the text index never learned the lens the backfill wrote")
+
+        // The batch writer is the one the app actually calls, and it took a different
+        // route into the same UPDATE — so it gets its own assertion rather than
+        // trusting that the two paths stayed in step.
+        try store.setMetadata([(photoID: ids[1], metadata: PhotoMetadata(camera: "Leica M11")),
+                               (photoID: ids[2], metadata: PhotoMetadata(camera: "Leica Q3"))])
+        var leica = PhotoQuery()
+        leica.text = "leica"
+        XCTAssertEqual(Set(try store.photos(matching: leica, folderID: folderID).map(\.id)),
+                       Set([ids[1], ids[2]]),
+                       "the batch metadata writer left the text index behind")
+
+        // And the row it replaced must be gone: re-indexing has to be a replace, not
+        // an append, or "nikon" keeps matching a photo that is now a Leica.
+        var nikon = PhotoQuery()
+        nikon.text = "nikon"
+        XCTAssertTrue(try store.photos(matching: nikon, folderID: folderID).isEmpty,
+                      "a stale camera survived in the text index after it was overwritten")
         store.close()
     }
 
@@ -457,6 +580,205 @@ final class CatalogTests: XCTestCase {
         let restored = try CatalogStore(path: backup.path, cachePath: nil)
         XCTAssertEqual(try restored.photos(folderID: folderID).count, 5)
         restored.close()
+    }
+
+    // MARK: - Integrity and recovery (LIB-04)
+
+    /// Overwrite the middle of a SQLite file with garbage, leaving the header intact so
+    /// it still opens. That is what `PRAGMA quick_check` exists to notice, and it is a
+    /// fair model of the damage a bad sector or a half-written page actually leaves.
+    private func corrupt(_ path: String) throws {
+        let handle = try FileHandle(forUpdating: URL(fileURLWithPath: path))
+        defer { try? handle.close() }
+        let size = try handle.seekToEnd()
+        XCTAssertGreaterThan(size, 40_000, "the seeded catalog is too small to damage")
+        // Past the header and the schema, across several pages.
+        try handle.seek(toOffset: 16_384)
+        handle.write(Data(repeating: 0x5A, count: 16_384))
+    }
+
+    private func backupDirectory() -> URL {
+        directory.appendingPathComponent("backups", isDirectory: true)
+    }
+
+    func testAnOpenTimeCheckPassesAHealthyCatalogWithoutTouchingIt() throws {
+        let store = try makeStore()
+        let (folderID, _) = try seed(store)
+        store.close()
+
+        let path = directory.appendingPathComponent("lumen.db").path
+        let before = try Data(contentsOf: URL(fileURLWithPath: path))
+        let recovery = CatalogStore.recoverIfNeeded(
+            path: path, backupDirectory: backupDirectory().path)
+
+        XCTAssertEqual(recovery.outcome, .healthy)
+        XCTAssertNil(recovery.notice, "a healthy catalog must not tell the user anything")
+        XCTAssertFalse(recovery.isDamaged)
+        XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: path)), before,
+                       "a passing check rewrote the catalog")
+
+        let reopened = try makeStore()
+        XCTAssertEqual(try reopened.photos(folderID: folderID).count, 5)
+        reopened.close()
+    }
+
+    func testAFirstRunHasNothingToCheckAndSaysSo() {
+        let recovery = CatalogStore.recoverIfNeeded(
+            path: directory.appendingPathComponent("lumen.db").path,
+            backupDirectory: backupDirectory().path)
+        XCTAssertEqual(recovery.outcome, .firstRun)
+        XCTAssertNil(recovery.notice)
+        XCTAssertFalse(recovery.isDamaged)
+
+        // A path that is not there must not probe as healthy. `SQLiteDatabase` opens
+        // with SQLITE_OPEN_CREATE, so without the existence guard an absent file becomes
+        // an empty database and passes `quick_check` — and a backup that vanished
+        // between the directory listing and the probe would then be restored, empty,
+        // over a catalog that was only damaged.
+        XCTAssertFalse(CatalogStore.probeQuickCheck(
+            path: directory.appendingPathComponent("never-existed.db").path),
+                       "a missing file was reported as a readable catalog")
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: directory.appendingPathComponent("never-existed.db").path),
+                       "probing a missing path created a database at it")
+    }
+
+    /// The whole promise of §15.8 in one test: a catalog that fails its check at open is
+    /// replaced by the newest backup that passes, the damaged file is kept, and the user
+    /// is told afterwards.
+    func testACorruptCatalogIsRestoredFromTheNewestBackupThatPasses() throws {
+        let manager = FileManager.default
+        try manager.createDirectory(at: backupDirectory(), withIntermediateDirectories: true)
+
+        let store = try makeStore()
+        let (folderID, ids) = try seed(store)
+        try store.setRating(4, photoID: ids[0])
+
+        // Two backups. The newer one is deliberately unreadable, so a restore that
+        // simply took the newest name would put a corrupt file back and the assertions
+        // below would fail — the walk has to keep going.
+        let older = backupDirectory().appendingPathComponent("lumen-2026-08-20T09-00-00Z.db")
+        try store.backup(to: older.path)
+        let newer = backupDirectory().appendingPathComponent("lumen-2026-08-21T09-00-00Z.db")
+        try store.backup(to: newer.path)
+        store.close()
+        try corrupt(newer.path)
+
+        let path = directory.appendingPathComponent("lumen.db").path
+        try corrupt(path)
+        XCTAssertFalse(CatalogStore.probeQuickCheck(path: path),
+                       "the damage did not take, so the rest of this test proves nothing")
+
+        let recovery = CatalogStore.recoverIfNeeded(
+            path: path, backupDirectory: backupDirectory().path)
+
+        guard case .restored(let from, let setAside) = recovery.outcome else {
+            return XCTFail("a corrupt catalog was not restored: \(recovery.outcome)")
+        }
+        XCTAssertEqual(URL(fileURLWithPath: from).lastPathComponent,
+                       older.lastPathComponent,
+                       "the restore took the newest NAME rather than the newest name "
+                           + "that passes its own check")
+        XCTAssertTrue(manager.fileExists(atPath: setAside),
+                      "the damaged catalog was destroyed instead of set aside")
+        XCTAssertNotNil(recovery.notice, "the user was not told the catalog was restored")
+        XCTAssertFalse(recovery.isDamaged)
+
+        // And the catalog the caller now opens is the backup, readable, with its rows.
+        let reopened = try makeStore()
+        XCTAssertTrue(try reopened.quickCheck())
+        XCTAssertEqual(try reopened.photos(folderID: folderID).count, 5)
+        reopened.close()
+    }
+
+    /// A restore must not leave the damaged catalog's WAL beside the snapshot that
+    /// replaced it: SQLite would replay that journal straight back over the good file,
+    /// which turns a successful restore into data loss with no error anywhere.
+    ///
+    /// This pins the OUTCOME, not one mechanism, and the distinction is worth stating.
+    /// Measured on this platform, SQLite's own close-time cleanup during the integrity
+    /// probe removes `-wal` and `-shm` before the restore reaches them, so the rename in
+    /// `setAsideCatalog` is the fallback for the case the probe could not open the file
+    /// at all — a case this test does not reach. What it does assert is the thing the
+    /// user's data depends on, under whichever mechanism gets there first.
+    func testARestoreLeavesNoStaleJournalBesideTheCatalogItPutBack() throws {
+        let manager = FileManager.default
+        try manager.createDirectory(at: backupDirectory(), withIntermediateDirectories: true)
+        let store = try makeStore()
+        let (folderID, _) = try seed(store)
+        let backup = backupDirectory().appendingPathComponent("lumen-2026-08-20T09-00-00Z.db")
+        try store.backup(to: backup.path)
+        store.close()
+
+        let path = directory.appendingPathComponent("lumen.db").path
+        try corrupt(path)
+        // A leftover WAL from the damaged catalog, of the kind a crash leaves behind.
+        try Data(repeating: 0x11, count: 4096).write(to: URL(fileURLWithPath: path + "-wal"))
+
+        let recovery = CatalogStore.recoverIfNeeded(
+            path: path, backupDirectory: backupDirectory().path)
+        guard case .restored = recovery.outcome else {
+            return XCTFail("a corrupt catalog was not restored: \(recovery.outcome)")
+        }
+        XCTAssertFalse(manager.fileExists(atPath: path + "-wal"),
+                       "the damaged catalog's WAL was left beside the restored one, "
+                           + "where SQLite will replay it over the snapshot")
+        XCTAssertFalse(manager.fileExists(atPath: path + "-shm"),
+                       "the damaged catalog's shared-memory file outlived it")
+
+        // And the restored catalog still reads, which is the only way to know the
+        // journal did not come back through it.
+        let reopened = try makeStore()
+        XCTAssertTrue(try reopened.quickCheck())
+        XCTAssertEqual(try reopened.photos(folderID: folderID).count, 5)
+        reopened.close()
+    }
+
+    /// No backup that passes means nothing is moved and nothing is replaced. The caller
+    /// opens the file it was always going to open — and now it knows.
+    func testACorruptCatalogWithNoUsableBackupIsReportedAndLeftAlone() throws {
+        let manager = FileManager.default
+        try manager.createDirectory(at: backupDirectory(), withIntermediateDirectories: true)
+        let store = try makeStore()
+        _ = try seed(store)
+        let backup = backupDirectory().appendingPathComponent("lumen-2026-08-20T09-00-00Z.db")
+        try store.backup(to: backup.path)
+        store.close()
+        try corrupt(backup.path)
+
+        let path = directory.appendingPathComponent("lumen.db").path
+        try corrupt(path)
+        let damaged = try Data(contentsOf: URL(fileURLWithPath: path))
+
+        let recovery = CatalogStore.recoverIfNeeded(
+            path: path, backupDirectory: backupDirectory().path)
+        XCTAssertEqual(recovery.outcome, .unrecoverable(backupsTried: 1))
+        XCTAssertTrue(recovery.isDamaged)
+        XCTAssertNotNil(recovery.notice)
+        XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: path)), damaged,
+                       "a catalog that could not be restored was modified anyway")
+        XCTAssertTrue(manager.fileExists(atPath: backup.path),
+                      "a backup that failed its check was deleted rather than skipped")
+    }
+
+    /// `integrityCheck` gates the backup, and this is what it is for: a corrupt catalog
+    /// that backs itself up rotates the last readable snapshot out of existence, and
+    /// then there is nothing left for `recoverIfNeeded` to restore from.
+    func testAFullIntegrityCheckAnswersForBothAHealthyAndADamagedCatalog() throws {
+        let store = try makeStore()
+        _ = try seed(store)
+        XCTAssertTrue(try store.integrityCheck())
+        XCTAssertTrue(try store.quickCheck())
+        store.close()
+
+        let path = directory.appendingPathComponent("lumen.db").path
+        try corrupt(path)
+        XCTAssertFalse(CatalogStore.probeQuickCheck(path: path))
+
+        let damaged = try CatalogStore(path: path, cachePath: nil)
+        XCTAssertFalse(try damaged.integrityCheck(),
+                       "the pre-backup gate passed a catalog SQLite cannot read")
+        damaged.close()
     }
 
     // MARK: - Sidecars

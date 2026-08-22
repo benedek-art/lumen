@@ -77,6 +77,32 @@ public struct Recipe: Codable, Equatable, Sendable {
             return stripped
         }
         if copy.look.bw?.enabled == false { copy.look.bw = nil }
+        // `look.lut` goes the same way, for a blunter reason: NO STAGE READS IT.
+        // `LUTReference` round-trips through the recipe, the sidecar and the catalog,
+        // and there is no reader on any path — not `RenderGraph`, not `export`, not the
+        // reference renderer. `LUT3D.fromCubeFile` exists and has only test callers.
+        //
+        // So two recipes differing only in a LUT render the same picture, and this
+        // projection is defined as "what actually reaches a pixel". Leaving it in meant
+        // a hand-edited sidecar carrying `look.lut` got a different `recipe_fp`, threw
+        // away every cached preview and artifact for that photo, re-rendered the frame,
+        // and produced identical bytes — and the library called it edited.
+        //
+        // WHEN A LUT STAGE IS BUILT, DELETE THIS LINE IN THE SAME COMMIT. A LUT that
+        // renders but is not hashed is the mirror defect: the user drags Amount and the
+        // cache hands back the previous picture.
+        // `testALookCarryingALUTRendersTheSamePictureAsOneWithout` fails the moment this
+        // line is wrong in either direction, and says which.
+        copy.look.lut = nil
+        // `develop.heal` is the SAME situation and is deliberately handled the other
+        // way: nothing writes it, nothing reads it, and it is left in this projection so
+        // that it busts the cache on the day a heal stage lands. Both choices are safe
+        // and the divergence is not an oversight, but it would read as one, so: the
+        // tripwire above is the better of the two patterns and heal should adopt it when
+        // somebody is next in that code. Leaving a dead field in costs a cache miss
+        // every time a sidecar happens to carry it, forever, to buy protection against a
+        // mistake on a day that may never come — where a test that fails the moment the
+        // stage lands buys the same protection and costs nothing until then.
         return copy
     }
 }

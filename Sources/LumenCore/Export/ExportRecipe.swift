@@ -1,9 +1,20 @@
 // ExportRecipe.swift
 // The multi-recipe export model (D40, docs/11): a set of named recipes, any number of
 // which can be checked at once, so one Export click emits the web JPEG, the print TIFF
-// and the HDR HEIC together. The render forks at the resize node — everything upstream
-// is computed once and shared, which is why three recipes cost far less than three
-// exports.
+// and the HDR HEIC together. That gesture is real, it works, and Lightroom Classic still
+// cannot do it.
+//
+// What it does NOT do is share the render. This header used to say "the render forks at
+// the resize node — everything upstream is computed once and shared, which is why three
+// recipes cost far less than three exports", and that is false:
+// `AppStateActions.export` loops photos × recipes and each iteration calls
+// `PipelineRenderer.export`, which builds a fresh `RenderGraph` and renders the full
+// develop chain end to end. Three checked recipes cost three full renders. The one thing
+// reused is the decoded `CIImage`, from `ImageSource`'s own cache.
+//
+// Stated here rather than quietly dropped, because the false version was load-bearing on
+// a user's behaviour: it is the sentence that tells a photographer checking a fourth
+// recipe is nearly free.
 
 import Foundation
 
@@ -156,9 +167,25 @@ public struct OutputSharpen: Codable, Equatable, Sendable {
         }
     }
 
-    /// Sharpening energy. Asymmetric dark:light weighting (dark halos read as
-    /// "crisp", light halos read as "oversharpened") is applied by the renderer;
-    /// this is the master amount.
+    /// Sharpening energy — the master amount, and the only amount.
+    ///
+    /// This used to say that "asymmetric dark:light weighting (dark halos read as
+    /// 'crisp', light halos read as 'oversharpened') is applied by the renderer", and it
+    /// is not applied by anything. `PipelineRenderer.applyOutputSharpen` builds a bare
+    /// `CIUnsharpMask` from `baseRadius` and this number, and an unsharp mask halos
+    /// symmetrically by construction: it adds the same high-pass on both sides of an
+    /// edge. The ratio the sentence referred to was a `lightHaloRatio = 0.6` constant
+    /// with no reader anywhere in the repository, so the asymmetry existed as a number
+    /// and a claim and nothing else.
+    ///
+    /// The observation behind it is sound and is why docs/11 asks for the asymmetry: a
+    /// light halo along a skyline is the tell that gives "oversharpened" its name, and
+    /// a dark one at the same amplitude reads as definition. Delivering it needs a
+    /// two-sided kernel — split the high-pass by sign and scale the positive lobe to
+    /// about 0.6 of the negative — which is a new kernel with its own halo bound to
+    /// assert, and it is not written. The constant is gone rather than left sitting
+    /// beside a function that does not consult it; the number it held is recorded in
+    /// this sentence, which is the only place it was ever doing any work.
     public func energy() -> Double {
         switch medium {
         case .none: return 0
@@ -167,9 +194,6 @@ public struct OutputSharpen: Codable, Equatable, Sendable {
         case .glossy: return 0.70 * amount.scale
         }
     }
-
-    /// Light halos get less energy than dark ones, at this ratio.
-    public static let lightHaloRatio: Double = 0.6
 
     public var isIdentity: Bool { medium == .none }
 }

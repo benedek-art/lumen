@@ -86,6 +86,21 @@ master once (reusing the interactive cache when warm, D49), then forks per recip
 node — resize, output-sharpen, gamut-map, encode. Three checked recipes cost one develop render
 plus three cheap tails, not three renders.
 
+> **Not built.** The gesture ships; the sharing does not. `AppStateActions.export` loops photos ×
+> recipes and each iteration calls `PipelineRenderer.export`, which builds a fresh `RenderGraph`
+> and renders the full develop chain end to end — three checked recipes cost three full renders.
+> Only the decoded `CIImage` is reused, from `ImageSource`'s cache. Three shipping files asserted
+> the sharing as fact until this was checked, so the note is here rather than in a comment
+> somewhere: this paragraph is the design, and it is still wanted.
+>
+> The fork point is already the right one — everything from `applyGeometry` down in
+> `PipelineRenderer.export` is the tail. What makes it more than a refactor is that `RenderPlan`
+> is built from `exportRecipe.renderWhiteTargetPercent`, so recipes with different HDR white
+> targets cannot share a master and the reuse has to be keyed on that. And the payoff needs
+> measuring on a Mac before any number is claimed for it: Core Image's own intermediate caching
+> may already recover some of the sharing at runtime, which would make the saving smaller than
+> the graph structure suggests.
+
 **How it feels.** `⌘⇧E` opens Export (LrC muscle memory); `⌥⌘⇧E` exports again with the last
 checked set and no dialog — the daily-driver gesture once recipes are set up. The recipe list
 shows a live estimate of file count and total size for the current selection. Editing a recipe

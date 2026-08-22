@@ -326,8 +326,25 @@ public final class PipelineRenderer {
                                 options: RenderGraph.Options(longEdge: longEdge,
                                                              draft: false,
                                                              lutSize: LUT3D.exportSize))
-        // The render forks at the resize node: everything above is shared across every
-        // checked recipe, which is why three recipes cost far less than three exports.
+        // The resize is where a shared render WOULD fork, and today nothing forks here.
+        //
+        // This function is called once per (photo × checked recipe) by
+        // `AppStateActions.export`, and every call arrives at this line having just
+        // built its own `RenderGraph` and rendered the whole develop chain from the
+        // decode. Three checked recipes cost three full develop renders, not one render
+        // and three tails. The only thing genuinely reused across them is the decoded
+        // `CIImage`, which `ImageSource` caches — real, and a small fraction of the
+        // work at export scale.
+        //
+        // The comment that used to sit here claimed the sharing as fact, and so did
+        // `ExportRecipe`, `ExportSheet` and docs/11. It is a good design and it is not
+        // built: the natural shape is for `exportedImage` to take an already-rendered
+        // master and apply only geometry, resize, grain, sharpen, watermark and dither
+        // — everything from here down. What makes it more than a refactor is that
+        // `RenderPlan` is built from `exportRecipe.renderWhiteTargetPercent`, so two
+        // recipes with different HDR white targets do NOT share a master and the
+        // sharing has to be keyed on that. It also needs measuring on a Mac before
+        // anyone claims a number for it.
         let cropped = Self.applyGeometry(image, recipe: recipe)
         let extent = cropped.extent
         let target = exportRecipe.targetSize(sourceWidth: Int(extent.width),
@@ -514,16 +531,37 @@ public final class PipelineRenderer {
     /// never need to be remembered — stripped nothing, because whatever the decode's
     /// property dictionary carried went to the encoder untouched.
     ///
-    /// This is deliberately only the SUBTRACTIVE half, and that half is sound under
-    /// either reading of what the encoder does with these properties: if it honours
-    /// them, the removed keys are gone; if it ignores them, nothing was going to be
-    /// written anyway. Either way the coordinates do not reach the file.
+    /// **The two halves of this function rest on different amounts of evidence, and the
+    /// difference is the most important thing on this page.**
     ///
-    /// The additive half — guaranteeing EXIF is present when it is switched ON, and
-    /// writing Copyright and Contact into IPTC — needs the file to be authored through
-    /// `CGImageDestination` rather than `CIContext.write*Representation`, which takes
-    /// no metadata argument. That is not done, and the panel now says so rather than
-    /// implying those fields land somewhere.
+    /// The SUBTRACTIVE half — the `drop` calls below — is sound under either reading of
+    /// what `CIContext.write*Representation` does with the dictionary
+    /// `settingProperties` attaches. If it honours it, the removed keys are gone. If it
+    /// ignores it, nothing was going to be written anyway. Either way the coordinates do
+    /// not reach the file, and Strip GPS means what it says.
+    ///
+    /// The ADDITIVE half — Copyright, Contact and the DPI pair below — is sound under
+    /// only ONE of those readings. It is written here, correctly ordered after the
+    /// drops, and whether the encoder serialises properties that were ADDED rather than
+    /// merely preserved **has not been verified on a Mac by anyone**. The older comment
+    /// in this spot asserted that `CIContext.write*Representation` "takes no metadata
+    /// argument" and concluded the additive half was impossible; that is the pessimistic
+    /// reading, and it is not obviously right — `settingProperties` exists precisely to
+    /// carry a dictionary forward to an encoder. It is also not obviously wrong. Nobody
+    /// has opened a written file and looked.
+    ///
+    /// So: this code writes a copyright line, and the export sheet says it writes one
+    /// and says it is unconfirmed. That is the honest position while the fact is
+    /// unknown. It is one afternoon at a Mac to settle — export a JPEG and a TIFF with a
+    /// copyright set, read them back with `CGImageSourceCopyPropertiesAtIndex`, and
+    /// check `kCGImagePropertyTIFFCopyright` and `kCGImagePropertyIPTCCopyrightNotice`
+    /// — after which either this comment loses its hedge or the file has to be authored
+    /// through `CGImageDestination`, which takes an explicit properties dictionary and
+    /// removes the question. Zero tests touch this function on either platform.
+    ///
+    /// One thing the additive half is NOT: a way to guarantee EXIF is present when the
+    /// switch is on. Nothing here fabricates camera fields the decode did not carry, and
+    /// the sheet's EXIF row says so in those words.
     static func applyMetadataPolicy(_ image: CIImage,
                                     _ policy: MetadataPolicy,
                                     resolutionPPI: Double) -> CIImage {
@@ -569,6 +607,9 @@ public final class PipelineRenderer {
         // removed them. Writing before would reintroduce the same defect one layer down:
         // an export with EXIF off drops the whole TIFF dictionary, so a copyright placed
         // in it first would go out with the bathwater.
+        //
+        // This is the additive half the header hedges. It is written; whether the
+        // encoder serialises it is unconfirmed, and the sheet says as much.
         func put(_ value: String?, _ key: CFString, in container: CFString) {
             guard let value, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             else { return }
@@ -1262,6 +1303,21 @@ public final class PipelineRenderer {
 
     // MARK: - Output sharpening
 
+    /// A stock `CIUnsharpMask` at the radius and energy `OutputSharpen` derives — and
+    /// nothing more than that.
+    ///
+    /// Worth naming precisely, because `OutputSharpen.energy()` used to describe this
+    /// function as applying an asymmetric dark:light halo weighting, and it does not. An
+    /// unsharp mask halos symmetrically by construction: the same high-pass is added on
+    /// both sides of an edge, so a light rim and a dark rim come out at equal amplitude.
+    /// docs/11 asks for the asymmetry and it is not built; the claim has been removed
+    /// from the place that made it rather than approximated here.
+    ///
+    /// What IS right and easy to break: this runs AFTER the resize, so the radius is in
+    /// delivered pixels the way `baseRadius(printPPI:)` derives it, and the Lanczos
+    /// resample before it runs in linear light. Both orderings are load-bearing and
+    /// neither has a test that would notice if they moved — deleting this call entirely
+    /// leaves every suite green (OUT-08).
     static func applyOutputSharpen(_ image: CIImage, _ sharpen: OutputSharpen,
                                    resolutionPPI: Double) -> CIImage {
         guard !sharpen.isIdentity else { return image }

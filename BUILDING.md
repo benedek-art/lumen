@@ -397,8 +397,17 @@ These are tracked, not hidden.
   built and unused, because `FilterBar` filters in memory. None of this is broken, and
   all of it is unfinished — the schema went in ahead of the features, which is the
   right order, but it means a schema tour overstates what the app does.
-- **`quickCheck()` and `integrityCheck()` are documented as running on every open.**
-  They have no callers, so a corrupt catalog is discovered when a query throws.
+- **The catalog's integrity check runs now, and restores.** `quickCheck()` and
+  `integrityCheck()` used to be documented as running on every open and had no callers,
+  so a corrupt catalog was discovered when a query threw — and a thrown query degrades
+  to showing everything, which is the shape of failure where the library looks nearly
+  right. `CatalogStore.recoverIfNeeded` runs before the store opens, and on a failed
+  `PRAGMA quick_check` restores the newest backup that passes its own check, setting the
+  damaged file aside rather than deleting it; `CatalogService` calls it and `AppState`
+  shows the after-the-fact notice §15.8 asks for. `integrityCheck()` gates `backup()`,
+  because a corrupt catalog that backs itself up rotates the last readable snapshot out
+  of existence. Still missing from §15.8: the 7-daily/4-weekly/6-monthly retention
+  policy — backups accumulate one per quit and one per menu command, forever.
 - **HDR export writes no gain map.** `renderHDRPair` and the whole `GainMap` relation
   are implemented and tested, and nothing calls them — `export` renders once and emits a
   single rendition. The missing piece is an auxiliary gain-map image attached through
@@ -420,11 +429,31 @@ These are tracked, not hidden.
   render plan, put display white at 4.0, and the 8-bit encode then clipped everything
   above diffuse white — so ticking the box threw away exactly the highlight roll-off it
   was meant to preserve.
-- **Export metadata is subtract-only.** Strip GPS, EXIF, Camera serial and Keywords now
-  remove what they name, which is reliable whichever way the encoder treats the property
-  dictionary. Nothing *adds* a field: Copyright and Contact are stored with the recipe
-  and never written, for the same `CGImageDestination` reason as the gain map. The panel
-  says so. Before this the entire section had no reader at all.
+- **Export metadata: the subtractive half is proven by construction, the additive half
+  is not.** Strip GPS, EXIF, Camera serial and Keywords remove what they name, and that
+  is reliable whichever way the encoder treats the property dictionary — either it
+  honours it and the keys are gone, or it ignores it and they were never going to be
+  written. Before this the entire section had no reader at all.
+
+  Copyright, Contact and the DPI pair *are* now written, into the TIFF and IPTC
+  dictionaries, correctly ordered after the drops so that switching EXIF off cannot
+  carry a copyright away with the dictionary it lives in. **What is not established is
+  whether they arrive.** All of it rides `image.settingProperties` into
+  `CIContext.write*Representation`, and nobody has verified on a Mac that the encoder
+  serialises properties that were ADDED rather than merely preserved. An earlier version
+  of this file said the additive half was impossible because that API "takes no metadata
+  argument"; that is the pessimistic reading of an API whose whole purpose is to carry a
+  dictionary to an encoder, and it is no better evidenced than the optimistic one. The
+  panel says the fields are written and unconfirmed, which is the only caption that is
+  true today.
+
+  **One afternoon at a Mac settles it**: export a JPEG and a TIFF with a copyright set,
+  read them back with `CGImageSourceCopyPropertiesAtIndex`, and check
+  `kCGImagePropertyTIFFCopyright` and `kCGImagePropertyIPTCCopyrightNotice`. If they are
+  absent, the file has to be authored through `CGImageDestination`, which takes an
+  explicit properties dictionary and removes the question — the same route the gain map
+  needs. Zero tests touch `applyMetadataPolicy` on either platform, so nothing would
+  notice either outcome today.
 - **The crop tool is reachable now, and correct.** `showCrop` had no writer, so a
   complete interactive `CropOverlayView` was dead code. A first attempt at wiring it
   drew the wrong rectangle and was reverted the same hour: `renderPreview` applies

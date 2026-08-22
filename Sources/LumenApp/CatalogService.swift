@@ -57,13 +57,35 @@ final class CatalogService: @unchecked Sendable {
     private var sidecarFlushScheduled = false
     private let sidecarLock = NSLock()
 
+    /// What the open-time integrity check found. Nil-notice means healthy; the caller
+    /// reads it once, after construction, and tells the user what already happened.
+    let recovery: CatalogRecovery
+
     init(directory: URL) throws {
         self.directory = directory
         self.blobs = try BlobStore(
             directory: directory.appendingPathComponent("blobs", isDirectory: true))
+
+        // docs/15 §15.8: `PRAGMA quick_check` on every open, and on failure a restore
+        // from the newest backup that passes, with a notice AFTER the fact.
+        //
+        // This ran nowhere. `quickCheck` and `integrityCheck` existed with a comment
+        // saying "run on every open per §15.8" and no caller outside the tests, so a
+        // damaged catalog was discovered when some query threw — and a thrown query
+        // degrades to showing everything, which is the shape of failure where the user
+        // sees a library that looks nearly right. Before the store, because a restore
+        // has to replace the file and cannot do that through a handle holding it open.
+        self.recovery = CatalogStore.recoverIfNeeded(
+            path: directory.appendingPathComponent("lumen.db").path,
+            backupDirectory: Self.backupDirectory(in: directory).path)
+
         self.store = try CatalogStore(
             path: directory.appendingPathComponent("lumen.db").path,
             cachePath: directory.appendingPathComponent("cache.db").path)
+    }
+
+    private static func backupDirectory(in directory: URL) -> URL {
+        directory.appendingPathComponent("backups", isDirectory: true)
     }
 
     // MARK: - Folders and photos
@@ -756,22 +778,44 @@ final class CatalogService: @unchecked Sendable {
     // MARK: - Maintenance
 
     /// `VACUUM INTO` gives a consistent snapshot without stopping the world.
+    ///
+    /// Gated on a full `PRAGMA integrity_check` (§15.8, "before each weekly backup").
+    /// A corrupt catalog that backs itself up rotates the last readable snapshot out of
+    /// existence, and then the open-time restore has nothing to restore FROM — the
+    /// backup rotation quietly converts recoverable damage into permanent loss. The
+    /// check is the only thing standing between those two outcomes, and it had no
+    /// caller at all.
+    ///
+    /// The name is an ISO 8601 stamp with the colons swapped out, which sorts lexically
+    /// and chronologically at once — the ordering `CatalogStore.recoverIfNeeded` walks.
     func backup() {
         queue.async {
             let stamp = ISO8601DateFormatter().string(from: Date())
                 .replacingOccurrences(of: ":", with: "-")
-            let target = self.directory
-                .appendingPathComponent("backups", isDirectory: true)
+            let target = Self.backupDirectory(in: self.directory)
                 .appendingPathComponent("lumen-\(stamp).db")
             do {
+                guard try self.store.integrityCheck() else {
+                    self.report("The catalog failed its integrity check, so it was not "
+                                + "backed up — the existing backups are the good copies "
+                                + "and were left alone.")
+                    return
+                }
                 try FileManager.default.createDirectory(
                     at: target.deletingLastPathComponent(),
                     withIntermediateDirectories: true)
                 try self.store.backup(to: target.path)
             } catch {
                 NSLog("Lumen catalog: backup failed — %@", String(describing: error))
+                self.report("The catalog could not be backed up "
+                            + "(\(error.localizedDescription)).")
             }
         }
+    }
+
+    private func report(_ message: String) {
+        NSLog("Lumen catalog: %@", message)
+        onFailure?(message)
     }
 
     func close() {

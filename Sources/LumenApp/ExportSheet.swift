@@ -2,8 +2,12 @@
 // The multi-recipe export dialog (D40, docs/11 §A2): a checkbox list of recipes on the
 // left, the focused recipe's settings on the right, a footer that says exactly how many
 // files one Export click is about to write. Several recipes checked at once is the whole
-// point — the web JPEG, the print TIFF and the HDR HEIC leave together, off one render
-// that forks at the resize node.
+// point — the web JPEG, the print TIFF and the HDR HEIC leave together, off one gesture.
+//
+// One gesture, not one render. This line used to end "off one render that forks at the
+// resize node", and no render forks: each checked recipe renders the full develop chain
+// from the decode (see `ExportRecipe`'s header). The footer's file count is honest; the
+// time it takes scales with the number of boxes ticked.
 //
 // The sheet keeps no local copy of anything. Every control writes straight back into
 // `state.exportRecipes`, so editing a recipe here edits it everywhere; there is no
@@ -465,8 +469,20 @@ private struct ExportRecipeEditor: View {
             LumenSlider(title: "Resolution", value: $recipe.resolutionPPI,
                         range: 72...600, hardRange: 1...2400, defaultValue: 300,
                         step: 1, decimals: 0, bipolar: false)
-            ExportNote("Resolution feeds the print-size preview and the output-sharpening "
-                       + "radius; it does not change the pixel count.")
+            // There is no print-size preview. This note used to name one, and grepping
+            // the repository for it finds a single unrelated thing: `FilmLab.printSize`,
+            // the film-grain anchor — whose own picker was removed from `LookPanel` when
+            // it was proven that the print size cancels out of the grain arithmetic
+            // exactly. Nothing in Lumen shows a photographer how big this file prints.
+            //
+            // What Resolution actually reaches is named instead, both of it. The DPI
+            // half is written through `applyMetadataPolicy`, on the same
+            // `settingProperties` path as Copyright, and carries the same unconfirmed
+            // status — the Metadata section below states it at length, so this row says
+            // it in one clause rather than repeating the argument.
+            ExportNote("Resolution feeds the output-sharpening radius, and is written "
+                       + "into the file as its DPI — unconfirmed, like Copyright below. "
+                       + "It does not change the pixel count.")
         }
     }
 
@@ -570,14 +586,25 @@ private struct ExportRecipeEditor: View {
                 ExportTextEntry(text: optionalText(\.metadata.contact),
                                 placeholder: "email or site")
             }
-            // Said plainly rather than left to be discovered in a delivered file: the
-            // switches above remove metadata and are reliable in that direction, but
-            // nothing here ADDS a field. Copyright and Contact are stored with the
-            // recipe and are not written into the image yet — that needs the file to be
-            // authored through CGImageDestination.
-            ExportNote("These switches remove metadata. Copyright and Contact are "
-                       + "stored with the recipe but are not written into the exported "
-                       + "file yet.")
+            // Said plainly rather than left to be discovered in a delivered file, and
+            // the two halves are said separately because they rest on different amounts
+            // of evidence.
+            //
+            // The switches above REMOVE metadata, and that is reliable whichever way
+            // Core Image treats the property dictionary: either the encoder honours it
+            // and the keys are gone, or it ignores it and they were never going to be
+            // written. Copyright and Contact are now ADDED — the note used to say they
+            // were not written at all, which stopped being true when
+            // `applyMetadataPolicy` gained the `put` calls — but the additive direction
+            // is only sound under one of those two readings, and nobody has opened a
+            // delivered file on a Mac and checked. Telling the user it is written and
+            // unconfirmed is the only caption that is true today; promising it outright
+            // would be a guess wearing a fact's clothes, and saying nothing at all would
+            // hand a photographer a client delivery they believe is protected.
+            ExportNote("These switches remove metadata, which is reliable. Copyright "
+                       + "and Contact are written into the file — not yet verified by "
+                       + "reading a delivered file back, so check one before you rely "
+                       + "on it.")
         }
     }
 
