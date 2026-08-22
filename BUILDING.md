@@ -348,8 +348,17 @@ These are tracked, not hidden.
   built and unused, because `FilterBar` filters in memory. None of this is broken, and
   all of it is unfinished — the schema went in ahead of the features, which is the
   right order, but it means a schema tour overstates what the app does.
-- **`quickCheck()` and `integrityCheck()` are documented as running on every open.**
-  They have no callers, so a corrupt catalog is discovered when a query throws.
+- **The catalog's integrity check runs now, and restores.** `quickCheck()` and
+  `integrityCheck()` used to be documented as running on every open and had no callers,
+  so a corrupt catalog was discovered when a query threw — and a thrown query degrades
+  to showing everything, which is the shape of failure where the library looks nearly
+  right. `CatalogStore.recoverIfNeeded` runs before the store opens, and on a failed
+  `PRAGMA quick_check` restores the newest backup that passes its own check, setting the
+  damaged file aside rather than deleting it; `CatalogService` calls it and `AppState`
+  shows the after-the-fact notice §15.8 asks for. `integrityCheck()` gates `backup()`,
+  because a corrupt catalog that backs itself up rotates the last readable snapshot out
+  of existence. Still missing from §15.8: the 7-daily/4-weekly/6-monthly retention
+  policy — backups accumulate one per quit and one per menu command, forever.
 - **HDR export writes no gain map.** `renderHDRPair` and the whole `GainMap` relation
   are implemented and tested, and nothing calls them — `export` renders once and emits a
   single rendition. The missing piece is an auxiliary gain-map image attached through
