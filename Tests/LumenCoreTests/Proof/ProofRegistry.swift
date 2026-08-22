@@ -119,9 +119,18 @@ enum ProofRegistry {
             shippingReader: "Sources/LumenPipeline/RenderGraph.swift:486",
             authorityFloor: 15,
             apply: { r, v in r.develop.tone.blacks = v }),
+        // The pivot is denominated in EV, not in slider units: the panel offers -4…4
+        // (BasicPanel.swift:229) and the engine clamps to the same (ToneEngine.swift:347).
+        //
+        // The first version of this entry swept -100…100 and the harness reported 18 of
+        // 20 steps dead. That was the PROBE, not the control — the same mistake docs/19
+        // recorded three times, most memorably driving a plus-or-minus-60-degree Point
+        // Colour Hue slider to 100 and calling the clamp a dead zone. A control that
+        // saturates outside its own range is not a dead control, and the registry is
+        // where that fact has to be got right.
         ControlSpec(
             id: "tone.contrastPivot", panel: "Basic", displayName: "Contrast pivot",
-            low: -100, high: 100,
+            low: -4, high: 4,
             frameName: "neutralRamp", frame: { ProofFrames.neutralRamp() },
             shippingReader: "Sources/LumenPipeline/RenderGraph.swift:486",
             authorityFloor: 20,
@@ -151,6 +160,12 @@ enum ProofRegistry {
             authorityFloor: 20,
             apply: { r, v in r.develop.color.vibrance = v }),
         ControlSpec(
+            // Swept over the PHOTOGRAPHIC range, not the control's full 2000…50000 K.
+            // Sweeping the declared range would report a control delivering ~97% of its
+            // effect in the first fifteenth of its travel — which is true, and is
+            // TONE-09 (the slider is linear in Kelvin where it should be reciprocal),
+            // a defect in the SLIDER's scale rather than in what the engine does. Two
+            // separate facts deserve two separate measurements; this one is the engine's.
             id: "raw.temp", panel: "Basic", displayName: "Temperature",
             low: 3000, high: 9000, neutral: 5500,
             frameName: "colourChart", frame: { ProofFrames.colourChart() },

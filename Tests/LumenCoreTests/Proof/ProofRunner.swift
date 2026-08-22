@@ -33,6 +33,36 @@ enum ProofRunner {
         return fresh
     }
 
+    /// Measure a whole registry at once, across cores.
+    ///
+    /// Eleven controls took 698 seconds measured one after another, which is fine for
+    /// eleven and hopeless for the two hundred and fifty this registry has to reach —
+    /// that would be four hours for a drift check that is supposed to run alongside
+    /// ordinary tests. Controls are independent by construction (each builds its own
+    /// recipe from a default and renders its own frame), so this is the one place in the
+    /// harness where concurrency is free of judgement calls.
+    ///
+    /// The results land in the same cache the per-spec accessor reads, so a test written
+    /// against `measured(_:)` needs no knowledge of this and stays correct if it runs
+    /// alone.
+    static func measureAll(_ specs: [ControlSpec]) {
+        let pending = specs.filter { spec in
+            cacheLock.lock(); defer { cacheLock.unlock() }
+            return cache[spec.id] == nil
+        }
+        guard !pending.isEmpty else { return }
+        let results = UnsafeMutablePointer<ProofRecord?>.allocate(capacity: pending.count)
+        results.initialize(repeating: nil, count: pending.count)
+        defer { results.deinitialize(count: pending.count); results.deallocate() }
+
+        DispatchQueue.concurrentPerform(iterations: pending.count) { i in
+            results[i] = measure(pending[i])
+        }
+        cacheLock.lock()
+        for (i, spec) in pending.enumerated() { cache[spec.id] = results[i] }
+        cacheLock.unlock()
+    }
+
     /// Render one setting of one control.
     static func render(_ spec: ControlSpec, at setting: Double,
                        frame: ImageBuffer) -> ImageBuffer

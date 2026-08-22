@@ -13,6 +13,12 @@ import LumenCore
 
 final class ControlProofTests: XCTestCase {
 
+    /// Fill the measurement cache across cores before the first test that needs it.
+    override class func setUp() {
+        super.setUp()
+        ProofRunner.measureAll(ProofRegistry.all)
+    }
+
     /// Set to regenerate the committed records after a deliberate behaviour change.
     /// The drift test below is what makes an accidental one visible.
     private var isRecording: Bool {
@@ -26,8 +32,13 @@ final class ControlProofTests: XCTestCase {
             let record = ProofRunner.measured(spec)
             XCTAssertEqual(
                 record.deadSteps, 0,
-                "\(spec.id) is dead at \(record.deadSteps) of 20 steps — "
-                    + "some part of its travel renders byte-identical to the step before it")
+                "\(spec.id) is dead at \(record.deadSteps) of 20 steps — some part of "
+                    + "its travel renders byte-identical to the step before it. Before "
+                    + "concluding the control is dead, check that the registry's declared "
+                    + "range matches the panel's and the engine's clamp: a large dead count "
+                    + "is far more often a probe driven past a control's own bounds, which "
+                    + "is what docs/19 found three times and what this harness found on its "
+                    + "first run.")
             XCTAssertGreaterThan(
                 record.smallestLiveStep, 0,
                 "\(spec.id) never moved the picture at all")
