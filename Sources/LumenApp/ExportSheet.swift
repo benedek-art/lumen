@@ -465,8 +465,20 @@ private struct ExportRecipeEditor: View {
             LumenSlider(title: "Resolution", value: $recipe.resolutionPPI,
                         range: 72...600, hardRange: 1...2400, defaultValue: 300,
                         step: 1, decimals: 0, bipolar: false)
-            ExportNote("Resolution feeds the print-size preview and the output-sharpening "
-                       + "radius; it does not change the pixel count.")
+            // There is no print-size preview. This note used to name one, and grepping
+            // the repository for it finds a single unrelated thing: `FilmLab.printSize`,
+            // the film-grain anchor — whose own picker was removed from `LookPanel` when
+            // it was proven that the print size cancels out of the grain arithmetic
+            // exactly. Nothing in Lumen shows a photographer how big this file prints.
+            //
+            // What Resolution actually reaches is named instead, both of it. The DPI
+            // half is written through `applyMetadataPolicy`, on the same
+            // `settingProperties` path as Copyright, and carries the same unconfirmed
+            // status — the Metadata section below states it at length, so this row says
+            // it in one clause rather than repeating the argument.
+            ExportNote("Resolution feeds the output-sharpening radius, and is written "
+                       + "into the file as its DPI — unconfirmed, like Copyright below. "
+                       + "It does not change the pixel count.")
         }
     }
 
