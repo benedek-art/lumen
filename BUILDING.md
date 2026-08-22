@@ -284,6 +284,23 @@ These are tracked, not hidden.
   artifact key and the tile plan all exist and are tested; `denoise.mode = .ai` drives
   the decoder's own noise reduction from its Amount slider as a stand-in.
 
+  That stand-in reaches RAW files only. `RenderedImageSource.decode` takes the recipe
+  and reads nothing but the scale factor, so on a JPEG, HEIC or TIFF `.ai` means every
+  denoise stage off — Tier 1 zeroed by the mode coupling, Tier 2 absent, and Amount
+  driving a decoder stage that path does not have. The panel now distinguishes the two;
+  the code does not, and closing it needs a change in `LumenPipeline`.
+
+  The mode coupling itself used to zero Tier 1 unconditionally. docs/07 §2.1 says the
+  masters drop to zero "unless the user has hand-set them, in which case their values
+  are respected", which needs a bit per master, and the recipe had none — so
+  `ISODefaults.classic(for:)` took them as parameters **defaulting to false** and
+  `RenderPlan` passed neither. The exception could not fire on any photograph, and the
+  only trace was a default argument at a call site nobody reads. `ClassicNR` carries
+  `lumaUserSet` / `chromaUserSet` now, the panel sets them, and the parameters are gone
+  rather than defaulted — a default argument is a silent answer to a question the caller
+  was never asked. Both are false by default and serialize sparsely, so no recipe
+  already written changes its canonical form or its fingerprint.
+
   Until recently that gap was much wider than it looked: the renderer rasterized every
   mask with no source image, so **Luma Range, Colour Range and both Similarity kinds
   also selected nothing** — on every preview and every export, with no badge, because a
@@ -300,7 +317,39 @@ These are tracked, not hidden.
   `PipelineRenderer.renderReference` rather than inside the reference's own stage list;
   and Tier 2 remains a cached-artifact design with no model, so `.ai` still drives the
   decoder's own denoise from its Amount. Capture sharpening (S4) is unchanged: Apple's
-  at-demosaic sharpener scaled by the slider, with `richardsonLucy` still uncalled.
+  at-demosaic sharpener scaled by the slider, with `richardsonLucy` uncalled AND
+  untested — it appears in no file under `Tests/`, so "written" is the whole claim.
+
+  **What the golden suite could not say is whether any of it is GOOD.** Every denoise
+  assertion in the suite measured noise σ falling, which stays true while the picture is
+  being destroyed — a stage returning flat grey removes 100% of the noise. Scored
+  against ground truth instead (`ProofFrames.cleanISO6400`, `chromaEdge`,
+  `noisyChromaEdge`; `DenoiseQualityTests`), both master sliders were spending their top
+  halves buying negative quality: at Colour 100 a saturated colour edge survived at
+  0.709 of its step, at the ISO 25600 default 0.738, and on a noisy colour edge every
+  Colour setting from about 40 up scored WORSE than not denoising at all. Both travels
+  are now bounded at 2.5σ — measured, not chosen: past that a soft threshold keeps under
+  5% of a band — with each curve anchored so the mid travel keeps the authority the
+  flat-field goldens require. The luminance-guided blotch pass came down from a 0.5 mix
+  to 0.10, which is where most of the colour edge was going: its guide is luminance, so
+  across a boundary that is pure chroma there is nothing to stop it.
+
+  Residual error against the clean frame, both masters together, in sRGB code values:
+  undenoised 3.623, best point 2.030 → 2.018, full deflection **3.552 → 2.869**.
+
+  The ISO-adaptive Colour defaults resolved INTO that harmful region — 40 at ISO 6400,
+  55 at 25600, both worse than no denoise at all on a noisy colour edge. The anchors are
+  10 / 20 / 25 / 30 now, and the reason the old curve climbed is worth keeping: every
+  threshold in this stage is denominated in the profile's σ, **and σ already rises with
+  ISO**, so a slider that also rises with ISO applies the gain adaptation twice. Swept
+  on the corrected curve the optimum does not move with ISO at all. `luminanceAnchors`
+  has the same structure and has not been measured; the double count is structurally
+  identical there and should be checked before it is defended.
+
+  What this does NOT fix: luminance still gives error back over its travel on a frame
+  whose texture sits near the noise floor, because the edge map that would tell them
+  apart is stabilized by a σ 1.5 pre-blur and cannot see 6 px detail. Changing that
+  operator changes a kernel too, so it is not a Linux-side fix.
 - **Halation now runs on both paths** and the golden suite compares them. It used to be
   GPU-only, which meant the slider did nothing on every headless render and any golden
   that set it diverged.
@@ -538,11 +587,29 @@ changed the picture.
   place — `renderReference` and `KernelLibrary.unavailableKernels` — but a file is not a
   preview, and silently substituting the reference renderer mid-export is a decision
   that wants a Mac to test on first.
-- Creative sharpening is not resolution-scaled, so an export is less sharpened than the
-  frame the user judged; a mask's COLOUR table still runs at 33³ even on export
+- Creative sharpening is not resolution-scaled — `applySharpen` takes its radius in raw
+  pixels and its à-trous band at fixed pixel steps, where every other spatial stage
+  sizes itself off the long edge — so an export is less sharpened than the frame the
+  user judged. **And no surface in the application shows the difference**: previews
+  render at up to 4096 px, so "1:1" on a 45 MP file is already a half-resolution render
+  and there is nowhere to look at export sharpening honestly. The Masking gate IS
+  frame-proportional, so the gate and the band it gates scale differently as well. The
+  claim is by construction, not by number — `ScaleHonestyTests` covers texture and
+  clarity and not sharpen — and the panel says so rather than the delta being measured.
+
+  Also: a mask's COLOUR table still runs at 33³ even on export
   (`RenderGraph.Options.lutSize` has one reader now — the local curve's table, which
   does take the export size); and the waveform grows blank columns on crops narrower
   than 256 proxy pixels.
+- **Texture is still well under the strength it specifies**, and the fix above is not
+  that fix. The units bug was real and is closed; what remains is the band SHAPE.
+  Shipping Texture is one guided band scaled by a constant, where the reference sums the
+  full à-trous stack normalized to `referenceBandWeight(halfWidth: 1.6)`. Measured at
+  1.8×–17× weak across seven frames. The port reached 1.00× parity twice and was
+  reverted twice (`4a58716`, `8324f37`) — not because it was wrong but because it was
+  finally strong enough to expose a coherence gate that cannot tell a steep gradient
+  from an edge. The third attempt starts from `8324f37`'s message, which lists what each
+  of the four pieces has to do and in what order.
 
 ### What the fourth audit found
 
@@ -573,18 +640,38 @@ all absent, crop ratios were computed against an assumed 3:2 on every camera, th
 watermark panel said it composited nothing while the encoder composited it at twice the
 requested size, brush masks were missing from the first render of every photo, and
 nothing ran at quit so the last two seconds of culling never reached disk.
-- **Hot Pixels reaches no path at all.** It used to be listed here as
-  "reference-only", and the panel said so too — both were wrong in the same way:
-  `ClassicalDenoise` has no caller anywhere in `Sources/`, reference included, so the
-  slider has never had a consumer. An honesty note that is itself false is worse than
-  none, and this one survived two audits by sounding like a disclosure.
+- **Hot Pixels and the rest of Tier 1 reach the shipping path.** This entry said the
+  opposite for two revisions after it stopped being true — "Hot Pixels reaches no path
+  at all", "`ClassicalDenoise` has no caller anywhere in `Sources/`" — while
+  `RenderGraph.applyDenoise` was calling `gpuPlan` on every preview and every export,
+  and while THIS FILE said so, in a bullet two hundred and eighty lines earlier.
+  Twice, then, this bullet has been the thing it warns against: it was first written to
+  correct a stale "reference-only" note, and then went stale in exactly the same way.
 
-  Sharpening's Masking and Halo Suppression are no longer on this list: both reach the
-  GPU as arguments to `KernelLibrary.sharpenDelta`, and Detail reaches it as its own
-  argument rather than folded into a radius.
-- **Remove chromatic aberration and the whole Defringe group are not wired.** Seven
-  controls in the Effects panel with a wire format and no reader; `lens.profile` is the
-  one thing in that section that is genuinely consumed, at decode. The panel says so.
+  What is true today: S3 runs in the graph, all seven controls reach it, and the
+  hot-pixel pass is a separate kernel dispatched from the same stage. The lesson the
+  original entry drew still stands and is the reason this one names its evidence — an
+  honesty note is a claim like any other, and the fact that it is confessing something
+  does not exempt it from being checked. **A disclosure with no `file:line` in it is a
+  disclosure nobody can re-verify**, which is how both versions of this bullet survived
+  an audit apiece.
+
+  Sharpening's Masking and Halo Suppression are also not unwired: both reach the GPU as
+  arguments to `KernelLibrary.sharpenDelta`, and Detail reaches it as its own argument
+  rather than folded into a radius. Halo Suppression has no test on any path, which is a
+  different problem and an open one.
+- **Remove chromatic aberration and the whole Defringe group are not wired**, and the
+  Effects panel no longer shows them. The CA toggle, the Defringe switch and its six
+  sliders: eight controls with a wire format and no reader — grep `removeCA` and
+  `Defringe` across `Sources/` and only `Recipe.swift` answers.
+  `lens.profile` is the one thing in that section that is genuinely consumed, at decode.
+
+  A footnote conceding it was not enough. The CA toggle DEFAULTED TO ON, so every photo
+  in the library carried a ticked box that moved nothing, and the toggle's own tooltip
+  described the mechanism — "R and B are re-registered to G by a radial polynomial fit,
+  folded into the geometry warp" — two rows above the note admitting none of it exists.
+  The controls are gone and the sentence stays, which is the form `MaskPanel` already
+  used for the local noise/moiré/defringe/grain group.
 - **xxh64, not xxh3**, for `recipe_fp` and blob refs (docs/15 says xxh3). The `xxh64:`
   prefix makes the algorithm self-describing, so upgrading later is a migration rather
   than a breakage.
