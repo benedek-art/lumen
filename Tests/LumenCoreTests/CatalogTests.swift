@@ -629,6 +629,18 @@ final class CatalogTests: XCTestCase {
         XCTAssertEqual(recovery.outcome, .firstRun)
         XCTAssertNil(recovery.notice)
         XCTAssertFalse(recovery.isDamaged)
+
+        // A path that is not there must not probe as healthy. `SQLiteDatabase` opens
+        // with SQLITE_OPEN_CREATE, so without the existence guard an absent file becomes
+        // an empty database and passes `quick_check` — and a backup that vanished
+        // between the directory listing and the probe would then be restored, empty,
+        // over a catalog that was only damaged.
+        XCTAssertFalse(CatalogStore.probeQuickCheck(
+            path: directory.appendingPathComponent("never-existed.db").path),
+                       "a missing file was reported as a readable catalog")
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: directory.appendingPathComponent("never-existed.db").path),
+                       "probing a missing path created a database at it")
     }
 
     /// The whole promise of §15.8 in one test: a catalog that fails its check at open is

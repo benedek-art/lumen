@@ -1133,7 +1133,15 @@ public final class CatalogStore {
     /// Internal rather than private so the recovery tests can assert that the damage
     /// they inflicted actually took. A restore test that ran against a file SQLite still
     /// finds perfectly readable would pass while proving nothing.
+    ///
+    /// The existence guard is load-bearing, not defensive tidying. `SQLiteDatabase`
+    /// opens with `SQLITE_OPEN_CREATE`, so a path that is not there becomes an empty
+    /// database — which passes `quick_check` perfectly. Without this, a backup that
+    /// vanished between the directory listing and this call would be created empty,
+    /// pass, and be restored OVER a catalog that was merely damaged. Answering "no" for
+    /// a file that does not exist is also just correct: nothing there cannot be used.
     static func probeQuickCheck(path: String) -> Bool {
+        guard FileManager.default.fileExists(atPath: path) else { return false }
         guard let database = try? SQLiteDatabase(path: path) else { return false }
         defer { database.close() }
         return (try? database.scalarText("PRAGMA quick_check;")) == "ok"
