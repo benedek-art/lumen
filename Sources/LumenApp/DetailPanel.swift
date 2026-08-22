@@ -61,10 +61,20 @@ struct DetailPanel: View {
                                // `DetailEngine.captureSharpen` has no caller. Saying so
                                // here rather than selling the algorithm the panel wishes
                                // it were running.
+                               //
+                               // It also said "written and TESTED". It is not tested:
+                               // `richardsonLucy`, `estimatePSFSigma` and
+                               // `captureSharpen` appear in no file under Tests/, so
+                               // nothing has ever observed them produce a pixel. Code
+                               // with no caller and no test is written, and that is the
+                               // whole of what may be claimed for it — "tested" is the
+                               // word that turns an honest disclosure into a second
+                               // claim the reader has no way to check.
                                help: "Scales the decoder's own at-demosaic sharpener. "
-                                   + "Lumen's measured-PSF deconvolution is written and "
-                                   + "tested but not in the render path yet, so there "
-                                   + "is no per-frame radius measurement in this build.")
+                                   + "Lumen's measured-PSF deconvolution is written but "
+                                   + "has no caller and no test, so it does not run and "
+                                   + "there is no per-frame radius measurement in this "
+                                   + "build.")
                 if recipe.develop.detail.capture.auto {
                     captureOverrides
                 } else {
@@ -181,6 +191,17 @@ struct DetailPanel: View {
                 } else {
                     lightroomClassicHint
                 }
+                // Radius here is in RAW PIXELS and the band steps are fixed pixel
+                // counts, while every other spatial stage in the graph sizes itself off
+                // the long edge. A preview is also capped at 4096 px, so there is no
+                // view in this application — 1:1 included — that shows a 45 MP export's
+                // sharpening. Saying so is not a fix; it is the least the panel owes a
+                // user judging an export by a preview.
+                DevelopNote("Sharpening is measured in pixels, not in fractions of the "
+                            + "frame, so a full-size export is less sharpened than the "
+                            + "preview it was judged on. Previews also render at up to "
+                            + "4096 px, which means no view here — 1:1 included — shows "
+                            + "an export's sharpening on a high-resolution file.")
             }
         }
     }
@@ -359,7 +380,9 @@ struct DetailPanel: View {
                             + "the noise beside it — survives. Contrast keeps coarse "
                             + "luminance structure at the cost of mottling. Colour "
                             + "Detail protects thin colour edges; Colour Smoothness "
-                            + "reaches the large blotches.")
+                            + "reaches the large blotches, and it is the one row here "
+                            + "with a measured cost — its guided pass follows "
+                            + "luminance, so it softens a boundary that is pure colour.")
                 DevelopNote("Hot Pixels replaces single-pixel outliers with the median "
                             + "of their neighbours, and only where the pixel is a "
                             + "strict extremum — an edge or a fine line always has a "
