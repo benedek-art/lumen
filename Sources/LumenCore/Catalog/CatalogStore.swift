@@ -450,6 +450,42 @@ public struct ScanResult: Equatable, Sendable {
     }
 }
 
+/// What the caller needs to know BEFORE it decides which files are worth hashing.
+///
+/// `quick_sig` only earns its cost when there is something for it to match. Hashing a
+/// megabyte of every file in a listing is 5 GB of I/O for a 5,000-frame card — seconds,
+/// on the one path docs/10 §10.1 gates under a second, and LIB-25 already flags that
+/// path as blocking the first grid. So the scan asks first:
+///
+/// - `known` — filenames this folder already has rows for. Those are not new, so no
+///   relocation can be about them.
+/// - `candidateSizes` — the `file_size` of every row a newly listed file could be a
+///   relocation OF: rows in this folder that have vanished from the listing, and rows
+///   anywhere marked `missing = 1`. Both halves are restricted to rows that actually
+///   carry a signature, because a candidate without one cannot be matched anyway.
+///
+/// Size is an exact prefilter, not a heuristic: renaming or moving a file does not
+/// change its length, so a new file whose size matches nothing cannot be a relocation
+/// of anything and never needs hashing. Where sizes DO collide — two frames of the same
+/// length — the signature is what tells them apart, which is the job it exists for.
+///
+/// The first open of a fresh folder therefore hashes nothing at all: no rows, no
+/// candidates, empty set.
+public struct RelocationProbe: Equatable, Sendable {
+    public var known: Set<String>
+    public var candidateSizes: Set<Int64>
+
+    public init(known: Set<String> = [], candidateSizes: Set<Int64> = []) {
+        self.known = known
+        self.candidateSizes = candidateSizes
+    }
+
+    /// What a caller gets when the catalog could not answer: hash nothing rather than
+    /// hash everything. A missed relocation costs a re-link; a stalled folder open on
+    /// every launch costs the app's one measurable promise.
+    public static let none = RelocationProbe()
+}
+
 // MARK: - Query
 
 /// The filter bar compiled to SQL (docs/10 §10.8, D39).
@@ -1231,6 +1267,36 @@ public final class CatalogStore {
 
     // MARK: - Scan reconciliation
 
+    /// Which of the listed files could possibly be a relocation, so the scanner can
+    /// hash those and only those. See `RelocationProbe` for why this is asked at all.
+    public func relocationProbe(folderID: Int64, listed: Set<String>) throws
+        -> RelocationProbe {
+        var probe = RelocationProbe()
+
+        let statement = try db.prepare(
+            "SELECT filename, file_size, quick_sig FROM photo WHERE folder_id = ?;")
+        try statement.bind(1, SQLiteValue.integer(folderID))
+        while try statement.step() {
+            let name = statement.string(0) ?? ""
+            probe.known.insert(name)
+            // A row still present in the listing is not going anywhere; only the ones
+            // that have vanished from it are candidates for an in-folder rename.
+            if !listed.contains(name), statement.string(2)?.isEmpty == false {
+                probe.candidateSizes.insert(statement.int(1))
+            }
+        }
+
+        // Cross-folder moves: the row was marked missing on an earlier scan of the
+        // folder it left, and this scan is the folder it arrived in.
+        let missing = try db.prepare(
+            "SELECT DISTINCT file_size FROM photo "
+            + "WHERE missing = 1 AND quick_sig IS NOT NULL AND quick_sig <> '';")
+        while try missing.step() {
+            probe.candidateSizes.insert(missing.int(0))
+        }
+        return probe
+    }
+
     /// Reconciles one folder against a directory listing (docs/15 §15.9, the cold-start
     /// path and the FSEvents fallback). Runs as a single transaction.
     ///
@@ -1534,20 +1600,80 @@ public final class CatalogStore {
     /// `capture_at IS NULL` is the resume marker rather than a separate "done" column:
     /// a photo genuinely without a capture time is re-read next launch, which costs one
     /// file open and is cheaper than a column that can disagree with the file.
-    public func photosMissingMetadata(folderID: Int64, limit: Int = 5000) throws
+    ///
+    /// `afterID` is what makes the caller's loop TERMINATE. The obvious loop — "fetch,
+    /// write, fetch again until empty" — never ends on a folder holding one file whose
+    /// EXIF cannot be parsed: that row keeps `capture_at IS NULL` forever and comes back
+    /// in every page. Paging by strictly increasing id ends after one pass over the
+    /// folder whatever the files contain (LIB-26a: the caller used to fetch one page of
+    /// 5,000 and stop, so a 20k folder needed four launches to sort correctly).
+    public func photosMissingMetadata(folderID: Int64, afterID: Int64 = 0,
+                                      limit: Int = 5000) throws
         -> [(id: Int64, filename: String)] {
         let statement = try db.prepare("""
             SELECT id, filename FROM photo
-            WHERE folder_id = ? AND capture_at IS NULL AND missing = 0
+            WHERE folder_id = ? AND id > ? AND capture_at IS NULL AND missing = 0
             ORDER BY id LIMIT ?;
             """)
         try statement.bind(1, SQLiteValue.integer(folderID))
-        try statement.bind(2, SQLiteValue.int(limit))
+        try statement.bind(2, SQLiteValue.integer(afterID))
+        try statement.bind(3, SQLiteValue.int(limit))
         var out: [(id: Int64, filename: String)] = []
         while try statement.step() {
             out.append((id: statement.int(0), filename: statement.string(1) ?? ""))
         }
         return out
+    }
+
+    /// Photos whose `quick_sig` has never been computed.
+    ///
+    /// Same resume-marker discipline as the metadata backfill, and paged by id for the
+    /// same reason: a file that cannot be opened stays NULL and must not be able to
+    /// spin the caller's loop.
+    public func photosMissingQuickSig(folderID: Int64, afterID: Int64 = 0,
+                                      limit: Int = 5000) throws
+        -> [(id: Int64, filename: String)] {
+        let statement = try db.prepare("""
+            SELECT id, filename FROM photo
+            WHERE folder_id = ? AND id > ?
+              AND (quick_sig IS NULL OR quick_sig = '') AND missing = 0
+            ORDER BY id LIMIT ?;
+            """)
+        try statement.bind(1, SQLiteValue.integer(folderID))
+        try statement.bind(2, SQLiteValue.integer(afterID))
+        try statement.bind(3, SQLiteValue.int(limit))
+        var out: [(id: Int64, filename: String)] = []
+        while try statement.step() {
+            out.append((id: statement.int(0), filename: statement.string(1) ?? ""))
+        }
+        return out
+    }
+
+    /// Record a computed `quick_sig`. This is the writer the column never had.
+    public func setQuickSig(_ signature: String, photoID: Int64) throws {
+        try setQuickSigs([(photoID: photoID, signature: signature)])
+    }
+
+    /// A batch in one transaction, for the same reason `setMetadata` batches: five
+    /// thousand individual commits is a minute of fsync.
+    public func setQuickSigs(_ batch: [(photoID: Int64, signature: String)]) throws {
+        guard !batch.isEmpty else { return }
+        try db.transaction {
+            for entry in batch {
+                try self.db.run("UPDATE photo SET quick_sig = ? WHERE id = ?;",
+                                [.text(entry.signature), .integer(entry.photoID)])
+            }
+        }
+    }
+
+    /// The sidecar's mtime as of our last write of it, or our last read of it — the
+    /// clock docs/15 §15.5's three conflict rules are evaluated against. Written on
+    /// both sides of the exchange, because "unchanged since we last touched it" is the
+    /// only question rule 1 asks and a stamp taken on writes alone cannot answer it for
+    /// a sidecar that arrived from another machine.
+    public func setSidecarMTime(_ mtime: Int64?, photoID: Int64) throws {
+        try db.run("UPDATE photo SET sidecar_mtime = ? WHERE id = ?;",
+                   [.optionalInteger(mtime), .integer(photoID)])
     }
 
     public func setRating(_ rating: Int, photoID: Int64) throws {
@@ -2686,6 +2812,11 @@ public final class CatalogStore {
         throw CatalogError.unavailable
     }
 
+    public func relocationProbe(folderID: Int64, listed: Set<String>) throws
+        -> RelocationProbe {
+        throw CatalogError.unavailable
+    }
+
     public func saveRecipe(_ recipe: Recipe, photoID: Int64, isCurrent: Bool) throws {
         throw CatalogError.unavailable
     }
@@ -2717,8 +2848,27 @@ public final class CatalogStore {
         throw CatalogError.unavailable
     }
 
-    public func photosMissingMetadata(folderID: Int64, limit: Int = 5000) throws
+    public func photosMissingMetadata(folderID: Int64, afterID: Int64 = 0,
+                                      limit: Int = 5000) throws
         -> [(id: Int64, filename: String)] {
+        throw CatalogError.unavailable
+    }
+
+    public func photosMissingQuickSig(folderID: Int64, afterID: Int64 = 0,
+                                      limit: Int = 5000) throws
+        -> [(id: Int64, filename: String)] {
+        throw CatalogError.unavailable
+    }
+
+    public func setQuickSig(_ signature: String, photoID: Int64) throws {
+        throw CatalogError.unavailable
+    }
+
+    public func setQuickSigs(_ batch: [(photoID: Int64, signature: String)]) throws {
+        throw CatalogError.unavailable
+    }
+
+    public func setSidecarMTime(_ mtime: Int64?, photoID: Int64) throws {
         throw CatalogError.unavailable
     }
 

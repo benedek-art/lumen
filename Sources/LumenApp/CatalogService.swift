@@ -49,7 +49,11 @@ final class CatalogService: @unchecked Sendable {
 
     /// Sidecar writes coalesce over this window.
     private static let sidecarDebounce: TimeInterval = 2.0
-    private var pendingSidecars: [URL: SidecarContent] = [:]
+    /// Queued sidecar state, with the photo row it belongs to. The id rides along
+    /// because the flush is what learns the sidecar's new mtime, and `photo.sidecar_mtime`
+    /// is the clock docs/15 §15.5's conflict rules are evaluated against — a stamp taken
+    /// only on reads would call every one of our own writes "the sidecar changed".
+    private var pendingSidecars: [URL: (photoID: Int64?, content: SidecarContent)] = [:]
     private var sidecarFlushScheduled = false
     private let sidecarLock = NSLock()
 
@@ -72,32 +76,58 @@ final class CatalogService: @unchecked Sendable {
         queue.sync {
             do {
                 let folderID = try store.registerFolder(path: folder.path)
-                let scanned: [ScannedFile] = files.map { file in
+                // The folder scan is recursive and `photo` is UNIQUE per
+                // (folder, filename), so the basename is not an identity: one card
+                // with day1/ and day2/ subfolders puts two different frames named
+                // DSC_0001.NEF on one row, and the second edit overwrites the
+                // first. The path relative to the registered folder is unique by
+                // construction, and equals the basename for files sitting directly
+                // in it — which is why this only ever bit multi-folder imports.
+                let names = files.map { ScannedFile.catalogName(for: $0, in: folder) }
+
+                // `scan`'s relocation branch needs the signature of the file it has
+                // just been HANDED — the catalog can only supply the other half, for
+                // the row that vanished. So a rename is only ever caught if the sig is
+                // computed here, before `scan`, and it was never computed anywhere:
+                // that is LIB-01, and it is why a renamed original became a fresh photo
+                // with its rating, edits and album membership stranded on the old row.
+                //
+                // Not every file, though. The probe says which of them could match
+                // anything, by size, and on the first open of a folder the answer is
+                // none — so the cold path that docs/10 §10.1 gates under a second pays
+                // nothing, and the rename path pays one megabyte per candidate.
+                let probe = (try? store.relocationProbe(folderID: folderID,
+                                                        listed: Set(names)))
+                    ?? RelocationProbe.none
+
+                let scanned: [ScannedFile] = zip(files, names).map { file, name in
                     let attributes = try? FileManager.default.attributesOfItem(atPath: file.path)
                     let size = (attributes?[.size] as? NSNumber)?.int64Value ?? 0
                     let mtime = ((attributes?[.modificationDate] as? Date)?
                         .timeIntervalSince1970).map { Int64($0) } ?? 0
-                    // The folder scan is recursive and `photo` is UNIQUE per
-                    // (folder, filename), so the basename is not an identity: one card
-                    // with day1/ and day2/ subfolders puts two different frames named
-                    // DSC_0001.NEF on one row, and the second edit overwrites the
-                    // first. The path relative to the registered folder is unique by
-                    // construction, and equals the basename for files sitting directly
-                    // in it — which is why this only ever bit multi-folder imports.
-                    return ScannedFile(filename: ScannedFile.catalogName(for: file, in: folder),
+                    var signature: String? = nil
+                    if !probe.known.contains(name), probe.candidateSizes.contains(size) {
+                        signature = try? QuickSignature.compute(url: file)
+                    }
+                    return ScannedFile(filename: name,
                                        fileSize: size, fileMTime: mtime,
+                                       quickSig: signature,
                                        ext: file.pathExtension.lowercased())
                 }
                 _ = try store.scan(folderID: folderID, files: scanned,
                                    at: CatalogStore.now())
 
-                for file in files {
-                    guard let row = try store.photo(
-                        folderID: folderID,
-                        filename: ScannedFile.catalogName(for: file, in: folder))
+                for (file, name) in zip(files, names) {
+                    guard let row = try store.photo(folderID: folderID, filename: name)
                     else { continue }
                     let recipe = try store.currentRecipe(photoID: row.id)
-                    let state = Self.merge(row: row, recipe: recipe, file: file)
+                    let fingerprint = try? store.currentRecipeFingerprint(photoID: row.id)
+                    sidecarLock.lock()
+                    let unflushed = pendingSidecars[file] != nil
+                    sidecarLock.unlock()
+                    let resolution = Self.merge(row: row, recipe: recipe,
+                                                recipeFingerprint: fingerprint,
+                                                hasUnflushedEdits: unflushed, file: file)
                     // A sidecar fills in where the catalog is silent — and until now it
                     // filled in ONLY the copy handed to the grid. Membership and
                     // ordering are SQL-backed (the whole filter bar compiles to
@@ -105,9 +135,9 @@ final class CatalogService: @unchecked Sendable {
                     // stars in its cell and vanished under the five-star filter, and a
                     // recovered recipe rendered while the Edited chip excluded it. The
                     // view and the query disagreed about the same photograph.
-                    Self.persistRecovered(state, row: row, storedRecipe: recipe,
-                                          store: store)
-                    result[file] = state
+                    Self.persistRecovered(resolution, row: row, storedRecipe: recipe,
+                                          store: store, file: file)
+                    result[file] = Self.stored(resolution.state, row: row)
                 }
             } catch {
                 NSLog("Lumen catalog: folder registration failed — %@",
@@ -131,16 +161,36 @@ final class CatalogService: @unchecked Sendable {
     /// Interruptible by construction: `capture_at IS NULL` is the resume marker, so
     /// quitting halfway costs nothing and the next launch continues. Batched into
     /// transactions of 200 because 5,000 individual commits is a minute of fsync.
-    func backfillMetadata(folder: URL, onProgress: ((Int, Int) -> Void)? = nil) {
+    ///
+    /// This pass also computes `quick_sig`, and this is the right place for it rather
+    /// than the scan: the signature reads a megabyte per file, and five thousand of
+    /// those in front of the first grid is gigabytes of I/O on the one path docs/10
+    /// §10.1 gates under a second. Here it sits behind the grid, on the same
+    /// interruptible, resumable, batched footing as the EXIF.
+    ///
+    /// Both loops PAGE BY ID rather than re-asking for "everything still missing". The
+    /// old code asked once, with a 5,000 default limit, and never asked again (LIB-26a):
+    /// a 20,000-frame folder needed four launches before its sort order was right.
+    /// Re-asking naively would have been worse — a file whose EXIF will not parse keeps
+    /// `capture_at IS NULL` and comes back in every page forever — so the cursor is the
+    /// last id seen, which terminates whatever the files turn out to contain.
+    ///
+    /// `onProgress` reports how many rows have been walked and whether the pass is
+    /// finished. It used to report `(done, total)` against a total taken from the single
+    /// fetch; paging has no such number up front, and inventing one to keep the old
+    /// shape would have made the caller's "last batch" test a guess.
+    func backfillMetadata(folder: URL,
+                          onProgress: ((_ done: Int, _ finished: Bool) -> Void)? = nil) {
         queue.async { [store, weak self] in
             do {
                 let folderID = try store.registerFolder(path: folder.path)
-                let pending = try store.photosMissingMetadata(folderID: folderID)
-                guard !pending.isEmpty else { return }
                 var done = 0
-                for chunk in stride(from: 0, to: pending.count, by: 200).map({
-                    Array(pending[$0..<Swift.min($0 + 200, pending.count)])
-                }) {
+                var cursor: Int64 = 0
+                while true {
+                    let chunk = try store.photosMissingMetadata(
+                        folderID: folderID, afterID: cursor, limit: 200)
+                    guard let last = chunk.last else { break }
+                    cursor = last.id
                     let read: [(photoID: Int64, metadata: PhotoMetadata)] =
                         chunk.compactMap { row in
                             let url = folder.appendingPathComponent(row.filename)
@@ -150,7 +200,24 @@ final class CatalogService: @unchecked Sendable {
                         }
                     try store.setMetadata(read)
                     done += chunk.count
-                    onProgress?(done, pending.count)
+                    onProgress?(done, false)
+                }
+                onProgress?(done, true)
+
+                var signatureCursor: Int64 = 0
+                while true {
+                    let chunk = try store.photosMissingQuickSig(
+                        folderID: folderID, afterID: signatureCursor, limit: 200)
+                    guard let last = chunk.last else { break }
+                    signatureCursor = last.id
+                    let signed: [(photoID: Int64, signature: String)] =
+                        chunk.compactMap { row in
+                            let url = folder.appendingPathComponent(row.filename)
+                            guard let signature = try? QuickSignature.compute(url: url)
+                            else { return nil }
+                            return (photoID: row.id, signature: signature)
+                        }
+                    try store.setQuickSigs(signed)
                 }
             } catch {
                 // Not surfaced to the user: metadata is an enrichment, and a folder
@@ -163,37 +230,55 @@ final class CatalogService: @unchecked Sendable {
         }
     }
 
-    /// Reconcile what the catalog knows with what the sidecar says. The sidecar wins
-    /// where the catalog is silent: a photo moved in from another machine, or restored
-    /// from a backup, should arrive with its work attached.
-    private static func merge(row: PhotoRow, recipe: Recipe?, file: URL) -> StoredState {
-        // The rule — "the sidecar fills in where the catalog is silent, and never
-        // overwrites it" — lives in `SidecarMerge`, in LumenCore, where it can be
-        // tested. This function owns only the file read and the enum mapping.
-        let merged = SidecarMerge.resolve(
-            catalog: SidecarMerge.State(rating: row.rating,
-                                        flag: sidecarFlag(appFlag(row.flag)),
-                                        label: row.label,
-                                        recipe: recipe),
-            sidecar: readSidecar(for: file))
-
-        return StoredState(catalogID: row.id,
-                           flag: appFlag(merged.flag),
-                           rating: merged.rating,
-                           label: appLabel(merged.label),
-                           recipe: merged.recipe,
-                           iso: row.iso)
+    /// Reconcile what the catalog knows with what the sidecar says, under docs/15
+    /// §15.5's three rules. The rules themselves live in `SidecarMerge`, in LumenCore,
+    /// where they can be tested; this function owns only the file read, the mtime stat
+    /// and the enum mapping.
+    private static func merge(row: PhotoRow, recipe: Recipe?,
+                              recipeFingerprint: String?, hasUnflushedEdits: Bool,
+                              file: URL) -> SidecarMerge.Resolution {
+        SidecarMerge.resolve(
+            catalog: SidecarMerge.State(
+                rating: row.rating,
+                flag: sidecarFlag(appFlag(row.flag)),
+                label: row.label,
+                recipe: recipe,
+                // Empty string is `currentRecipeFingerprint`'s "as shot", which is not
+                // a fingerprint and must not be compared as one.
+                recipeFingerprint: (recipeFingerprint?.isEmpty == false)
+                    ? recipeFingerprint : nil,
+                sidecarMTime: row.sidecarMTime,
+                hasUnflushedEdits: hasUnflushedEdits),
+            sidecar: readSidecar(for: file),
+            sidecarMTime: modificationTime(of: sidecarURL(for: file)))
     }
 
-    /// Write back whatever the sidecar filled in, so the catalog agrees with the grid.
+    private static func stored(_ state: SidecarMerge.State,
+                               row: PhotoRow) -> StoredState {
+        StoredState(catalogID: row.id,
+                    flag: appFlag(state.flag),
+                    rating: state.rating,
+                    label: appLabel(state.label),
+                    recipe: state.recipe,
+                    iso: row.iso)
+    }
+
+    /// Write back whatever the merge concluded, so the catalog agrees with the grid.
     ///
-    /// Only fields the merge actually CHANGED are written: `SidecarMerge.resolve` never
-    /// overwrites a value the catalog holds, so a difference here means the catalog was
-    /// silent and the sidecar spoke. Writing unconditionally would be a no-op storm on
-    /// every folder open, and writing a recipe that came from the catalog back into the
-    /// catalog would make a new version row per launch.
-    private static func persistRecovered(_ state: StoredState, row: PhotoRow,
-                                         storedRecipe: Recipe?, store: CatalogStore) {
+    /// Only fields the merge actually CHANGED are written. Under rule 1 that means the
+    /// catalog was silent and the sidecar spoke; under rule 2 it means the sidecar was
+    /// newer and won. Writing unconditionally would be a no-op storm on every folder
+    /// open, and writing a recipe that came from the catalog back into the catalog would
+    /// make a new version row per launch.
+    ///
+    /// The recipe comparison is `!=`, not `storedRecipe == nil`. That single condition
+    /// was the second half of LIB-08: even once the merge decided the sidecar had the
+    /// newer edit, nothing wrote it, so the grid showed one recipe and the catalog held
+    /// another — and the next flush pushed the catalog's stale one back over the sidecar.
+    private static func persistRecovered(_ resolution: SidecarMerge.Resolution,
+                                         row: PhotoRow, storedRecipe: Recipe?,
+                                         store: CatalogStore, file: URL) {
+        let state = stored(resolution.state, row: row)
         do {
             if state.rating != row.rating {
                 try store.setRating(state.rating, photoID: row.id)
@@ -206,8 +291,28 @@ final class CatalogService: @unchecked Sendable {
             if mergedLabel != row.label {
                 try store.setLabel(coreLabel(appLabel(mergedLabel)), photoID: row.id)
             }
-            if storedRecipe == nil, let recovered = state.recipe {
+            if let recovered = state.recipe, recovered != storedRecipe {
                 try store.saveRecipe(recovered, photoID: row.id, isCurrent: true)
+            }
+
+            // Stamp what we have just READ. Without this half, a sidecar we have never
+            // written — one that arrived beside a photo copied in from another machine —
+            // has no baseline, so the next scan cannot tell "changed since" from "never
+            // seen", and rule 2 could never fire for it a second time.
+            if let stamp = modificationTime(of: sidecarURL(for: file)) {
+                try store.setSidecarMTime(stamp, photoID: row.id)
+            }
+
+            if resolution.decision == .conflictCatalogWins {
+                // docs/15 §15.5 rule 3 says the sidecar's state is preserved as a
+                // snapshot named "Imported from sidecar <date>". Snapshots do not exist
+                // (LIB-06: `saveRecipe` only ever writes `kind = .working`), so the
+                // catalog wins as specified and the sidecar's divergent recipe is NOT
+                // kept. Logged rather than dropped in silence, which is the most this
+                // can honestly promise until snapshots ship.
+                NSLog("Lumen catalog: %@ changed under an unflushed edit — the catalog "
+                      + "kept its version and the sidecar's could not be snapshotted",
+                      sidecarURL(for: file).lastPathComponent)
             }
         } catch {
             // A recovery that cannot be persisted is not worth failing the folder open
@@ -236,7 +341,7 @@ final class CatalogService: @unchecked Sendable {
                 self.onFailure?("Could not save the flag or rating — \(error)")
             }
             self.enqueueSidecar(
-                for: url, rating: rating, flag: Self.sidecarFlag(flag),
+                for: url, photoID: id, rating: rating, flag: Self.sidecarFlag(flag),
                 label: .some(label == .none ? nil : label.displayName.lowercased()),
                 recipe: nil)
         }
@@ -286,7 +391,7 @@ final class CatalogService: @unchecked Sendable {
                                     + "\(url.lastPathComponent) — \(error)")
                 }
             }
-            self.enqueueSidecar(for: url, rating: nil, label: nil,
+            self.enqueueSidecar(for: url, photoID: catalogID, rating: nil, label: nil,
                                 recipe: (json, fingerprint, recipe.pipelineVersion))
         }
     }
@@ -534,11 +639,13 @@ final class CatalogService: @unchecked Sendable {
     /// say about the label"; `.some(nil)` means "the label was cleared". Collapsing
     /// the two meant clearing a red label wrote the catalog but left the sidecar
     /// saying red — and the next scan's merge read the sidecar and put red back.
-    private func enqueueSidecar(for url: URL, rating: Int?, flag: SidecarFlag? = nil,
+    private func enqueueSidecar(for url: URL, photoID: Int64? = nil, rating: Int?,
+                                flag: SidecarFlag? = nil,
                                 label: String??,
                                 recipe: (json: String, fingerprint: String, version: Int)?) {
         sidecarLock.lock()
-        var content = pendingSidecars[url] ?? Self.readSidecar(for: url) ?? SidecarContent()
+        let queued = pendingSidecars[url]
+        var content = queued?.content ?? Self.readSidecar(for: url) ?? SidecarContent()
         if let rating { content.rating = rating }
         if let flag { content.flag = flag }
         if let label { content.label = label }
@@ -548,7 +655,7 @@ final class CatalogService: @unchecked Sendable {
             content.pipelineVersion = recipe.version
         }
         content.writeStamp = ISO8601DateFormatter().string(from: Date())
-        pendingSidecars[url] = content
+        pendingSidecars[url] = (photoID: photoID ?? queued?.photoID, content: content)
         let shouldSchedule = !sidecarFlushScheduled
         sidecarFlushScheduled = true
         sidecarLock.unlock()
@@ -566,7 +673,8 @@ final class CatalogService: @unchecked Sendable {
         sidecarFlushScheduled = false
         sidecarLock.unlock()
 
-        for (url, content) in batch {
+        for (url, entry) in batch {
+            let content = entry.content
             let path = Self.sidecarURL(for: url)
 
             // An existing sidecar is somebody else's document that Lumen is allowed to
@@ -597,11 +705,30 @@ final class CatalogService: @unchecked Sendable {
             do {
                 // Atomic: a sidecar half-written by a crash is worse than no sidecar.
                 try Data(text.utf8).write(to: path, options: .atomic)
+                // And record the mtime we just gave it. This is half of what makes
+                // §15.5 rule 1 answerable: without a stamp taken on OUR writes, the very
+                // next scan sees a file newer than nothing and has to guess. `photoID`
+                // is nil only for a queue entry that predates knowing the row — the
+                // stamp is then taken on the next read instead.
+                if let id = entry.photoID, let stamp = Self.modificationTime(of: path) {
+                    queue.async { [store] in
+                        try? store.setSidecarMTime(stamp, photoID: id)
+                    }
+                }
             } catch {
                 NSLog("Lumen: sidecar write failed for %@ — %@", path.lastPathComponent,
                       String(describing: error))
             }
         }
+    }
+
+    /// Whole seconds since the epoch, the denomination `photo.sidecar_mtime` and
+    /// `photo.file_mtime` are both stored in. Nil when the file is not there.
+    static func modificationTime(of url: URL) -> Int64? {
+        guard let attributes = try? FileManager.default
+            .attributesOfItem(atPath: url.path),
+              let date = attributes[.modificationDate] as? Date else { return nil }
+        return Int64(date.timeIntervalSince1970)
     }
 
     /// Where a photo's sidecar lives.

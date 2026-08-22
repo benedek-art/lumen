@@ -60,10 +60,44 @@ public struct SidecarContent: Equatable, Sendable {
 /// backup, comes back with its work attached.
 ///
 /// Separated from `CatalogService` — which owns the file read, the serial queue and the
-/// debounce — because the RULE is pure, and `LumenApp` has no test target. The rule is
-/// one sentence: the sidecar fills in where the catalog is silent, and never overwrites
-/// it. Catalog-wins is the right way round because the catalog is what the running app
-/// just edited, while the sidecar may be seconds stale behind the debounce.
+/// debounce — because the RULE is pure, and `LumenApp` has no test target.
+///
+/// The rule used to be one sentence: the sidecar fills in where the catalog is silent,
+/// and never overwrites it. That is docs/15 §15.5's rule 1, mistaken for the whole
+/// policy, and it is wrong in exactly one direction — the one that loses work. Edit a
+/// frame on a second Mac, or restore a sidecar from Time Machine, and the newer recipe
+/// was ignored because this machine's catalog held an older one; the next edit here then
+/// flushed the STALE recipe back over the sidecar. The one copy that exists to survive
+/// losing the catalog was overwritten by the catalog.
+///
+/// The three rules, evaluated against `photo.sidecar_mtime` — the sidecar's mtime as of
+/// our last write of it or our last read of it:
+///
+/// 1. Sidecar unchanged since we last touched it → catalog wins, filling in where it is
+///    silent. The normal case, and the right way round: the catalog is what the running
+///    app just edited, while the sidecar may be seconds stale behind its debounce.
+/// 2. Sidecar newer than our last write AND its recipe fingerprint differs → the sidecar
+///    wins. This is what makes restore-from-Time-Machine and edit-on-another-Mac work.
+/// 3. Both changed — the catalog has edits that have not reached the sidecar yet, and
+///    the sidecar moved underneath us → catalog wins, and the spec preserves the
+///    sidecar's state as a snapshot named "Imported from sidecar <date>".
+///
+/// **Rule 3's snapshot is NOT implemented, and this type says so rather than pretending
+/// otherwise.** Snapshots do not exist anywhere yet (LIB-06: `saveRecipe` only ever
+/// writes `kind = .working`), so the sidecar's divergent state is reported back in
+/// `Resolution.unpreservedSidecar` and nothing stores it. §15.5's "nothing is ever
+/// silently discarded" does not hold for that case today; what this type can guarantee
+/// is that the discard is not SILENT.
+///
+/// Two boundaries worth naming, because a value that crosses one without its unit is how
+/// this codebase has been bitten before:
+///
+///  - `sidecarMTime` on both sides is whole seconds since the epoch, the same
+///    denomination `photo.file_mtime` uses and the same one `FileManager` yields.
+///  - Both fingerprints are `RecipeFingerprint.fingerprint` — the RENDER IDENTITY digest.
+///    `edit.recipe_fp` is written from it and so is `lumen:recipeFingerprint`, so the
+///    comparison is like for like. A literal fingerprint would make a mask rename look
+///    like a different picture and hand rule 2 a conflict that is not one.
 public enum SidecarMerge {
 
     public struct State: Equatable, Sendable {
@@ -71,27 +105,112 @@ public enum SidecarMerge {
         public var flag: SidecarFlag
         public var label: String?
         public var recipe: Recipe?
+        /// `edit.recipe_fp` for `recipe`, when the caller already holds it. Left nil it
+        /// is computed from `recipe`, which costs a canonical encode — worth passing.
+        public var recipeFingerprint: String?
+        /// `photo.sidecar_mtime`: the sidecar's mtime as of our last write or read of
+        /// it. Nil means we have never recorded one, which is the ONLY honest answer to
+        /// "has it changed since?" — see `resolve`.
+        public var sidecarMTime: Int64?
+        /// The catalog holds edits that have not been flushed to the sidecar yet. Rule
+        /// 3's first half; the debounced writer knows it and nothing else does.
+        public var hasUnflushedEdits: Bool
 
         public init(rating: Int = 0, flag: SidecarFlag = .none,
-                    label: String? = nil, recipe: Recipe? = nil) {
+                    label: String? = nil, recipe: Recipe? = nil,
+                    recipeFingerprint: String? = nil, sidecarMTime: Int64? = nil,
+                    hasUnflushedEdits: Bool = false) {
             self.rating = rating
             self.flag = flag
             self.label = label
             self.recipe = recipe
+            self.recipeFingerprint = recipeFingerprint
+            self.sidecarMTime = sidecarMTime
+            self.hasUnflushedEdits = hasUnflushedEdits
         }
     }
 
-    /// `catalog` as stored, `sidecar` as read from disk (nil when there is no sidecar,
-    /// or it did not parse).
-    public static func resolve(catalog: State, sidecar: SidecarContent?) -> State {
-        var out = catalog
-        guard let sidecar else { return out }
+    /// Which of §15.5's rules fired. Returned rather than inferred so the caller can
+    /// persist a rule-2 recovery, log a rule-3 conflict, and so a test can pin WHICH
+    /// rule produced an answer instead of only the answer.
+    public enum Decision: String, Equatable, Sendable {
+        case noSidecar
+        case catalogWins
+        case sidecarWins
+        case conflictCatalogWins
+    }
 
-        if out.recipe == nil, let json = sidecar.recipeJSON {
-            // A sidecar whose recipe will not parse leaves the catalog's nil alone
-            // rather than becoming an empty recipe — "no edit recorded" and "edited
-            // back to default" are different states, and only one of them is a lie.
-            out.recipe = try? CanonicalJSON.decodeRecipe(from: Data(json.utf8))
+    public struct Resolution: Equatable, Sendable {
+        public var state: State
+        public var decision: Decision
+        /// Under rule 3 the spec keeps the sidecar as a snapshot. There is no snapshot
+        /// machinery, so this is what was NOT kept — non-nil exactly when
+        /// `decision == .conflictCatalogWins`.
+        public var unpreservedSidecar: SidecarContent?
+
+        public init(state: State, decision: Decision,
+                    unpreservedSidecar: SidecarContent? = nil) {
+            self.state = state
+            self.decision = decision
+            self.unpreservedSidecar = unpreservedSidecar
+        }
+    }
+
+    /// `catalog` as stored, `sidecar` as read from disk (nil when there is no sidecar or
+    /// it did not parse), `sidecarMTime` the mtime of that file RIGHT NOW.
+    public static func resolve(catalog: State, sidecar: SidecarContent?,
+                               sidecarMTime: Int64? = nil) -> Resolution {
+        guard let sidecar else {
+            return Resolution(state: catalog, decision: .noSidecar)
+        }
+
+        // The sidecar's own recipe, decoded once. A sidecar whose recipe will not parse
+        // leaves the catalog's alone rather than becoming an empty recipe — "no edit
+        // recorded" and "edited back to default" are different states, and only one of
+        // them is a lie about the photographer's work. It also means an unparseable
+        // sidecar can never trigger rule 2, which would otherwise replace a real recipe
+        // with nothing.
+        let incoming: Recipe? = sidecar.recipeJSON.flatMap {
+            try? CanonicalJSON.decodeRecipe(from: Data($0.utf8))
+        }
+
+        // "Newer than our last write" needs a last write to compare against. With no
+        // recorded stamp there is no evidence the sidecar moved, and acting on no
+        // evidence is how a stale sidecar would overwrite a fresh catalog — the mirror
+        // image of the bug being fixed. No stamp means rule 1.
+        let moved: Bool = {
+            guard let last = catalog.sidecarMTime, let now = sidecarMTime else {
+                return false
+            }
+            return now > last
+        }()
+
+        if moved, recipeDiffers(catalog: catalog, incoming: incoming, sidecar: sidecar) {
+            if catalog.hasUnflushedEdits {
+                return Resolution(state: fillingIn(catalog, from: sidecar,
+                                                   incoming: incoming),
+                                  decision: .conflictCatalogWins,
+                                  unpreservedSidecar: sidecar)
+            }
+            return Resolution(state: taking(sidecar, over: catalog, incoming: incoming),
+                              decision: .sidecarWins)
+        }
+
+        return Resolution(state: fillingIn(catalog, from: sidecar, incoming: incoming),
+                          decision: .catalogWins)
+    }
+
+    // MARK: - The rules, one function each
+
+    /// Rules 1 and 3: the catalog wins, and the sidecar fills in where it is silent.
+    /// Filling in is not overwriting — it is the union, and it is what brings a photo
+    /// that arrived from another machine in with its work attached.
+    private static func fillingIn(_ catalog: State, from sidecar: SidecarContent,
+                                  incoming: Recipe?) -> State {
+        var out = catalog
+        if out.recipe == nil, let incoming {
+            out.recipe = incoming
+            out.recipeFingerprint = sidecar.recipeFingerprint
         }
         if out.rating == 0, sidecar.rating > 0 { out.rating = sidecar.rating }
         if out.flag == .none { out.flag = sidecar.flag }
@@ -100,6 +219,48 @@ public enum SidecarMerge {
             out.label = name
         }
         return out
+    }
+
+    /// Rule 2: the sidecar wins — for every field it actually STATES.
+    ///
+    /// That qualifier is not a weakening of the rule, it is the format being honest
+    /// about itself: `xmp:Rating` absent and `xmp:Rating = 0` are the same bytes, and so
+    /// are a missing `lumen:flag` and `none`. Letting silence win would delete a four-
+    /// star rating because the other machine's sidecar never carried one, which is the
+    /// same class of loss this whole rule exists to stop.
+    private static func taking(_ sidecar: SidecarContent, over catalog: State,
+                               incoming: Recipe?) -> State {
+        var out = catalog
+        if let incoming {
+            out.recipe = incoming
+            out.recipeFingerprint = sidecar.recipeFingerprint
+        }
+        if sidecar.rating > 0 { out.rating = sidecar.rating }
+        if sidecar.flag != .none { out.flag = sidecar.flag }
+        if let name = sidecar.label, !name.isEmpty { out.label = name }
+        return out
+    }
+
+    /// Rule 2's second condition. True only when the sidecar states a recipe that
+    /// PARSED and whose render identity is not the one the catalog holds.
+    ///
+    /// A sidecar with no recipe at all cannot satisfy this, so a sidecar that merely got
+    /// its mtime bumped — touched, re-synced, rewritten by another tool that left the
+    /// lumen: namespace alone — never takes anything from the catalog.
+    private static func recipeDiffers(catalog: State, incoming: Recipe?,
+                                      sidecar: SidecarContent) -> Bool {
+        guard let incoming else { return false }
+        guard let catalogRecipe = catalog.recipe else { return true }
+        let theirs = sidecar.recipeFingerprint
+            ?? (try? RecipeFingerprint.fingerprint(incoming))
+        let ours = catalog.recipeFingerprint
+            ?? (try? RecipeFingerprint.fingerprint(catalogRecipe))
+        guard let theirs, let ours else {
+            // No fingerprint to compare on either side: fall back to the recipes
+            // themselves rather than guessing that they differ.
+            return !catalogRecipe.rendersSameAs(incoming)
+        }
+        return theirs != ours
     }
 }
 

@@ -494,6 +494,19 @@ background queue.
    but the sidecar's state is preserved as a snapshot named "Imported from sidecar &lt;date&gt;".
    Nothing is ever silently discarded.
 
+**Implementation status.** Rules 1 and 2 are implemented in `SidecarMerge.resolve` and tested;
+`photo.sidecar_mtime` is written on both sides of the exchange (after each sidecar flush, and
+after each scan-time read), which is what makes "unchanged since we last touched it" answerable
+at all. **Rule 3's snapshot is NOT implemented**, because snapshots do not exist anywhere yet —
+`saveRecipe` only ever writes `kind = 'working'`. On a rule-3 conflict the catalog wins as
+specified and the sidecar's divergent recipe is handed back to the caller in
+`Resolution.unpreservedSidecar`, which the app logs by name. So the sentence above is currently
+**"the discard is not silent"**, not "nothing is discarded", and it becomes true when versions
+ship. Two narrower limits fall out of taking §15.5 literally, and both are deliberate: rule 2
+fires on a differing recipe fingerprint, so a sidecar carrying only a changed rating does not take
+one; and under rule 2 the sidecar wins for every field it *states*, because `xmp:Rating` absent
+and `xmp:Rating = 0` are the same bytes and silence must not be able to delete a rating.
+
 **Portability — the Capture One idea, absorbed.** C1 sessions prove that "the folder is the
 project" is the right transport: copy the session folder anywhere and everything travels. C1 makes
 you *choose* sessions or catalog up front, and its session state lives partly in a proprietary

@@ -81,6 +81,12 @@ public enum XXH64 {
         String(format: "%016llx", hash(string, seed: seed))
     }
 
+    /// The same wire form over raw bytes, for the digests whose input is not text —
+    /// `quick_sig` hashes the head of a RAW file, not a string.
+    public static func hexDigest(_ data: [UInt8], seed: UInt64 = 0) -> String {
+        String(format: "%016llx", hash(data, seed: seed))
+    }
+
     // MARK: - internals
 
     private static func rotl(_ x: UInt64, _ r: UInt64) -> UInt64 {

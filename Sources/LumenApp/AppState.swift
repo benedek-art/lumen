@@ -1455,13 +1455,13 @@ final class AppState: ObservableObject {
             // all of it was reading NULL. Fire-and-forget on the catalog's own serial
             // queue: it is an enrichment, it resumes by itself next launch, and nothing
             // on screen waits for it.
-            catalog?.backfillMetadata(folder: url) { done, total in
+            catalog?.backfillMetadata(folder: url) { _, finished in
                 // The default sort is capture time and the grid is already up, ordered
                 // on rows whose `capture_at` is still NULL. Re-asking when the last
                 // batch lands is what turns the EXIF pass into something the user can
                 // see; without it the frames only fall into shooting order on the next
                 // launch, which reads as the sort having ignored them.
-                guard done >= total else { return }
+                guard finished else { return }
                 Task { @MainActor [weak self] in
                     guard let self, self.folderURL == url else { return }
                     self.refreshLibraryQuery()
