@@ -407,57 +407,92 @@ struct LookPanel: View {
                                onReset: { state.updateRecipe { $0.look.render = RenderParams() } })
 
             if transformExpanded {
-                pickerRow("Preset") {
-                    Picker("", selection: presetBinding) {
-                        ForEach(DisplayTransformParams.presetNames, id: \.self) { name in
-                            Text(name).tag(name)
-                        }
+                if transformIsInert {
+                    caption("A film stock is loaded, and a stock REPLACES this stage "
+                            + "rather than sitting on top of it. The chain blends "
+                            + "against its own neutral rendition, not against the "
+                            + "preset below — so nothing here moves a pixel at ANY "
+                            + "Strength, and dragging Strength up from zero swaps the "
+                            + "whole rendition rather than fading into this one. Set "
+                            + "the stock to None to use these.")
+                }
+                // Disabled rather than hidden. The values are still the recipe's, they
+                // still travel in the sidecar, and they will render the moment the
+                // stock is removed — but a control the user can drag while it cannot
+                // reach a pixel is the defect this section shipped with, and the
+                // caption above only helps if the sliders stop pretending.
+                transformControls(base: base, overridden: overridden)
+                    .disabled(transformIsInert)
+                    .opacity(transformIsInert ? 0.45 : 1)
+            }
+        }
+    }
+
+    /// True when `RenderPlan` will build a `FilmChain` — the exact condition under
+    /// which its display closure bypasses `transform` entirely.
+    ///
+    /// Same three terms as `RenderPlan.init`: a film block, a positive Strength, and a
+    /// stock this build actually ships. A recipe naming a stock we do not have falls
+    /// back to the neutral transform, and at that point these controls are live again.
+    private var transformIsInert: Bool {
+        guard let film = state.currentRecipe.look.filmLab else { return false }
+        return film.amount > 0 && FilmStock.named(film.stock) != nil
+    }
+
+    @ViewBuilder
+    private func transformControls(base: DisplayTransformParams,
+                                   overridden: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            pickerRow("Preset") {
+                Picker("", selection: presetBinding) {
+                    ForEach(DisplayTransformParams.presetNames, id: \.self) { name in
+                        Text(name).tag(name)
                     }
                 }
+            }
 
-                LumenSectionHeader(title: "Transform detail",
-                                   isExpanded: $transformAdvanced,
-                                   isModified: overridden,
-                                   onReset: { clearTransformOverrides() })
+            LumenSectionHeader(title: "Transform detail",
+                               isExpanded: $transformAdvanced,
+                               isModified: overridden,
+                               onReset: { clearTransformOverrides() })
 
-                if transformAdvanced {
-                    LumenSlider(title: "Contrast",
-                                value: renderBinding("render.contrast",
-                                                     get: { $0.contrast },
-                                                     fallback: base.contrast,
-                                                     set: { $0.contrast = $1 }),
-                                range: 0.1...10, defaultValue: base.contrast,
-                                step: 0.05, decimals: 2, bipolar: false,
-                                onReset: { clearTransformOverride(\.contrast) })
-                    LumenSlider(title: "Skew",
-                                value: renderBinding("render.skew",
-                                                     get: { $0.skew },
-                                                     fallback: base.skew,
-                                                     set: { $0.skew = $1 }),
-                                range: -1...1, defaultValue: base.skew,
-                                step: 0.01, decimals: 2,
-                                onReset: { clearTransformOverride(\.skew) })
-                    LumenSlider(title: "Hue keep",
-                                value: renderBinding("render.hue",
-                                                     get: { $0.huePreservation },
-                                                     fallback: base.huePreservation,
-                                                     set: { $0.huePreservation = $1 }),
-                                range: 0...100, defaultValue: base.huePreservation,
-                                step: 1, decimals: 0, bipolar: false,
-                                onReset: { clearTransformOverride(\.huePreservation) })
-                    LumenSlider(title: "Black target",
-                                value: renderBinding("render.black",
-                                                     get: { $0.blackTarget },
-                                                     fallback: base.blackTarget,
-                                                     set: { $0.blackTarget = $1 }),
-                                range: 0...15, defaultValue: base.blackTarget,
-                                step: 0.01, decimals: 2, bipolar: false,
-                                onReset: { clearTransformOverride(\.blackTarget) })
+            if transformAdvanced {
+                LumenSlider(title: "Contrast",
+                            value: renderBinding("render.contrast",
+                                                 get: { $0.contrast },
+                                                 fallback: base.contrast,
+                                                 set: { $0.contrast = $1 }),
+                            range: 0.1...10, defaultValue: base.contrast,
+                            step: 0.05, decimals: 2, bipolar: false,
+                            onReset: { clearTransformOverride(\.contrast) })
+                LumenSlider(title: "Skew",
+                            value: renderBinding("render.skew",
+                                                 get: { $0.skew },
+                                                 fallback: base.skew,
+                                                 set: { $0.skew = $1 }),
+                            range: -1...1, defaultValue: base.skew,
+                            step: 0.01, decimals: 2,
+                            onReset: { clearTransformOverride(\.skew) })
+                LumenSlider(title: "Hue keep",
+                            value: renderBinding("render.hue",
+                                                 get: { $0.huePreservation },
+                                                 fallback: base.huePreservation,
+                                                 set: { $0.huePreservation = $1 }),
+                            range: 0...100, defaultValue: base.huePreservation,
+                            step: 1, decimals: 0, bipolar: false,
+                            onReset: { clearTransformOverride(\.huePreservation) })
+                LumenSlider(title: "Black target",
+                            value: renderBinding("render.black",
+                                                 get: { $0.blackTarget },
+                                                 fallback: base.blackTarget,
+                                                 set: { $0.blackTarget = $1 }),
+                            range: 0...15, defaultValue: base.blackTarget,
+                            step: 0.01, decimals: 2, bipolar: false,
+                            onReset: { clearTransformOverride(\.blackTarget) })
 
-                    caption("Untouched, these follow the preset — so a retuned preset "
-                            + "reaches every recipe that only said its name. Move one "
-                            + "and it pins itself to this image forever.")
-                }
+                caption("Untouched, these follow the preset — so a retuned preset "
+                        + "reaches every recipe that only said its name. Move one "
+                        + "and it pins itself to this image forever.")
             }
         }
     }
@@ -572,7 +607,10 @@ struct LookPanel: View {
                     }
 
                     if let stock {
-                        caption(LookPanel.stockCaption(stock))
+                        caption(LookPanel.stockCaption(stock)
+                                    + " While it is loaded the Display Transform "
+                                    + "section above moves nothing: a stock replaces "
+                                    + "that stage, at every Strength.")
                     } else {
                         caption("\u{201C}\(film.stock)\u{201D} is not a stock this build "
                                 + "ships — the render falls back to the neutral "
@@ -582,7 +620,8 @@ struct LookPanel: View {
                     caption("A stock replaces the display transform rather than stacking "
                             + "on top of it — one picture-formation stage, parameterized. "
                             + "Exposure moves stay film-like because the curve lives in "
-                            + "log-exposure.")
+                            + "log-exposure. Loading one therefore makes the Display "
+                            + "Transform section inert.")
                 }
             }
         }
