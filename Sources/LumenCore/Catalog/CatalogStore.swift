@@ -2412,6 +2412,90 @@ public final class CatalogStore {
         try db.run("DELETE FROM cache.artifact WHERE id = ?;", [.integer(id)])
     }
 
+    // MARK: - Raw-truth statistics (`cache.raw_stats`)
+
+    /// The cull-time scene-linear statistics, cached so a second look at a photograph
+    /// does not pay for a second decode.
+    ///
+    /// The table has existed since the first schema and nothing wrote to it, which is
+    /// why `RawStatistics` had two round-trip tests and no product behind them. These
+    /// four calls are the writer, the reader, the staleness rule and the backlog query.
+    ///
+    /// The row is disposable by construction (`cache.db`, D52), so every failure mode
+    /// here resolves to "recompute": a blob that does not decode, an analyzer revision
+    /// this build does not recognise, or a provenance that is not the one being asked
+    /// for all read as absent rather than as an error.
+    @discardableResult
+    public func recordRawStatistics(_ stats: RawStatistics, photoID: Int64,
+                                    at now: Int64 = CatalogStore.now()) throws -> Bool {
+        // A measurement that cannot say what it measured is not cached. Storing it
+        // would put a row in front of the panel that has to be captioned "this is not
+        // evidence of anything", and a cache whose job is to avoid recomputation must
+        // not be the reason a wrong caption survives.
+        guard stats.provenance != .unspecified else { return false }
+        try db.run("""
+        INSERT INTO cache.raw_stats (photo_id, bins, clipped_pct, analyzer_rev, computed_at)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(photo_id) DO UPDATE SET
+          bins         = excluded.bins,
+          clipped_pct  = excluded.clipped_pct,
+          analyzer_rev = excluded.analyzer_rev,
+          computed_at  = excluded.computed_at;
+        """, [.integer(photoID), .blob(stats.encoded()),
+              .text(stats.clippedPercentJSON),
+              .int(Int(stats.analyzerRevision)), .integer(now)])
+        return true
+    }
+
+    /// The cached measurement, or nil when there is none this build can use.
+    ///
+    /// `revision` and `provenance` are both required rather than optional filters,
+    /// because both are ways the same photograph's row can be stale in a way no
+    /// exception would announce: a binning change makes the bins mean something else,
+    /// and a row measured on the decoded frame is not an answer to a caller asking for
+    /// the sensor's mosaic. Reading either as a hit is how a cache starts lying.
+    public func rawStatistics(photoID: Int64,
+                              revision: UInt16 = RawStatistics.currentAnalyzerRevision,
+                              provenance: RawStatistics.Provenance) throws -> RawStatistics? {
+        let blob: Data? = try firstRow(
+            "SELECT bins FROM cache.raw_stats WHERE photo_id = ? AND analyzer_rev = ?;",
+            [.integer(photoID), .int(Int(revision))]) { $0.data(0) ?? Data() }
+        guard let blob, let decoded = RawStatistics.decode(blob) else { return nil }
+        guard decoded.analyzerRevision == revision else { return nil }
+        guard decoded.provenance == provenance else { return nil }
+        return decoded
+    }
+
+    /// The `clipped_pct` JSON as stored, for a caller that wants the numbers without
+    /// paying to decode 2 KB of bins — the grid badge, not the panel.
+    public func rawStatisticsClippedJSON(photoID: Int64) throws -> String? {
+        let text: String? = try firstRow(
+            "SELECT clipped_pct FROM cache.raw_stats WHERE photo_id = ?;",
+            [.integer(photoID)]) { $0.string(0) ?? "" }
+        guard let text, !text.isEmpty else { return nil }
+        return text
+    }
+
+    /// Photographs in a folder with no usable row, oldest id first — the background
+    /// worker's queue. A row at the wrong revision counts as missing, which is what
+    /// makes a revision bump a recompute rather than a permanent wrong answer.
+    public func photosMissingRawStatistics(
+        folderID: Int64,
+        revision: UInt16 = RawStatistics.currentAnalyzerRevision,
+        afterID: Int64 = 0,
+        limit: Int = 500) throws -> [Int64] {
+        try allRows("""
+        SELECT photo.id FROM photo
+        LEFT JOIN cache.raw_stats AS rs
+               ON rs.photo_id = photo.id AND rs.analyzer_rev = ?
+        WHERE photo.folder_id = ? AND photo.id > ? AND photo.missing = 0
+          AND rs.photo_id IS NULL
+        ORDER BY photo.id
+        LIMIT ?;
+        """, [.int(Int(revision)), .integer(folderID), .integer(afterID),
+              .int(Swift.max(0, limit))]) { $0.int(0) }
+    }
+
     // MARK: - Filter / sort query builder
 
     /// Builds and runs the grid query. Every value is a bound parameter; the only
