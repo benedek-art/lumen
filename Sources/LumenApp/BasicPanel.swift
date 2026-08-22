@@ -302,10 +302,19 @@ struct BasicPanel: View {
                 // guided filters every frame and `makeGraph` rebuilds the graph per
                 // render. A panel note is a promise to the person reading it, and that
                 // one was describing an optimisation nobody had written.
+                // "neither can halo" was the second false promise in this one note.
+                // The halo-free property belongs to the local Laplacian, which runs in
+                // `ReferenceRenderer` and renders no pixel anybody sees; the GPU ships a
+                // single guided band, and beside a clean 3 EV step it rims — Clarity by
+                // 0.127 EV at +100 against the Laplacian's 0.0049, positive Texture by
+                // 0.267 EV. Saying so costs nothing and claiming otherwise cost the
+                // reader their trust in every other note on the panel.
                 DevelopNote("Texture and Clarity work on different scales of the same "
-                            + "frame and neither can halo. Dehaze is a transmission "
-                            + "estimate, so it lifts contrast where the air is, not "
-                            + "everywhere.")
+                            + "frame. Pushed hard they can rim a clean edge — Clarity "
+                            + "most, past about +50 — because the shipping path uses a "
+                            + "guided band rather than the halo-free decomposition the "
+                            + "engine also carries. Dehaze is a transmission estimate, "
+                            + "so it lifts contrast where the air is, not everywhere.")
             }
         }
     }
