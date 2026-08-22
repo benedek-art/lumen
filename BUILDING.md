@@ -568,7 +568,7 @@ changed the picture.
   sensor-raw here.** `⇧H` measures the decoded frame: `AppleRawSource.decode` is
   `CIRAWFilter` with Apple's tone curve, shadow boost, local tone mapping, gamut mapping
   and contrast all off and extended range kept, and
-  `PipelineRenderer.sceneLinearStatistics` bins that output before any Lumen stage and
+  `PipelineRenderer.clippingStatistics` bins that output before any Lumen stage and
   before the display transform. That is scene-referred and carries the headroom above
   display white — the property the develop histogram lacks and the reason this instrument
   is worth having — and it is **post-demosaic**. docs/10 §10.5 specifies undemosaiced CFA
