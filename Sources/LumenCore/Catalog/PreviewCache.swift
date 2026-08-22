@@ -245,6 +245,33 @@ public enum PreviewCache {
         return parts.dropLast().joined(separator: "/")
     }
 
+    // MARK: - Back pressure on the encode queue
+
+    /// The ceiling on pixels waiting to be encoded.
+    ///
+    /// The decode pool is eight wide and the encode that follows it is one queue. If the
+    /// encode falls behind — and at the `fit` rung it will, because one image there is
+    /// about 26 MB of bitmap — every waiting write holds its decoded image alive. An
+    /// unbounded queue is not a slow cache, it is an out-of-memory crash during the one
+    /// operation this whole feature exists to make fast: the first pass over a card.
+    ///
+    /// 128 MB is a quarter of the memory LRU's own budget, so the two together stay
+    /// inside an appetite this app already has.
+    public static let pendingWriteBudgetBytes = 128 * 1024 * 1024
+
+    /// Whether one more decoded image may join the encode queue.
+    ///
+    /// Refusing costs exactly one preview not filed — which is what every preview did
+    /// before this cache existed — and it is recovered the next time that photo is
+    /// decoded. An empty queue always admits, whatever the image weighs: a single frame
+    /// bigger than the whole budget must still be cacheable, or a large-sensor body
+    /// would silently never cache anything.
+    public static func admitsWrite(pendingBytes: Int, imageBytes: Int,
+                                   budget: Int = pendingWriteBudgetBytes) -> Bool {
+        if pendingBytes <= 0 { return true }
+        return pendingBytes + imageBytes <= budget
+    }
+
     // MARK: - Budget
 
     public static let minimumBudgetBytes: Int64 = 10 * 1_000_000_000

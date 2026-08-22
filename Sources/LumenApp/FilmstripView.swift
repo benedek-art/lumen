@@ -36,8 +36,8 @@ struct FilmstripView: View {
     /// The strip is on screen in every view mode, so which levels its ring warms is a
     /// fact about the view above it. Under the loupe the strip IS the paging surface
     /// and has to warm the viewer's level as well as its own; in the grid it is a
-    /// second row of thumbnails, and warming 2048s there would compete with the contact
-    /// sheet's own scroll for the same eight decode workers.
+    /// second row of thumbnails, and warming the viewer's rung there would compete with
+    /// the contact sheet's own scroll for the same eight decode workers.
     private var stripSurface: PagingSurface {
         state.viewMode == .loupe ? .filmstrip : .grid
     }

@@ -68,6 +68,8 @@ final class PreviewStore: @unchecked Sendable {
 
     private let lock = NSLock()
     private var photoIDs: [URL: Int64] = [:]
+    /// Bitmap bytes handed to `writes` and not yet encoded. Guarded by `lock`.
+    private var pendingWriteBytes: Int = 0
 
     init(catalog: CatalogService, directory: URL) {
         self.catalog = catalog
@@ -179,9 +181,27 @@ final class PreviewStore: @unchecked Sendable {
     // MARK: - Recording
 
     /// File a finished decode. Returns immediately; the encode happens on `writes`.
+    ///
+    /// Under back pressure, because the queue in front of the encode is the one place
+    /// this design can run away: eight decode workers can hand images to one encoder
+    /// faster than it takes them, and each waiting image stays in memory until it is
+    /// written. `PreviewCache.admitsWrite` is the rule, and a refusal costs one preview
+    /// not filed rather than a card import that runs out of memory.
     func record(_ plan: Plan, image: CGImage, source: PreviewSource = .embedded) {
+        let bytes = max(image.bytesPerRow * image.height, 1)
+        lock.lock()
+        let admitted = PreviewCache.admitsWrite(pendingBytes: pendingWriteBytes,
+                                                imageBytes: bytes)
+        if admitted { pendingWriteBytes += bytes }
+        lock.unlock()
+        guard admitted else { return }
+
         writes.async { [weak self] in
-            self?.persist(plan, image: image, source: source)
+            guard let self else { return }
+            self.persist(plan, image: image, source: source)
+            self.lock.lock()
+            self.pendingWriteBytes = max(0, self.pendingWriteBytes - bytes)
+            self.lock.unlock()
         }
     }
 

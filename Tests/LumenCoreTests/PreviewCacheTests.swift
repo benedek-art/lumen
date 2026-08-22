@@ -317,6 +317,29 @@ final class PreviewCachePolicyTests: XCTestCase {
             .hasSuffix(".jpg"))
     }
 
+    // MARK: - Back pressure on the encode queue
+
+    func testAnEmptyEncodeQueueAdmitsAFrameHoweverLarge() {
+        // A body whose one frame weighs more than the whole budget must still be
+        // cacheable, or the cache would be silently empty for exactly the cameras whose
+        // files cost the most to decode.
+        XCTAssertTrue(PreviewCache.admitsWrite(pendingBytes: 0,
+                                               imageBytes: 4 * PreviewCache.pendingWriteBudgetBytes))
+    }
+
+    func testTheEncodeQueueRefusesWhatWouldPushItOverBudget() {
+        // Eight decode workers in front of one encoder: without this the queue grows
+        // without limit and every waiting image stays in memory, which turns the first
+        // pass over a card — the operation this cache exists for — into a crash.
+        let budget = 1_000
+        XCTAssertTrue(PreviewCache.admitsWrite(pendingBytes: 400, imageBytes: 600,
+                                               budget: budget))
+        XCTAssertFalse(PreviewCache.admitsWrite(pendingBytes: 400, imageBytes: 601,
+                                                budget: budget))
+        XCTAssertFalse(PreviewCache.admitsWrite(pendingBytes: budget, imageBytes: 1,
+                                                budget: budget))
+    }
+
     // MARK: - Budget
 
     func testTheBudgetIsAFifthOfFreeSpaceInsideTheDocumentedClamp() {
