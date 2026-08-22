@@ -48,3 +48,62 @@ recipes. The second is fewer edits and catches the thing itself rather than its 
 fail, hiding inside the checks. The audit spent a day finding that shape in the product;
 it lives in the test suite too, and the only reason it surfaced is that an agent was
 required to watch its own new test go red before believing it.
+
+---
+
+**CAT-01 — `SQLITE_OPEN_CREATE` makes "is this file a healthy catalog?" answerable YES for
+a file that does not exist.** BROKEN (found and fixed in the same pass).
+
+Found by the library/output agent re-reading its own diff for LIB-04, not by a failing
+test.
+
+`SQLiteDatabase.init` opens with `SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE`. So probing
+a path that is not there does not fail — it creates an empty database, and an empty
+database passes `PRAGMA quick_check` perfectly. The new open-time restore lists the backup
+directory and then probes each name in turn, so a backup removed between the listing and
+the probe would have been *recreated empty*, passed, and restored over a catalog that was
+only damaged. Guarded with one `fileExists` in `CatalogStore.probeQuickCheck`, and pinned
+by two assertions in `testAFirstRunHasNothingToCheckAndSaysSo` — the second of which
+asserts the probe left no file behind, because without the guard it does.
+
+**The general shape, which is what makes it worth recording.** Any predicate of the form
+"can this file be used" that reaches SQLite through this `init` inherits a *creation* side
+effect. Every present and future caller of `SQLiteDatabase(path:)` that is asking a
+question rather than opening a store has the same hazard. The narrower fix would be an
+open flag; the reason it was not taken here is that no existing caller wants read-only
+semantics, and adding a parameter used by one call site is a worse trade than one guard
+at the call site that needs it. If a second such probe appears, that trade flips.
+
+---
+
+**DOC-01 — BUILDING.md understates the library, in the direction nobody checks.** FAKE
+(inverted: a limitation that has been lifted and is still listed).
+
+Found while fixing LIB-10, which only bites if the SQL query path is live.
+
+The known-limitations list says "`PhotoQuery`, the FTS index and the fourteen chip indices
+are built and unused, because `FilterBar` filters in memory". `AppState.swift:1034` calls
+`catalog.photos(matching:)` and `FilterBar` branches on `isLibraryQueryLive` in four
+places, so the SQL path ships. Not fixed here because it belongs with whoever owns the
+library-query work and can say what else moved with it.
+
+Worth its own entry because every other finding in this pass runs the other way — a claim
+that overstates what ships. **A stale limitation is the same defect with the sign flipped,
+and it is harder to catch**: nobody re-reads a list of things that do not work looking for
+one that now does, and the cost is a future agent budgeting to build something twice.
+
+---
+
+**TEST-02 — `PhotoMetadata.parseEXIFDate` and `parseEXIFOffset` have no tests of any
+kind.** UNPROVEN.
+
+Found while adding `parseEXIFSubsec` between them for LIB-26b.
+
+All three are pure, `public static`, in LumenCore, and run on Linux — the file's own
+header says the reason they live there is that `CaptureMetadataReader` "would need a file
+to exercise". Two of the three have never been exercised at all. `parseEXIFDate` carries
+the whole capture-time sort: it hand-parses `2026:08:20 14:55:35`, pins the calendar to
+UTC, applies the camera's stated offset, and range-checks six fields — including a leap
+second at `(0...61)`. A sign error on the offset moves every photo from a trip by hours
+and the library sorts confidently wrong. Cheap to close: a dozen assertions, no fixtures,
+no platform.
