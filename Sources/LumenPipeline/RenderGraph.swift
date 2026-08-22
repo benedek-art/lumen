@@ -989,15 +989,21 @@ public struct RenderGraph {
         return out
     }
 
-    /// Gaussian blur that keeps the extent it was given.
+    /// Gaussian blur that keeps the extent it was given — THE one Gaussian in this
+    /// file. Every stage that needs one calls this rather than building its own
+    /// `CIFilter`, and that rule is not stylistic: the correction below landed here and
+    /// missed `applyHalation`, which had kept a private copy of the filter, so for a
+    /// whole round the sharpen stage blurred at sigma and the halation stage at three
+    /// times it out of one profile in one file.
     ///
-    /// `CIGaussianBlur.radius` is a SUPPORT radius, not a standard deviation — the
-    /// halation stage in this same file says exactly that and multiplies by three. This
-    /// passed sigma straight through, so every blur here was about a third of the width
-    /// it was asked for, and across the sharpen radius range (0.5…3.0) that put the
-    /// support at 0.17…1.0 px, at or below where the filter stops doing anything. The
-    /// stage rendered no change, and the `guard let … else { unsharp mask }` fallback
-    /// could not catch it because every kernel compiled fine.
+    /// `CIGaussianBlur.radius` was believed to be a SUPPORT radius rather than a
+    /// standard deviation — the halation stage in this same file said exactly that and
+    /// multiplied by three. Under that belief passing sigma straight through made every
+    /// blur here about a third of the width it was asked for, and across the sharpen
+    /// radius range (0.5…3.0) that put the support at 0.17…1.0 px, at or below where
+    /// the filter stops doing anything. The stage rendered no change, and the
+    /// `guard let … else { unsharp mask }` fallback could not catch it because every
+    /// kernel compiled fine.
     static func gaussianBlur(_ image: CIImage, sigma: Double) -> CIImage? {
         guard sigma > 0 else { return image }
         let filter = CIFilter.gaussianBlur()
@@ -1168,13 +1174,19 @@ public struct RenderGraph {
         // the film base is not a single-scale scatterer.
         var glow: CIImage?
         var weight = 1.0
-        for sigma in profile.sigmasInPixels {
-            let blur = CIFilter.gaussianBlur()
-            blur.inputImage = energy.clampedToExtent()
-            // The profile carries standard deviations; CIGaussianBlur wants a support
-            // radius. Three sigmas covers ~99.7% of the kernel.
-            blur.radius = Float(Swift.max(sigma * 3, 0.5))
-            guard let blurred = blur.outputImage?.cropped(to: image.extent) else { continue }
+        for sigma in profile.sigmasInPixels where sigma > 0 {
+            // Through the shared helper, which is the whole point of the fix recorded
+            // in `gaussianBlur`'s own header: `CIGaussianBlur.radius` IS the standard
+            // deviation, measured on the runner. This stage kept its own copy of the
+            // filter with the old `sigma * 3` in it, so the correction landed
+            // everywhere the helper is called and nowhere here — the glow rendered
+            // three times wider than the 65 µm the profile derives, on every preview
+            // and every export, while `ReferenceRenderer.applyHalation` rendered it at
+            // one. The comment claiming halation had been fixed named this stage.
+            //
+            // The `where sigma > 0` matches the reference's loop: a profile with a
+            // degenerate radius contributes nothing rather than a delta.
+            guard let blurred = Self.gaussianBlur(energy, sigma: sigma) else { continue }
             let scaled = Self.applyMatrix(blurred, Mat3.diagonal(RGB(gray: weight)))
             if let existing = glow {
                 glow = KernelLibrary.apply(KernelLibrary.addGlow, extent: image.extent,
