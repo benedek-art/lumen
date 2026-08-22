@@ -46,26 +46,25 @@ final class CompareSync: ObservableObject {
     @Published var center: CGPoint = CGPoint(x: 0.5, y: 0.5)
 
     func fit() {
-        zoom = 0
+        zoom = ZoomLadder.fit
         center = CGPoint(x: 0.5, y: 0.5)
     }
 
     func setZoom(_ ratio: Double, at unitPoint: CGPoint?) {
-        let clamped: Double = ratio.isFinite ? Swift.max(0, Swift.min(ratio, 16)) : 0
+        let clamped: Double = ZoomLadder.clamp(ratio)
         zoom = clamped
-        if clamped <= 0 {
+        if ZoomLadder.isFit(clamped) {
             center = CGPoint(x: 0.5, y: 0.5)
         } else if let unitPoint {
             center = unitPoint
         }
     }
 
+    /// The same rung the loupe's Space and Z land on, from the same function. A third
+    /// implementation of "fit ↔ 1:1" is a third chance for the panes and the viewer to
+    /// disagree about where a key lands.
     func toggleZoom(at unitPoint: CGPoint?) {
-        if zoom > 0 {
-            fit()
-        } else {
-            setZoom(1, at: unitPoint)
-        }
+        setZoom(ZoomLadder.toggleTarget(from: zoom), at: unitPoint)
     }
 }
 
@@ -99,19 +98,10 @@ struct CompareView: View {
         .background(Lumen.viewerBackground)
     }
 
-    /// What is being compared. A real multi-selection is the answer; with one photo
-    /// selected the obvious second frame is its neighbour, which is what "compare this
-    /// to the next one" means during a cull.
-    private var comparisonSet: [PhotoItem] {
-        let selected = state.selectedPhotos
-        if selected.count >= 2 { return selected }
-        guard let primary = state.primarySelection else { return selected }
-        let all = state.photos
-        if let index = all.firstIndex(of: primary), index + 1 < all.count {
-            return [primary, all[index + 1]]
-        }
-        return [primary]
-    }
+    /// What is being compared. The rule lives on `AppState` because the arrow keys move
+    /// the cursor INSIDE this set and must be looking at the same set the panes draw;
+    /// a copy here is how the key and the view come to disagree.
+    private var comparisonSet: [PhotoItem] { state.comparisonSet }
 
     private var empty: some View {
         VStack(spacing: 8) {
@@ -127,14 +117,26 @@ struct CompareView: View {
     // MARK: 2-up
 
     private var twoUp: some View {
-        let pair = Array(comparisonSet.prefix(2))
+        // The window follows the cursor rather than being the first two, always. With
+        // three or more frames selected, `prefix(2)` meant → moved the cursor to member
+        // four while these two panes stayed on members one and two — the highlight left
+        // the canvas and the key that cycles the candidate did nothing anyone could see.
+        // With two selected, which is the ordinary compare, this is the same pair.
+        let set = comparisonSet
+        let cursor = set.firstIndex { $0.id == state.primarySelection?.id }
+        let window = ComparePanes.pairWindow(cursor: cursor, count: set.count)
+        let pair = Array(set[window])
         return HStack(spacing: 1) {
             ForEach(pair) { photo in
                 ComparePane(photo: photo,
                             sync: sync,
                             isPrimary: photo.id == state.primarySelection?.id)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .onTapGesture(count: 2) { state.primarySelection = photo }
+                    // Through the cursor verb, not by assigning the cursor: the
+                    // scopes, the histogram and the mask selection follow the
+                    // frame being judged. Assigning `primarySelection` moves the
+                    // highlight and leaves them describing the previous photo.
+                    .onTapGesture(count: 2) { state.moveCursor(to: photo) }
             }
             if pair.count == 1 {
                 VStack(spacing: 6) {
@@ -168,7 +170,7 @@ struct CompareView: View {
                         SurveyCell(photo: photo,
                                    isPrimary: photo.id == state.primarySelection?.id)
                             .frame(height: minimum * 0.78)
-                            .onTapGesture { state.primarySelection = photo }
+                            .onTapGesture { state.moveCursor(to: photo) }
                     }
                 }
                 .padding(6)

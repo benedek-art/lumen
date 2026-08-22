@@ -22,6 +22,7 @@
 
 import AppKit
 import CoreGraphics
+import LumenCore
 import SwiftUI
 
 struct GridView: View {
@@ -65,7 +66,8 @@ struct GridView: View {
                     // ↑/↓ are the keymap's, but only the grid knows how wide a row is.
                     state.gridColumns = columnCount(width: geometry.size.width, side: side)
                     state.thumbnails.prefetch(around: state.primarySelection?.id,
-                                              in: photos.map(\.id), size: pixels)
+                                              in: photos.map(\.id), size: pixels,
+                                              surface: .grid)
                 }
                 .onChange(of: geometry.size.width) { _, width in
                     state.gridColumns = columnCount(width: width, side: side)
@@ -76,7 +78,8 @@ struct GridView: View {
                 .onChange(of: state.primarySelection?.id) { _, id in
                     guard let id else { return }
                     proxy.scrollTo(id, anchor: .center)
-                    state.thumbnails.prefetch(around: id, in: photos.map(\.id), size: pixels)
+                    state.thumbnails.prefetch(around: id, in: photos.map(\.id),
+                                              size: pixels, surface: .grid)
                 }
             }
         }

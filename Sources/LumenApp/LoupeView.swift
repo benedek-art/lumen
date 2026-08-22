@@ -5,8 +5,11 @@
 //
 // Three behaviours this file exists to keep honest:
 //   · Two-tier progressive refine (docs/12 §B2): a draft pass lands within a frame,
-//     the quality pass ~250 ms after interaction settles. Stale results are discarded
-//     by generation number and never reach the screen.
+//     the quality pass once a short debounce says the hand has stopped. The whole of
+//     it — debounce plus both passes — is budgeted at 200 ms from the last input, and
+//     the split between the debounce and the passes is `RefineBudget` in LumenCore
+//     rather than a bare sleep here. Stale results are discarded by generation number
+//     and never reach the screen.
 //   · Honest badges (docs/10 handoff honesty, docs/12 §B14): when the render fell back
 //     to the camera's embedded preview, or the kernel library was unavailable, the
 //     viewer says so. It never shows something that is not the edit without saying it.
@@ -31,20 +34,20 @@ import SwiftUI
 /// The zoom ladder. `AppState.zoomLevel` is the source of truth: 0 means "fit",
 /// anything else is a ratio of image pixels to device pixels — so 1.0 is true 1:1
 /// on the panel, and 2.0 puts one image pixel on a 2×2 block of device pixels.
+///
+/// The arithmetic is `ZoomLadder` in LumenCore and this is the app's name for it. It
+/// forwards rather than reimplementing: three surfaces zoom — the loupe, the compare
+/// panes and the keymap — and every time one of them has computed its own next ratio,
+/// the mouse and the keyboard have ended up on different ladders.
 enum LoupeZoom {
-    static let fit: Double = 0
-    static let oneToOne: Double = 1
-    static let twoToOne: Double = 2
+    static let fit: Double = ZoomLadder.fit
+    static let oneToOne: Double = ZoomLadder.oneToOne
+    static let twoToOne: Double = ZoomLadder.twoToOne
 
     /// What `cycleZoom` walks through.
-    static let ladder: [Double] = [fit, oneToOne, twoToOne]
+    static let ladder: [Double] = ZoomLadder.ladder
 
-    static func label(_ ratio: Double) -> String {
-        if ratio <= 0 { return "FIT" }
-        if abs(ratio - 1) < 0.001 { return "1:1" }
-        if abs(ratio - 2) < 0.001 { return "2:1" }
-        return String(format: "%.0f%%", ratio * 100)
-    }
+    static func label(_ ratio: Double) -> String { ZoomLadder.label(ratio) }
 }
 
 /// Viewport state that outlives any one `LoupeView` body and that the keymap needs a
@@ -112,8 +115,8 @@ final class LoupeViewport: ObservableObject {
         } else {
             anchorNextZoomAtCursor = false
         }
-        let clamped: Double = ratio.isFinite ? Swift.max(0, Swift.min(ratio, 16)) : 0
-        if clamped <= 0 { pan = .zero }
+        let clamped: Double = ZoomLadder.clamp(ratio)
+        if ZoomLadder.isFit(clamped) { pan = .zero }
         state.zoomLevel = clamped
     }
 
@@ -122,14 +125,19 @@ final class LoupeViewport: ObservableObject {
         setZoom(ratio, at: lastCursor, in: state)
     }
 
-    /// `Space`: fit ↔ 1:1, centred on the cursor (docs/12 §B15 defaults).
+    /// `Space` and `Z`: fit ↔ 1:1, centred on the cursor (docs/12 §B15 defaults).
+    ///
+    /// Space reaches this now. It used to set `state.zoomLevel` from the keymap
+    /// directly — `zoomLevel == 0 ? 1 : 0` — which is the same ratio and none of the
+    /// anchoring, so the one key whose documentation promised "centred on the cursor"
+    /// was the one key that zoomed about the middle of the window.
     @MainActor
     func toggleZoom(at point: CGPoint?, in state: AppState) {
-        if state.zoomLevel > 0 {
-            setZoom(LoupeZoom.fit, at: nil, in: state)
-        } else {
-            setZoom(LoupeZoom.oneToOne, at: point ?? lastCursor, in: state)
-        }
+        let target: Double = ZoomLadder.toggleTarget(from: state.zoomLevel)
+        let anchor: CGPoint? = ZoomLadder.anchorsAtCursor(target: target)
+            ? (point ?? lastCursor)
+            : nil
+        setZoom(target, at: anchor, in: state)
     }
 
     @MainActor
@@ -138,13 +146,9 @@ final class LoupeViewport: ObservableObject {
     /// Walks fit → 1:1 → 2:1 → fit.
     @MainActor
     func cycleZoom(in state: AppState) {
-        let current: Double = state.zoomLevel
-        var index: Int = 0
-        for (i, step) in LoupeZoom.ladder.enumerated() where abs(step - current) < 0.001 {
-            index = i
-        }
-        let next: Int = (index + 1) % LoupeZoom.ladder.count
-        setZoom(LoupeZoom.ladder[next], at: lastCursor, in: state)
+        let target: Double = ZoomLadder.cycleTarget(from: state.zoomLevel)
+        setZoom(target, at: ZoomLadder.anchorsAtCursor(target: target) ? lastCursor : nil,
+                in: state)
     }
 
     @MainActor
@@ -158,15 +162,15 @@ final class LoupeViewport: ObservableObject {
 
     @MainActor
     func zoomIn(in state: AppState) {
-        let current: Double = state.zoomLevel > 0 ? state.zoomLevel : LoupeZoom.oneToOne
-        setZoom(current * 2, at: lastCursor, in: state)
+        setZoom(ZoomLadder.zoomInTarget(from: state.zoomLevel), at: lastCursor, in: state)
     }
 
     @MainActor
     func zoomOut(in state: AppState) {
-        guard state.zoomLevel > 0 else { return }
-        let next: Double = state.zoomLevel / 2
-        setZoom(next < 0.35 ? LoupeZoom.fit : next, at: lastCursor, in: state)
+        guard !ZoomLadder.isFit(state.zoomLevel) else { return }
+        let target: Double = ZoomLadder.zoomOutTarget(from: state.zoomLevel)
+        setZoom(target, at: ZoomLadder.anchorsAtCursor(target: target) ? lastCursor : nil,
+                in: state)
     }
 
     // MARK: Pan verbs
@@ -282,10 +286,20 @@ final class PhotoRenderModel: ObservableObject {
     @Published private(set) var note: String?
     @Published private(set) var isUnreadable: Bool = false
 
-    /// The settle debounce before the quality pass. The refine budget is ≤200 ms after
-    /// the drag pause (docs/12 §B2); 250 ms is the settle window plus the pass itself,
-    /// and it is one constant so it can be retuned in one place.
-    static let settleNanoseconds: UInt64 = 250_000_000
+    /// The settle debounce before the quality pass.
+    ///
+    /// It used to be 250 ms, under a comment claiming that 250 ms "is the settle window
+    /// plus the pass itself". It was not, and the order of the statements below says
+    /// so: the sleep runs and THEN the quality pass is asked for, so full quality
+    /// landed at 250 ms plus render time against a docs/12 budget of 200 ms — a loop
+    /// that no render could meet, however fast. The comment described a design nobody
+    /// had written.
+    ///
+    /// The constant now comes from `RefineBudget`, which splits the 200 ms into the
+    /// debounce and what is left for the passes, and asserts in LumenCore that the
+    /// first is a small fraction of the second. What is still unmeasured is whether a
+    /// real pass fits in the remainder; that is audit UX-01, and it needs a Mac.
+    static let settleNanoseconds: UInt64 = RefineBudget.loupe.settleNanoseconds
 
     /// How many times the quality pass will re-ask when it comes back empty. See the
     /// comment at the retry loop: nil from the coordinator can mean "superseded by a
@@ -328,7 +342,8 @@ final class PhotoRenderModel: ObservableObject {
             note = nil
             revision &+= 1
             if let thumbnails,
-               let preview = await thumbnails.load(url: url, maxPixel: 1600),
+               let preview = await thumbnails.load(
+                   url: url, maxPixel: ThumbnailLadder.loupeInstantPixels),
                let cg = preview.cgImage(forProposedRect: nil, context: nil, hints: nil) {
                 guard !Task.isCancelled else { return }
                 image = cg
@@ -358,6 +373,9 @@ final class PhotoRenderModel: ObservableObject {
             apply(draft, url: url)
         }
 
+        // The debounce, and nothing but the debounce: everything after this point still
+        // has to happen inside the deadline, so the wait is the part of the budget that
+        // buys the least and is kept the smallest.
         try? await Task.sleep(nanoseconds: PhotoRenderModel.settleNanoseconds)
         guard !Task.isCancelled, latestGeneration == draftGeneration else { return }
 
@@ -517,6 +535,7 @@ struct LoupeView: View {
             .onAppear {
                 containerSize = container
                 focused = true
+                warmNeighbours()
             }
             .onChange(of: container) { _, newValue in
                 containerSize = newValue
@@ -548,7 +567,24 @@ struct LoupeView: View {
         .onChange(of: photo.id) { _, _ in
             viewport.resetForNewPhoto()
             sampler = nil
+            warmNeighbours()
         }
+    }
+
+    /// Aim the ring at the level THIS view reads from, on every advance.
+    ///
+    /// The viewer used to depend entirely on the filmstrip for that, and the strip
+    /// warmed its own 256 only — so the instant path's request landed in an empty
+    /// bucket every single time. Warming from here as well means F, which hides the
+    /// strip, hides the strip rather than also turning off the cache the paging budget
+    /// is built on. The strip's call and this one aim the same window at the same
+    /// cursor, so the second one costs a dictionary lookup per file.
+    @MainActor
+    private func warmNeighbours() {
+        state.thumbnails.prefetch(around: photo.id,
+                                  in: state.photos.map(\.id),
+                                  size: ThumbnailLadder.loupeInstantPixels,
+                                  surface: .loupe)
     }
 
     private struct BeforeKey: Equatable {

@@ -3,13 +3,35 @@
 // (D45) is implemented. A slider that behaves differently in one panel is a bug the
 // user feels before they can name it, so there is exactly one slider in this app.
 //
-// The contract, in one place:
-//   · drag the track, or scrub the number field, or type a value
-//   · ←/→ nudge by one step; ⇧ multiplies by 10; ⌥ divides by 10
-//   · double-click the label or the thumb resets to the default
+// The contract, in one place. This list is what the file DOES, and it is worth saying
+// why that needs stating: it used to open with "←/→ nudge by one step; ⇧ multiplies by
+// 10; ⌥ divides by 10", and this file contains no key handling of any kind. The keymap
+// owns the arrows, where they move the photo selection. It also claimed the number
+// field scrubs, and the number field takes a click and lets you type.
+//
+//   · drag the track — grab the thumb and it follows the cursor; press the track and
+//     the value jumps there once, then follows from there
+//   · click the number and type a value
+//   · double-click the label or the track resets to the default (or to whatever
+//     `onReset` means for a row whose neutral is "auto")
 //   · the range is SOFT — dragging pins at the soft limit, typing accepts the hard one
 //   · a control that is not at its default shows it, so "what did I change?" is
 //     answerable at a glance rather than by memory
+//
+// WHY THERE IS NO KEYBOARD NUDGE, rather than a promise of one. Arrow keys already mean
+// "previous / next photo", claimed by `KeyDispatcher`'s NSEvent monitor, which sits in
+// FRONT of the responder chain — so a focused slider would never see an arrow at all.
+// Making the nudge work needs three decisions, none of which is this file's to make
+// alone: the slider has to become focusable, so there must be a visible focus ring in a
+// chrome that is deliberately zero-chroma and near-featureless; the dispatcher has to
+// learn to hand the arrows back when a slider holds focus, the way it already does for
+// a focused text field and for the zoomed loupe's pan; and there has to be a way to put
+// focus on a slider and take it off again, or the arrows stop paging photographs and
+// the photographer cannot tell why. Until those exist, the honest thing is that the
+// nudge is not offered. The rest of the D45 contract that is still missing — arithmetic
+// entry, scrubby-drag on the readout, ⌥-scroll, ⌘-double-click to auto, ⇧⌥-drag to the
+// hard limit, haptic detents — is audit UX-04's parity half and is likewise absent
+// rather than advertised.
 //
 // Chrome is zero-chroma by law (docs/00 Law 7): nothing in this file introduces a hue
 // that could bias a colour judgement about the photograph.
