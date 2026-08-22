@@ -356,7 +356,13 @@ struct FilterBar: View {
         case .userOrder:
             // `ap.position` only exists inside an album; outside one the builder falls
             // back to added order, which is a different sort wearing this one's name.
-            return state.selectedCollectionID == nil ? "drag to reorder inside an album" : nil
+            //
+            // This used to read "drag to reorder inside an album", which described a
+            // gesture Lumen does not have: `onMove` appears in no file in the repo, and
+            // `album_photo.position` is written once, at insert, by `addToAlbum`. A
+            // disabled key is supposed to say what it is WAITING FOR — an album — and
+            // this one was instead teaching the user a drag that would never work.
+            return state.selectedCollectionID == nil ? "select an album" : nil
         default:
             return nil
         }

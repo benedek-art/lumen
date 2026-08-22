@@ -351,7 +351,15 @@ enum SortOrder: String, CaseIterable, Identifiable, Sendable {
     case filename = "File name"
     case fileType = "File type"
     case aspectRatio = "Aspect ratio"
-    case userOrder = "User order"
+    /// The order photos were ADDED to the album, not one the user arranged.
+    ///
+    /// It was called "User order" and captioned "drag to reorder inside an album", and
+    /// there is no drag-reorder anywhere in Lumen — `onMove` appears in no file, and
+    /// `album_photo.position` has exactly one writer, `addToAlbum`, which assigns
+    /// `MAX(position) + 1` per photo at insert. Nothing can change a position
+    /// afterwards except removing the photo and adding it again. The spec still asks
+    /// for the gesture (docs/10 §sort keys); the menu no longer claims it is here.
+    case userOrder = "Album order"
     case sharpness = "Sharpness score"
     case aesthetic = "Aesthetic score"
 
