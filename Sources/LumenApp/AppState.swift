@@ -850,6 +850,11 @@ final class AppState: ObservableObject {
     let thumbnails = ThumbnailLoader()
     let history = HistoryStack()
     private(set) var catalog: CatalogService?
+    /// The disk preview cache. Lives beside the catalog because it is bookkeeping in
+    /// `cache.preview` plus payloads under `~/Library/Caches/Lumen`, and nil when the
+    /// catalog could not be opened — a session without one browses out of memory, which
+    /// is what every session did before this was wired.
+    private(set) var previews: PreviewStore?
     let renderCoordinator = RenderCoordinator()
 
     /// The export recipes, as edited. Persisted on every change.
@@ -1503,6 +1508,15 @@ final class AppState: ObservableObject {
                 }
             }
             catalog = service
+            // The browse cache's disk half (docs/15 §15.6). Payloads go under
+            // `~/Library/Caches` rather than beside the catalog because that is where
+            // the OS expects reclaimable data and where Time Machine will not carry
+            // tens of gigabytes of regenerable previews.
+            if let cacheDirectory = PreviewStore.defaultDirectory() {
+                let store = PreviewStore(catalog: service, directory: cacheDirectory)
+                previews = store
+                thumbnails.attach(previews: store)
+            }
             // The open-time integrity check has already run and already acted (§15.8).
             // Told, not asked: by the time this line executes the catalog on disk is
             // either the one that passed or the newest backup that did, and the only
@@ -1618,6 +1632,10 @@ final class AppState: ObservableObject {
             }
         }
         allPhotos = items
+        // The preview cache is keyed on `photo_id` and the loader is keyed on URL; this
+        // dictionary is the join, and it has been coming back from `registerAndLoad`
+        // unread for as long as both have existed.
+        previews?.register(stored.mapValues(\.catalogID))
         for recipe in recipes.values where !recipe.masks.isEmpty {
             loadStrokeSets(for: recipe)
         }
@@ -2082,6 +2100,10 @@ final class AppState: ObservableObject {
     /// pending batch and then checkpoints and closes the database. It is synchronous
     /// because `applicationWillTerminate` is the last moment anything runs.
     func prepareToQuit() {
+        // Eviction before the database closes, because the eviction runs through it.
+        // docs/10 §10.10: the photographer never hears about this — no menu item, no
+        // confirmation, no "Optimize Catalog" ritual.
+        previews?.prune()
         catalog?.close()
     }
 

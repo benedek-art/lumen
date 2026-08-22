@@ -775,6 +775,76 @@ final class CatalogService: @unchecked Sendable {
         return XMPSidecar.parse(data)
     }
 
+    // MARK: - Preview cache
+
+    /// Everything the preview cache needs to know about one photo, fetched in one hop
+    /// onto the catalog queue: the fingerprint every cached preview is keyed against,
+    /// and the rows already stored for it.
+    ///
+    /// One call rather than two because this runs on a decode worker, once per
+    /// thumbnail, on the path README goal #1 is measured on. Two `queue.sync`s per grid
+    /// cell would put eight decode workers behind each other for no reason.
+    struct PreviewState {
+        var fingerprint: String
+        var rows: [PreviewRow]
+    }
+
+    func previewState(photoID: Int64) -> PreviewState? {
+        var result: PreviewState?
+        queue.sync {
+            do {
+                result = PreviewState(
+                    fingerprint: try store.currentRecipeFingerprint(photoID: photoID),
+                    rows: try store.previews(photoID: photoID))
+            } catch {
+                // A failed read here is a cache miss, not something the user needs to
+                // be told: the caller decodes the original instead, which is what it
+                // did on every launch before this cache was wired at all.
+                NSLog("Lumen catalog: preview lookup failed — %@",
+                      String(describing: error))
+            }
+        }
+        return result
+    }
+
+    /// File a preview. Asynchronous: the pixels are already on screen by the time this
+    /// runs, and a bookkeeping row must never be in front of a photograph.
+    func recordPreview(_ row: PreviewRow) {
+        queue.async { [store] in
+            do {
+                try store.recordPreview(row)
+            } catch {
+                NSLog("Lumen catalog: preview bookkeeping failed — %@",
+                      String(describing: error))
+            }
+        }
+    }
+
+    /// LRU stamp on every serve. Silent on failure by design — a lost stamp costs
+    /// eviction accuracy and nothing else.
+    func touchPreview(photoID: Int64, level: PreviewLevel, recipeFP: String) {
+        queue.async { [store] in
+            _ = try? store.touchPreview(photoID: photoID, level: level,
+                                        recipeFP: recipeFP)
+        }
+    }
+
+    /// Evict to a byte budget and hand back the rows that went, so their payloads can be
+    /// unlinked. Synchronous, because the only caller is the quit path and the files
+    /// have to be gone before the process is.
+    func prunePreviews(maxBytes: Int64) -> [PreviewRow] {
+        var victims: [PreviewRow] = []
+        queue.sync {
+            do {
+                victims = try store.pruneCache(maxBytes: maxBytes)
+            } catch {
+                NSLog("Lumen catalog: preview eviction failed — %@",
+                      String(describing: error))
+            }
+        }
+        return victims
+    }
+
     // MARK: - Maintenance
 
     /// `VACUUM INTO` gives a consistent snapshot without stopping the world.
