@@ -567,9 +567,29 @@ public struct ClassicNR: Codable, Equatable, Sendable {
     /// Extends chroma shrinkage into the coarsest bands, where blotches live.
     public var colorSmoothness: Double  // 0…100, default 50
 
+    /// Whether the photographer set `luma` / `chroma` by hand, as opposed to inheriting
+    /// the ISO-adaptive resolution at import.
+    ///
+    /// docs/07 §2.1 and docs/14 both specify that switching to AI Denoise drops the
+    /// Tier-1 masters to zero — the noise they were compensating for is gone —
+    /// **"unless the user has hand-set them, in which case their values are respected"**.
+    /// That sentence needs a bit per master and there was none, so `ISODefaults.classic`
+    /// took them as parameters defaulting to `false` and `RenderPlan` called it without
+    /// arguments. The exception could not fire: switching to AI zeroed a hand-set
+    /// Luminance every time, silently, and the only trace was a default argument at a
+    /// call site nobody reads.
+    ///
+    /// They are `false` by default and serialize sparsely, so no recipe already in a
+    /// catalog or a sidecar changes its canonical form or its fingerprint. A photo
+    /// edited before this existed is treated as never hand-set, which is what the
+    /// coupling assumed about every photo until now.
+    public var lumaUserSet: Bool        // default false
+    public var chromaUserSet: Bool      // default false
+
     public init(luma: Double = 0, chroma: Double = 25, hotPixels: Double = 0,
                 lumaDetail: Double = 50, lumaContrast: Double = 0,
-                colorDetail: Double = 50, colorSmoothness: Double = 50) {
+                colorDetail: Double = 50, colorSmoothness: Double = 50,
+                lumaUserSet: Bool = false, chromaUserSet: Bool = false) {
         self.luma = luma
         self.chroma = chroma
         self.hotPixels = hotPixels
@@ -577,11 +597,13 @@ public struct ClassicNR: Codable, Equatable, Sendable {
         self.lumaContrast = lumaContrast
         self.colorDetail = colorDetail
         self.colorSmoothness = colorSmoothness
+        self.lumaUserSet = lumaUserSet
+        self.chromaUserSet = chromaUserSet
     }
 
     private enum CodingKeys: String, CodingKey {
         case luma, chroma, hotPixels, lumaDetail, lumaContrast
-        case colorDetail, colorSmoothness
+        case colorDetail, colorSmoothness, lumaUserSet, chromaUserSet
     }
 
     /// Tolerant of the three-field form this struct used to have. Every recipe already
@@ -599,6 +621,9 @@ public struct ClassicNR: Codable, Equatable, Sendable {
         self.colorDetail = try c.decodeIfPresent(Double.self, forKey: .colorDetail) ?? 50
         self.colorSmoothness = try c.decodeIfPresent(Double.self,
                                                      forKey: .colorSmoothness) ?? 50
+        self.lumaUserSet = try c.decodeIfPresent(Bool.self, forKey: .lumaUserSet) ?? false
+        self.chromaUserSet = try c.decodeIfPresent(Bool.self,
+                                                   forKey: .chromaUserSet) ?? false
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -610,6 +635,8 @@ public struct ClassicNR: Codable, Equatable, Sendable {
         try c.encode(lumaContrast, forKey: .lumaContrast)
         try c.encode(colorDetail, forKey: .colorDetail)
         try c.encode(colorSmoothness, forKey: .colorSmoothness)
+        try c.encode(lumaUserSet, forKey: .lumaUserSet)
+        try c.encode(chromaUserSet, forKey: .chromaUserSet)
     }
 }
 

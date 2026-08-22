@@ -1760,15 +1760,23 @@ public enum ISODefaults {
     }
 
     /// The auto-zero coupling of docs/14: when AI Denoise is on, ISO-adaptive Tier-1
-    /// defaults drop to zero — the noise they compensated for is gone — *unless* the user
-    /// hand-set them. `userSet` bits do not exist in the recipe yet (docs/07 §12.7), so they
-    /// are passed in explicitly rather than guessed at.
-    public static func coupled(_ params: ClassicNR, aiEnabled: Bool,
-                               lumaUserSet: Bool, chromaUserSet: Bool) -> ClassicNR {
+    /// defaults drop to zero — the noise they compensated for is gone — *unless* the
+    /// user hand-set them, in which case their values are respected.
+    ///
+    /// The exception reads `ClassicNR.lumaUserSet` / `.chromaUserSet`. It used to read
+    /// two parameters that **defaulted to false**, because the recipe carried no such
+    /// bits; the one caller on the shipping path (`RenderPlan`) therefore passed
+    /// neither, and the exception could not fire on any photograph. The sub-sliders are
+    /// carried through unchanged either way: they are shaping parameters for whatever
+    /// master survives, and zeroing a master already turns its half of the stage off.
+    /// Rebuilding the block from three fields — which this did — also reset Colour
+    /// Smoothness and Luminance Detail to their wire defaults on every mode switch.
+    public static func coupled(_ params: ClassicNR, aiEnabled: Bool) -> ClassicNR {
         guard aiEnabled else { return params }
-        return ClassicNR(luma: lumaUserSet ? params.luma : 0,
-                         chroma: chromaUserSet ? params.chroma : 0,
-                         hotPixels: params.hotPixels)
+        var out = params
+        if !params.lumaUserSet { out.luma = 0 }
+        if !params.chromaUserSet { out.chroma = 0 }
+        return out
     }
 
     /// The Tier-1 block a whole `Denoise` recipe resolves to, honouring `mode`:
@@ -1776,19 +1784,14 @@ public enum ISODefaults {
     ///  - `.classic` — the recipe's own `classic` block, untouched.
     ///  - `.ai` — the auto-zero coupling above, so Tier 1 runs as a finishing pass over an
     ///    already-denoised image rather than compensating twice.
-    ///
-    /// `userSet` bits are parameters because the recipe does not carry them yet (docs/07 §12.7).
-    public static func classic(for denoise: Denoise,
-                               lumaUserSet: Bool = false,
-                               chromaUserSet: Bool = false) -> ClassicNR {
+    public static func classic(for denoise: Denoise) -> ClassicNR {
         switch denoise.mode {
         case .off:
             return ClassicNR(luma: 0, chroma: 0, hotPixels: 0)
         case .classic:
             return denoise.classic
         case .ai:
-            return coupled(denoise.classic, aiEnabled: true,
-                           lumaUserSet: lumaUserSet, chromaUserSet: chromaUserSet)
+            return coupled(denoise.classic, aiEnabled: true)
         }
     }
 }

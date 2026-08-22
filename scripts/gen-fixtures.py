@@ -347,10 +347,16 @@ DEFAULT_RECIPE = {
         # sub-sliders default to Lightroom's own 50 / 0 / 50 / 50, which are the same
         # numbers the engine used to hardcode, so a recipe written before they existed
         # decodes to exactly what it always rendered.
+        #
+        # lumaUserSet / chromaUserSet record whether the photographer set the two
+        # masters by hand, which is what the AI-mode auto-zero exception needs (docs/07
+        # §2.1: "unless the user has hand-set them"). False by default and sparse, so
+        # no recipe already written changes its canonical form or its fingerprint.
         "denoise": {"mode": "classic", "amount": 50,
                     "classic": {"luma": 0, "chroma": 25, "hotPixels": 0,
                                 "lumaDetail": 50, "lumaContrast": 0,
-                                "colorDetail": 50, "colorSmoothness": 50}},
+                                "colorDetail": 50, "colorSmoothness": 50,
+                                "lumaUserSet": False, "chromaUserSet": False}},
         "geometry": {"crop": {"x": 0, "y": 0, "w": 1, "h": 1}, "angle": 0,
                      "flipH": False, "lens": {"profile": True, "removeCA": True}},
         "heal": {"count": 0},

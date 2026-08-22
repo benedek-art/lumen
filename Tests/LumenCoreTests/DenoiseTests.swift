@@ -527,10 +527,46 @@ final class DenoiseTests: XCTestCase {
         XCTAssertEqual(ai.chroma, 0, accuracy: 1e-12)
         XCTAssertEqual(ai.hotPixels, 30, accuracy: 1e-12,
                        "a defect control was zeroed by the AI coupling")
-        let held = ISODefaults.classic(for: Denoise(mode: .ai, classic: block),
-                                       lumaUserSet: true)
+        // The hand-set exception, through the mechanism the shipping path uses. This
+        // used to pass `lumaUserSet: true` as an argument — a parameter with a `false`
+        // default that `RenderPlan` never supplied, so the assertion proved the
+        // exception could be reached and NOT that anything reached it. The bit now
+        // lives on the recipe, which is the only place a photograph can carry it.
+        var handSet = block
+        handSet.lumaUserSet = true
+        let held = ISODefaults.classic(for: Denoise(mode: .ai, classic: handSet))
         XCTAssertEqual(held.luma, 40, accuracy: 1e-12,
                        "a hand-set Luminance was overwritten by the AI coupling")
+        XCTAssertEqual(held.chroma, 0, accuracy: 1e-12,
+                       "an inherited Colour survived the AI coupling because the OTHER "
+                           + "master was hand-set")
+        // The sub-sliders shape whichever master survives, and the coupling has no
+        // business resetting them: it used to rebuild the block from three fields, so
+        // switching to AI also silently reverted Colour Smoothness to 50.
+        XCTAssertEqual(held.colorSmoothness, block.colorSmoothness, accuracy: 1e-12)
+        XCTAssertEqual(held.lumaDetail, block.lumaDetail, accuracy: 1e-12)
+    }
+
+    /// The defect this closes was at a CALL SITE, not in the coupling, so the pin is on
+    /// the plan the graph actually runs.
+    func testAHandSetMasterSurvivesTheAIModeCouplingOnTheShippingPath() {
+        var recipe = Recipe()
+        recipe.develop.denoise = ISODefaults.startingDenoise(forISO: 6400)
+        recipe.develop.denoise.mode = .ai
+        // Inherited from the ISO table: AI zeroes both.
+        let inherited = RenderPlan(recipe: recipe, captureISO: 6400)
+        XCTAssertEqual(inherited.classicalDenoise.luma, 0, accuracy: 1e-12)
+        XCTAssertEqual(inherited.classicalDenoise.chroma, 0, accuracy: 1e-12)
+
+        // Hand-set: respected, which is what docs/07 §2.1 says and what the shipping
+        // path did not do.
+        recipe.develop.denoise.classic.luma = 42
+        recipe.develop.denoise.classic.lumaUserSet = true
+        let held = RenderPlan(recipe: recipe, captureISO: 6400)
+        XCTAssertEqual(held.classicalDenoise.luma, 42, accuracy: 1e-12,
+                       "switching to AI zeroed a hand-set Luminance on the render path")
+        XCTAssertEqual(held.classicalDenoise.chroma, 0, accuracy: 1e-12,
+                       "an inherited Colour was not zeroed")
     }
 
     // MARK: - The plan the graph actually reads
@@ -581,8 +617,28 @@ final class DenoiseTests: XCTestCase {
     func testAllSevenFieldsSurviveARoundTrip() throws {
         let block = ClassicNR(luma: 12, chroma: 34, hotPixels: 56,
                               lumaDetail: 78, lumaContrast: 90,
-                              colorDetail: 11, colorSmoothness: 22)
+                              colorDetail: 11, colorSmoothness: 22,
+                              lumaUserSet: true, chromaUserSet: true)
         let data = try JSONEncoder().encode(block)
         XCTAssertEqual(try JSONDecoder().decode(ClassicNR.self, from: data), block)
+    }
+
+    /// The two `userSet` bits are a format addition, so the compatibility direction
+    /// matters more than the round trip: every recipe already in a catalog or a sidecar
+    /// was written without them and must decode as "never hand-set", which is what the
+    /// AI coupling has been assuming about every photo.
+    func testARecipeWrittenBeforeTheUserSetBitsDecodesAsNeverHandSet() throws {
+        let json = Data("""
+        {"luma":40,"chroma":55,"hotPixels":0,"lumaDetail":42,"lumaContrast":0,\
+        "colorDetail":50,"colorSmoothness":84}
+        """.utf8)
+        let block = try JSONDecoder().decode(ClassicNR.self, from: json)
+        XCTAssertEqual(block.luma, 40, accuracy: 1e-12)
+        XCTAssertFalse(block.lumaUserSet)
+        XCTAssertFalse(block.chromaUserSet)
+        // And it costs nothing on the wire: a default block still serializes to the
+        // empty canonical form, so no stored fingerprint moves.
+        XCTAssertEqual(try CanonicalJSON.canonicalRecipeJSON(Recipe()),
+                       "{\"pipelineVersion\":\(currentPipelineVersion)}")
     }
 }
