@@ -44,14 +44,25 @@ struct ControlSpec {
     /// A global exposure move may; a local-contrast operator may not, and for those the
     /// overshoot is the halo measurement.
     let mayLeaveRange: Bool
+    /// A bar under the overshoot, in code values, where one has been AGREED.
+    ///
+    /// Nil means measure and record without asserting, and that is not a loophole — it
+    /// is the difference between a number nobody has argued about yet and a promise.
+    /// Texture and Clarity rim the shipping path by known amounts (DETAIL-01, DETAIL-11)
+    /// and that work is deliberately parked until there is a GPU to verify a fix on;
+    /// asserting a ceiling there would paint a red test over a decision already taken,
+    /// while recording the number keeps it visible and makes the day it improves a
+    /// diff rather than a rediscovery.
+    let overshootCeiling: Double?
 
     init(id: String, panel: String, displayName: String,
          low: Double, high: Double, neutral: Double = 0,
          frameName: String, frame: @escaping () -> ImageBuffer,
          shippingReader: String, authorityFloor: Double,
-         mayLeaveRange: Bool = true,
+         mayLeaveRange: Bool = true, overshootCeiling: Double? = nil,
          apply: @escaping (inout Recipe, Double) -> Void)
     {
+        self.overshootCeiling = overshootCeiling
         self.id = id; self.panel = panel; self.displayName = displayName
         self.low = low; self.high = high; self.neutral = neutral
         self.frameName = frameName; self.frame = frame

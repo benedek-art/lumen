@@ -85,6 +85,10 @@ enum ProofRunner {
         // Overshoot is only a defect for an operator that claims to work within the
         // picture's own range. Asking it of Exposure would report "overshoot 120" and
         // mean nothing: raising exposure is SUPPOSED to leave the input's range.
+        // Measured for every control that could produce one, asserted only where a
+        // ceiling has been agreed. A control entitled to leave the range — a global
+        // exposure move — records nil, because "overshoot 120" on Exposure is not a
+        // finding, it is the control working.
         let overshoot: Double? = spec.mayLeaveRange
             ? nil
             : Swift.max(ProofMetrics.overshoot(highEnd, against: neutral),

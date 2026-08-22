@@ -38,6 +38,14 @@ public protocol ImageSource: AnyObject {
 
     var captureMetadata: CaptureMetadata { get }
 
+    /// What clipping statistics measured on this source's decode may be called
+    /// (docs/10 §10.5). A protocol requirement rather than a check at the measuring
+    /// site, because the honest answer depends on which decoder ran: a RAW arrives
+    /// scene-referred, and a rendered file arrives with somebody else's tone curve
+    /// already baked into it. Getting this wrong puts the truthful label on the
+    /// untruthful reading.
+    var statisticsProvenance: RawStatistics.Provenance { get }
+
     func decode(recipe: Recipe, draft: Bool, scaleFactor: Double) -> CIImage?
 }
 
@@ -70,6 +78,12 @@ public final class RenderedImageSource: ImageSource {
     /// That is docs/04's stated fallback for non-raw input.
     public let asShotTemperature: Double = 5500
     public let asShotTint: Double = 0
+
+    /// The picture in this file has already been tone-mapped once, and converting it
+    /// into linear Rec.2020 does not put the clipped headroom back. Measured here it is
+    /// the rendered reading — which is worth showing, and is not scene-linear.
+    public let statisticsProvenance: RawStatistics.Provenance =
+        RawTruth.provenance(isRenderedFile: true)
 
     public init(url: URL) throws {
         guard FileManager.default.fileExists(atPath: url.path) else {

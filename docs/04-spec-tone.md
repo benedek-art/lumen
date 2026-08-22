@@ -489,7 +489,7 @@ selectable readout space and a true raw histogram (D12).
 | Clipping triangles | hover = temporary overlay; click = lock | unlocked | Left = shadow clip (blue overlay), right = highlight clip (red) |
 | Overlay toggle | on/off | off | `J` toggles both persistent overlays |
 | Readout space | Working (Rec.2020 linear, %) \| sRGB 0–255 \| Output space | sRGB 0–255 | Applies to histogram, cursor readouts, curve coordinates |
-| Raw histogram | on/off toggle | off | Pre-development sensor histogram + per-channel clipped % |
+| Raw histogram | on/off toggle | off | Pre-development sensor histogram + per-channel clipped %. **Built as a scene-linear reading, not a sensor one** — see the note below and docs/10 §10.5 |
 | Capture info line | on/off | on | ISO · focal length · aperture · shutter under the graph |
 
 **How it works.** The histogram bins a ~1 MP proxy of the final rendered output on the GPU
@@ -502,6 +502,16 @@ the user's choice of working space, sRGB 0–255, or the current export target, 
 The **raw histogram** is computed from the sensor mosaic before development — actual raw clipping
 truth with per-channel clipped-percent stats, the FastRawViewer capability folded in; it is the
 same instrument that runs at cull time, where it earns its keep on every frame
+
+> **As built, that paragraph describes the target and not the code.** The instrument
+> exists and measures the **decoded scene-linear frame**, not the mosaic: Apple's RAW
+> API does not expose CFA values and Lumen has no raw reader. It is scene-referred and
+> carries the headroom above display white — which is the property this section is
+> really about, and which the rendered-proxy histogram above it does not have — but it
+> is post-demosaic. The cull-time surface is `⇧H` (docs/10 §10.5); the develop panel's
+> corner toggle for it is **not built**. Everything the panel prints is named
+> *Scene-linear (post-demosaic)*.
+
 (`docs/10-spec-library.md` owns the cull-time surface and its hold-key shadow-boost/highlight-
 inspect overlays). RGB parade, waveform, and the vectorscope live one disclosure away in the
 grading context and are owned by `docs/05-spec-color.md` (D22).

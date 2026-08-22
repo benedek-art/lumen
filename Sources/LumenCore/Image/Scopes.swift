@@ -23,7 +23,7 @@
 // The raw-truth instrument (`RawStatistics`) is the odd one out: it does not bin the
 // render at all. It bins decoded scene-linear data against the per-channel saturation
 // level, because the embedded JPEG's histogram is post-WB, post-tone-curve and lies
-// about 0.3–2 EV of real highlight headroom (docs/10 §5.1).
+// about 0.3–2 EV of real highlight headroom (docs/10 §10.5).
 
 import Foundation
 
@@ -480,7 +480,7 @@ public struct Histogram: Sendable {
 
 // MARK: - Raw statistics (cull-time truth)
 
-/// The raw-truth instrument (D36, docs/10 §5.1–5.3): 128 EV-spaced bins × 4 channels
+/// The raw-truth instrument (D36, docs/10 §10.5): 128 EV-spaced bins × 4 channels
 /// binned from decoded scene-linear data against the per-channel saturation level, with
 /// per-channel clipped-percent at both ends. This is what the cull HUD's `Shift+H` panel
 /// and the `O` clipping overlay read, and it is cached in `cache.db.raw_stats` forever
@@ -492,9 +492,75 @@ public struct Histogram: Sendable {
 ///
 /// Channel slot 3 is luminance when the source is decoded RGB. When the worker feeds
 /// undemosaiced CFA values instead, the same slot carries the **second green (G2)** —
-/// docs/10 §5.1 keeps the two greens separate, and the byte layout is identical either
+/// docs/10 §10.5 keeps the two greens separate, and the byte layout is identical either
 /// way; `sourceIsCFA` records which reading applies.
+///
+/// **Every instance says where its numbers came from.** `Provenance` is not decoration:
+/// the value of this instrument is entirely the claim that it measures something truer
+/// than the rendered picture, and a set of bins that cannot say what it binned is a
+/// claim with no evidence behind it. So `compute` requires it, it rides in the persisted
+/// blob, and the panel prints its label. The one provenance docs/10 §10.5 actually
+/// specifies — undemosaiced CFA — is declared here and produced by nothing, because
+/// Lumen has no CFA reader; `RawTruth` states that gap in the words the reader sees.
 public struct RawStatistics: Sendable {
+
+    /// What the numbers were measured on, and therefore what "clipped" means in them.
+    ///
+    /// The whole point of a raw-truth instrument is that the embedded JPEG's histogram
+    /// is post-WB, post-tone-curve and lies by 0.3–2 EV. An instrument that inherited
+    /// that same vagueness about its own input would be the identical defect one layer
+    /// up.
+    public enum Provenance: UInt32, Sendable, CaseIterable {
+        /// Written by a build that did not record provenance, or decoded from a blob
+        /// that predates this field. The numbers are of unknown origin and the panel
+        /// says so rather than implying sensor truth.
+        case unspecified = 0
+        /// Undemosaiced CFA site values, black-subtracted, binned against the
+        /// per-channel saturation level from the file's metadata. This is what
+        /// docs/10 §10.5 specifies and **nothing in this repository produces it** —
+        /// there is no CFA or LibRaw reader in the pipeline. It is declared so the
+        /// stored format is ready for one, and so the honest label already exists.
+        case sensorCFA = 1
+        /// Decoded scene-linear RGB: `CIRAWFilter` at Lumen's flat settings — Apple's
+        /// tone curve, shadow boost, local tone mapping, gamut mapping and contrast all
+        /// off, extended range kept — read before every Lumen stage and before the
+        /// display transform. Post-demosaic, so it is not the sensor's mosaic; it is
+        /// scene-referred and unclipped by the display transform, which is what makes
+        /// it answer "is this highlight recoverable".
+        case sceneLinearDecode = 2
+        /// The rendered, display-encoded proxy: the histogram docs/10 §10.5 exists to
+        /// beat. Declared so that a caller which measures the render has to say so.
+        case renderedProxy = 3
+
+        /// What the panel prints above the numbers. Never the bare word "raw".
+        public var label: String {
+            switch self {
+            case .unspecified: return "Unrecorded source"
+            case .sensorCFA: return "Sensor raw (CFA, pre-demosaic)"
+            case .sceneLinearDecode: return "Scene-linear (post-demosaic)"
+            case .renderedProxy: return "Rendered proxy"
+            }
+        }
+
+        /// What 1.0 on the normalized axis means for this provenance — which is what
+        /// the reported clipped percentage is a percentage *of*.
+        public var ceilingMeaning: String {
+            switch self {
+            case .unspecified:
+                return "an unrecorded reference level"
+            case .sensorCFA:
+                return "the per-channel saturation level from the file's metadata"
+            case .sceneLinearDecode:
+                return "scene-linear 1.0, the white level the RAW decode normalizes to"
+            case .renderedProxy:
+                return "the top of the display-encoded range"
+            }
+        }
+
+        /// True only for the reading docs/10 §10.5 calls raw truth. Everything else is
+        /// closer to the truth than the embedded JPEG and is still not the sensor.
+        public var isSensorTruth: Bool { self == .sensorCFA }
+    }
 
     public enum Channel: Int, CaseIterable, Sendable {
         case r = 0
@@ -516,7 +582,7 @@ public struct RawStatistics: Sendable {
     public static let evFloor: Double = -14
     /// Top of the EV axis: saturation itself.
     public static let evCeiling: Double = 0
-    /// "Within 0.25 EV of the limit" — docs/10 §5.2's near-clipping pair.
+    /// "Within 0.25 EV of the limit" — docs/10 §10.5's near-clipping pair.
     public static let nearClipEV: Double = 0.25
     /// Bumped whenever the binning changes, so `raw_stats.analyzer_rev` invalidates.
     public static let currentAnalyzerRevision: UInt16 = 1
@@ -532,15 +598,23 @@ public struct RawStatistics: Sendable {
     /// Per channel, % of samples within 0.25 EV of the EV floor.
     public let nearClippedLowPercent: [Double]
     public let sampleCount: Int
-    /// Site stride in each axis: 4 → 1/16 of sites (docs/10 §5.1).
+    /// Site stride in each axis: 4 → 1/16 of sites (docs/10 §10.5).
     public let subsample: Int
     public let blackLevel: Double
     /// Per-channel saturation level from metadata, in the same units as the input.
     public let saturation: [Double]
     public let analyzerRevision: UInt16
-    /// True when slot 3 is G2 rather than luma.
-    public let sourceIsCFA: Bool
+    /// Where these numbers came from. Stored rather than derived, because the whole
+    /// instrument is a claim about its own input.
+    public let provenance: Provenance
+    /// True when slot 3 is G2 rather than luma — which is exactly the CFA reading, so
+    /// this is now a view of `provenance` rather than a second, independently settable
+    /// fact that could disagree with it.
+    public var sourceIsCFA: Bool { provenance == .sensorCFA }
 
+    /// `provenance` defaults to nil rather than to a case, so that the legacy
+    /// `sourceIsCFA` spelling keeps its exact meaning — CFA or *unrecorded*, never a
+    /// silent upgrade to a claim the caller did not make.
     public init(bins: [UInt32],
                 clippedHighPercent: [Double],
                 nearClippedHighPercent: [Double],
@@ -551,7 +625,8 @@ public struct RawStatistics: Sendable {
                 blackLevel: Double,
                 saturation: [Double],
                 analyzerRevision: UInt16,
-                sourceIsCFA: Bool) {
+                sourceIsCFA: Bool,
+                provenance: Provenance? = nil) {
         let n: Int = RawStatistics.channelCount * RawStatistics.binCount
         self.bins = bins.count == n ? bins : [UInt32](repeating: 0, count: n)
         self.clippedHighPercent = RawStatistics.four(clippedHighPercent)
@@ -563,7 +638,7 @@ public struct RawStatistics: Sendable {
         self.blackLevel = blackLevel.isFinite ? blackLevel : 0
         self.saturation = RawStatistics.four(saturation, fill: 1)
         self.analyzerRevision = analyzerRevision
-        self.sourceIsCFA = sourceIsCFA
+        self.provenance = provenance ?? (sourceIsCFA ? .sensorCFA : .unspecified)
     }
 
     private static func four(_ v: [Double], fill: Double = 0) -> [Double] {
@@ -583,17 +658,28 @@ public struct RawStatistics: Sendable {
     /// - `saturation`: per-channel saturation level from metadata; the luma slot's
     ///   level is derived as the luminance of that triple.
     /// - `subsample`: site stride per axis; 4 → 1/16 of sites.
+    /// - `provenance`: what `image` actually is. **No default.** A caller that cannot
+    ///   name its input cannot claim to be measuring truth, and the panel prints this
+    ///   word beside the numbers.
+    /// - `recordedSiteStride`: what to store in `subsample` when `image` is itself a
+    ///   downscale of the frame. `subsample`'s own contract is a stride *in sensor
+    ///   sites*, so a caller that hands over a 2048 px proxy of an 8192 px file and
+    ///   walks every pixel of it has a buffer stride of 1 and a site stride of 4;
+    ///   storing the 1 would describe the measurement as sixteen times finer than it
+    ///   is. Nil means the two are the same.
     ///
     /// Normalized value `v = (sample − black) / (sat − black)`, so 1.0 *is* saturation
     /// and the EV axis is `log2(v)` over `[evFloor, evCeiling]`. One pass, linear in
     /// sampled pixels, no allocation inside the loop.
     public static func compute(_ image: ImageBuffer,
+                               provenance: Provenance,
                                space: RGBColorSpace = .rec2020,
                                blackLevel: Double = 0,
                                saturation: RGB = RGB.one,
                                subsample: Int = 4,
-                               analyzerRevision: UInt16 = RawStatistics.currentAnalyzerRevision,
-                               sourceIsCFA: Bool = false) -> RawStatistics {
+                               recordedSiteStride: Int? = nil,
+                               analyzerRevision: UInt16 = RawStatistics.currentAnalyzerRevision)
+    -> RawStatistics {
         let nb: Int = RawStatistics.binCount
         var bins = [UInt32](repeating: 0, count: RawStatistics.channelCount * nb)
         var clipHigh = [Int](repeating: 0, count: RawStatistics.channelCount)
@@ -672,11 +758,12 @@ public struct RawStatistics: Sendable {
                              clippedLowPercent: lo,
                              nearClippedLowPercent: nl,
                              sampleCount: used,
-                             subsample: step,
+                             subsample: Swift.max(1, recordedSiteStride ?? step),
                              blackLevel: black,
                              saturation: [saturation.r, saturation.g, saturation.b, satY],
                              analyzerRevision: analyzerRevision,
-                             sourceIsCFA: sourceIsCFA)
+                             sourceIsCFA: provenance == .sensorCFA,
+                             provenance: provenance)
     }
 
     private static func accumulate(_ value: Double,
@@ -734,7 +821,7 @@ public struct RawStatistics: Sendable {
         end == .high ? nearClippedHighPercent[channel.rawValue] : nearClippedLowPercent[channel.rawValue]
     }
 
-    /// Junk-detection inputs (docs/10 §5.1): a frame that is almost entirely at the
+    /// Junk-detection inputs (docs/10 §10.5): a frame that is almost entirely at the
     /// floor is a black frame; one almost entirely at saturation is a blown frame.
     public var isLikelyBlackFrame: Bool {
         clippedLowPercent[3] >= 99 || nearClippedLowPercent[3] >= 99.5
@@ -742,7 +829,7 @@ public struct RawStatistics: Sendable {
 
     public var isLikelyBlownFrame: Bool { clippedHighPercent[3] >= 90 }
 
-    /// The `R 2.1% clipped, G 0.0, B 0.0` line (docs/10 §5.2).
+    /// The `R 2.1% clipped, G 0.0, B 0.0` line (docs/10 §10.5).
     public var clippingSummary: String {
         let names: [String] = ["R", "G", "B", sourceIsCFA ? "G2" : "Y"]
         var parts = [String]()
@@ -793,7 +880,10 @@ public struct RawStatistics: Sendable {
     ///     24     4  Float32 saturation[1]  (G)
     ///     28     4  Float32 saturation[2]  (B)
     ///     32     4  Float32 saturation[3]  (luma, or G2 when sourceIsCFA)
-    ///     36     4  UInt32  flags — bit 0 = sourceIsCFA, bits 1…31 reserved (0)
+    ///     36     4  UInt32  flags — bit 0 = sourceIsCFA (kept, and kept in agreement
+    ///                       with the provenance field so a v1 reader that only knows
+    ///                       the bit still reads it correctly);
+    ///                       bits 1…3 = `Provenance.rawValue`; bits 4…31 reserved (0)
     ///     40  2048  UInt32  bins, channel-major: bins[channel * 128 + bin]
     ///   2088    64  Float32 clipped percentages, 16 values in this order:
     ///                       high[0…3], nearHigh[0…3], low[0…3], nearLow[0…3]
@@ -821,7 +911,12 @@ public struct RawStatistics: Sendable {
         for i in 0..<RawStatistics.channelCount {
             RawStatistics.append(float: saturation[i], to: &b)
         }
-        RawStatistics.append(uint32: sourceIsCFA ? 1 : 0, to: &b)
+        // Bit 0 and bits 1…3 are two spellings of one fact, written together so they
+        // cannot drift: a reader that knows only the old bit still learns whether this
+        // is CFA data, and a reader that knows the field learns which of the four.
+        let flags: UInt32 = (sourceIsCFA ? 1 : 0)
+            | ((provenance.rawValue & 0x7) << 1)
+        RawStatistics.append(uint32: flags, to: &b)
         for i in 0..<bins.count { RawStatistics.append(uint32: bins[i], to: &b) }
         for i in 0..<RawStatistics.channelCount {
             RawStatistics.append(float: clippedHighPercent[i], to: &b)
@@ -879,7 +974,25 @@ public struct RawStatistics: Sendable {
                              blackLevel: black,
                              saturation: sat,
                              analyzerRevision: rev,
-                             sourceIsCFA: (flags & 1) != 0)
+                             sourceIsCFA: (flags & 1) != 0,
+                             provenance: RawStatistics.provenance(fromFlags: flags))
+    }
+
+    /// The provenance a flags word carries.
+    ///
+    /// Three ways a blob can be wrong here, and each is answered rather than trusted:
+    /// bits 1…3 zero means the writer predates the field, so the CFA bit is the only
+    /// evidence there is; a value outside the enum means a newer writer, and an
+    /// unreadable claim is reported as unrecorded rather than guessed at; and a value
+    /// that disagrees with bit 0 means one of the two was written by hand, so the
+    /// narrower claim — unrecorded — wins.
+    static func provenance(fromFlags flags: UInt32) -> Provenance {
+        let isCFA: Bool = (flags & 1) != 0
+        let field: UInt32 = (flags >> 1) & 0x7
+        if field == 0 { return isCFA ? .sensorCFA : .unspecified }
+        guard let value = Provenance(rawValue: field) else { return .unspecified }
+        guard value.isSensorTruth == isCFA else { return .unspecified }
+        return value
     }
 
     private static func append(uint16 v: UInt16, to b: inout [UInt8]) {

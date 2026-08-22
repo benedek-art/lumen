@@ -1052,6 +1052,50 @@ public final class PipelineRenderer {
         return sampleMean(decoded, sourceX: sourceX, sourceY: sourceY, radius: radius)
     }
 
+    /// The cull-time clipping measurement (docs/10 §10.5, README goal 3).
+    ///
+    /// WHAT IT MEASURES, precisely, because the instrument's whole value is that claim.
+    /// `source.decode` is `CIRAWFilter` at the flat settings `AppleRawSource` pins:
+    /// Apple's tone curve, shadow boost, local tone mapping, gamut mapping and contrast
+    /// all off, extended range kept, white balance at the camera's own neutral. Nothing
+    /// downstream of it has run — no white balance adaptation, no exposure, no tone
+    /// stage, no display transform. So the numbers are scene-referred and carry the
+    /// headroom above display white, which is the entire difference from the develop
+    /// histogram, and they are POST-DEMOSAIC, which is the entire difference from what
+    /// docs/10 §10.5 specifies. `.sceneLinearDecode` is that statement, and it travels
+    /// with the numbers into the cache and onto the panel.
+    ///
+    /// The proxy is the second honest limit. A 45 MP decode is 716 MB as f32 RGBA, so
+    /// `RawTruth.plan` scales the decode first and records the site stride that
+    /// corresponds to; the caption says a large blown region reads true and an isolated
+    /// clipped pixel is averaged down.
+    ///
+    /// Not draft. Draft mode changes what the demosaic does, and a measurement taken
+    /// through a cheaper decode than the one the user's render will use would be
+    /// answering about a different picture.
+    ///
+    /// The name is `clippingStatistics`, not `sceneLinearStatistics`, because this runs
+    /// for rendered files too and a JPEG's decode is not scene-linear — the camera's
+    /// tone curve is baked into it and converting to linear Rec.2020 does not take it
+    /// back out. The source says which reading its decode produces
+    /// (`statisticsProvenance`) and that word travels into the row and onto the panel,
+    /// so the honest label never lands on the untruthful measurement.
+    public func clippingStatistics(source: any ImageSource,
+                                   recipe: Recipe) -> (RawStatistics, RawTruth.Plan)? {
+        let size = source.nativePixelSize
+        let plan = RawTruth.plan(nativeWidth: size.width, nativeHeight: size.height)
+        guard let decoded = source.decode(recipe: recipe, draft: false,
+                                          scaleFactor: plan.decodeScaleFactor),
+              let buffer = PipelineRenderer.buffer(from: decoded, context: context)
+        else { return nil }
+        let stats = RawStatistics.compute(buffer,
+                                          provenance: source.statisticsProvenance,
+                                          space: .rec2020,
+                                          subsample: plan.bufferStride,
+                                          recordedSiteStride: plan.siteStride)
+        return (stats, plan)
+    }
+
     /// One sample of the image a MASK compares against: `RenderGraph.localStageInput`,
     /// S6 through S10, which is the same image `maskSource` hands the rasterizer.
     ///

@@ -38,7 +38,7 @@ final class PreviewStore: @unchecked Sendable {
     /// Fetched in ONE hop onto the catalog's serial queue. Two hops per thumbnail — one
     /// to ask for the fingerprint, one for the rows — would put eight decode workers
     /// behind each other on the path the 50 ms goal is measured on.
-    struct Plan: Sendable {
+    struct WritePlan: Sendable {
         let photoID: Int64
         let level: PreviewLevel
         let pixels: Int
@@ -131,7 +131,7 @@ final class PreviewStore: @unchecked Sendable {
     /// catalog, or the size asked for is not a rung — and the caller decodes without
     /// recording. A non-nil plan with a nil payload is a miss the caller should record
     /// the result of.
-    func plan(for url: URL, pixels: Int) -> Plan? {
+    func plan(for url: URL, pixels: Int) -> WritePlan? {
         guard let level = ThumbnailLadder.level(for: pixels),
               let photoID = photoID(for: url),
               let state = catalog.previewState(photoID: photoID) else { return nil }
@@ -149,7 +149,7 @@ final class PreviewStore: @unchecked Sendable {
                                   recipeFP: row.recipeFP)
             }
         }
-        return Plan(photoID: photoID, level: level, pixels: pixels,
+        return WritePlan(photoID: photoID, level: level, pixels: pixels,
                     fingerprint: state.fingerprint, payload: payload)
     }
 
@@ -187,7 +187,7 @@ final class PreviewStore: @unchecked Sendable {
     /// faster than it takes them, and each waiting image stays in memory until it is
     /// written. `PreviewCache.admitsWrite` is the rule, and a refusal costs one preview
     /// not filed rather than a card import that runs out of memory.
-    func record(_ plan: Plan, image: CGImage, source: PreviewSource = .embedded) {
+    func record(_ plan: WritePlan, image: CGImage, source: PreviewSource = .embedded) {
         let bytes = max(image.bytesPerRow * image.height, 1)
         lock.lock()
         let admitted = PreviewCache.admitsWrite(pendingBytes: pendingWriteBytes,
@@ -205,7 +205,7 @@ final class PreviewStore: @unchecked Sendable {
         }
     }
 
-    private func persist(_ plan: Plan, image: CGImage, source: PreviewSource) {
+    private func persist(_ plan: WritePlan, image: CGImage, source: PreviewSource) {
         // The row is built FIRST and the path is derived from the row's own key, so
         // there is no way for the file name and the row to disagree about which recipe
         // these pixels depict. `rowForDecode` is what decides that a camera render is

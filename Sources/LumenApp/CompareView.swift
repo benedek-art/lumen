@@ -288,7 +288,11 @@ private struct ComparePane: View {
         let r = ratio(for: cg, container: container)
         let drawn = LoupeGeometry.drawnSize(imageWidth: cg.width, imageHeight: cg.height,
                                             ratio: r, displayScale: displayScale)
-        return Image(decorative: cg, scale: 1, orientation: .up)
+        // The inspection holds work in Compare too (docs/10 §10.5 names loupe, survey
+        // and compare), and a hold that lifted one pane and not the other would be
+        // worse than none.
+        return Image(decorative: InspectionGain.displayed(cg, hold: state.inspectionHold),
+                     scale: 1, orientation: .up)
             .resizable()
             .interpolation(r >= 1 ? .none : .high)
             .antialiased(r < 1)
@@ -375,7 +379,9 @@ private struct SurveyCell: View {
                 Lumen.viewerBackground
 
                 if let cg = model.image, model.imageURL == photo.id {
-                    Image(decorative: cg, scale: 1, orientation: .up)
+                    Image(decorative: InspectionGain.displayed(cg,
+                                                               hold: state.inspectionHold),
+                          scale: 1, orientation: .up)
                         .resizable()
                         .interpolation(.high)
                         .aspectRatio(contentMode: .fit)

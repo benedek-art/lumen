@@ -41,6 +41,13 @@ public final class AppleRawSource: ImageSource {
     private let defaultColorNR: Float
     private let defaultSharpness: Float
 
+    /// This decoder runs Apple's picture-forming stages OFF (see `decode`), so what
+    /// comes out is scene-referred and carries the headroom above display white. It is
+    /// still post-demosaic — Apple's API does not expose the mosaic — which is exactly
+    /// the distinction `RawStatistics.Provenance` exists to keep.
+    public let statisticsProvenance: RawStatistics.Provenance =
+        RawTruth.provenance(isRenderedFile: false)
+
     /// The ISO this frame was shot at, read once from the file's EXIF block.
     ///
     /// `CIRAWFilter` does not surface it, and it is not worth a second demosaic to find

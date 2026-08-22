@@ -51,8 +51,13 @@ ledger: how to run it, how it was verified without a local toolchain, and every 
    zero hitches at 120 Hz; browse a card without importing it. (Photo Mechanic's bar.)
 2. **One-frame sliders.** Drag → visible change within one display frame, full quality within
    200 ms. Nothing synchronous on the input path, ever. (The bar Lightroom keeps failing.)
-3. **Raw truth.** A real raw histogram and per-channel clipping stats at cull time — the embedded
-   JPEG lies by 0.3–2 EV. (FastRawViewer's bar, folded into the cull loop.)
+3. **Raw truth.** Per-channel clipping statistics at cull time, measured on the decoded
+   scene-linear frame — before every Lumen stage and before the display transform — so a
+   histogram that has been through a tone curve cannot be what a keep/kill call is made on.
+   `⇧H` shows the numbers and the verdict; `[` and `]` hold the shadows up and the highlights
+   down without writing an edit. **Not yet the sensor's own mosaic:** that needs a CFA reader
+   Lumen does not have, so the panel is labelled *Scene-linear (post-demosaic)* and says what
+   is still missing. (FastRawViewer's bar, most of the way, honestly labelled.)
 4. **Color depth no stills editor ships.** Zone-based tone with visible pivots, grading wheels,
    printer lights, hue-stable curves, skin uniformity, a physically grounded Film Lab with real
    halation and density grain, and scopes with a skin-tone line. (Resolve's and C1's bars.)

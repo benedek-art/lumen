@@ -1447,7 +1447,7 @@ final class EngineIntegrationTests: XCTestCase {
 
     func testRawStatisticsRoundTripThroughItsBlob() {
         let source = ramp(width: 64, height: 16)
-        let stats = RawStatistics.compute(source)
+        let stats = RawStatistics.compute(source, provenance: .sceneLinearDecode)
         let data = stats.encoded()
         guard let decoded = RawStatistics.decode(data) else {
             return XCTFail("raw statistics blob did not decode")

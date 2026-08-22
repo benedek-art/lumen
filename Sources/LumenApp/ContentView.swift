@@ -6,6 +6,7 @@
 
 #if os(macOS)
 
+import LumenCore
 import SwiftUI
 
 struct ContentView: View {
@@ -21,6 +22,17 @@ struct ContentView: View {
                 Divider().overlay(Lumen.separator)
                 HStack(spacing: 0) {
                     centre
+                        // The clipping panel and the hold badge ride the centre pane
+                        // rather than the develop column, because the develop column
+                        // is loupe-and-compare only and a keep/kill call is made in
+                        // the grid as often as anywhere else.
+                        .overlay(alignment: .topTrailing) {
+                            if state.showRawTruth {
+                                RawTruthPanel()
+                                    .padding(10)
+                            }
+                        }
+                        .overlay(alignment: .bottom) { inspectionBadge }
                     if showsDevelopColumn {
                         Divider().overlay(Lumen.separator)
                         DevelopPanel()
@@ -54,6 +66,20 @@ struct ContentView: View {
 
     private var showsDevelopColumn: Bool {
         state.primarySelection != nil && (state.viewMode == .loupe || state.viewMode == .compare)
+    }
+
+    /// What is on screen while `[` or `]` is held. A momentary change to the picture
+    /// that does not announce itself is indistinguishable from an edit the user made by
+    /// accident, and this one deliberately does not reach the recipe — so the badge is
+    /// the only thing that says why the frame looks different.
+    @ViewBuilder
+    private var inspectionBadge: some View {
+        if let hold = state.inspectionHold {
+            LumenBadge(text: hold.badge(stops: InspectionHolds.defaultStops),
+                       emphasized: true)
+                .padding(.bottom, 12)
+                .allowsHitTesting(false)
+        }
     }
 
     @ViewBuilder

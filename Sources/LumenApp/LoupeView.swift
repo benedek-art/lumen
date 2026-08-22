@@ -825,7 +825,11 @@ struct LoupeView: View {
     /// the pixels that exist rather than a smoothed guess at them; below 1 the
     /// downscale is filtered, because nearest-neighbour minification is aliasing.
     private func plate(_ cg: CGImage, ratio: Double, drawn: CGSize) -> some View {
-        Image(decorative: cg, scale: 1, orientation: .up)
+        // `[` / `]` are a display gain over the frame already on screen (docs/10 §10.5)
+        // — held, never applied. With no hold down this returns `cg` unchanged, so the
+        // normal path costs one nil check.
+        Image(decorative: InspectionGain.displayed(cg, hold: state.inspectionHold),
+              scale: 1, orientation: .up)
             .resizable()
             .interpolation(ratio >= 1 ? .none : .high)
             .antialiased(ratio < 1)

@@ -840,6 +840,29 @@ final class AppState: ObservableObject {
     /// the actual composite off the main actor.
     @Published var scopes: ScopeData?
     var scopeGeneration: UInt64 = 0
+
+    /// `⇧H` — the cull-time clipping panel (docs/10 §10.5, README goal 3).
+    ///
+    /// A separate switch from `showHistogram` because the two instruments measure
+    /// different images and answer different questions. The histogram bins the render;
+    /// this bins the decoded scene-linear frame, before every Lumen stage and before
+    /// the display transform, and reports per-channel clipped percentages. It is not
+    /// the sensor's mosaic — nothing here can read one — and `RawTruth` supplies the
+    /// words the panel uses to say so.
+    @Published var showRawTruth = false { didSet { rawTruthBecameVisible(oldValue) } }
+    /// The measurement for `primarySelection`, from the cache when there is one.
+    @Published var rawTruth: RawStatistics?
+    /// How the measurement in hand was taken, when it was taken this session. Nil for
+    /// one read back from the cache — the row records its own site stride and the
+    /// readout rebuilds the caption from that.
+    @Published var rawTruthPlan: RawTruth.Plan?
+    /// Set while a measurement is being taken, so the panel can say "measuring" rather
+    /// than showing the last photo's numbers under this photo's name.
+    @Published var rawTruthMeasuring = false
+    var rawTruthGeneration: UInt64 = 0
+    /// The inspection currently held down (`[` / `]`), or nil. Never written to a
+    /// recipe: it is a display gain over the frame already on screen.
+    @Published var inspectionHold: InspectionHold?
     /// Which folder scan is the current one. Opening B while A is still enumerating
     /// must not let A's results land on top of B's.
     var scanGeneration: UInt64 = 0
@@ -1717,6 +1740,11 @@ final class AppState: ObservableObject {
         activeComponentIndex = 0
         loadStrokeSets(for: recipe(for: photo))
         scheduleScopeRefresh()
+        // The clipping panel follows the cursor and NOTHING ELSE. It is measured on the
+        // decode, before every Lumen stage, so no slider in the app can move a number
+        // in it — which is exactly why the cache is keyed on the file and why the edit
+        // paths above do not schedule it.
+        scheduleRawTruthRefresh()
         refreshMaskOverlay()
     }
 
@@ -1789,6 +1817,13 @@ final class AppState: ObservableObject {
 
     private func scopesBecameVisible(_ wasOn: Bool) {
         if !wasOn { scheduleScopeRefresh() }
+    }
+
+    /// Opening the panel on an unmeasured frame has to measure it. docs/10 §10.5 gives
+    /// that request a ≤400 ms budget and lets it jump the queue, which is what the
+    /// on-demand path here is: nothing is measured until somebody asks.
+    private func rawTruthBecameVisible(_ wasOn: Bool) {
+        if !wasOn { scheduleRawTruthRefresh() }
     }
 
     /// The photo whose current state decides whether a cull key sets or clears.

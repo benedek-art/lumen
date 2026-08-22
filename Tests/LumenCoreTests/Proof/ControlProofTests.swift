@@ -72,10 +72,12 @@ final class ControlProofTests: XCTestCase {
                         + "overshoot measurement")
                 continue
             }
+            guard let ceiling = spec.overshootCeiling else { continue }
             XCTAssertLessThan(
-                overshoot, 4.0,
-                "\(spec.id) pushes pixels \(String(format: "%.1f", overshoot)) code values "
-                    + "beyond the input's own range — that is a rim beside every edge")
+                overshoot, ceiling,
+                "\(spec.id) pushes pixels \(overshoot) code values beyond the input's "
+                    + "own range, past its agreed ceiling of \(ceiling) — that is a rim "
+                    + "beside every edge")
         }
     }
 

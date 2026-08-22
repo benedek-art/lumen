@@ -1127,6 +1127,206 @@ final class CatalogTests: XCTestCase {
                        "xxh64:0123456789abcdef")
         store.close()
     }
+
+    // MARK: - Raw-truth statistics (`cache.raw_stats`)
+
+    /// A measurement worth 150–400 ms of decode has to survive a relaunch, or the
+    /// second look at a photograph pays for it again. The table has existed since the
+    /// first schema with nothing writing to it; these are the tests behind the writer.
+    private func measurement(
+        clippedR: Double = 2.1,
+        provenance: RawStatistics.Provenance = .sceneLinearDecode,
+        revision: UInt16 = RawStatistics.currentAnalyzerRevision) -> RawStatistics {
+        RawStatistics(bins: (0..<(RawStatistics.channelCount * RawStatistics.binCount))
+                          .map { UInt32($0 * 7 + 3) },
+                      clippedHighPercent: [clippedR, 0.25, 0.5, 0.75],
+                      nearClippedHighPercent: [4.5, 5.5, 6.5, 7.5],
+                      clippedLowPercent: [0.125, 0.25, 0.375, 0.5],
+                      nearClippedLowPercent: [1.5, 2.5, 3.5, 4.5],
+                      sampleCount: 2_796_032,
+                      subsample: 4,
+                      blackLevel: 512,
+                      saturation: [16383, 16383, 16383, 16383],
+                      analyzerRevision: revision,
+                      sourceIsCFA: provenance == .sensorCFA,
+                      provenance: provenance)
+    }
+
+    func testRawStatisticsSurviveAReopen() throws {
+        let store = try makeStore()
+        let (_, ids) = try seed(store)
+        guard let photo = ids.first else { return XCTFail("no photos seeded") }
+
+        XCTAssertNil(try store.rawStatistics(photoID: photo,
+                                             provenance: .sceneLinearDecode),
+                     "an unmeasured photo must not report a cached measurement")
+
+        let stats = measurement()
+        XCTAssertTrue(try store.recordRawStatistics(stats, photoID: photo))
+        store.close()
+
+        let reopened = try makeStore()
+        guard let read = try reopened.rawStatistics(photoID: photo,
+                                                    provenance: .sceneLinearDecode) else {
+            return XCTFail("the measurement did not survive the reopen")
+        }
+        XCTAssertEqual(read.bins, stats.bins)
+        XCTAssertEqual(read.sampleCount, stats.sampleCount)
+        XCTAssertEqual(read.subsample, 4)
+        XCTAssertEqual(read.provenance, .sceneLinearDecode)
+        for channel in 0..<4 {
+            XCTAssertEqual(read.clippedHighPercent[channel],
+                           stats.clippedHighPercent[channel], accuracy: 1e-4)
+            XCTAssertEqual(read.nearClippedLowPercent[channel],
+                           stats.nearClippedLowPercent[channel], accuracy: 1e-4)
+        }
+
+        // And the JSON column, which had no writer either. It is the cheap read: the
+        // percentages without decoding 2 KB of bins.
+        let json = try reopened.rawStatisticsClippedJSON(photoID: photo)
+        XCTAssertEqual(json, stats.clippedPercentJSON)
+        XCTAssertTrue(json?.contains("\"high\":2.1000") ?? false, json ?? "nil")
+        XCTAssertTrue(json?.contains("\"nearLow\":4.5000") ?? false, json ?? "nil")
+        reopened.close()
+    }
+
+    func testRecordingTwiceReplacesRatherThanFailing() throws {
+        let store = try makeStore()
+        let (_, ids) = try seed(store)
+        guard let photo = ids.first else { return XCTFail("no photos seeded") }
+
+        try store.recordRawStatistics(measurement(clippedR: 2.1), photoID: photo)
+        try store.recordRawStatistics(measurement(clippedR: 9.5), photoID: photo)
+        let read = try store.rawStatistics(photoID: photo, provenance: .sceneLinearDecode)
+        XCTAssertEqual(read?.clippedHighPercent[0] ?? 0, 9.5, accuracy: 1e-4,
+                       "a recompute must replace the row, not lose to it")
+        store.close()
+    }
+
+    func testAStaleAnalyzerRevisionReadsAsMissingRatherThanAsAnAnswer() throws {
+        let store = try makeStore()
+        let (folderID, ids) = try seed(store)
+        guard let photo = ids.first else { return XCTFail("no photos seeded") }
+
+        let old: UInt16 = RawStatistics.currentAnalyzerRevision &- 1
+        try store.recordRawStatistics(measurement(revision: old), photoID: photo)
+
+        XCTAssertNil(try store.rawStatistics(photoID: photo,
+                                             provenance: .sceneLinearDecode),
+                     "a row binned by a different analyzer is not this build's answer")
+        XCTAssertNotNil(try store.rawStatistics(photoID: photo, revision: old,
+                                                provenance: .sceneLinearDecode),
+                        "and it is still readable by anything that asks for that "
+                            + "revision, or the check is just a delete")
+
+        // Which is what makes a revision bump a recompute: the backlog query sees it.
+        XCTAssertTrue(try store.photosMissingRawStatistics(folderID: folderID)
+            .contains(photo))
+        store.close()
+    }
+
+    func testARowMeasuredOnSomethingElseIsNotAnAnswerEither() throws {
+        let store = try makeStore()
+        let (_, ids) = try seed(store)
+        guard let photo = ids.first else { return XCTFail("no photos seeded") }
+
+        try store.recordRawStatistics(measurement(provenance: .renderedProxy),
+                                      photoID: photo)
+        XCTAssertNil(try store.rawStatistics(photoID: photo,
+                                             provenance: .sceneLinearDecode),
+                     "a measurement of the rendered picture must not be served to a "
+                         + "caller asking for the scene-linear one — that is the "
+                         + "histogram this instrument exists to beat, handed over "
+                         + "under the better name")
+        XCTAssertNotNil(try store.rawStatistics(photoID: photo,
+                                                provenance: .renderedProxy))
+        store.close()
+    }
+
+    func testAMeasurementThatCannotSayWhatItMeasuredIsNotCached() throws {
+        let store = try makeStore()
+        let (folderID, ids) = try seed(store)
+        guard let photo = ids.first else { return XCTFail("no photos seeded") }
+
+        XCTAssertFalse(try store.recordRawStatistics(measurement(provenance: .unspecified),
+                                                     photoID: photo),
+                       "an unlabelled measurement was accepted into the cache")
+        XCTAssertNil(try store.rawStatisticsClippedJSON(photoID: photo))
+        XCTAssertTrue(try store.photosMissingRawStatistics(folderID: folderID)
+            .contains(photo),
+                      "and the photo stays on the worker's queue, so the honest "
+                          + "measurement still gets taken")
+        store.close()
+    }
+
+    func testTheBacklogQueryPagesAndTerminates() throws {
+        let store = try makeStore()
+        let (folderID, ids) = try seed(store)
+        XCTAssertEqual(try store.photosMissingRawStatistics(folderID: folderID), ids)
+
+        let first = try store.photosMissingRawStatistics(folderID: folderID, limit: 2)
+        XCTAssertEqual(first, Array(ids.prefix(2)))
+        let second = try store.photosMissingRawStatistics(folderID: folderID,
+                                                          afterID: first[1], limit: 2)
+        XCTAssertEqual(second, Array(ids[2..<4]))
+
+        for id in ids { try store.recordRawStatistics(measurement(), photoID: id) }
+        XCTAssertTrue(try store.photosMissingRawStatistics(folderID: folderID).isEmpty,
+                      "the worker would never stop")
+        store.close()
+    }
+
+    func testAMissingFileIsNotQueuedForMeasurement() throws {
+        let store = try makeStore()
+        let (folderID, ids) = try seed(store)
+        guard let photo = ids.first else { return XCTFail("no photos seeded") }
+        try store.setMissing(true, photoID: photo)
+        XCTAssertFalse(try store.photosMissingRawStatistics(folderID: folderID)
+            .contains(photo),
+                       "a worker cannot decode a file that is not there, and a queue "
+                           + "that keeps handing it one never drains")
+        store.close()
+    }
+
+    func testDeletingAPhotoTakesItsMeasurementWithIt() throws {
+        let store = try makeStore()
+        let (_, ids) = try seed(store)
+        guard let photo = ids.first else { return XCTFail("no photos seeded") }
+        try store.recordRawStatistics(measurement(), photoID: photo)
+        _ = try store.deletePhoto(id: photo)
+        XCTAssertNil(try store.rawStatisticsClippedJSON(photoID: photo),
+                     "the row outlived the photograph, so the next photo to take that "
+                         + "id would inherit somebody else's histogram")
+        store.close()
+    }
+
+    func testACorruptBlobReadsAsMissingRatherThanThrowing() throws {
+        // cache.db is disposable and self-healing (D52). A truncated or garbage blob is
+        // a recompute, never an error the user sees.
+        let store = try makeStore()
+        let (folderID, ids) = try seed(store)
+        guard let photo = ids.first else { return XCTFail("no photos seeded") }
+        try store.recordRawStatistics(measurement(), photoID: photo)
+        let cachePath = store.cachePath
+        store.close()
+
+        // Corrupted from outside, the way a truncated write or a bad sector would.
+        let cache = try SQLiteDatabase(path: cachePath)
+        try cache.run("UPDATE raw_stats SET bins = ? WHERE photo_id = ?;",
+                      [.blob(Data([0x00, 0x01, 0x02])), .integer(photo)])
+        cache.close()
+
+        let reopened = try makeStore()
+        XCTAssertNil(try reopened.rawStatistics(photoID: photo,
+                                                provenance: .sceneLinearDecode),
+                     "a blob that does not decode was served as a measurement")
+        XCTAssertFalse(try reopened.photosMissingRawStatistics(folderID: folderID)
+            .contains(photo),
+                       "the row is present at the right revision, so the backlog query "
+                           + "cannot see it — the reader is what heals this, which is "
+                           + "why the reader decodes rather than trusting the column")
+        reopened.close()
+    }
 }
 
 #endif

@@ -137,12 +137,34 @@ existed and the work was to match it.
 Two of the README's six measurable goals are defeated by wiring, not by difficulty, and
 both should be embarrassing to leave standing.
 
-**Raw truth.** `RawStatistics` is a complete, tested, EV-binned per-channel sensor
+**Raw truth.** ~~`RawStatistics` is a complete, tested, EV-binned per-channel sensor
 histogram with clipping percentages. Its only callers are two serialization round-trip
-tests. There is no raw histogram, no clipped-percentage readout, no shadow-boost or
-highlight-inspect hold, and no raw-clipping overlay anywhere a user can see. The
-develop-side histogram bins the *rendered* proxy — precisely the lying histogram the
-FastRawViewer pillar exists to replace (LIB-03, TONE-38, TONE-39).
+tests.~~ **Partly closed, and the correction to that sentence is the point.**
+`RawStatistics` is a *binner*, not a sensor histogram: what it measures is whatever it
+is handed, and nothing in this repository can hand it undemosaiced CFA data. It now has
+a real caller — `⇧H` reads it, `cache.raw_stats` stores it, and the `[` / `]` holds are
+wired — measuring the **decoded scene-linear frame**: `CIRAWFilter` at Lumen's flat
+settings, before every Lumen stage and before the display transform.
+
+What that buys and what it does not:
+
+- **Buys.** Scene-referred numbers with the headroom above display white intact, which
+  is the whole difference from the develop histogram. A test measures it rather than
+  asserting it: on a frame with a shoulder putting scene 0.9 at display white, the
+  rendered reading reports clipping across a band that still holds detail, and the
+  scene-linear reading does not (`RawTruthReadoutTests`).
+- **Does not buy.** The sensor's mosaic. Apple's RAW API does not expose CFA values and
+  there is no LibRaw in the tree, so where Apple's highlight reconstruction has rebuilt
+  a saturated channel these numbers read the reconstruction. Which direction that moves
+  a percentage has not been measured here, and the panel says so rather than guessing.
+- **Enforced, not intended.** `RawStatistics.Provenance` has no default at the binning
+  call, rides in the persisted blob, gates the cache read, and is printed on the panel;
+  and `RawTruthProvenanceTests.testNothingInTheRepositoryClaimsSensorRawStatistics`
+  scans `Sources/` and fails if any call site labels a measurement `.sensorCFA`.
+
+Still open: the background sweep after a scan (`photosMissingRawStatistics` is the queue
+and has no driver — the panel measures on demand only), the `O` raw-clipping overlay,
+and the CFA reader itself (LIB-03, TONE-38, TONE-39).
 
 **Culling speed.** The preview cache has a schema, a full store API, and zero app
 callers, so every launch re-decodes every embedded JPEG. Then the prefetch ring warms

@@ -319,6 +319,25 @@ actor RenderCoordinator {
                                           sourceX: sourceX, sourceY: sourceY)
     }
 
+    /// The cull-time clipping measurement for one file.
+    ///
+    /// On this actor for the same reason every other tap is: the decoded source lives
+    /// here, so measuring a photo the viewer is already showing costs no second decode.
+    /// It claims no render ticket — a measurement must never cancel the frame the user
+    /// is waiting on.
+    ///
+    /// The recipe is passed through because `decode` reads it (lens profile, capture
+    /// sharpening, Apple's stand-in denoise) and the decode cache is keyed on those; a
+    /// synthetic recipe here would evict the viewer's decode on every measurement.
+    /// Nothing downstream of the decode runs, so the tone and colour settings in it
+    /// have no effect on the numbers — which is the property that makes them worth
+    /// caching against the file rather than against the edit.
+    func clippingStatistics(url: URL,
+                            recipe: Recipe) -> (RawStatistics, RawTruth.Plan)? {
+        guard let source = try? self.source(for: url) else { return nil }
+        return renderer.clippingStatistics(source: source, recipe: recipe)
+    }
+
     /// One sample in the WORKING space — after white balance, exposure and printer
     /// lights, which is where the colour stage sees its input.
     ///

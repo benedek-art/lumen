@@ -564,6 +564,32 @@ changed the picture.
 
 ### Still open, from those audits
 
+- **The cull-time clipping panel is scene-linear, not sensor-raw, and cannot be made
+  sensor-raw here.** `⇧H` measures the decoded frame: `AppleRawSource.decode` is
+  `CIRAWFilter` with Apple's tone curve, shadow boost, local tone mapping, gamut mapping
+  and contrast all off and extended range kept, and
+  `PipelineRenderer.clippingStatistics` bins that output before any Lumen stage and
+  before the display transform. That is scene-referred and carries the headroom above
+  display white — the property the develop histogram lacks and the reason this instrument
+  is worth having — and it is **post-demosaic**. docs/10 §10.5 specifies undemosaiced CFA
+  sites against the per-channel saturation level from metadata; Apple's RAW API does not
+  expose the mosaic and there is no LibRaw in the tree, so where Apple's highlight
+  reconstruction has rebuilt a saturated channel these numbers read the reconstruction.
+  Which direction that moves a percentage has not been measured, and nothing in the app
+  claims it has.
+
+  The gap is held open by a mechanism rather than by this paragraph:
+  `RawStatistics.Provenance` has **no default** at the binning call
+  (`Scopes.swift`, `RawStatistics.compute`), rides in bits 1–3 of the persisted blob's
+  flags word, gates the cache read in `CatalogStore.rawStatistics`, and is what the
+  panel header prints. `RawTruthProvenanceTests
+  .testNothingInTheRepositoryClaimsSensorRawStatistics` scans `Sources/` and fails if any
+  call site writes `provenance: .sensorCFA` or `sourceIsCFA: true`. Two further limits,
+  both stated on the panel: the measurement runs on a 2048 px proxy of the decode, so an
+  isolated clipped pixel is averaged down while a large blown region reads true; and
+  nothing measures until `⇧H` asks — `CatalogStore.photosMissingRawStatistics` is the
+  background sweep's queue and has no driver. The `O` raw-clipping overlay is not built.
+
 - **Dehaze's sky guard is still reference-only.** The recombination now matches — one
   luminance ratio rather than a per-channel divide, so a recovered sky keeps its colour
   (measured: the old form rotated a veiled blue by 13.4°, the new one by 0.00°). What is
