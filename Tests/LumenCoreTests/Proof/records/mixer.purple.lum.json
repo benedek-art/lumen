@@ -1,0 +1,15 @@
+{
+  "authority" : 128.08990734757793,
+  "deadSteps" : 0,
+  "frame" : "colourChart",
+  "frontLoading" : 0.5460543470093783,
+  "hueRotation" : 2.579946286490838,
+  "id" : "mixer.purple.lum",
+  "isMonotone" : true,
+  "meanSeparation" : 14.868524820141818,
+  "panel" : "Colour Mixer",
+  "shippingReader" : "Sources\/LumenPipeline\/RenderGraph.swift:98",
+  "smallestLiveStep" : 5.38491414267105,
+  "travelHigh" : 100,
+  "travelLow" : -100
+}

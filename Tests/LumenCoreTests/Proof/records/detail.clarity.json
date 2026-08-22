@@ -1,0 +1,16 @@
+{
+  "authority" : 17.95684131875123,
+  "deadSteps" : 0,
+  "frame" : "fineTexture",
+  "frontLoading" : 0.23234326123509277,
+  "hueRotation" : 0,
+  "id" : "detail.clarity",
+  "isMonotone" : true,
+  "meanSeparation" : 6.187867324034265,
+  "overshoot" : 4.292157317280015,
+  "panel" : "Presence",
+  "shippingReader" : "Sources\/LumenPipeline\/RenderGraph.swift:610",
+  "smallestLiveStep" : 0.27583062717758366,
+  "travelHigh" : 100,
+  "travelLow" : -100
+}

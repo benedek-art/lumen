@@ -140,3 +140,52 @@ this pass came in wrong in both directions: `quick_sig` was costed at 80–110 l
 needed ~240 (the extra being a size probe so a first folder open hashes nothing at all),
 FILM-08's magnitude was overstated by an order of magnitude, and this one was understated
 because the estimator saw a call site and not a coordinate system.
+
+---
+
+**PROOF-01 — two mixer controls are not monotone over their travel.** UNPROVEN, recorded
+rather than asserted past.
+
+The 46-control sweep found `mixer.magenta.sat` and `mixer.red.hue` change direction
+somewhere in their travel. Both are recorded with `isMonotone: false` in their proof
+records, and the monotonicity assertion is NOT yet applied to the mixer, because asserting
+a property before understanding whether it should hold is how a suite acquires a test
+nobody trusts.
+
+`mixer.red.hue` has an innocent explanation available: red is the band that straddles the
+wrap point in hue space, so a shift can carry patches across it and the measured direction
+reverses without anything being wrong. That is a hypothesis, not a finding — it needs
+checking against the band's actual boundaries.
+
+`mixer.magenta.sat` has no such explanation. A band's saturation should move one way over
+its travel. It is the one to look at first.
+
+**PROOF-02 — overshoot, now measured on the six controls that can produce it.** Recorded,
+not asserted.
+
+In sRGB code values beyond the input's own range, at full travel:
+
+```
+detail.dehaze    51.14      sharpen.amount   41.51
+detail.texture   19.67      sharpen.radius    6.40
+detail.clarity    4.29      sharpen.detail    0.99
+                            sharpen.masking   0.00
+```
+
+Three readings that mean different things, and the distinction matters more than the
+numbers. `sharpen.amount`'s overshoot EQUALS its authority, because on a step edge the
+halo IS the sharpening — an unsharp mask that did not overshoot would not be doing
+anything. `sharpen.masking` at exactly 0.00 is a gate behaving like a gate. And
+`detail.texture` at 19.67 with `detail.clarity` at 4.29 is the rim the panel used to deny
+and now discloses (DETAIL-04), on a shipping path that runs a guided band where the
+halo-free property belongs to a local Laplacian that does not ship.
+
+`detail.dehaze` at 51.14 is the one worth a second look. docs/19 recorded that an earlier
+dehaze put a tenth of a test frame above scene white at +50 and nearly half at +100, and
+that was fixed; whether 51 code values of excursion on a veiled sky is the fix working or
+the fix incomplete is not something this harness can say on its own.
+
+**Why none of these is asserted yet.** A ceiling is a promise about what the code may do,
+and every promise in this repository that turned out to be false started as somebody's
+reasonable guess. These are measurements. They become promises when someone has decided
+what the right answer is, and the records make that decision visible whenever it happens.

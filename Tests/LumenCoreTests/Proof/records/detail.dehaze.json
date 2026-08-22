@@ -1,0 +1,16 @@
+{
+  "authority" : 96.48101499517804,
+  "deadSteps" : 0,
+  "frame" : "hazySky",
+  "frontLoading" : 0.45407839844625186,
+  "hueRotation" : 2.953557486998079,
+  "id" : "detail.dehaze",
+  "isMonotone" : true,
+  "meanSeparation" : 36.250685146030065,
+  "overshoot" : 51.140366943184695,
+  "panel" : "Presence",
+  "shippingReader" : "Sources\/LumenPipeline\/RenderGraph.swift:610",
+  "smallestLiveStep" : 3.1338648887627016,
+  "travelHigh" : 100,
+  "travelLow" : -100
+}

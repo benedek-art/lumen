@@ -1,0 +1,14 @@
+{
+  "authority" : 61.98632024811586,
+  "deadSteps" : 0,
+  "frame" : "neutralRamp",
+  "frontLoading" : 0.5618735462329391,
+  "id" : "curve.darks",
+  "isMonotone" : true,
+  "meanSeparation" : 6.3316862405394225,
+  "panel" : "Curve",
+  "shippingReader" : "Sources\/LumenPipeline\/RenderGraph.swift:486",
+  "smallestLiveStep" : 3.0149828898252053,
+  "travelHigh" : 100,
+  "travelLow" : -100
+}

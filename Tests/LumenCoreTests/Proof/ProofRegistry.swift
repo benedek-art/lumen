@@ -226,7 +226,9 @@ enum ProofRegistry {
                 low: -100, high: 100,
                 frameName: "neutralRamp", frame: { ProofFrames.neutralRamp() },
                 shippingReader: "Sources/LumenPipeline/RenderGraph.swift:486",
-                authorityFloor: 12,
+                // 70% of the weakest region measured (highlights, 50.70). One floor for
+                // four controls, set by the weakest, because a loop cannot carry four.
+                authorityFloor: 35,
                 apply: { r, v in r.develop.curve.parametric[keyPath: path] = v })
         }
     }()
@@ -245,21 +247,21 @@ enum ProofRegistry {
             low: -100, high: 100,
             frameName: "fineTexture", frame: { ProofFrames.fineTexture() },
             shippingReader: "Sources/LumenPipeline/RenderGraph.swift:610",
-            authorityFloor: 2, mayLeaveRange: false,
+            authorityFloor: 27, mayLeaveRange: false,
             apply: { r, v in r.develop.detail.texture = v }),
         ControlSpec(
             id: "detail.clarity", panel: "Presence", displayName: "Clarity",
             low: -100, high: 100,
             frameName: "fineTexture", frame: { ProofFrames.fineTexture() },
             shippingReader: "Sources/LumenPipeline/RenderGraph.swift:610",
-            authorityFloor: 2, mayLeaveRange: false,
+            authorityFloor: 13, mayLeaveRange: false,
             apply: { r, v in r.develop.detail.clarity = v }),
         ControlSpec(
             id: "detail.dehaze", panel: "Presence", displayName: "Dehaze",
             low: -100, high: 100,
             frameName: "hazySky", frame: { ProofFrames.hazySky() },
             shippingReader: "Sources/LumenPipeline/RenderGraph.swift:610",
-            authorityFloor: 5, mayLeaveRange: false,
+            authorityFloor: 68, mayLeaveRange: false,
             apply: { r, v in r.develop.detail.dehaze = v }),
     ]
 
@@ -272,14 +274,14 @@ enum ProofRegistry {
             low: 0, high: 150,
             frameName: "stepEdge", frame: { ProofFrames.stepEdge() },
             shippingReader: "Sources/LumenPipeline/RenderGraph.swift:700",
-            authorityFloor: 3, mayLeaveRange: false,
+            authorityFloor: 29, mayLeaveRange: false,
             apply: { r, v in r.develop.detail.sharpen.amount = v }),
         ControlSpec(
             id: "sharpen.radius", panel: "Detail", displayName: "Sharpen radius",
             low: 0.5, high: 3.0, neutral: 1.0,
             frameName: "stepEdge", frame: { ProofFrames.stepEdge() },
             shippingReader: "Sources/LumenPipeline/RenderGraph.swift:700",
-            authorityFloor: 1, mayLeaveRange: false,
+            authorityFloor: 17, mayLeaveRange: false,
             apply: { r, v in
                 // Radius does nothing without amount to apply at that radius.
                 r.develop.detail.sharpen.amount = 100
@@ -290,7 +292,7 @@ enum ProofRegistry {
             low: 0, high: 100,
             frameName: "fineTexture", frame: { ProofFrames.fineTexture() },
             shippingReader: "Sources/LumenPipeline/RenderGraph.swift:700",
-            authorityFloor: 1, mayLeaveRange: false,
+            authorityFloor: 3, mayLeaveRange: false,
             apply: { r, v in
                 r.develop.detail.sharpen.amount = 100
                 r.develop.detail.sharpen.detail = v
@@ -311,7 +313,7 @@ enum ProofRegistry {
             low: 0, high: 100,
             frameName: "fineTexture", frame: { ProofFrames.fineTexture() },
             shippingReader: "Sources/LumenPipeline/RenderGraph.swift:700",
-            authorityFloor: 1, mayLeaveRange: false,
+            authorityFloor: 10, mayLeaveRange: false,
             apply: { r, v in
                 r.develop.detail.sharpen.amount = 100
                 r.develop.detail.sharpen.masking = v
@@ -327,7 +329,10 @@ enum ProofRegistry {
     static let mixer: [ControlSpec] = {
         let bands = ["red", "orange", "yellow", "green", "aqua", "blue", "purple", "magenta"]
         let axes: [(String, WritableKeyPath<MixerBand, Double>, Double)] = [
-            ("hue", \.hue, 3), ("sat", \.sat, 6), ("lum", \.lum, 6),
+            // 70% of the weakest band on each axis: aqua hue 46.05, green sat
+            // 66.34, orange lum 88.90. Per-axis rather than per-band, because what this
+            // catches is a band falling to the level of the current weakest.
+            ("hue", \.hue, 32), ("sat", \.sat, 46), ("lum", \.lum, 62),
         ]
         var out = [ControlSpec]()
         for (index, band) in bands.enumerated() {

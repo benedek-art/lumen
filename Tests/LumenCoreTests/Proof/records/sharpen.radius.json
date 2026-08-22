@@ -1,0 +1,16 @@
+{
+  "authority" : 23.60663287544014,
+  "deadSteps" : 0,
+  "frame" : "stepEdge",
+  "frontLoading" : 0.7246723641711778,
+  "hueRotation" : 0,
+  "id" : "sharpen.radius",
+  "isMonotone" : true,
+  "meanSeparation" : 1.1063566817937245,
+  "overshoot" : 6.399791240104918,
+  "panel" : "Detail",
+  "shippingReader" : "Sources\/LumenPipeline\/RenderGraph.swift:700",
+  "smallestLiveStep" : 0.8429139267612413,
+  "travelHigh" : 3,
+  "travelLow" : 0.5
+}
