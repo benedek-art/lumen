@@ -314,6 +314,31 @@ actor RenderCoordinator {
         return working.isFinite ? working : nil
     }
 
+    /// One sample in the space a MASK compares against — `localStageInput`, S6 through
+    /// S10, the same image the mask rasterizer is handed.
+    ///
+    /// A third tap, and the third is not a luxury. `sampleWorking` stops after the
+    /// linear matrix, which is right for a tool whose comparison happens there and
+    /// wrong for `colorRangePlane` and `similarityPlane`, which compare a component's
+    /// stored samples against the picture AFTER tone and after the colour+grade table.
+    /// Storing the shorter tap meant that on any photograph with a real global edit the
+    /// clicked colour and the compared colour were different numbers — so a Colour
+    /// Range mask could fail to select the pixel that was clicked, and got worse the
+    /// more the picture had been worked on.
+    ///
+    /// A mask has to compare against what it will be applied to, and it is applied to
+    /// the output of this stage list.
+    func sampleMaskReference(url: URL, recipe: Recipe,
+                             sourceX: Double, sourceY: Double) -> RGB? {
+        guard let source = try? self.source(for: url),
+              let sample = renderer.sampleMaskStageInput(source: source, recipe: recipe,
+                                                        sourceX: sourceX,
+                                                        sourceY: sourceY),
+              sample.isFinite
+        else { return nil }
+        return sample
+    }
+
     /// Sample a point and solve the Temp/Tint that make it neutral.
     ///
     /// The whole solve happens here rather than in the app because everything it needs

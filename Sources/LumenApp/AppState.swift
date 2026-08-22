@@ -99,6 +99,21 @@ enum PickTarget: Equatable, Sendable {
     /// Append a Point Colour swatch to a mask's own sub-recipe.
     case maskPointColor(maskID: String)
 
+    /// True for the targets whose value is compared against the LOCAL STAGE INPUT
+    /// rather than against the linear stage's output.
+    ///
+    /// The global Point Colour swatches are deliberately not on this list, and that is
+    /// not because they are correct — `ColorEngine` evaluates them inside the S9/S10
+    /// table, whose input already carries S7 tone, so a global swatch has the same
+    /// class of divergence one stage smaller. Moving it is a change to what the colour
+    /// panel's eyedropper means and belongs with that panel.
+    var samplesTheMaskStage: Bool {
+        switch self {
+        case .maskSample, .maskPointColor: return true
+        case .neutral, .newPointColor, .pointColor: return false
+        }
+    }
+
     /// What the status line says while the click is being waited for.
     var prompt: String {
         switch self {
@@ -1818,10 +1833,17 @@ final class AppState: ObservableObject {
 
     /// A click landed. Resolve it against whatever the pick was for.
     ///
-    /// Two different taps, deliberately. The neutral solver wants the value BEFORE
-    /// white balance, because it is computing that white balance; every colour tool
-    /// wants the value the colour stage will compare against, or a swatch picked off a
-    /// warm frame would stop matching the moment Temp moved.
+    /// THREE different taps, deliberately, and the rule is one sentence: a sample is
+    /// taken from the same image the thing that will read it compares against.
+    ///
+    /// The neutral solver wants the value BEFORE white balance, because it is
+    /// computing that white balance. The global Point Colour swatches want the working
+    /// image — after the linear matrix — or a swatch picked off a warm frame would stop
+    /// matching the moment Temp moved. And a MASK's samples want the local stage input,
+    /// because that is what `colorRangePlane`, `similarityPlane` and `LocalPlan` all
+    /// compare against; they used to be given the working image too, which is one tap
+    /// short of the comparison by the whole of the tone stage and the whole of the
+    /// colour and grade table.
     ///
     /// Every write goes through `updateRecipe`, so a picked colour is one undo step and
     /// one history entry, exactly like the sliders it replaces.
@@ -1847,8 +1869,20 @@ final class AppState: ObservableObject {
                                        solved.kelvin, solved.tint)
 
             case .newPointColor, .pointColor, .maskSample, .maskPointColor:
-                let sample = await renderCoordinator.sampleWorking(
-                    url: url, recipe: current, sourceX: sourceX, sourceY: sourceY)
+                // WHICH TAP depends on what will compare against the stored value.
+                // A mask's samples are compared by `colorRangePlane` and
+                // `similarityPlane` against `localStageInput` — after tone, after the
+                // colour and grade table — and a mask's own Point Colour is evaluated
+                // inside `LocalPlan`, whose input is that same image. `sampleWorking`
+                // stops after the linear matrix, so storing it here meant the clicked
+                // colour and the compared colour diverged by every global edit the
+                // photograph carried, and the mask could miss the pixel that was
+                // clicked.
+                let sample = target.samplesTheMaskStage
+                    ? await renderCoordinator.sampleMaskReference(
+                        url: url, recipe: current, sourceX: sourceX, sourceY: sourceY)
+                    : await renderCoordinator.sampleWorking(
+                        url: url, recipe: current, sourceX: sourceX, sourceY: sourceY)
                 pickTarget = nil
                 guard let sample else {
                     statusMessage = "Could not read a colour there."

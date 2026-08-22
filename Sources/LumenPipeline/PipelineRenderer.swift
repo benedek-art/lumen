@@ -1008,7 +1008,58 @@ public final class PipelineRenderer {
                                   radius: Int = 2) -> RGB? {
         guard let decoded = source.decode(recipe: recipe, draft: false, scaleFactor: 1.0)
         else { return nil }
-        let extent = decoded.extent
+        return sampleMean(decoded, sourceX: sourceX, sourceY: sourceY, radius: radius)
+    }
+
+    /// One sample of the image a MASK compares against: `RenderGraph.localStageInput`,
+    /// S6 through S10, which is the same image `maskSource` hands the rasterizer.
+    ///
+    /// A different tap from `sampleSceneLinear`'s, and the difference is the defect.
+    /// A Colour Range or Similarity component compares its stored samples against the
+    /// local stage input — which carries the tone stage and the colour+grade table as
+    /// well as the linear matrix — while the eyedropper stored a value that had been
+    /// through the linear matrix ALONE. With any real global tone or colour edit the
+    /// clicked colour and the compared colour are different numbers, so the mask can
+    /// fail to select the very pixel that was clicked, and the failure grows with the
+    /// edit rather than announcing itself.
+    ///
+    /// Of the two taps this is the one that has to move: the mask must compare against
+    /// what it will be applied to, and it is applied to the output of this function's
+    /// own stage list.
+    ///
+    /// `draft: true` matches `maskSource` exactly, and for the same reason — a mask
+    /// samples luminance and colour, and denoise and presence move neither.
+    ///
+    /// One approximation, stated: `maskSource` stages a 1024 px proxy while this stages
+    /// the decode, and the tone stage's guided mask has a scale-dependent radius. The
+    /// two therefore differ by the difference between two local averages of the same
+    /// picture, which is nothing on a flat patch and small on a busy one — against a
+    /// pre-existing error that was the whole of S7 plus the whole of S9/S10.
+    public func sampleMaskStageInput(source: any ImageSource, recipe: Recipe,
+                                     sourceX: Double, sourceY: Double,
+                                     radius: Int = 2) -> RGB? {
+        guard let decoded = source.decode(recipe: recipe, draft: false, scaleFactor: 1.0)
+        else { return nil }
+        let plan = RenderPlan(recipe: recipe,
+                              asShotKelvin: source.asShotTemperature,
+                              asShotTint: source.asShotTint)
+        let longEdge = Int(Swift.max(decoded.extent.width, decoded.extent.height))
+        let staged = RenderGraph().localStageInput(
+            decoded, plan: plan,
+            options: RenderGraph.Options(longEdge: longEdge, draft: true))
+        // Cropped back to the decode's own extent so the normalized coordinate means
+        // the same thing it did going in. Every stage in that list preserves the
+        // extent today; a stage that stopped doing so would otherwise move the
+        // eyedropper rather than fail.
+        return sampleMean(staged.cropped(to: decoded.extent),
+                          sourceX: sourceX, sourceY: sourceY, radius: radius)
+    }
+
+    /// The mean of a small window about a normalized source coordinate, read back in
+    /// the working space.
+    private func sampleMean(_ image: CIImage, sourceX: Double, sourceY: Double,
+                            radius: Int) -> RGB? {
+        let extent = image.extent
         guard extent.width >= 1, extent.height >= 1 else { return nil }
 
         // Core Image extents are bottom-up; the caller's y is top-down.
@@ -1034,7 +1085,7 @@ public final class PipelineRenderer {
         var pixels = [Float](repeating: 0, count: width * height * 4)
         pixels.withUnsafeMutableBytes { raw in
             guard let base = raw.baseAddress else { return }
-            context.render(decoded, toBitmap: base, rowBytes: width * 16,
+            context.render(image, toBitmap: base, rowBytes: width * 16,
                            bounds: rect, format: .RGBAf, colorSpace: working)
         }
 

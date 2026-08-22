@@ -231,6 +231,108 @@ final class MaskingTests: XCTestCase {
                                  + "anything")
     }
 
+    // MARK: - Where a mask's samples are taken from
+
+    /// A colour mask has to select the pixel that was clicked.
+    ///
+    /// The eyedropper stored the WORKING image — the decode through the S6 matrix and
+    /// nothing else. `colorRangePlane` and `similarityPlane` compare those stored
+    /// samples against the LOCAL STAGE INPUT, which is S6 plus the tone stage plus the
+    /// colour and grade table. On a recipe with any real global tone or colour work the
+    /// two are different colours, the trapezoid gates are 0 outside their tolerance
+    /// rather than merely small, and the mask misses the pixel the photographer
+    /// pointed at — worse the more the picture has been worked on, which is the
+    /// opposite of how a tool should degrade.
+    ///
+    /// Measured end to end, through `ReferenceRenderer.render`, so the stage input the
+    /// mask is compared against is the renderer's own and not this test's idea of it:
+    /// both masks carry a strong local exposure lift, and what is asserted is how far
+    /// the clicked pixel moved. The value fed to each is the only difference.
+    ///
+    /// Measured on this frame at Refine 20 with Contrast 90 and Saturation 90: the
+    /// clicked pixel moves 0.339 from the stage tap, 0.000 from the working tap, and a
+    /// patch of a different colour moves 0.000 from either. Not "less selected" — the
+    /// trapezoid gates return exactly zero outside their tolerance, so the mask misses
+    /// completely.
+    func testAColourMaskSelectsTheColourThatWasClicked() {
+        let side = 32
+        // Four flat patches of clearly different hue at similar luminance, so a colour
+        // range has something to include and something to exclude.
+        let image = ImageBuffer(width: side, height: side) { u, v in
+            if v < 0.5 { return u < 0.5 ? RGB(0.34, 0.07, 0.05) : RGB(0.08, 0.30, 0.07) }
+            return u < 0.5 ? RGB(0.06, 0.09, 0.34) : RGB(0.18, 0.18, 0.18)
+        }
+        let clicked = (x: side / 4, y: side / 4)          // in the red patch
+        let elsewhere = (x: 3 * side / 4, y: 3 * side / 4) // in the neutral patch
+
+        // An ordinary edit: contrast and saturation, neither of which is in the linear
+        // stage. Exposure and white balance deliberately are not used here — they live
+        // in the S6 matrix, so BOTH taps carry them and neither would show anything.
+        var edited = Recipe()
+        edited.develop.tone.contrast = 90
+        edited.develop.color.saturation = 90
+        let plan = RenderPlan(recipe: edited)
+
+        // The two candidate samples.
+        //
+        // `working` is what `RenderCoordinator.sampleWorking` returns: the decoded
+        // pixel through the linear stage. `staged` is the local stage input, built
+        // here the way `ReferenceRenderer.render` builds it — S6, S7, then the
+        // colour+grade table. There is no S8 in that list because this recipe sets no
+        // presence, which is why three stages is the whole of it.
+        let working = plan.linear.matrix.apply(image[clicked.x, clicked.y])
+        var stagedImage = image.map { plan.linear.matrix.apply($0) }
+        stagedImage = ReferenceRenderer.applyTone(stagedImage, plan: plan,
+                                                  longEdge: side, space: .rec2020)
+        let lut = plan.colorGradeLUT
+        stagedImage = stagedImage.map { LumenLog.decode(lut.sample(LumenLog.encode($0))) }
+        let staged = stagedImage[clicked.x, clicked.y]
+
+        /// The picture with a colour-range mask built from `sample`, lifting two stops.
+        func render(sample: RGB) -> ImageBuffer {
+            var component = MaskComponent(op: .add, kind: .colorRange)
+            component.samples = [[sample.r, sample.g, sample.b]]
+            component.rangeAmount = 20
+            var adjust = LocalAdjust()
+            adjust.exposure = 2
+            var recipe = edited
+            recipe.masks = [Mask(name: "that colour", components: [component],
+                                 adjust: adjust)]
+            return ReferenceRenderer.render(image, plan: RenderPlan(recipe: recipe))
+        }
+
+        let plain = ReferenceRenderer.render(image, plan: plan)
+        let fromStage = render(sample: staged)
+        let fromWorking = render(sample: working)
+
+        func moved(_ out: ImageBuffer, _ at: (x: Int, y: Int)) -> Double {
+            out[at.x, at.y].maxAbsDifference(plain[at.x, at.y])
+        }
+
+        let stageHit = moved(fromStage, clicked)
+        let workingHit = moved(fromWorking, clicked)
+        let stageMiss = moved(fromStage, elsewhere)
+
+        // The tap the mask is compared against selects what was clicked.
+        XCTAssertGreaterThan(stageHit, 0.05,
+                             "a mask sampled from the local stage input moved the "
+                                 + "clicked pixel by only \(stageHit) — it is not "
+                                 + "selecting the colour it was given")
+        // And still discriminates: a mask that selects the whole frame would pass the
+        // assertion above and be useless.
+        XCTAssertLessThan(stageMiss, stageHit / 10,
+                          "the mask moved a different patch by \(stageMiss) against "
+                              + "\(stageHit) at the clicked one — it is selecting most "
+                              + "of the frame rather than a colour")
+        // The tap the eyedropper used does not.
+        XCTAssertLessThan(workingHit, stageHit / 3,
+                          "a sample taken one stage short of the comparison still "
+                              + "selected the clicked pixel: \(workingHit) against "
+                              + "\(stageHit). Either the global edit here is too small "
+                              + "to separate the two taps, or the two taps are the "
+                              + "same image and this test is measuring nothing")
+    }
+
     // MARK: - The local point curve
 
     private func lift() -> CurveSet {
