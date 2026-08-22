@@ -525,6 +525,60 @@ final class EngineTests: XCTestCase {
         XCTAssertLessThan(wb.matrix.maxAbsDifference(.identity), 1e-12)
     }
 
+    // MARK: - The Temp/Tint rows and the neutral the render adapts from
+
+    /// What the panel shows while `raw.temp` is nil, written back into the recipe, must
+    /// change no pixel. That is the entire contract, and it was broken for every file
+    /// that was not shot at 5500 K.
+    ///
+    /// The panel stood a literal 5500 in for the as-shot neutral it had no way to see,
+    /// so on a 3200 K tungsten frame the row read 5500 while the render adapted from
+    /// 3200 — and the first touch of the slider wrote the fabricated number, which the
+    /// adaptation then honoured. A multi-thousand-Kelvin jump cut on a drag the
+    /// photographer had not finished starting.
+    ///
+    /// The assertion is on the MATRIX rather than on the displayed number, because the
+    /// number is the thing that was wrong: a test comparing it against a constant would
+    /// have passed happily against 5500.
+    func testTheTempRowShowsTheNeutralTheRenderAdaptsFrom() {
+        let neutrals = [(3200.0, 12.0), (2850.0, 0.0), (5500.0, 0.0),
+                        (6500.0, 10.0), (7500.0, -20.0),
+                        // Past both clamps, so the row shows what the engine will use.
+                        (500.0, -900.0), (99000.0, 900.0)]
+        for (kelvin, tint) in neutrals {
+            let asShot = WhiteBalanceEngine.Neutral(kelvin: kelvin, tint: tint)
+            let shown = WhiteBalanceEngine.displayed(temp: nil, tint: nil, asShot: asShot)
+            XCTAssertTrue(shown.isAsShot,
+                          "a recipe with no override does not read as As Shot")
+
+            let firstTouch = WhiteBalanceEngine(asShotKelvin: kelvin, asShotTint: tint,
+                                                targetKelvin: shown.temperature,
+                                                targetTint: shown.tint)
+            XCTAssertTrue(firstTouch.isIdentity,
+                          "writing the displayed \(shown.temperature) K / \(shown.tint) "
+                              + "back onto a file shot at \(kelvin) K / \(tint) is not "
+                              + "the same white balance")
+            XCTAssertLessThan(firstTouch.matrix.maxAbsDifference(.identity), 1e-12,
+                              "the first drag moved the picture at \(kelvin) K")
+
+            // Nothing about "as shot" survives an override: an explicit value is shown
+            // as itself, and the section reads as modified.
+            let overridden = WhiteBalanceEngine.displayed(temp: 4100, tint: 7,
+                                                          asShot: asShot)
+            XCTAssertEqual(overridden.temperature, 4100, accuracy: 1e-12)
+            XCTAssertEqual(overridden.tint, 7, accuracy: 1e-12)
+            XCTAssertFalse(overridden.isAsShot)
+        }
+
+        // What the defect actually cost, as a number. A 5500 K stand-in on a tungsten
+        // frame is not a rounding error in the readout — it is a visible adaptation.
+        let fabricated = WhiteBalanceEngine(asShotKelvin: 3200, asShotTint: 0,
+                                            targetKelvin: 5500, targetTint: 0)
+        XCTAssertGreaterThan(fabricated.matrix.maxAbsDifference(.identity), 0.1,
+                             "INVALID PROBE: 3200 K to 5500 K is not a visible move, so "
+                                 + "this test is not measuring what it claims to")
+    }
+
     func testLoweringTemperatureCoolsThePicture() {
         let wb = WhiteBalanceEngine(asShotKelvin: 5500, asShotTint: 0,
                                     targetKelvin: 3000, targetTint: 0)

@@ -458,7 +458,9 @@ final class AppState: ObservableObject {
         didSet {
             guard primarySelection?.id != oldValue?.id else { return }
             primaryFrameSize = nil
+            primaryAsShotNeutral = nil
             refreshPrimaryFrameSize()
+            refreshPrimaryAsShotNeutral()
             refreshPrimaryLibraryDetail()
             // A photo whose recipe already carries a Subject mask needs its matte
             // before the first frame is worth looking at; the call is a no-op for the
@@ -646,6 +648,29 @@ final class AppState: ObservableObject {
             // The selection can have moved on across that hop.
             guard self.primarySelection?.id == url else { return }
             self.primaryFrameSize = CGSize(width: size.width, height: size.height)
+        }
+    }
+
+    /// The neutral the primary selection was shot at; nil until the source has answered.
+    ///
+    /// The White Balance rows need it and had no way to get it: `raw.temp` nil means
+    /// "as shot", the slider has to stand a number in while the field is nil, and the
+    /// number it stood in was the literal 5500 for every file in the library. nil here
+    /// means "not known yet" and the rows say so rather than showing a number that is
+    /// not this photograph's — the same rule DetailPanel follows for the ISO the
+    /// denoise profile resolves against.
+    @Published private(set) var primaryAsShotNeutral: WhiteBalanceEngine.Neutral?
+
+    private func refreshPrimaryAsShotNeutral() {
+        guard let url = primarySelection?.id else { return }
+        // Same shape and the same reasoning as `refreshPrimaryFrameSize`: the first call
+        // for a photo opens the file, and a selection change must never wait on it.
+        Task { [weak self] in
+            guard let self else { return }
+            guard let neutral = await self.renderCoordinator.asShotNeutral(for: url)
+            else { return }
+            guard self.primarySelection?.id == url else { return }
+            self.primaryAsShotNeutral = neutral
         }
     }
 
