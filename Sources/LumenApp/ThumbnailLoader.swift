@@ -12,6 +12,12 @@
 //     sideways-portrait gotcha (docs/03).
 //   · an LRU cache with a byte budget (512 MB default, shared-texture-budget figure
 //     from docs/10 §10.3), evicted least-recently-shown first.
+//   · the memory half of a two-level cache. Behind it is `PreviewStore`, which reads
+//     and writes `previews/xx/` and files a row in `cache.preview`, so a decode paid
+//     once is paid once — not once per launch, which is what this loader did for as
+//     long as it existed. A miss consults the disk BEFORE scheduling an extraction,
+//     and an extraction files its result. The rules live in `LumenCore.PreviewCache`;
+//     the pixels live here.
 //   · a bounded decode pool (8 workers, docs/15 §15.6) that runs off the main actor,
 //     drains highest-priority-newest-first, and drops work for cells that scrolled
 //     away before their slot came up.
@@ -134,9 +140,25 @@ final class ThumbnailLoader: ObservableObject {
     private var lastAnchorIndex: Int?
     private var travelDirection: Int = 1
 
+    /// The disk half. Nil until the catalog has opened, and nil forever if it could not
+    /// — a session with no catalog still browses, out of memory only, exactly as every
+    /// session did before this existed.
+    private var previews: PreviewStore?
+
     init(budgetBytes: Int = 512 * 1024 * 1024, maxConcurrent: Int = 8) {
         self.budgetBytes = max(budgetBytes, 16 * 1024 * 1024)
         self.maxConcurrent = max(1, maxConcurrent)
+    }
+
+    /// Hand the loader its disk cache.
+    ///
+    /// Set after construction rather than injected into `init` for one prosaic reason:
+    /// `AppState` holds this loader as a stored property and opens the catalog from its
+    /// own initializer, so the catalog does not exist yet at the moment the loader is
+    /// built. The seam is the same either way — the loader knows about `PreviewStore`
+    /// and nothing else about the catalog.
+    func attach(previews: PreviewStore) {
+        self.previews = previews
     }
 
     // MARK: Reads
@@ -218,7 +240,7 @@ final class ThumbnailLoader: ObservableObject {
     /// `surface` is not decoration. The window is warmed at every level
     /// `ThumbnailLadder.warmSizes` names for that surface, because the strip under the
     /// loupe pages the LOUPE: warming only the strip's own 256 left the viewer's
-    /// 1600-pixel request (the 2048 level) cold on every advance, which is the
+    /// 1600-pixel request (the top level) cold on every advance, which is the
     /// pre-decoded cache the paging budget is built on, missing every time. The levels
     /// are requested in the order that function returns them, at descending priority,
     /// so the heavier level can never starve the cells that are visible now.
@@ -256,12 +278,16 @@ final class ThumbnailLoader: ObservableObject {
     // MARK: Compatibility surface
 
     /// AppKit-shaped convenience for the loupe's instant-preview path.
-    func load(url: URL, maxPixel: Int = 512) async -> NSImage? {
+    ///
+    /// The default is the loupe's own ask rather than a bare number: 512 stopped being a
+    /// rung when the ladder became docs/15 §15.6's, and a default that silently snapped
+    /// up a rung is the kind of drift `ThumbnailLadder` exists to prevent.
+    func load(url: URL, maxPixel: Int = ThumbnailLadder.loupeInstantPixels) async -> NSImage? {
         guard let cg = await image(for: url, size: maxPixel) else { return nil }
         return NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
     }
 
-    func cached(for url: URL, maxPixel: Int = 512) -> NSImage? {
+    func cached(for url: URL, maxPixel: Int = ThumbnailLadder.loupeInstantPixels) -> NSImage? {
         guard let cg = thumbnail(for: url, size: maxPixel) else { return nil }
         return NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
     }
@@ -313,10 +339,28 @@ final class ThumbnailLoader: ObservableObject {
         active += 1
         let allowFull = allowsFullDecode(key.url)
         let taskPriority: TaskPriority = job.priority >= Priority.visible ? .userInitiated : .utility
+        let previews = self.previews
         let task = Task.detached(priority: taskPriority) { () -> CGImage? in
             if Task.isCancelled { return nil }
-            return decodeEmbeddedThumbnail(url: key.url, maxPixel: key.pixels,
-                                           allowFullDecode: allowFull)
+            // The disk cache first. This is the line README goal #1 turns on: on the
+            // second visit to a folder every cell answered from `previews/xx/` is an
+            // embedded-JPEG extraction out of a 40 MB original that does not happen.
+            // Off the main actor by construction — this is the detached worker.
+            let plan = previews?.plan(for: key.url, pixels: key.pixels)
+            if let plan, let payload = plan.payload,
+               let cached = PreviewStore.decodePayload(file: payload.file,
+                                                       maxPixel: payload.pixels) {
+                previews?.served(payload, photoID: plan.photoID)
+                return cached
+            }
+            if Task.isCancelled { return nil }
+            guard let image = decodeEmbeddedThumbnail(url: key.url, maxPixel: key.pixels,
+                                                      allowFullDecode: allowFull)
+            else { return nil }
+            // Filed asynchronously: the caller already has the photograph, and a
+            // scrolling grid must not wait behind an encode.
+            if let plan { previews?.record(plan, image: image) }
+            return image
         }
         job.task = task
         jobs[key] = job

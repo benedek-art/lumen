@@ -206,6 +206,8 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     "CGColorRenderingIntent", "CGImageSource", "CGImageDestination",
     "CGImagePropertyOrientation", "CGDirectDisplayID",
     "CGImageSourceCreateWithURL", "CGImageSourceCreateThumbnailAtIndex",
+    "CGImageDestinationCreateWithURL", "CGImageDestinationAddImage",
+    "CGImageDestinationFinalize",
     "ImageIO", "CFString", "CFDictionary", "CFData", "CFURL",
     "CoreImage", "CIImage", "CIContext", "CIFilter", "CIFilterBuiltins", "CIColor",
     "CIVector", "CIRAWFilter", "CIKernel", "CIColorKernel", "CIWarpKernel",
