@@ -147,7 +147,23 @@ actor RenderCoordinator {
                                                      maxLongEdge: maxLongEdge,
                                                      strokeSets: strokeSets,
                                                      softProof: softProof)
-                note = "CPU fallback — GPU kernels unavailable"
+                // The framing caveat is not decoration. `renderReference` never
+                // calls `applyGeometry`, so this path returns the WHOLE frame:
+                // no crop, no straighten, no flip. Everything else about the picture
+                // is right, which is what makes it dangerous — it reads as a correct
+                // render of a photograph the user did not compose.
+                //
+                // Not fixed here, deliberately. `applyGeometry` wants a `CIImage` and
+                // this path holds an `ImageBuffer`, and the bridge crosses the row-order
+                // convention `KernelGoldenTests` documents at length: Core Image extents
+                // are bottom-up, the UI hands down a top-down fraction, and
+                // `CIImage(bitmapData:)` is a third convention again. Getting it wrong
+                // returns a plausible picture mirrored about its centre line. None of
+                // this compiles on the machine the fix would be written on, so writing
+                // it blind trades a wrongly-framed preview for a possibly upside-down
+                // one. It wants a Mac and one golden.
+                note = "CPU fallback — GPU kernels unavailable; crop, straighten and "
+                    + "flip are not applied to this preview"
             }
 
             guard !stale() else { return nil }

@@ -208,8 +208,17 @@ struct EffectsPanel: View {
                 rulerRow
                 LumenToggleRow(title: "Flip horizontal",
                                isOn: binder.flag(\.develop.geometry.flipH, "geometry.flipH"),
-                               help: "Mirror the frame. Orientation flips with X inside "
-                                   + "the crop tool.")
+                               // "Orientation flips with X inside the crop tool" was
+                               // false in the way that costs the most: X IS bound —
+                               // to the reject flag, everywhere, with no crop-mode
+                               // branch anywhere in `Keymap`. A photographer following
+                               // this tip inside the crop tool rejects the photograph
+                               // they are cropping. Portrait/landscape crop swapping
+                               // does not exist at all (GEO-04); the ratio menu offers
+                               // only landscape-oriented ratios.
+                               help: "Mirror the frame. This is a mirror, not a "
+                                   + "rotation — swapping a crop between portrait and "
+                                   + "landscape is not built yet.")
                 DevelopNote("Crop and rotation compose into one Lanczos-3 resample that "
                             + "runs last, so every upstream cache is crop-independent. "
                             + "Perspective correction is not implemented: `Upright` is a "

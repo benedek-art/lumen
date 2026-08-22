@@ -107,3 +107,36 @@ UTC, applies the camera's stated offset, and range-checks six fields — includi
 second at `(0...61)`. A sign error on the offset moves every photo from a trip by hours
 and the library sorts confidently wrong. Cheap to close: a dozen assertions, no fixtures,
 no platform.
+
+---
+
+**GEO-17 — the CPU fallback preview applies no geometry, and the fix is not the one-liner
+the audit costed.** BROKEN, disclosed rather than fixed. Recorded here because the
+*reason* is reusable.
+
+`PipelineRenderer.renderReference` goes decode → denoise → `ReferenceRenderer.render` →
+`cgImage`, and never calls `applyGeometry`. So whenever the core kernels are missing the
+preview shows the whole frame: no crop, no straighten, no flip. Everything else about it
+is correct, which is what makes it dangerous — it reads as a good render of a photograph
+the user did not compose.
+
+The audit called this "one line — `applyGeometry` is stock Core Image". It is not.
+`applyGeometry` takes a `CIImage`; this path holds an `ImageBuffer`. Geometry must stay
+LAST (applying it before the stages would move every source-normalized mask), so the
+bridge has to run on the rendered buffer — and that bridge crosses the row-order
+convention `KernelGoldenTests` documents at length: Core Image extents are bottom-up, the
+UI hands down a top-down fraction, and `CIImage(bitmapData:)` is a third convention again.
+Its own words: a probe with the flip missing "returns a perfectly plausible colour, just
+the one mirrored about the centre line".
+
+Nothing on this path compiles on the machine the fix would be written on. Writing it blind
+trades a wrongly-framed preview for a possibly upside-down one, which is a worse trade —
+so the note the user sees now names the missing crop, straighten and flip, and the fix
+waits for a Mac and one golden.
+
+**The general point, which is the reusable part.** An audit estimate of "one line" is a
+claim about a fix, and claims get checked exactly like the findings do. Three estimates in
+this pass came in wrong in both directions: `quick_sig` was costed at 80–110 lines and
+needed ~240 (the extra being a size probe so a first folder open hashes nothing at all),
+FILM-08's magnitude was overstated by an order of magnitude, and this one was understated
+because the estimator saw a call site and not a coordinate system.
