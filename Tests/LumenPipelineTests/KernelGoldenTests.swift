@@ -327,6 +327,119 @@ final class KernelGoldenTests: XCTestCase {
         print("LOCAL CURVE table-vs-exact worst: \(curveWorst)")
     }
 
+    // MARK: - A mask's colour table is baked for the render it is in
+
+    /// A masked colour edit must be baked at the size the RENDER asked for, not at the
+    /// preview's.
+    ///
+    /// `LocalPlan` hardcoded `LUT3D.interactiveSize`, so every masked contrast, temp,
+    /// tint, hue, saturation, vibrance, point colour and grading wheel in a DELIVERED
+    /// file came out of a 33-cube while the global colour/grade table, the finish table
+    /// and the local point curve two stages later all came out of a 65. The curve was
+    /// the tell: it has taken `options.lutSize` since it was written, sitting six lines
+    /// from a table that did not.
+    ///
+    /// Two assertions, because either alone can be satisfied by the wrong code. The
+    /// first says `LocalPlan` bakes what it is handed — it fails the moment a size is
+    /// hardcoded again. The second says the size REACHES PIXELS through the shipping
+    /// graph, which is the proof the first one cannot give: a plan built at 65 that
+    /// nothing hands 65 to is exactly the defect this replaces.
+    func testAMaskedColourEditIsBakedAtTheRendersOwnTableSize() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+
+        // A colour-only local set. Exposure is deliberately absent: it is a matrix
+        // multiply upstream of the table and would move pixels whatever the table size
+        // is, which would let the second half of this test pass on the broken code.
+        var adjust = LocalAdjust()
+        adjust.contrast = 45
+        adjust.temp = 30
+        adjust.sat = 35
+        adjust.vibrance = 20
+
+        // ---- The table is the size it was asked for. ----
+        let anchors = RenderPlan(recipe: Recipe()).tone
+        for size in [LUT3D.interactiveSize, LUT3D.exportSize] {
+            let local = LocalPlan(adjust: adjust, scale: 1,
+                                  whiteAnchorEV: anchors.whiteAnchorEV,
+                                  blackAnchorEV: anchors.blackAnchorEV, size: size)
+            XCTAssertFalse(local.isIdentity,
+                           "a mask with contrast, temp, saturation and vibrance "
+                               + "declared itself identity, so this test measures "
+                               + "a two-point cube and proves nothing")
+            XCTAssertEqual(local.lut.size, size,
+                           "LocalPlan baked \(local.lut.size) when the render asked "
+                               + "for \(size)")
+        }
+
+        // ---- The size reaches pixels through the graph that ships. ----
+        let width = 64, height = 32
+        let source = texturedTestImage(width: width, height: height)
+
+        // Vertical, for the reason the mask golden above states: the frame is constant
+        // down each column, so any difference between two ROWS of one column is the
+        // mask and nothing else.
+        var mask = Mask(id: "m1", name: "grad")
+        var component = MaskComponent(op: .add, kind: .linear)
+        component.line = [0.5, 0, 0.5, 1]
+        mask.components = [component]
+        mask.adjust = adjust
+
+        var recipe = Recipe()
+        recipe.masks = [mask]
+        recipe.develop.denoise.mode = .off
+        // ONE plan for both renders, at export size, so the global colour/grade and
+        // finish tables are bit-identical across the pair and the only thing that can
+        // differ is the local table.
+        let plan = RenderPlan(recipe: recipe, lutSize: LUT3D.exportSize)
+
+        let alpha = MaskRaster.combine(mask: mask,
+                                       size: (width: width, height: height))
+        guard let alphaImage = PipelineRenderer.image(
+            from: alpha,
+            targetExtent: CGRect(x: 0, y: 0, width: width, height: height))
+        else { return XCTFail("mask raster failed") }
+        var graph = RenderGraph()
+        graph.maskImages[mask.id] = alphaImage
+
+        func render(lutSize: Int) -> ImageBuffer? {
+            let out = graph.build(ciImage(from: source), plan: plan,
+                                  options: RenderGraph.Options(longEdge: width,
+                                                               draft: false,
+                                                               lutSize: lutSize))
+            return readBack(out, width: width, height: height)
+        }
+        guard let interactive = render(lutSize: LUT3D.interactiveSize),
+              let exported = render(lutSize: LUT3D.exportSize)
+        else { return XCTFail("masked render failed") }
+
+        // The blend is `mix(original, adjusted, alpha)`, so the gap between the two
+        // table sizes is scaled by alpha at every pixel: it must be largest where the
+        // mask selects and vanish where it does not. That split is what separates "the
+        // local table changed" from "something global changed".
+        var selected = 0.0
+        var unselected = 0.0
+        for y in 0..<height {
+            for x in 0..<width {
+                let d = interactive[x, y].maxAbsDifference(exported[x, y])
+                if y >= height / 2 {
+                    selected = Swift.max(selected, d)
+                } else {
+                    unselected = Swift.max(unselected, d)
+                }
+            }
+        }
+        XCTAssertGreaterThan(selected, 0,
+                             "the two table sizes rendered identical pixels — "
+                                 + "`options.lutSize` does not reach the masked "
+                                 + "colour table, so an export bakes it at preview "
+                                 + "precision")
+        XCTAssertGreaterThan(selected, unselected,
+                             "the table size moved the unselected end by \(unselected) "
+                                 + "against \(selected) selected — what changed is not "
+                                 + "the mask's own table")
+        print(String(format: "LOCAL TABLE 33-vs-65 worst under the mask: %.6f", selected))
+    }
+
     // MARK: - Presence must not put a rim on an edge
 
     /// Clarity and Texture must not trench the dark side of an edge.
