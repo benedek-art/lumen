@@ -1537,6 +1537,24 @@ public final class CatalogStore {
     /// that at under a second for five thousand photos. Everything here is nullable and
     /// stays null until something fills it, which is what makes the pass interruptible.
     public func setMetadata(_ metadata: PhotoMetadata, photoID: Int64) throws {
+        try db.transaction {
+            try self.writeMetadata(metadata, photoID: photoID)
+            // LIB-10. `camera` and `lens` reach the catalog nowhere else, and the FTS
+            // row was built at scan time — minutes earlier, when both were still NULL.
+            // Without this line the index holds empty strings for the two fields the
+            // text chip's own placeholder advertises, so searching "Sony" matched
+            // nothing on the branch that is PREFERRED whenever FTS5 is compiled in,
+            // while the slower LIKE fallback found it. Re-indexing belongs next to the
+            // write and inside the same transaction, so the index cannot end up
+            // describing a photo the catalog no longer holds.
+            try self.reindexText(photoID: photoID)
+        }
+    }
+
+    /// The bare UPDATE, without the re-index. Split out so the batch below can write
+    /// every row first and re-index once per row afterwards, rather than nesting a
+    /// savepoint per photo inside a five-thousand-row transaction.
+    private func writeMetadata(_ metadata: PhotoMetadata, photoID: Int64) throws {
         // `aspect` is a derived column, and it was derived in exactly one place: the
         // scan-time upsert, which has never seen a width or a height — those arrive
         // here, minutes later, from EXIF. So every photo the backfill filled in kept
@@ -1590,8 +1608,12 @@ public final class CatalogStore {
         guard !batch.isEmpty else { return }
         try db.transaction {
             for entry in batch {
-                try self.setMetadata(entry.metadata, photoID: entry.photoID)
+                try self.writeMetadata(entry.metadata, photoID: entry.photoID)
             }
+            // LIB-10, the batch half. This is the writer the backfill pass actually
+            // calls, so an index kept in step only by the single-photo entry point
+            // would still have been empty on every real launch.
+            for entry in batch { try self.reindexText(photoID: entry.photoID) }
         }
     }
 

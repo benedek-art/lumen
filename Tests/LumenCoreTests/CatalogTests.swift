@@ -346,6 +346,60 @@ final class CatalogTests: XCTestCase {
         store.close()
     }
 
+    /// LIB-10: the text chip's fast path has to learn what the backfill learned.
+    ///
+    /// The FTS row is built at upsert time, minutes before any EXIF exists, so
+    /// `camera` and `lens` were indexed as empty strings and stayed that way — while
+    /// the chip's placeholder promises "Name, camera, keyword" and the FTS branch is
+    /// preferred whenever FTS5 is compiled in. The LIKE fallback found "sony"; the
+    /// fast path could not, which is the worst shape of this bug: the search got
+    /// worse on the machines where it was supposed to get faster.
+    func testTextSearchFindsACameraTheBackfillFilledInAfterTheScan() throws {
+        let store = try makeStore()
+        let (folderID, ids) = try seed(store, count: 3)
+        try XCTSkipUnless(store.isTextIndexAvailable,
+                          "this SQLite has no FTS5, so the query under test is the "
+                              + "LIKE fallback and proves nothing about the index")
+
+        for (offset, id) in ids.enumerated() {
+            try store.setMetadata(
+                PhotoMetadata(camera: offset == 0 ? "Sony A7 IV" : "Nikon Z8",
+                              lens: offset == 0 ? "FE 35mm F1.4 GM" : "Z 50mm f/1.8 S"),
+                photoID: id)
+        }
+
+        var camera = PhotoQuery()
+        camera.text = "sony"
+        XCTAssertEqual(try store.photos(matching: camera, folderID: folderID).map(\.id),
+                       [ids[0]],
+                       "the text index never learned the camera the backfill wrote")
+
+        var lens = PhotoQuery()
+        lens.text = "35mm"
+        XCTAssertEqual(try store.photos(matching: lens, folderID: folderID).map(\.id),
+                       [ids[0]],
+                       "the text index never learned the lens the backfill wrote")
+
+        // The batch writer is the one the app actually calls, and it took a different
+        // route into the same UPDATE — so it gets its own assertion rather than
+        // trusting that the two paths stayed in step.
+        try store.setMetadata([(photoID: ids[1], metadata: PhotoMetadata(camera: "Leica M11")),
+                               (photoID: ids[2], metadata: PhotoMetadata(camera: "Leica Q3"))])
+        var leica = PhotoQuery()
+        leica.text = "leica"
+        XCTAssertEqual(Set(try store.photos(matching: leica, folderID: folderID).map(\.id)),
+                       Set([ids[1], ids[2]]),
+                       "the batch metadata writer left the text index behind")
+
+        // And the row it replaced must be gone: re-indexing has to be a replace, not
+        // an append, or "nikon" keeps matching a photo that is now a Leica.
+        var nikon = PhotoQuery()
+        nikon.text = "nikon"
+        XCTAssertTrue(try store.photos(matching: nikon, folderID: folderID).isEmpty,
+                      "a stale camera survived in the text index after it was overwritten")
+        store.close()
+    }
+
     // MARK: - Albums, keywords, stacks
 
     func testAnAlbumScopesTheGridAndCountsItsOwnMembership() throws {
