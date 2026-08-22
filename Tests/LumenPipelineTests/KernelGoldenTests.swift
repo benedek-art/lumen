@@ -830,7 +830,7 @@ final class KernelGoldenTests: XCTestCase {
         }
 
         // The model's own prediction, from the profile the two stages share: variances
-        // add, so the glow's is the weighted mean of the bounces' plus the 3x3 block's.
+        // add, so the glow's is the weighted mean of the bounces' plus the block's.
         var weightSum = 0.0, varianceSum = 0.0
         for (sigma, weight) in zip(profile.sigmasInPixels, profile.weights) {
             weightSum += weight
@@ -892,9 +892,9 @@ final class KernelGoldenTests: XCTestCase {
     /// Halation has to reach pixels THROUGH `RenderGraph.build`.
     ///
     /// Every halation test in the repository ran on the reference path or called the
-    /// stage directly, so deleting the two lines that invoke it from the graph left the
-    /// whole suite green while every preview and every export lost the glow. This is
-    /// the same hole that was closed for masks and is still open for grain.
+    /// stage directly, so deleting the call to it from `build` left the whole suite
+    /// green while every preview and every export lost the glow. This is the same hole
+    /// that was closed for masks and is still open for grain.
     ///
     /// Halation is a spatial stage and never enters the baked finish table, so the only
     /// difference between these two renders is the stage itself — which is also why the
@@ -931,8 +931,9 @@ final class KernelGoldenTests: XCTestCase {
             return XCTFail("film render failed")
         }
 
-        // An annulus four to ten pixels out: clear of the block, which reaches 2.8, and
-        // well inside the first bounce's four-pixel sigma.
+        // An annulus four to ten pixels out: clear of the block, whose farthest pixel
+        // sits 2.1 from the centre, and well inside the first bounce's four-pixel
+        // sigma.
         var ring = 0.0
         var ringCount = 0
         for y in 0..<side {
@@ -949,9 +950,9 @@ final class KernelGoldenTests: XCTestCase {
 
         print(String(format: "HALATION through the graph: ring %.5f corner %.5f",
                      ring, corner))
-        // The floor is a noise floor and says so: with the stage's two lines deleted
-        // this difference is identically zero to f32, not merely small. The substance
-        // of the test is the pair — something moved, and it moved AT the highlight.
+        // The floor is a noise floor and says so: with the call deleted this difference
+        // is identically zero to f32, not merely small. The substance of the test is
+        // the pair — something moved, and it moved AT the highlight.
         XCTAssertGreaterThan(ring, 1e-3,
                              "turning Halation to 100 moved the pixels beside a clipped "
                                  + "highlight by \(ring) — the stage is not running in "
