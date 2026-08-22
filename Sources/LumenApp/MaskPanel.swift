@@ -534,16 +534,29 @@ struct MaskPanel: View {
                     adjustSlider(mask.id, "Shadows", \.shadows, -100...100)
                     adjustSlider(mask.id, "Whites", \.whites, -100...100)
                     adjustSlider(mask.id, "Blacks", \.blacks, -100...100)
-                    // Whites and Blacks move the tone engine's ANCHORS, and globally
-                    // those anchors feed the display transform — that is the seam that
-                    // makes them mean "white point" and "black point". A mask's tone
-                    // work is a gain curve with no display transform of its own, so
-                    // here the anchors only reshape the Highlights and Shadows windows.
-                    // On their own the two do nothing, which is how a user first tries
-                    // them.
-                    note("Whites and Blacks reshape where Highlights and Shadows act "
-                         + "in this mask; on their own they do not move the picture, "
-                         + "because a mask has no white point of its own.")
+                    // Whites and Blacks do two things, and this caption used to name
+                    // only the first. They move the tone engine's ANCHORS, which is
+                    // what reshapes the Highlights and Shadows windows — and globally
+                    // those anchors also feed the display transform, which is the seam
+                    // that makes them mean "white point" and "black point". A mask has
+                    // no display transform of its own, so that half really does stop
+                    // at the window geometry.
+                    //
+                    // But `ToneEngine.zonalStops` gives each of them a SHELF as well,
+                    // added because an anchor-only Whites measured 26.7 code values
+                    // over its whole travel and Blacks 0.20 — "a slider a photographer
+                    // would call dead". `LocalPlan` and
+                    // `ReferenceRenderer.applyLocalAdjust` both feed the local values
+                    // into that same engine, so a mask carrying nothing but Whites
+                    // +100 lifts the top of its range by up to 1.3 EV and Blacks −100
+                    // drops the bottom by up to 2.2, with mid-grey untouched in both
+                    // cases. "On their own they do not move the picture" described the
+                    // engine before those shelves existed, and by then it was a claim
+                    // no test covered on either path.
+                    note("Whites and Blacks are shelves at the two ends of this mask's "
+                         + "range, and they also reshape where Highlights and Shadows "
+                         + "act. On their own they move the top and the bottom and "
+                         + "leave mid-grey where it was.")
                 }
             }
         }

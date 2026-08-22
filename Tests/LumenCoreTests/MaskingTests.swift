@@ -139,6 +139,98 @@ final class MaskingTests: XCTestCase {
                        "the inverted mask did not apply the same exposure outside")
     }
 
+    // MARK: - Local Whites and Blacks
+
+    /// A mask carrying nothing but Whites, or nothing but Blacks, moves the picture.
+    ///
+    /// The mask panel said the opposite in so many words — "Whites and Blacks reshape
+    /// where Highlights and Shadows act in this mask; on their own they do not move the
+    /// picture, because a mask has no white point of its own" — and that was true of an
+    /// engine two rewrites ago. `ToneEngine.zonalStops` gives each of them a SHELF,
+    /// added because an anchor-only Whites measured 26.7 code values across its whole
+    /// travel and Blacks 0.20, "a slider a photographer would call dead". A mask's
+    /// sub-recipe goes through that same engine on both render paths, so the shelves
+    /// come with it.
+    ///
+    /// Nothing covered local Whites or Blacks on either path, which is how a caption
+    /// could go on describing a previous engine.
+    ///
+    /// Measured in STOPS, against the model's own numbers rather than against "it
+    /// changed": `whiteToneEV` is 1.3 and `blackToneEV` is 2.2, so the bar is most of
+    /// the shelf rather than an epsilon. And the SHAPE is asserted as well as the
+    /// magnitude — mid-grey must not move, and neither slider may reach the other's end
+    /// of the range — because a global lift would satisfy a bare "something moved" and
+    /// would be a different, worse defect.
+    func testAMasksWhitesAndBlacksMoveThePictureOnTheirOwn() {
+        // A neutral ramp from −6 to +4 EV about mid-grey, one row: enough range to
+        // contain both shelves and mid-grey between them.
+        let width = 101
+        func ev(_ x: Int) -> Double { -6 + 10 * Double(x) / Double(width - 1) }
+        let ramp = ImageBuffer(width: width, height: 1) { u, _ in
+            RGB(gray: 0.18 * pow(2, -6 + 10 * u))
+        }
+        let plan = RenderPlan(recipe: Recipe())
+
+        /// The shift this mask applies at each step of the ramp, in stops. Straight
+        /// through `applyLocalAdjust`, which is the stage the caption is about: the
+        /// mask alpha and the display transform are not part of the claim, and putting
+        /// them in the way would only dilute what is being measured.
+        func shift(_ mutate: (inout LocalAdjust) -> Void) -> [Double] {
+            var adjust = LocalAdjust()
+            mutate(&adjust)
+            let mask = Mask(name: "whole frame", components: [hardRadial()],
+                            adjust: adjust)
+            let out = ReferenceRenderer.applyLocalAdjust(ramp, mask: mask, plan: plan,
+                                                         space: .rec2020)
+            return (0..<width).map { x in
+                let before = Swift.max(ramp[x, 0].g, 1e-12)
+                let after = Swift.max(out[x, 0].g, 1e-12)
+                return log2(after / before)
+            }
+        }
+
+        let midGrey = width * 6 / 10          // ev(60) = 0.0
+        XCTAssertEqual(ev(midGrey), 0, accuracy: 0.06, "the ramp's mid-grey moved")
+
+        let whites = shift { $0.whites = 100 }
+        let top = whites[width - 1]
+        XCTAssertGreaterThan(top, 1.0,
+                             "a mask with only Whites +100 lifted the top of its range "
+                                 + "by \(top) stops; `ToneEngine.whiteToneEV` is 1.3 "
+                                 + "and the panel used to say it moved nothing at all")
+        XCTAssertEqual(whites[midGrey], 0, accuracy: 0.02,
+                       "Whites moved mid-grey by \(whites[midGrey]) stops — it is a "
+                           + "shelf at the top of the range, not a global lift")
+        XCTAssertEqual(whites[0], 0, accuracy: 0.02,
+                       "Whites moved the bottom of the range by \(whites[0]) stops")
+
+        let blacks = shift { $0.blacks = -100 }
+        let bottom = blacks[0]
+        XCTAssertLessThan(bottom, -1.5,
+                          "a mask with only Blacks −100 dropped the bottom of its range "
+                              + "by \(bottom) stops; `ToneEngine.blackToneEV` is 2.2")
+        XCTAssertEqual(blacks[midGrey], 0, accuracy: 0.02,
+                       "Blacks moved mid-grey by \(blacks[midGrey]) stops")
+        XCTAssertEqual(blacks[width - 1], 0, accuracy: 0.02,
+                       "Blacks moved the top of the range by \(blacks[width - 1]) stops")
+
+        // And the mask's Amount scales them, like every other local control: half a
+        // mask is half the shelf, not half of somewhere else.
+        var halved = Mask(name: "half", components: [hardRadial()])
+        halved.amount = 50
+        halved.adjust.whites = 100
+        let half = ReferenceRenderer.applyLocalAdjust(ramp, mask: halved, plan: plan,
+                                                      space: .rec2020)
+        let halfTop = log2(Swift.max(half[width - 1, 0].g, 1e-12)
+                               / Swift.max(ramp[width - 1, 0].g, 1e-12))
+        XCTAssertLessThan(halfTop, top - 0.2,
+                          "Amount 50 applied \(halfTop) stops against \(top) at full — "
+                              + "the mask's Amount is not reaching the tone engine")
+        XCTAssertGreaterThan(halfTop, 0.2,
+                             "Amount 50 applied \(halfTop) stops, which is not half of "
+                                 + "anything")
+    }
+
     // MARK: - The local point curve
 
     private func lift() -> CurveSet {

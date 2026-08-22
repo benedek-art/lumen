@@ -244,6 +244,15 @@ final class RobustnessTests: XCTestCase {
             ("contrast", { $0.contrast = 60 }),
             ("highlights", { $0.highlights = -70 }),
             ("shadows", { $0.shadows = 70 }),
+            // Whites and Blacks were the two rows still missing from a list whose
+            // whole purpose is that every row of the panel is on it. The mask panel
+            // said of them, in a caption, that on their own they move nothing — so
+            // there was a claim of deadness and no measurement either way.
+            // `testAMasksWhitesAndBlacksMoveThePictureOnTheirOwn` measures the shelves
+            // in stops; these two rows are the cheap guard that they are still wired
+            // through the whole reference render.
+            ("whites", { $0.whites = 100 }),
+            ("blacks", { $0.blacks = -100 }),
             ("vibrance", { $0.vibrance = 70 }),
             ("point colour", {
                 $0.pointColors = [PointColor(sample: [0.42, 0.22, 0.16],
