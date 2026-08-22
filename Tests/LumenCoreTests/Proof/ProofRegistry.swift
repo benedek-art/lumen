@@ -295,10 +295,21 @@ enum ProofRegistry {
                 r.develop.detail.sharpen.amount = 100
                 r.develop.detail.sharpen.detail = v
             }),
+        // Masking is swept on TEXTURE, not on the step edge, and the first version of
+        // this entry got it wrong. Masking's whole job is to withhold sharpening from
+        // flat areas — so on a frame that is flat plus one hard edge there is nothing
+        // for it to withhold, both ends of its travel sharpen the same single edge, and
+        // it measured 2.65 code values: indistinguishable from the dead-control reading
+        // docs/19 recorded for Blacks. On a frame carrying detail at several spatial
+        // frequencies the gate has something to act on and the number means something.
+        //
+        // Third time this exact mistake has been caught in this repository, twice by
+        // this harness against its own author. A control swept on a frame that does not
+        // contain its subject is an INVALID PROBE, not a result (docs/20).
         ControlSpec(
             id: "sharpen.masking", panel: "Detail", displayName: "Sharpen masking",
             low: 0, high: 100,
-            frameName: "stepEdge", frame: { ProofFrames.stepEdge() },
+            frameName: "fineTexture", frame: { ProofFrames.fineTexture() },
             shippingReader: "Sources/LumenPipeline/RenderGraph.swift:700",
             authorityFloor: 1, mayLeaveRange: false,
             apply: { r, v in
