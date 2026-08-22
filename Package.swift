@@ -53,6 +53,10 @@ let package = Package(
         .testTarget(
             name: "LumenCoreTests",
             dependencies: ["LumenCore"],
+            // The evidence sheets are OUTPUT, not input: the proof run writes them for a
+            // human to look at (docs/20), they are gitignored, and SwiftPM would
+            // otherwise warn once per PNG about files it does not know what to do with.
+            exclude: ["Proof/evidence"],
             resources: [.copy("Fixtures")],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
