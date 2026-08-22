@@ -6,15 +6,20 @@
 // Why they are worth pulling out: the cache is keyed by (url, level), so a prefetcher
 // and a requester that disagree about the level are two different caches wearing one
 // name. That is not a hypothetical. The loupe's instant path asked for 1600 pixels,
-// which resolves to the 2048 level; the only ring prefetch that ran while the loupe
-// was on screen ran at the filmstrip's 256. Every arrow press in the loupe therefore
-// missed, decoded a 2048-class embedded JPEG cold and then rendered — against a
-// headline goal of "next photo in under 50 ms from a pre-decoded cache". Nothing was
-// wrong with either number on its own; they were never compared, because nothing could
-// compare them.
+// which resolves to the top level; the only ring prefetch that ran while the loupe was
+// on screen ran at the filmstrip's 256. Every arrow press in the loupe therefore
+// missed, decoded a full-size embedded JPEG cold and then rendered — against a headline
+// goal of "next photo in under 50 ms from a pre-decoded cache". Nothing was wrong with
+// either number on its own; they were never compared, because nothing could compare
+// them.
 //
 // So the level a request lands in, and the levels a cursor move must warm, are stated
 // here once, as data, and asserted against each other in a test.
+//
+// The rungs themselves are docs/15 §15.6's — thumb 256, grid 1024, fit 2560 — and this
+// is now the ONE place they are written down, because the same ladder keys the disk
+// preview cache. It used to be 256/512/1024/2048, which is nowhere in any document; the
+// gap was invisible while nothing on disk was keyed by it.
 
 import Foundation
 
@@ -33,11 +38,48 @@ public enum PagingSurface: String, Sendable, CaseIterable {
 
 public enum ThumbnailLadder {
 
-    /// Sizes the cache is allowed to hold. A request snaps up to one of these so a
-    /// thumbnail-size slider drag reuses decodes instead of spawning one per pixel step.
-    public static let levels: [Int] = [256, 512, 1024, 2048]
+    /// The pixel size a preview rung is stored at — docs/15 §15.6's ladder, which is
+    /// where these numbers now come from rather than from a private constant in an
+    /// AppKit file.
+    ///
+    /// The memory buckets and the disk rungs are the SAME numbers on purpose. A disk
+    /// row is keyed `(photo_id, level, recipe_fp)` and says nothing about how many
+    /// pixels its payload holds, so a memory bucket with no rung of its own would have
+    /// to borrow one: a 512-px decode recorded as the 1024 `grid` rung, then served
+    /// back to a request that asked for 1024. That is a soft contact sheet the code
+    /// believes is sharp, which is the exact class of quiet lie this project keeps
+    /// finding in itself. One ladder, one size per rung, no aliasing.
+    ///
+    /// `oneToOne` returns nil, and that is a statement rather than an omission: level 3
+    /// is full resolution, which §15.6 stores as TILES, and there is no tiling scheme
+    /// in this repository. A full-frame entry in a byte-budgeted LRU would be one
+    /// 45-megapixel allocation per photo, so nothing writes this rung, nothing reads
+    /// it, and `bucket(for:)` never returns it. The rung exists in `PreviewLevel`
+    /// because the schema declares it; it is not built.
+    public static func pixels(for level: PreviewLevel) -> Int? {
+        switch level {
+        case .thumb: return 256
+        case .grid: return 1024
+        case .fit: return 2560
+        case .oneToOne: return nil
+        }
+    }
 
-    /// The level a request of `size` pixels lands in.
+    /// The rung a bucket is stored as, or nil for a size that is not a rung.
+    public static func level(for bucket: Int) -> PreviewLevel? {
+        PreviewLevel.allCases.first { pixels(for: $0) == bucket }
+    }
+
+    /// Sizes the cache is allowed to hold, ascending. A request snaps up to one of
+    /// these so a thumbnail-size slider drag reuses decodes instead of spawning one per
+    /// pixel step. Derived from the rungs rather than written out again, so the two
+    /// cannot drift.
+    public static let levels: [Int] = PreviewLevel.allCases
+        .compactMap { ThumbnailLadder.pixels(for: $0) }
+
+    /// The level a request of `size` pixels lands in. A request larger than the top
+    /// rung snaps DOWN to it — the ladder stops at `fit` because 1:1 is unbuilt, and
+    /// answering with pixels that do not exist would be the worse lie.
     public static func bucket(for size: Int) -> Int {
         for level in levels where size <= level { return level }
         return levels[levels.count - 1]
@@ -47,6 +89,9 @@ public enum ThumbnailLadder {
     /// produced anything. A constant here rather than a literal at the call site,
     /// because the whole defect was that this number and the prefetch's number lived in
     /// different files and were never put side by side.
+    ///
+    /// Still 1600 and still not a rung: it is the viewer's ASK, and the ladder is what
+    /// turns an ask into a size. It now resolves to `fit`.
     public static let loupeInstantPixels: Int = 1600
 
     /// The level `loupeInstantPixels` actually resolves to.

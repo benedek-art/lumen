@@ -3,9 +3,14 @@
 // against each other.
 //
 // This is the test that did not exist while the loupe asked the browse cache for 1600
-// pixels — the 2048 level — and the only ring that ran while the loupe was on screen
+// pixels — the top level — and the only ring that ran while the loupe was on screen
 // warmed 256. Both numbers were correct in their own file. Nothing compared them,
 // because the ladder was a private constant in an AppKit file with no test target.
+//
+// The rungs moved once since: 256/512/1024/2048, which no document specifies, became
+// docs/15 §15.6's 256/1024/2560, because the same ladder now keys the DISK preview
+// cache and a memory bucket with no rung of its own would have to be filed under
+// somebody else's. The numbers below moved with it; the properties did not.
 
 import XCTest
 @testable import LumenCore
@@ -15,7 +20,7 @@ final class BrowsePrefetchTests: XCTestCase {
     // MARK: The ladder
 
     func testEveryRequestSnapsUpToACacheLevel() {
-        for size in 1...2400 {
+        for size in 1...3000 {
             let level = ThumbnailLadder.bucket(for: size)
             XCTAssertTrue(ThumbnailLadder.levels.contains(level),
                           "\(size) snapped to \(level), which is not a cache level")
@@ -30,7 +35,8 @@ final class BrowsePrefetchTests: XCTestCase {
         // The units mismatch itself, pinned: 1600 is not a level, it is a request that
         // resolves to one, and it resolves to the most expensive one there is.
         XCTAssertFalse(ThumbnailLadder.levels.contains(ThumbnailLadder.loupeInstantPixels))
-        XCTAssertEqual(ThumbnailLadder.loupeBucket, 2048)
+        XCTAssertEqual(ThumbnailLadder.loupeBucket, 2560)
+        XCTAssertEqual(ThumbnailLadder.level(for: ThumbnailLadder.loupeBucket), .fit)
         XCTAssertEqual(ThumbnailLadder.bucket(for: ThumbnailLadder.loupeInstantPixels),
                        ThumbnailLadder.loupeBucket)
     }
@@ -39,7 +45,7 @@ final class BrowsePrefetchTests: XCTestCase {
 
     func testEverySurfaceThatPagesTheLoupeWarmsTheLoupeLevel() {
         // The defect: the strip warmed its own 256 and nothing else, so every advance
-        // in the loupe found the 2048 bucket empty and paid a cold embedded-JPEG decode
+        // in the loupe found the viewer's bucket empty and paid a cold JPEG decode
         // before the pipeline started.
         for surface in [PagingSurface.filmstrip, .loupe] {
             for browse in [64, 256, 320, 512, 1024] {
@@ -53,16 +59,16 @@ final class BrowsePrefetchTests: XCTestCase {
 
     func testTheFilmstripWarmsItsOwnVisibleCellsFirst() {
         // Order is priority: the strip's cells are on screen now, the loupe level is a
-        // bet on the next keystroke. Warming the heavy level first would let 2048
+        // bet on the next keystroke. Warming the heavy level first would let fit-sized
         // decodes occupy all eight workers while the visible strip stayed grey.
         let warmed = ThumbnailLadder.warmSizes(for: .filmstrip, browsePixels: 256)
         XCTAssertEqual(warmed.first, 256)
-        XCTAssertEqual(warmed, [256, 2048])
+        XCTAssertEqual(warmed, [256, 2560])
     }
 
     func testASurfaceNeverAsksForTheSameLevelTwice() {
         for surface in PagingSurface.allCases {
-            for browse in [64, 256, 320, 512, 1024, 1600, 2048, 4096] {
+            for browse in [64, 256, 320, 512, 1024, 1600, 2560, 4096] {
                 let warmed = ThumbnailLadder.warmSizes(for: surface, browsePixels: browse)
                 XCTAssertEqual(Set(warmed).count, warmed.count,
                                "\(surface) at \(browse) warms \(warmed) twice over")
