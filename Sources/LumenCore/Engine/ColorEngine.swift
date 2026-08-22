@@ -1073,9 +1073,23 @@ public struct ColorEngine: Sendable {
 
         // The rolloff tapers *pushes* only. Negative Saturation still reaches true B&W
         // at −100 everywhere in the frame, including the extremes.
+        //
+        // Skin protection now obeys the same rule on Saturation, and did not: it
+        // multiplied the negative amount too, so at the shipped default of 70 a full
+        // desaturation left every skin-hued pixel at 30% of its chroma — a face still
+        // in colour inside a black-and-white frame. The wire format says "−100 reaches
+        // true B&W" (Recipe.swift), the comment directly above says it, Lightroom does
+        // it, and the code did not. A guard on a PUSH is a preference; a guard that
+        // stops a pull from reaching its stated endpoint is a broken control.
+        //
+        // Vibrance keeps protection at both signs on purpose. Its negative end is not
+        // an endpoint anybody is promised — `lowChroma` already means a saturated
+        // colour barely moves — so there is no contract for the guard to break, and
+        // "leave skin alone" is exactly what the dial is named for. Saturation at −100
+        // still wins over it: gain 0 zeroes chroma whatever Vibrance did first.
         let vibAmount = (vibrance >= 0 ? vibrance * rolloff : vibrance)
             * Self.lowChroma(input.C) * protection
-        let satAmount = (saturation >= 0 ? saturation * rolloff : saturation) * protection
+        let satAmount = saturation >= 0 ? saturation * rolloff * protection : saturation
 
         var mid: RGB = c
         if vibAmount != 0 {
