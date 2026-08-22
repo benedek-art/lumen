@@ -364,16 +364,24 @@ struct MaskPanel: View {
                 modelNote(c)
             }
         case .aiObject:
+            // The prompt count and its Reset are gone, and this is the note that
+            // replaces them. They were inert by construction, not by omission: nothing
+            // anywhere writes `MaskComponent.prompt`, because `MaskCanvas.isLive`
+            // excludes `aiObject` and the only other reference to the field in the app
+            // was the count itself. So the row read "0 prompt point(s)" on every
+            // component that has ever existed and could not read anything else, and
+            // Reset cleared a value that was already nil. Two affordances for a model
+            // that is not bundled, arranged so that the one thing they could tell you
+            // was a number that never changes.
             VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text("\(c.prompt?.count ?? 0) prompt point(s)")
-                        .font(.system(size: 11)).foregroundStyle(Lumen.secondaryText)
-                    Spacer(minLength: 0)
-                    smallButton("Reset", "arrow.uturn.backward") {
-                        editComponent(id, i, key: nil) { $0.prompt = nil }
-                    }
-                }
-                .frame(height: Lumen.rowHeight)
+                Text("Selects nothing yet — Lumen ships no object model.")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                Text("Click-to-select needs prompt points, and nothing writes them "
+                     + "because there is nothing to prompt; the count and its Reset "
+                     + "are not shown rather than shown reading zero forever.")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.tertiary)
                 modelNote(c)
             }
         case .aiSubject, .aiSky, .aiBackground:
