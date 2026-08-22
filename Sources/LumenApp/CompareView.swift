@@ -117,14 +117,26 @@ struct CompareView: View {
     // MARK: 2-up
 
     private var twoUp: some View {
-        let pair = Array(comparisonSet.prefix(2))
+        // The window follows the cursor rather than being the first two, always. With
+        // three or more frames selected, `prefix(2)` meant → moved the cursor to member
+        // four while these two panes stayed on members one and two — the highlight left
+        // the canvas and the key that cycles the candidate did nothing anyone could see.
+        // With two selected, which is the ordinary compare, this is the same pair.
+        let set = comparisonSet
+        let cursor = set.firstIndex { $0.id == state.primarySelection?.id }
+        let window = ComparePanes.pairWindow(cursor: cursor, count: set.count)
+        let pair = Array(set[window])
         return HStack(spacing: 1) {
             ForEach(pair) { photo in
                 ComparePane(photo: photo,
                             sync: sync,
                             isPrimary: photo.id == state.primarySelection?.id)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .onTapGesture(count: 2) { state.primarySelection = photo }
+                    // Through the cursor verb, not by assigning the cursor: the
+                    // scopes, the histogram and the mask selection follow the
+                    // frame being judged. Assigning `primarySelection` moves the
+                    // highlight and leaves them describing the previous photo.
+                    .onTapGesture(count: 2) { state.moveCursor(to: photo) }
             }
             if pair.count == 1 {
                 VStack(spacing: 6) {
@@ -158,7 +170,7 @@ struct CompareView: View {
                         SurveyCell(photo: photo,
                                    isPrimary: photo.id == state.primarySelection?.id)
                             .frame(height: minimum * 0.78)
-                            .onTapGesture { state.primarySelection = photo }
+                            .onTapGesture { state.moveCursor(to: photo) }
                     }
                 }
                 .padding(6)

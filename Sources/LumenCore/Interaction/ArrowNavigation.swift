@@ -79,3 +79,30 @@ public enum ArrowNavigation {
         Swift.min(Swift.max(index, 0), count - 1)
     }
 }
+
+/// What the 2-up canvas draws out of a comparison that holds more than two frames.
+public enum ComparePanes {
+
+    /// The two members the canvas shows, as a range into the comparison in the order it
+    /// is drawn.
+    ///
+    /// It used to be `prefix(2)`, unconditionally. With five frames selected that means
+    /// the arrows can move the cursor to member four and the two panes on screen never
+    /// change — the cursor leaves the canvas, the "which one is primary" highlight goes
+    /// with it, and the key that is supposed to cycle the candidate has no visible
+    /// effect at all. That was survivable while the arrows destroyed the comparison,
+    /// because the collapse itself changed the panes; it is not survivable now that they
+    /// do not.
+    ///
+    /// So the window follows the cursor and always contains it: the cursor's frame and
+    /// the one after it, sliding back by one at the end of the set so there are always
+    /// two panes to compare. With two frames selected — the ordinary case — this is the
+    /// same pair as before.
+    public static func pairWindow(cursor: Int?, count: Int) -> Range<Int> {
+        guard count > 2, let cursor, cursor >= 0, cursor < count else {
+            return 0..<Swift.max(0, Swift.min(2, count))
+        }
+        let start = Swift.min(cursor, count - 2)
+        return start..<(start + 2)
+    }
+}

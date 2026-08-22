@@ -166,6 +166,49 @@ final class ArrowNavigationTests: XCTestCase {
                        .stay)
     }
 
+    // MARK: What the 2-up canvas draws
+
+    func testTheTwoUpWindowAlwaysContainsTheCursor() {
+        // The reason the fix above is visible. `prefix(2)` meant that with five frames
+        // selected the cursor could walk to member four while the panes stayed on one
+        // and two — the highlight left the canvas and the key did nothing anyone could
+        // see.
+        for count in 3...9 {
+            for cursor in 0..<count {
+                let window = ComparePanes.pairWindow(cursor: cursor, count: count)
+                XCTAssertTrue(window.contains(cursor),
+                              "\(count) frames, cursor \(cursor), panes \(window)")
+                XCTAssertEqual(window.count, 2)
+                XCTAssertGreaterThanOrEqual(window.lowerBound, 0)
+                XCTAssertLessThanOrEqual(window.upperBound, count)
+            }
+        }
+    }
+
+    func testTheWindowSlidesOneFrameAtATime() {
+        XCTAssertEqual(ComparePanes.pairWindow(cursor: 0, count: 5), 0..<2)
+        XCTAssertEqual(ComparePanes.pairWindow(cursor: 1, count: 5), 1..<3)
+        XCTAssertEqual(ComparePanes.pairWindow(cursor: 2, count: 5), 2..<4)
+        // At the end it stops rather than running off, so there are always two panes.
+        XCTAssertEqual(ComparePanes.pairWindow(cursor: 3, count: 5), 3..<5)
+        XCTAssertEqual(ComparePanes.pairWindow(cursor: 4, count: 5), 3..<5)
+    }
+
+    func testTheOrdinaryComparisonOfTwoIsUnchanged() {
+        for cursor in [nil, 0, 1] {
+            XCTAssertEqual(ComparePanes.pairWindow(cursor: cursor, count: 2), 0..<2)
+        }
+    }
+
+    func testAWindowIsNeverWiderThanTheComparison() {
+        XCTAssertEqual(ComparePanes.pairWindow(cursor: nil, count: 0), 0..<0)
+        XCTAssertEqual(ComparePanes.pairWindow(cursor: 0, count: 1), 0..<1)
+        // A cursor outside the set falls back to the head rather than indexing past it.
+        XCTAssertEqual(ComparePanes.pairWindow(cursor: 9, count: 4), 0..<2)
+        XCTAssertEqual(ComparePanes.pairWindow(cursor: -1, count: 4), 0..<2)
+        XCTAssertEqual(ComparePanes.pairWindow(cursor: 3, count: -2), 0..<0)
+    }
+
     func testEveryIndexReturnedIsAddressableInTheListItNames() {
         for comparing in [true, false] {
             for libraryCount in [1, 2, 40] {
