@@ -11,9 +11,18 @@
 // not quietly change how bright a colour looks.
 //
 // Optional-field policy (RawParams.temp/tint): nil means "as shot" — the decode's own
-// neutral, which is a real number the UI does not know. The sliders stand in 5500 K
-// and 0 tint while the fields are nil and say "As Shot" in the preset row; the first
-// move writes a concrete Kelvin, and the preset menu's As Shot entry writes nil back.
+// neutral. The sliders stand that neutral in while the fields are nil and say "As Shot"
+// in the preset row; the first move writes it as a concrete Kelvin, and the preset
+// menu's As Shot entry writes nil back.
+//
+// It used to stand in a literal 5500 K, because the comment here said the neutral was
+// "a real number the UI does not know" and left it there. It is known — `ImageSource`
+// reads it off the file and `RenderPlan` adapts from it on every render — so the row
+// was showing one number while the picture was made with another. On a 3200 K tungsten
+// frame the first touch of Temp wrote 5500 and the adaptation honoured it: a 2300 K
+// jump cut on a drag that had not finished starting. `AppState.primaryAsShotNeutral`
+// carries it now, `WhiteBalanceEngine.displayed` is the rule, and until the source has
+// answered the rows say so instead of guessing.
 
 #if os(macOS)
 
@@ -42,9 +51,9 @@ private let wbIlluminants: [WBIlluminant] = [
     WBIlluminant(name: "Flash", kelvin: 5500, tint: 0),
 ]
 
-/// What the Temp and Tint rows show while the recipe says "as shot".
-private let asShotTempStandIn: Double = 5500
-private let asShotTintStandIn: Double = 0
+// What the Temp and Tint rows show while the recipe says "as shot" is
+// `WhiteBalanceEngine.displayed`, in LumenCore, where a test can reach it. There is no
+// constant here to be wrong any more.
 
 // MARK: - Basic panel
 
@@ -68,9 +77,26 @@ struct BasicPanel: View {
 
     // MARK: White balance
 
+    /// The file's own neutral, once the source has answered. nil is "not known yet".
+    private var asShotNeutral: WhiteBalanceEngine.Neutral? { state.primaryAsShotNeutral }
+
+    /// What the two rows show, by the rule in LumenCore rather than by a constant here.
+    private var whiteBalanceDisplay: WhiteBalanceEngine.AsShotDisplay {
+        WhiteBalanceEngine.displayed(temp: recipe.develop.raw.temp,
+                                     tint: recipe.develop.raw.tint,
+                                     asShot: asShotNeutral ?? .reference)
+    }
+
     private var whiteBalanceSection: some View {
-        DevelopSection("White Balance", isModified: isWhiteBalanceModified,
-                       onReset: { applyAsShot() }) {
+        let display = whiteBalanceDisplay
+        // While the neutral is unknown the rows have nothing honest to stand in, so they
+        // do not accept a drag. The window is one hop onto the render actor and it only
+        // opens on a photo whose recipe carries no override — the case where a drag
+        // would otherwise write a fabricated Kelvin and change the picture.
+        let unknown = asShotNeutral == nil && display.isAsShot
+
+        return DevelopSection("White Balance", isModified: isWhiteBalanceModified,
+                              onReset: { applyAsShot() }) {
             VStack(alignment: .leading, spacing: 2) {
                 presetRow
                 // The Kelvin axis is perceptually log-scaled in the spec; the shipped
@@ -78,27 +104,44 @@ struct BasicPanel: View {
                 // entry is the accurate way into the low end.
                 LumenSlider(title: "Temp",
                             value: binder.value(\.develop.raw.temp, "wb.temp",
-                                                orAuto: asShotTempStandIn),
+                                                orAuto: display.temperature),
                             range: 2000...50000,
                             hardRange: 2000...50000,
-                            defaultValue: asShotTempStandIn,
+                            defaultValue: display.temperature,
                             step: 10, decimals: 0, bipolar: false,
                             // Double-clicking the label CLEARS the override rather than
-                            // writing 5500 into it. `raw.temp` is optional and nil means
-                            // as-shot; pinning a number there flips the section to
-                            // "Custom" and changes the picture for any file not shot at
-                            // that temperature.
+                            // pinning the displayed number. `raw.temp` is optional and
+                            // nil means as-shot; pinning a number there flips the
+                            // section to "Custom" and freezes this photograph's neutral
+                            // into a recipe that may be copied onto another.
                             onReset: { applyAsShot() })
                 LumenSlider(title: "Tint",
                             value: binder.value(\.develop.raw.tint, "wb.tint",
-                                                orAuto: asShotTintStandIn),
+                                                orAuto: display.tint),
                             range: -150...150,
                             hardRange: -300...300,
-                            defaultValue: asShotTintStandIn,
+                            defaultValue: display.tint,
                             step: 1, decimals: 0,
                             onReset: { applyAsShot() })
             }
+            .disabled(unknown)
+            .help(asShotHelp(unknown: unknown))
         }
+    }
+
+    /// Says which neutral the render is adapting from, because "Temp 5500" means
+    /// nothing without it — the same reasoning as DetailPanel's ISO badge.
+    private func asShotHelp(unknown: Bool) -> String {
+        guard !unknown else {
+            return "Reading the file's as-shot neutral — the sliders open once it is "
+                + "known, so the first drag cannot move the picture."
+        }
+        guard let neutral = asShotNeutral else {
+            return "This file records no camera neutral, so Temp and Tint are relative "
+                + "to how it was delivered."
+        }
+        return "Shot at \(Int(neutral.kelvin.rounded())) K, tint "
+            + "\(Int(neutral.tint.rounded()))"
     }
 
     private var presetRow: some View {
@@ -303,21 +346,35 @@ struct BasicPanel: View {
     }
 
     private var advancedColourDisclosure: some View {
-        DevelopDisclosure("Advanced", isExpanded: $showSaturationAdvanced) {
+        // Density blends Saturation's additive push against its subtractive one, and a
+        // pull has no push to blend — the engine guards it on `satAmount > 0`. The dial
+        // used to be drawn live across all of that half of Saturation's range while
+        // doing exactly nothing, which is worse than a dead control because it looks
+        // like it is working. The predicate is `ColorAdjust.densityIsLive`, in LumenCore
+        // next to the field, with a test tying it to the engine's own guard.
+        let densityIsLive = recipe.develop.color.densityIsLive
+        return DevelopDisclosure("Advanced", isExpanded: $showSaturationAdvanced) {
             VStack(alignment: .leading, spacing: 2) {
                 LumenSlider(title: "Density",
                             value: binder.value(\.develop.color.density, "color.density"),
                             range: 0...100, hardRange: nil, defaultValue: 50,
                             step: 1, decimals: 0, bipolar: true)
+                    .disabled(!densityIsLive)
+                    .help(densityIsLive
+                          ? "How much of a Saturation push is subtractive."
+                          : "Density acts on a Saturation push. Raise Saturation above "
+                              + "zero and this comes live.")
                 LumenSlider(title: "Protect Skin",
                             value: binder.value(\.develop.color.protectSkin,
                                                 "color.protectSkin"),
                             range: 0...100, hardRange: nil, defaultValue: 70,
                             step: 1, decimals: 0, bipolar: true)
-                DevelopNote("Density blends Saturation between an additive push and a "
-                            + "subtractive one — colour intensifying by darkening, the "
-                            + "way stacked dye does. Protect Skin attenuates both "
-                            + "sliders inside the skin-tone band.")
+                DevelopNote("Density blends a Saturation PUSH between an additive one "
+                            + "and a subtractive one — colour intensifying by darkening, "
+                            + "the way stacked dye does. It does nothing on the way "
+                            + "down. Protect Skin attenuates Vibrance and a Saturation "
+                            + "push inside the skin-tone band; Saturation −100 still "
+                            + "reaches true black and white everywhere.")
             }
         }
     }

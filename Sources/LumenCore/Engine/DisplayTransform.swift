@@ -311,6 +311,22 @@ public struct DisplayTransform: Sendable {
         return out
     }
 
+    /// The transform a recipe renders through, without building a whole `RenderPlan`.
+    ///
+    /// `RenderPlan` calls this too, so the two cannot drift. Anything that needs to
+    /// reason about where a rendered pixel came from — Auto's scene statistics are the
+    /// first — needs exactly the transform the render used, including the anchors
+    /// Whites and Blacks moved, and reassembling those at the call site is how you get
+    /// a measurement taken against a curve the picture was never put through.
+    public static func forRecipe(_ recipe: Recipe,
+                                 displayWhiteTarget: Double? = nil,
+                                 space: RGBColorSpace = .rec2020) -> DisplayTransform {
+        var params = recipe.look.render.resolved(displayWhiteTarget: displayWhiteTarget)
+        ToneEngine(tone: recipe.develop.tone,
+                   zones: recipe.develop.zones).applyAnchors(to: &params)
+        return DisplayTransform(params, space: space)
+    }
+
     /// Monotonicity check on the baked curve — what the inverted-curve warning in the
     /// UI evaluates (docs/04 §6.5). Returns the normalized x where it first fails.
     public func firstNonMonotonicX(samples: Int = 512) -> Double? {

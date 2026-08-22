@@ -7,6 +7,16 @@
 //     The bands are a smooth partition of unity — there are no wedge edges to see.
 //   · Luminance is chroma-preserving (D13). Darkening a blue sky must not desaturate
 //     it, and the caption says so next to the slider rather than in a manual.
+//   · A caption says what the control does, not what it was going to do. Uniformity sat
+//     under the band selector captioned "converges THIS BAND's hues" and is one global
+//     value the engine applies to all eight — so selecting Blue and dragging it also
+//     pulled skin toward Orange, and the panel said otherwise. Making it per-band is a
+//     wire-format change (`Mixer.uniformity` would become eight fields, and every
+//     sidecar and the canonical fixture would move with it) built on a convergence
+//     TARGET that is itself not yet what docs/05 specifies — `measureBandMeanHues` has
+//     no shipping caller, so today it converges on the core-arc midpoint. Per-band
+//     uniformity aimed at the wrong target is a bigger control that is wrong in more
+//     places. The caption is what was false, so the caption is what changed.
 //   · Switching to B&W and back loses nothing, and "nothing" now means per photo and
 //     across a quit. The Mixer lives in `develop.mixer` and the B&W mix in `look.bw`;
 //     the treatment toggle never writes across that line, and it writes `bw.enabled`
@@ -90,18 +100,26 @@ struct ColorPanel: View {
 
                 caption("Luminance holds chroma: a darkened sky stays as blue as it was.")
 
-                LumenSlider(title: "Uniformity",
+                // Not inside the band block above, and titled for what it is. There is
+                // one `Mixer.uniformity` on the wire and the engine applies it to all
+                // eight bands, each converging on its own core arc — so selecting Blue
+                // and dragging this also pulls skin toward Orange.
+                Divider()
+                    .padding(.vertical, 2)
+
+                LumenSlider(title: "Uniformity (all bands)",
                             value: bind("mixer.uniformity",
                                         get: { $0.develop.mixer.uniformity },
                                         set: { $0.develop.mixer.uniformity = $1 }),
                             range: 0...100, defaultValue: 0, step: 1, decimals: 0,
                             bipolar: false)
 
-                caption("Uniformity converges this band's hues toward the middle of the "
-                        + "core arc above — drag the inner handles onto the colours you "
-                        + "actually have and it converges on those. Texture-preserving "
-                        + "convergence needs a spatial pass the shipping graph does not "
-                        + "run yet; today it moves the whole pixel.")
+                caption("Uniformity converges EVERY band's hues toward the middle of "
+                        + "that band's core arc — not just the selected one. Drag the "
+                        + "inner handles onto the colours you actually have and it "
+                        + "converges on those. Texture-preserving convergence needs a "
+                        + "spatial pass the shipping graph does not run yet; today it "
+                        + "moves the whole pixel.")
             }
         }
     }

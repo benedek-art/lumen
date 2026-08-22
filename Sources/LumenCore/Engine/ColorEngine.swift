@@ -144,9 +144,31 @@ public struct ColorEngine: Sendable {
 
     /// ±100 on a Hue slider lands exactly on the adjacent band centre.
     public static let hueRangeDegrees: Double = 45.0
-    /// Luminance shaping constant: ±100 moves L by at most ±0.25 at L = 0.5, with
-    /// fixed points at black and white.
+    /// Luminance shaping constant: ±100 moves L by at most ±0.25, at and above L = 0.5.
     public static let lumKappa: Double = 1.0
+
+    /// Where the chroma-preserving lightness kernel reaches full authority and HOLDS it.
+    ///
+    /// The kernel is `t·(1−t)`: zero at t = 0, peaking at t = 0.5. The zero is a real
+    /// fixed point — there is nothing below black to darken toward, and evaluating at
+    /// the pixel's own lightness there makes `L − shape` come out as `L²`, so full
+    /// negative deflection cannot drive a pixel through zero.
+    ///
+    /// The argument used to be `saturate(L)`, which gave the kernel a SECOND zero at
+    /// L = 1 and put the peak in the middle of the two. That is the display-referred
+    /// mistake this file's own note on `satRolloffHi0` describes: the Mixer and Point
+    /// Colour lightness stages run before the display transform, on unbounded
+    /// scene-referred data, where 1.0 is not white and not an endpoint — it is about
+    /// +2.5 EV over mid-grey and entirely ordinary. Every pixel at or above it moved
+    /// not at all, and one at L ≈ 0.9 moved at a third of authority: bright sky, lit
+    /// cloud, sunlit skin, the three subjects a Luminance slider exists for.
+    ///
+    /// Clamping the ARGUMENT at the peak instead of at 1.0 keeps the black fixed point
+    /// and the `L²` bound exactly as they were below the peak, keeps the response
+    /// monotone in L at both extremes of deflection, and leaves the control at full
+    /// authority everywhere above it. There is no taper: a taper would need a highlight
+    /// to converge to, and scene-referred data does not have one.
+    public static let lumShapePeak: Double = 0.5
     /// B&W band gain constant: −100 on a band takes that colour's grey to zero.
     public static let bwKappa: Double = 1.0
 
@@ -814,6 +836,17 @@ public struct ColorEngine: Sendable {
 
     // MARK: - Colour Mixer (D13)
 
+    /// The chroma-preserving lightness kernel, shared by the Mixer's Luminance sliders
+    /// and Point Colour's. Chroma is not an argument and never moves (invariant #1).
+    ///
+    /// Rises from a true zero at black to full authority at `lumShapePeak`, then holds.
+    /// See `lumShapePeak` for why it holds rather than falling back to zero at 1.0.
+    public static func lumShape(_ lightness: Double) -> Double {
+        guard lightness.isFinite else { return 0 }
+        let t = Num.clamp(lightness, 0, lumShapePeak)
+        return t * (1 - t)
+    }
+
     private static func sanitizedBands(_ input: [MixerBand]) -> [MixerBand] {
         var out: [MixerBand] = [MixerBand](repeating: MixerBand(), count: bandCount)
         for i in 0..<bandCount where i < input.count { out[i] = input[i] }
@@ -862,10 +895,9 @@ public struct ColorEngine: Sendable {
 
         let gC = Swift.max(0, 1 + satSum)
         // Chroma is carried through the luminance move literally unchanged — invariant
-        // #1. The shaping term uses the saturated L so the fixed points at black and
-        // white hold even for the above-white values scene-referred data reaches.
-        let shaped = Num.saturate(lch.L)
-        let L = lch.L + lumSum * Self.lumKappa * shaped * (1 - shaped)
+        // #1. The shaping term holds the black fixed point and keeps full authority on
+        // the above-white values scene-referred data reaches.
+        let L = lch.L + lumSum * Self.lumKappa * Self.lumShape(lch.L)
         let h = Num.wrapHue(lch.h + hueSum + converge)
         return context.toRGB(OKLCh(L: L, C: lch.C * gC, h: h))
     }
@@ -973,8 +1005,7 @@ public struct ColorEngine: Sendable {
         h += weight * s.shiftH
         C = Swift.max(0, C * (1 + weight * s.shiftS / 100))
         // Same chroma-preserving lightness kernel as the Mixer: C is untouched here.
-        let shaped = Num.saturate(L)
-        L += weight * (s.shiftL / 100) * Self.lumKappa * shaped * (1 - shaped)
+        L += weight * (s.shiftL / 100) * Self.lumKappa * Self.lumShape(L)
         return context.toRGB(OKLCh(L: L, C: C, h: Num.wrapHue(h)))
     }
 
@@ -1042,9 +1073,23 @@ public struct ColorEngine: Sendable {
 
         // The rolloff tapers *pushes* only. Negative Saturation still reaches true B&W
         // at −100 everywhere in the frame, including the extremes.
+        //
+        // Skin protection now obeys the same rule on Saturation, and did not: it
+        // multiplied the negative amount too, so at the shipped default of 70 a full
+        // desaturation left every skin-hued pixel at 30% of its chroma — a face still
+        // in colour inside a black-and-white frame. The wire format says "−100 reaches
+        // true B&W" (Recipe.swift), the comment directly above says it, Lightroom does
+        // it, and the code did not. A guard on a PUSH is a preference; a guard that
+        // stops a pull from reaching its stated endpoint is a broken control.
+        //
+        // Vibrance keeps protection at both signs on purpose. Its negative end is not
+        // an endpoint anybody is promised — `lowChroma` already means a saturated
+        // colour barely moves — so there is no contract for the guard to break, and
+        // "leave skin alone" is exactly what the dial is named for. Saturation at −100
+        // still wins over it: gain 0 zeroes chroma whatever Vibrance did first.
         let vibAmount = (vibrance >= 0 ? vibrance * rolloff : vibrance)
             * Self.lowChroma(input.C) * protection
-        let satAmount = (saturation >= 0 ? saturation * rolloff : saturation) * protection
+        let satAmount = saturation >= 0 ? saturation * rolloff * protection : saturation
 
         var mid: RGB = c
         if vibAmount != 0 {

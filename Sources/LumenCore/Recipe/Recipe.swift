@@ -125,8 +125,15 @@ public struct Develop: Codable, Equatable, Sendable {
 
 /// Vibrance and Saturation on the H-K-aware UCS model (D21), plus the two dials that
 /// make Saturation behave like stacked dye instead of like a channel spread.
-/// `density` blends additive ↔ subtractive behaviour; `protectSkin` attenuates BOTH
-/// sliders inside the skin-tone tolerance band.
+///
+/// `density` blends Saturation's additive push against its subtractive one, and only a
+/// push has anything to blend.
+///
+/// `protectSkin` attenuates Vibrance at both signs and Saturation's PUSH. It does not
+/// attenuate a negative Saturation: "−100 reaches true B&W" is a contract, and a guard
+/// that stops a pull short of its own endpoint is not a preference, it is a defect. It
+/// used to, and at the default of 70 that left skin at 30% chroma in a frame the
+/// photographer had taken all the way to black and white.
 public struct ColorAdjust: Codable, Equatable, Sendable {
     public var vibrance: Double     // −100…+100, low-chroma weighted
     public var saturation: Double   // −100…+100, −100 reaches true B&W
@@ -140,6 +147,21 @@ public struct ColorAdjust: Codable, Equatable, Sendable {
         self.density = density
         self.protectSkin = protectSkin
     }
+
+    /// Whether moving `density` can change a single pixel at these settings.
+    ///
+    /// The subtractive branch is a per-channel gamma above 1: it densifies a colour as
+    /// it intensifies. There is no such thing to blend on the way DOWN — a negative
+    /// Saturation is a plain walk toward the neutral axis, and `ColorEngine` guards the
+    /// blend on `satAmount > 0` accordingly. That guard is right; what was wrong is that
+    /// nothing said so. The panel drew a live bipolar dial over half a slider's range
+    /// where it did exactly nothing, which is the same class of thing as a dead control
+    /// and is worse, because it looks like it is working.
+    ///
+    /// This is the predicate the panel disables the row on, and
+    /// `testDensityIsLiveExactlyWhereItChangesThePicture` is what stops it drifting from
+    /// the engine's own guard.
+    public var densityIsLive: Bool { saturation > 0 }
 }
 
 /// Parameters consumed by the RAW decode stage (docs/14 S1–S5).

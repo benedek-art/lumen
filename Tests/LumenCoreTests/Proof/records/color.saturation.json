@@ -6,7 +6,7 @@
   "hueRotation" : 16.252472964241747,
   "id" : "color.saturation",
   "isMonotone" : true,
-  "meanSeparation" : 34.332626265946146,
+  "meanSeparation" : 36.01461951963538,
   "panel" : "Colour",
   "shippingReader" : "Sources\/LumenPipeline\/RenderGraph.swift:98",
   "smallestLiveStep" : 4.688171819907566,

@@ -269,6 +269,18 @@ actor RenderCoordinator {
         return source.nativePixelSize
     }
 
+    /// The neutral this file was actually shot at — the one the render adapts FROM.
+    ///
+    /// It has always been here and the panel has never seen it: `RenderPlan` gets it
+    /// from `source.asShotTemperature` on every render while the Temp row stood a
+    /// literal 5500 in for it. Same shape as `nativeSize(for:)`, and for the same
+    /// reason: the answer lives on the decoded source, which lives on this actor.
+    func asShotNeutral(for url: URL) -> WhiteBalanceEngine.Neutral? {
+        guard let source = try? self.source(for: url) else { return nil }
+        return WhiteBalanceEngine.Neutral(kelvin: source.asShotTemperature,
+                                          tint: source.asShotTint)
+    }
+
     func invalidate(url: URL) {
         sources.removeValue(forKey: url)
         sourceOrder.removeAll { $0 == url }

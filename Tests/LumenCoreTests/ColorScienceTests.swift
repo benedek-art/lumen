@@ -436,6 +436,154 @@ final class ColorScienceTests: XCTestCase {
         }
     }
 
+    // MARK: - Protect Skin, where it is applied rather than where it is scored
+
+    /// A colour on the skin line at full skin weight, so `protection` is exactly
+    /// `1 − protectSkin/100` and the arithmetic under test is not diluted by the score.
+    private func skinLineColour(L: Double = 0.55, C: Double = 0.10) -> RGB {
+        OKLabTransform.working.toRGB(
+            OKLCh(L: L, C: C, h: ColorEngine.skinLineDegrees))
+    }
+
+    /// The same chroma and lightness, well off the skin line: the control colour that
+    /// makes "skin was spared" mean something rather than "nothing happened".
+    private func offLineColour(L: Double = 0.55, C: Double = 0.10) -> RGB {
+        OKLabTransform.working.toRGB(
+            OKLCh(L: L, C: C, h: ColorEngine.skinLineDegrees + 180))
+    }
+
+    private func chroma(_ c: RGB) -> Double { LumenUCS.fromRGB(c).C }
+
+    private func engine(_ adjust: ColorAdjust) -> ColorEngine {
+        ColorEngine(mixer: Mixer(), pointColors: [], color: adjust,
+                    primaries: Primaries(), bw: nil)
+    }
+
+    /// Saturation −100 reaches true black and white, ON SKIN, at the shipped default.
+    ///
+    /// `protection` multiplied the negative saturation amount as well as the positive
+    /// one, so at the default Protect Skin of 70 a full desaturation left every
+    /// skin-hued pixel at 30% of its chroma: a face still in colour inside a frame the
+    /// photographer had taken to black and white. The wire format says "−100 reaches
+    /// true B&W", the engine's own comment said it, and neither was true.
+    func testSaturationMinus100ReachesTrueBlackAndWhiteOnSkin() {
+        var adjust = ColorAdjust()          // density 50, protectSkin 70 — the defaults
+        adjust.saturation = -100
+        let e = engine(adjust)
+
+        for (name, rgb8) in Self.skinSwatches {
+            let input = working(rgb8)
+            XCTAssertGreaterThan(ColorEngine.skinWeight(input), 0.2,
+                                 "INVALID PROBE: \(name) does not score as skin")
+            XCTAssertLessThan(chroma(e.apply(input)), 1e-9,
+                              "\(name) kept \(chroma(e.apply(input))) of chroma at "
+                                  + "Saturation −100 — Protect Skin blocked the pull")
+        }
+
+        // Including the worst case the score can produce: full weight, full protection.
+        var full = ColorAdjust(protectSkin: 100)
+        full.saturation = -100
+        let onLine = skinLineColour()
+        XCTAssertEqual(ColorEngine.skinWeight(onLine), 1, accuracy: 1e-9,
+                       "INVALID PROBE: the probe colour is not at full skin weight")
+        XCTAssertLessThan(chroma(engine(full).apply(onLine)), 1e-9,
+                          "Protect Skin at 100 held colour in a black-and-white frame")
+    }
+
+    /// The other half, and the half that had no test at all: the attenuation itself.
+    ///
+    /// Both fixture tests zero `protectSkin`, so deleting `* protection` from the engine
+    /// left the whole suite green — the same shape as the 33° skin-line constant that
+    /// shipped wrong for months behind passing tests. This drives the multiplication on
+    /// both sliders and in both directions.
+    func testProtectSkinAttenuatesTheMovesItSaysItDoes() {
+        let onLine = skinLineColour()
+        let offLine = offLineColour()
+        XCTAssertEqual(ColorEngine.skinWeight(onLine), 1, accuracy: 1e-9,
+                       "INVALID PROBE: on-line colour is not at full skin weight")
+        XCTAssertEqual(ColorEngine.skinWeight(offLine), 0, accuracy: 1e-9,
+                       "INVALID PROBE: the control colour scores as skin")
+
+        // Saturation, pushing. Protection 100 leaves skin exactly alone; protection 0
+        // pushes it as hard as anything else.
+        var pushed = ColorAdjust(protectSkin: 0)
+        pushed.saturation = 100
+        var protected = ColorAdjust(protectSkin: 100)
+        protected.saturation = 100
+        XCTAssertGreaterThan(chroma(engine(pushed).apply(onLine)), chroma(onLine) * 1.1,
+                             "Saturation +100 did not push an unprotected skin tone")
+        XCTAssertEqual(chroma(engine(protected).apply(onLine)), chroma(onLine),
+                       accuracy: chroma(onLine) * 1e-9,
+                       "Protect Skin at 100 did not spare skin from a Saturation push")
+        XCTAssertGreaterThan(chroma(engine(protected).apply(offLine)),
+                             chroma(offLine) * 1.1,
+                             "Protect Skin at 100 attenuated a colour that is not skin")
+
+        // Vibrance keeps protection at BOTH signs: its negative end promises no
+        // endpoint, so there is no contract for the guard to break, and sparing skin is
+        // what the dial is named for.
+        for amount in [100.0, -100.0] {
+            var vibrance = ColorAdjust(protectSkin: 100)
+            vibrance.vibrance = amount
+            XCTAssertEqual(chroma(engine(vibrance).apply(onLine)), chroma(onLine),
+                           accuracy: chroma(onLine) * 1e-9,
+                           "Protect Skin at 100 did not spare skin from Vibrance \(amount)")
+            var unprotected = ColorAdjust(protectSkin: 0)
+            unprotected.vibrance = amount
+            XCTAssertNotEqual(chroma(engine(unprotected).apply(onLine)), chroma(onLine),
+                              accuracy: chroma(onLine) * 1e-3,
+                              "INVALID PROBE: Vibrance \(amount) does nothing here even "
+                                  + "unprotected, so protection cannot be measured")
+        }
+
+        // And the default is a partial attenuation, not a switch: 70 spares 70% of the
+        // push on a full-weight skin tone rather than all or none of it.
+        var half = ColorAdjust(protectSkin: 70)
+        half.saturation = 100
+        let none = chroma(engine(pushed).apply(onLine)) - chroma(onLine)
+        let some = chroma(engine(half).apply(onLine)) - chroma(onLine)
+        XCTAssertGreaterThan(some, 0, "Protect Skin 70 blocked the push entirely")
+        XCTAssertLessThan(some, none * 0.6,
+                          "Protect Skin 70 barely attenuated the push: \(some) of \(none)")
+    }
+
+    // MARK: - Density
+
+    /// Density is inert wherever Saturation is not pushing, and the recipe says so.
+    ///
+    /// The subtractive branch is a per-channel gamma above 1 — it densifies a colour as
+    /// it intensifies — and there is nothing to blend on the way down, so `ColorEngine`
+    /// guards it on `satAmount > 0`. That guard is right. What was wrong is that nothing
+    /// said so: the panel drew a live bipolar dial across half of Saturation's range
+    /// where it did exactly nothing.
+    ///
+    /// This test is what stops `ColorAdjust.densityIsLive` — the predicate the panel now
+    /// disables the row on — from drifting away from the engine's own guard, in either
+    /// direction: it fails if the flag claims a live dial that moves nothing, and it
+    /// fails if the flag claims a dead one that does.
+    func testDensityIsLiveExactlyWhereItChangesThePicture() {
+        // Ordinary saturated colours at ordinary brightness, none of them on the skin
+        // line, so neither the rolloff nor the protection can stand in for the guard.
+        let probes = [RGB(0.30, 0.10, 0.08), RGB(0.08, 0.22, 0.30),
+                      RGB(0.12, 0.28, 0.09), RGB(0.26, 0.09, 0.28)]
+
+        for saturation in [-100.0, -50.0, -1.0, 0.0, 1.0, 25.0, 100.0] {
+            let low = engine(ColorAdjust(saturation: saturation,
+                                         density: 0, protectSkin: 0))
+            let high = engine(ColorAdjust(saturation: saturation,
+                                          density: 100, protectSkin: 0))
+            let moved = probes.contains {
+                low.apply($0).maxAbsDifference(high.apply($0)) > 1e-9
+            }
+            let claimed = ColorAdjust(saturation: saturation).densityIsLive
+            XCTAssertEqual(moved, claimed,
+                           "at Saturation \(saturation) the Density dial "
+                               + (moved ? "moves" : "does not move")
+                               + " the picture but the panel is told it is "
+                               + (claimed ? "live" : "dead"))
+        }
+    }
+
     // MARK: - The advanced grading grid (D15)
     //
     // `ColorBalanceGrid` was written, tested for its own arithmetic, and referenced by

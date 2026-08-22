@@ -119,6 +119,93 @@ final class RobustnessTests: XCTestCase {
                              "saturation did nothing to a highlight")
     }
 
+    /// The mirror image of the defect above, in the Mixer's and Point Colour's
+    /// chroma-preserving Luminance kernel — and it had never been measured because the
+    /// kernel had no test that went anywhere near the top of the range.
+    ///
+    /// The shaping term was `t·(1−t)` evaluated at `saturate(L)`. That is zero at
+    /// OKLab L = 1 and a third of authority at L ≈ 0.9. Neither is white: the stage runs
+    /// before the display transform on unbounded scene-referred data, where L = 1 is
+    /// about +2.5 EV over mid-grey and L = 1.13 is +3 EV. So Mixer Luminance did
+    /// literally nothing to a bright sky, a lit cloud or sunlit skin — the three
+    /// subjects the slider exists for — while working perfectly on the midtones every
+    /// test looked at.
+    func testMixerLuminanceStillWorksAboveSceneWhite() {
+        let peak = ColorEngine.lumShape(ColorEngine.lumShapePeak)
+        XCTAssertEqual(peak, 0.25, accuracy: 1e-12)
+        for lightness in [1.0, 1.13, 1.5, 3.0, 20.0] {
+            XCTAssertEqual(ColorEngine.lumShape(lightness), peak, accuracy: 1e-12,
+                           "lightness authority collapsed at OKLab L \(lightness)")
+        }
+        XCTAssertEqual(ColorEngine.lumShape(0), 0, accuracy: 1e-12)
+        XCTAssertEqual(ColorEngine.lumShape(-1), 0, accuracy: 1e-12)
+        XCTAssertEqual(ColorEngine.lumShape(.nan), 0, accuracy: 1e-12)
+
+        // Never more than the pixel has, so full negative deflection cannot push a
+        // lightness through zero — the property the old form got from `L − L(1−L) = L²`
+        // and the reason the argument is clamped at the peak rather than left free.
+        // Monotone non-decreasing and smooth with it: a step here is a contour line
+        // across a gradient in the finished picture.
+        var previous = 0.0
+        var x = 0.0
+        while x <= 4.0 {
+            let v = ColorEngine.lumShape(x)
+            XCTAssertLessThanOrEqual(v, x + 1e-12, "kernel exceeded the lightness at \(x)")
+            XCTAssertGreaterThanOrEqual(v, previous - 1e-12, "kernel fell back at \(x)")
+            XCTAssertLessThan(v - previous, 0.01, "kernel stepped at \(x)")
+            previous = v
+            x += 0.005
+        }
+    }
+
+    /// And the whole engine, on the measurement docs/audit/colour.md asked for: Blue
+    /// Luminance −100 on the same blue at mid-grey, +1, +2 and +3 EV.
+    ///
+    /// Under the old kernel the +3 EV patch did not move at all and the +2 EV patch
+    /// moved at 37% of the midtone's. The assertion is written against the MIDTONE's
+    /// own drop rather than an absolute, so it says what the defect actually was: the
+    /// slider stopped meaning the same thing as the picture got brighter.
+    func testMixerLuminanceDarkensABlueSkyAtEveryExposure() {
+        let context = OKLabTransform.working
+        // Dead centre of the Blue band, which is index 5 of the fixed eight.
+        let blueBand = 5
+        let hue = ColorEngine.bandAnchorDegrees
+            + ColorEngine.bandSpacingDegrees * Double(blueBand)
+        XCTAssertGreaterThan(ColorEngine.bandWeights(hue: hue)[blueBand], 0.9,
+                             "INVALID PROBE: the test colour is not in the Blue band")
+
+        var mixer = Mixer()
+        mixer.bands[blueBand].lum = -100
+        let engine = ColorEngine(mixer: mixer, pointColors: [], color: ColorAdjust(),
+                                 primaries: Primaries(), bw: nil)
+
+        // One colour, scaled in scene-linear light. Scaling linear RGB by k multiplies
+        // OKLab L and C by k^(1/3) and leaves the hue exactly where it was, so all four
+        // patches are the same blue at four exposures and band membership is identical.
+        let base = context.toRGB(OKLCh(L: 0.565, C: 0.10, h: hue))
+        var midtoneDrop = 0.0
+        for (stops, gain) in [(0.0, 1.0), (1.0, 2.0), (2.0, 4.0), (3.0, 8.0)] {
+            let input = base * gain
+            let before = context.toLCh(input)
+            let after = context.toLCh(engine.apply(input))
+            let drop = before.L - after.L
+            if stops == 0 { midtoneDrop = drop }
+
+            XCTAssertGreaterThan(drop, 0.2,
+                                 "Blue Luminance −100 moved OKLab L by \(drop) at "
+                                     + "+\(stops) EV (L = \(before.L))")
+            XCTAssertGreaterThan(drop, midtoneDrop * 0.9,
+                                 "Blue Luminance −100 was worth \(drop) at +\(stops) EV "
+                                     + "against \(midtoneDrop) at mid-grey — the "
+                                     + "control weakens as the picture brightens")
+            // Invariant #1 while we are here: the darkened sky is exactly as blue.
+            XCTAssertEqual(after.C, before.C, accuracy: before.C * 1e-6,
+                           "the luminance move changed chroma at +\(stops) EV")
+            XCTAssertEqual(after.h, before.h, accuracy: 1e-6,
+                           "the luminance move rotated hue at +\(stops) EV")
+        }
+    }
+
     // MARK: - The first step of a slider must be a first step
 
     /// Denoise ran the whole image through the variance-stabilizing round trip the
