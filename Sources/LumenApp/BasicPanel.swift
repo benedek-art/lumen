@@ -303,21 +303,35 @@ struct BasicPanel: View {
     }
 
     private var advancedColourDisclosure: some View {
-        DevelopDisclosure("Advanced", isExpanded: $showSaturationAdvanced) {
+        // Density blends Saturation's additive push against its subtractive one, and a
+        // pull has no push to blend — the engine guards it on `satAmount > 0`. The dial
+        // used to be drawn live across all of that half of Saturation's range while
+        // doing exactly nothing, which is worse than a dead control because it looks
+        // like it is working. The predicate is `ColorAdjust.densityIsLive`, in LumenCore
+        // next to the field, with a test tying it to the engine's own guard.
+        let densityIsLive = recipe.develop.color.densityIsLive
+        return DevelopDisclosure("Advanced", isExpanded: $showSaturationAdvanced) {
             VStack(alignment: .leading, spacing: 2) {
                 LumenSlider(title: "Density",
                             value: binder.value(\.develop.color.density, "color.density"),
                             range: 0...100, hardRange: nil, defaultValue: 50,
                             step: 1, decimals: 0, bipolar: true)
+                    .disabled(!densityIsLive)
+                    .help(densityIsLive
+                          ? "How much of a Saturation push is subtractive."
+                          : "Density acts on a Saturation push. Raise Saturation above "
+                              + "zero and this comes live.")
                 LumenSlider(title: "Protect Skin",
                             value: binder.value(\.develop.color.protectSkin,
                                                 "color.protectSkin"),
                             range: 0...100, hardRange: nil, defaultValue: 70,
                             step: 1, decimals: 0, bipolar: true)
-                DevelopNote("Density blends Saturation between an additive push and a "
-                            + "subtractive one — colour intensifying by darkening, the "
-                            + "way stacked dye does. Protect Skin attenuates both "
-                            + "sliders inside the skin-tone band.")
+                DevelopNote("Density blends a Saturation PUSH between an additive one "
+                            + "and a subtractive one — colour intensifying by darkening, "
+                            + "the way stacked dye does. It does nothing on the way "
+                            + "down. Protect Skin attenuates Vibrance and a Saturation "
+                            + "push inside the skin-tone band; Saturation −100 still "
+                            + "reaches true black and white everywhere.")
             }
         }
     }

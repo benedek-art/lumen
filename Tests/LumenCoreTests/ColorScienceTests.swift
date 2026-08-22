@@ -547,6 +547,43 @@ final class ColorScienceTests: XCTestCase {
                           "Protect Skin 70 barely attenuated the push: \(some) of \(none)")
     }
 
+    // MARK: - Density
+
+    /// Density is inert wherever Saturation is not pushing, and the recipe says so.
+    ///
+    /// The subtractive branch is a per-channel gamma above 1 — it densifies a colour as
+    /// it intensifies — and there is nothing to blend on the way down, so `ColorEngine`
+    /// guards it on `satAmount > 0`. That guard is right. What was wrong is that nothing
+    /// said so: the panel drew a live bipolar dial across half of Saturation's range
+    /// where it did exactly nothing.
+    ///
+    /// This test is what stops `ColorAdjust.densityIsLive` — the predicate the panel now
+    /// disables the row on — from drifting away from the engine's own guard, in either
+    /// direction: it fails if the flag claims a live dial that moves nothing, and it
+    /// fails if the flag claims a dead one that does.
+    func testDensityIsLiveExactlyWhereItChangesThePicture() {
+        // Ordinary saturated colours at ordinary brightness, none of them on the skin
+        // line, so neither the rolloff nor the protection can stand in for the guard.
+        let probes = [RGB(0.30, 0.10, 0.08), RGB(0.08, 0.22, 0.30),
+                      RGB(0.12, 0.28, 0.09), RGB(0.26, 0.09, 0.28)]
+
+        for saturation in [-100.0, -50.0, -1.0, 0.0, 1.0, 25.0, 100.0] {
+            let low = engine(ColorAdjust(saturation: saturation,
+                                         density: 0, protectSkin: 0))
+            let high = engine(ColorAdjust(saturation: saturation,
+                                          density: 100, protectSkin: 0))
+            let moved = probes.contains {
+                low.apply($0).maxAbsDifference(high.apply($0)) > 1e-9
+            }
+            let claimed = ColorAdjust(saturation: saturation).densityIsLive
+            XCTAssertEqual(moved, claimed,
+                           "at Saturation \(saturation) the Density dial "
+                               + (moved ? "moves" : "does not move")
+                               + " the picture but the panel is told it is "
+                               + (claimed ? "live" : "dead"))
+        }
+    }
+
     // MARK: - The advanced grading grid (D15)
     //
     // `ColorBalanceGrid` was written, tested for its own arithmetic, and referenced by

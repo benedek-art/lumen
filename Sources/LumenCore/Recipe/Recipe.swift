@@ -147,6 +147,21 @@ public struct ColorAdjust: Codable, Equatable, Sendable {
         self.density = density
         self.protectSkin = protectSkin
     }
+
+    /// Whether moving `density` can change a single pixel at these settings.
+    ///
+    /// The subtractive branch is a per-channel gamma above 1: it densifies a colour as
+    /// it intensifies. There is no such thing to blend on the way DOWN — a negative
+    /// Saturation is a plain walk toward the neutral axis, and `ColorEngine` guards the
+    /// blend on `satAmount > 0` accordingly. That guard is right; what was wrong is that
+    /// nothing said so. The panel drew a live bipolar dial over half a slider's range
+    /// where it did exactly nothing, which is the same class of thing as a dead control
+    /// and is worse, because it looks like it is working.
+    ///
+    /// This is the predicate the panel disables the row on, and
+    /// `testDensityIsLiveExactlyWhereItChangesThePicture` is what stops it drifting from
+    /// the engine's own guard.
+    public var densityIsLive: Bool { saturation > 0 }
 }
 
 /// Parameters consumed by the RAW decode stage (docs/14 S1–S5).
