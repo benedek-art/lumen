@@ -3,13 +3,27 @@
 // docs/14 §S7): every tonal control compiles to a per-pixel gain, in stops, over the
 // zonal coordinate `t = log2(luminance / 0.18)`.
 //
-// Two properties are structural rather than enforced:
-//   · Highlights' weight window tapers to zero at the white anchor, so Highlights can
-//     never push a pixel past display white. LrC's most load-bearing hidden rule,
-//     implemented as geometry.
+// One property is structural rather than enforced:
 //   · Whites and Blacks do not gain anything — they move the anchors the display
 //     transform maps to display white and black. That is what "Whites owns the white
 //     point" means when you build it instead of writing it down.
+//
+// A second one used to be, and this file said so for longer than it was true. The claim
+// was that Highlights' weight window "tapers to zero at the white anchor, so Highlights
+// can never push a pixel past display white — LrC's most load-bearing hidden rule,
+// implemented as geometry". It is not geometry any more. The bump became a shelf for
+// the reasons `highlightShelfEnd` gives at length, and a shelf saturates: `smoothstep(0,
+// whiteAnchorEV, t)` is 1 AT the anchor and 1 above it, so Highlights ±100 applies its
+// full ±2 EV to pixels already at and beyond white. That was the point of the rework —
+// a bump left a blown sky exactly where it was — and the words simply did not follow.
+//
+// The invariant it claimed is still TRUE, and it is now the display transform's: the
+// scene→display curve saturates at the white anchor, so nothing this engine hands it
+// can render above display white. That is a different mechanism with a different
+// failure mode, and it is not free — it holds because `normalizedCurve` clamps its
+// argument, and would stop holding the moment the transform gained headroom above the
+// anchor without a matching guard here. `testHighlightsCannotRenderPastDisplayWhite`
+// asserts it end to end rather than leaving it to a sentence.
 //
 // The luminance driving `t` is an edge-aware guided-filter mask, not raw pixel luma
 // (SpatialOps.guidedFilter) — which is why zone edits follow edges instead of haloing.
@@ -287,8 +301,13 @@ public struct ToneEngine: Sendable {
 
     // MARK: - Zonal windows
 
-    /// Highlights window: a raised-cosine bump that rises from zero at mid-grey and
-    /// returns to zero exactly at the white anchor.
+    /// Highlights window: a SHELF that rises from zero at mid-grey, reaches full
+    /// strength at the white anchor and stays there above it.
+    ///
+    /// It was a raised-cosine bump returning to zero at the anchor, and this comment
+    /// went on saying so after `highlightShelfEnd` replaced it. Full strength above the
+    /// anchor is the behaviour: a blown sky is the one thing Highlights exists to pull
+    /// down, and a window that shuts at white is a window that cannot reach it.
     public func highlightWeight(_ t: Double) -> Double {
         let hi = whiteAnchorEV
         guard hi > 0 else { return 0 }

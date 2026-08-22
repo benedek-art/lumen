@@ -408,6 +408,81 @@ final class EngineTests: XCTestCase {
         }
     }
 
+    // MARK: - Display white, and which mechanism actually holds it
+
+    /// ToneEngine's header claimed for a long time that Highlights' window "tapers to
+    /// zero at the white anchor, so Highlights can never push a pixel past display
+    /// white — implemented as geometry". Since the shelf rework that is false twice
+    /// over: `highlightWeight` is `smoothstep(0, whiteAnchor, t)`, which is 1 AT the
+    /// anchor and 1 above it, so Highlights ±100 applies its full ±2 EV to pixels that
+    /// are already at and beyond white. That is deliberate — a bump left a blown sky
+    /// exactly where it was, which is what the rework existed to fix.
+    ///
+    /// The invariant survived the rework anyway, on a different mechanism: the display
+    /// transform's curve saturates at the anchor. This asserts both halves — that the
+    /// shelf really does reach past white, and that the render still cannot — so the
+    /// words in that file are now backed rather than believed.
+    func testHighlightsCannotRenderPastDisplayWhite() {
+        // The shelf, first: full weight at the anchor and above it.
+        let up = ToneEngine(tone: Tone(highlights: 100))
+        XCTAssertEqual(up.highlightWeight(up.whiteAnchorEV), 1, accuracy: 1e-12,
+                       "the highlight shelf does not reach the white anchor")
+        XCTAssertEqual(up.highlightWeight(up.whiteAnchorEV + 4), 1, accuracy: 1e-12,
+                       "the highlight shelf falls off above the white anchor")
+        XCTAssertGreaterThan(up.stops(at: up.whiteAnchorEV + 3), 1.0,
+                             "Highlights +100 does nothing above display white")
+
+        // And the render, which is where the promise is actually kept. The ramp runs
+        // eight stops past the anchor, so the claim is tested where it could fail.
+        let frame = ImageBuffer(width: 96, height: 4) { u, _ in
+            RGB(gray: 0.18 * exp2(-8 + 21 * u))
+        }
+        for highlights in [0.0, 50.0, 100.0] {
+            for whites in [0.0, 100.0] {
+                for contrast in [0.0, 100.0] {
+                    var recipe = Recipe()
+                    recipe.develop.tone.highlights = highlights
+                    recipe.develop.tone.whites = whites
+                    recipe.develop.tone.contrast = contrast
+                    let plan = RenderPlan(recipe: recipe)
+                    // Both paths: the baked table the shipping graph resamples, whose
+                    // output is normalized against display white, and the exact f64
+                    // twin, which is where the mechanism actually is. A table cannot
+                    // exceed the maximum of the values it interpolates, so the exact
+                    // path is the one that could fail first.
+                    let label = "Highlights \(highlights) / Whites \(whites) / "
+                        + "Contrast \(contrast)"
+                    let tabled = ReferenceRenderer.render(frame, plan: plan)
+                    let exact = ReferenceRenderer.renderExact(frame, plan: plan)
+                    var tabledPeak = 0.0
+                    var exactPeak = 0.0
+                    for y in 0..<tabled.height {
+                        for x in 0..<tabled.width {
+                            // Finiteness first. `Swift.max` returns the OTHER operand
+                            // when one is NaN, so a running maximum quietly steps over
+                            // every NaN in the frame — which is how the first draft of
+                            // this test passed against a transform whose curve was
+                            // producing NaN above the anchor rather than white.
+                            XCTAssertTrue(tabled[x, y].isFinite,
+                                          "\(label) rendered \(tabled[x, y]) at \(x)")
+                            XCTAssertTrue(exact[x, y].isFinite,
+                                          "\(label) formed \(exact[x, y]) at \(x)")
+                            tabledPeak = Swift.max(tabledPeak, tabled[x, y].maxComponent)
+                            exactPeak = Swift.max(exactPeak, exact[x, y].maxComponent)
+                        }
+                    }
+                    XCTAssertLessThanOrEqual(
+                        tabledPeak, 1.0 + 1e-6,
+                        "\(label) rendered \(tabledPeak) against display white 1.0")
+                    XCTAssertLessThanOrEqual(
+                        exactPeak, plan.displayWhite + 1e-9,
+                        "\(label) formed \(exactPeak) against display white "
+                            + "\(plan.displayWhite)")
+                }
+            }
+        }
+    }
+
     // MARK: - Curves
 
     func testDefaultCurveIsIdentity() {
