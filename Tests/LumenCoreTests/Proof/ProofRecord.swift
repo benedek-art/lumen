@@ -92,9 +92,20 @@ struct ProofRecord: Codable, Equatable {
 
     /// One line, for a failure message a human can read without opening the JSON.
     var summary: String {
-        String(format: "%@  authority %.2f  mean %.3f  front %.0f%%  dead %d  %@",
-               id, authority, meanSeparation, frontLoading * 100, deadSteps,
-               isMonotone ? "monotone" : "NOT monotone")
+        // Interpolation rather than `String(format:)`. The `%@` conversion takes an
+        // Objective-C object, and a Swift `String` is only bridged to one where the
+        // ObjC runtime exists — so the same call that reads correctly on macOS can drop
+        // its text on Linux. It happens to work on the toolchain in use, verified by
+        // reading the output; it is still the wrong construct to leave inside a FAILURE
+        // MESSAGE, where losing the control's name would make a red test unreadable
+        // exactly when someone needs to read it.
+        func f(_ v: Double, _ places: Int) -> String {
+            let scale = pow(10.0, Double(places))
+            return String((v * scale).rounded() / scale)
+        }
+        return "\(id)  authority \(f(authority, 2))  mean \(f(meanSeparation, 3))"
+            + "  front \(f(frontLoading * 100, 0))%  dead \(deadSteps)"
+            + "  \(isMonotone ? "monotone" : "NOT monotone")"
     }
 }
 
