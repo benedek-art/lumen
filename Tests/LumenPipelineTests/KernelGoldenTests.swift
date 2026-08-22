@@ -993,6 +993,83 @@ final class KernelGoldenTests: XCTestCase {
                               + "was delivered at")
     }
 
+    // MARK: - An export is a promise
+
+    /// A picture the GPU cannot form must not be delivered as though it were the edit.
+    ///
+    /// The preview path has checked `coreAvailable` and fallen back to the reference
+    /// since it was written. Export had no equivalent: it built the graph
+    /// unconditionally, every `KernelLibrary.apply(...) ?? image` no-opped a missing
+    /// stage into the file, and `AppState.export` recorded a failure only when
+    /// something threw — so with the core four missing it wrote the fallback-tone
+    /// approximation and the status line said "Exported 1 file".
+    ///
+    /// `KernelLibrary`'s kernels are `static let` and compile once, so on a healthy
+    /// runner they cannot be made to fail and this behaviour could not be tested at
+    /// all. `PipelineRenderer.availability` is the seam that makes it testable, and
+    /// these two tests are the only reason it exists.
+    func testAnExportRefusesToDeliverAPictureTheGPUCannotForm() {
+        let renderer = PipelineRenderer()
+        renderer.availability = KernelAvailability(
+            coreAvailable: false, unavailable: ["logEncode", "logDecode", "multiply"])
+        let flat = ImageBuffer(width: 32, height: 24) { _, _ in RGB(gray: 0.18) }
+        let destination = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lumen-out15-refused-\(UUID().uuidString).png")
+        defer { try? FileManager.default.removeItem(at: destination) }
+
+        do {
+            _ = try renderer.export(source: StubSource(ciImage(from: flat)),
+                                    recipe: Recipe(), to: destination,
+                                    using: ExportRecipe(name: "t", format: .png))
+            XCTFail("export delivered a file with the core colour kernels missing")
+        } catch RenderError.kernelsUnavailable(let missing) {
+            XCTAssertEqual(missing, ["logEncode", "logDecode", "multiply"],
+                           "the refusal did not carry the names the caller has to "
+                               + "report")
+        } catch {
+            XCTFail("export threw \(error) rather than naming the kernels that were "
+                        + "not there")
+        }
+        // Refusing has to mean nothing was written. A truncated or half-written
+        // delivery is the failure this replaces, wearing an error message.
+        XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path),
+                       "a refused export left a file on disk anyway")
+    }
+
+    /// A file written with one stage absent is not a failure and is not clean either,
+    /// and the caller has to be told which stage.
+    func testAnExportNamesTheStagesThatSilentlyDidNothing() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+        let renderer = PipelineRenderer()
+        let flat = ImageBuffer(width: 32, height: 24) { _, _ in RGB(gray: 0.18) }
+        let destination = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lumen-out15-reduced-\(UUID().uuidString).png")
+        defer { try? FileManager.default.removeItem(at: destination) }
+
+        // A healthy build reports nothing missing, and the file is clean.
+        let clean = try renderer.export(source: StubSource(ciImage(from: flat)),
+                                        recipe: Recipe(), to: destination,
+                                        using: ExportRecipe(name: "t", format: .png))
+        XCTAssertEqual(clean, [],
+                       "this runner compiled every kernel and the export still "
+                           + "reported \(clean) missing")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: destination.path),
+                      "a clean export wrote nothing")
+
+        // A non-core kernel missing still delivers — grain, vignette and the presence
+        // stages degrade individually — but the list has to come back so the status
+        // line can name them instead of counting the file as clean.
+        renderer.availability = KernelAvailability(coreAvailable: true,
+                                                   unavailable: ["grain", "vignette"])
+        let reduced = try renderer.export(source: StubSource(ciImage(from: flat)),
+                                          recipe: Recipe(), to: destination,
+                                          using: ExportRecipe(name: "t", format: .png))
+        XCTAssertEqual(reduced, ["grain", "vignette"],
+                       "a reduced export reported \(reduced) — `AppState.export` has "
+                           + "nothing to put in the status line and counts the file "
+                           + "as clean, which is the defect")
+    }
+
     // MARK: - Availability
 
     /// The load-bearing environment check. If this fails, the app still renders — via

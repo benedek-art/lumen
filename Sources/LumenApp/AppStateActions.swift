@@ -150,6 +150,12 @@ extension AppState {
             var claimed: Set<URL> = []
             var renamed = 0
             var written = 0
+            // A file that was written with a stage missing is not a failure and is not
+            // a clean delivery either, and the status line called it clean. The preview
+            // has labelled this since it was written ("Reduced — N GPU kernels
+            // unavailable"); the file the photographer keeps said nothing.
+            var reducedFiles = 0
+            var reducedKernels: Set<String> = []
             for job in jobs {
                 for exportRecipe in active {
                     let wanted = Self.destination(directory: directory,
@@ -165,11 +171,14 @@ extension AppState {
                         try FileManager.default.createDirectory(
                             at: destination.deletingLastPathComponent(),
                             withIntermediateDirectories: true)
-                        try await renderCoordinator.export(url: job.url, recipe: job.recipe,
-                                                           to: destination,
-                                                           exportRecipe: exportRecipe,
-                                                           strokeSets: job.strokes)
+                        let missing = try await renderCoordinator.export(
+                            url: job.url, recipe: job.recipe, to: destination,
+                            exportRecipe: exportRecipe, strokeSets: job.strokes)
                         written += 1
+                        if !missing.isEmpty {
+                            reducedFiles += 1
+                            reducedKernels.formUnion(missing)
+                        }
                     } catch {
                         failures.append(job.url.lastPathComponent + " → " + exportRecipe.name)
                     }
@@ -186,12 +195,18 @@ extension AppState {
                 // overwrote two of its own outputs still claimed every file.
                 let renamedNote = renamed == 0 ? ""
                     : " (\(renamed) renamed to avoid overwriting)"
+                // Named, not counted: "2 reduced" tells a photographer nothing about
+                // what is missing from a file they are about to send to a client.
+                let reducedNote = reducedFiles == 0 ? ""
+                    : " — \(reducedFiles) reduced, GPU "
+                        + (reducedKernels.count == 1 ? "kernel" : "kernels")
+                        + " unavailable: " + reducedKernels.sorted().joined(separator: ", ")
                 if failures.isEmpty {
                     self.statusMessage = "Exported \(written) file"
-                        + (written == 1 ? "" : "s") + renamedNote
+                        + (written == 1 ? "" : "s") + renamedNote + reducedNote
                 } else {
                     self.statusMessage = "Exported \(written) of \(Int(total)) — "
-                        + "\(failures.count) failed" + renamedNote
+                        + "\(failures.count) failed" + renamedNote + reducedNote
                 }
             }
         }

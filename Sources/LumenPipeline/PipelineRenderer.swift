@@ -24,6 +24,37 @@ public enum RenderError: Error {
     case renderFailed
     case unsupportedFormat(String)
     case writeFailed(URL)
+    /// An export refused because the GPU path cannot form a picture. Carries the names
+    /// of the kernels that failed to compile, so the caller can say which.
+    case kernelsUnavailable([String])
+}
+
+/// What a renderer believes about its kernels.
+///
+/// A value with a `live` default rather than a direct read of `KernelLibrary` at each
+/// call site, and it exists for exactly one reason: `KernelLibrary`'s kernels are
+/// `static let`, compiled once at first touch, so on a healthy runner they CANNOT be
+/// made to fail — and the export path's behaviour when they do is therefore untestable
+/// without a seam. This is the seam, and it is the whole of it. Nothing in the app
+/// writes it; the app gets `.live`.
+public struct KernelAvailability: Sendable {
+    /// The kernels the core colour path cannot run without. False means the graph
+    /// cannot form a picture at all.
+    public let coreAvailable: Bool
+    /// Names of every kernel that failed, core or not — the stages that would silently
+    /// no-op through `KernelLibrary.apply(...) ?? image`.
+    public let unavailable: [String]
+
+    public init(coreAvailable: Bool, unavailable: [String]) {
+        self.coreAvailable = coreAvailable
+        self.unavailable = unavailable
+    }
+
+    /// What this build actually compiled.
+    public static var live: KernelAvailability {
+        KernelAvailability(coreAvailable: KernelLibrary.coreAvailable,
+                           unavailable: KernelLibrary.unavailableKernels)
+    }
 }
 
 public final class PipelineRenderer {
@@ -61,9 +92,14 @@ public final class PipelineRenderer {
     private var matteOrder: [URL] = []
     private static let matteCacheLimit = 12
 
+    /// What this renderer believes about its kernels. `.live` in the app; a test can
+    /// substitute a degraded build, which is the only way the refusal below can be
+    /// exercised on a machine whose kernels all compile.
+    public var availability: KernelAvailability = .live
+
     /// True when the GPU path is intact. False means kernels failed to compile and the
     /// renderer is producing a reduced result the UI must label.
-    public var isGPUPathAvailable: Bool { KernelLibrary.coreAvailable }
+    public var isGPUPathAvailable: Bool { availability.coreAvailable }
 
     // MARK: - AI mattes
 
@@ -109,7 +145,7 @@ public final class PipelineRenderer {
                            maxLongEdge: maxLongEdge, draft: false)
     }
 
-    public var unavailableKernels: [String] { KernelLibrary.unavailableKernels }
+    public var unavailableKernels: [String] { availability.unavailable }
 
     // MARK: - Preview
 
@@ -185,12 +221,19 @@ public final class PipelineRenderer {
 
     // MARK: - Export
 
+    /// Writes the file and returns the names of the kernels that were NOT available,
+    /// so the caller can report a reduced delivery instead of counting it as clean.
+    ///
+    /// Empty means every stage in the graph ran. It is not an error — a missing
+    /// non-core kernel leaves a real picture with one stage absent — but it is not a
+    /// success either, and the status line said "Exported N files" for both.
     public func export(source: any ImageSource, recipe: Recipe, to destination: URL,
                        using exportRecipe: ExportRecipe,
-                       strokeSets: [String: BrushStrokeSet] = [:]) throws {
+                       strokeSets: [String: BrushStrokeSet] = [:]) throws -> [String] {
         let image = try exportedImage(source: source, recipe: recipe,
                                       using: exportRecipe, strokeSets: strokeSets)
         try write(image, to: destination, using: exportRecipe)
+        return availability.unavailable
     }
 
     /// The delivered pixels, one step before the encoder.
@@ -202,6 +245,23 @@ public final class PipelineRenderer {
     func exportedImage(source: any ImageSource, recipe: Recipe,
                        using exportRecipe: ExportRecipe,
                        strokeSets: [String: BrushStrokeSet] = [:]) throws -> CIImage {
+        // An export is a promise in a way a preview is not, so it refuses rather than
+        // delivers.
+        //
+        // The preview path made this decision twice already: it checks
+        // `coreAvailable`, renders through `renderReference` when it is false, and
+        // labels a merely-reduced render with the names of whatever else failed
+        // (RenderCoordinator.swift:100-125). Export had no equivalent — it built the
+        // graph unconditionally, every `KernelLibrary.apply(...) ?? image` no-opped a
+        // missing stage into the delivered file, and with the core four missing it
+        // wrote the fallback-tone approximation with no error at all. A file on disk
+        // outlives the session that noticed the GPU was broken; a frame on screen does
+        // not. There is no reference fallback here on purpose: `renderReference` has no
+        // geometry stage (GEO-17), so it cannot honour a crop, and delivering an
+        // uncropped file would be a different silent wrong answer.
+        guard availability.coreAvailable else {
+            throw RenderError.kernelsUnavailable(availability.unavailable)
+        }
         guard let decoded = source.decode(recipe: recipe, draft: false, scaleFactor: 1.0) else {
             throw RenderError.decodeFailed
         }
