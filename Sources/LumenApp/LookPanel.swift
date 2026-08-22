@@ -597,15 +597,6 @@ struct LookPanel: View {
                                 range: 0.5...2.0, defaultValue: 1.0, step: 0.05, decimals: 2,
                                 bipolar: false)
 
-                    pickerRow("Print size") {
-                        Picker("", selection: printSizeBinding) {
-                            Text("Long edge").tag("")
-                            ForEach(LookPanel.printSizes, id: \.self) { size in
-                                Text(size + "″").tag(size)
-                            }
-                        }
-                    }
-
                     if let stock {
                         caption(LookPanel.stockCaption(stock)
                                     + " While it is loaded the Display Transform "
@@ -639,18 +630,6 @@ struct LookPanel: View {
                     // Picking a card seeds the stock's own defaults; the recipe never
                     // silently keeps the previous stock's halation and grain.
                     recipe.look.filmLab = FilmChain.defaultRecipe(for: picked)
-                }
-            })
-    }
-
-    private var printSizeBinding: Binding<String> {
-        Binding(
-            get: { state.currentRecipe.look.filmLab?.printSize ?? "" },
-            set: { size in
-                state.updateRecipe { recipe in
-                    guard var film = recipe.look.filmLab else { return }
-                    film.printSize = size.isEmpty ? nil : size
-                    recipe.look.filmLab = film
                 }
             })
     }
@@ -724,8 +703,6 @@ struct LookPanel: View {
             .padding(.bottom, 4)
     }
 
-    static let printSizes: [String] = ["5x7", "8x10", "11x14", "16x20", "20x30"]
-
     /// Two pivots, ordered, inside the axis. A decoded file can carry anything.
     static func normalizedPivots(_ pivots: [Double]) -> [Double] {
         let defaults = GradingWheels.defaultPivots
@@ -761,6 +738,19 @@ struct LookPanel: View {
     /// No `film` parameter any more: the only thing it carried was the print
     /// size, and the caption stopped naming that when it turned out the print
     /// size cannot change the picture.
+    ///
+    /// The Print size picker that wrote it is gone too. It sat directly under this
+    /// caption for a round — a menu offering five sizes, above a sentence explaining
+    /// that choosing one does nothing. `plateScale` reaches pixels through
+    /// enlargement × the print's pixel density, the print's long edge appears in both
+    /// factors and cancels exactly, and `testGrainFollowsTheGateAndTheRenderSizeNotThePrintSize`
+    /// pins that to 1e-12 across 5″ to 30″. That cancellation IS the anchoring working:
+    /// ask for a bigger print from the same pixels and the grain keeps its footprint.
+    /// It is not a control. `FilmLab.printSize` stays on the wire so a decoded recipe
+    /// round-trips, and the two render paths keep reading it, because the day the GATE
+    /// becomes selectable — Grain Format 35mm / half-frame / 120, which is the control
+    /// docs/05 asked for and the one variable that provably moves grain — the print
+    /// size is the other half of that arithmetic.
     static func stockCaption(_ stock: FilmStock) -> String {
         var text = stock.name
         if let print = stock.printName {
