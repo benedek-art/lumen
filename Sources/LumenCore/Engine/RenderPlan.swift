@@ -153,9 +153,9 @@ public struct RenderPlan: Sendable {
         }
 
         // ---- S14 + S15 -------------------------------------------------------
-        var renderParams = look.render.resolved(displayWhiteTarget: displayWhiteTarget)
-        toneEngine.applyAnchors(to: &renderParams)
-        let transform = DisplayTransform(renderParams, space: space)
+        let transform = DisplayTransform.forRecipe(recipe,
+                                                   displayWhiteTarget: displayWhiteTarget,
+                                                   space: space)
         self.displayTransform = transform
         self.displayWhite = transform.white
 

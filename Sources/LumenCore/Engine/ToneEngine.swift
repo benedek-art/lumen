@@ -578,3 +578,126 @@ public struct AutoTone: Sendable {
         return t
     }
 }
+
+// MARK: - Scene-referred statistics from a rendered proxy
+
+extension AutoTone {
+
+    /// Builds `Statistics` in SCENE EV from a frame that has already been through the
+    /// display transform.
+    ///
+    /// Auto measures the rendered proxy, because that is the only frame the app has
+    /// cheaply to hand. What it did with it was bin `log2(displayLuminance / 0.18)` and
+    /// call the result an EV — reading a display-referred number as if it were a
+    /// scene-referred one, which is the same class of mistake as the EV-versus-encoded
+    /// confusions BUILDING.md catalogues, and it cost the same way.
+    ///
+    /// The arithmetic: a display-referred value cannot exceed 1.0, so that expression
+    /// cannot exceed `log2(1 / 0.18)` = **+2.47 EV**, whatever the scene held.
+    /// `AutoTone.suggest` fires highlight recovery on `percentileEV(0.995) + exposure >
+    /// 3.0`. The measurement could not reach the threshold, so on a blown sky — the one
+    /// frame the branch exists for — Auto wrote Highlights 0, and always had. The same
+    /// squeeze at the bottom put the darkest reachable reading at the black target
+    /// rather than at the scene value that produced it, so the shadow branch was
+    /// reading the transform's toe instead of the photograph.
+    ///
+    /// The fix is to invert the curve the render applied. Every sample is a scene EV
+    /// put THROUGH `transform.tone`, and each pixel is located among them, so the
+    /// statistics come back denominated where `suggest`'s thresholds already are.
+    ///
+    /// Two honest limits, because the render is not an invertible function:
+    ///
+    /// · **Censoring.** The curve saturates at the anchors: everything at or above the
+    ///   white anchor renders to display white and everything at or below the black
+    ///   anchor to display black. Those pixels come back AT the anchor, not beyond it.
+    ///   That is the correct reading — "at least this bright" — and it is what makes
+    ///   the highlight branch reachable: 0.5% of the frame at display white now reads
+    ///   +5 EV with the default anchors, not +2.47.
+    ///
+    /// · **Luminance, not colour.** `tone` is the scalar curve; `apply` runs it per
+    ///   channel with hue preservation and a gamut map. Inverting the scalar against a
+    ///   pixel's luminance is exact for neutrals and an approximation for saturated
+    ///   colour. Auto is placing a scene in EV, not measuring a colour, so this is the
+    ///   right approximation to make — but it is one, and a Film Lab chain, which
+    ///   replaces the transform outright, is outside what this can invert at all.
+    public struct SceneHistogram: Sendable {
+
+        /// Bin centres run from `minEV` to `maxEV` inclusive, which is exactly how
+        /// `Statistics.percentileEV` reads a bin index back out. Binning by rounding
+        /// rather than by flooring makes this the inverse of that read instead of half
+        /// a bin off it.
+        public let minEV: Double
+        public let maxEV: Double
+
+        public private(set) var bins: [Double]
+
+        /// Scene EV of each sample, ascending, spanning the transform's two anchors.
+        private let sampleEV: [Double]
+        /// Display-linear luminance of each sample — `tone` applied to `sampleEV`.
+        private let sampleDisplay: [Double]
+
+        /// Resolution of the inversion table. 1024 samples over the 14 EV between the
+        /// default anchors is 0.014 EV a step, an order under the 0.19 EV a histogram
+        /// bin spans, so the table is not what limits the answer.
+        public static let inversionSamples: Int = 1024
+
+        public init(transform: DisplayTransform,
+                    minEV: Double = -12, maxEV: Double = 12, binCount: Int = 128) {
+            self.minEV = minEV
+            self.maxEV = maxEV
+            self.bins = [Double](repeating: 0, count: Swift.max(binCount, 2))
+
+            // The same guards `DisplayTransform.init` puts on the anchors, so the table
+            // spans the interval the curve is actually defined over.
+            let lo = Swift.min(transform.params.blackAnchorEV, -0.5)
+            let hi = Swift.max(transform.params.whiteAnchorEV, 0.5)
+            let n = SceneHistogram.inversionSamples
+            var evs = [Double](repeating: 0, count: n)
+            var display = [Double](repeating: 0, count: n)
+            for i in 0..<n {
+                let ev = Num.mix(lo, hi, Double(i) / Double(n - 1))
+                evs[i] = ev
+                display[i] = transform.tone(DisplayTransform.midGrey * exp2(ev))
+            }
+            self.sampleEV = evs
+            self.sampleDisplay = display
+        }
+
+        /// Scene EV that renders to this display-linear luminance, clamped to the
+        /// anchors the curve saturates at.
+        public func sceneEV(displayLuminance y: Double) -> Double {
+            let first = sampleEV[0]
+            let lastEV = sampleEV[sampleEV.count - 1]
+            guard y.isFinite, y > sampleDisplay[0] else { return first }
+            guard y < sampleDisplay[sampleDisplay.count - 1] else { return lastEV }
+            // First sample at or above `y`. A lower bound rather than a nearest match,
+            // so a value sitting on a flat stretch of the curve — the Linear preset's
+            // clip, say — reports the FIRST scene EV that could have produced it rather
+            // than the last. Same censoring rule as the two anchors.
+            var lo = 0
+            var hi = sampleDisplay.count - 1
+            while lo < hi {
+                let mid = (lo + hi) / 2
+                if sampleDisplay[mid] < y { lo = mid + 1 } else { hi = mid }
+            }
+            guard lo > 0 else { return first }
+            let below = sampleDisplay[lo - 1]
+            let above = sampleDisplay[lo]
+            guard above > below else { return sampleEV[lo] }
+            let t = Num.saturate((y - below) / (above - below))
+            return Num.mix(sampleEV[lo - 1], sampleEV[lo], t)
+        }
+
+        /// Count one pixel, given its display-linear luminance.
+        public mutating func add(displayLuminance y: Double) {
+            let ev = sceneEV(displayLuminance: y)
+            let t = Num.saturate((ev - minEV) / (maxEV - minEV))
+            let index = Int((t * Double(bins.count - 1)).rounded())
+            bins[Swift.min(Swift.max(index, 0), bins.count - 1)] += 1
+        }
+
+        public var statistics: Statistics {
+            Statistics(histogram: bins, minEV: minEV, maxEV: maxEV)
+        }
+    }
+}

@@ -483,6 +483,124 @@ final class EngineTests: XCTestCase {
         }
     }
 
+    // MARK: - Auto's statistics, taken through the curve the render applied
+
+    /// Inverting the display transform has to land back where it started, or every
+    /// number downstream of it is a different kind of wrong from the one it replaced.
+    func testSceneEVInvertsTheDisplayTransformBetweenItsAnchors() {
+        for whites in [0.0, 100.0, -100.0] {
+            var recipe = Recipe()
+            recipe.develop.tone.whites = whites
+            let transform = DisplayTransform.forRecipe(recipe)
+            let histogram = AutoTone.SceneHistogram(transform: transform)
+            let lo = transform.params.blackAnchorEV
+            let hi = transform.params.whiteAnchorEV
+
+            var ev = lo + 0.1
+            while ev < hi - 0.1 {
+                let display = transform.tone(DisplayTransform.midGrey * exp2(ev))
+                XCTAssertEqual(histogram.sceneEV(displayLuminance: display), ev,
+                               accuracy: 0.05, "round trip failed at \(ev) EV")
+                ev += 0.25
+            }
+            // Censored, not extrapolated, outside the anchors: the reading is "at least
+            // this bright", which is what makes the highlight branch reachable.
+            XCTAssertEqual(histogram.sceneEV(displayLuminance: transform.white * 4), hi,
+                           accuracy: 1e-9)
+            XCTAssertEqual(histogram.sceneEV(displayLuminance: 0), lo, accuracy: 1e-9)
+            XCTAssertEqual(histogram.sceneEV(displayLuminance: .nan), lo, accuracy: 1e-9)
+        }
+
+        // The plan the picture is actually rendered through must be the same transform,
+        // or the inversion is against a curve nothing applied.
+        var recipe = Recipe()
+        recipe.develop.tone.whites = 40
+        recipe.develop.tone.blacks = -30
+        recipe.look.render.preset = "Punchy"
+        XCTAssertEqual(DisplayTransform.forRecipe(recipe).params,
+                       RenderPlan(recipe: recipe).displayTransform.params)
+    }
+
+    /// Auto recovers a blown sky — the single most common thing an Auto button does,
+    /// and the one branch of `suggest` that could never fire on the frames that need it.
+    ///
+    /// `AppStateActions.histogramStatistics` binned `log2(displayLuminance / 0.18)` off
+    /// the rendered proxy and called the result a scene EV. A display-referred value
+    /// cannot exceed 1.0, so that expression cannot exceed +2.47 EV, and highlight
+    /// recovery fires on `percentileEV(0.995) + exposure > 3.0`. The threshold was
+    /// unreachable. Every engine test fed FABRICATED statistics, so all five branches
+    /// looked covered while the shipping measurement had no test at all.
+    ///
+    /// This runs the real measurement: a scene-referred frame, through the real render,
+    /// quantized to 8 bits the way the proxy is, and back through the inversion.
+    func testAutoRecoversABlownSkyThroughTheRealMeasurement() {
+        // A third of the frame is sky at +6 EV — past the white anchor, so it renders
+        // as flat display white and there is nothing left in the pixels to read. The
+        // rest is a normally-exposed subject just under mid-grey.
+        let frame = ImageBuffer(width: 96, height: 96) { u, v in
+            v < 0.35 ? RGB(gray: 0.18 * exp2(6)) : RGB(gray: 0.18 * exp2(-1 + u))
+        }
+        let recipe = Recipe()
+        let plan = RenderPlan(recipe: recipe, lutSize: LUT3D.exportSize)
+        let rendered = ReferenceRenderer.render(frame, plan: plan)
+
+        var histogram = AutoTone.SceneHistogram(
+            transform: DisplayTransform.forRecipe(recipe))
+        let sRGB = RGBColorSpace.srgb
+        var whitePixels = 0
+        for y in 0..<rendered.height {
+            for x in 0..<rendered.width {
+                // Through 8-bit sRGB and back, because that is what the app measures:
+                // the proxy is a CGImage, and the quantization is part of the path.
+                let c = rendered[x, y] * plan.displayWhite
+                let quantized = RGB(
+                    TransferFunction.srgb.decode(
+                        (TransferFunction.srgb.encode(Num.saturate(c.r)) * 255).rounded() / 255),
+                    TransferFunction.srgb.decode(
+                        (TransferFunction.srgb.encode(Num.saturate(c.g)) * 255).rounded() / 255),
+                    TransferFunction.srgb.decode(
+                        (TransferFunction.srgb.encode(Num.saturate(c.b)) * 255).rounded() / 255))
+                if quantized.maxComponent >= 1 { whitePixels += 1 }
+                histogram.add(displayLuminance: sRGB.luminance(quantized))
+            }
+        }
+        XCTAssertGreaterThan(Double(whitePixels) / Double(rendered.count), 0.2,
+                             "INVALID PROBE: the sky did not render as display white, "
+                                 + "so nothing here is clipped and there is nothing to "
+                                 + "recover")
+
+        let stats = histogram.statistics
+        XCTAssertGreaterThan(stats.percentileEV(0.995), 3.0,
+                             "the frame's brightest half-percent measured "
+                                 + "\(stats.percentileEV(0.995)) EV — a display-referred "
+                                 + "reading cannot exceed +2.47 and cannot reach the "
+                                 + "recovery threshold")
+
+        let auto = AutoTone.suggest(from: stats)
+        XCTAssertLessThan(auto.highlights, 0,
+                          "Auto wrote Highlights \(auto.highlights) on a blown sky")
+
+        // The mirror case, so the fix is not "always recover": a frame that fits
+        // comfortably inside the anchors gets no recovery and no shadow lift.
+        let easy = ImageBuffer(width: 96, height: 96) { u, _ in
+            RGB(gray: 0.18 * exp2(-2 + 3 * u))
+        }
+        let easyRender = ReferenceRenderer.render(easy, plan: plan)
+        var easyHistogram = AutoTone.SceneHistogram(
+            transform: DisplayTransform.forRecipe(recipe))
+        for y in 0..<easyRender.height {
+            for x in 0..<easyRender.width {
+                easyHistogram.add(displayLuminance:
+                    sRGB.luminance(easyRender[x, y] * plan.displayWhite))
+            }
+        }
+        let easyAuto = AutoTone.suggest(from: easyHistogram.statistics)
+        XCTAssertEqual(easyAuto.highlights, 0, accuracy: 1e-9,
+                       "Auto recovered highlights on a frame that has none")
+        XCTAssertEqual(easyAuto.shadows, 0, accuracy: 1e-9,
+                       "Auto lifted shadows on a frame that has none buried")
+    }
+
     // MARK: - Curves
 
     func testDefaultCurveIsIdentity() {
