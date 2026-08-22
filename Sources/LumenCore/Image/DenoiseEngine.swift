@@ -1652,11 +1652,34 @@ public enum ISODefaults {
     /// in both directions from there, which is exactly the departure §2.1 claims — "LR's flat
     /// Color 25 is a guess that happens to be acceptable". Shown resolved in the UI as
     /// e.g. "25 auto" per D11.
+    ///
+    /// **The top of that curve was measured and it was wrong.** It reached 40 at ISO 6400
+    /// and 55 at ISO 25600, and on a frame carrying both chroma noise and a chroma edge
+    /// those settings scored WORSE than not denoising at all — the flagship
+    /// "profiled and ISO-adaptive rather than fixed" departure was handing every
+    /// high-ISO import something worse than the flat 25 it claims to beat. Residual
+    /// error against ground truth, ISO 6400, in sRGB code values: undenoised 3.181,
+    /// Colour 10 → 2.313, **Colour 40 → 3.300**.
+    ///
+    /// Half of that was the unbounded shrink curve, now bounded in `chromaK`. The other
+    /// half is here, and it is a double count: **the thresholds are already denominated
+    /// in the profile's σ, and σ already rises with ISO.** A slider that also rises with
+    /// ISO applies the gain adaptation twice. Measured on the same frame with the
+    /// bounded curve, the optimum does not move with ISO at all — it sits near Colour 10
+    /// at ISO 400, 1600, 6400 and 25600 alike, which is what a σ-denominated threshold
+    /// predicts and what nobody had checked.
+    ///
+    /// So the curve keeps its shape and loses its climb: the remaining rise is for the
+    /// part of high-ISO chroma noise that is NOT captured by a per-pixel σ — coarse
+    /// blotching, which grows with gain — and every anchor now resolves inside the
+    /// region the measurement supports. `DenoiseQualityTests` pins each resolved default
+    /// to within 5% of the best point on its own travel, so a future anchor edit has to
+    /// come past a number.
     public static let colorAnchors: [(x: Double, y: Double)] = [
         (x: log2(100.0), y: 10.0),
-        (x: log2(1600.0), y: 25.0),
-        (x: log2(6400.0), y: 40.0),
-        (x: log2(25600.0), y: 55.0),
+        (x: log2(1600.0), y: 20.0),
+        (x: log2(6400.0), y: 25.0),
+        (x: log2(25600.0), y: 30.0),
     ]
 
     /// Amount is pinned at 50 for every ISO by docs/07 §3.1 — the AI slider means one thing

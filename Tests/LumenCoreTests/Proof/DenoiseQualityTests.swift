@@ -166,6 +166,44 @@ final class DenoiseQualityTests: XCTestCase {
                        "the GPU plan does not carry the bound the reference shrinks with")
     }
 
+    /// DETAIL-16: the ISO-adaptive Colour default is the number most photographs are
+    /// actually developed at, so it is the one setting on the travel that has to be near
+    /// the optimum rather than merely inside the legal range.
+    ///
+    /// Scored on the composite frame at each ISO, against the best point on that ISO's
+    /// own travel. The anchors used to resolve to Colour 40 at ISO 6400 and 55 at
+    /// 25600 — 7.0% and 10.3% off their optima with the bounded curve, and worse than
+    /// no denoise at all with the curve as shipped. "Profiled and ISO-adaptive rather
+    /// than fixed" is the flagship departure from Lightroom's flat 25; it has to be a
+    /// better number, not just a different one.
+    func testTheISOAdaptiveColourDefaultsLandNearTheirMeasuredOptimum() {
+        let clean = ProofFrames.chromaEdge()
+        for iso in [6400.0, 25600.0] {
+            let noisy = ProofFrames.noisyChromaEdge(iso: iso)
+            let block = ISODefaults.classic(forISO: iso)
+            let isoProfile = NoiseProfile.forISO(iso)
+            func score(_ chroma: Double) -> Double {
+                ProofMetrics.rmsAgainst(clean, ClassicalDenoise(
+                    ClassicNR(luma: 0, chroma: chroma,
+                              colorSmoothness: block.colorSmoothness),
+                    profile: isoProfile).apply(noisy))
+            }
+            var best = Double.infinity
+            var bestAt = 0.0
+            for step in 0...10 {
+                let s = Double(step) * 10
+                let r = score(s)
+                if r < best { best = r; bestAt = s }
+            }
+            let resolved = score(block.chroma)
+            XCTAssertLessThan(resolved / best, 1.05,
+                              "ISO \(Int(iso)) resolves to Colour \(block.chroma), which "
+                                  + "scores \(resolved) against \(best) at the travel's "
+                                  + "best point (Colour \(bestAt)) — the adaptive "
+                                  + "default is \(resolved / best)× the optimum")
+        }
+    }
+
     // MARK: - The texture axis
 
     /// Residual error is an average and can be satisfied by a stage that keeps the ramp
