@@ -11,11 +11,17 @@
 //   · while a text field has focus, every bare key belongs to the text field;
 //   · a key this dispatcher does not claim is returned to the system unchanged, so
 //     menu equivalents and system shortcuts keep working.
+//
+// The reference the Help sheet prints is `LumenCore.KeyGrammar`, and it is checked
+// against these sources rather than trusted: `KeyGrammarTests` reads the switch below
+// for its bare keys and every `.keyboardShortcut` in this target for its chords, and
+// fails when either side names a key the other does not.
 
 #if os(macOS)
 
 import AppKit
 import Foundation
+import LumenCore
 import SwiftUI
 
 @MainActor
@@ -329,7 +335,15 @@ extension View {
     func keyboardGrammar() -> some View { modifier(KeyboardGrammar()) }
 }
 
-/// The keymap, as data, so the Help sheet cannot drift from the dispatcher above.
+/// The keyboard reference the Help sheet draws, as SwiftUI needs it.
+///
+/// The text itself is `LumenCore.KeyGrammar`, and this is the adapter that gives each
+/// row the identity `ForEach` wants. The claim that used to sit here — that the
+/// reference is "data, so the Help sheet cannot drift from the dispatcher" — was false
+/// when it was written: seven of the app's ⌘-shortcuts were in neither this list nor
+/// the switch above. Being data is not a mechanism. The mechanism is
+/// `KeyGrammarTests`, which reads these sources and fails when a key is attached in one
+/// place and named in neither.
 enum KeyReference {
     struct Entry: Identifiable {
         let id = UUID()
@@ -343,60 +357,10 @@ enum KeyReference {
         let entries: [Entry]
     }
 
-    static let groups: [Group] = [
-        Group(title: "Views", entries: [
-            Entry(keys: "G", action: "Grid"),
-            Entry(keys: "E", action: "Loupe"),
-            Entry(keys: "C", action: "Compare two"),
-            Entry(keys: "N", action: "Survey selection"),
-            Entry(keys: "Space", action: "Hold for loupe from the grid; toggles zoom in the loupe"),
-            Entry(keys: "Esc", action: "Back to the grid"),
-        ]),
-        Group(title: "Culling", entries: [
-            Entry(keys: "P", action: "Pick"),
-            Entry(keys: "X", action: "Reject"),
-            Entry(keys: "U", action: "Unflag"),
-            Entry(keys: "1–5", action: "Rating"),
-            Entry(keys: "0", action: "Clear rating"),
-            Entry(keys: "6–9", action: "Red / yellow / green / blue label"),
-            Entry(keys: "-", action: "Purple label (outside the loupe)"),
-            Entry(keys: "A", action: "Toggle auto-advance"),
-            Entry(keys: "← →", action: "Previous / next photo"),
-            Entry(keys: "↑ ↓", action: "Previous / next row"),
-        ]),
-        Group(title: "Develop", entries: [
-            Entry(keys: "B", action: "Basic panel"),
-            Entry(keys: "D", action: "Detail panel"),
-            Entry(keys: "L", action: "Look panel"),
-            Entry(keys: "M", action: "Masks"),
-            Entry(keys: "O", action: "Show the selected mask's overlay"),
-            Entry(keys: "⇧O", action: "Cycle the overlay colour: red, green, white, black"),
-            Entry(keys: "⌥O", action: "Cycle the six overlay modes"),
-            Entry(keys: "'", action: "Invert the selected mask component"),
-            Entry(keys: "R", action: "Crop tool on the image; again to leave it"),
-            Entry(keys: "⇧S", action: "Soft proof through the destination space"),
-            Entry(keys: "\\", action: "Before / after, full frame"),
-            Entry(keys: "Y", action: "Before / after, side by side"),
-            Entry(keys: "⇧Y", action: "Before / after, split with a divider"),
-            Entry(keys: "⌥Y", action: "Before / after, top and bottom"),
-            Entry(keys: "H", action: "Histogram"),
-            Entry(keys: "S", action: "Scopes"),
-        ]),
-        Group(title: "View controls", entries: [
-            Entry(keys: "Z", action: "Zoom 1:1 / fit"),
-            Entry(keys: "+ −", action: "Zoom in / out"),
-            Entry(keys: "[ ]", action: "Thumbnail size"),
-            Entry(keys: "F", action: "Filmstrip"),
-        ]),
-        Group(title: "Menu commands", entries: [
-            Entry(keys: "⌘O", action: "Open folder"),
-            Entry(keys: "⌘Z / ⇧⌘Z", action: "Undo / redo"),
-            Entry(keys: "⌘C / ⌘V", action: "Copy / paste settings"),
-            Entry(keys: "⌥⌘C / ⌥⌘V", action: "Copy / paste Look"),
-            Entry(keys: "⌘E", action: "Export"),
-            Entry(keys: "⌘A / ⌘D", action: "Select all / none"),
-        ]),
-    ]
+    static let groups: [Group] = KeyGrammar.groups.map { section in
+        Group(title: section.title,
+              entries: section.rows.map { Entry(keys: $0.keys, action: $0.action) })
+    }
 }
 
 #endif
