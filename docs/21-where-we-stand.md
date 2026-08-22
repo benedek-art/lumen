@@ -156,6 +156,29 @@ Neither needs invention. Both are around a hundred lines plus a test seam.
 
 Sequenced by consequence, not by domain.
 
+**Scope decision, taken after this audit was written and before any of it was acted on.**
+The first draft of this section planned all five batches — roughly thirty hours of work
+ending with as much of the parity roster as could be reached. That plan was cut, and the
+reasoning is worth keeping because it is the same judgement anyone picking this up later
+will have to make again.
+
+Three things were wrong with it. Doc 19's narrowing had *evidence* behind it — it was
+written after the owner used the app and found it slow and finicky — where full parity is
+a response to an aspiration; both are legitimate but only one was earned. "Better than the
+competition on every control" has no completion state: Lightroom is twenty years of
+feature tail, and matching it competes on the axis where a one-person app is weakest while
+deprioritising the one where §4 says it is genuinely ahead. And the largest single block of
+that thirty hours — a proof registry covering all ~250 controls — is scaffolding around a
+GPU path that has never rendered a photograph for a human. Measuring the reference
+renderer with great rigour does not tell you what photographers get.
+
+So the plan is **A and B in full, the two pillars in §5, and the proof registry cut to the
+forty controls of an ordinary edit** — then stop, at a build worth launching on a Mac.
+Batches D and E stay written down and costed below, deferred rather than dropped: D wants
+a GPU to verify against (Texture has been reverted twice already, and a third attempt
+without one is how you get a third revert), and E wants an hour of real use first, so the
+roster is ordered by gaps the owner actually feels rather than gaps a teardown records.
+
 **Batch A — Things that produce a wrong file or lose work.** LIB-01 (a rename or move
 orphans every rating and edit — the project's first principle is that the work
 survives), LIB-08 (a newer sidecar loses to a stale catalog and is then overwritten),
