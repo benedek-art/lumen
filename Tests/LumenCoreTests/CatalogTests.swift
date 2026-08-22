@@ -550,6 +550,261 @@ final class CatalogTests: XCTestCase {
         XCTAssertEqual(CatalogStore.fileExtension(of: "day1/DSC_0001.NEF"), "nef")
         XCTAssertEqual(CatalogStore.fileExtension(of: "2026/05/01/a.b.CR3"), "cr3")
     }
+
+    // MARK: - Move safety (LIB-01)
+
+    /// `quick_sig` had a column, an index and a whole relocation branch in `scan`, and
+    /// no producer anywhere: every `ScannedFile` was built with `quickSig == nil`, the
+    /// match always saw nil, and a renamed original became a fresh row while its rating,
+    /// flag, label, album membership, keywords, edits and history stayed stranded on a
+    /// row marked missing. No test in this file could fail, because none had ever passed
+    /// a signature into `scan` — the relocation branch was untested code guarding an
+    /// unwritten column.
+    ///
+    /// These two are the proof that the branch reaches the work in the sense docs/20 P1
+    /// means it: from a signature the producer really computes, through the store, to
+    /// the row the edits are on.
+    func testARenameInsideAFolderRelocatesTheRowWithItsEditsIntact() throws {
+        let store = try makeStore()
+        let folderID = try store.registerFolder(path: "/Volumes/Shoots/2026-08-20")
+        let signature = QuickSignature.signature(prefix: Data([0xDE, 0xAD, 0xBE, 0xEF]),
+                                                 fileSize: 41_000_000)
+
+        let original = ScannedFile(filename: "DSC0001.ARW", fileSize: 41_000_000,
+                                   fileMTime: 1_700_000_000, quickSig: signature,
+                                   ext: "arw")
+        _ = try store.scan(folderID: folderID, files: [original], at: CatalogStore.now())
+        guard let row = try store.photo(folderID: folderID, filename: "DSC0001.ARW")
+        else { return XCTFail("the scan did not insert the file") }
+
+        // A frame with a day's work on it.
+        var recipe = Recipe()
+        recipe.develop.tone.exposure = 1.25
+        try store.saveRecipe(recipe, photoID: row.id, isCurrent: true)
+        try store.setRating(4, photoID: row.id)
+        try store.setFlag(.pick, photoID: row.id)
+        let album = try store.createCollection(name: "Selects")
+        try store.addToCollection(album, photoIDs: [row.id])
+        _ = try store.addKeyword("harbour", photoIDs: [row.id])
+
+        // The user renames it in Finder. Same bytes, same size, new name.
+        let renamed = ScannedFile(filename: "harbour-dawn.ARW", fileSize: 41_000_000,
+                                  fileMTime: 1_700_000_000, quickSig: signature,
+                                  ext: "arw")
+        let result = try store.scan(folderID: folderID, files: [renamed],
+                                    at: CatalogStore.now())
+
+        XCTAssertEqual(result.relocated, [row.id],
+                       "a rename was not recognised as a relocation")
+        XCTAssertTrue(result.added.isEmpty, "the rename inserted a second photo row")
+        XCTAssertTrue(result.missing.isEmpty, "the renamed original was marked missing")
+
+        guard let moved = try store.photo(folderID: folderID,
+                                          filename: "harbour-dawn.ARW")
+        else { return XCTFail("the renamed file has no row") }
+        XCTAssertEqual(moved.id, row.id, "the work moved to a different row")
+        XCTAssertFalse(moved.missing)
+        XCTAssertEqual(moved.rating, 4)
+        XCTAssertEqual(moved.flag, .pick)
+        XCTAssertEqual(try store.currentRecipe(photoID: moved.id), recipe,
+                       "the rename lost the edit")
+        XCTAssertEqual(try store.keywords(photoID: moved.id), ["harbour"])
+
+        var inAlbum = PhotoQuery()
+        inAlbum.albumID = album
+        XCTAssertEqual(try store.photos(matching: inAlbum, folderID: folderID).map(\.id),
+                       [row.id], "the rename dropped the album membership")
+
+        // And nothing was left behind: one row, not two.
+        XCTAssertEqual(try store.photos(folderID: folderID).count, 1)
+        store.close()
+    }
+
+    /// The cross-folder half. Here the row is already `missing = 1` from the scan of the
+    /// folder the file left, and the scan of the folder it arrived in has to find it by
+    /// signature alone — no filename in common, no shared folder id.
+    func testAMoveAcrossFoldersRelocatesTheRowWithItsEditsIntact() throws {
+        let store = try makeStore()
+        let source = try store.registerFolder(path: "/Volumes/Shoots/inbox")
+        let destination = try store.registerFolder(path: "/Volumes/Shoots/2026-08-20")
+        let signature = QuickSignature.signature(prefix: Data([0x01, 0x02, 0x03]),
+                                                 fileSize: 52_000_000)
+
+        let arrived = ScannedFile(filename: "DSC0007.ARW", fileSize: 52_000_000,
+                                  fileMTime: 1_700_000_500, quickSig: signature,
+                                  ext: "arw")
+        _ = try store.scan(folderID: source, files: [arrived], at: CatalogStore.now())
+        guard let row = try store.photo(folderID: source, filename: "DSC0007.ARW")
+        else { return XCTFail("the scan did not insert the file") }
+
+        var recipe = Recipe()
+        recipe.develop.tone.exposure = -0.75
+        try store.saveRecipe(recipe, photoID: row.id, isCurrent: true)
+        try store.setRating(5, photoID: row.id)
+        try store.setLabel(.red, photoID: row.id)
+
+        // Scanning the source folder empty is what marks the row missing — exactly what
+        // the launch after the file was dragged out of it does.
+        let emptied = try store.scan(folderID: source, files: [], at: CatalogStore.now())
+        XCTAssertEqual(emptied.missing, [row.id])
+
+        // The same bytes, under a new name, in a different registered folder.
+        let moved = ScannedFile(filename: "keepers/DSC0007.ARW", fileSize: 52_000_000,
+                                fileMTime: 1_700_000_500, quickSig: signature,
+                                ext: "arw")
+        let result = try store.scan(folderID: destination, files: [moved],
+                                    at: CatalogStore.now())
+
+        XCTAssertEqual(result.relocated, [row.id],
+                       "a move across folders was not recognised as a relocation")
+        XCTAssertTrue(result.added.isEmpty, "the move inserted a second photo row")
+
+        guard let landed = try store.photo(folderID: destination,
+                                           filename: "keepers/DSC0007.ARW")
+        else { return XCTFail("the moved file has no row in its new folder") }
+        XCTAssertEqual(landed.id, row.id)
+        XCTAssertEqual(landed.folderID, destination)
+        XCTAssertFalse(landed.missing, "the moved file is still marked missing")
+        XCTAssertEqual(landed.rating, 5)
+        XCTAssertEqual(landed.label, "red")
+        XCTAssertEqual(try store.currentRecipe(photoID: landed.id), recipe,
+                       "the move lost the edit")
+        XCTAssertNil(try store.photo(folderID: source, filename: "DSC0007.ARW"),
+                     "the row stayed behind in the folder the file left")
+        store.close()
+    }
+
+    /// What the producer actually hashes. A signature that ignored the length would give
+    /// a truncated copy the same identity as the file it was truncated from, and the
+    /// relocation branch would then move a shoot's edits onto the wrong frame.
+    func testAQuickSignatureNamesItsAlgorithmAndCoversLengthAsWellAsPrefix() throws {
+        let head = Data([0xCA, 0xFE, 0xBA, 0xBE, 0x00, 0x11])
+
+        let a = QuickSignature.signature(prefix: head, fileSize: 41_000_000)
+        XCTAssertEqual(a, QuickSignature.signature(prefix: head, fileSize: 41_000_000),
+                       "the signature is not deterministic")
+        XCTAssertTrue(a.hasPrefix("xxh64:"),
+                      "the algorithm has to name itself, exactly as recipe_fp does")
+        XCTAssertEqual(a.count, "xxh64:".count + 16)
+
+        // Same prefix, different length: a truncated copy must not share an identity.
+        XCTAssertNotEqual(a, QuickSignature.signature(prefix: head, fileSize: 41_000_001))
+        // Same length, different prefix.
+        let nudged = Data([0xCA, 0xFE, 0xBA, 0xBE, 0x00, 0x12])
+        XCTAssertNotEqual(a, QuickSignature.signature(prefix: nudged,
+                                                      fileSize: 41_000_000))
+
+        // The file-reading half agrees with the pure half, stops at the cap, and takes
+        // the length from the whole file rather than from what it read. A file of
+        // 1 MB + 32 bytes proves both at once.
+        let big = directory.appendingPathComponent("big.arw")
+        var bytes = Data(repeating: 0x5A, count: QuickSignature.prefixByteCount)
+        bytes.append(Data(repeating: 0x7E, count: 32))
+        try bytes.write(to: big)
+        XCTAssertEqual(try QuickSignature.compute(url: big),
+                       QuickSignature.signature(
+                        prefix: bytes.prefix(QuickSignature.prefixByteCount),
+                        fileSize: Int64(bytes.count)),
+                       "compute(url:) does not agree with signature(prefix:fileSize:)")
+
+        // Two files differing only past the first megabyte hash the same. That is the
+        // declared cost of reading a prefix, and it is why `scan` still requires a
+        // candidate to have disappeared before it will move anything.
+        let sibling = directory.appendingPathComponent("sibling.arw")
+        var other = Data(repeating: 0x5A, count: QuickSignature.prefixByteCount)
+        other.append(Data(repeating: 0x01, count: 32))
+        try other.write(to: sibling)
+        XCTAssertEqual(try QuickSignature.compute(url: big),
+                       try QuickSignature.compute(url: sibling))
+    }
+
+    /// The producer only hashes what could match, because a megabyte of every file in a
+    /// 5,000-frame folder is gigabytes of I/O in front of the first grid — the one path
+    /// docs/10 §10.1 gates under a second.
+    func testTheRelocationProbeOffersNothingToHashOnAFirstOpen() throws {
+        let store = try makeStore()
+        let folderID = try store.registerFolder(path: "/Volumes/Shoots/2026-08-20")
+
+        // Nothing registered yet: nothing known, nothing to match, nothing to hash.
+        let cold = try store.relocationProbe(folderID: folderID, listed: ["DSC0001.ARW"])
+        XCTAssertTrue(cold.known.isEmpty)
+        XCTAssertTrue(cold.candidateSizes.isEmpty,
+                      "a first open would have hashed the whole card")
+
+        let files = (0..<3).map {
+            ScannedFile(filename: String(format: "DSC%04d.ARW", $0),
+                        fileSize: Int64(40_000_000 + $0), fileMTime: 1_700_000_000,
+                        quickSig: String(format: "xxh64:%016x", $0 + 1), ext: "arw")
+        }
+        _ = try store.scan(folderID: folderID, files: files, at: CatalogStore.now())
+
+        // Everything still present: known, and still nothing to hash.
+        let steady = try store.relocationProbe(
+            folderID: folderID, listed: Set(files.map(\.filename)))
+        XCTAssertEqual(steady.known, Set(files.map(\.filename)))
+        XCTAssertTrue(steady.candidateSizes.isEmpty,
+                      "an unchanged folder would have hashed on every open")
+
+        // One name gone from the listing: that row's size, and only that one, becomes
+        // worth hashing for.
+        let renamed = try store.relocationProbe(
+            folderID: folderID, listed: ["DSC0001.ARW", "DSC0002.ARW", "new.ARW"])
+        XCTAssertEqual(renamed.candidateSizes, [40_000_000])
+        XCTAssertFalse(renamed.known.contains("new.ARW"))
+
+        // A row missing in ANOTHER folder is a candidate for this one, which is what
+        // makes a cross-folder move detectable at all.
+        let elsewhere = try store.registerFolder(path: "/Volumes/Shoots/inbox")
+        _ = try store.scan(folderID: elsewhere,
+                           files: [ScannedFile(filename: "gone.ARW",
+                                               fileSize: 99_000_000,
+                                               fileMTime: 1_700_000_000,
+                                               quickSig: "xxh64:00000000000000ff",
+                                               ext: "arw")],
+                           at: CatalogStore.now())
+        _ = try store.scan(folderID: elsewhere, files: [], at: CatalogStore.now())
+        let across = try store.relocationProbe(
+            folderID: folderID, listed: Set(files.map(\.filename)))
+        XCTAssertEqual(across.candidateSizes, [99_000_000])
+        store.close()
+    }
+
+    /// LIB-26a. The backfill asked once, with a 5,000 default limit, and never asked
+    /// again — a 20,000-frame folder needed four launches before its sort order was
+    /// right. Paging by id is what makes the caller's loop both complete and finite: a
+    /// photo whose EXIF cannot be read keeps `capture_at IS NULL` forever, so a loop
+    /// that re-asked for "everything still missing" would never end.
+    func testTheBackfillPassesPageForwardPastRowsTheyCannotFillIn() throws {
+        let store = try makeStore()
+        let (folderID, ids) = try seed(store, count: 5)
+
+        let firstPage = try store.photosMissingMetadata(folderID: folderID, limit: 2)
+        XCTAssertEqual(firstPage.map(\.id), Array(ids.prefix(2)))
+
+        // The page after the second row, with NOTHING written in between — two files
+        // whose EXIF would not parse. It must move on, not repeat.
+        let secondPage = try store.photosMissingMetadata(
+            folderID: folderID, afterID: firstPage[1].id, limit: 2)
+        XCTAssertEqual(secondPage.map(\.id), Array(ids[2..<4]))
+
+        let thirdPage = try store.photosMissingMetadata(
+            folderID: folderID, afterID: secondPage[1].id, limit: 2)
+        XCTAssertEqual(thirdPage.map(\.id), [ids[4]])
+        XCTAssertTrue(try store.photosMissingMetadata(
+            folderID: folderID, afterID: ids[4], limit: 2).isEmpty,
+                      "the pass would not terminate")
+
+        // The signature backfill is the same shape with its own resume marker, and it
+        // is the writer `quick_sig` never had.
+        XCTAssertEqual(try store.photosMissingQuickSig(folderID: folderID).map(\.id), ids)
+        try store.setQuickSig("xxh64:0123456789abcdef", photoID: ids[0])
+        XCTAssertEqual(try store.photosMissingQuickSig(folderID: folderID).map(\.id),
+                       Array(ids.dropFirst()))
+        XCTAssertEqual(try store.photo(folderID: folderID,
+                                       filename: "DSC0000.ARW")?.quickSig,
+                       "xxh64:0123456789abcdef")
+        store.close()
+    }
 }
 
 #endif

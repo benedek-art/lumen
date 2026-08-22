@@ -169,7 +169,7 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     # Foundation
     "Foundation", "Data", "Date", "DateComponents", "DateFormatter", "TimeInterval",
     "URL", "URLResourceKey", "URLSession", "URLRequest", "URLResponse", "UUID",
-    "FileManager", "FileWrapper", "Bundle", "JSONEncoder", "JSONDecoder",
+    "FileManager", "FileHandle", "FileWrapper", "Bundle", "JSONEncoder", "JSONDecoder",
     "JSONSerialization", "PropertyListEncoder", "PropertyListDecoder",
     "PropertyListSerialization", "NSError", "NSString", "NSNumber", "NSObject",
     "NSLock", "NSRecursiveLock", "NSRegularExpression", "NSLog", "NSAttributedString",

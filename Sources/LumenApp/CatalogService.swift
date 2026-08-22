@@ -72,29 +72,49 @@ final class CatalogService: @unchecked Sendable {
         queue.sync {
             do {
                 let folderID = try store.registerFolder(path: folder.path)
-                let scanned: [ScannedFile] = files.map { file in
+                // The folder scan is recursive and `photo` is UNIQUE per
+                // (folder, filename), so the basename is not an identity: one card
+                // with day1/ and day2/ subfolders puts two different frames named
+                // DSC_0001.NEF on one row, and the second edit overwrites the
+                // first. The path relative to the registered folder is unique by
+                // construction, and equals the basename for files sitting directly
+                // in it — which is why this only ever bit multi-folder imports.
+                let names = files.map { ScannedFile.catalogName(for: $0, in: folder) }
+
+                // `scan`'s relocation branch needs the signature of the file it has
+                // just been HANDED — the catalog can only supply the other half, for
+                // the row that vanished. So a rename is only ever caught if the sig is
+                // computed here, before `scan`, and it was never computed anywhere:
+                // that is LIB-01, and it is why a renamed original became a fresh photo
+                // with its rating, edits and album membership stranded on the old row.
+                //
+                // Not every file, though. The probe says which of them could match
+                // anything, by size, and on the first open of a folder the answer is
+                // none — so the cold path that docs/10 §10.1 gates under a second pays
+                // nothing, and the rename path pays one megabyte per candidate.
+                let probe = (try? store.relocationProbe(folderID: folderID,
+                                                        listed: Set(names)))
+                    ?? RelocationProbe.none
+
+                let scanned: [ScannedFile] = zip(files, names).map { file, name in
                     let attributes = try? FileManager.default.attributesOfItem(atPath: file.path)
                     let size = (attributes?[.size] as? NSNumber)?.int64Value ?? 0
                     let mtime = ((attributes?[.modificationDate] as? Date)?
                         .timeIntervalSince1970).map { Int64($0) } ?? 0
-                    // The folder scan is recursive and `photo` is UNIQUE per
-                    // (folder, filename), so the basename is not an identity: one card
-                    // with day1/ and day2/ subfolders puts two different frames named
-                    // DSC_0001.NEF on one row, and the second edit overwrites the
-                    // first. The path relative to the registered folder is unique by
-                    // construction, and equals the basename for files sitting directly
-                    // in it — which is why this only ever bit multi-folder imports.
-                    return ScannedFile(filename: ScannedFile.catalogName(for: file, in: folder),
+                    var signature: String? = nil
+                    if !probe.known.contains(name), probe.candidateSizes.contains(size) {
+                        signature = try? QuickSignature.compute(url: file)
+                    }
+                    return ScannedFile(filename: name,
                                        fileSize: size, fileMTime: mtime,
+                                       quickSig: signature,
                                        ext: file.pathExtension.lowercased())
                 }
                 _ = try store.scan(folderID: folderID, files: scanned,
                                    at: CatalogStore.now())
 
-                for file in files {
-                    guard let row = try store.photo(
-                        folderID: folderID,
-                        filename: ScannedFile.catalogName(for: file, in: folder))
+                for (file, name) in zip(files, names) {
+                    guard let row = try store.photo(folderID: folderID, filename: name)
                     else { continue }
                     let recipe = try store.currentRecipe(photoID: row.id)
                     let state = Self.merge(row: row, recipe: recipe, file: file)
@@ -131,16 +151,36 @@ final class CatalogService: @unchecked Sendable {
     /// Interruptible by construction: `capture_at IS NULL` is the resume marker, so
     /// quitting halfway costs nothing and the next launch continues. Batched into
     /// transactions of 200 because 5,000 individual commits is a minute of fsync.
-    func backfillMetadata(folder: URL, onProgress: ((Int, Int) -> Void)? = nil) {
+    ///
+    /// This pass also computes `quick_sig`, and this is the right place for it rather
+    /// than the scan: the signature reads a megabyte per file, and five thousand of
+    /// those in front of the first grid is gigabytes of I/O on the one path docs/10
+    /// §10.1 gates under a second. Here it sits behind the grid, on the same
+    /// interruptible, resumable, batched footing as the EXIF.
+    ///
+    /// Both loops PAGE BY ID rather than re-asking for "everything still missing". The
+    /// old code asked once, with a 5,000 default limit, and never asked again (LIB-26a):
+    /// a 20,000-frame folder needed four launches before its sort order was right.
+    /// Re-asking naively would have been worse — a file whose EXIF will not parse keeps
+    /// `capture_at IS NULL` and comes back in every page forever — so the cursor is the
+    /// last id seen, which terminates whatever the files turn out to contain.
+    ///
+    /// `onProgress` reports how many rows have been walked and whether the pass is
+    /// finished. It used to report `(done, total)` against a total taken from the single
+    /// fetch; paging has no such number up front, and inventing one to keep the old
+    /// shape would have made the caller's "last batch" test a guess.
+    func backfillMetadata(folder: URL,
+                          onProgress: ((_ done: Int, _ finished: Bool) -> Void)? = nil) {
         queue.async { [store, weak self] in
             do {
                 let folderID = try store.registerFolder(path: folder.path)
-                let pending = try store.photosMissingMetadata(folderID: folderID)
-                guard !pending.isEmpty else { return }
                 var done = 0
-                for chunk in stride(from: 0, to: pending.count, by: 200).map({
-                    Array(pending[$0..<Swift.min($0 + 200, pending.count)])
-                }) {
+                var cursor: Int64 = 0
+                while true {
+                    let chunk = try store.photosMissingMetadata(
+                        folderID: folderID, afterID: cursor, limit: 200)
+                    guard let last = chunk.last else { break }
+                    cursor = last.id
                     let read: [(photoID: Int64, metadata: PhotoMetadata)] =
                         chunk.compactMap { row in
                             let url = folder.appendingPathComponent(row.filename)
@@ -150,7 +190,24 @@ final class CatalogService: @unchecked Sendable {
                         }
                     try store.setMetadata(read)
                     done += chunk.count
-                    onProgress?(done, pending.count)
+                    onProgress?(done, false)
+                }
+                onProgress?(done, true)
+
+                var signatureCursor: Int64 = 0
+                while true {
+                    let chunk = try store.photosMissingQuickSig(
+                        folderID: folderID, afterID: signatureCursor, limit: 200)
+                    guard let last = chunk.last else { break }
+                    signatureCursor = last.id
+                    let signed: [(photoID: Int64, signature: String)] =
+                        chunk.compactMap { row in
+                            let url = folder.appendingPathComponent(row.filename)
+                            guard let signature = try? QuickSignature.compute(url: url)
+                            else { return nil }
+                            return (photoID: row.id, signature: signature)
+                        }
+                    try store.setQuickSigs(signed)
                 }
             } catch {
                 // Not surfaced to the user: metadata is an enrichment, and a folder
