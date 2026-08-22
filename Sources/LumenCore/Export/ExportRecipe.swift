@@ -156,9 +156,25 @@ public struct OutputSharpen: Codable, Equatable, Sendable {
         }
     }
 
-    /// Sharpening energy. Asymmetric dark:light weighting (dark halos read as
-    /// "crisp", light halos read as "oversharpened") is applied by the renderer;
-    /// this is the master amount.
+    /// Sharpening energy — the master amount, and the only amount.
+    ///
+    /// This used to say that "asymmetric dark:light weighting (dark halos read as
+    /// 'crisp', light halos read as 'oversharpened') is applied by the renderer", and it
+    /// is not applied by anything. `PipelineRenderer.applyOutputSharpen` builds a bare
+    /// `CIUnsharpMask` from `baseRadius` and this number, and an unsharp mask halos
+    /// symmetrically by construction: it adds the same high-pass on both sides of an
+    /// edge. The ratio the sentence referred to was a `lightHaloRatio = 0.6` constant
+    /// with no reader anywhere in the repository, so the asymmetry existed as a number
+    /// and a claim and nothing else.
+    ///
+    /// The observation behind it is sound and is why docs/11 asks for the asymmetry: a
+    /// light halo along a skyline is the tell that gives "oversharpened" its name, and
+    /// a dark one at the same amplitude reads as definition. Delivering it needs a
+    /// two-sided kernel — split the high-pass by sign and scale the positive lobe to
+    /// about 0.6 of the negative — which is a new kernel with its own halo bound to
+    /// assert, and it is not written. The constant is gone rather than left sitting
+    /// beside a function that does not consult it; the number it held is recorded in
+    /// this sentence, which is the only place it was ever doing any work.
     public func energy() -> Double {
         switch medium {
         case .none: return 0
@@ -167,9 +183,6 @@ public struct OutputSharpen: Codable, Equatable, Sendable {
         case .glossy: return 0.70 * amount.scale
         }
     }
-
-    /// Light halos get less energy than dark ones, at this ratio.
-    public static let lightHaloRatio: Double = 0.6
 
     public var isIdentity: Bool { medium == .none }
 }

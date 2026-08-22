@@ -1286,6 +1286,21 @@ public final class PipelineRenderer {
 
     // MARK: - Output sharpening
 
+    /// A stock `CIUnsharpMask` at the radius and energy `OutputSharpen` derives — and
+    /// nothing more than that.
+    ///
+    /// Worth naming precisely, because `OutputSharpen.energy()` used to describe this
+    /// function as applying an asymmetric dark:light halo weighting, and it does not. An
+    /// unsharp mask halos symmetrically by construction: the same high-pass is added on
+    /// both sides of an edge, so a light rim and a dark rim come out at equal amplitude.
+    /// docs/11 asks for the asymmetry and it is not built; the claim has been removed
+    /// from the place that made it rather than approximated here.
+    ///
+    /// What IS right and easy to break: this runs AFTER the resize, so the radius is in
+    /// delivered pixels the way `baseRadius(printPPI:)` derives it, and the Lanczos
+    /// resample before it runs in linear light. Both orderings are load-bearing and
+    /// neither has a test that would notice if they moved — deleting this call entirely
+    /// leaves every suite green (OUT-08).
     static func applyOutputSharpen(_ image: CIImage, _ sharpen: OutputSharpen,
                                    resolutionPPI: Double) -> CIImage {
         guard !sharpen.isIdentity else { return image }
