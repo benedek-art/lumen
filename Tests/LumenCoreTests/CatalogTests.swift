@@ -247,6 +247,75 @@ final class CatalogTests: XCTestCase {
         store.close()
     }
 
+    /// LIB-26b: the subsecond field's DIGIT WIDTH is part of its value.
+    ///
+    /// The test above uses three-digit subseconds throughout, which is why it stayed
+    /// green while the reader was calling `Int(_:)` on the raw string. EXIF
+    /// SubsecTimeOriginal is a fraction with its decimal point left out, so "7" is
+    /// 0.7 s and "070" is 0.07 s — and read as plain integers they sort 7 before 70,
+    /// which is backwards. Mixed widths across one burst invert the whole run.
+    func testSubSecondsAreFractionsSoADigitWidthCannotInvertABurst() {
+        // The case the old reading gets backwards: 0.07 s is earlier than 0.7 s, and
+        // "070" is the longer string.
+        let early = PhotoMetadata.parseEXIFSubsec("070")
+        let late = PhotoMetadata.parseEXIFSubsec("7")
+        XCTAssertNotNil(early)
+        XCTAssertNotNil(late)
+        XCTAssertLessThan(early ?? 0, late ?? 0,
+                          "\"070\" is 0.07 s and \"7\" is 0.7 s, so the first is earlier "
+                              + "— read as integers they come back the other way round")
+
+        // The whole width ladder for one fraction: every spelling of seven tenths is
+        // the same instant, whatever the field's width.
+        XCTAssertEqual(PhotoMetadata.parseEXIFSubsec("7"), 700_000)
+        XCTAssertEqual(PhotoMetadata.parseEXIFSubsec("70"), 700_000)
+        XCTAssertEqual(PhotoMetadata.parseEXIFSubsec("700"), 700_000)
+        XCTAssertEqual(PhotoMetadata.parseEXIFSubsec("700000"), 700_000)
+
+        // Ordinary two- and three-digit fields keep their meaning.
+        XCTAssertEqual(PhotoMetadata.parseEXIFSubsec("07"), 70_000)
+        XCTAssertEqual(PhotoMetadata.parseEXIFSubsec("123"), 123_000)
+        XCTAssertEqual(PhotoMetadata.parseEXIFSubsec("0"), 0)
+        XCTAssertEqual(PhotoMetadata.parseEXIFSubsec("000"), 0)
+
+        // Below a camera's clock, and truncated rather than rounded so that a pair
+        // truncation leaves in order cannot be carried into a tie.
+        XCTAssertEqual(PhotoMetadata.parseEXIFSubsec("1234567"), 123_456)
+        XCTAssertEqual(PhotoMetadata.parseEXIFSubsec("1234569"), 123_456)
+
+        // A field that is not a run of ASCII digits sorts as "no subsecond", which ties
+        // the way a pre-EXIF burst does, rather than as a guess that orders confidently
+        // and wrongly.
+        XCTAssertNil(PhotoMetadata.parseEXIFSubsec(""))
+        XCTAssertNil(PhotoMetadata.parseEXIFSubsec("   "))
+        XCTAssertNil(PhotoMetadata.parseEXIFSubsec("12x"))
+        XCTAssertNil(PhotoMetadata.parseEXIFSubsec("-1"))
+        XCTAssertNil(PhotoMetadata.parseEXIFSubsec("1.5"))
+        XCTAssertNil(PhotoMetadata.parseEXIFSubsec("٧"))  // Arabic-Indic 7: isNumber, not ASCII
+        XCTAssertEqual(PhotoMetadata.parseEXIFSubsec(" 45 "), 450_000)
+    }
+
+    /// The same defect where the user meets it: one burst, one second, mixed widths.
+    func testABurstWithMixedSubSecondWidthsStillSortsForwards() throws {
+        let store = try makeStore()
+        let (folderID, ids) = try seed(store, count: 3)
+        // As three cameras spell the same run of frames: 0.07 s, 0.4 s, 0.7 s.
+        let asWritten = ["070", "40", "7"]
+        for (offset, id) in ids.enumerated() {
+            try store.setMetadata(
+                PhotoMetadata(captureAt: 1_700_000_000,
+                              captureSubsec: PhotoMetadata.parseEXIFSubsec(asWritten[offset])),
+                photoID: id)
+        }
+        var query = PhotoQuery()
+        query.sortKey = .captureTime
+        XCTAssertEqual(try store.photos(matching: query, folderID: folderID).map(\.id),
+                       [ids[0], ids[1], ids[2]],
+                       "the burst inverted: the widest subsecond string is the SMALLEST "
+                           + "fraction, and reading the field as an integer says otherwise")
+        store.close()
+    }
+
     /// The edit-time sort reads `edit.updated_at`, which only `saveRecipe` writes.
     func testEditTimeSortsByWhenTheRecipeWasLastSaved() throws {
         let store = try makeStore()
