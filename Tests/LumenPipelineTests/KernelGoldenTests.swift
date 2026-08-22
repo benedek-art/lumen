@@ -665,34 +665,38 @@ final class KernelGoldenTests: XCTestCase {
     /// to put it, and once because the fine band was blurred at a fixed sigma that
     /// equalled the working radius at its default, making the two components of the
     /// cross-fade bit-identical. Both times every test in the suite passed.
-    /// What `CIGaussianBlur.radius` actually means, measured rather than assumed.
+    /// What `CIGaussianBlur.radius` actually means, measured rather than assumed — and
+    /// ASSERTED, which for one round it was not.
     ///
-    /// `RenderGraph.gaussianBlur` sets `filter.radius = sigma * 3`, on the stated
-    /// grounds that the parameter is a SUPPORT radius rather than a standard deviation.
-    /// That conversion has never been measured. It matters now because the sharpen
-    /// stage mixes two high-pass bands and the mix direction depends entirely on which
-    /// is wider: `usm = lum − G(radius)` against the reference's a-trous band
-    /// `lum − 0.5·(s1 + s2)`, whose smooths have sigma 1.0 and 2.24 by construction
-    /// (B3-spline variance is 1 at step 1, 4 at step 2).
+    /// This test blurred an impulse, measured the second moment of the response (which
+    /// IS sigma by definition), and `print`ed it. Zero assertions. `RenderGraph`'s own
+    /// header records the answer as measured fact — 2.0→2.0, 6.0→6.01, 8.95→9.0, so
+    /// the parameter is the standard deviation and not a support radius — and the
+    /// correction that followed landed in `RenderGraph.gaussianBlur` and MISSED
+    /// `applyHalation`, which had built its own `CIFilter.gaussianBlur()` with the old
+    /// `sigma * 3` in it. Every shipping preview and export rendered the glow three
+    /// times wider than the 65 µm the profile derives, and this test, whose entire
+    /// subject is that conversion, could not go red — nor could it have gone red for
+    /// the original bug it was written to investigate. A measurement nobody compares
+    /// against anything is a diagnostic, not a test.
     ///
-    /// In Fourier terms the a-trous band should be the WIDER high-pass and therefore
-    /// the larger one — yet `testDetailSliderMovesThePicture` measures Detail 100
-    /// sharpening roughly half as hard as Detail 0. Either the reasoning is wrong or
-    /// the sigma conversion is, and `CIBoxBlur.radius` turned out this morning to be
-    /// the window WIDTH rather than the half-width, so an unmeasured Core Image blur
-    /// parameter is not something to keep assuming about.
+    /// The bar is now the measurement itself: the helper must return the sigma it was
+    /// asked for. `sigma * 3` fails every row by a factor of three.
     ///
-    /// Measures the second moment of the impulse response, which IS sigma.
+    /// The a-trous smooths the sharpen stage cross-fades against are asserted as a
+    /// RATIO rather than against absolute numbers. Doubling the tap spacing doubles the
+    /// standard deviation whatever the kernel's normalization is, so the ratio is the
+    /// part of the claim that is structural; the step-1 band is given a wide window
+    /// around the B3-spline's unit variance.
     func testWhatCIGaussianBlurRadiusMeans() throws {
         try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
         let side = 129
-        for askedSigma in [0.5, 1.0, 2.0, 3.0] {
-            var impulse = Plane(width: side, height: side)
-            impulse[side / 2, side / 2] = 1.0
-            guard let blurred = RenderGraph.gaussianBlur(ciImage(from: broadcast(impulse)),
-                                                         sigma: askedSigma),
-                  let got = readBack(blurred, width: side, height: side)
-            else { continue }
+
+        /// The standard deviation of the central row of an impulse response. The
+        /// marginal of an isotropic 2-D Gaussian is a 1-D Gaussian of the same sigma,
+        /// and the mean sits at the impulse by symmetry, so this is sigma with no fit.
+        func measuredSigma(_ image: CIImage) -> Double? {
+            guard let got = readBack(image, width: side, height: side) else { return nil }
             var sum = 0.0, second = 0.0
             for x in 0..<side {
                 let v = Double(got[x, side / 2].r)
@@ -700,29 +704,261 @@ final class KernelGoldenTests: XCTestCase {
                 sum += v
                 second += v * d * d
             }
-            let measured = sum > 0 ? (second / sum).squareRoot() : 0
-            print(String(format: "GAUSSIAN asked sigma %.1f -> measured sigma %.3f "
-                                 + "(radius passed to CI: %.1f)",
-                         askedSigma, measured, Swift.max(askedSigma * 3, 0.5)))
+            guard sum > 0 else { return nil }
+            return (second / sum).squareRoot()
         }
 
-        // And the a-trous smooths the sharpen stage compares against, same measurement.
-        for step in [1, 2] {
+        func impulseImage() -> CIImage {
             var impulse = Plane(width: side, height: side)
             impulse[side / 2, side / 2] = 1.0
-            guard let sm = RenderGraph.bSplinePass(ciImage(from: broadcast(impulse)),
-                                                   step: step),
-                  let got = readBack(sm, width: side, height: side) else { continue }
-            var sum = 0.0, second = 0.0
-            for x in 0..<side {
-                let v = Double(got[x, side / 2].r)
-                let d = Double(x - side / 2)
-                sum += v
-                second += v * d * d
-            }
-            print(String(format: "ATROUS step %d -> measured sigma %.3f",
-                         step, sum > 0 ? (second / sum).squareRoot() : 0))
+            return ciImage(from: broadcast(impulse))
         }
+
+        // 9.0 is the widest row the runner's recorded measurement covers, and three
+        // sigmas of it still sit 37 px inside a 129 px frame, so nothing here is
+        // measuring truncation.
+        for askedSigma in [1.0, 2.0, 4.0, 6.0, 9.0] {
+            guard let blurred = RenderGraph.gaussianBlur(impulseImage(),
+                                                         sigma: askedSigma) else {
+                return XCTFail("gaussianBlur returned nothing at sigma \(askedSigma)")
+            }
+            guard let measured = measuredSigma(blurred) else {
+                return XCTFail("blurred impulse read back empty at sigma \(askedSigma)")
+            }
+            print(String(format: "GAUSSIAN asked sigma %.1f -> measured sigma %.3f",
+                         askedSigma, measured))
+            // 5% of the request, floored so the narrowest row is not held to a
+            // sub-pixel bar on a filter that works in pixels.
+            XCTAssertEqual(measured, askedSigma,
+                           accuracy: Swift.max(0.12, askedSigma * 0.05),
+                           "`CIGaussianBlur.radius` is not the standard deviation: "
+                               + "asked \(askedSigma), measured \(measured). A ratio "
+                               + "near 3 means a support-radius conversion has come "
+                               + "back somewhere in the graph")
+        }
+
+        // And the a-trous smooths the sharpen stage cross-fades against.
+        var atrous: [Double] = []
+        for step in [1, 2] {
+            guard let smoothed = RenderGraph.bSplinePass(impulseImage(), step: step),
+                  let measured = measuredSigma(smoothed) else {
+                return XCTFail("a-trous step \(step) produced nothing")
+            }
+            print(String(format: "ATROUS step %d -> measured sigma %.3f", step, measured))
+            atrous.append(measured)
+        }
+        guard atrous.count == 2 else { return XCTFail("a-trous measurement incomplete") }
+        XCTAssertEqual(atrous[0], 1.0, accuracy: 0.25,
+                       "the step-1 B3-spline smooth measured \(atrous[0]); its variance "
+                           + "is 1 by construction")
+        XCTAssertEqual(atrous[1] / Swift.max(atrous[0], 1e-9), 2.0, accuracy: 0.2,
+                       "doubling the a-trous tap spacing must double the standard "
+                           + "deviation; measured \(atrous[1]) against \(atrous[0])")
+    }
+
+    // MARK: - Halation
+
+    /// One clipped highlight, both paths, and the width of the glow it throws.
+    ///
+    /// The halation stage kept a private `CIFilter.gaussianBlur()` with
+    /// `radius = sigma * 3` in it long after the shared helper had been corrected, so
+    /// every preview and every export rendered the glow three times wider than the
+    /// 65 µm first bounce the profile derives, while `ReferenceRenderer.applyHalation`
+    /// rendered it at one. Nothing could see it: the only halation tests were on the
+    /// reference path, and a grep of this whole directory for "halation" returned
+    /// nothing at all.
+    ///
+    /// What is measured is the second moment of the glow field about the highlight,
+    /// which for a sum of Gaussians against a small uniform source is `2·Σwσ²/Σw` plus
+    /// the source's own variance — the first derived here from the profile the two
+    /// stages share rather than written down, so the bar moves with the model instead
+    /// of pinning today's numbers. A support-radius conversion multiplies it by NINE.
+    ///
+    /// The frame is 128 px and the render's long edge is declared as 2215, which is
+    /// what puts the first bounce at 4 px: halation is denominated at the gate, so on a
+    /// literal 128 px frame the whole glow would be a third of a pixel wide and this
+    /// would be measuring quantization. Nothing else in `applyHalation` reads the long
+    /// edge.
+    func testHalationGlowIsAsWideAsTheProfileSays() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+        let side = 128
+        let longEdge = 2215
+        let block = 4
+        // The block straddles the frame's centre EVENLY, so it is its own mirror image
+        // about `centre` under a vertical flip. `ciImage(from:)` and `readBack` are the
+        // two halves of a bitmap bridge whose row order this file pins only
+        // transitively, and a second moment taken about a centre that is one pixel off
+        // is inflated by exactly one. Making the frame symmetric costs nothing and
+        // takes the question off the table.
+        let centre = Double(side) / 2 - 0.5
+        let low = side / 2 - block / 2
+        let film = FilmChain(FilmLab(stock: FilmStock.portra400.id, amount: 100,
+                                     halation: 100),
+                             filmExposure: 0, displayWhite: 1.0)
+        let profile = film.halation(longEdgePixels: longEdge)
+
+        // Two stops over the clip, on a background four and a half stops BELOW the
+        // reconstruction's onset — so both the reference's smoothstep and the shader's
+        // pedestal read exactly zero everywhere but the block, and the two energy
+        // fields differ in amplitude only, never in footprint.
+        var source = ImageBuffer(width: side, height: side) { _, _ in RGB(gray: 0.02) }
+        for y in low..<(low + block) {
+            for x in low..<(low + block) { source[x, y] = RGB(gray: 4.0) }
+        }
+
+        let input = ciImage(from: source)
+        guard let before = readBack(input, width: side, height: side) else { return }
+        let glowed = RenderGraph().applyHalation(input, film: film, longEdge: longEdge)
+        guard let gpu = readBack(glowed, width: side, height: side) else { return }
+        let reference = ReferenceRenderer.applyHalation(source, film: film,
+                                                        longEdge: longEdge)
+
+        /// Total glow in one channel, and its second moment about the highlight.
+        func glow(_ after: ImageBuffer, _ start: ImageBuffer, channel: Int)
+            -> (mass: Double, spread: Double) {
+            var mass = 0.0, second = 0.0
+            for y in 0..<side {
+                for x in 0..<side {
+                    let delta = after[x, y][channel] - start[x, y][channel]
+                    guard delta > 0 else { continue }
+                    let dx = Double(x) - centre, dy = Double(y) - centre
+                    mass += delta
+                    second += delta * (dx * dx + dy * dy)
+                }
+            }
+            return (mass, mass > 0 ? second / mass : 0)
+        }
+
+        // The model's own prediction, from the profile the two stages share: variances
+        // add, so the glow's is the weighted mean of the bounces' plus the 3x3 block's.
+        var weightSum = 0.0, varianceSum = 0.0
+        for (sigma, weight) in zip(profile.sigmasInPixels, profile.weights) {
+            weightSum += weight
+            varianceSum += weight * sigma * sigma
+        }
+        XCTAssertGreaterThan(weightSum, 0, "the halation profile carries no bounces")
+        // A uniform w x w source has variance (w² − 1)/12 per axis, and variances add.
+        let blockVariance = 2 * (Double(block) * Double(block) - 1) / 12.0
+        let predicted = 2 * varianceSum / Swift.max(weightSum, 1e-12) + blockVariance
+
+        let gpuGlow = glow(gpu, before, channel: 0)
+        let referenceGlow = glow(reference, source, channel: 0)
+        print(String(format: "HALATION predicted spread %.2f  gpu %.2f  reference %.2f  "
+                             + "(mass gpu %.4f reference %.4f)",
+                     predicted, gpuGlow.spread, referenceGlow.spread,
+                     gpuGlow.mass, referenceGlow.mass))
+
+        XCTAssertGreaterThan(gpuGlow.mass, 1e-4,
+                             "the graph's halation stage added no light at all")
+        XCTAssertGreaterThan(referenceGlow.mass, 1e-4,
+                             "the reference's halation stage added no light at all")
+        // 12%: the measurement is a discrete second moment of an f32 read-back, and the
+        // two paths' reconstruction ramps differ in amplitude. A support-radius
+        // conversion is 900%.
+        XCTAssertEqual(gpuGlow.spread, predicted, accuracy: predicted * 0.12,
+                       "the graph blurred halation at a spread of \(gpuGlow.spread) "
+                           + "where the profile says \(predicted). A ratio near 9 is "
+                           + "`sigma * 3` back in the stage")
+        XCTAssertEqual(referenceGlow.spread, predicted, accuracy: predicted * 0.12,
+                       "the reference blurred halation at a spread of "
+                           + "\(referenceGlow.spread) where the profile says "
+                           + "\(predicted)")
+        XCTAssertEqual(gpuGlow.spread, referenceGlow.spread,
+                       accuracy: referenceGlow.spread * 0.10,
+                       "the two paths disagree about how wide the glow is: "
+                           + "\(gpuGlow.spread) against \(referenceGlow.spread)")
+
+        // The energy divergence the engine has claimed is "matched at the half-power
+        // point" and never measured: the shader reconstructs highlights with a hard
+        // pedestal and the reference with a C¹ smoothstep. Recorded as a number with a
+        // bound on it, so a change in either ramp shows up here rather than in a
+        // photograph.
+        XCTAssertEqual(gpuGlow.mass, referenceGlow.mass,
+                       accuracy: referenceGlow.mass * 0.30,
+                       "the pedestal and the smoothstep now disagree about total glow "
+                           + "energy by more than 30%: \(gpuGlow.mass) against "
+                           + "\(referenceGlow.mass)")
+
+        // Halation is red because the stock's measured strengths are, and Portra's blue
+        // strength is exactly zero. A glow that is not red is a glow through the wrong
+        // gain.
+        let blue = glow(gpu, before, channel: 2)
+        XCTAssertLessThan(blue.mass, gpuGlow.mass * 0.02,
+                          "the glow carried \(blue.mass) of blue against "
+                              + "\(gpuGlow.mass) of red, and this stock's blue halation "
+                              + "strength is zero")
+    }
+
+    /// Halation has to reach pixels THROUGH `RenderGraph.build`.
+    ///
+    /// Every halation test in the repository ran on the reference path or called the
+    /// stage directly, so deleting the two lines that invoke it from the graph left the
+    /// whole suite green while every preview and every export lost the glow. This is
+    /// the same hole that was closed for masks and is still open for grain.
+    ///
+    /// Halation is a spatial stage and never enters the baked finish table, so the only
+    /// difference between these two renders is the stage itself — which is also why the
+    /// far corner is asserted to stay put: a table that had somehow started reading
+    /// Amount would move the whole frame, and that is a different defect wearing this
+    /// one's result.
+    func testHalationReachesPixelsThroughTheGraph() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+        let side = 128
+        let longEdge = 2215
+        let block = 4
+        let centre = Double(side) / 2 - 0.5
+        let low = side / 2 - block / 2
+
+        var source = ImageBuffer(width: side, height: side) { _, _ in RGB(gray: 0.02) }
+        for y in low..<(low + block) {
+            for x in low..<(low + block) { source[x, y] = RGB(gray: 4.0) }
+        }
+
+        func render(halation: Double) -> ImageBuffer? {
+            var recipe = Recipe()
+            // `Recipe()` denoises; S3 is not what this is about.
+            recipe.develop.denoise.mode = .off
+            recipe.look.filmLab = FilmLab(stock: FilmStock.portra400.id, amount: 100,
+                                          halation: halation)
+            let plan = RenderPlan(recipe: recipe, lutSize: LUT3D.exportSize)
+            let output = RenderGraph().build(
+                ciImage(from: source), plan: plan,
+                options: RenderGraph.Options(longEdge: longEdge, draft: false))
+            return readBack(output, width: side, height: side)
+        }
+
+        guard let off = render(halation: 0), let on = render(halation: 100) else {
+            return XCTFail("film render failed")
+        }
+
+        // An annulus four to ten pixels out: clear of the block, which reaches 2.8, and
+        // well inside the first bounce's four-pixel sigma.
+        var ring = 0.0
+        var ringCount = 0
+        for y in 0..<side {
+            for x in 0..<side {
+                let dx = Double(x) - centre, dy = Double(y) - centre
+                let radius = (dx * dx + dy * dy).squareRoot()
+                guard radius >= 4, radius <= 10 else { continue }
+                ring += on[x, y].maxAbsDifference(off[x, y])
+                ringCount += 1
+            }
+        }
+        ring = ringCount > 0 ? ring / Double(ringCount) : 0
+        let corner = on[2, 2].maxAbsDifference(off[2, 2])
+
+        print(String(format: "HALATION through the graph: ring %.5f corner %.5f",
+                     ring, corner))
+        // The floor is a noise floor and says so: with the stage's two lines deleted
+        // this difference is identically zero to f32, not merely small. The substance
+        // of the test is the pair — something moved, and it moved AT the highlight.
+        XCTAssertGreaterThan(ring, 1e-3,
+                             "turning Halation to 100 moved the pixels beside a clipped "
+                                 + "highlight by \(ring) — the stage is not running in "
+                                 + "`RenderGraph.build`")
+        XCTAssertLessThan(corner, ring / 4,
+                          "the far corner moved \(corner) against \(ring) at the "
+                              + "highlight, so whatever changed is not a local glow")
     }
 
     func testDetailSliderMovesThePicture() throws {
