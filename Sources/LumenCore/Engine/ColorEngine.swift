@@ -46,7 +46,11 @@ public struct ColorEngine: Sendable {
     /// treatment is on. The engine-side half of the state-preservation fix (docs/06
     /// brief §7.3): nothing in the colour path reads or writes Mixer state on behalf of
     /// B&W — the Mixer runs identically in both treatments — so toggling the treatment
-    /// is lossless as far as rendering is concerned, and the UI can round-trip these.
+    /// is lossless as far as rendering is concerned.
+    ///
+    /// The recipe now holds the other half. `BlackAndWhite.enabled` is what says whether
+    /// the mix renders, so the mix stays in `look.bw` while it is switched off instead of
+    /// being kept alive by whichever panel happened to be on screen.
     public let blackAndWhiteBands: [Double]
 
     /// Measured chroma-weighted mean hue per band, if the renderer has image statistics
@@ -294,7 +298,10 @@ public struct ColorEngine: Sendable {
             }
         }
         self.blackAndWhiteBands = bandsOut
-        self.bwEnabled = bw != nil
+        // The slot being present is no longer the treatment being on: a mix the user
+        // has switched off stays in the recipe so it is still there tomorrow, and it
+        // must render as colour while it waits.
+        self.bwEnabled = bw?.enabled == true
         var anyBand = false
         for v in bandsOut where v != 0 { anyBand = true }
         self.bwHasBands = anyBand

@@ -1330,6 +1330,26 @@ final class AppState: ObservableObject {
         return strokeSet(ref: ref) != nil
     }
 
+    /// The brush blobs a delivery needs, and the ones it could not get.
+    ///
+    /// This is the export path's answer to `strokeSets(for:)`, which is memory-only by
+    /// design and therefore not an answer at all for a file being written: the blobs
+    /// load on a detached task at catalog open, so an export starting before that task
+    /// finishes saw an empty cache, rasterized every brush component to nothing, and
+    /// delivered the frame with its masking silently absent.
+    ///
+    /// `strokesAreResolved` reaches the blob store synchronously on a miss — a few tens
+    /// of kilobytes, once per component — so asking the question also warms the cache
+    /// that `strokeSets(for:)` reads on the next line. Blocking here is the point: the
+    /// alternative is a wrong file.
+    func resolveStrokeSets(for recipe: Recipe)
+        -> (sets: [String: BrushStrokeSet], unresolved: [String]) {
+        let unresolved = BrushStrokes.unresolvedReferences(in: recipe) { component in
+            self.strokesAreResolved(for: component)
+        }
+        return (sets: strokeSets(for: recipe), unresolved: unresolved)
+    }
+
     /// Record a set the user just painted. The bytes are already in hand, so this
     /// closes the loop without a round trip through the disk.
     func remember(_ set: BrushStrokeSet, ref: String) {

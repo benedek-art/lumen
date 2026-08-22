@@ -801,4 +801,38 @@ final class ColorScienceTests: XCTestCase {
                        "the local mean was ignored")
     }
 
+    // MARK: - The black-and-white treatment reads its own flag (COLOR-20)
+
+    /// `look.bw` being present is no longer the treatment being on, and the stage that
+    /// paints the pixels has to agree — otherwise a mix kept for later renders every
+    /// photo it is kept on in black and white.
+    ///
+    /// Asserted on `RenderPlan`, which is what the shipping bake and the export path
+    /// both build, rather than on `ColorEngine` alone.
+    func testAStoredButSwitchedOffMixRendersInColour() {
+        let mix: [Double] = [0, 0, 0, 0, -40, -65, 0, 0]
+        let colour = RGB(0.22, 0.31, 0.55)     // a blue the mix has real authority over
+
+        var off = Recipe()
+        off.look.bw = BlackAndWhite(bands: mix, enabled: false)
+        var on = off
+        on.look.bw?.enabled = true
+
+        let plain = RenderPlan(recipe: Recipe()).exactColor(colour)
+        let kept = RenderPlan(recipe: off).exactColor(colour)
+        let treated = RenderPlan(recipe: on).exactColor(colour)
+
+        XCTAssertLessThan(kept.maxAbsDifference(plain), 1e-12,
+                          "a mix the user switched off is still painting the picture")
+        XCTAssertTrue(RenderPlan(recipe: off).colorGradeIsIdentity,
+                      "the switched-off mix is still baking a colour table")
+
+        // The other direction, so the assertion above cannot pass by the stage being
+        // dead: switched on, the same mix must reach a true neutral.
+        XCTAssertGreaterThan(treated.maxAbsDifference(plain), 0.02,
+                             "the treatment did nothing when switched on")
+        XCTAssertLessThan(Swift.max(abs(treated.r - treated.g), abs(treated.g - treated.b)),
+                          1e-6, "the treatment did not produce a neutral")
+    }
+
 }

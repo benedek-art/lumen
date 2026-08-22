@@ -462,4 +462,94 @@ final class MaskingTests: XCTestCase {
         XCTAssertEqual(back.masks.first?.components.count, 1,
                        "the component stack was lost")
     }
+
+    // MARK: - The blobs an export has to have (MASK-23)
+
+    /// A brush component pointing at `ref`, or at nothing when `ref` is nil.
+    private func brush(_ ref: String?, op: MaskOp = .add) -> MaskComponent {
+        var c = MaskComponent(op: op, kind: .brush)
+        c.strokesRef = ref
+        return c
+    }
+
+    /// One enabled mask with two blobs and a component that reads no blob at all, one
+    /// DISABLED mask with a blob of its own, and a second enabled mask that reuses the
+    /// first blob and adds an unpainted component.
+    private func brushRecipe() -> Recipe {
+        var recipe = Recipe()
+        recipe.masks = [
+            Mask(id: "m1", name: "Sky",
+                 components: [brush("blob:a"), hardRadial(), brush("blob:b")]),
+            Mask(id: "m2", name: "Off", enabled: false,
+                 components: [brush("blob:c")]),
+            Mask(id: "m3", name: "Foreground",
+                 components: [brush(nil), brush("blob:a"), brush("")]),
+        ]
+        return recipe
+    }
+
+    /// What the export has to have in hand is exactly what the rasterizer will ask for.
+    ///
+    /// Three things, and each of them is a way of refusing a delivery for no reason or
+    /// of delivering a wrong one: a switched-off mask paints nothing, so its blob is not
+    /// required; a blob used twice is one read, not two; and a brush component nobody
+    /// has painted into references no blob and must not be counted as a missing one.
+    func testTheBlobsAnExportNeedsAreTheOnesTheRasterizerWillAskFor() {
+        XCTAssertEqual(BrushStrokes.references(in: brushRecipe()), ["blob:a", "blob:b"],
+                       "the required blob set is not the set the render will fetch")
+        XCTAssertEqual(BrushStrokes.references(in: Recipe()), [],
+                       "a recipe with no masks asked for a blob")
+    }
+
+    /// The distinction `strokesAreResolved` was written for and nothing used: "this
+    /// component has no strokes" is not "the bytes could not be read". Only the second
+    /// may stop a delivery.
+    func testAnUnreadableBlobRefusesTheDeliveryAndAnUnpaintedComponentDoesNot() {
+        let recipe = brushRecipe()
+
+        var asked: [String] = []
+        func resolver(failing: Set<String>) -> (MaskComponent) -> Bool {
+            { component in
+                let ref = component.strokesRef ?? ""
+                asked.append(ref)
+                return !failing.contains(ref)
+            }
+        }
+
+        // Everything readable: nothing missing, nothing refused.
+        asked = []
+        XCTAssertEqual(
+            BrushStrokes.unresolvedReferences(in: recipe, isResolved: resolver(failing: [])),
+            [], "a readable blob was reported missing")
+        XCTAssertNil(BrushStrokes.refusal(unresolved: []),
+                     "a delivery was refused with nothing missing")
+        XCTAssertEqual(asked, ["blob:a", "blob:b"],
+                       "the unpainted components were put to the resolver")
+
+        // One blob unreadable: that reference, and a refusal that says what happened.
+        asked = []
+        let missing = BrushStrokes.unresolvedReferences(
+            in: recipe, isResolved: resolver(failing: ["blob:b"]))
+        XCTAssertEqual(missing, ["blob:b"], "the unreadable blob was not reported")
+        let refusal = BrushStrokes.refusal(unresolved: missing)
+        XCTAssertNotNil(refusal, "an unreadable blob did not refuse the delivery")
+        XCTAssertEqual(refusal?.contains("1 brush stroke set"), true,
+                       "the refusal does not say how much masking is at risk: "
+                           + (refusal ?? "nil"))
+
+        // A blob only a SWITCHED-OFF mask needs must not stop anything: that mask paints
+        // no pixels, so the delivered file is exactly what the photographer asked for.
+        XCTAssertEqual(
+            BrushStrokes.unresolvedReferences(in: recipe,
+                                              isResolved: resolver(failing: ["blob:c"])),
+            [], "a disabled mask's unreadable blob refused a correct delivery")
+
+        // Both live blobs unreadable: counted, and pluralized, because the count is the
+        // whole of what the photographer can act on.
+        let both = BrushStrokes.unresolvedReferences(
+            in: recipe, isResolved: resolver(failing: ["blob:a", "blob:b"]))
+        XCTAssertEqual(both, ["blob:a", "blob:b"])
+        XCTAssertEqual(BrushStrokes.refusal(unresolved: both)?.contains("2 brush stroke sets"),
+                       true, "the refusal miscounted or did not pluralize")
+    }
 }

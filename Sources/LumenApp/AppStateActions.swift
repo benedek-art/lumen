@@ -131,10 +131,20 @@ extension AppState {
             return
         }
 
+        // Resolved, not read from memory. `strokeSets(for:)` serves the session cache
+        // and never the disk, and the cache is filled by a detached task at catalog
+        // open — so a batch started before that task finished used to hand the renderer
+        // an empty dictionary, rasterize every brush component to nothing, and write the
+        // file anyway. Reading here blocks for a few tens of kilobytes per component;
+        // the alternative is a delivered file with the photographer's masking missing
+        // and nothing to say so.
         let jobs = targets.map { photo -> (url: URL, recipe: Recipe,
-                                           strokes: [String: BrushStrokeSet]) in
+                                           strokes: [String: BrushStrokeSet],
+                                           refusal: String?) in
             let r = recipe(for: photo)
-            return (url: photo.id, recipe: r, strokes: strokeSets(for: r))
+            let resolved = resolveStrokeSets(for: r)
+            return (url: photo.id, recipe: r, strokes: resolved.sets,
+                    refusal: BrushStrokes.refusal(unresolved: resolved.unresolved))
         }
         isExporting = true
         exportProgress = 0
@@ -151,6 +161,21 @@ extension AppState {
             var renamed = 0
             var written = 0
             for job in jobs {
+                // A photo whose masking cannot be honoured is not delivered at all.
+                // Writing it would produce a frame that looks finished with its brush
+                // masks absent — the ".lrcat-data black mask" failure docs/08 §8.7
+                // exists to prevent, and the one failure mode a photographer cannot
+                // catch by looking at the export count.
+                if let refusal = job.refusal {
+                    for exportRecipe in active {
+                        failures.append(job.url.lastPathComponent + " → "
+                                            + exportRecipe.name + ": " + refusal)
+                        completed += 1
+                    }
+                    let progress = completed / total
+                    await MainActor.run { self.exportProgress = progress }
+                    continue
+                }
                 for exportRecipe in active {
                     let wanted = Self.destination(directory: directory,
                                                   source: job.url,
@@ -190,8 +215,13 @@ extension AppState {
                     self.statusMessage = "Exported \(written) file"
                         + (written == 1 ? "" : "s") + renamedNote
                 } else {
+                    // Name the first failure. "2 failed" leaves a photographer with no
+                    // way to tell a disk error from masking that could not be read, and
+                    // the second one is the one that decides whether the delivery can
+                    // go out at all.
                     self.statusMessage = "Exported \(written) of \(Int(total)) — "
                         + "\(failures.count) failed" + renamedNote
+                        + (failures.first.map { " — " + $0 } ?? "")
                 }
             }
         }

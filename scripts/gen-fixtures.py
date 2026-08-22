@@ -260,17 +260,27 @@ def render_identity(tree):
     Masks lose their name and their id: the name is a panel label, and the id is a
     random UUID whose presence meant renaming a mask threw away every cached render
     and two photos with identical mask edits could never share one.
+
+    A switched-off black-and-white mix goes too: it is eight numbers no pixel reads,
+    kept in the recipe so the photographer gets them back, and hashing them would make
+    turning the treatment off a cache miss on an unchanged picture.
     """
     out = json.loads(json.dumps(tree))
     for mask in out.get("masks", []) or []:
         mask["name"] = ""
         mask["id"] = ""
+    # Removed, not nulled: Swift encodes a nil optional by omitting the key, and a
+    # `"bw":null` that the default tree does not carry survives the sparse pass and
+    # takes the fingerprint with it.
+    bw = out.get("look", {}).get("bw")
+    if isinstance(bw, dict) and bw.get("enabled", True) is False:
+        del out["look"]["bw"]
     return out
 
 
 def canonical_recipe_json(full_tree, defaults):
     sp = sparse(full_tree, defaults)
-    sp["pipelineVersion"] = full_tree.get("pipelineVersion", 1)
+    sp["pipelineVersion"] = full_tree.get("pipelineVersion", PIPELINE_VERSION)
     return canonical_serialize(sp)
 
 
@@ -309,8 +319,13 @@ def color_balance():
             "saturation": balance_axis(), "brilliance": balance_axis()}
 
 
+# Mirror of `currentPipelineVersion` in Recipe.swift. Bumping it here without bumping
+# it there — or the reverse — shows up as a canonical-form drift on the Swift side,
+# which is what the mirror is for.
+PIPELINE_VERSION = 2
+
 DEFAULT_RECIPE = {
-    "pipelineVersion": 1,
+    "pipelineVersion": PIPELINE_VERSION,
     "develop": {
         "raw": {"decoder": "apple"},
         "tone": {"exposure": 0, "contrast": 0, "contrastPivot": 0, "highlights": 0,
@@ -361,7 +376,8 @@ def gen_canonical_fixture():
 
     # Case A: pristine default recipe -> everything pruned except pipelineVersion.
     a_canon = canonical_recipe_json(defaults, defaults)
-    check(a_canon == '{"pipelineVersion":1}', f"case A canonical unexpected: {a_canon}")
+    check(a_canon == '{"pipelineVersion":%d}' % PIPELINE_VERSION,
+          f"case A canonical unexpected: {a_canon}")
     cases.append({"name": "default", "canonical": a_canon,
                   "fingerprint": fp(canonical_recipe_json(render_identity(defaults), defaults))})
 
@@ -455,6 +471,30 @@ def gen_canonical_fixture():
     check(c_canon != canonical_recipe_json(renamed, defaults),
           "the stored recipe lost the mask name — only the fingerprint should")
 
+    # Case E: the black-and-white mix, on and then switched off with the mix kept
+    # (pipeline version 2). Two properties the mirror has to agree about: the stored
+    # recipe carries `enabled` and the eight bands either way, so the mix is still
+    # there after a quit; and the OFF form fingerprints as the default recipe, because
+    # a mix nothing renders must not cost a cache miss or mark the photo edited.
+    e_on = json.loads(json.dumps(defaults))
+    e_on["look"]["bw"] = {"bands": [0, 0, 0, 0, -40, -65, 0, 0], "enabled": True}
+    e_on_canon = canonical_recipe_json(e_on, defaults)
+    cases.append({"name": "blackAndWhiteOn", "canonical": e_on_canon,
+                  "fingerprint": fp(canonical_recipe_json(render_identity(e_on), defaults))})
+
+    e_off = json.loads(json.dumps(e_on))
+    e_off["look"]["bw"]["enabled"] = False
+    e_off_canon = canonical_recipe_json(e_off, defaults)
+    cases.append({"name": "blackAndWhiteKeptButOff", "canonical": e_off_canon,
+                  "fingerprint": fp(canonical_recipe_json(render_identity(e_off), defaults))})
+    check('"bands":[0,0,0,0,-40,-65,0,0]' in e_off_canon and '"enabled":false' in e_off_canon,
+          f"the switched-off mix did not survive serialization: {e_off_canon}")
+    check(fp(canonical_recipe_json(render_identity(e_off), defaults))
+          == fp(canonical_recipe_json(render_identity(defaults), defaults)),
+          "a switched-off B&W mix changed the render fingerprint")
+    check(e_on_canon != e_off_canon,
+          "turning the treatment off did not change the stored recipe")
+
     write_fixture("canonical.json", {"cases": cases})
     write_fixture("default-recipe.json", DEFAULT_RECIPE, sort_keys=True)
 
@@ -476,7 +516,7 @@ def gen_fingerprint_fixture():
         "The quick brown fox jumps over the lazy dog",     # >32
         "x" * 1000,                            # long
         "grüß-dich-☀️",                        # multibyte UTF-8
-        '{"pipelineVersion":1}',               # the default-recipe canonical form
+        '{"pipelineVersion":%d}' % PIPELINE_VERSION,   # default-recipe canonical form
     ]
     vectors = [{"input": s,
                 "xxh64": xxhash.xxh64(s.encode("utf-8"), seed=0).hexdigest()}

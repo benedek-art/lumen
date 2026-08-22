@@ -7,10 +7,12 @@
 //     The bands are a smooth partition of unity — there are no wedge edges to see.
 //   · Luminance is chroma-preserving (D13). Darkening a blue sky must not desaturate
 //     it, and the caption says so next to the slider rather than in a manual.
-//   · Switching to B&W and back loses nothing. The Mixer lives in `develop.mixer` and
-//     the B&W mix in `look.bw`; the treatment toggle never writes across that line, and
-//     the mix is held here for the session while the wire format still spells "off" as
-//     nil (docs/06 brief §7.3 — `bw.enabled` is a pending format addition).
+//   · Switching to B&W and back loses nothing, and "nothing" now means per photo and
+//     across a quit. The Mixer lives in `develop.mixer` and the B&W mix in `look.bw`;
+//     the treatment toggle never writes across that line, and it writes `bw.enabled`
+//     rather than deleting the slot, so the mix belongs to the photograph. The rule
+//     itself is `BlackAndWhite.toggled` in LumenCore, where a test can reach it — this
+//     panel used to hold the mix in view state, which leaked it between photos.
 //
 // Every slider is a LumenSlider: the slider contract (D45) has exactly one
 // implementation, and a panel that hand-rolls one is a bug the user feels first.
@@ -31,9 +33,6 @@ struct ColorPanel: View {
     @State private var mixerExpanded: Bool = true
     @State private var pointExpanded: Bool = true
     @State private var bwExpanded: Bool = true
-    /// The B&W mix, kept alive across a treatment toggle. See the file header: the
-    /// format says "off" with nil, so somebody has to remember, and it is not the user.
-    @State private var stashedBWBands: [Double] = Array(repeating: 0, count: 8)
 
     // MARK: - Body
 
@@ -321,19 +320,22 @@ struct ColorPanel: View {
     private var blackAndWhiteSection: some View {
         let bw = state.currentRecipe.look.bw
         let bands = ColorPanel.normalizedDoubles(bw?.bands)
-        let isOn = bw != nil
+        let isOn = state.currentRecipe.look.blackAndWhiteIsOn
+        let hasStoredMix = bw != nil && bands.contains(where: { $0 != 0 })
 
         return VStack(alignment: .leading, spacing: 2) {
             LumenSectionHeader(title: "Black & White",
                                isExpanded: $bwExpanded,
-                               isModified: isOn,
+                               isModified: bw != nil,
                                onReset: { state.updateRecipe { $0.look.bw = nil } })
 
             if bwExpanded {
                 LumenToggleRow(title: "Black & white treatment",
                                isOn: Binding(get: { isOn }, set: { setTreatment($0) }),
-                               help: "Toggling the treatment keeps both sets of settings — "
-                                   + "the colour mixer is not touched.")
+                               help: "Toggling the treatment keeps both sets of settings "
+                                   + "with this photo — the mix is stored in its recipe "
+                                   + "and the colour mixer is not touched. Reset above "
+                                   + "is what discards the mix.")
 
                 if isOn {
                     ForEach(Array(0..<ColorEngine.bandCount), id: \.self) { i in
@@ -344,9 +346,9 @@ struct ColorPanel: View {
                     caption("Same eight bands as the mixer, same smooth weighting — an "
                             + "aggressive mix darkens cleanly instead of banding. Toning "
                             + "is the grading wheels in the Look panel, not a second tool.")
-                } else if bands.contains(where: { $0 != 0 }) || stashedBWBands.contains(where: { $0 != 0 }) {
-                    caption("The mix is kept. Turn the treatment back on and it returns "
-                            + "exactly as it was.")
+                } else if hasStoredMix {
+                    caption("The mix is kept with this photo. Turn the treatment back on "
+                            + "and it returns exactly as it was, today or next month.")
                 } else {
                     caption("Off. The colour mixer above keeps its own state either way.")
                 }
@@ -354,17 +356,16 @@ struct ColorPanel: View {
         }
     }
 
+    /// One boolean per photo, and every photo answers with its own mix.
+    ///
+    /// `updateRecipe` runs this closure once per edit target, so a multi-selection
+    /// toggle now gives each frame back what it had. The version this replaced restored
+    /// from a stash held on the view, which named no photo: toggling off on one frame
+    /// and on again on another wrote the first frame's mix into the second's recipe and
+    /// into every frame selected with it.
     private func setTreatment(_ on: Bool) {
-        if on {
-            let restored = stashedBWBands
-            state.updateRecipe { recipe in
-                if recipe.look.bw == nil {
-                    recipe.look.bw = BlackAndWhite(bands: ColorPanel.normalizedDoubles(restored))
-                }
-            }
-        } else {
-            stashedBWBands = ColorPanel.normalizedDoubles(state.currentRecipe.look.bw?.bands)
-            state.updateRecipe { $0.look.bw = nil }
+        state.updateRecipe { recipe in
+            recipe.look.bw = BlackAndWhite.toggled(recipe.look.bw, on: on)
         }
     }
 
@@ -477,9 +478,12 @@ struct ColorPanel: View {
                     var bands = ColorPanel.normalizedDoubles(recipe.look.bw?.bands)
                     guard bands.indices.contains(index) else { return }
                     bands[index] = Num.clamp(newValue, -100, 100)
-                    recipe.look.bw = BlackAndWhite(bands: bands)
+                    // The slider is only reachable while the treatment is on, but the
+                    // flag is carried rather than reasserted: a write that assumes a
+                    // state instead of preserving it is how the old stash worked.
+                    recipe.look.bw = BlackAndWhite(bands: bands,
+                                                   enabled: recipe.look.bw?.enabled ?? true)
                 }
-                stashedBWBands = ColorPanel.normalizedDoubles(state.currentRecipe.look.bw?.bands)
             })
     }
 

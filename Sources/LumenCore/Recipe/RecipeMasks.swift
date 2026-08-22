@@ -322,3 +322,81 @@ public struct LocalAdjust: Codable, Equatable, Sendable {
         self.wheels = wheels
     }
 }
+
+// MARK: - What a delivered file needs before its brush masking can be honoured
+
+/// The blob references a recipe's masking will actually ask the rasterizer for, and
+/// what to say when they cannot be produced.
+///
+/// Batch export used to build its jobs from a memory-only stroke cache, filled by a
+/// detached task at catalog open. An export that raced that load — or that hit a blob
+/// which could not be read at all, a catalog copied without its blob store, a recipe
+/// arriving from another machine — rasterized every brush component EMPTY and wrote the
+/// file anyway, with nothing in the file or beside it to say the masking was missing.
+/// That is the `.lrcat-data` black-mask failure docs/08 §8.7 exists to prevent, and it
+/// is worse than a refusal precisely because the photographer cannot see it: the frame
+/// looks like a frame.
+///
+/// The walk lives here rather than in the app layer because it is a rule about a
+/// recipe — which blobs the render will ask for, in what order, without duplicates —
+/// and because the app layer has no tests to state it in.
+public enum BrushStrokes {
+
+    /// Every brush blob reference this recipe's masking depends on, in stack order and
+    /// deduplicated.
+    ///
+    /// Disabled masks are excluded because `RenderPlan` excludes them: refusing to
+    /// deliver a file over a mask the photographer has already switched off would be a
+    /// refusal with no picture behind it. A brush component carrying no reference is
+    /// not a missing blob either — it is a component nobody has painted into yet, and
+    /// it rasterizes empty because that is what it is.
+    public static func references(in recipe: Recipe) -> [String] {
+        var out: [String] = []
+        for mask in recipe.masks where mask.enabled {
+            for component in mask.components where component.kind == .brush {
+                guard let ref = component.strokesRef, !ref.isEmpty,
+                      !out.contains(ref) else { continue }
+                out.append(ref)
+            }
+        }
+        return out
+    }
+
+    /// The references `isResolved` cannot account for, in the same order.
+    ///
+    /// The predicate is passed in because reading a blob is the app's business — it
+    /// owns the session cache and the blob store — while deciding WHICH components have
+    /// to be asked about is this rule. A component with no reference is never put to
+    /// the predicate: "no strokes yet" and "the bytes could not be read" are the two
+    /// cases this whole enum exists to keep apart.
+    ///
+    /// Asked once per REFERENCE, not once per component. The predicate reaches the disk
+    /// on a miss, and two masks sharing one blob — which is what subtracting the same
+    /// painted region from a second mask looks like — would otherwise pay for it twice.
+    public static func unresolvedReferences(
+        in recipe: Recipe, isResolved: (MaskComponent) -> Bool
+    ) -> [String] {
+        var seen: Set<String> = []
+        var out: [String] = []
+        for mask in recipe.masks where mask.enabled {
+            for component in mask.components where component.kind == .brush {
+                guard let ref = component.strokesRef, !ref.isEmpty,
+                      seen.insert(ref).inserted else { continue }
+                if !isResolved(component) { out.append(ref) }
+            }
+        }
+        return out
+    }
+
+    /// Why a delivery must be refused, or nil when nothing is missing.
+    ///
+    /// A count rather than a list of hashes: `blob:xxh64:00c41b0000000000` tells a
+    /// photographer nothing, and the actionable fact is that this photo's brush masking
+    /// would have been absent from the file.
+    public static func refusal(unresolved: [String]) -> String? {
+        guard !unresolved.isEmpty else { return nil }
+        let n = unresolved.count
+        return "\(n) brush stroke set\(n == 1 ? "" : "s") could not be read — "
+            + "the masking would have exported empty"
+    }
+}
