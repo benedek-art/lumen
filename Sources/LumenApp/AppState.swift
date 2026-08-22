@@ -99,6 +99,21 @@ enum PickTarget: Equatable, Sendable {
     /// Append a Point Colour swatch to a mask's own sub-recipe.
     case maskPointColor(maskID: String)
 
+    /// True for the targets whose value is compared against the LOCAL STAGE INPUT
+    /// rather than against the linear stage's output.
+    ///
+    /// The global Point Colour swatches are deliberately not on this list, and that is
+    /// not because they are correct — `ColorEngine` evaluates them inside the S9/S10
+    /// table, whose input already carries S7 tone, so a global swatch has the same
+    /// class of divergence one stage smaller. Moving it is a change to what the colour
+    /// panel's eyedropper means and belongs with that panel.
+    var samplesTheMaskStage: Bool {
+        switch self {
+        case .maskSample, .maskPointColor: return true
+        case .neutral, .newPointColor, .pointColor: return false
+        }
+    }
+
     /// What the status line says while the click is being waited for.
     var prompt: String {
         switch self {
@@ -536,11 +551,23 @@ final class AppState: ObservableObject {
     /// brush blob, and a `.task(id:)` that does not name it renders the mask empty and
     /// stays that way until an unrelated edit moves the recipe.
     @Published private(set) var availableMattes: [URL: Set<String>] = [:]
-    /// Files a generation pass has already FINISHED for, whatever it found. Without
-    /// this a photograph with no subject in it would be re-segmented on every edit.
-    /// Separate from `pendingMattes` so "still working" and "looked and found nothing"
-    /// are different states — the panel says different things about them.
-    private var attemptedMattes: Set<URL> = []
+    /// Which KINDS a generation pass has already finished for, per file, whatever it
+    /// found. Separate from `pendingMattes` so "still working" and "looked and found
+    /// nothing" are different states — the panel says different things about them.
+    ///
+    /// This was a `Set<URL>`: a file was attempted or it was not. Two consequences,
+    /// both shipped. Adding a Subject mask ran the pass for `{aiSubject}` and marked
+    /// the FILE done, so adding a People mask afterwards never generated its matte and
+    /// the panel reported "Vision found no person in this frame" about a request
+    /// nobody had made. And it was never trimmed, while the renderer's matte cache is
+    /// bounded at twelve files — so after browsing thirteen photographs with Vision
+    /// masks, the first one's entry here said ready about a matte that had been
+    /// evicted, the mask rendered as nothing, and no edit could clear it.
+    ///
+    /// Both entries below are a COPY of state `PipelineRenderer` owns. They are
+    /// replaced from its answer on every pass and dropped when it says a file was
+    /// evicted; nothing here decides on its own that a pass can be skipped.
+    private var attemptedMattes: [URL: Set<String>] = [:]
     private var pendingMattes: Set<URL> = []
 
     func maskMatteKinds(for url: URL) -> Set<String> { availableMattes[url] ?? [] }
@@ -567,33 +594,68 @@ final class AppState: ObservableObject {
         case .vision:
             guard let url = primarySelection?.id else { return .working }
             if maskMatteKinds(for: url).contains(kind.rawValue) { return .ready }
-            return attemptedMattes.contains(url) && !pendingMattes.contains(url)
+            if pendingMattes.contains(url) { return .working }
+            // Per KIND. Asking whether the FILE had been attempted made this say
+            // NOTHING FOUND about a kind added after the pass ran — a specific,
+            // actionable error message about a request that was never issued, which is
+            // worse than a vague one.
+            return (attemptedMattes[url] ?? []).contains(kind.rawValue)
                 ? .notFound : .working
         }
     }
 
     /// Ask for whatever Vision mattes the current photo's masks need. Cheap and
-    /// idempotent: it returns immediately when there is nothing to compute or the pass
-    /// has already run for this file.
+    /// idempotent: it returns immediately when the recipe has no AI component at all,
+    /// which is the overwhelming majority of photographs, and the coordinator's own
+    /// fast path is two dictionary lookups when every kind has already been tried.
+    ///
+    /// There is deliberately NO "this file was already attempted" short circuit here.
+    /// The ledger below is a copy of a bounded cache the renderer owns, so a guard
+    /// written against it can only be as fresh as the last thing that happened to tell
+    /// it — and the thing that used to be missing, an eviction, is exactly the case
+    /// where skipping the pass renders the mask as nothing. The authoritative check
+    /// lives beside the cache, in `RenderCoordinator.ensureMattes`.
     func ensureMaskMattes() {
         guard let photo = primarySelection else { return }
         let url = photo.id
         let recipe = recipe(for: photo)
         guard !VisionMattes.kinds(in: recipe).isEmpty else { return }
-        guard !attemptedMattes.contains(url), !pendingMattes.contains(url) else { return }
+        guard !pendingMattes.contains(url) else { return }
         pendingMattes.insert(url)
         Task { [weak self] in
             guard let self else { return }
             // `await`: the coordinator is an actor, and the segmentation it runs is on
             // a third one, so neither this actor nor the render loop is blocked.
-            let kinds = await self.renderCoordinator.ensureMattes(url: url, recipe: recipe)
+            let pass = await self.renderCoordinator.ensureMattes(url: url, recipe: recipe)
             self.pendingMattes.remove(url)
-            self.attemptedMattes.insert(url)
-            guard !kinds.isEmpty else { return }
-            self.availableMattes[url] = kinds
-            // The overlay is a picture of the mask, and the mask just changed.
-            self.refreshMaskOverlay()
+            self.applyMattePass(pass, for: url)
         }
+    }
+
+    /// Replace this file's ledger with what the renderer reported, and drop every file
+    /// it says it evicted.
+    ///
+    /// The eviction half is not housekeeping. `LoupeView`'s render key names
+    /// `availableMattes` precisely so that a matte ARRIVING re-renders the frame — and
+    /// a matte that was evicted and then regenerated arrives at the same value it had
+    /// before, so unless the entry is removed when the eviction is reported the key
+    /// never moves and the loupe keeps showing the empty-mask render.
+    private func applyMattePass(_ pass: MattePass, for url: URL) {
+        for dropped in pass.evicted where dropped != url {
+            attemptedMattes.removeValue(forKey: dropped)
+            if availableMattes[dropped] != nil {
+                availableMattes.removeValue(forKey: dropped)
+            }
+        }
+        attemptedMattes[url] = pass.attempted
+        let before = availableMattes[url]
+        if pass.available.isEmpty {
+            if before != nil { availableMattes.removeValue(forKey: url) }
+        } else if before != pass.available {
+            availableMattes[url] = pass.available
+        }
+        // The overlay is a picture of the mask, and the mask only changed if this did.
+        if before != availableMattes[url] { refreshMaskOverlay() }
     }
 
     /// `O`: show or hide the overlay for the mask the panel has selected. With no mask
@@ -1771,10 +1833,17 @@ final class AppState: ObservableObject {
 
     /// A click landed. Resolve it against whatever the pick was for.
     ///
-    /// Two different taps, deliberately. The neutral solver wants the value BEFORE
-    /// white balance, because it is computing that white balance; every colour tool
-    /// wants the value the colour stage will compare against, or a swatch picked off a
-    /// warm frame would stop matching the moment Temp moved.
+    /// THREE different taps, deliberately, and the rule is one sentence: a sample is
+    /// taken from the same image the thing that will read it compares against.
+    ///
+    /// The neutral solver wants the value BEFORE white balance, because it is
+    /// computing that white balance. The global Point Colour swatches want the working
+    /// image — after the linear matrix — or a swatch picked off a warm frame would stop
+    /// matching the moment Temp moved. And a MASK's samples want the local stage input,
+    /// because that is what `colorRangePlane`, `similarityPlane` and `LocalPlan` all
+    /// compare against; they used to be given the working image too, which is one tap
+    /// short of the comparison by the whole of the tone stage and the whole of the
+    /// colour and grade table.
     ///
     /// Every write goes through `updateRecipe`, so a picked colour is one undo step and
     /// one history entry, exactly like the sliders it replaces.
@@ -1800,8 +1869,23 @@ final class AppState: ObservableObject {
                                        solved.kelvin, solved.tint)
 
             case .newPointColor, .pointColor, .maskSample, .maskPointColor:
-                let sample = await renderCoordinator.sampleWorking(
-                    url: url, recipe: current, sourceX: sourceX, sourceY: sourceY)
+                // WHICH TAP depends on what will compare against the stored value.
+                // A mask's samples are compared by `colorRangePlane` and
+                // `similarityPlane` against `localStageInput` — after tone, after the
+                // colour and grade table — and a mask's own Point Colour is evaluated
+                // inside `LocalPlan`, whose input is that same image. `sampleWorking`
+                // stops after the linear matrix, so storing it here meant the clicked
+                // colour and the compared colour diverged by every global edit the
+                // photograph carried, and the mask could miss the pixel that was
+                // clicked.
+                let sample: RGB?
+                if target.samplesTheMaskStage {
+                    sample = await renderCoordinator.sampleMaskReference(
+                        url: url, recipe: current, sourceX: sourceX, sourceY: sourceY)
+                } else {
+                    sample = await renderCoordinator.sampleWorking(
+                        url: url, recipe: current, sourceX: sourceX, sourceY: sourceY)
+                }
                 pickTarget = nil
                 guard let sample else {
                     statusMessage = "Could not read a colour there."

@@ -121,7 +121,18 @@ def strip_comments(text):
 
 
 def strip_all(text):
-    """Comments AND string bodies out, so prose cannot invent symbols."""
+    """Comments AND string bodies out, so prose cannot invent symbols.
+
+    Known limit: a string literal NESTED inside an interpolation, as in
+    `"\(flag ? "yes" : "no")"`, defeats the quote tracking — the scanner closes the
+    outer string at the first inner quote, so the text between the inner quotes is read
+    as code. A capitalized word there is reported by pass 1 as an identifier declared
+    nowhere in-tree. That is a false POSITIVE, which is the safe direction to fail, and
+    the remedy at a call site is to compute the value outside the interpolation. Teaching
+    `_scan` to track interpolation depth would fix it and risks false NEGATIVES in a tool
+    whose whole value is that it does not miss things, so it is left as a documented
+    limit rather than a clever scanner.
+    """
     return _scan(text, blank_strings=True)
 
 

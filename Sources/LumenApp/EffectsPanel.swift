@@ -151,9 +151,19 @@ struct EffectsPanel: View {
                                                      set: { r, v in r.look.filmLab?.grain.size = v }),
                                 range: 0.5...2.0, hardRange: nil, defaultValue: 1.0,
                                 step: 0.05, decimals: 2, bipolar: true)
+                    // The CONCLUSION here was right and the mechanism was backwards.
+                    // This said "Grain is anchored to print size", and `LookPanel`'s
+                    // caption on the same field said the print size cancels out — which
+                    // it does, algebraically, out of `plateScale`, pinned to 1e-12 by
+                    // `testGrainFollowsTheGateAndTheRenderSizeNotThePrintSize`. What
+                    // keeps the character constant is the other half: the footprint is
+                    // denominated at the GATE and scales with the render's pixel count,
+                    // so it is the same fraction of the picture at every size. Two
+                    // panels binding one value must not tell opposite stories about it.
                     DevelopNote("Size is the grain pitch at the gate relative to the "
-                                + "stock's own. Grain is anchored to print size, so it "
-                                + "does not change character when the export does.")
+                                + "stock's own. The footprint is anchored to the gate "
+                                + "and scales with the render, so grain keeps its "
+                                + "character whatever size the picture is delivered at.")
                 }
             } else {
                 DevelopNote("Grain belongs to a film stock, not to the frame. Load a "

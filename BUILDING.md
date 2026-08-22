@@ -301,9 +301,23 @@ These are tracked, not hidden.
   and Tier 2 remains a cached-artifact design with no model, so `.ai` still drives the
   decoder's own denoise from its Amount. Capture sharpening (S4) is unchanged: Apple's
   at-demosaic sharpener scaled by the slider, with `richardsonLucy` still uncalled.
-- **Halation now runs on both paths** and the golden suite compares them. It used to be
-  GPU-only, which meant the slider did nothing on every headless render and any golden
-  that set it diverged.
+- **Halation runs on both paths, and the golden suite now compares them.** It used to
+  be GPU-only, which meant the slider did nothing on every headless render and any
+  golden that set it diverged. The second half of that sentence was untrue when it was
+  written: a grep of `Tests/LumenPipelineTests` for "halation" returned nothing, so
+  every halation assertion in the repository was on the reference path, and deleting
+  the call to the stage from `RenderGraph.build` left the whole suite green while every
+  preview and every export lost the glow. In that gap the GPU stage was blurring at
+  three times the model's radius — it had kept a private `CIFilter.gaussianBlur()` with
+  the old `sigma * 3` in it, so the correction that landed in `RenderGraph.gaussianBlur`
+  (`CIGaussianBlur.radius` IS the standard deviation, measured on the runner) reached
+  the sharpen stage and mask feather and missed this one. Two goldens now hold it: one
+  drives a clipped highlight through both paths and compares the second moment of the
+  glow against the profile's own `2·Σwσ²/Σw`, where a support-radius conversion is a
+  factor of nine; the other renders the same frame through `RenderGraph.build` at
+  Halation 0 and 100 and requires the difference to appear beside the highlight and not
+  at the far corner. Both are macOS-lane tests. Grain is still in the state halation was
+  in: nothing renders it through the graph, so its call site can be deleted green.
 - **Local noise, moiré, defringe and grain are not wired.** They have wire formats and
   no stage reads them, so the mask panel does not show them: a slider that moves a
   stored value and changes no pixel costs the user the time to find out. The local

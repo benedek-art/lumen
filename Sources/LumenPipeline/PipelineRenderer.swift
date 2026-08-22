@@ -87,10 +87,29 @@ public final class PipelineRenderer {
     /// shipped twice. The renderer looks the mattes up from the source it was handed.
     ///
     /// Bounded like the source cache, for the same reason: a scroll through a folder
-    /// must not pin a hundred mattes in memory.
-    private var mattes: [URL: [String: Plane]] = [:]
+    /// must not pin a hundred mattes in memory. What the bound implies for anyone
+    /// keeping a copy of this is in `storeMattes`.
+    private var mattes: [URL: MatteEntry] = [:]
     private var matteOrder: [URL] = []
     private static let matteCacheLimit = 12
+
+    /// One file's mattes, and which kinds have been LOOKED for.
+    ///
+    /// The two are one value because they are evicted together, and they used to be
+    /// neither. "Has this file been attempted" was `mattes[url] != nil` — per FILE, not
+    /// per KIND — so adding a Subject mask ran the pass for `{aiSubject}`, and adding a
+    /// People mask afterwards short-circuited on the first one's entry and never
+    /// generated the People matte, on the preview path and on the export path both.
+    /// The panel then reported "Vision found no person in this frame" about a request
+    /// nobody had made.
+    private struct MatteEntry {
+        var planes: [String: Plane] = [:]
+        /// Kinds a generation pass has been RUN for, whatever it found. Vision looking
+        /// for a person and finding none is an answer, and this is what keeps it from
+        /// being re-asked on every edit — the job the old per-file flag was doing, at
+        /// the granularity the question actually has.
+        var attempted: Set<String> = []
+    }
 
     /// What this renderer believes about its kernels. `.live` in the app; a test can
     /// substitute a degraded build, which is the only way the refusal below can be
@@ -105,25 +124,48 @@ public final class PipelineRenderer {
 
     /// Which kinds this file already has a matte for.
     public func matteKinds(for url: URL) -> Set<String> {
-        Set((mattes[url] ?? [:]).keys)
+        Set((mattes[url]?.planes ?? [:]).keys)
     }
 
-    /// Store what a generation pass produced. An empty result is stored as an empty
-    /// dictionary rather than dropped, so "we looked and found nothing" is
-    /// distinguishable from "we have not looked yet" and the pass is not repeated on
-    /// every edit.
-    public func storeMattes(_ produced: [String: Plane], for url: URL) {
-        mattes[url, default: [:]].merge(produced) { _, new in new }
+    /// Which kinds a generation pass has already been run for on this file, whatever
+    /// it found. The caller subtracts this from what the recipe wants and generates
+    /// the difference; an empty difference is the fast exit.
+    public func attemptedMatteKinds(for url: URL) -> Set<String> {
+        mattes[url]?.attempted ?? []
+    }
+
+    /// Store what a generation pass produced, and record what it was ASKED for.
+    ///
+    /// `requested` is not derivable from `produced`: a kind Vision looked for and found
+    /// nothing for produces no plane, and the whole point of the ledger is that such a
+    /// kind is not re-segmented on every edit. Storing an empty result under the file
+    /// was how that used to be expressed, and it could only say "this file", never
+    /// "this kind of this file".
+    ///
+    /// Returns the files the bound evicted. THIS RENDERER IS THE LEDGER — anything the
+    /// app keeps is a copy, and a copy that is not told about an eviction becomes a
+    /// lie: browse thirteen photographs carrying Vision masks and come back to the
+    /// first, and the app's own "attempted" set would short-circuit the regeneration
+    /// while the render read an empty matte and the panel still said READY. The mask
+    /// rendered as nothing, in the loupe, with no error anywhere. Handing the evictions
+    /// back at the one call site that changes them is what keeps the copy honest.
+    @discardableResult
+    public func storeMattes(_ produced: [String: Plane], requested: Set<String>,
+                            for url: URL) -> [URL] {
+        var entry = mattes[url] ?? MatteEntry()
+        entry.planes.merge(produced) { _, new in new }
+        entry.attempted.formUnion(requested)
+        mattes[url] = entry
         matteOrder.removeAll { $0 == url }
         matteOrder.append(url)
+        var evicted: [URL] = []
         while matteOrder.count > Self.matteCacheLimit, let oldest = matteOrder.first {
             matteOrder.removeFirst()
             mattes.removeValue(forKey: oldest)
+            evicted.append(oldest)
         }
+        return evicted
     }
-
-    /// True once a generation pass has run for this file, whatever it found.
-    public func hasAttemptedMattes(for url: URL) -> Bool { mattes[url] != nil }
 
     public func forgetMattes(for url: URL) {
         mattes.removeValue(forKey: url)
@@ -200,7 +242,7 @@ public final class PipelineRenderer {
                               softProof: softProof)
         let graph = makeGraph(plan: plan, decoded: decoded, draft: draft,
                               strokeSets: strokeSets,
-                              aiMattes: mattes[source.url] ?? [:])
+                              aiMattes: mattes[source.url]?.planes ?? [:])
         // Preview decodes are downsampled, and downsampling averages the noise down
         // with them, so the profile the denoise stage works against follows the same
         // factor — squared, because it is a variance.
@@ -278,7 +320,7 @@ public final class PipelineRenderer {
 
         let graph = makeGraph(plan: plan, decoded: decoded, draft: false,
                               strokeSets: strokeSets,
-                              aiMattes: mattes[source.url] ?? [:],
+                              aiMattes: mattes[source.url]?.planes ?? [:],
                               deferGrain: true)
         var image = graph.build(decoded, plan: plan,
                                 options: RenderGraph.Options(longEdge: longEdge,
@@ -452,7 +494,7 @@ public final class PipelineRenderer {
                                  lutSize: LUT3D.exportSize,
                                  captureISO: source.captureMetadata.iso)
 
-        let cached = mattes[source.url] ?? [:]
+        let cached = mattes[source.url]?.planes ?? [:]
         let sdrGraph = makeGraph(plan: sdrPlan, decoded: decoded, draft: false,
                                  strokeSets: strokeSets, aiMattes: cached)
         let hdrGraph = makeGraph(plan: hdrPlan, decoded: decoded, draft: false,
@@ -719,7 +761,7 @@ public final class PipelineRenderer {
                                   // The same cache the render reads, so the overlay
                                   // shows the subject mask the picture is getting
                                   // rather than an empty one.
-                                  aiMattes: mattes[source.url] ?? [:])
+                                  aiMattes: mattes[source.url]?.planes ?? [:])
     }
 
     /// The local-stage input, at mask-raster resolution, as an `ImageBuffer`.
@@ -966,7 +1008,58 @@ public final class PipelineRenderer {
                                   radius: Int = 2) -> RGB? {
         guard let decoded = source.decode(recipe: recipe, draft: false, scaleFactor: 1.0)
         else { return nil }
-        let extent = decoded.extent
+        return sampleMean(decoded, sourceX: sourceX, sourceY: sourceY, radius: radius)
+    }
+
+    /// One sample of the image a MASK compares against: `RenderGraph.localStageInput`,
+    /// S6 through S10, which is the same image `maskSource` hands the rasterizer.
+    ///
+    /// A different tap from `sampleSceneLinear`'s, and the difference is the defect.
+    /// A Colour Range or Similarity component compares its stored samples against the
+    /// local stage input — which carries the tone stage and the colour+grade table as
+    /// well as the linear matrix — while the eyedropper stored a value that had been
+    /// through the linear matrix ALONE. With any real global tone or colour edit the
+    /// clicked colour and the compared colour are different numbers, so the mask can
+    /// fail to select the very pixel that was clicked, and the failure grows with the
+    /// edit rather than announcing itself.
+    ///
+    /// Of the two taps this is the one that has to move: the mask must compare against
+    /// what it will be applied to, and it is applied to the output of this function's
+    /// own stage list.
+    ///
+    /// `draft: true` matches `maskSource` exactly, and for the same reason — a mask
+    /// samples luminance and colour, and denoise and presence move neither.
+    ///
+    /// One approximation, stated: `maskSource` stages a 1024 px proxy while this stages
+    /// the decode, and the tone stage's guided mask has a scale-dependent radius. The
+    /// two therefore differ by the difference between two local averages of the same
+    /// picture, which is nothing on a flat patch and small on a busy one — against a
+    /// pre-existing error that was the whole of S7 plus the whole of S9/S10.
+    public func sampleMaskStageInput(source: any ImageSource, recipe: Recipe,
+                                     sourceX: Double, sourceY: Double,
+                                     radius: Int = 2) -> RGB? {
+        guard let decoded = source.decode(recipe: recipe, draft: false, scaleFactor: 1.0)
+        else { return nil }
+        let plan = RenderPlan(recipe: recipe,
+                              asShotKelvin: source.asShotTemperature,
+                              asShotTint: source.asShotTint)
+        let longEdge = Int(Swift.max(decoded.extent.width, decoded.extent.height))
+        let staged = RenderGraph().localStageInput(
+            decoded, plan: plan,
+            options: RenderGraph.Options(longEdge: longEdge, draft: true))
+        // Cropped back to the decode's own extent so the normalized coordinate means
+        // the same thing it did going in. Every stage in that list preserves the
+        // extent today; a stage that stopped doing so would otherwise move the
+        // eyedropper rather than fail.
+        return sampleMean(staged.cropped(to: decoded.extent),
+                          sourceX: sourceX, sourceY: sourceY, radius: radius)
+    }
+
+    /// The mean of a small window about a normalized source coordinate, read back in
+    /// the working space.
+    private func sampleMean(_ image: CIImage, sourceX: Double, sourceY: Double,
+                            radius: Int) -> RGB? {
+        let extent = image.extent
         guard extent.width >= 1, extent.height >= 1 else { return nil }
 
         // Core Image extents are bottom-up; the caller's y is top-down.
@@ -992,7 +1085,7 @@ public final class PipelineRenderer {
         var pixels = [Float](repeating: 0, count: width * height * 4)
         pixels.withUnsafeMutableBytes { raw in
             guard let base = raw.baseAddress else { return }
-            context.render(decoded, toBitmap: base, rowBytes: width * 16,
+            context.render(image, toBitmap: base, rowBytes: width * 16,
                            bounds: rect, format: .RGBAf, colorSpace: working)
         }
 
@@ -1284,7 +1377,7 @@ public final class PipelineRenderer {
             // Mattes too, for the same reason: a fallback that drops the subject mask
             // renders a different picture from the one the user was looking at.
             inputs: ReferenceRenderer.Inputs(strokeSets: strokeSets,
-                                             aiMattes: mattes[source.url] ?? [:]))
+                                             aiMattes: mattes[source.url]?.planes ?? [:]))
         guard let cgImage = Self.cgImage(from: rendered) else {
             throw RenderError.renderFailed
         }

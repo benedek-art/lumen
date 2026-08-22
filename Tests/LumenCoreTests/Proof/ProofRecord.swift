@@ -103,9 +103,15 @@ struct ProofRecord: Codable, Equatable {
             let scale = pow(10.0, Double(places))
             return String((v * scale).rounded() / scale)
         }
+        // The shape word is computed OUTSIDE the interpolation on purpose.
+        // `scripts/check-swift-surface.py` blanks string bodies so that prose cannot
+        // invent symbols, and a string literal nested inside an interpolation —
+        // `\(flag ? "a" : "b")` — defeats its quote tracking: the text between the
+        // inner quotes reads as code. The first draft said "NOT monotone" there and the
+        // checker duly reported `NOT` as an identifier declared nowhere in-tree.
+        let shape = isMonotone ? "monotone" : "not monotone"
         return "\(id)  authority \(f(authority, 2))  mean \(f(meanSeparation, 3))"
-            + "  front \(f(frontLoading * 100, 0))%  dead \(deadSteps)"
-            + "  \(isMonotone ? "monotone" : "NOT monotone")"
+            + "  front \(f(frontLoading * 100, 0))%  dead \(deadSteps)  \(shape)"
     }
 }
 
