@@ -306,7 +306,7 @@ These are tracked, not hidden.
   golden that set it diverged. The second half of that sentence was untrue when it was
   written: a grep of `Tests/LumenPipelineTests` for "halation" returned nothing, so
   every halation assertion in the repository was on the reference path, and deleting
-  the stage's two lines from `RenderGraph.build` left the whole suite green while every
+  the call to the stage from `RenderGraph.build` left the whole suite green while every
   preview and every export lost the glow. In that gap the GPU stage was blurring at
   three times the model's radius — it had kept a private `CIFilter.gaussianBlur()` with
   the old `sigma * 3` in it, so the correction that landed in `RenderGraph.gaussianBlur`
