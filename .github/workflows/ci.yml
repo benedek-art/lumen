@@ -1,0 +1,187 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  workflow_dispatch:
+
+# One run per branch. macOS runners are scarce and the suite takes ten minutes, so a
+# burst of pushes queues rounds whose answers nobody will read by the time they land —
+# and the newest push, the only one that matters, waits behind all of them.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # The real thing: compile every target and RUN the suites on macOS. The engine's
+  # goldens run first so their signal survives churn in the app layer.
+  #
+  # Each step writes its full output to a file and prints only the deduplicated
+  # diagnostics. A Swift build repeats the same error once per compilation unit, and a
+  # log where one warning appears forty times is a log nobody reads to the end.
+  test-macos:
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: swift --version && xcodebuild -version
+
+      # Build FIRST. Running it after `swift test` compiled everything meant the
+      # compiler had nothing left to do and re-emitted no diagnostics, so the warnings
+      # section was empty whatever the code said — a green light wired to nothing.
+      - name: Build — whole package including the app
+        shell: bash
+        run: |
+          set +e
+          swift build > build.log 2>&1
+          status=$?
+          echo "=== errors ==="
+          grep -E "error:" build.log | sed 's#/Users/runner/work/lumen/lumen/##' | sort -u | head -80
+          echo "=== warnings ==="
+          grep -E "warning:" build.log | sed 's#/Users/runner/work/lumen/lumen/##' | sort -u | head -30
+          exit $status
+
+      - name: Test — engine + GPU goldens
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          # `tee`, not `>`: redirecting the whole suite to a file means the CI log
+          # shows nothing at all until the step ends, so a hung test is a forty-minute
+          # timeout with no clue which test hung — the same shape of problem as an
+          # empty log, arriving at the exact moment you need the opposite. The stream
+          # is noisy; the deduplicated summary below still runs after it, and that is
+          # what anyone reads when the suite merely fails rather than hangs.
+          #
+          # `shell: bash` above makes GitHub run this with `-e -o pipefail`, so $?
+          # is swift test's status and not tee's.
+          swift test 2>&1 | tee test.log
+          status=$?
+          echo "=== compile errors ==="
+          grep -E "error:" test.log | grep -v ": error: -\[" \
+            | sed 's#/Users/runner/work/lumen/lumen/##' | sort -u | head -40
+          echo "=== summary ==="
+          grep -E "Executed [0-9]+ test" test.log | tail -1
+          # Which TESTS failed, before what they said. One test can fail a hundred
+          # assertions inside a loop, and a list deduplicated by message is then a
+          # hundred near-identical lines that hide every other failing test.
+          echo "=== failing tests ==="
+          grep -E ": error: -\[" test.log \
+            | sed -E 's/^.*error: -\[([^]]*)\].*/\1/' | sort | uniq -c | sort -rn | head -20
+          # Failures print LAST so a short tail of the CI log always reaches them.
+          # Two examples per test is enough to see the shape of the problem.
+          echo "=== first failures per test ==="
+          grep -E ": error: -\[" test.log | sed 's#/Users/runner/work/lumen/lumen/##' \
+            | sed 's/^.*error: //' \
+            | awk '{ key = $1 " " $2; if (seen[key]++ < 2) print }' | head -40
+          exit $status
+
+  # The fast lane. Nine tests are 92% of the suite's wall clock — measured, from the
+  # streamed log: 232s, 196s, 125s, 90s, 74s, 57s, 53s, 46s, 44s out of 997s. The other
+  # 235 tests run in about seventy seconds put together.
+  #
+  # Skipping those nine here turns "did I break something ordinary" from a
+  # seventeen-minute answer into a two-minute one, which is the difference between a
+  # loop you can iterate in and one you batch changes against — and batching changes is
+  # how two of them land in the same round and neither is bisectable.
+  #
+  # The scale-honesty tests join it for the same reason: each one renders the same
+  # recipe at two resolutions through the reference renderer, which is four whole-frame
+  # renders per stage. `testTheClarityPyramidTracksTheLongEdge` stays in this lane
+  # because it is pure arithmetic and instant.
+  #
+  # It is NOT a substitute: `test-macos` below still runs everything on the same push,
+  # and nothing merges on this lane's word alone. If a rename makes a skip stop
+  # matching, this lane gets slower and stays correct.
+  test-fast:
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Everything except the slow whole-pipeline tests
+        shell: bash
+        run: |
+          set +e
+          swift test 2>&1 \
+            --skip testGraphMatchesTheReferenceRendererWithTheSpatialStagesOn \
+            --skip testEveryStageInTheFullRecipeChangesTheResult \
+            --skip testRenderedLuminanceIsMonotoneAtExtremeSettings \
+            --skip testRaisingExposureRaisesThePictureByTheAmountItClaims \
+            --skip testEveryLocalSliderThePanelOffersChangesThePicture \
+            --skip testTheInteractiveTableAgreesWithTheExportOne \
+            --skip testEachTableTracksItsOwnExactEvaluationSeparately \
+            --skip testGraphMatchesTheReferenceRendererOnTheColourPath \
+            --skip testExportTableErrorStaysUnderOnePercent \
+            --skip testThePerPixelStagesAreExactAcrossAFourfoldScaleChange \
+            --skip testTheSpatialStagesTrackTheFrameRatherThanThePixelCount \
+            --skip testAMaskSelectsTheSamePartOfThePictureAtEitherResolution \
+            --skip testACompleteEditSurvivesAFourfoldScaleChange \
+            | tee fast.log
+          status=$?
+          echo "=== compile errors ==="
+          grep -E "error:" fast.log | grep -v ": error: -\[" \
+            | sed 's#/Users/runner/work/lumen/lumen/##' | sort -u | head -40
+          echo "=== summary ==="
+          grep -E "Executed [0-9]+ test" fast.log | tail -1
+          echo "=== failing tests ==="
+          grep -E ": error: -\[" fast.log \
+            | sed -E 's/^.*error: -\[([^]]*)\].*/\1/' | sort | uniq -c | sort -rn | head -30
+          echo "=== first failures per test ==="
+          grep -E ": error: -\[" fast.log | sed 's#/Users/runner/work/lumen/lumen/##' \
+            | sed 's/^.*error: //' \
+            | awk '{ key = $1 " " $2; if (seen[key]++ < 2) print }' | head -40
+          exit $status
+
+  # The thing a photographer can actually open. Runs on every push regardless of the
+  # test lane's verdict, because a build you can launch and poke at is how you find
+  # out what the tests are not asking about.
+  app-bundle:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Lumen.app
+        run: scripts/build-app.sh
+      - name: Zip it
+        # Ditto, not zip: `zip` does not preserve the bundle's symlinks or the ad-hoc
+        # signature, and an app that fails Gatekeeper because the archiver mangled it
+        # looks exactly like an app that is broken.
+        run: ditto -c -k --sequesterRsrc --keepParent dist/Lumen.app Lumen.app.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Lumen-app
+          path: Lumen.app.zip
+          retention-days: 30
+
+  # Linux lane: recompute every fixture with the Python reference and fail if the
+  # committed fixtures no longer agree with it.
+  fixtures-linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install reference deps
+        run: pip install xxhash
+      - name: Fixtures must still match the committed state
+        # --check recomputes everything and compares numerically rather than writing.
+        #
+        # The gate here used to be `git diff --exit-code` over regenerated output,
+        # which made it a bit-exactness test of double arithmetic across machines —
+        # and nothing guarantees that. glibc dispatches exp/log/pow to FMA-using
+        # variants when the CPU has FMA, so the same glibc version on a different
+        # runner returns results a few ulp apart: this lane failed on 163 values in
+        # enginemath.json whose worst deviation was 8e-15 relative, with no change to
+        # the engine at all. The tolerance --check uses is documented in the script
+        # and is six orders of magnitude below anything a real change produces.
+        run: python3 scripts/gen-fixtures.py --check
+
+      # Six mechanical passes over the Swift, on the lane that has no Swift. Not a
+      # type checker and no substitute for the macOS build — it catches undeclared
+      # identifiers, call sites whose labels match no declared initializer, actor
+      # members called without await, TypeName.member references naming nothing, and
+      # platform symbols used in a file that does not import their module, and members
+      # read off a value whose declared type does not have them. It costs seconds and it
+      # is the only feedback on the Swift at all when the macOS runner cannot start.
+      - name: Swift surface — symbols, inits, await, members, imports, targets, values, scopes
+        run: python3 scripts/check-swift-surface.py

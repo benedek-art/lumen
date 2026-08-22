@@ -1,0 +1,328 @@
+{
+ "develop": {
+  "color": {
+   "density": 50,
+   "protectSkin": 70,
+   "saturation": 0,
+   "vibrance": 0
+  },
+  "curve": {
+   "parametric": {
+    "darks": 0,
+    "highlights": 0,
+    "lights": 0,
+    "shadows": 0,
+    "splits": [
+     0.25,
+     0.5,
+     0.75
+    ]
+   },
+   "preserveLuminance": true
+  },
+  "denoise": {
+   "amount": 50,
+   "classic": {
+    "chroma": 25,
+    "colorDetail": 50,
+    "colorSmoothness": 50,
+    "hotPixels": 0,
+    "luma": 0,
+    "lumaContrast": 0,
+    "lumaDetail": 50
+   },
+   "mode": "classic"
+  },
+  "detail": {
+   "capture": {
+    "auto": true
+   },
+   "clarity": 0,
+   "dehaze": 0,
+   "sharpen": {
+    "amount": 0,
+    "detail": 25,
+    "haloSuppression": 0,
+    "masking": 0,
+    "radius": 1
+   },
+   "texture": 0
+  },
+  "geometry": {
+   "angle": 0,
+   "crop": {
+    "h": 1,
+    "w": 1,
+    "x": 0,
+    "y": 0
+   },
+   "flipH": false,
+   "lens": {
+    "profile": true,
+    "removeCA": true
+   }
+  },
+  "heal": {
+   "count": 0
+  },
+  "mixer": {
+   "bands": [
+    {
+     "core": [
+      22.5,
+      22.5
+     ],
+     "feather": [
+      15,
+      15
+     ],
+     "hue": 0,
+     "lum": 0,
+     "sat": 0
+    },
+    {
+     "core": [
+      22.5,
+      22.5
+     ],
+     "feather": [
+      15,
+      15
+     ],
+     "hue": 0,
+     "lum": 0,
+     "sat": 0
+    },
+    {
+     "core": [
+      22.5,
+      22.5
+     ],
+     "feather": [
+      15,
+      15
+     ],
+     "hue": 0,
+     "lum": 0,
+     "sat": 0
+    },
+    {
+     "core": [
+      22.5,
+      22.5
+     ],
+     "feather": [
+      15,
+      15
+     ],
+     "hue": 0,
+     "lum": 0,
+     "sat": 0
+    },
+    {
+     "core": [
+      22.5,
+      22.5
+     ],
+     "feather": [
+      15,
+      15
+     ],
+     "hue": 0,
+     "lum": 0,
+     "sat": 0
+    },
+    {
+     "core": [
+      22.5,
+      22.5
+     ],
+     "feather": [
+      15,
+      15
+     ],
+     "hue": 0,
+     "lum": 0,
+     "sat": 0
+    },
+    {
+     "core": [
+      22.5,
+      22.5
+     ],
+     "feather": [
+      15,
+      15
+     ],
+     "hue": 0,
+     "lum": 0,
+     "sat": 0
+    },
+    {
+     "core": [
+      22.5,
+      22.5
+     ],
+     "feather": [
+      15,
+      15
+     ],
+     "hue": 0,
+     "lum": 0,
+     "sat": 0
+    }
+   ],
+   "uniformity": 0
+  },
+  "pointColors": [],
+  "raw": {
+   "decoder": "apple"
+  },
+  "tone": {
+   "blacks": 0,
+   "contrast": 0,
+   "contrastPivot": 0,
+   "exposure": 0,
+   "highlights": 0,
+   "shadows": 0,
+   "whites": 0
+  },
+  "zones": {
+   "bright": {
+    "ev": 0,
+    "falloff": 0.5,
+    "sat": 0,
+    "wheel": [
+     0,
+     0
+    ]
+   },
+   "dark": {
+    "ev": 0,
+    "falloff": 0.5,
+    "sat": 0,
+    "wheel": [
+     0,
+     0
+    ]
+   },
+   "global": {
+    "ev": 0,
+    "falloff": 0.5,
+    "sat": 0,
+    "wheel": [
+     0,
+     0
+    ]
+   },
+   "light": {
+    "ev": 0,
+    "falloff": 0.5,
+    "sat": 0,
+    "wheel": [
+     0,
+     0
+    ]
+   },
+   "mid": {
+    "ev": 0,
+    "falloff": 0.5,
+    "sat": 0,
+    "wheel": [
+     0,
+     0
+    ]
+   },
+   "pivots": [
+    0.08,
+    0.25,
+    0.5,
+    0.75,
+    0.92
+   ],
+   "shadow": {
+    "ev": 0,
+    "falloff": 0.5,
+    "sat": 0,
+    "wheel": [
+     0,
+     0
+    ]
+   }
+  }
+ },
+ "look": {
+  "primaries": {
+   "bHue": 0,
+   "bPurity": 0,
+   "gHue": 0,
+   "gPurity": 0,
+   "rHue": 0,
+   "rPurity": 0,
+   "tintHue": 0,
+   "tintPurity": 0
+  },
+  "printerLights": {
+   "b": 0,
+   "g": 0,
+   "master": 0,
+   "r": 0
+  },
+  "render": {
+   "preset": "Neutral"
+  },
+  "vignette": 0,
+  "wheels": {
+   "balance": 0,
+   "blending": 50,
+   "colorBalance": {
+    "brilliance": {
+     "global": 0,
+     "high": 0,
+     "mid": 0,
+     "shadows": 0
+    },
+    "chroma": {
+     "global": 0,
+     "high": 0,
+     "mid": 0,
+     "shadows": 0
+    },
+    "hueShift": 0,
+    "saturation": {
+     "global": 0,
+     "high": 0,
+     "mid": 0,
+     "shadows": 0
+    },
+    "vibrance": 0
+   },
+   "global": {
+    "hue": 0,
+    "lum": 0,
+    "sat": 0
+   },
+   "high": {
+    "hue": 0,
+    "lum": 0,
+    "sat": 0
+   },
+   "mid": {
+    "hue": 0,
+    "lum": 0,
+    "sat": 0
+   },
+   "pivots": [
+    0.33,
+    0.67
+   ],
+   "shadows": {
+    "hue": 0,
+    "lum": 0,
+    "sat": 0
+   }
+  }
+ },
+ "masks": [],
+ "pipelineVersion": 1
+}

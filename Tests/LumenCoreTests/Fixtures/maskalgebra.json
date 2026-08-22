@@ -1,0 +1,130 @@
+{
+ "cases": [
+  {
+   "name": "singleAdd",
+   "stack": [
+    {
+     "op": "add",
+     "alpha": 0.7,
+     "invert": false,
+     "amount": 100
+    }
+   ],
+   "expected": 0.7
+  },
+  {
+   "name": "addUnion",
+   "stack": [
+    {
+     "op": "add",
+     "alpha": 0.3,
+     "invert": false,
+     "amount": 100
+    },
+    {
+     "op": "add",
+     "alpha": 0.6,
+     "invert": false,
+     "amount": 100
+    }
+   ],
+   "expected": 0.6
+  },
+  {
+   "name": "skyMinusBrush",
+   "stack": [
+    {
+     "op": "add",
+     "alpha": 0.9,
+     "invert": false,
+     "amount": 100
+    },
+    {
+     "op": "subtract",
+     "alpha": 0.5,
+     "invert": false,
+     "amount": 80
+    }
+   ],
+   "expected": 0.6
+  },
+  {
+   "name": "docsCoreCase",
+   "stack": [
+    {
+     "op": "add",
+     "alpha": 1.0,
+     "invert": false,
+     "amount": 100
+    },
+    {
+     "op": "subtract",
+     "alpha": 0.4,
+     "invert": false,
+     "amount": 100
+    },
+    {
+     "op": "intersect",
+     "alpha": 0.75,
+     "invert": false,
+     "amount": 100
+    }
+   ],
+   "expected": 0.44999999999999996
+  },
+  {
+   "name": "invertedAdd",
+   "stack": [
+    {
+     "op": "add",
+     "alpha": 0.2,
+     "invert": true,
+     "amount": 100
+    }
+   ],
+   "expected": 0.8
+  },
+  {
+   "name": "startsWithSubtract",
+   "stack": [
+    {
+     "op": "subtract",
+     "alpha": 0.5,
+     "invert": false,
+     "amount": 100
+    }
+   ],
+   "expected": 0.0
+  },
+  {
+   "name": "amountScaling",
+   "stack": [
+    {
+     "op": "add",
+     "alpha": 1.0,
+     "invert": false,
+     "amount": 35
+    }
+   ],
+   "expected": 0.35
+  },
+  {
+   "name": "clampedInput",
+   "stack": [
+    {
+     "op": "add",
+     "alpha": 1.7,
+     "invert": false,
+     "amount": 100
+    },
+    {
+     "op": "intersect",
+     "alpha": -0.2,
+     "invert": false,
+     "amount": 100
+    }
+   ],
+   "expected": 0.0
+  }
+ ]
+}

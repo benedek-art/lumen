@@ -1,0 +1,415 @@
+// RenderPlan.swift
+// The bake: a recipe compiled into the small set of objects a render actually needs.
+//
+// Nearly every colour-bearing stage in Lumen is a pure RGB→RGB function — printer
+// lights, the colour tools, the grade, the film chain, the display transform, the tone
+// curve. Rather than reimplement each one in a shader and hope the two stay in step,
+// the engine evaluates the composed function here, in the reference implementation,
+// and bakes it into lookup tables the GPU fetches. One implementation, one set of
+// goldens, and the shader surface shrinks to a handful of trivial kernels.
+//
+// The plan is split exactly where the pipeline's spatial stages sit (docs/14 §2), so
+// the documented stage order survives the optimization:
+//
+//   S6 linear matrix  →  S7 tone gain (needs the guided mask: spatial)
+//                     →  colourGrade LUT   (S9 + S10, log → log)
+//                     →  S8/S11/S12/S13    (presence, local, sharpen, vignette: spatial)
+//                     →  finish LUT        (S14 + S15, log → display-linear)
+//
+// Building a plan is a few milliseconds; it happens once per parameter change, never
+// per pixel and never per tile.
+
+import Foundation
+
+public struct RenderPlan: Sendable {
+
+    public let recipe: Recipe
+
+    // MARK: Stage S6 — the fused linear matrix
+    public let linear: LinearStage
+
+    // MARK: Stage S7 — tone
+    public let tone: ToneEngine
+    /// Gain (a linear multiplier) as a function of the log-encoded guided mask value.
+    public let toneGainLUT: LUT1D
+    public let toneIsIdentity: Bool
+
+    // MARK: Stages S9–S10 — colour and grade, log → log
+    public let colorGradeLUT: LUT3D
+    public let colorGradeIsIdentity: Bool
+
+    // MARK: Stages S14–S15 — picture formation and the curve, log → display-linear
+    ///
+    /// Stored NORMALIZED into [0,1] and paired with `finishScale`. A colour-cube
+    /// filter's domain is the unit cube, and an HDR rendition legitimately reaches
+    /// several times display white; keeping the table normalized and multiplying by a
+    /// scalar afterwards means no highlight can be silently clipped by the table.
+    public let finishLUT: LUT3D
+    public let finishScale: Double
+
+    /// The soft proof, when the viewer has one on (docs/11: "the proof state is a
+    /// viewing mode, not an edit", which is why it arrives as a plan argument and not
+    /// through the recipe).
+    ///
+    /// The proof's picture half is composed onto the END of `finishLUT` rather than run
+    /// as a stage of its own, and that is why it reaches pixels with no new kernel: the
+    /// finish table is the one object the GPU graph and `ReferenceRenderer` both apply,
+    /// so the simulation cannot be present on one path and missing from the other.
+    public let softProof: SoftProofTransform?
+
+    /// The finish table WITHOUT the proof, kept only when the gamut warning is on.
+    ///
+    /// The flag is a discontinuity and a trilinear table cannot hold one — measured, the
+    /// baked flag's edge sat a mean of 0.017 OKLCh chroma off the true boundary. So the
+    /// renderers compute it per pixel instead, and to ask "is this colour outside the
+    /// destination" they need the value from before the proof clipped it. This is that
+    /// value's table. Nil when there is no warning to draw, so nothing pays for it.
+    public let finishLUTBeforeProof: LUT3D?
+
+    // MARK: Display
+    public let displayWhite: Double
+    public let displayTransform: DisplayTransform
+    public let filmChain: FilmChain?
+
+    // MARK: Spatial parameters carried through for the image stages
+    public let detail: Detail
+    public let denoise: Denoise
+    public let vignetteEV: Double
+    public let masks: [Mask]
+
+    // MARK: Stage S3 — profiled classical noise reduction
+    ///
+    /// The Tier-1 engine, resolved through `ISODefaults.classic(for:)` so the mode
+    /// switch means what the panel says: Off zeroes every row including Hot Pixels,
+    /// Classic runs the recipe's own block, and AI drops the ISO-adaptive rows to zero
+    /// because the noise they compensate for is meant to be gone by then.
+    public let classicalDenoise: ClassicalDenoise
+    /// True when S3 cannot move a pixel, so the graph skips forty nodes.
+    public let denoiseIsIdentity: Bool
+
+    /// `captureISO` is what the file says it was shot at; it selects the noise profile
+    /// every threshold in S3 is denominated in. A file with no ISO recorded falls back
+    /// to the base-ISO profile, which is the gentlest of the seed curve — under-denoising
+    /// an unknown body is recoverable, over-denoising it is not.
+    public init(recipe: Recipe,
+                asShotKelvin: Double = 5500,
+                asShotTint: Double = 0,
+                displayWhiteTarget: Double? = nil,
+                lutSize: Int = LUT3D.interactiveSize,
+                captureISO: Double? = nil,
+                space: RGBColorSpace = .rec2020,
+                softProof: SoftProof? = nil) {
+        self.recipe = recipe
+        let develop = recipe.develop
+        let look = recipe.look
+
+        // ---- S6 -------------------------------------------------------------
+        let wb = WhiteBalanceEngine(asShotKelvin: asShotKelvin, asShotTint: asShotTint,
+                                    targetKelvin: develop.raw.temp,
+                                    targetTint: develop.raw.tint, space: space)
+        let toneEngine = ToneEngine(tone: develop.tone, zones: develop.zones)
+        let grade = GradeEngine(wheels: look.wheels, printerLights: look.printerLights,
+                                whiteAnchorEV: toneEngine.whiteAnchorEV,
+                                blackAnchorEV: toneEngine.blackAnchorEV)
+        self.linear = LinearStage(whiteBalance: wb,
+                                  exposureGain: toneEngine.exposureGain,
+                                  printerLightGains: grade.printerLightGains)
+
+        // ---- S7 -------------------------------------------------------------
+        self.tone = toneEngine
+        self.toneIsIdentity = toneEngine.isIdentity
+        self.toneGainLUT = toneEngine.isIdentity
+            ? LUT1D(size: 2) { _ in 1 }
+            : toneEngine.bakeGainLUT()
+
+        // ---- S9 + S10 --------------------------------------------------------
+        let color = ColorEngine(mixer: develop.mixer, pointColors: develop.pointColors,
+                                color: develop.color, primaries: look.primaries,
+                                bw: look.bw)
+        let colorIdentity = color.isIdentity && grade.isIdentity
+        self.colorGradeIsIdentity = colorIdentity
+        if colorIdentity {
+            self.colorGradeLUT = LUT3D.identity(size: 2)
+        } else {
+            // Everything `color` and `grade` were built from, plus the anchors the
+            // grade reads. Miss anything here and the cache returns a table for a
+            // recipe the photographer is no longer editing.
+            let bake = {
+                LUT3D(size: lutSize) { encoded in
+                    let scene = LumenLog.decode(encoded)
+                    let out = grade.apply(color.apply(scene))
+                    return LumenLog.encode(out)
+                }
+            }
+            let key = PlanTableCache.key(
+                ["cg", "\(lutSize)", "\(space)",
+                 CanonicalJSON.canonicalNumber(toneEngine.whiteAnchorEV),
+                 CanonicalJSON.canonicalNumber(toneEngine.blackAnchorEV)],
+                [develop.mixer, develop.pointColors, develop.color,
+                 look.primaries, look.bw, look.wheels, look.printerLights])
+            self.colorGradeLUT = key.map {
+                PlanTableCache.table(.colorGrade, key: $0, size: lutSize, build: bake)
+            } ?? bake()
+        }
+
+        // ---- S14 + S15 -------------------------------------------------------
+        var renderParams = look.render.resolved(displayWhiteTarget: displayWhiteTarget)
+        toneEngine.applyAnchors(to: &renderParams)
+        let transform = DisplayTransform(renderParams, space: space)
+        self.displayTransform = transform
+        self.displayWhite = transform.white
+
+        let chain: FilmChain?
+        if let film = look.filmLab, film.amount > 0, FilmStock.named(film.stock) != nil {
+            // `FilmChain(_:displayWhite:)` is the convenience initializer, and it
+            // delegates with `filmExposure: 0`. Using it here pinned Film Exposure to
+            // zero on every render in the app: the engine honours the value, clamps it
+            // to −2…+3 and threads it through the whole chain, and nothing outside a
+            // test ever passed one.
+            chain = FilmChain(film, filmExposure: film.exposure,
+                              displayWhite: transform.white)
+        } else {
+            chain = nil
+        }
+        self.filmChain = chain
+
+        let curve = CurveStack(develop.curve)
+        let boundary = RenderPlan.sharedGamutBoundary
+        let white = transform.white
+        let scale = Swift.max(white, 1e-6)
+        self.finishScale = scale
+        let proof = softProof?.transform(working: space)
+        self.softProof = proof
+        // One closure, used for both tables, so the proofed and unproofed versions
+        // cannot drift into being different pictures with one difference.
+        let display: @Sendable (RGB) -> RGB = { encoded in
+            let scene = LumenLog.decode(encoded)
+            let formed: RGB
+            if let chain {
+                formed = chain.apply(scene)
+            } else {
+                formed = transform.apply(scene, gamut: boundary)
+            }
+            // The division by `scale` comes BEFORE the proof deliberately: the proof's
+            // domain is display-linear relative to display white, so 1.0 has to mean
+            // white for the destination gamut to mean anything. Proofing the unscaled
+            // value would put an HDR rendition's 4.0 through a table whose whole
+            // question is "does this fit in the file", and every highlight would answer
+            // no for the wrong reason.
+            return curve.apply(formed, white: white, space: space) / scale
+        }
+
+        // The single most expensive thing a plan does, and the one least likely to have
+        // changed since the last frame. `transform` comes from the render preset, the
+        // display white target and the tone ANCHORS — and the anchors move only with
+        // Whites and Blacks — so Exposure, Contrast, Highlights, Shadows, the zones, all
+        // of presence and denoise and sharpening, every mask and the vignette leave this
+        // table bit-identical while the user drags them.
+        //
+        // `boundary` is `Gamut.sharedBoundary`, one object for the whole process, so it
+        // is a constant rather than a key component. The PROOF is not in this key and
+        // must not be: `display` does not read it, and the proofed table is derived from
+        // this one below under a key of its own.
+        //
+        // `FilmLab` has no default value to stand in for "no film", and substituting a
+        // literal marker for an unencodable one would let a real stock collide with the
+        // absence of one. Absent keys as "-", present-but-unencodable fails the key.
+        let filmPart: String?
+        if let film = look.filmLab {
+            filmPart = (try? CanonicalJSON.tree(of: film)).map(CanonicalJSON.serialize)
+        } else {
+            filmPart = "-"
+        }
+        let baseKey = filmPart.flatMap { film in
+            PlanTableCache.key(
+                ["fin", "\(lutSize)", "\(space)", film,
+                 CanonicalJSON.canonicalNumber(white),
+                 CanonicalJSON.canonicalNumber(toneEngine.whiteAnchorEV),
+                 CanonicalJSON.canonicalNumber(toneEngine.blackAnchorEV),
+                 displayWhiteTarget.map(CanonicalJSON.canonicalNumber) ?? "-"],
+                [look.render, develop.curve])
+        }
+        let bakePlain = { LUT3D(size: lutSize, transform: display) }
+        let plain = baseKey.map {
+            PlanTableCache.table(.finish, key: $0, size: lutSize, build: bakePlain)
+        } ?? bakePlain()
+
+        // Baked ONCE and then mapped, not baked twice.
+        //
+        // The proofed table's samples are the plain table's samples put through the
+        // proof, by construction — so the second table is a matrix, a clamp and a matrix
+        // over 35 937 samples rather than another 35 937 evaluations of the display
+        // transform, the film chain and the curve. That distinction is the difference
+        // between proofing costing nothing per frame and costing another 17.7 ms of the
+        // budget `CurveStack`'s header measures.
+        //
+        // The map is cached too, under the base key PLUS the proof settings. Without the
+        // settings in the key, toggling the destination or the intent would keep showing
+        // the previous proof — the exact stale-picture failure `PlanTableCacheTests`
+        // exists to catch, arriving through a door that test did not know about.
+        if let proof {
+            let mapProof = {
+                var mapped = plain.data
+                var i = 0
+                while i < mapped.count {
+                    let out = proof.mapped(RGB(Double(mapped[i]), Double(mapped[i + 1]),
+                                               Double(mapped[i + 2])))
+                    mapped[i] = Float(out.r)
+                    mapped[i + 1] = Float(out.g)
+                    mapped[i + 2] = Float(out.b)
+                    i += 4
+                }
+                return LUT3D(size: lutSize, data: mapped)
+            }
+            let proofKey = baseKey.flatMap { base in
+                PlanTableCache.key([base, "proof"], [proof.settings])
+            }
+            self.finishLUT = proofKey.map {
+                PlanTableCache.table(.finishProofed, key: $0, size: lutSize,
+                                     build: mapProof)
+            } ?? mapProof()
+            // Kept only when there is a flag to draw; the flag needs the value from
+            // before the map and nothing else does.
+            self.finishLUTBeforeProof = proof.settings.showGamutWarning ? plain : nil
+        } else {
+            self.finishLUT = plain
+            self.finishLUTBeforeProof = nil
+        }
+        // ---- S3 ---------------------------------------------------------------
+        let noiseProfile = NoiseProfile.forISO(captureISO ?? 100)
+        let engine = ClassicalDenoise(ISODefaults.classic(for: develop.denoise),
+                                      profile: noiseProfile)
+        self.classicalDenoise = engine
+        self.denoiseIsIdentity = engine.isIdentity
+
+        // ---- carried through --------------------------------------------------
+        self.detail = develop.detail
+        self.denoise = develop.denoise
+        self.vignetteEV = look.vignette
+        self.masks = recipe.masks.filter { $0.enabled }
+
+        // Baked once, here, and only when the tone stage will actually read it.
+        if toneEngine.isIdentity {
+            self.toneGainCube32 = nil
+        } else {
+            var peak = 1e-9
+            for v in self.toneGainLUT.samples { peak = Swift.max(peak, v) }
+            let lut = self.toneGainLUT
+            self.toneGainCube32 = LUT3D(size: 32) { encoded in
+                RGB(gray: lut.evaluate(encoded.r) / peak)
+            }
+        }
+    }
+
+    /// One gamut boundary for the whole process — the same object every other stage
+    /// uses, so nothing can disagree about where the display gamut is.
+    public static var sharedGamutBoundary: Gamut.Boundary { Gamut.sharedBoundary }
+
+    // MARK: - Per-pixel reference
+
+    /// The composed per-pixel colour function, for stages that have no spatial
+    /// component. This is what the LUTs approximate — goldens compare the two.
+    public func referenceColor(_ sceneLinear: RGB) -> RGB {
+        var c = linear.apply(sceneLinear)
+        if !toneIsIdentity {
+            let lum = Swift.max(RGBColorSpace.rec2020.luminance(c), 0)
+            c = c * tone.gain(at: Num.safeLog2(lum / 0.18))
+        }
+        if !colorGradeIsIdentity {
+            c = LumenLog.decode(colorGradeLUT.sample(LumenLog.encode(c)))
+        }
+        // The finish table already ENDS in display-linear — encode going in, nothing
+        // coming out. Decoding here would exponentiate the table's own interpolation
+        // error, which is exactly what it did until a golden caught it.
+        let encoded = LumenLog.encode(c)
+        return finishedColor(encoded: encoded)
+    }
+
+    /// The finish table plus the exact gamut flag, which is how both render paths
+    /// compose the last stage. Factored out so the reference renderer, the GPU graph's
+    /// twin and `referenceColor` all say it once.
+    public func finishedColor(encoded: RGB) -> RGB {
+        let proofed = finishLUT.sample(encoded) * finishScale
+        guard let softProof, softProof.settings.showGamutWarning,
+              let plain = finishLUTBeforeProof else { return proofed }
+        // The flag is asked of the value BEFORE the proof mapped it, which is the whole
+        // reason that table is kept: after the map nothing is out of gamut.
+        guard softProof.isOutOfGamut(plain.sample(encoded)) else { return proofed }
+        // Denominated relative to display white, like every other display-linear value
+        // here, so it scales with the rendition instead of sitting at an absolute level
+        // that would be a different grey on an HDR target.
+        return SoftProof.warningColor * finishScale
+    }
+
+    /// The same function with the LUT stages evaluated exactly rather than sampled —
+    /// the f32 reference the LUT's interpolation error is measured against.
+    public func exactColor(_ sceneLinear: RGB, space: RGBColorSpace = .rec2020) -> RGB {
+        let develop = recipe.develop
+        let look = recipe.look
+        var c = linear.apply(sceneLinear)
+        if !toneIsIdentity {
+            let lum = Swift.max(space.luminance(c), 0)
+            c = c * tone.gain(at: Num.safeLog2(lum / 0.18))
+        }
+        let color = ColorEngine(mixer: develop.mixer, pointColors: develop.pointColors,
+                                color: develop.color, primaries: look.primaries, bw: look.bw)
+        let grade = GradeEngine(wheels: look.wheels, printerLights: look.printerLights,
+                                whiteAnchorEV: tone.whiteAnchorEV,
+                                blackAnchorEV: tone.blackAnchorEV)
+        c = grade.apply(color.apply(c))
+        let formed: RGB
+        if let filmChain {
+            formed = filmChain.apply(c)
+        } else {
+            formed = displayTransform.apply(c, gamut: RenderPlan.sharedGamutBoundary)
+        }
+        let finished = CurveStack(develop.curve).apply(formed, white: displayWhite,
+                                                       space: space)
+        // The proof belongs here too, in the same place and the same domain the table
+        // puts it — this function is the f32 twin the table's interpolation error is
+        // measured against, and a twin that skips a stage measures the stage instead of
+        // the error.
+        guard let softProof else { return finished }
+        return softProof.apply(finished / finishScale) * finishScale
+    }
+
+    /// The largest gain the tone stage produces, so its cube can be stored normalized.
+    public var toneGainScale: Double {
+        var peak = 1.0
+        for v in toneGainLUT.samples { peak = Swift.max(peak, v) }
+        return peak
+    }
+
+    /// The tone gain as a cube the stock colour-cube filter can apply against the
+    /// log-encoded mask — no custom kernel at all. Normalized by `toneGainScale` for
+    /// the same reason the finish table is: a +2 EV shadow lift is a gain of 4, and a
+    /// unit-domain table would quietly clip it to 1.
+    ///
+    /// Built once per plan, not per frame: the cube is a quarter of a million samples
+    /// expressing a one-dimensional function, and rebaking it on every render was pure
+    /// waste.
+    /// A STORED cube, not a `lazy var`.
+    ///
+    /// It was lazy, which on a struct means a mutating getter — and every consumer
+    /// holds the plan as a `let`, so none of them could call it. `RenderGraph.applyTone`
+    /// therefore called `toneGainCube()` and rebaked all 32 768 samples on every single
+    /// frame, which is exactly the waste the property was added to prevent. Nothing was
+    /// wrong with the reasoning; it just could not be reached from where it was needed.
+    ///
+    /// Built only when the tone stage is live, because that is the only time anything
+    /// reads it and an identity plan should not pay for a quarter of a million samples.
+    public let toneGainCube32: LUT3D?
+
+    public func toneGainCube(size: Int = 32) -> LUT3D {
+        let scale = toneGainScale
+        return LUT3D(size: size) { encoded in
+            RGB(gray: toneGainLUT.evaluate(encoded.r) / scale)
+        }
+    }
+
+    /// True when the whole colour path is a no-op and the renderer can hand the
+    /// decoded image straight to the display transform.
+    public var isColorIdentity: Bool {
+        toneIsIdentity && colorGradeIsIdentity && linear.isIdentity
+    }
+}

@@ -1,0 +1,19 @@
+.build/
+.swiftpm/
+.DS_Store
+*.xcodeproj
+xcuserdata/
+DerivedData/
+/dist/
+__pycache__/
+
+# Agent worktrees: real git repos living inside this one, never content of it.
+.claude/worktrees/
+
+# Throwaway measurement probes. This project's real bugs have all been found by
+# writing a small test that MEASURES something — a box blur's impulse response, a
+# matrix against its transpose, which column of a ramp has tonal slope — rather than
+# by reasoning about the code. Those probes are written, run once, and deleted; they
+# are not part of the suite and must never be committed. The ZZ prefix keeps them at
+# the end of an alphabetical test listing while they exist.
+Tests/**/ZZ*.swift
