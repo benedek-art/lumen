@@ -82,7 +82,13 @@ public struct RenderPlan: Sendable {
     /// The Tier-1 engine, resolved through `ISODefaults.classic(for:)` so the mode
     /// switch means what the panel says: Off zeroes every row including Hot Pixels,
     /// Classic runs the recipe's own block, and AI drops the ISO-adaptive rows to zero
-    /// because the noise they compensate for is meant to be gone by then.
+    /// because the noise they compensate for is meant to be gone by then — **unless the
+    /// photographer set them by hand**, which the recipe now records.
+    ///
+    /// That exception used to be two parameters defaulting to `false`, and this call
+    /// site passed neither, so it never fired: switching to AI zeroed a hand-set
+    /// Luminance on every render. A default argument is a silent answer to a question
+    /// the caller was never asked, and the specification's word was "unless".
     public let classicalDenoise: ClassicalDenoise
     /// True when S3 cannot move a pixel, so the graph skips forty nodes.
     public let denoiseIsIdentity: Bool

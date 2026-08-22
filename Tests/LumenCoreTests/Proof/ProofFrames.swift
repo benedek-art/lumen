@@ -267,4 +267,38 @@ enum ProofFrames {
             u < 0.5 ? red : blue
         }
     }
+
+    /// `chromaEdge` under the same ISO 6400 noise model `noisyISO6400` uses, with
+    /// `chromaEdge()` itself as ground truth.
+    ///
+    /// The two frames it is made of each answer half the question and neither answers
+    /// it alone. `noisyISO6400`'s clean twin is neutral, so a colour denoiser that
+    /// annihilates every chroma band scores PERFECTLY on it — there is no chroma signal
+    /// to lose. `chromaEdge` carries the signal but no noise, so it can say what an
+    /// operation costs and never what it is worth. Composed, one residual number scores
+    /// the whole trade, which is what "is Colour 100 better than Colour 25" needs and
+    /// what nobody could answer while the two frames stayed apart.
+    ///
+    /// The model is per-pixel Poisson–Gaussian taken from `NoiseProfile.forISO(6400)`
+    /// itself, so the noise is the shape the engine's thresholds are denominated in —
+    /// scoring a denoiser against noise it was never told about proves nothing about
+    /// the slider.
+    static func noisyChromaEdge(width: Int = 128, height: Int = 128,
+                                seed: UInt64 = 6400, iso: Double = 6400) -> ImageBuffer
+    {
+        var rng = Noise(seed: seed)
+        var image = chromaEdge(width: width, height: height)
+        let profile = NoiseProfile.forISO(iso)
+        for y in 0..<height {
+            for x in 0..<width {
+                var c = image[x, y]
+                for channel in 0..<3 {
+                    let v = Swift.max(c[channel], 0)
+                    c[channel] = Swift.max(v + rng.normal() * profile.sigma(at: v), 0)
+                }
+                image[x, y] = c
+            }
+        }
+        return image
+    }
 }

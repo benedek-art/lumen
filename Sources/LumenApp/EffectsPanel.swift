@@ -13,9 +13,11 @@
 //
 // Optional-field policy: `Look.filmLab` nil means no stock is loaded, so the grain
 // rows are absent rather than dead — grain belongs to a stock, not to the frame.
-// `LensCorrections.defringe` nil means the axial-CA pass is not running; the
-// disclosure's toggle creates the struct at its documented LR defaults (purple 30/70,
-// green 40/60) and writes nil back when switched off.
+//
+// The same rule, applied harder, is why Lens Corrections shows one control. Remove
+// chromatic aberration and the seven Defringe controls were live, wrote the recipe, and
+// reached no stage; the CA toggle was on by default and its tooltip described the
+// polynomial fit it does not perform. They are gone until a stage reads them.
 
 #if os(macOS)
 
@@ -74,7 +76,6 @@ struct EffectsPanel: View {
         frameAspect ?? state.primaryFrameAspect ?? assumedFrameAspect
     }
 
-    @State private var showDefringe: Bool = false
     @State private var showGrain: Bool = false
 
     /// The ruler button arms an overlay that lives in the viewer, so this panel needs a
@@ -350,105 +351,31 @@ struct EffectsPanel: View {
                                                  "geometry.lens.profile"),
                                help: "Applies the correction opcodes and manufacturer "
                                    + "profile embedded in the file, at decode.")
-                LumenToggleRow(title: "Remove chromatic aberration",
-                               isOn: binder.flag(\.develop.geometry.lens.removeCA,
-                                                 "geometry.lens.removeCA"),
-                               help: "Lateral CA: R and B are re-registered to G by a "
-                                   + "radial polynomial fit, folded into the geometry "
-                                   + "warp.")
-                defringeDisclosure
                 DevelopNote("No lens-profile database in v1, and Lumen never refuses a "
                             + "file: a lens we have no profile for still develops, "
                             + "uncorrected and honest about it.")
-                // `removeCA` and every field under Defringe have a wire format and no
-                // reader: grep across Sources/ finds them only in the `Recipe` struct.
-                // `lens.profile` is the one thing here that is consumed, at decode.
-                // Said plainly, the way `MaskPanel` says it about the local curve — a
-                // control that stores a value and changes no pixel costs the user the
-                // time to find that out.
-                DevelopNote("Remove chromatic aberration and Defringe are not wired "
-                            + "yet — they store their settings and no stage reads "
-                            + "them. Lens profile corrections do apply, at decode.")
+                // Not shown: Remove chromatic aberration, and the seven controls under
+                // Defringe. `removeCA` and every field of `Defringe` have a wire format
+                // and no reader — grep across Sources/ finds them only in the `Recipe`
+                // struct — and `lens.profile` is the one thing in this section that is
+                // genuinely consumed, at decode.
+                //
+                // A footnote admitting that was not enough, and this section is the
+                // reason the rule exists. The removed CA toggle DEFAULTED TO ON, so
+                // every photo in the library carried a ticked box doing nothing, and
+                // its own tooltip described the machinery in detail — "R and B are
+                // re-registered to G by a radial polynomial fit, folded into the
+                // geometry warp" — two rows above the note conceding none of it runs.
+                // A reader who trusts the control loses the time it takes to find out,
+                // and one who trusts the footnote is left wondering which half of the
+                // panel to believe. `MaskPanel` had already settled the form for the
+                // local group: take the controls out, keep the sentence.
+                DevelopNote("Remove chromatic aberration and Defringe are not shown: "
+                            + "neither is wired to a stage, so nothing they store "
+                            + "reaches a pixel. They come back when the correction "
+                            + "does. Lens profile corrections do apply, at decode.")
             }
         }
-    }
-
-    private var defringeDisclosure: some View {
-        DevelopDisclosure("Defringe", isExpanded: $showDefringe) {
-            VStack(alignment: .leading, spacing: 2) {
-                LumenToggleRow(title: "Defringe",
-                               isOn: binder.customFlag(
-                                   "geometry.lens.defringe.enabled",
-                                   get: { r in r.develop.geometry.lens.defringe != nil },
-                                   set: { recipe, on in
-                                       recipe.develop.geometry.lens.defringe =
-                                           on ? Defringe() : nil
-                                   }),
-                               help: "Axial CA, computed in OKLCh on the two hue bands "
-                                   + "that actually fringe.")
-                if recipe.develop.geometry.lens.defringe != nil {
-                    defringeRows
-                }
-            }
-        }
-    }
-
-    private var defringeRows: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            LumenSlider(title: "Purple",
-                        value: defringeBinding("purpleAmount",
-                                               get: { d in d.purpleAmount },
-                                               set: { d, v in d.purpleAmount = v }),
-                        range: 0...20, hardRange: nil, defaultValue: 0,
-                        step: 1, decimals: 0, bipolar: false)
-            LumenSlider(title: "Purple Hue Lo",
-                        value: defringeBinding("purpleHueLo",
-                                               get: { d in d.purpleHueLo },
-                                               set: { d, v in d.purpleHueLo = v }),
-                        range: 0...100, hardRange: nil, defaultValue: 30,
-                        step: 1, decimals: 0, bipolar: true)
-            LumenSlider(title: "Purple Hue Hi",
-                        value: defringeBinding("purpleHueHi",
-                                               get: { d in d.purpleHueHi },
-                                               set: { d, v in d.purpleHueHi = v }),
-                        range: 0...100, hardRange: nil, defaultValue: 70,
-                        step: 1, decimals: 0, bipolar: true)
-            LumenSlider(title: "Green",
-                        value: defringeBinding("greenAmount",
-                                               get: { d in d.greenAmount },
-                                               set: { d, v in d.greenAmount = v }),
-                        range: 0...20, hardRange: nil, defaultValue: 0,
-                        step: 1, decimals: 0, bipolar: false)
-            LumenSlider(title: "Green Hue Lo",
-                        value: defringeBinding("greenHueLo",
-                                               get: { d in d.greenHueLo },
-                                               set: { d, v in d.greenHueLo = v }),
-                        range: 0...100, hardRange: nil, defaultValue: 40,
-                        step: 1, decimals: 0, bipolar: true)
-            LumenSlider(title: "Green Hue Hi",
-                        value: defringeBinding("greenHueHi",
-                                               get: { d in d.greenHueHi },
-                                               set: { d, v in d.greenHueHi = v }),
-                        range: 0...100, hardRange: nil, defaultValue: 60,
-                        step: 1, decimals: 0, bipolar: true)
-        }
-    }
-
-    /// Defringe lives behind an optional struct, so its rows read through a default
-    /// instance and write only when the struct exists.
-    private func defringeBinding(_ field: String,
-                                 get: @escaping (Defringe) -> Double,
-                                 set: @escaping (inout Defringe, Double) -> Void)
-        -> Binding<Double> {
-        binder.custom("geometry.lens.defringe.\(field)",
-                      get: { recipe in
-                          get(recipe.develop.geometry.lens.defringe ?? Defringe())
-                      },
-                      set: { recipe, value in
-                          var defringe = recipe.develop.geometry.lens.defringe ?? Defringe()
-                          set(&defringe, value)
-                          recipe.develop.geometry.lens.defringe = defringe
-                      })
     }
 
     // MARK: Retouch

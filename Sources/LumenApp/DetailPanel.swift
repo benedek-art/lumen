@@ -61,10 +61,20 @@ struct DetailPanel: View {
                                // `DetailEngine.captureSharpen` has no caller. Saying so
                                // here rather than selling the algorithm the panel wishes
                                // it were running.
+                               //
+                               // It also said "written and TESTED". It is not tested:
+                               // `richardsonLucy`, `estimatePSFSigma` and
+                               // `captureSharpen` appear in no file under Tests/, so
+                               // nothing has ever observed them produce a pixel. Code
+                               // with no caller and no test is written, and that is the
+                               // whole of what may be claimed for it — "tested" is the
+                               // word that turns an honest disclosure into a second
+                               // claim the reader has no way to check.
                                help: "Scales the decoder's own at-demosaic sharpener. "
-                                   + "Lumen's measured-PSF deconvolution is written and "
-                                   + "tested but not in the render path yet, so there "
-                                   + "is no per-frame radius measurement in this build.")
+                                   + "Lumen's measured-PSF deconvolution is written but "
+                                   + "has no caller and no test, so it does not run and "
+                                   + "there is no per-frame radius measurement in this "
+                                   + "build.")
                 if recipe.develop.detail.capture.auto {
                     captureOverrides
                 } else {
@@ -181,6 +191,17 @@ struct DetailPanel: View {
                 } else {
                     lightroomClassicHint
                 }
+                // Radius here is in RAW PIXELS and the band steps are fixed pixel
+                // counts, while every other spatial stage in the graph sizes itself off
+                // the long edge. A preview is also capped at 4096 px, so there is no
+                // view in this application — 1:1 included — that shows a 45 MP export's
+                // sharpening. Saying so is not a fix; it is the least the panel owes a
+                // user judging an export by a preview.
+                DevelopNote("Sharpening is measured in pixels, not in fractions of the "
+                            + "frame, so a full-size export is less sharpened than the "
+                            + "preview it was judged on. Previews also render at up to "
+                            + "4096 px, which means no view here — 1:1 included — shows "
+                            + "an export's sharpening on a high-resolution file.")
             }
         }
     }
@@ -310,9 +331,18 @@ struct DetailPanel: View {
         case .classic:
             VStack(alignment: .leading, spacing: 2) {
                 isoBadgeRow
+                // The two masters write a `userSet` bit as well as a value. It is the
+                // only record that a number came from the photographer rather than from
+                // the ISO table, and `ISODefaults.coupled` needs it: switching to AI
+                // zeroes an inherited master and must leave a hand-set one alone.
                 LumenSlider(title: "Luminance",
-                            value: binder.value(\.develop.denoise.classic.luma,
-                                                "denoise.classic.luma"),
+                            value: binder.custom(
+                                "denoise.classic.luma",
+                                get: { $0.develop.denoise.classic.luma },
+                                set: { recipe, value in
+                                    recipe.develop.denoise.classic.luma = value
+                                    recipe.develop.denoise.classic.lumaUserSet = true
+                                }),
                             range: 0...100, hardRange: nil,
                             defaultValue: isoDefault.classic.luma,
                             step: 1, decimals: 0, bipolar: false)
@@ -329,8 +359,13 @@ struct DetailPanel: View {
                             defaultValue: isoDefault.classic.lumaContrast,
                             step: 1, decimals: 0, bipolar: false)
                 LumenSlider(title: "Colour",
-                            value: binder.value(\.develop.denoise.classic.chroma,
-                                                "denoise.classic.chroma"),
+                            value: binder.custom(
+                                "denoise.classic.chroma",
+                                get: { $0.develop.denoise.classic.chroma },
+                                set: { recipe, value in
+                                    recipe.develop.denoise.classic.chroma = value
+                                    recipe.develop.denoise.classic.chromaUserSet = true
+                                }),
                             range: 0...100, hardRange: nil,
                             defaultValue: isoDefault.classic.chroma,
                             step: 1, decimals: 0, bipolar: true)
@@ -359,7 +394,9 @@ struct DetailPanel: View {
                             + "the noise beside it — survives. Contrast keeps coarse "
                             + "luminance structure at the cost of mottling. Colour "
                             + "Detail protects thin colour edges; Colour Smoothness "
-                            + "reaches the large blotches.")
+                            + "reaches the large blotches, and it is the one row here "
+                            + "with a measured cost — its guided pass follows "
+                            + "luminance, so it softens a boundary that is pure colour.")
                 DevelopNote("Hot Pixels replaces single-pixel outliers with the median "
                             + "of their neighbours, and only where the pixel is a "
                             + "strict extremum — an edge or a fine line always has a "
@@ -375,10 +412,30 @@ struct DetailPanel: View {
                 // caller, and Amount reaches the decoder's own denoise instead. That
                 // is also why dragging it is slow — the stand-in is part of the decode
                 // key, so each step re-demosaics the frame.
-                DevelopNote("No AI model ships yet. Amount drives the decoder's own "
-                            + "noise reduction as a stand-in, and because that is part "
-                            + "of the decode, dragging it re-decodes the frame rather "
-                            + "than blending a cached result.")
+                //
+                // And it reaches the RAW decoder only. `RenderedImageSource.decode`
+                // takes the recipe and reads nothing out of it but the scale factor,
+                // so on a rendered file this slider moves a value no stage consumes.
+                // The note used to describe the raw behaviour for both.
+                if isRenderedFile {
+                    DevelopNote("On a rendered file this slider does nothing: no AI "
+                                + "model ships, and the decoder stand-in Amount drives "
+                                + "on raw files is part of the raw decode, which this "
+                                + "file does not go through. Classic is the engine "
+                                + "that runs here.")
+                } else {
+                    DevelopNote("No AI model ships yet. Amount drives the raw decoder's "
+                                + "own noise reduction as a stand-in, and because that "
+                                + "is part of the decode, dragging it re-decodes the "
+                                + "frame rather than blending a cached result.")
+                }
+                // Switching to AI zeroes the Tier-1 masters, on the reasoning that the
+                // noise they compensate for is gone by then. That is invisible from
+                // this screen, since the Classic rows are not on it — so it is said.
+                DevelopNote("Turning this on drops the Classic Luminance and Colour to "
+                            + "zero, unless you set them yourself — a hand-set value is "
+                            + "kept. Luminance Detail, Contrast, Colour Detail, Colour "
+                            + "Smoothness and Hot Pixels are untouched either way.")
                 DevelopNote("Classic is the profiled engine and it runs on every frame "
                             + "and every export. It is the one to reach for until a "
                             + "model ships.")
