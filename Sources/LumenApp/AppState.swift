@@ -1495,7 +1495,12 @@ final class AppState: ObservableObject {
                 }
             }
             catalog = service
-            catalogStatus = nil
+            // The open-time integrity check has already run and already acted (§15.8).
+            // Told, not asked: by the time this line executes the catalog on disk is
+            // either the one that passed or the newest backup that did, and the only
+            // thing left is to say so. A healthy catalog has no notice and stays silent.
+            catalogStatus = service.recovery.notice
+            if let notice = service.recovery.notice { statusMessage = notice }
         } catch {
             catalog = nil
             catalogStatus = "Catalog unavailable — edits live in memory this session "

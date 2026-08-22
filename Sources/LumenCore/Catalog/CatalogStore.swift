@@ -486,6 +486,65 @@ public struct RelocationProbe: Equatable, Sendable {
     public static let none = RelocationProbe()
 }
 
+/// What the open-time integrity check found, and what was done about it.
+///
+/// docs/15 §15.8: "`PRAGMA quick_check` on every open (fails → restore newest backup
+/// that passes, automatically, with a notice *after* the fact)". The notice is the
+/// reason this is a value and not a Bool: the user is told what happened to their
+/// catalog once it has already been handled, never asked to decide.
+public struct CatalogRecovery: Equatable, Sendable {
+
+    public enum Outcome: Equatable, Sendable {
+        /// No catalog file yet. A first run has nothing to check and nothing to lose.
+        case firstRun
+        /// `PRAGMA quick_check` returned "ok". Nothing was touched.
+        case healthy
+        /// The catalog failed its check and was replaced by a backup that passed. The
+        /// corrupt file is MOVED ASIDE, never deleted: a file SQLite cannot read may
+        /// still be readable by a recovery tool, and the last hour of somebody's
+        /// culling can be worth more than the tidiness.
+        case restored(fromBackup: String, corruptSetAsideAt: String)
+        /// The catalog failed and no backup passed either. Nothing was moved and
+        /// nothing was replaced — the caller opens the corrupt file, which is what it
+        /// would have done anyway, and now it knows.
+        case unrecoverable(backupsTried: Int)
+    }
+
+    public var outcome: Outcome
+
+    /// The after-the-fact notice, or nil when there is nothing to say. Phrased for a
+    /// status line: the user is being told, not consulted.
+    public var notice: String? {
+        switch outcome {
+        case .firstRun, .healthy:
+            return nil
+        case .restored(let backup, _):
+            let name = URL(fileURLWithPath: backup).lastPathComponent
+            // Careful about the tense. Sidecar recovery happens per folder, at scan
+            // time, so at the moment this notice is written nothing has been recovered
+            // yet — promising otherwise would be the same class of caption this project
+            // keeps finding and removing.
+            return "The catalog was damaged and has been restored from \(name). "
+                + "Edits made since that backup come back from the sidecars as each "
+                + "folder is rescanned."
+        case .unrecoverable(let tried):
+            return tried == 0
+                ? "The catalog is damaged and there is no backup to restore from. "
+                    + "Your edits are still in the sidecars beside your photos."
+                : "The catalog is damaged and none of the \(tried) backups could be "
+                    + "read either. Your edits are still in the sidecars beside your photos."
+        }
+    }
+
+    /// True when the catalog the caller is about to open is known to be unreadable.
+    public var isDamaged: Bool {
+        if case .unrecoverable = outcome { return true }
+        return false
+    }
+
+    public init(outcome: Outcome) { self.outcome = outcome }
+}
+
 // MARK: - Query
 
 /// The filter bar compiled to SQL (docs/10 §10.8, D39).
@@ -985,15 +1044,108 @@ public final class CatalogStore {
 
     // MARK: - Integrity and maintenance
 
-    /// `PRAGMA quick_check` — run on every open per §15.8 (the caller decides whether a
-    /// failure triggers an auto-restore from the newest passing backup).
+    /// `PRAGMA quick_check` against the open catalog.
+    ///
+    /// The open-time check §15.8 asks for is `recoverIfNeeded`, below, which runs
+    /// BEFORE the store exists — a restore has to replace the file, and it cannot do
+    /// that through a handle that is holding it open. This one is the same pragma
+    /// against a live store, for a caller that already has one.
     public func quickCheck() throws -> Bool {
         (try db.scalarText("PRAGMA quick_check;")) == "ok"
     }
 
-    /// Full `PRAGMA integrity_check` — the pre-weekly-backup gate.
+    /// Full `PRAGMA integrity_check` — the pre-backup gate.
+    ///
+    /// It gates `backup(to:)` at the call site in `CatalogService`, and that is the
+    /// whole point of it: a corrupt catalog that backs itself up rotates the last
+    /// readable snapshot out of existence, and then `recoverIfNeeded` has nothing to
+    /// restore from. §15.8 specifies it "before each weekly backup"; there is no
+    /// weekly rotation yet — backups are per quit and per menu command — so it runs
+    /// before every backup instead, which is stricter and cheaper than it sounds
+    /// against a sub-gigabyte catalog.
     public func integrityCheck() throws -> Bool {
         (try db.scalarText("PRAGMA integrity_check;")) == "ok"
+    }
+
+    /// The open-time integrity check, and the restore §15.8 promises when it fails.
+    ///
+    /// Call this BEFORE constructing a store on `path`. It opens the catalog on its own
+    /// connection, runs `PRAGMA quick_check`, and on failure walks the backups newest
+    /// first until one passes, sets the damaged catalog aside and puts that backup in
+    /// its place. Whatever it returns, the caller then opens `path` normally — the
+    /// point is that the file it opens is the best readable one available, and that the
+    /// user is told afterwards rather than asked beforehand.
+    ///
+    /// Nothing is ever deleted. The damaged catalog is RENAMED — the corrupt file may
+    /// still yield to a recovery tool, and the check that condemned it can be wrong
+    /// about a file a human would rather still have. The `-wal` and `-shm` move with
+    /// it, because leaving a stale WAL beside a restored catalog would let SQLite
+    /// replay the damaged journal straight back over the snapshot; renaming rather than
+    /// unlinking them is also what keeps a second process's mapped shared memory
+    /// pointing at a file that still exists, which is the failure the cache-recreation
+    /// path above documents at length.
+    ///
+    /// Backups are ordered by filename, descending. `CatalogService` names them
+    /// `lumen-<ISO 8601 stamp>.db`, and that format sorts lexically and
+    /// chronologically at once, so the ordering does not depend on a modification date
+    /// that a copy or a restore can rewrite.
+    public static func recoverIfNeeded(path: String,
+                                       backupDirectory: String) -> CatalogRecovery {
+        let manager = FileManager.default
+        guard manager.fileExists(atPath: path) else {
+            return CatalogRecovery(outcome: .firstRun)
+        }
+        if probeQuickCheck(path: path) { return CatalogRecovery(outcome: .healthy) }
+
+        let backups = (try? manager.contentsOfDirectory(atPath: backupDirectory))?
+            .filter { $0.hasSuffix(".db") }
+            .sorted(by: >) ?? []
+        for name in backups {
+            let candidate = URL(fileURLWithPath: backupDirectory, isDirectory: true)
+                .appendingPathComponent(name).path
+            guard probeQuickCheck(path: candidate) else { continue }
+            let stamp = String(CatalogStore.now())
+            let setAside = path + ".damaged-" + stamp
+            do {
+                try setAsideCatalog(at: path, to: setAside)
+                try manager.copyItem(atPath: candidate, toPath: path)
+            } catch {
+                // A restore that cannot complete must not leave the catalog half
+                // replaced. Put the original back if it is still where we moved it,
+                // and report the damage rather than a restore that did not happen.
+                if manager.fileExists(atPath: setAside), !manager.fileExists(atPath: path) {
+                    try? manager.moveItem(atPath: setAside, toPath: path)
+                }
+                return CatalogRecovery(outcome: .unrecoverable(backupsTried: backups.count))
+            }
+            return CatalogRecovery(outcome: .restored(fromBackup: candidate,
+                                                      corruptSetAsideAt: setAside))
+        }
+        return CatalogRecovery(outcome: .unrecoverable(backupsTried: backups.count))
+    }
+
+    /// One `PRAGMA quick_check` on a file this process does not otherwise hold open.
+    ///
+    /// False for anything that is not a readable SQLite catalog, including a file that
+    /// cannot be opened at all: the caller's question is "can this be used", and every
+    /// no is the same no.
+    ///
+    /// Internal rather than private so the recovery tests can assert that the damage
+    /// they inflicted actually took. A restore test that ran against a file SQLite still
+    /// finds perfectly readable would pass while proving nothing.
+    static func probeQuickCheck(path: String) -> Bool {
+        guard let database = try? SQLiteDatabase(path: path) else { return false }
+        defer { database.close() }
+        return (try? database.scalarText("PRAGMA quick_check;")) == "ok"
+    }
+
+    /// Move a catalog and its WAL companions aside, together.
+    private static func setAsideCatalog(at path: String, to destination: String) throws {
+        let manager = FileManager.default
+        try manager.moveItem(atPath: path, toPath: destination)
+        for suffix in ["-wal", "-shm"] where manager.fileExists(atPath: path + suffix) {
+            try? manager.moveItem(atPath: path + suffix, toPath: destination + suffix)
+        }
     }
 
     /// Passive WAL checkpoint for the idle maintenance slot.
@@ -2771,6 +2923,15 @@ public final class CatalogStore {
 
     public func quickCheck() throws -> Bool { throw CatalogError.unavailable }
     public func integrityCheck() throws -> Bool { throw CatalogError.unavailable }
+
+    /// Without SQLite there is no catalog to check and none to restore. `.firstRun` is
+    /// the honest answer: nothing was found, nothing was touched, and the open that
+    /// follows fails on its own terms rather than being pre-empted by a damage report
+    /// this build cannot have made.
+    public static func recoverIfNeeded(path: String,
+                                       backupDirectory: String) -> CatalogRecovery {
+        CatalogRecovery(outcome: .firstRun)
+    }
     public func checkpoint(truncate: Bool = false) throws { throw CatalogError.unavailable }
     public func optimize() throws { throw CatalogError.unavailable }
     public func backup(to path: String) throws { throw CatalogError.unavailable }
