@@ -13,23 +13,23 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # The real thing: compile every target and RUN the suites on macOS. The engine's
-  # goldens run first so their signal survives churn in the app layer.
+  # Compile every target on macOS. This is the ONLY compiler that ever sees
+  # LumenPipeline and LumenApp — they are `#if os(macOS)` and need Core Image, AppKit
+  # and SwiftUI — so it runs on every push and nothing replaces it.
   #
-  # Each step writes its full output to a file and prints only the deduplicated
-  # diagnostics. A Swift build repeats the same error once per compilation unit, and a
-  # log where one warning appears forty times is a log nobody reads to the end.
-  test-macos:
+  # It used to also run the whole suite here, which cost six and a half minutes of macOS
+  # runner time per push to re-verify LumenCore, eighteen thousand lines that have no
+  # Apple framework in them and now run on Linux for free in `engine-linux` below. macOS
+  # minutes are the scarce resource on this project — a private repo ran out of them once
+  # and seventy commits went uncompiled behind the outage — so the split is: Linux proves
+  # the engine, macOS proves it compiles and that the GPU agrees with it.
+  build-macos:
     runs-on: macos-15
-    timeout-minutes: 40
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Toolchain
         run: swift --version && xcodebuild -version
-
-      # Build FIRST. Running it after `swift test` compiled everything meant the
-      # compiler had nothing left to do and re-emitted no diagnostics, so the warnings
-      # section was empty whatever the code said — a green light wired to nothing.
       - name: Build — whole package including the app
         shell: bash
         run: |
@@ -40,41 +40,6 @@ jobs:
           grep -E "error:" build.log | sed 's#/Users/runner/work/lumen/lumen/##' | sort -u | head -80
           echo "=== warnings ==="
           grep -E "warning:" build.log | sed 's#/Users/runner/work/lumen/lumen/##' | sort -u | head -30
-          exit $status
-
-      - name: Test — engine + GPU goldens
-        if: always()
-        shell: bash
-        run: |
-          set +e
-          # `tee`, not `>`: redirecting the whole suite to a file means the CI log
-          # shows nothing at all until the step ends, so a hung test is a forty-minute
-          # timeout with no clue which test hung — the same shape of problem as an
-          # empty log, arriving at the exact moment you need the opposite. The stream
-          # is noisy; the deduplicated summary below still runs after it, and that is
-          # what anyone reads when the suite merely fails rather than hangs.
-          #
-          # `shell: bash` above makes GitHub run this with `-e -o pipefail`, so $?
-          # is swift test's status and not tee's.
-          swift test 2>&1 | tee test.log
-          status=$?
-          echo "=== compile errors ==="
-          grep -E "error:" test.log | grep -v ": error: -\[" \
-            | sed 's#/Users/runner/work/lumen/lumen/##' | sort -u | head -40
-          echo "=== summary ==="
-          grep -E "Executed [0-9]+ test" test.log | tail -1
-          # Which TESTS failed, before what they said. One test can fail a hundred
-          # assertions inside a loop, and a list deduplicated by message is then a
-          # hundred near-identical lines that hide every other failing test.
-          echo "=== failing tests ==="
-          grep -E ": error: -\[" test.log \
-            | sed -E 's/^.*error: -\[([^]]*)\].*/\1/' | sort | uniq -c | sort -rn | head -20
-          # Failures print LAST so a short tail of the CI log always reaches them.
-          # Two examples per test is enough to see the shape of the problem.
-          echo "=== first failures per test ==="
-          grep -E ": error: -\[" test.log | sed 's#/Users/runner/work/lumen/lumen/##' \
-            | sed 's/^.*error: //' \
-            | awk '{ key = $1 " " $2; if (seen[key]++ < 2) print }' | head -40
           exit $status
 
   # The fast lane. Nine tests are 92% of the suite's wall clock — measured, from the
@@ -91,9 +56,16 @@ jobs:
   # renders per stage. `testTheClarityPyramidTracksTheLongEdge` stays in this lane
   # because it is pure arithmetic and instant.
   #
-  # It is NOT a substitute: `test-macos` below still runs everything on the same push,
-  # and nothing merges on this lane's word alone. If a rename makes a skip stop
-  # matching, this lane gets slower and stays correct.
+  # This lane is now the macOS suite on a push, not a preview of one: the nine slow
+  # tests it skips moved to `proof-macos`, which runs on demand. Nothing merges on this
+  # lane's word alone — run `proof-macos` from the Actions tab before landing a change
+  # to a kernel or a render stage, because those nine are exactly what checks that the
+  # GPU still agrees with the reference at both scales.
+  #
+  # The engine half of what it covers is also checked on Linux every push, for free, in
+  # `engine-linux`. What only this lane sees is LumenPipeline: the real Core Image graph,
+  # compiled and run against the f32 reference. If a rename makes a skip stop matching,
+  # this lane gets slower and stays correct.
   test-fast:
     runs-on: macos-15
     timeout-minutes: 15
@@ -185,3 +157,91 @@ jobs:
       # is the only feedback on the Swift at all when the macOS runner cannot start.
       - name: Swift surface — symbols, inits, await, members, imports, targets, values, scopes
         run: python3 scripts/check-swift-surface.py
+
+  # The engine suite, on the lane that costs nothing. LumenCore is eighteen thousand
+  # lines of pure Swift — colour science, tone, grade, film, detail, denoise, mask
+  # algebra, catalog and XMP — with no Apple framework anywhere in it, so all 363 of its
+  # tests run here in about six minutes on a runner that is not rationed.
+  #
+  # The catalog is included only because `Sources/CSQLite3` exists: Ubuntu ships a header
+  # and a shared object and no modulemap, so `canImport(SQLite3)` was FALSE here and
+  # `CatalogStore` and every one of its tests compiled out. A green run that had never
+  # built a third of LumenCore is the same shape as a check that cannot fail.
+  #
+  # What this lane does NOT cover, stated so nobody reads it as more than it is:
+  # LumenPipeline and LumenApp never compile here, and the macOS-side behaviour of
+  # LumenCore (the SDK's own SQLite3 module rather than the shim) is only re-checked in
+  # the `proof-macos` lane below.
+  engine-linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache the Swift toolchain
+        id: swift-cache
+        uses: actions/cache@v4
+        with:
+          path: /opt/swift
+          key: swift-6.1.2-ubuntu24.04
+      - name: Install the Swift toolchain
+        if: steps.swift-cache.outputs.cache-hit != 'true'
+        run: sh scripts/install-linux-toolchain.sh
+      - name: Test — the whole engine
+        shell: bash
+        run: |
+          export PATH="/opt/swift/usr/bin:$PATH"
+          set +e
+          swift test --filter LumenCoreTests 2>&1 | tee engine.log
+          status=$?
+          echo "=== compile errors ==="
+          grep -E "error:" engine.log | grep -v ": error: -\[" \
+            | sed "s#$PWD/##" | sort -u | head -40
+          echo "=== summary ==="
+          grep -E "Executed [0-9]+ test" engine.log | tail -1
+          echo "=== failing tests ==="
+          grep -E ": error: -\[" engine.log \
+            | sed -E 's/^.*error: -\[([^]]*)\].*/\1/' | sort | uniq -c | sort -rn | head -20
+          echo "=== first failures per test ==="
+          grep -E ": error: -\[" engine.log | sed "s#$PWD/##" \
+            | sed 's/^.*error: //' \
+            | awk '{ key = $1 " " $2; if (seen[key]++ < 2) print }' | head -40
+          exit $status
+
+  # On demand only. The whole suite on macOS including the nine slow whole-pipeline
+  # tests that are 92% of its wall clock, plus the proof evidence run.
+  #
+  # It is not on the push trigger because the per-push lanes above already answer "does
+  # it compile" and "does the engine still behave"; this one answers "does the GPU still
+  # agree with the reference at both scales", which is worth ten minutes of a rationed
+  # runner before a merge and not after every commit. Run it from the Actions tab, and
+  # always before landing a change to a kernel or a render stage.
+  proof-macos:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test — everything, slow goldens included
+        shell: bash
+        run: |
+          set +e
+          swift test 2>&1 | tee proof.log
+          status=$?
+          echo "=== summary ==="
+          grep -E "Executed [0-9]+ test" proof.log | tail -1
+          echo "=== failing tests ==="
+          grep -E ": error: -\[" proof.log \
+            | sed -E 's/^.*error: -\[([^]]*)\].*/\1/' | sort | uniq -c | sort -rn | head -30
+          echo "=== first failures per test ==="
+          grep -E ": error: -\[" proof.log | sed 's#/Users/runner/work/lumen/lumen/##' \
+            | sed 's/^.*error: //' \
+            | awk '{ key = $1 " " $2; if (seen[key]++ < 2) print }' | head -40
+          exit $status
+      - name: Collect the proof evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: proof-evidence
+          path: Tests/LumenCoreTests/Proof/evidence/
+          if-no-files-found: ignore
+          retention-days: 30
