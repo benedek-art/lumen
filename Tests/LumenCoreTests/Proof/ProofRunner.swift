@@ -33,34 +33,27 @@ enum ProofRunner {
         return fresh
     }
 
-    /// Measure a whole registry at once, across cores.
+    /// Measure a whole registry in one pass, filling the cache.
     ///
-    /// Eleven controls took 698 seconds measured one after another, which is fine for
-    /// eleven and hopeless for the two hundred and fifty this registry has to reach —
-    /// that would be four hours for a drift check that is supposed to run alongside
-    /// ordinary tests. Controls are independent by construction (each builds its own
-    /// recipe from a default and renders its own frame), so this is the one place in the
-    /// harness where concurrency is free of judgement calls.
+    /// Deliberately SERIAL, and the first version of this was not — which was a mistake
+    /// worth leaving a note about, because it is the same misreading of a system this
+    /// codebase keeps making.
     ///
-    /// The results land in the same cache the per-spec accessor reads, so a test written
-    /// against `measured(_:)` needs no knowledge of this and stays correct if it runs
-    /// alone.
+    /// Measuring controls concurrently looks like free parallelism: they are independent
+    /// by construction, each building its own recipe and rendering its own frame. But
+    /// `LUT3D`'s bake ALREADY runs `DispatchQueue.concurrentPerform` across the cube's
+    /// slices (LUT.swift:223), so a concurrent outer loop nests concurrentPerform inside
+    /// concurrentPerform — which on four cores oversubscribes rather than parallelises,
+    /// and is a documented way to explode a thread pool. It also defeats
+    /// `PlanTableCache`: sweeping one control re-uses the colour cube across all 21 of
+    /// its steps, and interleaving four controls evicts it four ways.
+    ///
+    /// The cost is therefore real and structural — a sweep is 21 plan bakes — and the
+    /// lever is the size of the registry, not the concurrency. That is one of the
+    /// reasons the registry covers the forty controls of an ordinary edit rather than
+    /// all two hundred and fifty (docs/21 §6).
     static func measureAll(_ specs: [ControlSpec]) {
-        let pending = specs.filter { spec in
-            cacheLock.lock(); defer { cacheLock.unlock() }
-            return cache[spec.id] == nil
-        }
-        guard !pending.isEmpty else { return }
-        let results = UnsafeMutablePointer<ProofRecord?>.allocate(capacity: pending.count)
-        results.initialize(repeating: nil, count: pending.count)
-        defer { results.deinitialize(count: pending.count); results.deallocate() }
-
-        DispatchQueue.concurrentPerform(iterations: pending.count) { i in
-            results[i] = measure(pending[i])
-        }
-        cacheLock.lock()
-        for (i, spec) in pending.enumerated() { cache[spec.id] = results[i] }
-        cacheLock.unlock()
+        for spec in specs { _ = measured(spec) }
     }
 
     /// Render one setting of one control.
