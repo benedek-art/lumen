@@ -12,7 +12,18 @@
 import Foundation
 
 /// The current recipe pipeline version. Bump only with an explicit, badged migration (D52).
-public let currentPipelineVersion = 1
+///
+/// 2 — `look.bw.enabled` (docs/audit COLOR-20). Version 1 spelled "black and white is
+/// off" by deleting the whole `look.bw` slot, so the mix could not be stored while
+/// switched off and the panel kept it in view state instead. Version 2 keeps the mix in
+/// the recipe and switches it with a boolean.
+///
+/// No version-1 recipe renders differently under version 2, so this bump needs no
+/// badged per-photo migration: the absent key decodes as `true` (see `BlackAndWhite`),
+/// which is precisely what version 1 meant by the slot being there. What it buys is the
+/// reverse direction — a version-2 recipe can express "off, mix kept", which a version-1
+/// reader would render as black and white. The version is what tells the two apart.
+public let currentPipelineVersion = 2
 
 public struct Recipe: Codable, Equatable, Sendable {
     public var pipelineVersion: Int
@@ -50,6 +61,12 @@ public struct Recipe: Codable, Equatable, Sendable {
     /// fingerprints, so they could never share a cached artifact. What the renderer
     /// needs to tell masks apart is their position in the stack, which survives here.
     ///
+    /// A switched-off black-and-white mix goes the same way, for the same reason. It is
+    /// eight numbers no pixel reads, kept so the photographer gets them back; hashing
+    /// them would make "turn the treatment off" a different picture as far as every
+    /// cache is concerned — a full re-render of a frame that did not change — and would
+    /// make the library call a photo edited when it renders exactly as it was shot.
+    ///
     /// The stored `edit.recipe` is still the full-fidelity recipe; this projection
     /// exists only to be hashed and compared.
     public var renderIdentity: Recipe {
@@ -59,6 +76,7 @@ public struct Recipe: Codable, Equatable, Sendable {
             stripped.id = ""
             return stripped
         }
+        if copy.look.bw?.enabled == false { copy.look.bw = nil }
         return copy
     }
 }

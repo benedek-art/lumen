@@ -32,6 +32,14 @@ public struct Look: Codable, Equatable, Sendable {
         self.render = render
         self.lut = lut
     }
+
+    /// Whether the black-and-white treatment renders.
+    ///
+    /// Stated once because two places have to agree about it — the panel's toggle and
+    /// the colour stage that reads it — and they used to agree by both testing the slot
+    /// for nil, which is exactly the test that stopped being the right one when the mix
+    /// gained somewhere to live while switched off.
+    public var blackAndWhiteIsOn: Bool { bw?.enabled == true }
 }
 
 /// The display transform's user-facing parameters (D8). Overrides are optional so a
@@ -269,12 +277,72 @@ public struct Primaries: Codable, Equatable, Sendable {
     }
 }
 
-/// B&W treatment (D20): 8-band mix, same band order as Mixer. Non-nil = B&W on.
-/// Mixer/band state is preserved when toggling treatments (fixes LR's state-loss bug).
+/// B&W treatment (D20): 8-band mix, same band order as Mixer.
+///
+/// `enabled` is what makes the mix survive, and it is the difference between this
+/// struct and the one that shipped. Before it existed, "off" was spelled by deleting
+/// the whole slot, so the eight numbers a photographer had built had nowhere to live
+/// across a toggle except the panel's own view state — which belongs to a view, not to
+/// a photo. Toggling off on one frame and on again on another wrote the first frame's
+/// mix into the second frame's recipe, every photo of a multi-selection got the same
+/// transplant, and quitting threw the mix away. The mix lives here now, per photo, and
+/// the toggle moves one boolean.
+///
+/// `bw == nil` still means "this photo has never had a black-and-white mix". The
+/// section's Reset restores that, and it is the only thing that discards a mix.
 public struct BlackAndWhite: Codable, Equatable, Sendable {
     public var bands: [Double]      // 8 luminance contributions, −100…+100
+    /// Whether the treatment renders. `false` means "off, and here is the mix I had".
+    public var enabled: Bool
 
-    public init(bands: [Double] = Array(repeating: 0, count: 8)) {
+    public init(bands: [Double] = Array(repeating: 0, count: 8), enabled: Bool = true) {
         self.bands = bands
+        self.enabled = enabled
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case bands, enabled
+    }
+
+    /// Decode tolerance for every recipe written before `enabled` existed (pipeline
+    /// version 1): back then the PRESENCE of the slot was the treatment being on, so an
+    /// absent key reads as `true`. Reading it as `false` would turn every
+    /// black-and-white photo in an existing catalog back to colour on first open, which
+    /// is the same class of silent loss the field exists to end. `bands` is tolerant for
+    /// the reason `Mask` states above its own decoder: a recipe is user work, and losing
+    /// it to one absent key is not an acceptable failure mode.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.bands = try c.decodeIfPresent([Double].self, forKey: .bands)
+            ?? Array(repeating: 0, count: 8)
+        self.enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
+    }
+
+    /// The `look.bw` slot after the treatment toggle is set to `on`.
+    ///
+    /// The whole state rule, in one place, because it is a rule about a recipe and not
+    /// about a panel — which is what made the old version wrong. It ran inside a
+    /// SwiftUI view, over a stash that named no photo, in a target with no tests to
+    /// notice. Stated here it is a pure function of one photo's own slot, so applying it
+    /// across a multi-selection gives every photo back its OWN mix.
+    ///
+    /// Turning it on with nothing stored starts from a flat mix rather than from
+    /// whatever the previous photo happened to be set to. Turning it off keeps the mix
+    /// — unless there is no mix, in which case the slot goes away again rather than
+    /// leaving eight zeroes behind. A photo the user switched on, changed nothing in
+    /// and switched off is a photo that was never edited, and every "is this modified"
+    /// question in the app compares against a default recipe.
+    public static func toggled(_ current: BlackAndWhite?, on: Bool) -> BlackAndWhite? {
+        guard var next = current else { return on ? BlackAndWhite() : nil }
+        if !on && !next.hasMix { return nil }
+        next.enabled = on
+        return next
+    }
+
+    /// Whether the eight bands say anything. A flat mix is not a mix — it is the plain
+    /// luminance conversion — so there is nothing in it worth giving back.
+    ///
+    /// The invariant this buys, which the panel reads: a non-nil, switched-off slot
+    /// always carries a real mix.
+    public var hasMix: Bool { bands.contains { $0 != 0 } }
 }

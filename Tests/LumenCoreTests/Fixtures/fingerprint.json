@@ -41,8 +41,8 @@
    "xxh64": "61b627838d91008b"
   },
   {
-   "input": "{\"pipelineVersion\":1}",
-   "xxh64": "1b1987a12b6f04be"
+   "input": "{\"pipelineVersion\":2}",
+   "xxh64": "fd50cceee634dfb4"
   }
  ]
 }
