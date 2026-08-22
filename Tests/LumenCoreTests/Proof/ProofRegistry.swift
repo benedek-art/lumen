@@ -75,6 +75,19 @@ struct ControlSpec {
 
 enum ProofRegistry {
 
+    // NOTE ON THE FLOORS ADDED WITH THE DAILY-EDIT CONTROLS.
+    //
+    // The eleven original entries carry floors derived from docs/19's measured numbers.
+    // The curve, presence, sharpen and mixer entries do not yet: their floors are
+    // conservative estimates, written before the sweep that measures them, and they are
+    // deliberately LOW. A floor that is too low fails to catch a control going weak; a
+    // floor that is too high turns the suite red on an estimate rather than on a defect,
+    // which teaches everyone to ignore it. Between those two failures the first is
+    // recoverable by tightening a number and the second costs the assertion its meaning.
+    //
+    // They get tightened to just under the measured authority once the sweep records
+    // them, in a commit that says what each number became and why.
+
     /// The six tone sliders plus the contrast pivot.
     ///
     /// The authority floors come from docs/19's second measurement — the one taken after
@@ -192,5 +205,136 @@ enum ProofRegistry {
             apply: { r, v in r.develop.raw.tint = v }),
     ]
 
-    static var all: [ControlSpec] { tone + colour }
+
+    /// The parametric curve's four regions.
+    ///
+    /// Swept on the ramp, because a curve is a statement about tone and nothing else.
+    /// `testParametricSlidersStayAliveOverTheirWholeTravel` already asserts each region
+    /// is alive and linear in its setting on the BAKED TABLE; these records measure what
+    /// the same settings do to a rendered picture, which is the question the table
+    /// cannot answer.
+    static let curve: [ControlSpec] = {
+        let regions: [(String, String, WritableKeyPath<ParametricCurve, Double>)] = [
+            ("shadows", "Shadows", \.shadows),
+            ("darks", "Darks", \.darks),
+            ("lights", "Lights", \.lights),
+            ("highlights", "Highlights", \.highlights),
+        ]
+        return regions.map { id, name, path in
+            ControlSpec(
+                id: "curve.\(id)", panel: "Curve", displayName: name,
+                low: -100, high: 100,
+                frameName: "neutralRamp", frame: { ProofFrames.neutralRamp() },
+                shippingReader: "Sources/LumenPipeline/RenderGraph.swift:486",
+                authorityFloor: 12,
+                apply: { r, v in r.develop.curve.parametric[keyPath: path] = v })
+        }
+    }()
+
+    /// Presence. Each one swept on a frame that contains what it acts on — the lesson
+    /// docs/19 recorded three times, and the reason `dehaze` is not measured on texture.
+    ///
+    /// `overshootCeiling` is nil for all three ON PURPOSE. They rim the shipping path by
+    /// known amounts and that work is parked until there is a GPU to verify a fix on
+    /// (DETAIL-01, DETAIL-11). The rim is measured into every record so the day it
+    /// improves is a diff; asserting a bar would only paint a red test over a decision
+    /// already taken.
+    static let presence: [ControlSpec] = [
+        ControlSpec(
+            id: "detail.texture", panel: "Presence", displayName: "Texture",
+            low: -100, high: 100,
+            frameName: "fineTexture", frame: { ProofFrames.fineTexture() },
+            shippingReader: "Sources/LumenPipeline/RenderGraph.swift:610",
+            authorityFloor: 2, mayLeaveRange: false,
+            apply: { r, v in r.develop.detail.texture = v }),
+        ControlSpec(
+            id: "detail.clarity", panel: "Presence", displayName: "Clarity",
+            low: -100, high: 100,
+            frameName: "fineTexture", frame: { ProofFrames.fineTexture() },
+            shippingReader: "Sources/LumenPipeline/RenderGraph.swift:610",
+            authorityFloor: 2, mayLeaveRange: false,
+            apply: { r, v in r.develop.detail.clarity = v }),
+        ControlSpec(
+            id: "detail.dehaze", panel: "Presence", displayName: "Dehaze",
+            low: -100, high: 100,
+            frameName: "hazySky", frame: { ProofFrames.hazySky() },
+            shippingReader: "Sources/LumenPipeline/RenderGraph.swift:610",
+            authorityFloor: 5, mayLeaveRange: false,
+            apply: { r, v in r.develop.detail.dehaze = v }),
+    ]
+
+    /// Creative sharpening, on a hard edge — which is both what it acts on and where its
+    /// artifact lives. docs/19 found Radius was a seven-position switch across its whole
+    /// range and Detail ran backwards; these records are what would have caught both.
+    static let sharpen: [ControlSpec] = [
+        ControlSpec(
+            id: "sharpen.amount", panel: "Detail", displayName: "Sharpen amount",
+            low: 0, high: 150,
+            frameName: "stepEdge", frame: { ProofFrames.stepEdge() },
+            shippingReader: "Sources/LumenPipeline/RenderGraph.swift:700",
+            authorityFloor: 3, mayLeaveRange: false,
+            apply: { r, v in r.develop.detail.sharpen.amount = v }),
+        ControlSpec(
+            id: "sharpen.radius", panel: "Detail", displayName: "Sharpen radius",
+            low: 0.5, high: 3.0, neutral: 1.0,
+            frameName: "stepEdge", frame: { ProofFrames.stepEdge() },
+            shippingReader: "Sources/LumenPipeline/RenderGraph.swift:700",
+            authorityFloor: 1, mayLeaveRange: false,
+            apply: { r, v in
+                // Radius does nothing without amount to apply at that radius.
+                r.develop.detail.sharpen.amount = 100
+                r.develop.detail.sharpen.radius = v
+            }),
+        ControlSpec(
+            id: "sharpen.detail", panel: "Detail", displayName: "Sharpen detail",
+            low: 0, high: 100,
+            frameName: "fineTexture", frame: { ProofFrames.fineTexture() },
+            shippingReader: "Sources/LumenPipeline/RenderGraph.swift:700",
+            authorityFloor: 1, mayLeaveRange: false,
+            apply: { r, v in
+                r.develop.detail.sharpen.amount = 100
+                r.develop.detail.sharpen.detail = v
+            }),
+        ControlSpec(
+            id: "sharpen.masking", panel: "Detail", displayName: "Sharpen masking",
+            low: 0, high: 100,
+            frameName: "stepEdge", frame: { ProofFrames.stepEdge() },
+            shippingReader: "Sources/LumenPipeline/RenderGraph.swift:700",
+            authorityFloor: 1, mayLeaveRange: false,
+            apply: { r, v in
+                r.develop.detail.sharpen.amount = 100
+                r.develop.detail.sharpen.masking = v
+            }),
+    ]
+
+    /// The colour mixer: eight bands, three controls each, on the chart.
+    ///
+    /// Twenty-four entries rather than a sampled few, because "HSL" is one line on
+    /// docs/19's list of what a photographer touches on an ordinary edit, and a band
+    /// that has gone dead is invisible in any sample that does not include it. That is
+    /// the whole argument for a registry over a test per control.
+    static let mixer: [ControlSpec] = {
+        let bands = ["red", "orange", "yellow", "green", "aqua", "blue", "purple", "magenta"]
+        let axes: [(String, WritableKeyPath<MixerBand, Double>, Double)] = [
+            ("hue", \.hue, 3), ("sat", \.sat, 6), ("lum", \.lum, 6),
+        ]
+        var out = [ControlSpec]()
+        for (index, band) in bands.enumerated() {
+            for (axis, path, floor) in axes {
+                out.append(ControlSpec(
+                    id: "mixer.\(band).\(axis)", panel: "Colour Mixer",
+                    displayName: "\(band.capitalized) \(axis)",
+                    low: -100, high: 100,
+                    frameName: "colourChart", frame: { ProofFrames.colourChart() },
+                    shippingReader: "Sources/LumenPipeline/RenderGraph.swift:98",
+                    authorityFloor: floor,
+                    apply: { r, v in r.develop.mixer.bands[index][keyPath: path] = v }))
+            }
+        }
+        return out
+    }()
+
+    static var all: [ControlSpec] {
+        tone + colour + curve + presence + sharpen + mixer
+    }
 }
