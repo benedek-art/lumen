@@ -1199,6 +1199,62 @@ final class EngineIntegrationTests: XCTestCase {
             "the smaller gate did not produce coarser grain per unit pitch")
     }
 
+
+    /// The long edge a DELIVERED file's grain plate is scaled by, once a crop and an
+    /// output resize are in the way.
+    ///
+    /// `PipelineRenderer.export` applies grain on the output grid, so it has to say
+    /// what "the render's long edge" means for a file that is a crop of a decode
+    /// resampled to a target. The two ways of losing pixels pull in opposite
+    /// directions and one of them cancels, which is exactly the shape of thing that
+    /// gets written backwards — this was written backwards once, in the direction that
+    /// makes every cropped export's grain finer than the negative's.
+    func testAGrainPlateIsScaledForPixelsPerGateAndNotForPixelCount() {
+        func edge(_ decode: Int, _ cropped: Int, _ delivered: Int) -> Int {
+            FilmGrainProfile.plateLongEdge(decodeLongEdge: decode,
+                                           croppedLongEdge: cropped,
+                                           deliveredLongEdge: delivered)
+        }
+
+        // Whole frame, native size: the decode's own edge, nothing to correct.
+        XCTAssertEqual(edge(6000, 6000, 6000), 6000)
+        // Whole frame resized to 2048: the same piece of negative with fewer pixels on
+        // it, so the footprint shrinks with them.
+        XCTAssertEqual(edge(6000, 6000, 2048), 2048)
+        // Cropped to half, delivered at native size: half the pixels over half the
+        // negative. The footprint MUST NOT move — this is the assertion that fails on
+        // the version that hands `plateScale` the delivered edge.
+        XCTAssertEqual(edge(6000, 3000, 3000), 6000,
+                       "cropping changed the grain's pixel footprint")
+        // Cropped to half AND resized to 2048.
+        XCTAssertEqual(edge(6000, 3000, 2048), 4096)
+        // Upscaled past native, which the export allows.
+        XCTAssertEqual(edge(6000, 6000, 9000), 9000)
+        // Degenerate inputs fall back rather than dividing by zero or returning one.
+        XCTAssertEqual(edge(0, 0, 2048), 2048)
+        XCTAssertEqual(edge(6000, 0, 2048), 2048)
+
+        // And the same statement as the thing it feeds: a crop must leave `plateScale`
+        // where it was. This is `testGrainFollowsTheGateAndTheRenderSizeNotThePrintSize`
+        // extended to the delivery, which is where the photographer sees it.
+        let profile = FilmGrainProfile(stock: FilmStock.portra400, size: 1, amount: 50,
+                                       pushPull: 0)
+        let uncropped = profile.plateScale(longEdgePixels: edge(6000, 6000, 6000),
+                                           printSizeInches: 10)
+        for keep in [0.9, 0.75, 0.5, 0.25] {
+            let cropped = Int(6000 * keep)
+            XCTAssertEqual(profile.plateScale(longEdgePixels: edge(6000, cropped, cropped),
+                                              printSizeInches: 10),
+                           uncropped, accuracy: 1e-9,
+                           "a crop keeping \(keep) of the frame changed the grain's "
+                               + "pixel footprint")
+        }
+        // A resize does move it, proportionally — the other half of the contract.
+        XCTAssertEqual(profile.plateScale(longEdgePixels: edge(6000, 6000, 3000),
+                                          printSizeInches: 10),
+                       uncropped / 2, accuracy: 1e-9,
+                       "halving the delivered size did not halve the grain's footprint")
+    }
     /// Grain Size saturates at the bottom of its range on a small render, and that is
     /// the pixel grid rather than a bug.
     ///

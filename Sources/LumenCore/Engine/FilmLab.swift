@@ -704,6 +704,35 @@ public struct FilmGrainProfile: Sendable {
         return Swift.max(pitchOnPrintMM * pixelsPerPrintMM, 0.5)
     }
 
+    /// The long edge to hand `plateScale` for a file that has been CROPPED, RESIZED,
+    /// or both on its way out.
+    ///
+    /// `plateScale` reaches pixels through pixels-per-gate-millimetre, so the long edge
+    /// it takes is assumed to span the whole gate. A delivered file often does not, and
+    /// the two ways of losing pixels are not the same:
+    ///
+    ///   - a RESIZE keeps the same piece of negative and puts fewer pixels on it, so
+    ///     the grain's pixel footprint shrinks with them;
+    ///   - a CROP keeps fewer pixels AND less negative, and those cancel exactly. The
+    ///     footprint does not move. In a darkroom the crop is enlarged more and the
+    ///     grain gets coarser ON THE PRINT — which is the same statement, since the
+    ///     print's pixel density rose by the same factor.
+    ///
+    /// So the answer is `decode × delivered ÷ cropped`: the delivered long edge for an
+    /// uncropped frame, and the decode's own for a native-size export of a crop. It
+    /// lives in LumenCore rather than beside the export that uses it because it is
+    /// arithmetic, it is easy to get backwards, and it was got backwards once.
+    public static func plateLongEdge(decodeLongEdge: Int, croppedLongEdge: Int,
+                                     deliveredLongEdge: Int) -> Int {
+        guard decodeLongEdge > 0, croppedLongEdge > 0, deliveredLongEdge > 0 else {
+            return Swift.max(deliveredLongEdge, 1)
+        }
+        let scaled: Double = Double(decodeLongEdge) * Double(deliveredLongEdge)
+            / Double(croppedLongEdge)
+        guard scaled.isFinite, scaled >= 1 else { return Swift.max(deliveredLongEdge, 1) }
+        return Swift.max(Int(scaled.rounded()), 1)
+    }
+
     /// Per-channel plate cell size in pixels — the blue record is coarsest.
     public func plateScale(longEdgePixels: Int, printSizeInches: Double, channel: Int) -> Double {
         let i: Int = Swift.min(Swift.max(channel, 0), 2)

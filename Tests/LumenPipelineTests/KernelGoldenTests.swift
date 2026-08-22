@@ -900,6 +900,99 @@ final class KernelGoldenTests: XCTestCase {
         }
     }
 
+    // MARK: - Grain lands on the grid that is delivered
+
+    /// Two exports of the same picture at the same delivered size must contain the same
+    /// grain, whether or not the export had to resize to get there.
+    ///
+    /// `export` applied grain inside `build`, at DECODE resolution, and then resampled
+    /// to the target — so a 900 px file delivered at 300 px carried a grain pattern
+    /// three times finer than the one a 300 px render of the same recipe produces, and
+    /// three times finer than the preview the photographer approved. σ is a poor
+    /// instrument for that: measured on the reference path, a 3x average costs the
+    /// amplitude only about 4% (`testFilmGrainHasTheSameAmplitudeAtEveryRenderSize`),
+    /// which is why this compares the PICTURES and not their standard deviations. Two
+    /// uncorrelated grain fields of the same σ differ by √2·σ; the same field twice
+    /// differs by nothing.
+    ///
+    /// A flat field, so every difference between the two files is grain. Denoise off,
+    /// output sharpening off, no watermark: each of those would put structure into the
+    /// comparison that is not the thing being measured.
+    ///
+    /// Uncropped, deliberately. A crop is the case where the delivered pixel count is
+    /// NOT the long edge the plate must be scaled for, and that arithmetic is pinned
+    /// where it can actually be run:
+    /// `testAGrainPlateIsScaledForPixelsPerGateAndNotForPixelCount` in LumenCore.
+    func testGrainIsAppliedOnTheGridThatIsDelivered() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+
+        let delivered = 300
+        var recipe = Recipe()
+        recipe.develop.denoise.mode = .off
+        recipe.look.filmLab = FilmLab(stock: "lumen/portra400", amount: 100,
+                                      grain: FilmGrain(size: 1, amount: 100))
+        let exportRecipe = ExportRecipe(name: "grain", format: .png, bitDepth: 16,
+                                        colorSpace: .srgb, resizeMode: .longEdge,
+                                        resizeValue: Double(delivered))
+        let renderer = PipelineRenderer()
+
+        func delivery(sourceLongEdge: Int) throws -> ImageBuffer {
+            let w = sourceLongEdge, h = sourceLongEdge * 2 / 3
+            let flat = ImageBuffer(width: w, height: h) { _, _ in RGB(gray: 0.18) }
+            let image = try renderer.exportedImage(source: StubSource(ciImage(from: flat)),
+                                                   recipe: recipe, using: exportRecipe)
+            let ow = Int(image.extent.width.rounded())
+            let oh = Int(image.extent.height.rounded())
+            XCTAssertEqual(ow, delivered,
+                           "a \(sourceLongEdge) px source delivered \(ow) px")
+            guard let pixels = readBack(image, width: ow, height: oh) else {
+                throw RenderError.renderFailed
+            }
+            return pixels
+        }
+
+        // Native: 300 px in, 300 px out, no resize anywhere in the path.
+        let native = try delivery(sourceLongEdge: delivered)
+        // Downsized: the same picture, three times larger, delivered at the same size.
+        let downsized = try delivery(sourceLongEdge: delivered * 3)
+
+        // Inset, because Lanczos at the border of the larger frame legitimately differs
+        // from no resampling at all.
+        let inset = 6
+        var sum = 0.0, sumSquares = 0.0, difference = 0.0, count = 0.0
+        for y in inset..<(native.height - inset) {
+            for x in inset..<(native.width - inset) {
+                let a = native[x, y].g
+                sum += a
+                sumSquares += a * a
+                difference += (a - downsized[x, y].g) * (a - downsized[x, y].g)
+                count += 1
+            }
+        }
+        let mean = sum / Swift.max(count, 1)
+        let sigma = Swift.max(sumSquares / Swift.max(count, 1) - mean * mean, 0)
+            .squareRoot()
+        let rms = (difference / Swift.max(count, 1)).squareRoot()
+        print(String(format: "EXPORT GRAIN mean %.4f  sigma %.5f  rms difference %.5f",
+                     mean, sigma, rms))
+
+        // Grain has to be present, or the comparison below is between two flat fields
+        // and passes for a pipeline that dropped the stage entirely.
+        XCTAssertGreaterThan(sigma, 0.02 * mean,
+                             "the delivered file varies by \(sigma) on a mean of "
+                                 + "\(mean) — under 2% of the level is not a grain, so "
+                                 + "the comparison below proves nothing")
+        // The two deliveries are the same plate, at the same scale, over the same flat
+        // picture, so they should agree to the resampler's own error. Grain applied
+        // before the resize instead puts two UNCORRELATED fields side by side, which
+        // lands near √2·σ — a factor of ten above this bar.
+        XCTAssertLessThan(rms, 0.15 * sigma,
+                          "two exports of the same picture at the same delivered size "
+                              + "differ by \(rms) against a grain σ of \(sigma) — the "
+                              + "resized one is not carrying the grain of the size it "
+                              + "was delivered at")
+    }
+
     // MARK: - Availability
 
     /// The load-bearing environment check. If this fails, the app still renders — via

@@ -188,6 +188,20 @@ public final class PipelineRenderer {
     public func export(source: any ImageSource, recipe: Recipe, to destination: URL,
                        using exportRecipe: ExportRecipe,
                        strokeSets: [String: BrushStrokeSet] = [:]) throws {
+        let image = try exportedImage(source: source, recipe: recipe,
+                                      using: exportRecipe, strokeSets: strokeSets)
+        try write(image, to: destination, using: exportRecipe)
+    }
+
+    /// The delivered pixels, one step before the encoder.
+    ///
+    /// Split out from `export` so the file that gets written can be MEASURED without
+    /// going through an encoder and back: every claim about what an export contains was
+    /// otherwise a claim about a PNG's bytes, decoded through whatever colour space the
+    /// reader chose, which is a poor instrument for asking whether a stage ran.
+    func exportedImage(source: any ImageSource, recipe: Recipe,
+                       using exportRecipe: ExportRecipe,
+                       strokeSets: [String: BrushStrokeSet] = [:]) throws -> CIImage {
         guard let decoded = source.decode(recipe: recipe, draft: false, scaleFactor: 1.0) else {
             throw RenderError.decodeFailed
         }
@@ -204,7 +218,8 @@ public final class PipelineRenderer {
 
         let graph = makeGraph(plan: plan, decoded: decoded, draft: false,
                               strokeSets: strokeSets,
-                              aiMattes: mattes[source.url] ?? [:])
+                              aiMattes: mattes[source.url] ?? [:],
+                              deferGrain: true)
         var image = graph.build(decoded, plan: plan,
                                 options: RenderGraph.Options(longEdge: longEdge,
                                                              draft: false,
@@ -218,6 +233,50 @@ public final class PipelineRenderer {
         image = Self.applyGeometry(image, recipe: recipe,
                                    scaleTo: Swift.max(target.width, target.height),
                                    allowUpscale: exportRecipe.allowUpscale)
+        // Grain, on the grid that is DELIVERED — which is why `makeGraph` was asked to
+        // withhold the plate above.
+        //
+        // The preview decodes at roughly its own display size, so it grains at the size
+        // it shows. This grained at the DECODE's size and then resampled, and the two
+        // are not the same file. Not by much of an amplitude — measured on the
+        // reference path, a 3x average costs σ about 4%, and about 1% where the plate
+        // scales freely, because `plateScale` already tracks the render's long edge and
+        // the plate's energy sits in its coarsest octave. The audit's "cutting grain
+        // sigma about 3x" is wrong by an order of magnitude and
+        // `testFilmGrainHasTheSameAmplitudeAtEveryRenderSize` records the real numbers.
+        //
+        // What it does change is the half-pixel floor. `plateScale` refuses to draw a
+        // grain cell finer than half a pixel because there is nothing there to draw —
+        // and a resample AFTER the plate has been scaled divides straight past that
+        // floor, so a heavily downsized delivery carried a pattern finer than the model
+        // allows and finer than the preview showed. Graining here puts the floor where
+        // the photographer will see it. C1 grains at output resolution for the same
+        // family of reasons (docs/03:116-118), and this is also cheaper: the kernel
+        // runs over the output's pixels rather than the decode's.
+        //
+        // Before the output sharpen, which is where it already sat relative to it: the
+        // only thing this moved is the resize.
+        //
+        // And the plate is scaled for the delivery's PIXELS-PER-GATE, not for its
+        // pixel count. A crop takes pixels away and takes the same fraction of the
+        // negative away with them, so the grain's pixel footprint does not change;
+        // handing `plateScale` the cropped long edge instead would make every cropped
+        // export's grain finer than the negative's by exactly the crop factor. The
+        // uncropped equivalent of this delivery is `decode × delivered ÷ cropped`,
+        // which is also, for an uncropped frame, just the delivered long edge — and
+        // which is the footprint the old decode-then-resize order happened to produce,
+        // since a resample scales the grain with everything else. That part of it was
+        // right and is kept.
+        let plateLongEdge = FilmGrainProfile.plateLongEdge(
+            decodeLongEdge: longEdge,
+            croppedLongEdge: Int(Swift.max(extent.width, extent.height).rounded()),
+            deliveredLongEdge: Int(Swift.max(image.extent.width,
+                                             image.extent.height).rounded()))
+        if let film = plan.filmChain, film.grainAmount > 0,
+           let plate = Self.grainPlate(film: film, extent: image.extent,
+                                       plateLongEdge: plateLongEdge) {
+            image = graph.applyGrain(image, plate: plate, film: film)
+        }
         image = Self.applyOutputSharpen(image, exportRecipe.sharpen,
                                         resolutionPPI: exportRecipe.resolutionPPI)
         if let watermark = exportRecipe.watermark, !watermark.text.isEmpty {
@@ -227,8 +286,7 @@ public final class PipelineRenderer {
         // a resample after it would average the pattern away.
         image = Self.applyDither(image, colorSpace: exportRecipe.colorSpace,
                                  bitDepth: exportRecipe.effectiveBitDepth)
-
-        try write(image, to: destination, using: exportRecipe)
+        return image
     }
 
     // MARK: - Dither
@@ -493,9 +551,17 @@ public final class PipelineRenderer {
     /// the reference implementation and handed in as single-channel images; the grain
     /// plate is generated once per stock and tiled. Leaving either empty is how the
     /// local stage and film grain silently did nothing.
+    ///
+    /// `deferGrain` withholds the film grain plate so `RenderGraph.build` skips the
+    /// grain stage — for the export path, which applies grain itself on the OUTPUT
+    /// pixel grid after the resize. Withholding the plate rather than adding a flag to
+    /// `Options` because that is already how the graph is told a stage has nothing to
+    /// run on, and because building a full-resolution plate the export will not use is
+    /// the waste this is here to avoid.
     private func makeGraph(plan: RenderPlan, decoded: CIImage, draft: Bool,
                            strokeSets: [String: BrushStrokeSet],
-                           aiMattes: [String: Plane]) -> RenderGraph {
+                           aiMattes: [String: Plane],
+                           deferGrain: Bool = false) -> RenderGraph {
         var graph = RenderGraph()
         guard !draft else { return graph }
         let extent = decoded.extent
@@ -539,7 +605,7 @@ public final class PipelineRenderer {
             }
         }
 
-        if let film = plan.filmChain, film.grainAmount > 0 {
+        if let film = plan.filmChain, film.grainAmount > 0, !deferGrain {
             graph.grainPlate = Self.grainPlate(film: film, extent: extent)
         }
         return graph
@@ -683,9 +749,18 @@ public final class PipelineRenderer {
     /// read as film. A monochrome stock takes the single-plate path, both because its
     /// layers must stay correlated and because building three identical ones would be
     /// waste.
-    static func grainPlate(film: FilmChain, extent: CGRect) -> CIImage? {
+    /// `plateLongEdge` is the long edge `plateScale` is asked about, which is NOT
+    /// always the extent's. `plateScale` converts a gate pitch into pixels through
+    /// pixels-per-gate-millimetre, so it assumes the long edge it is given covers the
+    /// whole gate. A cropped delivery does not: it has fewer pixels AND covers less of
+    /// the negative, and those cancel — the grain keeps its pixel footprint, exactly as
+    /// it does in a darkroom. So a caller holding a crop has to hand over the long edge
+    /// the delivery WOULD have if it were uncropped. Defaults to the extent's own long
+    /// edge, which is right whenever the image being grained is the whole frame.
+    static func grainPlate(film: FilmChain, extent: CGRect,
+                           plateLongEdge: Int? = nil) -> CIImage? {
         let size = 128
-        let long = Int(Swift.max(extent.width, extent.height))
+        let long = plateLongEdge ?? Int(Swift.max(extent.width, extent.height))
 
         /// One channel's tile: its noise in `channel`, zero in the others, so the three
         /// sum to a packed RGB plate. Alpha is carried by the red tile alone — addition
