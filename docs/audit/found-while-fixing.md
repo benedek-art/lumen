@@ -492,3 +492,117 @@ a peak-separation metric wandering as the boundary sweeps past different content
 least plausible. Plausible is not established, and none of them is asserted against until
 somebody has decided what monotonicity should mean for a control whose job is to move a
 line rather than to push in a direction.
+
+
+---
+
+**UX-23 — the EXIF backfill occupies the catalog's only serial queue for the length of a
+folder, and eight decode workers block cooperative threads behind it.** FIXED, read from
+source, never measured.
+
+Found while tracing what blocks the input path during a slider drag. `backfillMetadata`
+ran its whole paged loop inside one `queue.async` block: `photosMissingMetadata`, a
+`CaptureMetadataReader.read` (file open plus EXIF parse) per row, `setMetadata`, then a
+`QuickSignature.compute` (one megabyte read plus hash) per row, five thousand of each,
+without ever yielding the queue. Everything the user can feel goes through that queue —
+`saveRecipe` behind every slider event, `previewState` in front of every thumbnail, every
+grid query — so for the duration of a cold scan all three were stopped.
+
+The compounding half is `previewState`, which the preview cache's own author flagged as
+the thing to measure first: it was a `queue.sync` called from `Task.detached` decode
+workers, of which there are eight. The cooperative pool is about as wide as the machine
+has cores, and a blocked cooperative thread cannot run another task's continuation — so
+with the pool parked inside `queue.sync`, the render actor gets no turn and every `await`
+in the viewer's refine driver stops resuming. The main actor is a separate executor, so
+the interface keeps moving while the picture does not. That is the reported shape:
+"everything is super unresponsive… the image isn't really updating very well".
+
+Fixed by driving the backfill from a separate `maintenance` queue with the file work on
+its own thread and only the statements inside `queue.sync`, and by making `previewState`
+`async` through the existing `onQueue` continuation so its callers suspend rather than
+block. Neither changes what is computed. Neither has a test, and cannot in this
+repository: `Sources/LumenApp` has no test target (UX-01). What would settle it is a
+signpost around one backfill chunk and around `previewState`, on a Mac.
+
+---
+
+**UX-24 — the render coalescer claims its ticket on entry to a serial actor, so it can
+never drop a backlog.** FIXED, read from source, never measured.
+
+`RenderCoordinator.render` does `latestGeneration = max(latestGeneration, generation)` and
+then compares against it. The ticket is issued on the main actor but claimed when the
+request ENTERS the actor, and the actor is serial with a synchronous `renderPreview`
+inside it — so requests queued behind an in-flight render have not raised the number, and
+each raises it itself on arrival and compares as current. A drag delivers an event every
+8–16 ms and a preview render costs tens of milliseconds, so the queue grew for the whole
+gesture and every superseded frame was rendered in full, decode included.
+
+The signal that drops it was already present and unread: the viewer drives renders from
+`.task(id: RenderKey)`, which cancels the previous task the moment the id changes, so a
+superseded request arrives already cancelled. `produce` checked staleness three times and
+`Task.isCancelled` never. It does now, before the decode.
+
+---
+
+**UX-25 — every press on the loupe canvas toggled the zoom, and the draft pass drew the
+photograph at half size above fit.** FIXED, read from source, never observed.
+
+The owner reported "lots of zoom in, zoom out things that happen when I'm not pressed on
+the image full screen". The search shape suggested — a scroll or magnify gesture reaching
+the viewport — does not exist: there is no `MagnificationGesture`, no `MagnifyGesture` and
+no scroll-wheel handling anywhere in the app, and `zoomLevel` has exactly one writer. Two
+other things produce the symptom.
+
+The press gesture asked only `travel < 3` on a `DragGesture(minimumDistance: 0)` attached
+to the whole canvas, and its pan branch returns early whenever the frame does not overflow
+the viewport — so at fit the gesture was a zoom toggle and nothing else. A press on the
+letterbox surround, a click to bring the window forward, a press held while deciding, a
+modifier-click: all of them jumped to 1:1 and the next dropped back. `ViewportClick` now
+requires the release to land on the drawn photograph, to be under half a second, and to
+carry no modifier.
+
+The second is not a gesture at all and does not move `zoomLevel`. Above fit the frame is
+drawn at `proxyPixels × ratio ÷ displayScale`; at fit the ratio is derived from the same
+extent and the two cancel, above fit they do not. The viewer asks for a 4096 px settle and
+the refine driver takes `max(1024, min(4096/2, 2048))` = 2048 for the draft, while
+`renderPreview` scales the decode by `maxLongEdge ÷ native` identically for both — so the
+draft's extent is exactly half and the photograph is drawn at half size until quality
+lands. Every render, which during a drag is every mouse event. `DraftResolution` gives the
+draft the settle's own long edge wherever the geometry can see the difference.
+
+---
+
+**UX-26 — a drag that loses its interior is harmless; a drag that loses its END is not,
+and `onEnded` was throwing the end away.** FIXED, tests written and UNRUN.
+
+Recorded because the theory it displaced was reasonable and wrong. Highlights, Whites and
+Blacks were reported dead at 2, 11 and −7 on ±100 controls, and the offered reading was
+that the interface had dropped most of the gesture. The drag is relative —
+`dragStartValue + (location.x − startLocation.x) / width × span` — so the value is a pure
+function of the pointer's current offset from the press, with no accumulator; AppKit's
+event coalescing keeps the newest sample and discards the older ones, which is exactly the
+one that survives. Dropping the interior of a gesture cannot shrink it. On the ~158-point
+track the develop column affords, those three readings are 1.6, 8.7 and 5.5 points of
+travel: small gestures, not lost ones.
+
+What the slider did drop is the release. `onEnded` set `isDragging = false` and ignored
+`value.location`, so the value a drag was worth depended on whether a motion event arrived
+before the mouse-up — which is precisely the race a blocked main actor loses. The
+arithmetic now lives in `SliderTrack` / `SliderDrag` in LumenCore with tests, and the
+release resolves through it like any other sample.
+
+---
+
+**ENV-01 — the Swift toolchain could not be installed in the environment this batch was
+written in, so `swift test` and `swiftc -parse` were both unavailable.** Recorded because
+it changes how everything above should be read.
+
+`scripts/install-linux-toolchain.sh` fails at the fetch: the agent proxy answers 403 to
+CONNECT for `download.swift.org`, the release tarballs are not GitHub assets, and there is
+no Swift binary anywhere on the machine. The only gates that ran were
+`scripts/check-swift-surface.py` and `scripts/gen-fixtures.py --check`, both exit 0, and
+the surface checker was verified able to fail twice on this diff — once on a misspelt
+static reference and once on a wrong argument label. Note what it did NOT catch: the same
+wrong label on an INSTANCE call, two lines away, went unreported. Its own header says it
+sees labels and not types; it evidently also misses some labels on lowercase receivers.
+Every test added in this batch is unrun, and every behavioural claim is read from source.
