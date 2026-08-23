@@ -199,6 +199,7 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     "XCTUnwrap", "XCTFail", "XCTAssertEqual", "XCTAssertNotEqual", "XCTAssertTrue",
     "XCTAssertFalse", "XCTAssertNil", "XCTAssertNotNil", "XCTAssertGreaterThan",
     "XCTAssertLessThan", "XCTAssertGreaterThanOrEqual", "XCTAssertLessThanOrEqual",
+    "XCTAssertThrowsError", "XCTAssertNoThrow",
     # CoreGraphics / ImageIO / CoreImage / CoreText
     "CoreGraphics", "CGFloat", "CGPoint", "CGSize", "CGRect", "CGVector",
     "CGAffineTransform", "CGImage", "CGColor", "CGColorSpace", "CGContext",

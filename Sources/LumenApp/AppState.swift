@@ -2089,7 +2089,8 @@ final class AppState: ObservableObject {
         }
     }
 
-    func updateRecipe(coalescingKey: String? = nil, _ mutate: (inout Recipe) -> Void) {
+    func updateRecipe(coalescingKey: String? = nil, label: String? = nil,
+                      _ mutate: (inout Recipe) -> Void) {
         let targets = editTargets
         guard !targets.isEmpty else { return }
         var before: [URL: HistoryStack.PhotoEdit] = [:]
@@ -2108,7 +2109,8 @@ final class AppState: ObservableObject {
             recipes[photo.id] = updated
         }
         guard !after.isEmpty else { return }
-        history.record(before: before, after: after, coalescingKey: coalescingKey)
+        history.record(before: before, after: after, coalescingKey: coalescingKey,
+                       label: label)
         persist(changed)
         // Renaming a mask changes the recipe without changing the picture. Re-binning
         // the scopes for it would mean a proxy render per keystroke.
@@ -2204,7 +2206,105 @@ final class AppState: ObservableObject {
 
     func pasteLook() {
         guard let look = copiedLook else { return }
-        updateRecipe { $0.look = look }
+        updateRecipe(label: "Paste Look") { $0.look = look }
+    }
+
+    // MARK: Saved looks
+
+    /// The looks in the catalog, as the browser lists them.
+    ///
+    /// Refreshed on demand — when the panel appears and after anything that changes the
+    /// list — and never on a timer, for the reason `refreshLibrarySections` gives about
+    /// a list that moves while you are reading it.
+    @Published private(set) var savedLooks: [LookRow] = []
+
+    func refreshSavedLooks() {
+        guard let catalog else {
+            savedLooks = []
+            return
+        }
+        Task { [weak self] in
+            let rows = await catalog.looks()
+            self?.savedLooks = rows
+        }
+    }
+
+    /// Save the Look layer of the photo under the cursor, under a name.
+    ///
+    /// What gets saved is decided by `LookSubset.extracted(from:)` in LumenCore, not
+    /// here: which subtrees a look carries is the whole design of the feature and it is
+    /// tested where it can fail, rather than being a line in an untestable view model.
+    func saveCurrentLook(named name: String) {
+        guard let catalog else {
+            statusMessage = "No catalog — a look needs somewhere to live"
+            return
+        }
+        guard primarySelection != nil else {
+            statusMessage = "Select a photo whose look you want to keep"
+            return
+        }
+        guard let clean = LookSubset.normalizedName(name) else {
+            statusMessage = "A look needs a name"
+            return
+        }
+        let replacing = savedLooks.contains { $0.name == clean }
+        let subset = LookSubset.extracted(from: currentRecipe)
+        Task { [weak self] in
+            let saved = await catalog.saveLook(name: clean, subset: subset)
+            guard let self else { return }
+            if saved == nil {
+                self.statusMessage = "\"\(clean)\" could not be saved"
+            } else {
+                self.statusMessage = replacing ? "Look \"\(clean)\" updated"
+                                               : "Look \"\(clean)\" saved"
+            }
+            self.refreshSavedLooks()
+        }
+    }
+
+    /// Put a saved look on the selection: one history step, undoable, and every frame
+    /// keeps its own white balance, exposure, crop and masks.
+    func applyLook(_ look: LookRow) {
+        let targets = editTargets.count
+        guard targets > 0 else {
+            statusMessage = "Select the photos to apply \"\(look.name)\" to"
+            return
+        }
+        guard let subset = try? look.subset() else {
+            statusMessage = "\"\(look.name)\" could not be read"
+            return
+        }
+        updateRecipe(label: "Apply Look") { recipe in
+            recipe = subset.applied(to: recipe)
+        }
+        statusMessage = targets == 1
+            ? "Applied \"\(look.name)\""
+            : "Applied \"\(look.name)\" to \(targets) photos"
+    }
+
+    func renameLook(_ look: LookRow, to name: String) {
+        guard let catalog else { return }
+        guard let clean = LookSubset.normalizedName(name), clean != look.name else {
+            return
+        }
+        Task { [weak self] in
+            let renamed = await catalog.renameLook(id: look.id, to: clean)
+            guard let self else { return }
+            if !renamed { self.statusMessage = "There is already a look called \"\(clean)\"" }
+            self.refreshSavedLooks()
+        }
+    }
+
+    func deleteLook(_ look: LookRow) {
+        guard let catalog else { return }
+        Task { [weak self] in
+            await catalog.deleteLook(id: look.id)
+            guard let self else { return }
+            // Deliberately said out loud: throwing a look away is not undoable, and
+            // every photograph already graded with it keeps its grade.
+            self.statusMessage = "Deleted \"\(look.name)\" — graded photos keep their grade"
+            self.refreshSavedLooks()
+        }
     }
 
     func resetSettings() {

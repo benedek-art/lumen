@@ -345,6 +345,45 @@ public struct StackRow: Equatable, Sendable {
     }
 }
 
+/// One row of the `look` table: a named look the photographer saved, as stored.
+///
+/// The payload stays as text here rather than being decoded on the way out, because the
+/// browser lists dozens of looks to show four words each, and parsing every stored
+/// slice to draw a name is work nobody asked for. `subset()` decodes the one the
+/// photographer actually reaches for.
+///
+/// `look.thumb` has no accessor because nothing writes it: a swatch would have to be
+/// rendered through the pipeline against some photograph, and choosing which photograph
+/// is a design question this pass did not answer. The column stays NULL and the browser
+/// lists names — said here rather than left for the next reader to discover, since a
+/// stored field with no writer is exactly what audit LIB-22 was about.
+public struct LookRow: Equatable, Sendable {
+    public var id: Int64
+    public var name: String
+    /// User grouping ("folder" in the docs). NULL = ungrouped.
+    public var group: String?
+    public var kind: LookKind
+    /// Canonical sparse JSON, as written by `CanonicalJSON.canonicalLookJSON`.
+    public var subsetJSON: String
+    public var updatedAt: Int64
+
+    public init(id: Int64 = 0, name: String, group: String? = nil,
+                kind: LookKind = .look, subsetJSON: String = "{}",
+                updatedAt: Int64 = 0) {
+        self.id = id
+        self.name = name
+        self.group = group
+        self.kind = kind
+        self.subsetJSON = subsetJSON
+        self.updatedAt = updatedAt
+    }
+
+    /// The stored slice, decoded.
+    public func subset() throws -> LookSubset {
+        try CanonicalJSON.decodeLookSubset(from: Data(subsetJSON.utf8))
+    }
+}
+
 /// The columns the metadata chips enumerate. An enum rather than a string, because the
 /// value is interpolated into SQL: a chip that took a column name from anywhere else
 /// would be an injection point, and there is no such thing as a trusted string here.
@@ -661,11 +700,12 @@ public final class CatalogStore {
 
     /// Schema version this build understands. Base DDL (`CatalogSchema.lumenDDL`) is
     /// version 1; everything after it is a migration below.
-    public static let latestSchemaVersion: Int = 2
+    public static let latestSchemaVersion: Int = 3
 
     /// Gap-closing migration for `lumen.db` (brief 02 §2.3, G5–G15, G17–G26, G31).
     public static let migrations: [CatalogMigration] = [
-        CatalogMigration(version: 2, sql: CatalogStore.lumenMigration2)
+        CatalogMigration(version: 2, sql: CatalogStore.lumenMigration2),
+        CatalogMigration(version: 3, sql: CatalogStore.lumenMigration3),
     ]
 
     /// Gap-closing migration for `cache.db` (G1–G4, G19, G28, G29).
@@ -759,6 +799,31 @@ public final class CatalogStore {
       ('label_name_3', 'Green'),
       ('label_name_4', 'Blue'),
       ('label_name_5', 'Purple');
+    """
+
+    /// The `look` table gains the constraint that makes a saved look identifiable.
+    ///
+    /// A look is reached for by NAME — that is the whole of its identity in the browser
+    /// — so two rows with one name inside one group are two things the photographer
+    /// cannot tell apart, and "apply Portra Warm" stops having an answer. Saving over a
+    /// name is how a look is updated (`saveLook`), which only works if the name is a
+    /// key.
+    ///
+    /// `COALESCE(grp, '')` rather than the bare column, for the reason cacheMigration2's
+    /// artifact index records: SQLite treats NULLs as distinct in a UNIQUE index, and
+    /// ungrouped is the common case, so the bare form would constrain everything except
+    /// the rows that need it most.
+    ///
+    /// No de-duplication pass precedes it, unlike every other unique index in this file.
+    /// The `look` table has existed since the base DDL with no writer anywhere in the
+    /// tree (audit FILM-15/LIB-22: "zero insert/select"), so every catalog reaching this
+    /// migration has an empty one and there is nothing to collapse. If that is ever
+    /// wrong the migration fails loudly inside its transaction and leaves the catalog at
+    /// version 2, which is the correct outcome for a claim that turned out to be false.
+    private static let lumenMigration3: String = """
+    CREATE UNIQUE INDEX IF NOT EXISTS look_identity
+      ON look(kind, COALESCE(grp, ''), name);
+    CREATE INDEX IF NOT EXISTS look_kind ON look(kind, name);
     """
 
     private static let cacheMigration2: String = """
@@ -876,6 +941,13 @@ public final class CatalogStore {
 
     private static let stackColumns: String = """
     stack.id, stack.origin, stack.pick_photo_id, stack.collapsed
+    """
+
+    /// `thumb` is deliberately absent: nothing writes it (see `LookRow`), and selecting
+    /// a BLOB column to ignore it would read every swatch off disk to draw a list of
+    /// names.
+    private static let lookColumns: String = """
+    id, name, grp, kind, subset, updated_at
     """
 
     // MARK: - Open
@@ -1681,6 +1753,111 @@ public final class CatalogStore {
             try self.db.run("UPDATE edit SET is_current = 1 WHERE id = ?;",
                             [.integer(editID)])
         }
+    }
+
+    // MARK: - Looks
+
+    /// Store a named look, or update the one already stored under that name.
+    ///
+    /// Save-over rather than save-another, because a look is reached for by name and
+    /// two rows called "Portra Warm" are two rows the browser draws identically. The
+    /// alternative — appending "Portra Warm 2" — turns a browser into a graveyard
+    /// within one shoot, and there is no gesture in a photographer's day that means
+    /// "keep the old version of this look but never show me which is which". Renaming
+    /// is how a second variant is kept.
+    ///
+    /// Look-then-write rather than `ON CONFLICT`, for the reason `recordArtifact` gives
+    /// above it: the conflict target is an expression index over a nullable column, and
+    /// a plain `SELECT … grp IS ?` says what it means without asking SQLite's upsert
+    /// parser to agree about which index it is aiming at.
+    @discardableResult
+    public func saveLook(name: String, subset: LookSubset,
+                         kind: LookKind = .look, group: String? = nil,
+                         at now: Int64 = CatalogStore.now()) throws -> Int64 {
+        guard let clean = LookSubset.normalizedName(name) else {
+            throw CatalogError.invalid("a look needs a name")
+        }
+        let json = try CanonicalJSON.canonicalLookJSON(subset)
+        return try db.transaction {
+            let existing = try self.db.scalarInt("""
+            SELECT id FROM look WHERE kind = ? AND grp IS ? AND name = ? LIMIT 1;
+            """, [.text(kind.rawValue), .optionalText(group), .text(clean)])
+            if let id = existing {
+                try self.db.run(
+                    "UPDATE look SET subset = ?, updated_at = ? WHERE id = ?;",
+                    [.text(json), .integer(now), .integer(id)])
+                return id
+            }
+            try self.db.run("""
+            INSERT INTO look (name, grp, kind, subset, updated_at) VALUES (?, ?, ?, ?, ?);
+            """, [.text(clean), .optionalText(group), .text(kind.rawValue),
+                  .text(json), .integer(now)])
+            return self.db.lastInsertRowID
+        }
+    }
+
+    /// Every stored look of one register, newest name-sorted rather than
+    /// recency-sorted: a browser whose rows move when you use them is a browser you
+    /// have to re-read every time.
+    public func looks(kind: LookKind = .look) throws -> [LookRow] {
+        try allRows("SELECT \(CatalogStore.lookColumns) FROM look WHERE kind = ? "
+                    + "ORDER BY COALESCE(grp, ''), name COLLATE NOCASE;",
+                    [.text(kind.rawValue)], CatalogStore.decodeLook)
+    }
+
+    public func look(id: Int64) throws -> LookRow? {
+        try firstRow("SELECT \(CatalogStore.lookColumns) FROM look WHERE id = ?;",
+                     [.integer(id)], CatalogStore.decodeLook)
+    }
+
+    /// The look stored under a name, if there is one. What "apply the look called X"
+    /// resolves through, and what a save dialog asks before it overwrites.
+    public func look(named name: String, kind: LookKind = .look,
+                     group: String? = nil) throws -> LookRow? {
+        guard let clean = LookSubset.normalizedName(name) else { return nil }
+        return try firstRow("SELECT \(CatalogStore.lookColumns) FROM look "
+                            + "WHERE kind = ? AND grp IS ? AND name = ? LIMIT 1;",
+                            [.text(kind.rawValue), .optionalText(group), .text(clean)],
+                            CatalogStore.decodeLook)
+    }
+
+    /// Rename a look. Throws rather than silently merging when the new name is taken:
+    /// a rename that quietly destroyed the look already sitting on that name would be
+    /// the same loss `saveLook`'s save-over is at least explicit about.
+    ///
+    /// The check below is not what makes that safe — `look_identity` is. Deleting the
+    /// check and running the suite leaves it green, because the UPDATE then violates
+    /// the unique index and SQLite refuses it anyway; deleting both is what turns the
+    /// rename into a clobber and the test red. The check earns its place by naming the
+    /// look in the error, which is the difference between a sentence the panel can show
+    /// and a raw constraint failure.
+    public func renameLook(id: Int64, to name: String,
+                           at now: Int64 = CatalogStore.now()) throws {
+        guard let clean = LookSubset.normalizedName(name) else {
+            throw CatalogError.invalid("a look needs a name")
+        }
+        try db.transaction {
+            guard let row = try self.look(id: id) else {
+                throw CatalogError.notFound("look \(id)")
+            }
+            let taken = try self.db.scalarInt("""
+            SELECT id FROM look WHERE kind = ? AND grp IS ? AND name = ? AND id <> ?
+             LIMIT 1;
+            """, [.text(row.kind.rawValue), .optionalText(row.group), .text(clean),
+                  .integer(id)])
+            if taken != nil {
+                throw CatalogError.invalid("a look called \(clean) already exists")
+            }
+            try self.db.run("UPDATE look SET name = ?, updated_at = ? WHERE id = ?;",
+                            [.text(clean), .integer(now), .integer(id)])
+        }
+    }
+
+    /// Delete a look. Nothing references `look.id` — a look is copied into a recipe at
+    /// apply time, never linked — so this cannot orphan an edit, and a photograph
+    /// graded with a look the photographer later threw away keeps its grade.
+    public func deleteLook(id: Int64) throws {
+        try db.run("DELETE FROM look WHERE id = ?;", [.integer(id)])
     }
 
     // MARK: - Culling state
@@ -2929,6 +3106,19 @@ public final class CatalogStore {
                       pinned: s.bool(9))
     }
 
+    /// An unknown `kind` decodes as `.look` rather than throwing: the column is
+    /// constrained by this build's writers and by nothing else, and a look written by a
+    /// later build under a register this one has not heard of is still a look worth
+    /// listing. It is the same posture `decodeEdit` takes on `edit.kind`.
+    private static func decodeLook(_ s: SQLiteStatement) -> LookRow {
+        LookRow(id: s.int(0),
+                name: s.string(1) ?? "",
+                group: s.string(2),
+                kind: LookKind(rawValue: s.string(3) ?? "look") ?? .look,
+                subsetJSON: s.string(4) ?? "{}",
+                updatedAt: s.int(5))
+    }
+
     private static func decodeStack(_ s: SQLiteStatement) -> StackRow {
         StackRow(id: s.int(0),
                  origin: s.string(1) ?? "manual",
@@ -2992,7 +3182,7 @@ public final class CatalogStore {
 
 public final class CatalogStore {
 
-    public static let latestSchemaVersion: Int = 2
+    public static let latestSchemaVersion: Int = 3
     public static let migrations: [CatalogMigration] = []
     public static let cacheMigrations: [CatalogMigration] = []
 
@@ -3111,6 +3301,25 @@ public final class CatalogStore {
         throw CatalogError.unavailable
     }
     public func makeCurrent(editID: Int64) throws { throw CatalogError.unavailable }
+
+    @discardableResult
+    public func saveLook(name: String, subset: LookSubset,
+                         kind: LookKind = .look, group: String? = nil,
+                         at now: Int64 = 0) throws -> Int64 {
+        throw CatalogError.unavailable
+    }
+    public func looks(kind: LookKind = .look) throws -> [LookRow] {
+        throw CatalogError.unavailable
+    }
+    public func look(id: Int64) throws -> LookRow? { throw CatalogError.unavailable }
+    public func look(named name: String, kind: LookKind = .look,
+                     group: String? = nil) throws -> LookRow? {
+        throw CatalogError.unavailable
+    }
+    public func renameLook(id: Int64, to name: String, at now: Int64 = 0) throws {
+        throw CatalogError.unavailable
+    }
+    public func deleteLook(id: Int64) throws { throw CatalogError.unavailable }
 
     public func setFlag(_ flag: PhotoFlag, photoID: Int64) throws {
         throw CatalogError.unavailable

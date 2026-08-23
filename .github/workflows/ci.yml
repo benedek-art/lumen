@@ -158,6 +158,7 @@ jobs:
       - name: Swift surface — symbols, inits, await, members, imports, targets, values, scopes
         run: python3 scripts/check-swift-surface.py
 
+
   # The engine suite, on the lane that costs nothing. LumenCore is eighteen thousand
   # lines of pure Swift — colour science, tone, grade, film, detail, denoise, mask
   # algebra, catalog and XMP — with no Apple framework anywhere in it, so all 363 of its
@@ -186,6 +187,28 @@ jobs:
       - name: Install the Swift toolchain
         if: steps.swift-cache.outputs.cache-hit != 'true'
         run: sh scripts/install-linux-toolchain.sh
+      # Parse every source file, INCLUDING the macOS-only ones. Runs BEFORE the suite
+      # so a syntax break fails in seconds rather than after six minutes of tests.
+      #
+      # `swiftc -parse` reads inside `#if os(macOS)` on Linux, because parsing happens
+      # before the condition is evaluated. So this sees LumenApp and LumenPipeline — two
+      # thirds of the codebase that nothing else on a Linux runner can look at.
+      #
+      # It closes a hole `check-swift-surface.py` structurally cannot: that script is a
+      # text tool, and on a file carrying a bare `when capture sharpening` fragment where
+      # a declaration belonged it reported EXIT 0 while this rejects it at once. Two of
+      # the three CI breaks on this branch today were exactly that class, each costing a
+      # macOS round trip.
+      #
+      # What it does NOT do, so nobody reads it as more: no type checking, no protocol
+      # conformance, no overload resolution, no name resolution. The third break today
+      # was a conformance failure and this would have waved it through. `build-macos`
+      # remains the only compiler that answers those.
+      - name: Swift parse — every file, macOS-only ones included
+        run: |
+          export PATH="/opt/swift/usr/bin:$PATH"
+          swiftc -parse -swift-version 5 $(find Sources -name '*.swift')
+
       - name: Test — the engine, without the control sweep
         shell: bash
         run: |

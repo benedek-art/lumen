@@ -32,6 +32,10 @@ struct LookPanel: View {
     @State private var transformExpanded: Bool = true
     @State private var transformAdvanced: Bool = false
     @State private var filmExpanded: Bool = true
+    @State private var looksExpanded: Bool = true
+    /// The name being typed into the save field. View state, not recipe state: it
+    /// belongs to nothing until the photographer presses Save.
+    @State private var newLookName: String = ""
 
     /// The normalized tonal axis the pivots live on spans black anchor → white anchor,
     /// i.e. −9 EV … +5 EV (ZoneWindows' defaults). Balance is denominated in EV, so the
@@ -44,6 +48,8 @@ struct LookPanel: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 2) {
                 lookBanner
+                savedLooksSection
+                Divider()
                 wheelsSection
                 Divider()
                 printerLightsSection
@@ -58,6 +64,102 @@ struct LookPanel: View {
             .padding(.bottom, 18)
         }
         .background(Lumen.panelBackground)
+        .onAppear { state.refreshSavedLooks() }
+    }
+
+    // MARK: - Saved looks
+
+    /// The browser. Deliberately a list of names and nothing more.
+    ///
+    /// No swatches: a swatch has to be rendered through the pipeline against some
+    /// photograph, and which photograph is a question this pass did not answer — an
+    /// arbitrary one would be a picture of somebody else's frame presented as a preview
+    /// of what this look does to yours. No hover preview either (audit UX-17 wants one
+    /// and it needs a ≤100 ms proxy path that does not exist yet). What is here is the
+    /// whole of docs/19's sentence and no more: name the look on this frame, and it is
+    /// on any photo in any folder afterwards.
+    private var savedLooksSection: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            LumenSectionHeader(title: "Saved Looks", isExpanded: $looksExpanded)
+
+            if looksExpanded {
+                HStack(spacing: 4) {
+                    TextField("Name this look", text: $newLookName)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 11))
+                        .onSubmit { saveCurrentLook() }
+                    Button {
+                        saveCurrentLook()
+                    } label: {
+                        Text("Save")
+                            .font(.system(size: 10, weight: .semibold))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(canSaveLook ? Lumen.accent : Lumen.secondaryText)
+                    .disabled(!canSaveLook)
+                    .help("Store this photo's grade, film stock and transform under "
+                          + "that name. Its exposure, white balance and crop stay with "
+                          + "the photo.")
+                }
+                .padding(.horizontal, 5)
+                .padding(.vertical, 3)
+                .background(Lumen.controlBackground)
+                .clipShape(RoundedRectangle(cornerRadius: 4))
+
+                if state.savedLooks.isEmpty {
+                    caption("No saved looks yet. Name the grade on this frame and it is "
+                            + "on every photo in the catalog, in any folder, after the "
+                            + "next launch too.")
+                } else {
+                    ForEach(state.savedLooks, id: \.id) { look in
+                        savedLookRow(look)
+                    }
+                    caption("Applying a look replaces the grade, film stock, primaries "
+                            + "and transform on the selection. Every frame keeps its "
+                            + "own exposure, white balance, crop and masks.")
+                }
+            }
+        }
+    }
+
+    private func savedLookRow(_ look: LookRow) -> some View {
+        HStack(spacing: 6) {
+            Button {
+                state.applyLook(look)
+            } label: {
+                Text(look.name)
+                    .font(.system(size: 11))
+                    .foregroundStyle(Lumen.primaryText)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Apply \"\(look.name)\" to the selection")
+
+            Button {
+                state.deleteLook(look)
+            } label: {
+                Image(systemName: "trash")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Lumen.secondaryText)
+            }
+            .buttonStyle(.plain)
+            .help("Delete \"\(look.name)\". Photos already graded with it keep their "
+                  + "grade.")
+        }
+        .frame(height: Lumen.rowHeight)
+    }
+
+    private var canSaveLook: Bool {
+        LookSubset.normalizedName(newLookName) != nil
+    }
+
+    private func saveCurrentLook() {
+        guard canSaveLook else { return }
+        state.saveCurrentLook(named: newLookName)
+        newLookName = ""
     }
 
     /// The one visual difference between this column and Develop: a tinted band with an
@@ -70,13 +172,14 @@ struct LookPanel: View {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 5) {
                     LumenBadge(text: "LOOK", emphasized: true)
-                    Text("travels with Copy Look")
+                    Text("this is what a saved look carries")
                         .font(.system(size: 10))
                         .foregroundStyle(Lumen.secondaryText)
                 }
                 Text("Grade, printer lights, primaries, film stock and the display "
-                     + "transform apply to every frame you paste them onto. Exposure, "
-                     + "white balance and detail stay in Develop, per frame.")
+                     + "transform apply to every frame you paste them onto, in any "
+                     + "folder. Exposure, white balance, crop and detail stay in "
+                     + "Develop, per frame.")
                     .font(.system(size: 10))
                     .foregroundStyle(Lumen.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)

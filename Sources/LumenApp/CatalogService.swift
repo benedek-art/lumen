@@ -541,6 +541,38 @@ final class CatalogService: @unchecked Sendable {
         }
     }
 
+    // MARK: - Saved looks
+
+    /// Every look the photographer has saved. Off the main actor like every other
+    /// catalog read here: the browser is drawn from the returned value, never from a
+    /// `queue.sync` behind a view body.
+    func looks() async -> [LookRow] {
+        await onQueue("look list", fallback: []) { try $0.looks() }
+    }
+
+    /// Store a look. Returns nil when it could not be stored — an unusable name, a
+    /// catalog that is not there — so the panel can say so instead of appearing to
+    /// have saved something.
+    func saveLook(name: String, subset: LookSubset) async -> Int64? {
+        await onQueue("look save", fallback: nil) { (store: CatalogStore) -> Int64? in
+            let id = try store.saveLook(name: name, subset: subset)
+            return id
+        }
+    }
+
+    /// Returns false when the new name is already taken, which is the one failure the
+    /// photographer needs told back to them.
+    func renameLook(id: Int64, to name: String) async -> Bool {
+        await onQueue("look rename", fallback: false) { (store: CatalogStore) -> Bool in
+            try store.renameLook(id: id, to: name)
+            return true
+        }
+    }
+
+    func deleteLook(id: Int64) async {
+        await onQueue("look delete", fallback: ()) { try $0.deleteLook(id: id) }
+    }
+
     // MARK: - Keywords
 
     func keywords(photoID: Int64) async -> [String] {
