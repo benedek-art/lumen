@@ -172,13 +172,14 @@ struct LookPanel: View {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 5) {
                     LumenBadge(text: "LOOK", emphasized: true)
-                    Text("travels with Copy Look")
+                    Text("this is what a saved look carries")
                         .font(.system(size: 10))
                         .foregroundStyle(Lumen.secondaryText)
                 }
                 Text("Grade, printer lights, primaries, film stock and the display "
-                     + "transform apply to every frame you paste them onto. Exposure, "
-                     + "white balance and detail stay in Develop, per frame.")
+                     + "transform apply to every frame you paste them onto, in any "
+                     + "folder. Exposure, white balance, crop and detail stay in "
+                     + "Develop, per frame.")
                     .font(.system(size: 10))
                     .foregroundStyle(Lumen.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)

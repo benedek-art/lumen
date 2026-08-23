@@ -1824,6 +1824,13 @@ public final class CatalogStore {
     /// Rename a look. Throws rather than silently merging when the new name is taken:
     /// a rename that quietly destroyed the look already sitting on that name would be
     /// the same loss `saveLook`'s save-over is at least explicit about.
+    ///
+    /// The check below is not what makes that safe — `look_identity` is. Deleting the
+    /// check and running the suite leaves it green, because the UPDATE then violates
+    /// the unique index and SQLite refuses it anyway; deleting both is what turns the
+    /// rename into a clobber and the test red. The check earns its place by naming the
+    /// look in the error, which is the difference between a sentence the panel can show
+    /// and a raw constraint failure.
     public func renameLook(id: Int64, to name: String,
                            at now: Int64 = CatalogStore.now()) throws {
         guard let clean = LookSubset.normalizedName(name) else {

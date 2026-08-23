@@ -47,6 +47,16 @@
 //               a reader has to know which vocabulary the slice is written in. It is
 //               not applied ONTO the target as-is: see `applied(to:)`.
 //
+// ONE THING THE DOCUMENTS DISAGREE ABOUT, left alone rather than decided here.
+// docs/14 §3's register list puts "printer lights" on the DEVELOP side; docs/15 §15.4's
+// recipe format puts `printerLights` inside `look`, which is where `Look` puts it, which
+// is where the Look panel draws it, and which is therefore what travels today. Three
+// sources against one, so this file follows them — but the odd one out is arguable
+// rather than obviously a typo (a printer-light master IS an exposure, and exposure is
+// the develop side's own example of what must not travel), and unilaterally editing the
+// pipeline document to match the code is how a real design question gets closed by
+// whoever touched the file last. It is written down here instead.
+//
 // Nothing in the Look subtree is conditional here — a look carries the whole struct,
 // `lut` included. That is deliberate on two counts. `Recipe.renderIdentity` strips
 // `look.lut` because no stage reads it, and that projection is about which recipes
