@@ -75,7 +75,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          swift test 2>&1 \
+          swift test --skip ControlProofTests 2>&1 \
             --skip testGraphMatchesTheReferenceRendererWithTheSpatialStagesOn \
             --skip testEveryStageInTheFullRecipeChangesTheResult \
             --skip testRenderedLuminanceIsMonotoneAtExtremeSettings \
@@ -290,8 +290,7 @@ jobs:
           echo "=== measured authority ==="
           sed -n '/control authority/,/^$/p' proof.log | head -60
           echo "=== failures ==="
-          grep -E ": error: -\\[" proof.log | sed "s#$PWD/##" \\
-            | sed 's/^.*error: //' | head -30
+          grep -E ": error: -\[" proof.log | sed 's/^.*error: //' | head -30
           exit $status
       - name: Keep the evidence sheets
         if: always()
