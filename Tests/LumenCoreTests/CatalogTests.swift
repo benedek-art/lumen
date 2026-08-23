@@ -1327,6 +1327,96 @@ final class CatalogTests: XCTestCase {
                            + "why the reader decodes rather than trusting the column")
         reopened.close()
     }
+
+    // MARK: - One unreadable recipe is one photo's problem
+
+    /// A recipe written by an OLDER build reads back with the fields that build did
+    /// not have at their defaults — through the store, which is the path that failed.
+    ///
+    /// `CatalogStore.currentRecipe` is where the reported crash came from: a folder of
+    /// RAWs whose `edit.recipe` rows predated `MixerBand.core`, and every one of them
+    /// threw `keyNotFound`. `RecipeCodecToleranceTests` proves the property over every
+    /// type in the format; this proves it over the real column, because the column is
+    /// what the photographer's three years of edits are actually sitting in.
+    func testARecipeStoredByAnOlderBuildStillReadsBack() throws {
+        let store = try makeStore()
+        let (_, ids) = try seed(store, count: 3)
+        let photo = ids[1]
+        try store.saveRecipe(Recipe(), photoID: photo, isCurrent: true)
+        store.close()
+
+        // The shape a build without the mixer's arc handles wrote: bands carrying
+        // hue/sat/lum and nothing else.
+        let older = """
+        {"pipelineVersion":1,"develop":{"mixer":{"bands":[\
+        {"hue":10,"lum":0,"sat":-20},{"hue":0,"lum":0,"sat":0},\
+        {"hue":0,"lum":0,"sat":0},{"hue":0,"lum":0,"sat":0},\
+        {"hue":0,"lum":0,"sat":0},{"hue":0,"lum":0,"sat":0},\
+        {"hue":0,"lum":0,"sat":0},{"hue":0,"lum":0,"sat":0}],"uniformity":0},\
+        "tone":{"exposure":0.35}}}
+        """
+        let raw = try SQLiteDatabase(
+            path: directory.appendingPathComponent("lumen.db").path)
+        try raw.run("UPDATE edit SET recipe = ? WHERE photo_id = ? AND is_current = 1;",
+                    [.text(older), .integer(photo)])
+        raw.close()
+
+        let reopened = try makeStore()
+        let recipe = try reopened.currentRecipe(photoID: photo)
+        XCTAssertEqual(recipe?.develop.tone.exposure, 0.35,
+                       "an older recipe must come back whole, not at all")
+        XCTAssertEqual(recipe?.develop.mixer.bands[0].hue, 10)
+        XCTAssertEqual(recipe?.develop.mixer.bands[0].core, MixerBand.defaultCore)
+        XCTAssertEqual(recipe?.pipelineVersion, 1,
+                       "and it must still say which vocabulary it was written in")
+        reopened.close()
+    }
+
+    /// A recipe that genuinely cannot be read costs THAT PHOTO and no other.
+    ///
+    /// The store has no folder-wide read: `currentRecipe` is asked per photo and
+    /// throws per photo, so the containment is available to the caller. It is the
+    /// caller that has to take it — `CatalogService.registerAndLoad` ran this loop
+    /// bare inside one `do`, so the first throw abandoned the whole folder's result
+    /// and the photographer got no ratings, no flags, no labels and no edits for any
+    /// photo in it. That loop now catches per photo; this test is the half of that
+    /// statement which lives somewhere it can be run.
+    ///
+    /// The corruption is a key present with the WRONG TYPE, which is deliberately the
+    /// one thing the tolerant decoders still refuse — a value somebody's tool actually
+    /// wrote must not be silently replaced by a default.
+    func testAnUnreadableRecipeDoesNotCostTheOtherPhotos() throws {
+        let store = try makeStore()
+        let (_, ids) = try seed(store, count: 5)
+        for (index, photo) in ids.enumerated() {
+            var recipe = Recipe()
+            recipe.develop.tone.exposure = Double(index) / 10
+            try store.saveRecipe(recipe, photoID: photo, isCurrent: true)
+        }
+        store.close()
+
+        let raw = try SQLiteDatabase(
+            path: directory.appendingPathComponent("lumen.db").path)
+        try raw.run("UPDATE edit SET recipe = ? WHERE photo_id = ? AND is_current = 1;",
+                    [.text(#"{"develop":{"tone":{"exposure":"lots"}}}"#),
+                     .integer(ids[2])])
+        raw.close()
+
+        let reopened = try makeStore()
+        XCTAssertThrowsError(try reopened.currentRecipe(photoID: ids[2]),
+                             "a wrong-typed value must not be read as a default")
+        for (index, photo) in ids.enumerated() where index != 2 {
+            let recipe = try reopened.currentRecipe(photoID: photo)
+            XCTAssertEqual(recipe?.develop.tone.exposure, Double(index) / 10,
+                           "photo \(index) lost its edit to a different photo's row")
+        }
+        // And the row nobody could read is still on disk, unmodified: a decode failure
+        // must never be a reason to delete a photographer's stored edit.
+        let stillThere = try reopened.currentRecipeFingerprint(photoID: ids[2])
+        XCTAssertFalse(stillThere.isEmpty,
+                       "the unreadable edit row was destroyed rather than left alone")
+        reopened.close()
+    }
 }
 
 #endif

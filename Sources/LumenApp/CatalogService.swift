@@ -139,29 +139,103 @@ final class CatalogService: @unchecked Sendable {
                 _ = try store.scan(folderID: folderID, files: scanned,
                                    at: CatalogStore.now())
 
+                // ONE PHOTO'S FAILURE COSTS ONE PHOTO. This loop used to sit bare
+                // inside the folder's `do`, so the first `try` that threw abandoned
+                // every photo after it AND every photo before it — `result` was
+                // discarded whole and the caller got an empty dictionary, which
+                // presents as a folder that did not open at all.
+                //
+                // That is how one undecodable recipe cost a photographer his entire
+                // catalog: no ratings, no flags, no labels, no edits, for a folder of
+                // RAWs where exactly one stored document was written by an older build.
+                // Two defects wearing one error message — the decode that should not
+                // have failed, and the blast radius when it did — and this is the
+                // second, which is the worse of the two. The recipe layer being
+                // tolerant now (see RecipeDecoding.swift) narrows what can throw here;
+                // it does not make the containment unnecessary, because a catalog can
+                // also hold a document written by a LATER build, and the next field
+                // added to the format must not be able to do this again.
+                var withoutTheirEdits: [String] = []
+                var withoutTheirRow: [String] = []
                 for (file, name) in zip(files, names) {
-                    guard let row = try store.photo(folderID: folderID, filename: name)
-                    else { continue }
-                    let recipe = try store.currentRecipe(photoID: row.id)
-                    let fingerprint = try? store.currentRecipeFingerprint(photoID: row.id)
-                    sidecarLock.lock()
-                    let unflushed = pendingSidecars[file] != nil
-                    sidecarLock.unlock()
-                    let resolution = Self.merge(row: row, recipe: recipe,
-                                                recipeFingerprint: fingerprint,
-                                                hasUnflushedEdits: unflushed, file: file)
-                    // A sidecar fills in where the catalog is silent — and until now it
-                    // filled in ONLY the copy handed to the grid. Membership and
-                    // ordering are SQL-backed (the whole filter bar compiles to
-                    // `PhotoQuery`), so a five-star recovered from a sidecar showed five
-                    // stars in its cell and vanished under the five-star filter, and a
-                    // recovered recipe rendered while the Edited chip excluded it. The
-                    // view and the query disagreed about the same photograph.
-                    Self.persistRecovered(resolution, row: row, storedRecipe: recipe,
-                                          store: store, file: file)
-                    result[file] = Self.stored(resolution.state, row: row)
+                    do {
+                        guard let row = try store.photo(folderID: folderID,
+                                                        filename: name)
+                        else { continue }
+
+                        // A stored recipe that will not decode costs THIS photo's
+                        // edits and nothing else. The photo still reaches the grid
+                        // with its rating, flag and label, because those live in
+                        // `photo` columns and were never in question — and the merge
+                        // below still runs, so a readable `.xmp` beside the file
+                        // recovers the edit rather than merely reporting it lost.
+                        //
+                        // Nothing deletes the row that would not decode. `nil` here
+                        // means "the catalog is silent about this photo's recipe",
+                        // which is the same posture `SidecarMerge` already takes
+                        // toward a sidecar that will not parse, and it leaves the
+                        // stored document on disk for a later build to read.
+                        var recipe: Recipe?
+                        do {
+                            recipe = try store.currentRecipe(photoID: row.id)
+                        } catch {
+                            recipe = nil
+                            withoutTheirEdits.append(name)
+                            NSLog("Lumen catalog: the stored recipe for %@ would not "
+                                  + "decode — the photo opens without its edits — %@",
+                                  name, String(describing: error))
+                        }
+
+                        let fingerprint = try? store.currentRecipeFingerprint(
+                            photoID: row.id)
+                        sidecarLock.lock()
+                        let unflushed = pendingSidecars[file] != nil
+                        sidecarLock.unlock()
+                        let resolution = Self.merge(row: row, recipe: recipe,
+                                                    recipeFingerprint: fingerprint,
+                                                    hasUnflushedEdits: unflushed,
+                                                    file: file)
+                        // A sidecar fills in where the catalog is silent — and until
+                        // now it filled in ONLY the copy handed to the grid. Membership
+                        // and ordering are SQL-backed (the whole filter bar compiles to
+                        // `PhotoQuery`), so a five-star recovered from a sidecar showed
+                        // five stars in its cell and vanished under the five-star
+                        // filter, and a recovered recipe rendered while the Edited chip
+                        // excluded it. The view and the query disagreed about the same
+                        // photograph.
+                        Self.persistRecovered(resolution, row: row,
+                                              storedRecipe: recipe,
+                                              store: store, file: file)
+                        result[file] = Self.stored(resolution.state, row: row)
+                    } catch {
+                        withoutTheirRow.append(name)
+                        NSLog("Lumen catalog: %@ could not be read from the catalog "
+                              + "— %@", name, String(describing: error))
+                    }
+                }
+
+                // Said once per folder rather than once per photo: eight hundred
+                // frames off one bad build would otherwise be eight hundred banners.
+                if !withoutTheirEdits.isEmpty {
+                    let n = withoutTheirEdits.count
+                    self.onFailure?(
+                        "\(n) photo\(n == 1 ? "" : "s") in "
+                        + "\(folder.lastPathComponent) opened without "
+                        + "\(n == 1 ? "its" : "their") edits — the stored recipe could "
+                        + "not be read. Ratings, flags and labels are intact, and "
+                        + "nothing was overwritten.")
+                }
+                if !withoutTheirRow.isEmpty {
+                    let n = withoutTheirRow.count
+                    self.onFailure?(
+                        "\(n) photo\(n == 1 ? "" : "s") in "
+                        + "\(folder.lastPathComponent) could not be read from the "
+                        + "catalog and \(n == 1 ? "is" : "are") missing from the grid.")
                 }
             } catch {
+                // Only the folder-wide steps reach here now — registering the folder
+                // and reconciling its file list. There is no catalog to talk to if
+                // either of those fails, so this one really is the whole folder.
                 NSLog("Lumen catalog: folder registration failed — %@",
                       String(describing: error))
                 self.onFailure?("Could not register \(folder.lastPathComponent) "
