@@ -340,13 +340,17 @@ final class ThumbnailLoader: ObservableObject {
         let allowFull = allowsFullDecode(key.url)
         let taskPriority: TaskPriority = job.priority >= Priority.visible ? .userInitiated : .utility
         let previews = self.previews
-        let task = Task.detached(priority: taskPriority) { () -> CGImage? in
+        // `async` in the signature is explicit, not inferred: the disk-cache lookup
+        // below now SUSPENDS on the catalog rather than blocking this worker, and eight
+        // workers blocking cooperative threads was starving every other continuation in
+        // the process.
+        let task = Task.detached(priority: taskPriority) { () async -> CGImage? in
             if Task.isCancelled { return nil }
             // The disk cache first. This is the line README goal #1 turns on: on the
             // second visit to a folder every cell answered from `previews/xx/` is an
             // embedded-JPEG extraction out of a 40 MB original that does not happen.
             // Off the main actor by construction — this is the detached worker.
-            let plan = previews?.plan(for: key.url, pixels: key.pixels)
+            let plan = await previews?.plan(for: key.url, pixels: key.pixels)
             if let plan, let payload = plan.payload,
                let cached = PreviewStore.decodePayload(file: payload.file,
                                                        maxPixel: payload.pixels) {
