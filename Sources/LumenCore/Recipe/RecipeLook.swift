@@ -41,6 +41,28 @@ public struct Look: Codable, Equatable, Sendable {
     /// for nil, which is exactly the test that stopped being the right one when the mix
     /// gained somewhere to live while switched off.
     public var blackAndWhiteIsOn: Bool { bw?.enabled == true }
+
+    private enum CodingKeys: String, CodingKey {
+        case wheels, printerLights, filmLab, primaries, bw, vignette, render, lut
+    }
+
+    /// Tolerant of a recipe written before any of these keys existed: each falls
+    /// back to the default in the memberwise initializer above. See RecipeDecoding.swift.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.wheels = try c.decodeIfPresent(GradingWheels.self, forKey: .wheels)
+            ?? GradingWheels()
+        self.printerLights = try c.decodeIfPresent(PrinterLights.self, forKey: .printerLights)
+            ?? PrinterLights()
+        self.filmLab = try c.decodeIfPresent(FilmLab.self, forKey: .filmLab)
+        self.primaries = try c.decodeIfPresent(Primaries.self, forKey: .primaries)
+            ?? Primaries()
+        self.bw = try c.decodeIfPresent(BlackAndWhite.self, forKey: .bw)
+        self.vignette = try c.decodeIfPresent(Double.self, forKey: .vignette) ?? 0
+        self.render = try c.decodeIfPresent(RenderParams.self, forKey: .render)
+            ?? RenderParams()
+        self.lut = try c.decodeIfPresent(LUTReference.self, forKey: .lut)
+    }
 }
 
 /// The display transform's user-facing parameters (D8). Overrides are optional so a
@@ -80,6 +102,22 @@ public struct RenderParams: Codable, Equatable, Sendable {
         }
         return p
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case preset, contrast, skew, huePreservation, blackTarget, whiteTarget
+    }
+
+    /// Tolerant of a recipe written before any of these keys existed: each falls
+    /// back to the default in the memberwise initializer above. See RecipeDecoding.swift.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.preset = try c.decodeIfPresent(String.self, forKey: .preset) ?? "Neutral"
+        self.contrast = try c.decodeIfPresent(Double.self, forKey: .contrast)
+        self.skew = try c.decodeIfPresent(Double.self, forKey: .skew)
+        self.huePreservation = try c.decodeIfPresent(Double.self, forKey: .huePreservation)
+        self.blackTarget = try c.decodeIfPresent(Double.self, forKey: .blackTarget)
+        self.whiteTarget = try c.decodeIfPresent(Double.self, forKey: .whiteTarget)
+    }
 }
 
 /// A user `.cube` LUT applied at one of the two documented taps (docs/14 §2.3):
@@ -114,6 +152,22 @@ public struct LUTReference: Codable, Equatable, Sendable {
         self.name = name
         self.tap = tap
         self.amount = amount
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case ref, name, tap, amount
+    }
+
+    /// Tolerant of an absent key. `ref` has no default in the memberwise initializer —
+    /// a LUT reference with nothing to reference is meaningless — and falls back to the
+    /// empty string here, which is the reading that costs least: no stage reads this slot
+    /// on any path, and an empty ref would resolve to no LUT on the day one does.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.ref = try c.decodeIfPresent(String.self, forKey: .ref) ?? ""
+        self.name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
+        self.tap = try c.decodeIfPresent(Tap.self, forKey: .tap) ?? .display
+        self.amount = try c.decodeIfPresent(Double.self, forKey: .amount) ?? 100
     }
 }
 
@@ -151,6 +205,27 @@ public struct GradingWheels: Codable, Equatable, Sendable {
         self.pivots = pivots
         self.colorBalance = colorBalance
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case global, shadows, mid, high, blending, balance, pivots, colorBalance
+    }
+
+    /// Tolerant of a recipe written before any of these keys existed: each falls
+    /// back to the default in the memberwise initializer above. See RecipeDecoding.swift.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.global = try c.decodeIfPresent(Wheel.self, forKey: .global) ?? Wheel()
+        self.shadows = try c.decodeIfPresent(Wheel.self, forKey: .shadows) ?? Wheel()
+        self.mid = try c.decodeIfPresent(Wheel.self, forKey: .mid) ?? Wheel()
+        self.high = try c.decodeIfPresent(Wheel.self, forKey: .high) ?? Wheel()
+        self.blending = try c.decodeIfPresent(Double.self, forKey: .blending) ?? 50
+        self.balance = try c.decodeIfPresent(Double.self, forKey: .balance) ?? 0
+        self.pivots = RecipeWire.fixedLength(
+            try c.decodeIfPresent([Double].self, forKey: .pivots),
+            default: GradingWheels.defaultPivots)
+        self.colorBalance = try c.decodeIfPresent(ColorBalanceParams.self, forKey: .colorBalance)
+            ?? ColorBalanceParams()
+    }
 }
 
 public struct Wheel: Codable, Equatable, Sendable {
@@ -162,6 +237,19 @@ public struct Wheel: Codable, Equatable, Sendable {
         self.hue = hue
         self.sat = sat
         self.lum = lum
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case hue, sat, lum
+    }
+
+    /// Tolerant of a recipe written before any of these keys existed: each falls
+    /// back to the default in the memberwise initializer above. See RecipeDecoding.swift.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.hue = try c.decodeIfPresent(Double.self, forKey: .hue) ?? 0
+        self.sat = try c.decodeIfPresent(Double.self, forKey: .sat) ?? 0
+        self.lum = try c.decodeIfPresent(Double.self, forKey: .lum) ?? 0
     }
 }
 
@@ -227,6 +315,20 @@ public struct PrinterLights: Codable, Equatable, Sendable {
         self.g = g
         self.b = b
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case master, r, g, b
+    }
+
+    /// Tolerant of a recipe written before any of these keys existed: each falls
+    /// back to the default in the memberwise initializer above. See RecipeDecoding.swift.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.master = try c.decodeIfPresent(Int.self, forKey: .master) ?? 0
+        self.r = try c.decodeIfPresent(Int.self, forKey: .r) ?? 0
+        self.g = try c.decodeIfPresent(Int.self, forKey: .g) ?? 0
+        self.b = try c.decodeIfPresent(Int.self, forKey: .b) ?? 0
+    }
 }
 
 /// The Film Lab (D18): preset-first; a stock parameterizes the display-transform
@@ -258,6 +360,25 @@ public struct FilmLab: Codable, Equatable, Sendable {
         self.grain = grain
         self.printSize = printSize
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case stock, amount, exposure, pushPull, halation, grain, printSize
+    }
+
+    /// Tolerant of an absent key. `stock` has no default in the memberwise initializer,
+    /// because a film lab with no stock is not a film lab; it falls back to the empty
+    /// string, which `FilmStock.named` answers with nil, so the stage renders nothing
+    /// rather than picking a stock the photographer never chose.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.stock = try c.decodeIfPresent(String.self, forKey: .stock) ?? ""
+        self.amount = try c.decodeIfPresent(Double.self, forKey: .amount) ?? 100
+        self.exposure = try c.decodeIfPresent(Double.self, forKey: .exposure) ?? 0
+        self.pushPull = try c.decodeIfPresent(Double.self, forKey: .pushPull) ?? 0
+        self.halation = try c.decodeIfPresent(Double.self, forKey: .halation) ?? 0
+        self.grain = try c.decodeIfPresent(FilmGrain.self, forKey: .grain) ?? FilmGrain()
+        self.printSize = try c.decodeIfPresent(String.self, forKey: .printSize)
+    }
 }
 
 public struct FilmGrain: Codable, Equatable, Sendable {
@@ -267,6 +388,18 @@ public struct FilmGrain: Codable, Equatable, Sendable {
     public init(size: Double = 1.0, amount: Double = 0) {
         self.size = size
         self.amount = amount
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case size, amount
+    }
+
+    /// Tolerant of a recipe written before any of these keys existed: each falls
+    /// back to the default in the memberwise initializer above. See RecipeDecoding.swift.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.size = try c.decodeIfPresent(Double.self, forKey: .size) ?? 1.0
+        self.amount = try c.decodeIfPresent(Double.self, forKey: .amount) ?? 0
     }
 }
 
@@ -292,6 +425,24 @@ public struct Primaries: Codable, Equatable, Sendable {
         self.bPurity = bPurity
         self.tintHue = tintHue
         self.tintPurity = tintPurity
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case rHue, rPurity, gHue, gPurity, bHue, bPurity, tintHue, tintPurity
+    }
+
+    /// Tolerant of a recipe written before any of these keys existed: each falls
+    /// back to the default in the memberwise initializer above. See RecipeDecoding.swift.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.rHue = try c.decodeIfPresent(Double.self, forKey: .rHue) ?? 0
+        self.rPurity = try c.decodeIfPresent(Double.self, forKey: .rPurity) ?? 0
+        self.gHue = try c.decodeIfPresent(Double.self, forKey: .gHue) ?? 0
+        self.gPurity = try c.decodeIfPresent(Double.self, forKey: .gPurity) ?? 0
+        self.bHue = try c.decodeIfPresent(Double.self, forKey: .bHue) ?? 0
+        self.bPurity = try c.decodeIfPresent(Double.self, forKey: .bPurity) ?? 0
+        self.tintHue = try c.decodeIfPresent(Double.self, forKey: .tintHue) ?? 0
+        self.tintPurity = try c.decodeIfPresent(Double.self, forKey: .tintPurity) ?? 0
     }
 }
 
@@ -329,10 +480,16 @@ public struct BlackAndWhite: Codable, Equatable, Sendable {
     /// is the same class of silent loss the field exists to end. `bands` is tolerant for
     /// the reason `Mask` states above its own decoder: a recipe is user work, and losing
     /// it to one absent key is not an acceptable failure mode.
+    /// `bands` is tolerant of a WRONG LENGTH as well, which absence alone did not
+    /// cover. `ColorEngine` reads eight of them and the panel draws eight rows; a mix
+    /// that arrived with five would have survived this decoder and been read past its
+    /// end downstream — the same lost work as a thrown error, minus the error. See
+    /// `RecipeWire.fixedLength`.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.bands = try c.decodeIfPresent([Double].self, forKey: .bands)
-            ?? Array(repeating: 0, count: 8)
+        self.bands = RecipeWire.fixedLength(
+            try c.decodeIfPresent([Double].self, forKey: .bands),
+            default: Array(repeating: 0, count: 8))
         self.enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
     }
 

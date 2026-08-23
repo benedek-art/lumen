@@ -521,6 +521,20 @@ public struct ColorBalanceAxis: Codable, Equatable, Sendable {
         ColorBalanceAxis(global: global * scale, shadows: shadows * scale,
                          mid: mid * scale, high: high * scale)
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case global, shadows, mid, high
+    }
+
+    /// Tolerant of a recipe written before any of these keys existed: each falls
+    /// back to the default in the memberwise initializer above. See RecipeDecoding.swift.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.global = try c.decodeIfPresent(Double.self, forKey: .global) ?? 0
+        self.shadows = try c.decodeIfPresent(Double.self, forKey: .shadows) ?? 0
+        self.mid = try c.decodeIfPresent(Double.self, forKey: .mid) ?? 0
+        self.high = try c.decodeIfPresent(Double.self, forKey: .high) ?? 0
+    }
 }
 
 /// The chroma / saturation / brilliance × (global, shadows, mid, high) grid that opens
@@ -589,6 +603,24 @@ public struct ColorBalanceParams: Codable, Equatable, Sendable {
                            chroma: chroma.scaled(by: scale),
                            saturation: saturation.scaled(by: scale),
                            brilliance: brilliance.scaled(by: scale))
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case hueShift, vibrance, chroma, saturation, brilliance
+    }
+
+    /// Tolerant of a recipe written before any of these keys existed: each falls
+    /// back to the default in the memberwise initializer above. See RecipeDecoding.swift.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.hueShift = try c.decodeIfPresent(Double.self, forKey: .hueShift) ?? 0
+        self.vibrance = try c.decodeIfPresent(Double.self, forKey: .vibrance) ?? 0
+        self.chroma = try c.decodeIfPresent(ColorBalanceAxis.self, forKey: .chroma)
+            ?? ColorBalanceAxis()
+        self.saturation = try c.decodeIfPresent(ColorBalanceAxis.self, forKey: .saturation)
+            ?? ColorBalanceAxis()
+        self.brilliance = try c.decodeIfPresent(ColorBalanceAxis.self, forKey: .brilliance)
+            ?? ColorBalanceAxis()
     }
 }
 
