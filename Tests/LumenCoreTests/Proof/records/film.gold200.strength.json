@@ -1,0 +1,15 @@
+{
+  "authority" : 166.09886431045504,
+  "deadSteps" : 0,
+  "frame" : "tonalColourWedge",
+  "frontLoading" : 0.7072294059857925,
+  "hueRotation" : 63.106111422352214,
+  "id" : "film.gold200.strength",
+  "isMonotone" : true,
+  "meanSeparation" : 16.5399873249175,
+  "panel" : "Film Lab",
+  "shippingReader" : "Sources\/LumenPipeline\/RenderGraph.swift:147",
+  "smallestLiveStep" : 4.942786222258945,
+  "travelHigh" : 100,
+  "travelLow" : 0
+}

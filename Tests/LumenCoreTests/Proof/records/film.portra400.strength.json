@@ -1,0 +1,15 @@
+{
+  "authority" : 160.97380540610627,
+  "deadSteps" : 0,
+  "frame" : "tonalColourWedge",
+  "frontLoading" : 0.7055534941567567,
+  "hueRotation" : 56.09671218725896,
+  "id" : "film.portra400.strength",
+  "isMonotone" : true,
+  "meanSeparation" : 15.659228637673628,
+  "panel" : "Film Lab",
+  "shippingReader" : "Sources\/LumenPipeline\/RenderGraph.swift:147",
+  "smallestLiveStep" : 4.791507863765389,
+  "travelHigh" : 100,
+  "travelLow" : 0
+}

@@ -255,8 +255,8 @@ jobs:
 
   # The control sweep, on the free lane, beside `engine-linux` rather than inside it.
   #
-  # This is the drift check docs/20 describes: 46 controls swept at 21 settings, measured
-  # in sRGB code values, compared against the records committed under
+  # This is the drift check docs/20 describes: every registered control swept at 21
+  # settings, measured in sRGB code values, compared against the records committed under
   # `Tests/LumenCoreTests/Proof/records`. A number that moves here is either a fix or a
   # regression and the commit message has to say which — which is the whole point of
   # committing them, since every defect docs/19 found was invisible until somebody
@@ -266,9 +266,15 @@ jobs:
   # That is the cost of the answer, and the lever is the size of the registry rather than
   # the concurrency — `LUT3D` already parallelises its own bake, so a concurrent outer
   # loop oversubscribes instead of helping.
+  #
+  # The timeout went from 45 to 120 minutes when the Look panel joined the registry: the
+  # sweep more than doubled in size, from 46 controls to 111, and a lane that cancels
+  # itself reports nothing at all — strictly worse than a slow one, and the failure this
+  # lane was split out of `engine-linux` to avoid in the first place. If the sweep grows
+  # again the honest lever is still the registry, not the clock.
   proof-linux:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - name: Cache the Swift toolchain
@@ -288,7 +294,7 @@ jobs:
           swift test --filter ControlProofTests 2>&1 | tee proof.log
           status=$?
           echo "=== measured authority ==="
-          sed -n '/control authority/,/^$/p' proof.log | head -60
+          sed -n '/control authority/,/^$/p' proof.log | head -200
           echo "=== failures ==="
           grep -E ": error: -\[" proof.log | sed 's/^.*error: //' | head -30
           exit $status

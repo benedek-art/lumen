@@ -1,0 +1,15 @@
+{
+  "authority" : 149.10151480267064,
+  "deadSteps" : 0,
+  "frame" : "tonalColourWedge",
+  "frontLoading" : 0.6947133669619436,
+  "hueRotation" : 52.785732868503686,
+  "id" : "film.cine250d.strength",
+  "isMonotone" : true,
+  "meanSeparation" : 15.675027503435736,
+  "panel" : "Film Lab",
+  "shippingReader" : "Sources\/LumenPipeline\/RenderGraph.swift:147",
+  "smallestLiveStep" : 4.5756399471389955,
+  "travelHigh" : 100,
+  "travelLow" : 0
+}

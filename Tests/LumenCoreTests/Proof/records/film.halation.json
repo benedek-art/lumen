@@ -1,0 +1,15 @@
+{
+  "authority" : 24.70887705446478,
+  "deadSteps" : 0,
+  "frame" : "wideStepEdge",
+  "frontLoading" : 0.5516044293388582,
+  "hueRotation" : 0,
+  "id" : "film.halation",
+  "isMonotone" : true,
+  "meanSeparation" : 0.9422625840015931,
+  "panel" : "Film Lab",
+  "shippingReader" : "Sources\/LumenPipeline\/RenderGraph.swift:128",
+  "smallestLiveStep" : 1.0280193522658863,
+  "travelHigh" : 100,
+  "travelLow" : 0
+}

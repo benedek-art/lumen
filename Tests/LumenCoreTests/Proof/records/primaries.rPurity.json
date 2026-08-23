@@ -1,0 +1,15 @@
+{
+  "authority" : 77.96326050379625,
+  "deadSteps" : 1,
+  "frame" : "tonalColourWedge",
+  "frontLoading" : 1.000000482165364,
+  "hueRotation" : 8.395450004582528,
+  "id" : "primaries.rPurity",
+  "isMonotone" : false,
+  "meanSeparation" : 8.816415152569734,
+  "panel" : "Primaries",
+  "shippingReader" : "Sources\/LumenPipeline\/RenderGraph.swift:101",
+  "smallestLiveStep" : 9.427846151766062e-06,
+  "travelHigh" : 100,
+  "travelLow" : -100
+}

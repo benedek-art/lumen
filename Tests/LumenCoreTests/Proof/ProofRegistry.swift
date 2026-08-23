@@ -55,13 +55,70 @@ struct ControlSpec {
     /// diff rather than a rediscovery.
     let overshootCeiling: Double?
 
+    /// A control whose travel closes on itself — a grading wheel's Hue, where 0° and
+    /// 360° are the same setting.
+    ///
+    /// docs/20 P4 exempts these from end-to-end authority and requires a different
+    /// metric, for a reason this repository paid for: "a grading wheel's hue was
+    /// reported dead for months because 0° and 360° are the same setting". Measuring
+    /// `render(360) − render(0)` on a circle does not measure a weak control, it
+    /// measures a tautology, and it returns zero however strong the control is.
+    ///
+    /// The sweep still runs the WHOLE circle, because that is the only way a dead arc
+    /// somewhere in the middle shows up. What changes is where authority is read: at
+    /// the ANTIPODE, the setting half a turn away, which is the largest separation a
+    /// circular control can produce and the only pair of settings on a circle that is
+    /// canonically "the two ends". `frontLoading` records 0 for these and means
+    /// nothing — half a circle is not "the first half of the travel" — and `isMonotone`
+    /// records false by construction, since the cumulative response rises to the
+    /// antipode and falls back to zero. Neither is a defect and neither is asserted.
+    let isCircular: Bool
+
+    /// The ISO whose noise profile every threshold in the denoise stage is denominated
+    /// in. Nil is the renderer's own default (base ISO).
+    ///
+    /// Not cosmetic: `RenderPlan` builds `ClassicalDenoise` from
+    /// `NoiseProfile.forISO(captureISO ?? 100)`, so sweeping a denoise slider against
+    /// `noisyISO6400` without this measures an ISO 100 threshold set against ISO 6400
+    /// noise — a probe scoring a denoiser against noise it was never told about, which
+    /// `ProofFrames.noisyChromaEdge` already says proves nothing about the slider.
+    let captureISO: Double?
+
+    /// Whether the classical denoise stage runs on the frame before the render.
+    ///
+    /// `ReferenceRenderer.render` starts at S6 and S3 is not inside it; on the shipping
+    /// reference path `PipelineRenderer` applies `plan.classicalDenoise` to the decoded
+    /// buffer first (PipelineRenderer.swift:1468), and the GPU graph does the same at
+    /// the head of its chain. A denoise control swept without this renders through a
+    /// stage that never ran and measures dead — an INVALID PROBE with the frame in the
+    /// right place and the pipeline in the wrong one.
+    let denoisedFirst: Bool
+
+    /// Steps of the sweep that render identically to the step before them, where the
+    /// control has a plateau it DECLARES.
+    ///
+    /// docs/20 P2 is precise about this and the precision is the point: "every step
+    /// changes the render. No dead zone, no plateau the control does not declare." An
+    /// undeclared plateau is a defect; a declared one is a fact about the control that
+    /// the record has to carry, or the harness has only two answers — silence and red —
+    /// for a measurement that has three.
+    ///
+    /// It is asserted as an EQUALITY, not a ceiling. A plateau that grows is a
+    /// regression and a plateau that disappears is a fix, and both have to be argued for
+    /// in a commit message rather than absorbed by a bound with slack in it — the same
+    /// discipline the committed records already impose on every other number.
+    let declaredPlateauSteps: Int
+
     init(id: String, panel: String, displayName: String,
          low: Double, high: Double, neutral: Double = 0,
          frameName: String, frame: @escaping () -> ImageBuffer,
          shippingReader: String, authorityFloor: Double,
          mayLeaveRange: Bool = true, overshootCeiling: Double? = nil,
+         isCircular: Bool = false, captureISO: Double? = nil,
+         denoisedFirst: Bool = false, declaredPlateauSteps: Int = 0,
          apply: @escaping (inout Recipe, Double) -> Void)
     {
+        self.declaredPlateauSteps = declaredPlateauSteps
         self.overshootCeiling = overshootCeiling
         self.id = id; self.panel = panel; self.displayName = displayName
         self.low = low; self.high = high; self.neutral = neutral
@@ -69,8 +126,15 @@ struct ControlSpec {
         self.shippingReader = shippingReader
         self.authorityFloor = authorityFloor
         self.mayLeaveRange = mayLeaveRange
+        self.isCircular = isCircular
+        self.captureISO = captureISO
+        self.denoisedFirst = denoisedFirst
         self.apply = apply
     }
+
+    /// The setting authority is read against. The far end of the travel, except on a
+    /// circle, where the far end is the setting you started from.
+    var authorityEnd: Double { isCircular ? (low + high) / 2 : high }
 }
 
 enum ProofRegistry {
@@ -350,7 +414,657 @@ enum ProofRegistry {
         return out
     }()
 
+    // MARK: - Look: where the Develop panel ends and the Look panel begins
+
+    /// The three-way grading wheels, on the tonal colour wedge.
+    ///
+    /// **The frame is the whole argument, so it is made once, here.** A wheel is a tint
+    /// weighted by a ZONE WINDOW, and the windows are denominated on the normalized
+    /// tonal axis between `ToneEngine`'s anchors — −9…+5 EV by default, with the shadow
+    /// zone below about −4.4 and the highlight zone above about +0.4. `colourChart`
+    /// spans roughly −2.5…+2.2 EV, so on the chart the shadows and highlights wheels
+    /// would be measured through windows nearly shut over every pixel in the frame.
+    /// `RobustnessTests.testAGradingWheelsHueIsContinuousAndClosed` records making
+    /// exactly that mistake and fixing it: "the shadows wheel had almost nothing to act
+    /// on and a 180° rotation moved the probes by 0.007, so the test failed for want of
+    /// a shadow rather than for want of a working control."
+    /// `ProofFrames.tonalColourWedge` is the chart's chroma over the ramp's tonal span,
+    /// which is what all of these need.
+    ///
+    /// Hue is CIRCULAR and says so. Sweeping 0…360 and reading the ends is how a hue
+    /// wheel gets reported dead for months — see `ControlSpec.isCircular`.
+    static let grade: [ControlSpec] = {
+        let zones: [(String, String, WritableKeyPath<GradingWheels, Wheel>)] = [
+            ("global", "Global", \.global),
+            ("shadows", "Shadows", \.shadows),
+            ("mid", "Midtones", \.mid),
+            ("high", "Highlights", \.high),
+        ]
+        // One floor per AXIS, set by the weakest of the four zones — the shadows wheel
+        // on all three, which is not a weakness in the control. The shadow zone lives
+        // below about −4.4 EV and an 8-bit display has about thirty code values left
+        // down there to move, so a shadows wheel measures small for the same reason a
+        // shadow is dark. Per-axis rather than per-zone for the reason the mixer's are:
+        // what a shared floor catches is a zone falling to the level of the current
+        // weakest, and four floors set from four measurements would each catch only
+        // their own.
+        //
+        // Measured: sat 69.46 / 20.06 / 58.26 / 69.46, lum 135.93 / 55.18 / 135.10 /
+        // 103.76, hue 101.04 / 20.62 / 70.24 / 100.15, global / shadows / mid / high.
+        var out = [ControlSpec]()
+        for (id, name, path) in zones {
+            out.append(ControlSpec(
+                // The wheel's radius: 0…1 in the recipe, in the engine's clamp
+                // (`WheelTint.init`) and on the pad (`LumenColorWheel`).
+                id: "grade.\(id).sat", panel: "Grade", displayName: "\(name) saturation",
+                low: 0, high: 1,
+                frameName: "tonalColourWedge", frame: { ProofFrames.tonalColourWedge() },
+                shippingReader: "Sources/LumenPipeline/RenderGraph.swift:101",
+                authorityFloor: 14,
+                apply: { r, v in r.look.wheels[keyPath: path].sat = v }))
+            out.append(ControlSpec(
+                // Per-wheel Luminance: −1…+1, which `GradeEngine.lumRangeStops` makes
+                // ±0.5 stops of perceptual lightness.
+                id: "grade.\(id).lum", panel: "Grade", displayName: "\(name) luminance",
+                low: -1, high: 1,
+                frameName: "tonalColourWedge", frame: { ProofFrames.tonalColourWedge() },
+                shippingReader: "Sources/LumenPipeline/RenderGraph.swift:101",
+                authorityFloor: 38,
+                apply: { r, v in r.look.wheels[keyPath: path].lum = v }))
+            out.append(ControlSpec(
+                id: "grade.\(id).hue", panel: "Grade", displayName: "\(name) hue",
+                low: 0, high: 360,
+                frameName: "tonalColourWedge", frame: { ProofFrames.tonalColourWedge() },
+                shippingReader: "Sources/LumenPipeline/RenderGraph.swift:101",
+                authorityFloor: 14, isCircular: true,
+                apply: { r, v in
+                    // A hue with no saturation behind it is not a colour: `WheelTint`
+                    // makes `sat == 0` a bit-exact no-op, so a hue swept at the default
+                    // radius measures dead at all 21 settings and the reading is the
+                    // probe's. 0.6 is the radius
+                    // `testAGradingWheelsHueIsContinuousAndClosed` probes at, so the two
+                    // measurements are of one control at one deflection.
+                    r.look.wheels[keyPath: path].sat = 0.6
+                    r.look.wheels[keyPath: path].hue = v
+                }))
+        }
+        return out
+    }()
+
+    /// The zone GEOMETRY: how soft the crossover is, which way Balance slides it, and
+    /// where the two pivots sit.
+    ///
+    /// All four need the same companion, and it is not optional. Geometry says WHERE the
+    /// zones are, not how hard they push, and `GradingWheels.isNeutral` states the
+    /// consequence in as many words — "a grade with moved pivots and untouched wheels is
+    /// still the identity and must not cost a table". With no wheels set `RenderPlan`
+    /// swaps the whole stage out and all four measure dead on controls that work. The
+    /// companion is two OPPOSED tints, shadows against highlights, because a boundary
+    /// between two zones graded identically is not visible either.
+    static let gradeGeometry: [ControlSpec] = {
+        func opposedTints(_ r: inout Recipe) {
+            r.look.wheels.shadows = Wheel(hue: 30, sat: 0.8, lum: 0)
+            r.look.wheels.high = Wheel(hue: 210, sat: 0.8, lum: 0)
+        }
+        return [
+            ControlSpec(
+                id: "grade.blending", panel: "Grade", displayName: "Zone blending",
+                low: 0, high: 100, neutral: 50,
+                frameName: "tonalColourWedge", frame: { ProofFrames.tonalColourWedge() },
+                shippingReader: "Sources/LumenPipeline/RenderGraph.swift:101",
+                authorityFloor: 26,
+                apply: { r, v in opposedTints(&r); r.look.wheels.blending = v }),
+            ControlSpec(
+                id: "grade.balance", panel: "Grade", displayName: "Zone balance",
+                low: -100, high: 100,
+                frameName: "tonalColourWedge", frame: { ProofFrames.tonalColourWedge() },
+                shippingReader: "Sources/LumenPipeline/RenderGraph.swift:101",
+                authorityFloor: 44,
+                apply: { r, v in opposedTints(&r); r.look.wheels.balance = v }),
+            // The two pivots, on the normalized tonal axis, over the travel the PANEL
+            // allows: `LookPanel.movePivot` clamps each handle against its neighbour by
+            // `ZoneWindows.minimumPivotGap` (0.02), so with the other pivot at its
+            // default the shadow handle travels 0…0.65 and the highlight handle 0.35…1.
+            // Sweeping either 0…1 would drive it through the other and measure the
+            // collision — the Point-Colour-Hue-at-±100 mistake in a different panel.
+            ControlSpec(
+                id: "grade.pivot.shadow", panel: "Grade", displayName: "Shadow pivot",
+                low: 0, high: 0.65, neutral: 0.33,
+                frameName: "tonalColourWedge", frame: { ProofFrames.tonalColourWedge() },
+                shippingReader: "Sources/LumenPipeline/RenderGraph.swift:101",
+                authorityFloor: 57,
+                apply: { r, v in
+                    opposedTints(&r)
+                    r.look.wheels.pivots = [v, GradingWheels.defaultPivots[1]]
+                }),
+            ControlSpec(
+                id: "grade.pivot.highlight", panel: "Grade",
+                displayName: "Highlight pivot",
+                low: 0.35, high: 1, neutral: 0.67,
+                frameName: "tonalColourWedge", frame: { ProofFrames.tonalColourWedge() },
+                shippingReader: "Sources/LumenPipeline/RenderGraph.swift:101",
+                authorityFloor: 52,
+                apply: { r, v in
+                    opposedTints(&r)
+                    r.look.wheels.pivots = [GradingWheels.defaultPivots[0], v]
+                }),
+        ]
+    }()
+
+    /// Printer lights, on the ramp.
+    ///
+    /// The ramp rather than a colour frame, deliberately: a printer light is an exposure
+    /// trim in log space, judged in a darkroom on a grey card, and what has to be true of
+    /// the three trims is that they move a NEUTRAL off neutral by a stated number of
+    /// twelfths of a stop. A chart would answer a different question less clearly. The
+    /// ramp also makes Master's number directly comparable with Exposure's, which is
+    /// what Master is.
+    ///
+    /// The ranges are the wire limits `GradeEngine` clamps to and `LookPanel.applyPoints`
+    /// enforces — ±48 points master (±4 stops), ±24 per channel (±2 stops), one point
+    /// being one twelfth of a stop exactly. The field is an `Int`, and a 21-step sweep
+    /// of either range lands on 21 distinct integers rather than resolving into a
+    /// staircase with dead treads.
+    static let printerLights: [ControlSpec] = {
+        let trims: [(String, String, WritableKeyPath<PrinterLights, Int>)] = [
+            ("r", "Red / Cyan", \.r), ("g", "Green / Magenta", \.g),
+            ("b", "Blue / Yellow", \.b),
+        ]
+        var out: [ControlSpec] = [
+            ControlSpec(
+                id: "printer.master", panel: "Printer Lights", displayName: "Master",
+                low: -GradeEngine.masterPointLimit, high: GradeEngine.masterPointLimit,
+                frameName: "neutralRamp", frame: { ProofFrames.neutralRamp() },
+                shippingReader: "Sources/LumenPipeline/RenderGraph.swift:86",
+                authorityFloor: 168,
+                apply: { r, v in r.look.printerLights.master = Int(v.rounded()) }),
+        ]
+        for (id, name, path) in trims {
+            out.append(ControlSpec(
+                id: "printer.\(id)", panel: "Printer Lights", displayName: name,
+                low: -GradeEngine.trimPointLimit, high: GradeEngine.trimPointLimit,
+                frameName: "neutralRamp", frame: { ProofFrames.neutralRamp() },
+                shippingReader: "Sources/LumenPipeline/RenderGraph.swift:86",
+                // One floor for the three trims, set by the weakest — green at 152.63,
+                // against red 163.16 and blue 153.22. They measure within 7% of each
+                // other, which is what four stops of channel gain on a grey ramp ought
+                // to look like.
+                authorityFloor: 106,
+                apply: { r, v in r.look.printerLights[keyPath: path] = Int(v.rounded()) }))
+        }
+        return out
+    }()
+
+    /// Primaries: three hues, three purities, and the shadow tint's two axes.
+    ///
+    /// On the wedge, and the tint is the reason. The remap is a matrix and would read on
+    /// any saturated frame, but Shadows Tint rides a window PINNED at −3 EV with a 1.5 EV
+    /// half-width (`ColorEngine.tintPivotEV`, `tintHalfWidthEV`) — deliberately not the
+    /// user's grading pivot. `colourChart`'s darkest patch sits about −2.5 EV from
+    /// mid-grey, at the very foot of that window, so the chart would measure the tint
+    /// through a gate that is nearly closed and report a weak control that is not weak.
+    /// One frame for all eight keeps the six remap numbers comparable with the two tint
+    /// numbers, which is the comparison a Primaries panel is read as.
+    ///
+    /// All eight are ±100 in the panel and in `primariesMatrix`'s own clamp. At full
+    /// deflection a hue is a 20° rotation of a primary's chromaticity about the white
+    /// point and a purity is a 50% rescale of its distance from it.
+    /// Two floors, not one and not eight. The six remap axes share the weakest of their
+    /// own — green purity at 63.35 — and the two tint axes share theirs, tint hue at
+    /// 23.39, because the tint acts through a window pinned to the shadows and is a
+    /// different control wearing the same panel. One floor across all eight would be the
+    /// tint's, and the remap's six could each lose two thirds of their authority without
+    /// anything going red.
+    ///
+    /// Measured: rHue 102.24, rPurity 77.96, gHue 90.24, gPurity 63.35, bHue 130.69,
+    /// bPurity 114.68, tintHue 23.39, tintPurity 42.17.
+    ///
+    /// **`rPurity` declares a plateau, and the reason is worth reading before anyone
+    /// tries to widen it.** Rec.2020's red primary sits at x + y = 1.000, exactly on the
+    /// line `safeChromaticity` refuses to cross, so pushing red further from the white
+    /// point has nowhere to go: the bisection shrinks the offset back to nothing and the
+    /// positive half of that slider is a clamp. It delivers 100% of its travel by about
+    /// +10 and renders one step byte-identical to the one before it. Green has some
+    /// headroom (x + y = 0.967) and blue runs into `y > 0.002` instead; both saturate
+    /// too, at 96% and 92% front-loading, without quite producing an identical pair.
+    /// Recorded rather than fixed — see PROOF-03 in docs/audit/found-while-fixing.md.
+    static let primaries: [ControlSpec] = {
+        let axes: [(String, String, WritableKeyPath<Primaries, Double>, Double, Int)] = [
+            ("rHue", "Red hue", \.rHue, 44, 0),
+            ("rPurity", "Red purity", \.rPurity, 44, 1),
+            ("gHue", "Green hue", \.gHue, 44, 0),
+            ("gPurity", "Green purity", \.gPurity, 44, 0),
+            ("bHue", "Blue hue", \.bHue, 44, 0),
+            ("bPurity", "Blue purity", \.bPurity, 44, 0),
+            ("tintHue", "Shadow tint hue", \.tintHue, 16, 0),
+            ("tintPurity", "Shadow tint purity", \.tintPurity, 16, 0),
+        ]
+        return axes.map { id, name, path, floor, plateau in
+            ControlSpec(
+                id: "primaries.\(id)", panel: "Primaries", displayName: name,
+                low: -100, high: 100,
+                frameName: "tonalColourWedge", frame: { ProofFrames.tonalColourWedge() },
+                shippingReader: "Sources/LumenPipeline/RenderGraph.swift:101",
+                authorityFloor: floor, declaredPlateauSteps: plateau,
+                // No companion. The two tint axes are the two perpendicular components
+                // of ONE offset, not a magnitude and a direction, so either alone is a
+                // real move — which is why neither is written as the other's companion.
+                apply: { r, v in r.look.primaries[keyPath: path] = v })
+        }
+    }()
+
+    /// Point Colour, on the chart.
+    ///
+    /// The chart rather than the wedge, and this is the one place the wedge would be the
+    /// worse frame. Point Colour is a SELECTIVE tool: its whole claim is that it moves
+    /// one colour and leaves its neighbours alone, and the chart's twenty-four patches
+    /// put three near-misses around the swatch: it sits on moderate red at patch 15,
+    /// with the softer red at 9, orange at 7 and dark skin at 1 nearby. The wedge's eight
+    /// columns are 45° apart, so a swatch on one of them has nothing close enough to
+    /// spare or to catch, which is exactly what selectivity is. Range and
+    /// Variance are measurements OF that selectivity and would have almost nothing to
+    /// read on a frame whose colours are that far apart.
+    ///
+    /// **The sample is the companion, and without it every one of these is dead.** A
+    /// swatch selects by distance from `PointColor.sample` in OKLCh; a sample that names
+    /// a colour the frame does not contain has weight zero at every pixel. So the sample
+    /// is taken FROM the frame, through `ProofFrames.chartPatchColour`, and cannot drift
+    /// away from it.
+    ///
+    /// Ranges are the panel's and the engine's, which agree: Hue ±60
+    /// (`ColorEngine.pointHueShiftLimit`, and the ±60 slider docs/19 drove to ±100 before
+    /// calling the clamp a dead zone), Saturation and Luminance ±100, Range 0…100 with a
+    /// default of 50, Variance ±100.
+    static let pointColour: [ControlSpec] = {
+        /// Patch 15, moderate red — saturated enough to have an unambiguous hue, and
+        /// with three near neighbours on the chart for Range to reach into. Read once:
+        /// `apply` runs twenty-odd times per sweep and this builds the whole chart.
+        let target = ProofFrames.chartPatchColour(15)
+        func swatch(range: Double, h: Double = 0, s: Double = 0, l: Double = 0,
+                    variance: Double = 0) -> PointColor {
+            PointColor(sample: [target.r, target.g, target.b], range: range,
+                       variance: variance, shift: HSLShift(h: h, s: s, l: l))
+        }
+        return [
+            ControlSpec(
+                id: "pointColor.hue", panel: "Point Colour", displayName: "Hue",
+                low: -60, high: 60,
+                frameName: "colourChart", frame: { ProofFrames.colourChart() },
+                shippingReader: "Sources/LumenPipeline/RenderGraph.swift:101",
+                // Measured 141.57. Five hand-written entries, so five floors at 70% of
+                // their own numbers rather than one at 70% of the weakest: a shared
+                // floor is what a LOOP needs, and these five are five different
+                // controls that happen to share a panel.
+                authorityFloor: 99,
+                apply: { r, v in r.develop.pointColors = [swatch(range: 50, h: v)] }),
+            ControlSpec(
+                id: "pointColor.saturation", panel: "Point Colour",
+                displayName: "Saturation",
+                low: -100, high: 100,
+                frameName: "colourChart", frame: { ProofFrames.colourChart() },
+                shippingReader: "Sources/LumenPipeline/RenderGraph.swift:101",
+                // Measured 83.39.
+                authorityFloor: 58,
+                apply: { r, v in r.develop.pointColors = [swatch(range: 50, s: v)] }),
+            ControlSpec(
+                id: "pointColor.luminance", panel: "Point Colour",
+                displayName: "Luminance",
+                low: -100, high: 100,
+                frameName: "colourChart", frame: { ProofFrames.colourChart() },
+                shippingReader: "Sources/LumenPipeline/RenderGraph.swift:101",
+                // Measured 158.82.
+                authorityFloor: 111,
+                apply: { r, v in r.develop.pointColors = [swatch(range: 50, l: v)] }),
+            ControlSpec(
+                // Range is how much of the picture the swatch claims, so it needs a
+                // shift to claim it WITH: at every shift of zero the swatch is skipped
+                // before a pixel is touched (`compiledSwatches` drops it), and Range
+                // would measure dead across its whole travel on a working control.
+                id: "pointColor.range", panel: "Point Colour", displayName: "Range",
+                low: 0, high: 100, neutral: 50,
+                frameName: "colourChart", frame: { ProofFrames.colourChart() },
+                shippingReader: "Sources/LumenPipeline/RenderGraph.swift:101",
+                // Measured 66.10.
+                authorityFloor: 46,
+                apply: { r, v in r.develop.pointColors = [swatch(range: v, h: 40)] }),
+            ControlSpec(
+                // Variance needs a range to work inside for the same reason, and
+                // nothing else: it is its own move, compressing (−) or expanding (+)
+                // the deviation of what is selected from the swatch's own colour, so it
+                // is measured with the three shifts at zero and only the selection set.
+                id: "pointColor.variance", panel: "Point Colour", displayName: "Variance",
+                low: -100, high: 100,
+                frameName: "colourChart", frame: { ProofFrames.colourChart() },
+                shippingReader: "Sources/LumenPipeline/RenderGraph.swift:101",
+                // Measured 77.10.
+                authorityFloor: 53,
+                apply: { r, v in
+                    r.develop.pointColors = [swatch(range: 50, variance: v)]
+                }),
+        ]
+    }()
+
+    /// The Zones panel: five zone exposures, a global trim, and the five pivots.
+    ///
+    /// On the ramp, because a zone exposure is a statement about tone and the ramp spans
+    /// −8…+5 EV of it. The travel is the SLIDER's −3…+3 stops rather than the ±5 hard
+    /// range a drag can reach: the hard range is an overshoot for a photographer who
+    /// means it, and a proof measures the control the panel offers.
+    static let zones: [ControlSpec] = {
+        // A floor each, at 70% of that zone's own measurement, because the six numbers
+        // are an order of magnitude apart and a single floor set by the weakest would
+        // let Global lose 97% of its authority without anything going red. Measured:
+        // dark 4.74, shadow 37.76, mid 177.01, light 201.71, bright 58.17, global 215.25.
+        //
+        // **Dark's floor is 3, and it is a floor under a control that is already below
+        // the visible threshold.** That is not a mistake and it is not this probe's
+        // fault: the Dark zone's pivot sits at 0.08 on the normalized axis, which is
+        // −7.88 EV, and an 8-bit display has a couple of code values left down there.
+        // Its whole ±3 EV travel moves the picture by 4.74 of 255 — a fifth of what
+        // Blacks did when docs/19 called Blacks a control the photographer cannot see.
+        // Recorded as PROOF-04 rather than fixed, and the floor is set where docs/20
+        // says to set it, at 70% of what was measured, so the number stays visible in a
+        // diff instead of being rounded into an aspiration.
+        let bands: [(String, String, WritableKeyPath<Zones, ZoneAdjust>, Double)] = [
+            ("dark", "Dark", \.dark, 3), ("shadow", "Shadow", \.shadow, 26),
+            ("mid", "Mid", \.mid, 123), ("light", "Light", \.light, 141),
+            ("bright", "Bright", \.bright, 40), ("global", "Global", \.global, 150),
+        ]
+        var out: [ControlSpec] = bands.map { id, name, path, floor in
+            ControlSpec(
+                id: "zones.\(id).ev", panel: "Zones", displayName: "\(name) EV",
+                low: -3, high: 3,
+                frameName: "neutralRamp", frame: { ProofFrames.neutralRamp() },
+                shippingReader: "Sources/LumenPipeline/RenderGraph.swift:486",
+                authorityFloor: floor,
+                apply: { r, v in r.develop.zones[keyPath: path].ev = v })
+        }
+        // The five pivots. A pivot with every zone at zero moves a boundary between two
+        // identical zones and does nothing at all — the same companion problem the
+        // contrast pivot has, and the same answer: give it something to be the boundary
+        // OF. The alternating ±2 EV pattern puts a four-stop seam at every one of the
+        // five pivots at once, so one companion serves all five and no pivot is measured
+        // through a boundary its neighbours happened not to make visible.
+        func alternatingZones(_ r: inout Recipe) {
+            r.develop.zones.dark.ev = 2
+            r.develop.zones.shadow.ev = -2
+            r.develop.zones.mid.ev = 2
+            r.develop.zones.light.ev = -2
+            r.develop.zones.bright.ev = 2
+        }
+        // Each pivot's travel, clamped against its neighbours by `ZonesPanel.movePivot`
+        // with a minimum gap of 0.02 — the same reasoning as the grading pivots above.
+        // Floors at 70% of each pivot's own measurement: 10.47, 95.05, 161.94, 86.71,
+        // 114.93. The dark pivot is weak for the same reason the dark ZONE is — it is
+        // the boundary of a region an 8-bit display renders almost entirely black.
+        let travels: [(Int, String, Double, Double, Double)] = [
+            (0, "Dark", 0, 0.23, 7), (1, "Shadow", 0.10, 0.48, 66),
+            (2, "Mid", 0.27, 0.73, 113), (3, "Light", 0.52, 0.90, 60),
+            (4, "Bright", 0.77, 1.0, 80),
+        ]
+        for (index, name, lo, hi, floor) in travels {
+            out.append(ControlSpec(
+                id: "zones.pivot.\(index)", panel: "Zones",
+                displayName: "\(name) pivot",
+                low: lo, high: hi, neutral: Zones.defaultPivots[index],
+                frameName: "neutralRamp", frame: { ProofFrames.neutralRamp() },
+                shippingReader: "Sources/LumenPipeline/RenderGraph.swift:486",
+                authorityFloor: floor,
+                apply: { r, v in
+                    alternatingZones(&r)
+                    var pivots = Zones.defaultPivots
+                    pivots[index] = v
+                    r.develop.zones.pivots = pivots
+                }))
+        }
+        return out
+    }()
+
+    /// The black-and-white mix: eight bands, on the chart.
+    ///
+    /// **The wedge was tried first and is the wrong frame here, which took measuring to
+    /// find out.** The argument for it was good: one floor covers eight bands, docs/20
+    /// sets it by the weakest member, and on the chart the weakest is whichever hue the
+    /// ColorChecker happens to represent worst — a fact about a test chart rather than
+    /// about the control. But a full-negative band takes its hue to BLACK (`gain =
+    /// 1 + w·gate·band/100·bwKappa` reaches zero at −100), and the wedge carries rows up
+    /// to +5 EV that render at the code-value ceiling. So the peak the authority metric
+    /// reports is one clipped pixel going from 255 to 0, for every band: red measured
+    /// 254.92 and orange 254.50, four hundredths of a level apart, on a metric whose job
+    /// is to tell them apart. A floor set from those would catch a band that had died
+    /// and nothing short of it.
+    ///
+    /// On the chart every patch sits inside the display range, so the peak is the gain
+    /// rather than the clip. It is also the frame the twenty-four MIXER records already
+    /// use, and the B&W mix is the same eight-band model at canonical geometry
+    /// (`applyBlackAndWhite` calls the same `bandWeights`) — so these eight numbers can
+    /// be read beside those twenty-four instead of only beside each other. Comparability
+    /// across controls is what docs/20's fixed frame set is FOR.
+    ///
+    /// `enabled` is the companion and it is not optional: `applyBlackAndWhite` returns
+    /// the pixel untouched unless it is set, so a band swept on `BlackAndWhite(enabled:
+    /// false)` measures dead at all 21 settings while carrying the photographer's whole
+    /// mix. That distinction is the reason the field exists.
+    static let blackAndWhite: [ControlSpec] = {
+        let names = ["red", "orange", "yellow", "green", "aqua", "blue", "purple",
+                     "magenta"]
+        return names.enumerated().map { index, band in
+            ControlSpec(
+                id: "bw.\(band)", panel: "Black & White",
+                displayName: "\(band.capitalized) band",
+                low: -100, high: 100,
+                frameName: "colourChart", frame: { ProofFrames.colourChart() },
+                shippingReader: "Sources/LumenPipeline/RenderGraph.swift:101",
+                // One floor for the eight, set by the weakest — aqua at 153.13, against blue
+                // 161.53, purple 161.23, magenta 167.93, red 168.99, green 202.48,
+                // orange 206.91 and yellow 211.85. Aqua is the weakest band on the
+                // MIXER's hue axis too (46.05), which is the ColorChecker having one
+                // cyan patch rather than the two bands sharing a defect.
+                authorityFloor: 107,
+                apply: { r, v in
+                    var bw = BlackAndWhite()
+                    bw.bands[index] = v
+                    r.look.bw = bw
+                })
+        }
+    }()
+
+    /// The Film Lab: six stocks, and the five controls that shape one.
+    ///
+    /// **Strength is measured once per stock and the other four only on Portra 400.**
+    /// A stock is not a slider — it is a choice between six parameter sets, and the
+    /// question a proof can ask of a choice is whether it reaches the picture at all.
+    /// That is P1 wearing a number: `FilmStock.named` returning nil, or a stock whose
+    /// characteristic curve had collapsed to the neutral rendering, would show up here
+    /// as a Strength slider with no authority and nowhere else in the suite. Sweeping
+    /// all five controls on all six stocks would be thirty records answering the same
+    /// question six times over at four minutes each, and docs/20's argument for
+    /// measuring what an ordinary edit touches applies to a sweep's own budget.
+    ///
+    /// The wedge is the frame for the tonal three. A stock is a display transform: its
+    /// characteristic curve is tonal, its crossover and couplers are chromatic, and
+    /// Tri-X is monochrome. A grey ramp cannot see a stock desaturate and a mid-tone
+    /// chart cannot see a toe or a shoulder; the wedge has both axes.
+    ///
+    /// Halation and grain are SPATIAL and get their own frames — see each entry.
+    static let film: [ControlSpec] = {
+        let stocks: [(String, String)] = [
+            ("portra400", "Portra 400"), ("gold200", "Gold 200"),
+            ("ektar100", "Ektar 100"), ("velvia50", "Velvia 50"),
+            ("cine250d", "Cine 250D"), ("trix400", "Tri-X 400"),
+        ]
+        // One floor for the six, set by the weakest — Cine 250D at 149.10, against
+        // Ektar 167.29, Gold 166.10, Portra 160.97, Velvia 159.24 and Tri-X 194.61.
+        // Six stocks measuring within 30% of each other is the answer to the question
+        // this loop asks: every one of them reaches the picture, and none is a preset
+        // that renders as the neutral transform.
+        var out: [ControlSpec] = stocks.map { id, name in
+            ControlSpec(
+                // Strength is the blend against the neutral rendering, 0…100 in the
+                // panel and in `FilmLab.amount`. At 0 `RenderPlan` builds no film chain
+                // at all, so the bottom of this travel is the picture without the stock
+                // — which is what the slider means, and why the sweep starts there.
+                id: "film.\(id).strength", panel: "Film Lab",
+                displayName: "\(name) strength",
+                low: 0, high: 100, neutral: 0,
+                frameName: "tonalColourWedge", frame: { ProofFrames.tonalColourWedge() },
+                shippingReader: "Sources/LumenPipeline/RenderGraph.swift:147",
+                authorityFloor: 104,
+                apply: { r, v in r.look.filmLab = FilmLab(stock: "lumen/\(id)", amount: v) })
+        }
+        /// Portra 400 at full strength — the stock the other five controls shape.
+        func portra() -> FilmLab { FilmLab(stock: "lumen/portra400", amount: 100) }
+        out.append(ControlSpec(
+            // Film Exposure is not Develop's Exposure: it shifts the scene along the
+            // stock's log-exposure axis, into a different part of its latitude. −2…+3 EV
+            // in the panel and in `FilmChain`'s own clamp.
+            id: "film.exposure", panel: "Film Lab", displayName: "Film exposure",
+            low: -2, high: 3,
+            frameName: "tonalColourWedge", frame: { ProofFrames.tonalColourWedge() },
+            shippingReader: "Sources/LumenPipeline/RenderGraph.swift:147",
+            // Measured 186.01.
+            authorityFloor: 130,
+            apply: { r, v in
+                var film = portra()
+                film.exposure = v
+                r.look.filmLab = film
+            }))
+        out.append(ControlSpec(
+            id: "film.pushPull", panel: "Film Lab", displayName: "Push / pull",
+            low: -1, high: 2,
+            frameName: "tonalColourWedge", frame: { ProofFrames.tonalColourWedge() },
+            shippingReader: "Sources/LumenPipeline/RenderGraph.swift:147",
+            // Measured 31.84.
+            authorityFloor: 22,
+            apply: { r, v in
+                var film = portra()
+                film.pushPull = v
+                r.look.filmLab = film
+            }))
+        out.append(ControlSpec(
+            // Halation is highlight energy scattering off the film base and coming back,
+            // so it is measured on a STEP EDGE: a bright field beside a dark one is
+            // where a glow reads as a glow rather than as a uniform lift, and the step
+            // edge's bright side sits about half a stop under the halation clip while
+            // its dark side sits four under — exactly straddling `highlightEnergy`'s
+            // gate.
+            //
+            // On the WIDE step edge, because the kernel is 65 µm at a 36 mm gate and
+            // therefore a fixed fraction of the long edge. At `stepEdge`'s 128 px that
+            // is a σ of 0.23 pixels — no light crosses the edge at all — and the control
+            // measured 4.31 code values, which is a reading of the frame's resolution
+            // and not of the slider.
+            id: "film.halation", panel: "Film Lab", displayName: "Halation",
+            low: 0, high: 100,
+            frameName: "wideStepEdge", frame: { ProofFrames.wideStepEdge() },
+            shippingReader: "Sources/LumenPipeline/RenderGraph.swift:128",
+            // Measured 24.71 on the wide edge, against 4.31 on the narrow one.
+            authorityFloor: 17,
+            apply: { r, v in
+                var film = portra()
+                film.halation = v
+                r.look.filmLab = film
+            }))
+        out.append(ControlSpec(
+            // Grain's amplitude envelope is √(p(1−p)) in DENSITY, so it peaks at mid
+            // densities and vanishes at both ends: the frame is a ramp because a frame
+            // at one density measures one point of a curve. It is a 4096-px ramp because
+            // the plate scale is a pitch on the PRINT converted to this render's pixels,
+            // floored at half a pixel — see `ProofFrames.grainField`. Both grain
+            // controls sit on it so their two numbers are of the same grain.
+            id: "film.grain.amount", panel: "Film Lab", displayName: "Grain",
+            low: 0, high: 100,
+            frameName: "grainField", frame: { ProofFrames.grainField() },
+            shippingReader: "Sources/LumenPipeline/RenderGraph.swift:168",
+            // Measured 19.43.
+            authorityFloor: 13,
+            apply: { r, v in
+                var film = portra()
+                film.grain = FilmGrain(size: 1.0, amount: v)
+                r.look.filmLab = film
+            }))
+        out.append(ControlSpec(
+            // Grain size is the plate's pitch and does nothing to a picture with no
+            // grain in it — the companion is the same one Sharpen Radius needs from
+            // Sharpen Amount. 0.5…2.0 is the panel's range.
+            //
+            // On `grainField` and not the ramp, and this one is the reason that frame
+            // exists. `FilmGrainProfile.plateScale` floors a plate cell at half a pixel,
+            // and on a 256-px ramp the whole 0.5…2.0 travel evaluates to 0.04…0.17 —
+            // under the floor at every setting. It measured authority 0.00 with twenty
+            // dead steps of twenty, which reads exactly like an inert control and is
+            // not one. PROOF-06 records what that same arithmetic says about the
+            // control at PREVIEW resolution, which is a real finding rather than a
+            // probe error.
+            id: "film.grain.size", panel: "Film Lab", displayName: "Grain size",
+            low: 0.5, high: 2.0, neutral: 1.0,
+            frameName: "grainField", frame: { ProofFrames.grainField() },
+            shippingReader: "Sources/LumenPipeline/RenderGraph.swift:168",
+            // Measured 40.69, against 0.00 on the ramp.
+            authorityFloor: 28,
+            apply: { r, v in
+                var film = portra()
+                film.grain = FilmGrain(size: v, amount: 100)
+                r.look.filmLab = film
+            }))
+        return out
+    }()
+
+    /// The two classical denoise masters.
+    ///
+    /// Three things had to be right at once for these to measure anything, and each of
+    /// them has produced a fake reading somewhere in this repository's history.
+    ///
+    /// **The frame carries noise.** Obvious, and `noisyISO6400` is the frame docs/20
+    /// names for every denoise control. Colour gets `noisyChromaEdge` instead, because
+    /// `noisyISO6400`'s clean twin is neutral: a colour denoiser has chroma noise to
+    /// remove there but no chroma SIGNAL to be measured against, and
+    /// `DenoiseQualityTests` records that a residual score on that frame is a tautology
+    /// a stage which annihilates every chroma band passes perfectly.
+    ///
+    /// **The thresholds are denominated in the right noise.** `captureISO: 6400`, or
+    /// `RenderPlan` builds the stage from an ISO 100 profile and the sweep measures an
+    /// instrument calibrated for a different sensor.
+    ///
+    /// **The stage actually runs.** `ReferenceRenderer.render` starts at S6 and S3 is
+    /// not inside it; `denoisedFirst` is what puts it back where the shipping reference
+    /// path has it (PipelineRenderer.swift:1468). Without that flag both of these
+    /// measure exactly zero — a dead reading produced by rendering through a pipeline
+    /// missing the stage under test, which is the frame mistake with the frame right.
+    ///
+    /// The travel is 0…100 for both, in the panel and in `ClassicNR`. Neither gets a
+    /// companion beyond the mode: `ISODefaults.classic(for:)` returns a zeroed block
+    /// unless the mode is Classic, so Off would report both as dead.
+    static let denoise: [ControlSpec] = [
+        ControlSpec(
+            id: "denoise.luma", panel: "Detail", displayName: "Luminance denoise",
+            low: 0, high: 100,
+            frameName: "noisyISO6400", frame: { ProofFrames.noisyISO6400() },
+            shippingReader: "Sources/LumenPipeline/RenderGraph.swift:265",
+            // Measured 9.60 — see PROOF-07.
+            authorityFloor: 6, mayLeaveRange: false,
+            captureISO: 6400, denoisedFirst: true,
+            apply: { r, v in
+                r.develop.denoise.mode = .classic
+                r.develop.denoise.classic.luma = v
+            }),
+        ControlSpec(
+            id: "denoise.chroma", panel: "Detail", displayName: "Colour denoise",
+            low: 0, high: 100,
+            frameName: "noisyChromaEdge", frame: { ProofFrames.noisyChromaEdge() },
+            shippingReader: "Sources/LumenPipeline/RenderGraph.swift:265",
+            // Measured 22.02.
+            authorityFloor: 15, mayLeaveRange: false,
+            captureISO: 6400, denoisedFirst: true,
+            apply: { r, v in
+                r.develop.denoise.mode = .classic
+                r.develop.denoise.classic.chroma = v
+            }),
+    ]
+
     static var all: [ControlSpec] {
         tone + colour + curve + presence + sharpen + mixer
+            + grade + gradeGeometry + printerLights + primaries + pointColour
+            + zones + blackAndWhite + film + denoise
     }
 }

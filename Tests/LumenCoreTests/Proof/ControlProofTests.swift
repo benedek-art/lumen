@@ -30,9 +30,21 @@ final class ControlProofTests: XCTestCase {
     func testEveryRegisteredControlIsAliveAcrossItsWholeTravel() {
         for spec in ProofRegistry.all {
             let record = ProofRunner.measured(spec)
+            // Equality against the DECLARED plateau, which is zero for every control
+            // that has not argued for one — so this is the same assertion it has always
+            // been everywhere it has always been made. docs/20 P2 forbids "a plateau
+            // the control does not declare", and `primaries.rPurity` is the first
+            // control in this registry to declare one: Rec.2020's red primary already
+            // sits on the x + y = 1 line, so `safeChromaticity` refuses to push it any
+            // further out and the positive half of that slider is a clamp.
+            //
+            // The equality cuts both ways on purpose. A plateau that GROWS is a
+            // regression, and a plateau that DISAPPEARS is a fix that has to say so in
+            // a commit message rather than quietly widening a bound nobody re-reads.
             XCTAssertEqual(
-                record.deadSteps, 0,
-                "\(spec.id) is dead at \(record.deadSteps) of 20 steps — some part of "
+                record.deadSteps, spec.declaredPlateauSteps,
+                "\(spec.id) is dead at \(record.deadSteps) of 20 steps against "
+                    + "\(spec.declaredPlateauSteps) declared — some part of "
                     + "its travel renders byte-identical to the step before it. Before "
                     + "concluding the control is dead, check that the registry's declared "
                     + "range matches the panel's and the engine's clamp: a large dead count "

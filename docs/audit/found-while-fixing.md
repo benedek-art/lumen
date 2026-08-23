@@ -189,3 +189,175 @@ the fix incomplete is not something this harness can say on its own.
 and every promise in this repository that turned out to be false started as somebody's
 reasonable guess. These are measurements. They become promises when someone has decided
 what the right answer is, and the records make that decision visible whenever it happens.
+
+---
+
+The entries below come from the sweep that added the Look panel to the registry — the
+grading wheels, printer lights, primaries, Point Colour, the Zones panel, the B&W mix,
+the film stocks and the two classical denoise masters. Sixty-five controls, measured the
+same way the first forty-six were.
+
+**PROOF-03 — all three Primaries purity sliders spend their positive half against a
+clamp, and Red spends all of it there.** BROKEN, recorded rather than fixed.
+
+Measured on `tonalColourWedge`, ±100, which is the panel's range and the engine's:
+
+```
+primaries.rPurity   authority 77.96   front-loading 100.0%   1 dead step
+primaries.gPurity   authority 63.35   front-loading  96.2%   0 dead steps
+primaries.bPurity   authority 114.68  front-loading  92.4%   0 dead steps
+```
+
+Front-loading is the share of the total effect delivered by the first half of the travel.
+At 100.0% the positive half of Red purity delivers **nothing at all**: the render at +10
+and the render at +100 are the same distance from the render at −100, and one adjacent
+pair is byte-identical.
+
+The cause is in `ColorEngine.safeChromaticity`, and it is arithmetic rather than a bug in
+the ordinary sense. Purity rescales a primary's distance from the white point by
+`1 + purity/100 × 0.5`, and the result has to stay somewhere a matrix can be built from —
+`y > 0.002`, `x > 0.001`, `x + y < 0.999`. **Rec.2020's red primary is (0.708, 0.292), so
+x + y is exactly 1.000**: it is already outside that test before the slider is touched, and
+every outward push bisects straight back to the boundary. Green has a little headroom
+(x + y = 0.967) and blue runs into the `y > 0.002` limit at about +31 instead. Each of the
+three saturates; red saturates immediately.
+
+The function's own header calls this out — "Purity at ±100 can push a primary off the
+chromaticity plane entirely (Rec.2020's blue leaves y > 0 well before the slider ends)" —
+so the shrinkage is deliberate. What nobody had measured is that the shrinkage eats *half
+a slider*, and that a photographer dragging Red purity from 0 to +100 is dragging a
+control that stopped responding at +10.
+
+Not fixed here, and the reason is that the fix is a design decision rather than a repair:
+the honest options are to re-scale the slider so its positive half maps onto the headroom
+that actually exists (different for each primary), to let the working space be a bigger
+one before the remap, or to disclose the limit in the panel. All three change what saved
+recipes mean. `primaries.rPurity` declares its plateau in the registry — the first control
+to use `ControlSpec.declaredPlateauSteps` — so the sweep records it as a known one step
+rather than failing, and the day it becomes zero the test goes red and somebody has to say
+which fix landed.
+
+**PROOF-04 — the Zones panel's dark end is below the visible threshold.** UNPROVEN,
+recorded with its number.
+
+```
+zones.dark.ev     authority  4.74 over ±3 EV      zones.pivot.0   authority 10.47
+zones.shadow.ev   authority 37.76                 zones.pivot.1   authority 95.05
+zones.mid.ev      authority 177.01                zones.pivot.2   authority 161.94
+zones.light.ev    authority 201.71                zones.pivot.3   authority 86.71
+zones.bright.ev   authority 58.17                 zones.pivot.4   authority 114.93
+zones.global.ev   authority 215.25
+```
+
+Dark moves the picture by 4.74 of 255 levels across its whole travel — six stops of
+exposure, from −3 to +3. docs/19 called Blacks a control the photographer cannot see at
+2.9, and this is 1.6× that.
+
+**This is not the probe.** The frame is `neutralRamp`, which docs/20 names for tone and
+which spans −8…+5 EV; the travel is the panel's own −3…+3 rather than the ±5 a drag can
+reach; the control needs no companion. The cause is where the zone SITS: `Zones.defaultPivots`
+puts Dark at 0.08 on the normalized tonal axis, which between the −9 and +5 EV anchors is
+−7.88 EV, and an 8-bit display has about two code values left down there. A six-stop lift
+of something that renders as black renders as black.
+
+So the finding is not that the multiply is wrong. It is that **the Zones panel ships six
+sliders of which one cannot be seen**, and the lever is the default pivot rather than the
+gain. `zones.pivot.0` at 10.47 is the same fact from the other side: the boundary of an
+invisible region is nearly invisible too.
+
+Worth adding, because it is the kind of thing that reads as damning and is not: Bright
+delivers 99.8% of its authority in its NEGATIVE half. Its pivot sits at +3.88 EV, so
+raising it pushes tones that are already at display white further above it and the
+rendering clips them back. A highlight zone whose positive half is a shoulder is arguably
+the shoulder working. It is recorded because the number should be somebody's decision and
+not a surprise.
+
+**PROOF-05 — two INVALID PROBEs I caught in my own sweep, both from the frame being too
+SMALL rather than from containing the wrong thing.** Probe errors, recorded because the
+class is new.
+
+This repository has now recorded five instances of a control measured on the wrong frame,
+and every previous one was about CONTENT: `colorDetail` on a neutral frame, `hotPixels` on
+a frame with no hot pixels, Sharpen Masking on a field with nothing to withhold from. These
+two are about RESOLUTION, and they are the first of their kind here.
+
+```
+film.halation    on stepEdge (128 px)     authority  4.31   — sub-pixel blur
+film.grain.size  on neutralRamp (256 px)  authority  0.00   — 20 dead steps of 20
+```
+
+Both stages are denominated in **microns at the film gate**, not in pixels. Halation's
+first bounce is 65 µm on a 36 mm gate, which is `0.065 / 36 × longEdge` pixels — a σ of
+0.23 px at 128, so no light crosses the edge the control is being measured at. Grain's
+plate cell is a pitch on the print times the render's pixels per print millimetre, floored
+at half a pixel so a cell can never be finer than the sampling grid; on a 256-pixel ramp
+that product is 0.04 to 0.17 across the whole of Grain Size, so every setting lands on the
+floor and all twenty-one renders come out byte-identical.
+
+Read without the arithmetic, `authority 0.00, 20 dead steps` is the strongest possible
+statement that a control is inert — stronger than anything docs/19 recorded. It was wrong.
+`ProofFrames.wideStepEdge` (2048 px) and `ProofFrames.grainField` (4096 px) are sized from
+that arithmetic, and `testTheFilmGateFramesAreBigEnoughForTheirKernels` restates it so the
+frames cannot quietly shrink back under their kernels.
+
+**The general lesson, which is why this is an entry and not a footnote.** docs/20 said "the
+smallest synthetic frame that contains what it acts on" and everyone, including me, read
+"contains" as being about content. For any stage whose kernel is denominated in a physical
+unit — a film gate, a sensor pitch, a print size — a frame can fail to contain the control's
+subject by being too coarse to resolve it. The frame table now says so.
+
+**PROOF-06 — Grain Size is inert below about 1500 pixels of long edge, and half-clamped at
+preview resolution.** BROKEN, recorded rather than fixed.
+
+The arithmetic that made PROOF-05 a probe error says something real about the shipping
+path once it is pointed at real render sizes. `FilmGrainProfile.plateScale` is
+`pitch_on_print_mm × pixels_per_print_mm`, floored at 0.5 so a plate cell cannot be finer
+than the sampling grid. For Portra 400 at the default 10-inch print that is
+`0.000333 × size × longEdge` pixels:
+
+```
+long edge   Grain Size 0.5    Grain Size 1.0    Grain Size 2.0
+   256          0.04              0.09              0.17        all floored
+  2048          0.34              0.68              1.37        bottom floored
+  6000          1.00              2.00              4.00        none floored
+```
+
+So on an export the slider works across its whole travel. At a preview long edge around
+two thousand pixels its lower half is against the floor, and below about fifteen hundred
+the whole control is. The photographer drags Grain Size, sees the coarse half respond and
+the fine half do nothing, and the file they export behaves differently from the screen
+they set it on.
+
+docs/20 P5 names this exact shape as a defect in its own right — "a per-pixel edge gate
+that keeps 17.8% of a delta at preview scale and a different fraction at export scale has
+passed a same-scale comparison and still lies to the user about what they are judging".
+The floor itself is correct and necessary; what is missing is any acknowledgement that it
+swallows a control at the sizes people edit at. The candidate fixes are to sample the
+plate with a proper reconstruction below one cell rather than clamping, or to say so in
+the panel. Both are somebody's decision, not a repair.
+
+**PROOF-07 — fifteen of the sixty-five new controls are not monotone, and twelve of them
+have an explanation.** Recorded, not asserted, on the same terms as PROOF-01.
+
+```
+grade.global.hue     grade.mid.hue      grade.high.hue     grade.shadows.hue
+primaries.rHue       primaries.bHue     pointColor.hue
+primaries.rPurity    primaries.gPurity  primaries.bPurity
+zones.pivot.2        zones.pivot.3      grade.blending
+pointColor.range     film.grain.size
+```
+
+The four grading hue wheels are non-monotone BY CONSTRUCTION: cumulative separation on a
+circle rises to the antipode and falls back to zero, which is what a closed travel looks
+like and is why `isCircular` exists. The three hue rotations can carry a colour across the
+wrap point, which is PROOF-01's hypothesis about `mixer.red.hue` appearing three more
+times. The three purities are PROOF-03's clamp. `film.grain.size` is stochastic — a
+different plate scale is a different noise realization, not a further step in one
+direction.
+
+That leaves three without an account: `grade.blending`, `pointColor.range` and the two
+middle zone pivots. All four are controls that move a BOUNDARY rather than a magnitude, so
+a peak-separation metric wandering as the boundary sweeps past different content is at
+least plausible. Plausible is not established, and none of them is asserted against until
+somebody has decided what monotonicity should mean for a control whose job is to move a
+line rather than to push in a direction.

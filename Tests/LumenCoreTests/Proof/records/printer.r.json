@@ -1,0 +1,14 @@
+{
+  "authority" : 163.1597729486217,
+  "deadSteps" : 0,
+  "frame" : "neutralRamp",
+  "frontLoading" : 0.8685406138716242,
+  "id" : "printer.r",
+  "isMonotone" : true,
+  "meanSeparation" : 57.354158203947264,
+  "panel" : "Printer Lights",
+  "shippingReader" : "Sources\/LumenPipeline\/RenderGraph.swift:86",
+  "smallestLiveStep" : 9.47058000122422,
+  "travelHigh" : 24,
+  "travelLow" : -24
+}

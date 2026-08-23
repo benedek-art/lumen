@@ -62,8 +62,20 @@ enum ProofRunner {
     {
         var recipe = Recipe()
         spec.apply(&recipe, setting)
-        return ReferenceRenderer.render(
-            frame, plan: RenderPlan(recipe: recipe, lutSize: LUT3D.exportSize))
+        let plan = RenderPlan(recipe: recipe, lutSize: LUT3D.exportSize,
+                              captureISO: spec.captureISO)
+        // S3, for the controls that live in it. `ReferenceRenderer.render` starts at S6,
+        // so the reference path applies classical denoise to the buffer BEFORE calling
+        // it (PipelineRenderer.swift:1468) — at decode scale 1, which is what a proof
+        // frame renders at, `scaled(noiseScale:)` is the identity and this is exactly
+        // that call. Sweeping a denoise slider without it renders through a stage that
+        // never ran, which is the pipeline-shaped version of sweeping on the wrong
+        // frame.
+        var staged = frame
+        if spec.denoisedFirst, !plan.denoiseIsIdentity {
+            staged = plan.classicalDenoise.apply(frame)
+        }
+        return ReferenceRenderer.render(staged, plan: plan)
     }
 
     /// The neutral render — the control sitting where it does nothing.
@@ -78,8 +90,11 @@ enum ProofRunner {
             render(spec, at: $0, frame: frame)
         }
 
+        // `authorityEnd` is `spec.high` for every ordinary control and the ANTIPODE for
+        // a circular one, where `render(high)` is `render(low)` and every metric taken
+        // between them would report a working control as a dead one (docs/20 P4).
         let lowEnd = render(spec, at: spec.low, frame: frame)
-        let highEnd = render(spec, at: spec.high, frame: frame)
+        let highEnd = render(spec, at: spec.authorityEnd, frame: frame)
         let neutral = neutralRender(spec, frame: frame)
 
         // Overshoot is only a defect for an operator that claims to work within the
@@ -107,7 +122,12 @@ enum ProofRunner {
             travelLow: spec.low, travelHigh: spec.high,
             deadSteps: sweep.deadSteps.count,
             smallestLiveStep: sweep.smallestLiveStep,
-            authority: sweep.authority,
+            // Identical to `sweep.authority` for a non-circular control — the same two
+            // renders, deterministically — and the antipode separation for a circular
+            // one, where `sweep.authority` is zero by construction.
+            authority: spec.isCircular
+                ? ProofMetrics.authority(lowEnd, highEnd)
+                : sweep.authority,
             meanSeparation: ProofMetrics.meanSeparation(lowEnd, highEnd),
             frontLoading: sweep.frontLoading,
             isMonotone: sweep.isMonotone,
@@ -124,7 +144,10 @@ enum ProofRunner {
         return ProofEvidence.contactSheet([
             render(spec, at: spec.low, frame: frame),
             neutralRender(spec, frame: frame),
-            render(spec, at: spec.high, frame: frame),
+            // The antipode on a circle, for the same reason the record reads it there:
+            // a contact sheet whose third panel is a copy of its first shows a working
+            // hue wheel doing nothing.
+            render(spec, at: spec.authorityEnd, frame: frame),
         ])
     }
 }
