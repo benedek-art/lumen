@@ -3,6 +3,7 @@
   "deadSteps" : 0,
   "frame" : "neutralRamp",
   "frontLoading" : 0.7323636767009982,
+  "givenBack" : 0,
   "id" : "tone.highlights",
   "isMonotone" : true,
   "meanSeparation" : 13.337105909791097,

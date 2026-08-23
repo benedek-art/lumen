@@ -3,6 +3,7 @@
   "deadSteps" : 0,
   "frame" : "colourChart",
   "frontLoading" : 0.49541835881271723,
+  "givenBack" : 0.45531252925448484,
   "hueRotation" : 1.4562849144041934,
   "id" : "mixer.magenta.sat",
   "isMonotone" : false,

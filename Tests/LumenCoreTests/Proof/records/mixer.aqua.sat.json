@@ -3,6 +3,7 @@
   "deadSteps" : 0,
   "frame" : "colourChart",
   "frontLoading" : 0.4789999497189826,
+  "givenBack" : 0,
   "hueRotation" : 9.350307052287235,
   "id" : "mixer.aqua.sat",
   "isMonotone" : true,

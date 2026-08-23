@@ -3,6 +3,7 @@
   "deadSteps" : 0,
   "frame" : "neutralRamp",
   "frontLoading" : 0.4079559628730675,
+  "givenBack" : 0,
   "id" : "tone.shadows",
   "isMonotone" : true,
   "meanSeparation" : 13.64218596574146,

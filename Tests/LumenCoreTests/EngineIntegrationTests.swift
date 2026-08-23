@@ -78,11 +78,11 @@ final class EngineIntegrationTests: XCTestCase {
             var hi = -Double.infinity
             for y in 4..<(plane.height - 4) {
                 for x in range {
-                    lo = Swift.min(lo, plane[x, y])
-                    hi = Swift.max(hi, plane[x, y])
+                    lo = runningMin(lo, plane[x, y])
+                    hi = runningMax(hi, plane[x, y])
                 }
             }
-            swing = Swift.max(swing, hi - lo)
+            swing = runningMax(swing, hi - lo)
         }
         return swing
     }

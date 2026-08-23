@@ -3,6 +3,7 @@
   "deadSteps" : 0,
   "frame" : "colourChart",
   "frontLoading" : 0.8709167593011903,
+  "givenBack" : 0,
   "hueRotation" : 39.38312890265112,
   "id" : "mixer.orange.hue",
   "isMonotone" : true,

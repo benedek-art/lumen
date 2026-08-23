@@ -8,8 +8,7 @@ because how a defect was found is evidence about where to look for the next one.
 ---
 
 **TEST-01 — `Swift.max` swallows a NaN, so about ten running maxima in the suite would
-pass on a render that had gone entirely non-finite.** UNPROVEN (the safety net, not the
-product).
+pass on a render that had gone entirely non-finite.** FIXED, and watched failing first.
 
 Found by the colour/tone agent while proving one of its own new tests could fail:
 removing a clamp produced NaN and the test **still passed**.
@@ -32,17 +31,39 @@ Sites of that exact shape, at the time of writing: `RobustnessTests.swift` 357, 
 form `Swift.max(x, 0)` are a different case — they also absorb a NaN, but they are floors
 rather than accumulators and their result is not what the assertion reads.
 
-**Why this is not urgent, stated so nobody re-derives it.** The primary failure mode — a
-stage starts producing NaN — is already covered directly: `testRenderSurvivesAPoisonedPixel`,
-`testTablesSurviveNonFiniteInput`, and the per-pixel `isFinite` sweep at
-`RobustnessTests.swift:1518`. What the accumulators lose is the *second* line of defence,
-for a NaN arriving under a recipe those tests do not exercise.
+**Fixed with the first of the two options below**, not the preferred second, and the
+reason is the sentence above about what the assertion reads. `assertEveryPixelFinite`
+would add a new check beside every listed site and leave all of them still blind;
+`runningMax`/`runningMin` in `Tests/LumenCoreTests/RunningExtremes.swift` make the
+assertion that is already written the one that catches it. Eighteen sites, the ledger's
+list plus the `lo` partner of a span and the `plateau` a trench is measured against.
 
-**The cheap fix, when it is worth doing.** Not forty call sites. Either a NaN-propagating
-`maxKeepingNaN` used only where an accumulator feeds a bound — after which the existing
-`XCTAssertLessThan` fails on its own, since `NaN < bar` is false — or a shared
-`assertEveryPixelFinite(_:)` called by the tests that render whole frames with broad
-recipes. The second is fewer edits and catches the thing itself rather than its shadow.
+**Two things the fix found that this entry did not predict.**
+
+A running maximum was not the only swallower at its own site. `trench > 0 ? … : 0` at
+`RobustnessTests.swift:1862` is the same shape wearing a different hat — a NaN fails
+`> 0`, takes the else branch, and reports a trench of exactly zero — and so is the `where
+exact[ch] >= cut && tabled[ch] >= cut` at :640, which skips a non-finite channel and
+would report a colour-grade table that had gone entirely NaN as converging perfectly.
+Fixing the maxima alone left one of those tests green on a render that was one-eighth NaN.
+
+And the proof itself. Removing the zero-trace guard from `DetailEngine.structureTensor`
+(`trace > 1e-12 ? Num.saturate(disc / trace) : 0`, a real division by zero on any flat
+neighbourhood) makes `applyTexture` return **1024 non-finite pixels of 8192** on a frame
+`testPositiveTextureDoesNotRimAHardEdge` already renders. Original test code: PASSED.
+Fixed test code: FAILED, "dug a nan EV trench on the dark side of a clean edge". That is
+the before-and-after nobody took when these were written.
+
+**Why this was not urgent, kept because the reasoning still holds.** The primary failure
+mode — a stage starts producing NaN — is already covered directly:
+`testRenderSurvivesAPoisonedPixel`, `testTablesSurviveNonFiniteInput`, and the per-pixel
+`isFinite` sweep in `testTheWholePipelineWithEveryStageOnProducesASanePicture`. What the
+accumulators lost was the *second* line of defence, for a NaN arriving under a recipe
+those tests do not exercise. Worth recording alongside it: the shipping render path is
+hard to poison from the outside — a source pixel of `(nan, inf, -inf)` renders to
+`(0, 0, 0)` under both a tone recipe and a broad one, because the cube stages map a
+non-finite coordinate to index 0. The NaN this fix catches has to come from inside a
+stage, which is exactly where the substitution above put it.
 
 **The general lesson, which is the reason this file exists.** This is a check that cannot
 fail, hiding inside the checks. The audit spent a day finding that shape in the product;
@@ -143,25 +164,73 @@ because the estimator saw a call site and not a coordinate system.
 
 ---
 
-**PROOF-01 — two mixer controls are not monotone over their travel.** UNPROVEN, recorded
-rather than asserted past.
+**PROOF-01 — two mixer controls are not monotone over their travel.** MEASURED, and the
+metric was the thing that needed fixing. Neither is a defect in `ColorEngine`.
 
 The 46-control sweep found `mixer.magenta.sat` and `mixer.red.hue` change direction
-somewhere in their travel. Both are recorded with `isMonotone: false` in their proof
-records, and the monotonicity assertion is NOT yet applied to the mixer, because asserting
-a property before understanding whether it should hold is how a suite acquires a test
-nobody trusts.
+somewhere in their travel. Both are still recorded with `isMonotone: false`, because that
+is a true statement about the measurement; what has changed is that the record now also
+carries `givenBack` — how much of its own effect a control hands back, in code values —
+and the suite asserts a ceiling on that number for all 46 controls, the mixer included.
 
-`mixer.red.hue` has an innocent explanation available: red is the band that straddles the
-wrap point in hue space, so a shift can carry patches across it and the measured direction
-reverses without anything being wrong. That is a hypothesis, not a finding — it needs
-checking against the band's actual boundaries.
+**`mixer.magenta.sat` is the ruler, not the control.** On chart patch 17 the post-mixer
+lightness and hue hold at 0.58292 and 344.248° at every one of the 21 settings while
+chroma steps linearly 0 → 0.29101; the band weights are `[0,0,0,0,0,0,0,1]` with the
+chroma gate at 1.0, so the patch sits dead centre in magenta and (c) — a patch near a band
+boundary — is ruled out by measurement rather than by argument. `RenderPlan.exactColor`,
+which evaluates the same recipe without the tables, is monotone at all 21 steps in the
+channel that carries the peak. Only the 65³ colour-grade table reverses, and its error
+there converges away with table size, which is what makes it interpolation:
 
-`mixer.magenta.sat` has no such explanation. A band's saturation should move one way over
-its travel. It is the one to look at first.
+```
+mixer magenta sat +90, patch 17 green, scene-linear
+  exact  0.031798    33³  −0.000779    65³  0.002685    129³  0.030754
+```
 
-**PROOF-02 — overshoot, now measured on the six controls that can produce it.** Recorded,
-not asserted.
+4.84 code values of table error at 65³, against a reversal of 0.46 in a travel of 85.81.
+The sweep runs at 65³ because docs/18 measured that 33³ contributes 0.197 stops of its
+own; the table is right for the job and its residual error is simply larger than 1e-9.
+
+**`mixer.red.hue` reverses with the tables removed too, and the recorded hypothesis was
+wrong.** Red's feather does straddle the wrap point — its arc runs 351.73°…66.73° — but
+band membership is evaluated on the STAGE INPUT hue, which no slider moves, and patch 15's
+weights are `[1,0,0,0,0,0,0,0]` at every setting. Nothing crosses a boundary. What is
+actually happening is that the engine is exactly monotone in the axis it moves (L 0.50023
+and C 0.15267 held, hue stepping 4.5° per 10 units — the 45° at ±100 that
+`hueRangeDegrees` promises) while the patch's BLUE channel is driven through zero:
+
+```
+mixer red hue, patch 15 blue, scene-linear after the mixer
+  +40  0.01238     +60  0.00073     +80  −0.00784     +100  −0.01379
+```
+
+Past that crossing the colour is outside the gamut and picture formation, not the mixer,
+decides what blue is rendered; the rendered value flattens at ~24 code values and drifts
+back up by 0.95. The peak CHORD from one end of a curve is not a monotone function of the
+angle. This is docs/20 P4's circular-control clause arriving at the mixer: an angular
+control measured by a straight-line distance will reverse, and the answer is a different
+metric, not an exemption.
+
+**What the assertion is now.** `givenBack < 5% of authority`, on every control. The two
+above are the only ones in the registry that give anything back at all — 0.53% and 0.88%
+— and the other forty-four give back exactly zero, so the ceiling sits six times over the
+worst reading and an order of magnitude under anything a photographer could see. The
+shape it exists to catch is DETAIL-14's: a slider whose top half undoes part of its bottom
+half. Verified able to fail.
+
+**The general point, and it is the reusable one.** The boolean was measuring the ruler as
+well as the thing, at a tolerance six orders of magnitude finer than the ruler's own
+error, and nothing in its name said so. Two of the three candidate explanations for a
+finding like this — a defect in the code, or a defect in the probe — were the ones on
+file; the one that turned out to be right for `magenta.sat` was neither, and it was only
+separable because `RenderPlan.exactColor` exists to be measured against. A metric that
+cannot be compared with an exact evaluation of the same thing cannot tell its own error
+from the code's.
+
+**PROOF-02 — overshoot, now measured on the seven controls that can produce it, and
+split by direction.** MEASURED. (Six was a miscount; the list below has always had seven.)
+`detail.dehaze` is the fix working; the metric was reporting two different facts as one
+number, and no longer does.
 
 In sRGB code values beyond the input's own range, at full travel:
 
@@ -180,12 +249,74 @@ anything. `sharpen.masking` at exactly 0.00 is a gate behaving like a gate. And
 and now discloses (DETAIL-04), on a shipping path that runs a guided band where the
 halo-free property belongs to a local Laplacian that does not ship.
 
-`detail.dehaze` at 51.14 is the one worth a second look. docs/19 recorded that an earlier
-dehaze put a tenth of a test frame above scene white at +50 and nearly half at +100, and
-that was fixed; whether 51 code values of excursion on a veiled sky is the fix working or
-the fix incomplete is not something this harness can say on its own.
+**`detail.dehaze` at 51.14 is not an overshoot.** Every code value of it is BELOW the
+veiled frame's own darkest value, and none of it is above the brightest. Measured on
+`ProofFrames.hazySky`, whose neutral render spans 97.80…204.18:
 
-**Why none of these is asserted yet.** A ceiling is a promise about what the code may do,
-and every promise in this repository that turned out to be false started as somebody's
-reasonable guess. These are measurements. They become promises when someone has decided
-what the right answer is, and the records make that decision visible whenever it happens.
+```
+amount   above scene white   below the floor   worst excursion   at code 255
+  +25         0.0000%             1.98%             10.91            0.000%
+  +50         0.0000%             6.92%             23.04            0.000%
+  +75         0.0000%            17.93%             36.37            0.000%
+ +100         0.0000%            33.51%             51.14            0.000%
+```
+
+docs/19 recorded the earlier dehaze putting a tenth of a test frame above scene white at
++50 and nearly half at +100. That is the number in the first column, and it is zero at
+every setting. Nothing clips either: the darkest output sits at 46.66 of 255. The whole
+51.14 is the black point coming back down, which is what removing a veil is.
+
+**And it lands where a black-point restoration should.** At +100, 84.11% of GROUND pixels
+sit below the veiled floor and **0.00%** of sky pixels do — the opposite of the failure
+this was checked for, because the haze is thickest in the sky (the dark-channel
+transmission runs 0.080 at the top row to 0.783 at the bottom) and the sky guard raises
+the floor there. Negative travel produces no excursion in either direction at any setting.
+
+**Against the reference implementation's floor**, which is the comparison that settles
+whether the amplification is still capable of the docs/19 failure. He, Sun & Tang (CVPR
+2009) invert with `t0 = 0.1`, a tenfold amplification of `(I − A)`, and the Lumen dehaze
+docs/19 condemned used the same 0.1. The dark-channel map here is still floored at 0.02
+and reaches 0.0803 on this frame, but that map is not what the inversion divides by: the
+sky guard and `dehazeDistance` raise it to an effective `tv` of 0.5262…0.8061, so the
+amplification actually applied is at most **1.90×**, and the structural floor
+`tMin = mix(0.55, 0.05, 0.20) = 0.45` caps it at 2.22× anywhere. That is a fifth of the
+paper's, and it is why the frame cannot be driven above its own white. The estimator also
+under-reads the airlight on this frame — (0.4364, 0.5039, 0.6690) against the (0.55, 0.62,
+0.78) the frame was built with — which makes the correction gentler, not harsher.
+P6 tier (b): a published paper, and the delta is a design difference, not an error.
+
+**No ceiling declared, and this is the reason.** On the metric as it stood, a ceiling on
+`detail.dehaze` would have been a promise about how much of the black point the control is
+allowed to restore — a bound on the control WORKING, which tightening later would be a bug
+rather than an improvement. That is exactly the promise this file warns against. What is
+worth binding is the above-white number, which is now recorded separately as
+`overshootAbove` and measures 0.00 at both ends of the travel. **Recommended: an
+`overshootCeiling` of 2.0 on `detail.dehaze`** — under the 2.9-of-255 level docs/19
+established as the threshold of invisibility, so it is a promise a photographer would
+notice being broken, with enough margin that retuning the sky guard does not turn the
+suite red on an estimate. Not applied here: `ProofRegistry.swift` is owned by another
+agent this round, and the change is one argument on one entry.
+
+**The split, on all seven controls that can produce an excursion.** This is the table the
+single number was hiding:
+
+```
+                  above    below
+detail.texture    18.56    19.67
+detail.clarity     4.29     3.61
+detail.dehaze      0.00    51.14
+sharpen.amount    41.51    29.48
+sharpen.radius     6.40     4.48
+sharpen.detail     0.13     0.99
+sharpen.masking    0.00     0.00
+```
+
+Every rimming control has both lobes, because that is what a rim is. `detail.dehaze` — the
+one whose single number was the largest on the list and the one that got investigated —
+has only the lower one. Read as one number it was the worst offender; read as two it is
+the only control in the registry that never pushes a pixel above the frame's own white.
+
+**Why the other six are still unasserted.** Unchanged: they are measurements, and they
+become promises when someone has decided what the right answer is. What the split adds is
+that the decision is now askable for each separately — a maximum never said which lobe was
+being bounded.

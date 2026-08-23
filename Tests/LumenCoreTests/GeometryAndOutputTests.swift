@@ -318,8 +318,8 @@ final class GeometryAndOutputTests: XCTestCase {
             }
             let cells = Double(side * side)
             let unit = Dither.codeStep(truth, transfer: .srgb, levels: levels)
-            worstPlain = Swift.max(worstPlain, abs(plainSum / cells - truth) / unit)
-            worstDithered = Swift.max(worstDithered, abs(ditheredSum / cells - truth) / unit)
+            worstPlain = runningMax(worstPlain, abs(plainSum / cells - truth) / unit)
+            worstDithered = runningMax(worstDithered, abs(ditheredSum / cells - truth) / unit)
         }
         XCTAssertGreaterThan(worstPlain, 0.3,
                              "an undithered ramp should be off by up to half a code — "

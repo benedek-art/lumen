@@ -3,6 +3,7 @@
   "deadSteps" : 0,
   "frame" : "colourChart",
   "frontLoading" : 0.5894879552799684,
+  "givenBack" : 0,
   "hueRotation" : 101.84433686741625,
   "id" : "raw.tint",
   "isMonotone" : true,

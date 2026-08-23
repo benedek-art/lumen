@@ -3,6 +3,7 @@
   "deadSteps" : 0,
   "frame" : "colourChart",
   "frontLoading" : 0.4308944052327056,
+  "givenBack" : 0,
   "hueRotation" : 48.78033256927415,
   "id" : "mixer.magenta.hue",
   "isMonotone" : true,

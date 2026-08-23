@@ -3,6 +3,7 @@
   "deadSteps" : 0,
   "frame" : "colourChart",
   "frontLoading" : 0.9575377198626265,
+  "givenBack" : 0,
   "hueRotation" : 16.252472964241747,
   "id" : "color.saturation",
   "isMonotone" : true,

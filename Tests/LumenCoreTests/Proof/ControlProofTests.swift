@@ -64,7 +64,70 @@ final class ControlProofTests: XCTestCase {
 
     // MARK: - P4: well-behaved
 
+    /// Share of its own authority a control may hand back over its travel.
+    ///
+    /// The bar exists because the boolean beside it cannot carry one. `isMonotone` asks
+    /// whether the peak separation ever fell, at a tolerance of a billionth of a code
+    /// value, and two of the mixer's controls answer no for reasons that are not
+    /// defects: `mixer.magenta.sat` reverses only through the 65³ colour-grade table,
+    /// whose own interpolation error on that patch is 4.8 code values against an engine
+    /// response that is exactly linear in chroma; `mixer.red.hue` reverses with the
+    /// tables removed as well, because a hue slider moves a colour along a curve and the
+    /// peak chord from one end of a curve is not monotone in the angle. Neither is a
+    /// control the photographer can see changing its mind. Both are recorded, honestly,
+    /// as not monotone.
+    ///
+    /// What the property is worth asserting for is DETAIL-14's shape — Luminance giving
+    /// back gain past ~50, a slider whose top half undoes part of its bottom half. That
+    /// is a fraction of the control's effect, so it is asserted as one.
+    ///
+    /// 5% is set from the measurement and deliberately loose: the two controls above are
+    /// the only ones in the registry that give anything back at all, at 0.53% and 0.88%,
+    /// and the remaining forty-four give back exactly zero. A ceiling six times the
+    /// worst reading leaves room for the table's error on a control nobody has swept yet
+    /// while staying an order of magnitude below anything a photographer could see. It
+    /// tightens when there is a reason to tighten it, and the records make the day that
+    /// becomes possible a diff.
+    static let reversalCeilingFraction = 0.05
+
+    /// The assertion PROOF-01 left in an in-between state, now applied to every control
+    /// in the registry — the mixer included, which is where the question came from.
+    func testNoControlHandsBackASeeableShareOfItsOwnEffect() {
+        var report = [String]()
+        for spec in ProofRegistry.all {
+            let record = ProofRunner.measured(spec)
+            let ceiling = Self.reversalCeilingFraction * record.authority
+            if record.givenBack > 0 {
+                // Formatted OUTSIDE the interpolation. A string literal nested inside
+                // `\( )` defeats `scripts/check-swift-surface.py`'s quote tracking —
+                // `ProofRecord.summary` carries the note about the run that cost.
+                let back = String(format: "%.4f", record.givenBack)
+                let total = String(format: "%.2f", record.authority)
+                let share = String(format: "%.3f",
+                                   100 * record.givenBack / record.authority)
+                report.append("\(spec.id)  gave back \(back) of \(total) code values "
+                              + "(\(share)% of its authority)")
+            }
+            XCTAssertLessThan(
+                record.givenBack, ceiling,
+                "\(spec.id) hands back \(record.givenBack) of the "
+                    + "\(record.authority) code values it moves the picture over its "
+                    + "travel — past its ceiling of \(ceiling). A slider whose top half "
+                    + "undoes part of its bottom half is doing two things and the "
+                    + "photographer can only see one.")
+        }
+        print("\n=== controls that reverse at all, sRGB code values ===")
+        if report.isEmpty { print("  none") } else { report.forEach { print($0) } }
+        print("")
+    }
+
     func testNoControlLeavesTheRangeUnlessItIsEntitledTo() {
+        var report = [String]()
+        defer {
+            print("\n=== excursion beyond the frame's own range, sRGB code values ===")
+            report.forEach { print("  " + $0) }
+            print("")
+        }
         for spec in ProofRegistry.all where !spec.mayLeaveRange {
             let record = ProofRunner.measured(spec)
             guard let overshoot = record.overshoot else {
@@ -72,6 +135,10 @@ final class ControlProofTests: XCTestCase {
                         + "overshoot measurement")
                 continue
             }
+            // Formatted outside the interpolation, per `ProofRecord.summary`.
+            let above = String(format: "%.2f", record.overshootAbove ?? -1)
+            let below = String(format: "%.2f", record.overshootBelow ?? -1)
+            report.append("\(spec.id)  above \(above)  below \(below)")
             guard let ceiling = spec.overshootCeiling else { continue }
             XCTAssertLessThan(
                 overshoot, ceiling,

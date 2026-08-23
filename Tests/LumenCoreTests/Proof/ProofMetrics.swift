@@ -20,8 +20,14 @@ enum ProofMetrics {
 
     /// sRGB OETF. Inlined for the same reason `ProofFrames` inlines its EOTF: the ruler
     /// must not be built out of the thing being measured.
+    ///
+    /// The clamp is written value-first. `Swift.min(1, .nan)` returns 1 and
+    /// `Swift.max(0, 1)` returns 1, so the original order turned a non-finite render
+    /// into a frame of clean 255s before any metric saw it — the ruler laundering the
+    /// thing it is meant to measure (TEST-01). Value-first is identical for every finite
+    /// input and carries a NaN through to the assertions.
     static func linearToSRGB(_ x: Double) -> Double {
-        let v = Swift.max(0, Swift.min(1, x))
+        let v = Swift.min(Swift.max(x, 0), 1)
         return v <= 0.0031308 ? 12.92 * v : 1.055 * pow(v, 1 / 2.4) - 0.055
     }
 
@@ -47,7 +53,10 @@ enum ProofMetrics {
         let ca = codeValues(a), cb = codeValues(b)
         precondition(ca.count == cb.count, "authority needs two renders of one frame")
         var peak = 0.0
-        for i in 0..<ca.count { peak = Swift.max(peak, abs(ca[i] - cb[i])) }
+        // `runningMax`, not `Swift.max`: every other number in a record is derived
+        // from this one, and an accumulator that steps over a NaN reports a control
+        // as merely weak instead of broken (TEST-01).
+        for i in 0..<ca.count { peak = runningMax(peak, abs(ca[i] - cb[i])) }
         return peak
     }
 
@@ -81,8 +90,64 @@ enum ProofMetrics {
         var authority: Double { cumulative.last ?? 0 }
         /// Whether the cumulative response only ever grows — a control that reverses
         /// direction mid-travel is doing two things and the user can only see one.
+        ///
+        /// Kept EXACT, at a tolerance of a billionth of a code value, and kept as a
+        /// boolean. It is a true statement about the measurement and it stays in the
+        /// record; what it is not is a thing to assert, for the reasons `givenBack`
+        /// gives. Softening it with a tolerance would have erased a finding instead of
+        /// explaining one.
         var isMonotone: Bool {
             zip(cumulative, cumulative.dropFirst()).allSatisfy { $1 >= $0 - 1e-9 }
+        }
+
+        /// How much of its own effect the control takes BACK over its travel: the sum of
+        /// every backward step in the cumulative response, in code values.
+        ///
+        /// This is the number `isMonotone` should have been, and the difference is
+        /// scale. The boolean answers "did the peak separation ever fall", at a
+        /// tolerance of 1e-9 — which is an exactness the ruler does not have and a
+        /// property two of the mixer's controls do not possess for reasons that are not
+        /// defects (PROOF-01):
+        ///
+        ///  · `mixer.magenta.sat` gives back 0.46 of 85.81 code values, half a percent,
+        ///    and it is the RULER. The engine is exactly monotone: on chart patch 17 the
+        ///    post-mixer lightness and hue hold at 0.58292 and 344.248° at every one of
+        ///    the 21 settings while chroma steps linearly 0 → 0.29101, and the band
+        ///    weights are [0,0,0,0,0,0,0,1] with the chroma gate at 1.0 — dead centre,
+        ///    not a boundary. `RenderPlan.exactColor` is monotone at all 21 steps in the
+        ///    channel that carries the peak. Only the 65³ colour-grade table reverses,
+        ///    and its error there converges away with table size, which is what makes it
+        ///    interpolation rather than behaviour: green at Sat +90 measures 0.031798
+        ///    exactly, 0.002685 at 65³ and 0.030754 at 129³. A monotonicity test at 1e-9
+        ///    is asking a sampled table for an exactness it does not have.
+        ///
+        ///  · `mixer.red.hue` gives back 0.95 of 106.83, under one percent, and gives it
+        ///    back with the tables removed as well — so this one is not the ruler. The
+        ///    engine is again exactly monotone in the axis it moves: chart patch 15
+        ///    holds L 0.50023 and C 0.15267 while its hue steps 4.5° per 10 units, the
+        ///    45° at ±100 that `ColorEngine.hueRangeDegrees` promises. What reverses is
+        ///    the patch's BLUE channel, which the rotation drives through zero — 0.01238
+        ///    at +40, 0.00073 at +60, −0.00784 at +80 — after which the colour is
+        ///    outside the gamut and picture formation, not the mixer, decides what blue
+        ///    is rendered. The peak chord from one end of a curve is not a monotone
+        ///    function of the angle, and past the boundary it flattens and drifts.
+        ///
+        ///    The hypothesis on file was different and is false: red's feather does
+        ///    straddle the wrap point (its arc runs 351.73°…66.73°), but band membership
+        ///    is evaluated on the STAGE INPUT hue, which no slider moves. Nothing crosses
+        ///    a boundary — the weights are [1,0,0,0,0,0,0,0] at every setting.
+        ///
+        /// What the shape is actually worth catching is DETAIL-14's: a control that
+        /// hands back a share of its effect the photographer can see. That is a
+        /// fraction, not a boolean, so it is measured as one and asserted as one.
+        ///
+        /// The floor is written value-first on purpose. `Swift.max(0, x)` returns 0 for
+        /// a NaN and `Swift.max(x, 0)` returns the NaN, so this order carries a
+        /// non-finite render into the sum and the assertion fails instead of reading a
+        /// clean zero (TEST-01).
+        var givenBack: Double {
+            zip(cumulative, cumulative.dropFirst())
+                .reduce(0) { $0 + Swift.max($1.0 - $1.1, 0) }
         }
         /// Fraction of the total effect delivered in the first half of the travel.
         /// docs/19 found Highlights putting 87% of its work into its first half, which
@@ -115,23 +180,40 @@ enum ProofMetrics {
 
     // MARK: - P4 behaviour
 
-    /// Worst overshoot beyond the input's own range, in code values, measured near a
-    /// known edge. This is the halo/rim number.
+    /// Worst excursion beyond the input's own range, in code values, measured near a
+    /// known edge. This is the halo/rim number, and it is TWO numbers.
     ///
     /// A sharpening or local-contrast operator is allowed to steepen an edge. It is not
     /// allowed to make one side brighter than the frame's brightest input or darker than
     /// its darkest — that is a rim, and it is the artifact that separates a good
     /// implementation of these operators from a naive one.
-    static func overshoot(_ rendered: ImageBuffer, against input: ImageBuffer) -> Double {
+    ///
+    /// Split by direction, because for one operator on the registry the two directions
+    /// are not the same kind of fact and their maximum told a story that was not true
+    /// (PROOF-02). `detail.dehaze` recorded 51.14 on a veiled sky, which read as a rim
+    /// and was investigated as one; measured separately it is 0.00 above the frame's
+    /// brightest value and 51.14 below its darkest, on 84% of the ground and 0% of the
+    /// sky. Removing a veil restores a black point, and a black point cannot be restored
+    /// without going under the veiled frame's own floor. The number was right and its
+    /// name was wrong.
+    ///
+    /// Both accumulators are `runningMax` rather than `Swift.max` (TEST-01). A ceiling is
+    /// asserted against this number, and a render that had gone non-finite would fail
+    /// both comparisons, accumulate nothing, and report an excursion of 0.00 — a clean
+    /// pass on a frame that is entirely NaN.
+    static func overshoot(_ rendered: ImageBuffer, against input: ImageBuffer)
+        -> (above: Double, below: Double)
+    {
         let inCodes = codeValues(input), outCodes = codeValues(rendered)
         precondition(inCodes.count == outCodes.count)
         let lo = inCodes.min() ?? 0, hi = inCodes.max() ?? 255
-        var worst = 0.0
+        var above = 0.0, below = 0.0
         for v in outCodes {
-            if v > hi { worst = Swift.max(worst, v - hi) }
-            if v < lo { worst = Swift.max(worst, lo - v) }
+            guard v.isFinite else { above = .nan; below = .nan; break }
+            if v > hi { above = runningMax(above, v - hi) }
+            if v < lo { below = runningMax(below, lo - v) }
         }
-        return worst
+        return (above, below)
     }
 
     /// Largest hue rotation between two renders, in degrees, over pixels with enough
