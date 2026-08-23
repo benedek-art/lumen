@@ -109,10 +109,19 @@ final class RecipeCodecToleranceTests: XCTestCase {
         }
     }
 
-    /// Decode `data` as the same type as `like`. The concrete type comes from opening
-    /// the existential, which is what keeps the type list out of this file.
-    private static func decoded<T: Codable>(like: T, from data: Data) throws -> T {
-        try JSONDecoder().decode(T.self, from: data)
+    private struct ReEncodeFailed: Error {}
+
+    /// Decode `data` as the same type as `like`, and hand back what it re-encodes to.
+    ///
+    /// The concrete type comes from opening the existential at the call site, which is
+    /// what keeps the type list out of this file. `T` deliberately does not appear in
+    /// the RESULT: every caller wants the keys back rather than the value, and a
+    /// generic result would only be erased to `any Codable` again on the way out.
+    private static func decodedObject<T: Codable>(
+        like: T, from data: Data) throws -> [String: JSONValue] {
+        let value = try JSONDecoder().decode(T.self, from: data)
+        guard let object = encodedObject(value) else { throw ReEncodeFailed() }
+        return object
     }
 
     private static func json(_ object: [String: JSONValue]) -> Data {
@@ -158,10 +167,10 @@ final class RecipeCodecToleranceTests: XCTestCase {
             // not a constant (`Mask.id` is a fresh UUID) is detected rather than
             // asserted against.
             let empty = Self.json([:])
-            guard let base = try? Self.decoded(like: reached.value, from: empty),
-                  let baseObject = Self.encodedObject(base),
-                  let again = try? Self.decoded(like: reached.value, from: empty),
-                  let againObject = Self.encodedObject(again)
+            guard let baseObject = try? Self.decodedObject(like: reached.value,
+                                                           from: empty),
+                  let againObject = try? Self.decodedObject(like: reached.value,
+                                                            from: empty)
             else {
                 failures.append("\(reached.typeName) at \(reached.path): "
                                 + "cannot decode from {} — no key is optional")
@@ -174,17 +183,13 @@ final class RecipeCodecToleranceTests: XCTestCase {
             for key in reached.object.keys.sorted() {
                 var reduced = reached.object
                 reduced[key] = nil
-                let decodedValue: any Codable
+                let after: [String: JSONValue]
                 do {
-                    decodedValue = try Self.decoded(like: reached.value,
-                                                    from: Self.json(reduced))
+                    after = try Self.decodedObject(like: reached.value,
+                                                   from: Self.json(reduced))
                 } catch {
                     failures.append("\(reached.typeName).\(key) at \(reached.path): "
                                     + "\(error)")
-                    continue
-                }
-                guard let after = Self.encodedObject(decodedValue) else {
-                    failures.append("\(reached.typeName).\(key): re-encode failed")
                     continue
                 }
                 if !volatileKeys.contains(key), after[key] != baseObject[key] {
