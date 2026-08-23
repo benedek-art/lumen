@@ -172,6 +172,12 @@ enum ProofFrames {
     /// hue rotation and a B&W band all need a colour to act on, and `chromaGate` shuts
     /// two of them off entirely on the neutral axis.
     ///
+    /// The wedge is NOT the frame for a control whose full deflection reaches the code
+    /// value ceiling. Its top rows are +5 EV and render at 255, so a peak-separation
+    /// metric on a control that can drive a hue to black reports one clipped pixel and
+    /// the same number for every hue — which is what happened to the B&W mix, measured
+    /// here at 254.92 and 254.50 for two different bands before it moved to the chart.
+    ///
     /// The wedge is both: eight columns of constant hue, each row a constant luminance,
     /// so every zone window and every hue band has an equally saturated representative
     /// at every tonal position. Scaling an RGB triple scales OKLab's `a` and `b` by the
@@ -215,6 +221,50 @@ enum ProofFrames {
         ImageBuffer(width: width, height: height) { u, _ in
             RGB(gray: midGrey * (u < 0.5 ? exp2(-2) : exp2(2)))
         }
+    }
+
+    // MARK: - The film gate frames
+
+    // Both spatial stages of the Film Lab are denominated in MICRONS AT THE GATE, not in
+    // pixels, and the existing frames are far too small to carry either kernel. That is
+    // not a subtlety — on `stepEdge` at 128 pixels both controls measure as broken:
+    //
+    //   · Halation's first bounce is 65 µm on a 36 mm gate, which is
+    //     `0.065 / 36 × longEdge` pixels. At 128 that is a σ of 0.23 PIXELS: the glow
+    //     never leaves the pixel it came from, no light crosses the edge, and the
+    //     control measured 4.31 code values over its whole travel.
+    //   · Grain's plate scale is a pitch on the print times the render's pixels per
+    //     print millimetre, floored at half a pixel so a plate cell can never be
+    //     smaller than the sampling grid. On a 256-pixel ramp that product is 0.04…0.17
+    //     for the whole 0.5…2.0 travel of Grain Size, so every setting hits the floor
+    //     and all twenty-one renders came out byte-identical: authority 0.00, twenty
+    //     dead steps, on a control that works.
+    //
+    // Neither reading was a defect in the engine. Both were this file being asked for a
+    // frame it did not have — the same class of mistake as sweeping Sharpen Masking on a
+    // flat field, arriving through the frame's SIZE rather than its content. The sizes
+    // below are chosen from the arithmetic above: 2048 puts halation's first bounce at
+    // 3.7 px and its third at 6.4, and 4096 clears the plate floor across the whole of
+    // Grain Size, including its bottom end.
+
+    /// `stepEdge` at a long edge big enough for a film-gate kernel — 2048 px, where
+    /// halation's three bounces land at σ = 3.7, 5.2 and 6.4 pixels.
+    ///
+    /// Same four-stop step and the same construction, so a number taken here is
+    /// comparable with a sharpening number taken on `stepEdge`; only the sampling
+    /// density differs, which is precisely the axis this frame exists to change.
+    static func wideStepEdge(width: Int = 2048, height: Int = 32) -> ImageBuffer {
+        stepEdge(width: width, height: height)
+    }
+
+    /// A grey ramp at a long edge big enough that a grain plate cell exceeds a pixel —
+    /// 4096 px, where the plate scale runs 0.68…2.7 across Grain Size's 0.5…2.0 travel.
+    ///
+    /// A ramp rather than a flat patch because grain's amplitude envelope is
+    /// `√(p(1−p))` in DENSITY: it vanishes at both ends of the tonal range and peaks in
+    /// the middle, so a frame at one density measures one point of a curve.
+    static func grainField(width: Int = 4096, height: Int = 32) -> ImageBuffer {
+        neutralRamp(width: width, height: height)
     }
 
     /// Band-limited detail at four spatial frequencies, in vertical strips.

@@ -155,6 +155,43 @@ final class ProofFrameTests: XCTestCase {
         }
     }
 
+    // MARK: - The film gate frames
+
+    /// The two frames the Film Lab's spatial stages need, checked against the arithmetic
+    /// that sized them. Both controls measured as broken on the small frames — halation
+    /// at 4.31 code values, Grain Size at 0.00 with twenty dead steps — and neither was
+    /// a defect. If these bounds ever stop holding, those two readings come back.
+    func testTheFilmGateFramesAreBigEnoughForTheirKernels() {
+        let edge = ProofFrames.wideStepEdge()
+        // Halation's first bounce is 65 µm on a 36 mm gate. Two pixels is the point
+        // below which a Gaussian stops moving light between neighbours at all.
+        let sigma = 0.065 / 36.0 * Double(Swift.max(edge.width, edge.height))
+        XCTAssertGreaterThan(sigma, 2.0,
+                             "halation's first bounce is \(sigma) px on this frame — a "
+                                 + "blur that cannot cross the edge it is measured at")
+        // And it is still the same four-stop step, or the number is not comparable with
+        // the one `stepEdge` produces for sharpening.
+        let left = edge[edge.width / 4, edge.height / 2].r
+        let right = edge[3 * edge.width / 4, edge.height / 2].r
+        XCTAssertEqual(log2(right / left), 4, accuracy: 0.01)
+
+        // Grain: a plate cell has to clear the half-pixel floor at the SMALLEST size the
+        // slider offers, or the bottom of that travel is the floor rather than the
+        // control. The pitch arithmetic is `FilmGrainProfile.plateScale`, restated here
+        // rather than called, so a change to it shows up as this test disagreeing with
+        // the engine instead of following it silently.
+        let field = ProofFrames.grainField()
+        let longEdge = Double(Swift.max(field.width, field.height))
+        let printMM = 10.0 * 25.4                     // defaultPrintLongEdgeInches
+        let magnification = printMM / 36.0            // 35 mm gate
+        let smallestPitchMM = 12.0 / 1000.0 * 0.5 * magnification   // Portra, size 0.5
+        let cell = smallestPitchMM * longEdge / printMM
+        XCTAssertGreaterThan(cell, 0.5,
+                             "a grain cell is \(cell) px at the bottom of Grain Size's "
+                                 + "travel, under the half-pixel floor — every setting "
+                                 + "below this one renders identically")
+    }
+
     func testTheNoisyFrameIsNoisyAndItsTwinIsNot() {
         let noisy = ProofFrames.noisyISO6400()
         let clean = ProofFrames.cleanISO6400()
