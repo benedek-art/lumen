@@ -1072,11 +1072,14 @@ final class KernelGoldenTests: XCTestCase {
         let url = URL(fileURLWithPath: "/dev/null")
         let asShotTemperature: Double = 5500
         let asShotTint: Double = 0
-        // The stub hands back a CIImage it was given, with no decoder behind it, so
-        // `.sceneLinear` is what it is: the probe reads exactly the pixels it was
-        // handed. Naming it anything else would put a provenance on a measurement no
-        // decoder produced, which is the failure the protocol requirement exists to stop.
-        let statisticsProvenance: RawStatistics.Provenance = .sceneLinear
+        // `.unspecified`, not `.sceneLinearDecode`. The stub hands back a CIImage it was
+        // given with NO DECODER BEHIND IT, and `.sceneLinearDecode` means something
+        // specific — CIRAWFilter at Lumen's flat settings, read before every Lumen stage.
+        // Claiming it here would put a decoder's label on numbers no decoder produced,
+        // which is precisely the failure the protocol requirement was added to prevent.
+        // `.unspecified` is documented as "numbers of unknown origin", which is what
+        // these are.
+        let statisticsProvenance: RawStatistics.Provenance = .unspecified
         private let image: CIImage
         init(_ image: CIImage) { self.image = image }
         var nativePixelSize: (width: Int, height: Int) {
