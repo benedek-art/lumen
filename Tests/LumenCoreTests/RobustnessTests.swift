@@ -354,7 +354,7 @@ final class RobustnessTests: XCTestCase {
             var worst = 0.0
             for y in 0..<out.height {
                 for x in 0..<out.width {
-                    worst = Swift.max(worst, out[x, y].maxAbsDifference(unedited[x, y]))
+                    worst = runningMax(worst, out[x, y].maxAbsDifference(unedited[x, y]))
                 }
             }
             XCTAssertGreaterThan(worst, 1e-4,
@@ -637,8 +637,15 @@ final class RobustnessTests: XCTestCase {
                     }
                     let tabled = LumenLog.decode(plan.colorGradeLUT.sample(LumenLog.encode(c)))
                     let exact = grade.apply(color.apply(c))
-                    for ch in 0..<3 where exact[ch] >= cut && tabled[ch] >= cut {
-                        worst = Swift.max(worst, abs(log2(exact[ch] / tabled[ch])))
+                    // The `where` is the swallower on this site, not the accumulator:
+                    // a NaN fails `>= cut` and the channel is skipped, so a table that
+                    // had gone non-finite would be reported as converging perfectly.
+                    // Non-finite is admitted deliberately and carried into `worst`,
+                    // which then fails the convergence assertions below on its own.
+                    for ch in 0..<3 where !exact[ch].isFinite || !tabled[ch].isFinite
+                        || (exact[ch] >= cut && tabled[ch] >= cut)
+                    {
+                        worst = runningMax(worst, abs(log2(exact[ch] / tabled[ch])))
                     }
                 }
             }
@@ -676,7 +683,7 @@ final class RobustnessTests: XCTestCase {
                         graded, gamut: RenderPlan.sharedGamutBoundary)
                     let exact = curve.apply(formed, white: plan.displayWhite,
                                             space: .rec2020)
-                    worst = Swift.max(worst, table.maxAbsDifference(exact))
+                    worst = runningMax(worst, table.maxAbsDifference(exact))
                 }
             }
             return worst
@@ -1248,7 +1255,7 @@ final class RobustnessTests: XCTestCase {
                 var moved = 0.0
                 for y in 0..<now.height {
                     for x in 0..<now.width {
-                        moved = Swift.max(moved, abs(now[x, y] - previous[x, y]))
+                        moved = runningMax(moved, abs(now[x, y] - previous[x, y]))
                     }
                 }
                 XCTAssertGreaterThan(moved, 1e-9,
@@ -1550,7 +1557,7 @@ final class RobustnessTests: XCTestCase {
             var worst = 0.0
             for y in 0..<full.height {
                 for x in 0..<full.width {
-                    worst = Swift.max(worst, full[x, y].maxAbsDifference(other[x, y]))
+                    worst = runningMax(worst, full[x, y].maxAbsDifference(other[x, y]))
                 }
             }
             return worst
@@ -1677,7 +1684,7 @@ final class RobustnessTests: XCTestCase {
         var worst = 0.0
         for y in 0..<plain.height {
             for x in 0..<plain.width {
-                worst = Swift.max(worst, plain[x, y].maxAbsDifference(lifted[x, y]))
+                worst = runningMax(worst, plain[x, y].maxAbsDifference(lifted[x, y]))
             }
         }
         XCTAssertGreaterThan(worst, 1e-4,
@@ -1838,12 +1845,19 @@ final class RobustnessTests: XCTestCase {
             let out = DetailEngine.applyTexture(step, amount: amount, decomposition: d)
 
             var plateau = 0.0
-            for x in 20..<50 { plateau = Swift.max(plateau, step[x, row].g) }
+            for x in 20..<50 { plateau = runningMax(plateau, step[x, row].g) }
             var trench = 0.0
             for x in (width / 2 - 8)..<(width / 2) {
-                trench = Swift.max(trench, plateau - out[x, row].g)
+                trench = runningMax(trench, plateau - out[x, row].g)
             }
-            let trenchEV = trench > 0
+            // `trench > 0 ? … : 0` is the accumulator's defect wearing a different hat:
+            // a NaN fails `> 0`, takes the else branch, and reports a trench of exactly
+            // zero — which passes. Measured with the structure tensor's zero-trace guard
+            // removed, this test stayed green while `applyTexture` returned 1024
+            // non-finite pixels, eight of them inside this very loop. The non-finite
+            // case is carried into the branch that computes, so `Swift.max(…, 1e-9)`
+            // propagates it and the assertion below reads what was measured.
+            let trenchEV = trench > 0 || trench.isNaN
                 ? log2((plateau + 1e-9) / Swift.max(plateau - trench, 1e-9)) : 0
             XCTAssertLessThan(trenchEV, 0.30,
                               "positive Texture at +\(amount) dug a \(trenchEV) EV "
@@ -1853,7 +1867,7 @@ final class RobustnessTests: XCTestCase {
             // gated itself into a no-op would pass the line above.
             var moved = 0.0
             for x in 20..<50 {
-                moved = Swift.max(moved, abs(step[x, row].g - out[x, row].g))
+                moved = runningMax(moved, abs(step[x, row].g - out[x, row].g))
             }
             XCTAssertGreaterThan(moved, 1e-4,
                                  "positive Texture at +\(amount) changed nothing on "
@@ -1894,7 +1908,7 @@ final class RobustnessTests: XCTestCase {
             var moved = 0.0
             for y in 8..<(height - 8) {
                 for x in 8..<(width - 8) {
-                    moved = Swift.max(moved, abs(hair[x, y].g - out[x, y].g))
+                    moved = runningMax(moved, abs(hair[x, y].g - out[x, y].g))
                 }
             }
             XCTAssertGreaterThan(moved, previous,

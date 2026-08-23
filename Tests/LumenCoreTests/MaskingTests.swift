@@ -93,9 +93,9 @@ final class MaskingTests: XCTestCase {
                 let remappedFirst = 1 - MaskRaster.levels(v, lo: remap.levelsLo,
                                                           hi: remap.levelsHi,
                                                           gamma: remap.levelsGamma)
-                worstCorrect = Swift.max(worstCorrect,
+                worstCorrect = runningMax(worstCorrect,
                                          abs(Double(out[x, y]) - invertedFirst))
-                worstAgainstTheOtherOrder = Swift.max(worstAgainstTheOtherOrder,
+                worstAgainstTheOtherOrder = runningMax(worstAgainstTheOtherOrder,
                                                       abs(invertedFirst - remappedFirst))
             }
         }

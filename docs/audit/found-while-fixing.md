@@ -8,8 +8,7 @@ because how a defect was found is evidence about where to look for the next one.
 ---
 
 **TEST-01 — `Swift.max` swallows a NaN, so about ten running maxima in the suite would
-pass on a render that had gone entirely non-finite.** UNPROVEN (the safety net, not the
-product).
+pass on a render that had gone entirely non-finite.** FIXED, and watched failing first.
 
 Found by the colour/tone agent while proving one of its own new tests could fail:
 removing a clamp produced NaN and the test **still passed**.
@@ -32,17 +31,39 @@ Sites of that exact shape, at the time of writing: `RobustnessTests.swift` 357, 
 form `Swift.max(x, 0)` are a different case — they also absorb a NaN, but they are floors
 rather than accumulators and their result is not what the assertion reads.
 
-**Why this is not urgent, stated so nobody re-derives it.** The primary failure mode — a
-stage starts producing NaN — is already covered directly: `testRenderSurvivesAPoisonedPixel`,
-`testTablesSurviveNonFiniteInput`, and the per-pixel `isFinite` sweep at
-`RobustnessTests.swift:1518`. What the accumulators lose is the *second* line of defence,
-for a NaN arriving under a recipe those tests do not exercise.
+**Fixed with the first of the two options below**, not the preferred second, and the
+reason is the sentence above about what the assertion reads. `assertEveryPixelFinite`
+would add a new check beside every listed site and leave all of them still blind;
+`runningMax`/`runningMin` in `Tests/LumenCoreTests/RunningExtremes.swift` make the
+assertion that is already written the one that catches it. Eighteen sites, the ledger's
+list plus the `lo` partner of a span and the `plateau` a trench is measured against.
 
-**The cheap fix, when it is worth doing.** Not forty call sites. Either a NaN-propagating
-`maxKeepingNaN` used only where an accumulator feeds a bound — after which the existing
-`XCTAssertLessThan` fails on its own, since `NaN < bar` is false — or a shared
-`assertEveryPixelFinite(_:)` called by the tests that render whole frames with broad
-recipes. The second is fewer edits and catches the thing itself rather than its shadow.
+**Two things the fix found that this entry did not predict.**
+
+A running maximum was not the only swallower at its own site. `trench > 0 ? … : 0` at
+`RobustnessTests.swift:1862` is the same shape wearing a different hat — a NaN fails
+`> 0`, takes the else branch, and reports a trench of exactly zero — and so is the `where
+exact[ch] >= cut && tabled[ch] >= cut` at :640, which skips a non-finite channel and
+would report a colour-grade table that had gone entirely NaN as converging perfectly.
+Fixing the maxima alone left one of those tests green on a render that was one-eighth NaN.
+
+And the proof itself. Removing the zero-trace guard from `DetailEngine.structureTensor`
+(`trace > 1e-12 ? Num.saturate(disc / trace) : 0`, a real division by zero on any flat
+neighbourhood) makes `applyTexture` return **1024 non-finite pixels of 8192** on a frame
+`testPositiveTextureDoesNotRimAHardEdge` already renders. Original test code: PASSED.
+Fixed test code: FAILED, "dug a nan EV trench on the dark side of a clean edge". That is
+the before-and-after nobody took when these were written.
+
+**Why this was not urgent, kept because the reasoning still holds.** The primary failure
+mode — a stage starts producing NaN — is already covered directly:
+`testRenderSurvivesAPoisonedPixel`, `testTablesSurviveNonFiniteInput`, and the per-pixel
+`isFinite` sweep in `testTheWholePipelineWithEveryStageOnProducesASanePicture`. What the
+accumulators lost was the *second* line of defence, for a NaN arriving under a recipe
+those tests do not exercise. Worth recording alongside it: the shipping render path is
+hard to poison from the outside — a source pixel of `(nan, inf, -inf)` renders to
+`(0, 0, 0)` under both a tone recipe and a broad one, because the cube stages map a
+non-finite coordinate to index 0. The NaN this fix catches has to come from inside a
+stage, which is exactly where the substitution above put it.
 
 **The general lesson, which is the reason this file exists.** This is a check that cannot
 fail, hiding inside the checks. The audit spent a day finding that shape in the product;
