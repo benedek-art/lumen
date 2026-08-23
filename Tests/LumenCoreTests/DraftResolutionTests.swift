@@ -22,7 +22,8 @@ final class DraftResolutionTests: XCTestCase {
         // coarse draft is free here — and it is the reason the defect never showed at
         // the rung most editing happens on.
         XCTAssertFalse(DraftResolution.sizeFollowsProxyPixels(zoomRatio: ZoomLadder.fit))
-        XCTAssertEqual(DraftResolution.draftLongEdge(settledLongEdge: 4096, fitLongEdge: 1024,
+        XCTAssertEqual(DraftResolution.draftLongEdge(settledLongEdge: 4096,
+                                                     fitLongEdge: 1024,
                                                      zoomRatio: ZoomLadder.fit),
                        1024)
     }
@@ -53,7 +54,8 @@ final class DraftResolutionTests: XCTestCase {
         // The fix. Both passes carry the same pixel count, so both draw at the same
         // size and what changes between them is sharpness — which is what a progressive
         // refine is supposed to be.
-        let draft = DraftResolution.draftLongEdge(settledLongEdge: 4096, fitLongEdge: 1024,
+        let draft = DraftResolution.draftLongEdge(settledLongEdge: 4096,
+                                                  fitLongEdge: 1024,
                                                   zoomRatio: ZoomLadder.oneToOne)
         XCTAssertEqual(draft, 4096)
         XCTAssertEqual(DraftResolution.drawnLongEdge(proxyLongEdge: draft,
@@ -66,7 +68,8 @@ final class DraftResolutionTests: XCTestCase {
 
     func testTheTwoPassesDrawAtOneSizeAtEveryRungAboveFit() {
         for ratio in [ZoomLadder.oneToOne, ZoomLadder.twoToOne, 1.25, 8] {
-            let draft = DraftResolution.draftLongEdge(settledLongEdge: 4096, fitLongEdge: 1024,
+            let draft = DraftResolution.draftLongEdge(settledLongEdge: 4096,
+                                                      fitLongEdge: 1024,
                                                       zoomRatio: ratio)
             XCTAssertEqual(
                 DraftResolution.drawnLongEdge(proxyLongEdge: draft, zoomRatio: ratio,
@@ -81,10 +84,12 @@ final class DraftResolutionTests: XCTestCase {
         // A settle smaller than the viewer's draft floor must not make the draft
         // BIGGER than the settle: that is a draft costing more than the pass it exists
         // to stand in for.
-        XCTAssertEqual(DraftResolution.draftLongEdge(settledLongEdge: 640, fitLongEdge: 1024,
+        XCTAssertEqual(DraftResolution.draftLongEdge(settledLongEdge: 640,
+                                                     fitLongEdge: 1024,
                                                      zoomRatio: ZoomLadder.oneToOne),
                        1024)
-        XCTAssertEqual(DraftResolution.draftLongEdge(settledLongEdge: 2048, fitLongEdge: 1024,
+        XCTAssertEqual(DraftResolution.draftLongEdge(settledLongEdge: 2048,
+                                                     fitLongEdge: 1024,
                                                      zoomRatio: ZoomLadder.oneToOne),
                        2048)
     }
@@ -105,7 +110,8 @@ final class DraftResolutionTests: XCTestCase {
         // NaN propagate into the geometry; the draft rule reads the same ladder, so it
         // has to agree.
         XCTAssertFalse(DraftResolution.sizeFollowsProxyPixels(zoomRatio: .nan))
-        XCTAssertEqual(DraftResolution.draftLongEdge(settledLongEdge: 4096, fitLongEdge: 1024,
+        XCTAssertEqual(DraftResolution.draftLongEdge(settledLongEdge: 4096,
+                                                     fitLongEdge: 1024,
                                                      zoomRatio: .nan),
                        1024)
     }

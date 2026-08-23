@@ -1007,7 +1007,8 @@ struct LoupeView: View {
                 let press = ViewportPress(
                     travel: Double(travel),
                     duration: began.map { Date().timeIntervalSince($0) } ?? 0,
-                    landedOnImage: pressLandedOnImage(value.location, container: container),
+                    landedOnImage: pressLandedOnImage(value.location,
+                                                      container: container),
                     hadModifier: modifierHeld)
                 if ViewportClick.togglesZoom(press) {
                     viewport.toggleZoom(at: value.location, in: state)

@@ -129,8 +129,9 @@ public enum SliderDrag {
         track.value(from: start, travelled: travelled)
     }
 
-    /// Whether a press that has moved `travelled` points is still close enough to the
-    /// thumb's drawn position to count as having grabbed it.
+    /// Whether a press at `pressX` landed close enough to the thumb's drawn position
+    /// `thumbX` — both in points from the track's leading edge — to count as having
+    /// picked the thumb up rather than as having pressed the bare track.
     ///
     /// Wider than the thumb is drawn: the target is small and the penalty for missing
     /// it is the value jumping to wherever the press landed.

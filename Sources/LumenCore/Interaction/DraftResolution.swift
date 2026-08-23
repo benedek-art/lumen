@@ -46,10 +46,10 @@ public enum DraftResolution {
 
     /// The long edge the draft pass may be asked for.
     ///
-    /// `fitLongEdge` is the viewer's own lower bound for a draft — the value it uses at fit,
-    /// where a coarse draft costs sharpness for a few tens of milliseconds and nothing
-    /// else. Zoomed, the answer is the settle's own long edge, because any smaller
-    /// number is a visible change of size rather than a visible change of sharpness.
+    /// `fitLongEdge` is the viewer's own lower bound for a draft — the value it uses
+    /// at fit, where a coarse draft costs sharpness for a few tens of milliseconds and
+    /// nothing else. Zoomed, the answer is the settle's own long edge, because any
+    /// smaller number is a visible change of size rather than of sharpness.
     public static func draftLongEdge(settledLongEdge: Int, fitLongEdge: Int,
                                      zoomRatio: Double) -> Int {
         guard sizeFollowsProxyPixels(zoomRatio: zoomRatio) else { return fitLongEdge }
