@@ -485,6 +485,9 @@ struct LoupeView: View {
     @State private var containerSize: CGSize = .zero
     @State private var cursor: CGPoint?
     @State private var panStart: CGSize?
+    /// When the current press began, so its release can tell a click from a hold. Nil
+    /// between gestures.
+    @State private var pressBegan: Date?
     @State private var sampler: PixelSampler?
 
     @Environment(\.displayScale) private var displayScale: CGFloat
@@ -563,6 +566,25 @@ struct LoupeView: View {
         .background(Lumen.viewerBackground)
         .focusable()
         .focused($focused)
+        // The viewer must stay focusable — the whole bare-key culling grammar depends
+        // on it holding keyboard focus, which is what `.onAppear { focused = true }`
+        // above is for. What it must not do is let macOS draw its focus ring around it:
+        // that ring is a saturated blue rectangle framing a photograph, and Law 7
+        // (docs/00) makes chrome zero-chroma 18–25% grey precisely so that nothing in
+        // the surround biases a colour judgement. It was the owner's first reaction to
+        // the app — "I think we should remove that blue square" — and he read it as a
+        // defect rather than as an affordance, which is the correct reading of a
+        // permanent decoration that never changes.
+        //
+        // What is deliberately NOT replaced with a quieter indicator: nothing on screen
+        // now says the viewer holds focus. The judgement is that the ring was not
+        // answering the question a photographer actually has, which is not "does the
+        // image have focus" but "why did my keys stop working" — and the answer to THAT
+        // is always a text field having taken it, which the ring never said. An
+        // indicator on the thing that took focus would be the honest fix; a blue
+        // rectangle around the photograph is not it. Recorded here rather than silently
+        // suppressed.
+        .focusEffectDisabled()
         .onMoveCommand { direction in handleMove(direction) }
         .onChange(of: photo.id) { _, _ in
             viewport.resetForNewPhoto()
@@ -605,7 +627,17 @@ struct LoupeView: View {
                          recipe: recipe,
                          coordinator: state.renderCoordinator,
                          thumbnails: state.thumbnails,
-                         draftLongEdge: LoupeView.draftLongEdge,
+                         // Zoomed, a draft with fewer pixels than the settle is drawn
+                         // SMALLER — the frame's size above fit is the proxy's extent
+                         // times the ratio, so the shipped 2048-against-4096 pair drew
+                         // the photograph at half size and then doubled it, on every
+                         // render, which during a drag is every mouse event. The rule
+                         // is `DraftResolution`, in LumenCore, with tests; at fit it
+                         // returns this same floor and nothing changes.
+                         draftLongEdge: DraftResolution.draftLongEdge(
+                             settledLongEdge: longEdge,
+                             fitLongEdge: LoupeView.draftLongEdge,
+                             zoomRatio: state.zoomLevel),
                          fullLongEdge: longEdge,
                          strokeSets: state.strokeSets(for: recipe),
                          // While the crop tool is open the loupe shows the frame
@@ -634,7 +666,12 @@ struct LoupeView: View {
                                recipe: beforeRecipe,
                                coordinator: state.renderCoordinator,
                                thumbnails: nil,
-                               draftLongEdge: LoupeView.draftLongEdge,
+                               // Same geometry, same rule: the before rendition shares
+                               // this canvas and would pump in size beside the edit.
+                               draftLongEdge: DraftResolution.draftLongEdge(
+                                   settledLongEdge: longEdge,
+                                   fitLongEdge: LoupeView.draftLongEdge,
+                                   zoomRatio: state.zoomLevel),
                                fullLongEdge: longEdge,
                                strokeSets: state.strokeSets(for: beforeRecipe))
     }
@@ -927,6 +964,9 @@ struct LoupeView: View {
     private func dragGesture(container: CGSize) -> some Gesture {
         DragGesture(minimumDistance: 0)
             .onChanged { value in
+                // When the button went down, so the release can tell a click from a
+                // hold. `minimumDistance: 0` means this fires on the press itself.
+                if pressBegan == nil { pressBegan = Date() }
                 viewport.lastCursor = value.location
                 if viewport.showReadout { cursor = value.location }
                 guard let cg = model.image else { return }
@@ -945,12 +985,55 @@ struct LoupeView: View {
                 viewport.pan = LoupeGeometry.clampPan(moved, container: container, drawn: drawn)
             }
             .onEnded { value in
-                let travel = abs(value.translation.width) + abs(value.translation.height)
+                // A press is a click-to-zoom only if it was AIMED at the photograph and
+                // was actually a click. This used to ask one question — did the pointer
+                // move less than three points? — and toggle the zoom whenever the
+                // answer was yes. The gesture covers the whole canvas and the pan
+                // branch above returns immediately at fit, so at fit this gesture was a
+                // zoom toggle and nothing else: a press on the grey surround beside a
+                // fitted frame, a click to bring the window forward, a press held while
+                // deciding, a modifier-click — every one of them jumped to 1:1, and the
+                // next one dropped back to fit. That is the "lots of zoom in, zoom out
+                // things" of the owner's first session, and looking at `zoomLevel`'s
+                // single writer could never have found it, because this IS the writer.
+                //
+                // The verb itself stays: click-to-zoom is the inherited grammar
+                // (docs/12's muscle-memory argument) and this file's header promises
+                // it. The rule is `ViewportClick`, in LumenCore, with tests.
+                let began = pressBegan
+                pressBegan = nil
                 panStart = nil
-                if travel < 3 {
+                let travel = abs(value.translation.width) + abs(value.translation.height)
+                let press = ViewportPress(
+                    travel: Double(travel),
+                    duration: began.map { Date().timeIntervalSince($0) } ?? 0,
+                    landedOnImage: pressLandedOnImage(value.location, container: container),
+                    hadModifier: modifierHeld)
+                if ViewportClick.togglesZoom(press) {
                     viewport.toggleZoom(at: value.location, in: state)
                 }
             }
+    }
+
+    /// Whether a point in the viewport landed on the drawn photograph rather than on
+    /// the surround. A fitted frame letterboxes on one axis, and that grey is not the
+    /// picture — pressing it is not aiming at anything.
+    private func pressLandedOnImage(_ point: CGPoint, container: CGSize) -> Bool {
+        guard let cg = model.image else { return false }
+        let ratio = effectiveRatio(image: cg, container: container)
+        let drawn = LoupeGeometry.drawnSize(imageWidth: cg.width, imageHeight: cg.height,
+                                            ratio: ratio, displayScale: displayScale)
+        let pan = LoupeGeometry.clampPan(viewport.pan, container: container, drawn: drawn)
+        return LoupeGeometry.imageUnitPoint(point, container: container, drawn: drawn,
+                                            pan: pan) != nil
+    }
+
+    /// True while any of ⌘ ⌥ ⇧ ⌃ is down. Modifier-clicks on an image mean other things
+    /// throughout this application and none of them mean zoom.
+    private var modifierHeld: Bool {
+        let flags = NSEvent.modifierFlags
+        return flags.contains(.command) || flags.contains(.option)
+            || flags.contains(.shift) || flags.contains(.control)
     }
 
     /// Arrows page the selection at fit, and pan when zoomed in — the key means the
