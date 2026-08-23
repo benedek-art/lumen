@@ -38,6 +38,7 @@
 
 #if os(macOS)
 
+import LumenCore
 import SwiftUI
 
 // MARK: - Theme
@@ -133,15 +134,21 @@ struct LumenSlider: View {
         .frame(height: Lumen.rowHeight)
     }
 
-    /// How close to the thumb counts as grabbing it rather than pressing the track.
-    /// Wider than the thumb is drawn, because the thing being aimed at is small and the
-    /// penalty for missing it is the value jumping.
-    static let grabRadius: CGFloat = 11
+    // How close to the thumb counts as grabbing it rather than pressing the track is
+    // `SliderDrag.thumbGrabRadius`, in LumenCore. It is not restated here as a second
+    // constant: two numbers that have to agree and can drift apart is the shape most of
+    // this file's history has had.
 
     private var track: some View {
         GeometryReader { geometry in
             let width = geometry.size.width
             let span = range.upperBound - range.lowerBound
+            // The drag's arithmetic, as the value `SliderDragTests` checks rather than
+            // as expressions inlined into a gesture closure in a target with no tests.
+            let geometryOfDrag = SliderTrack(width: Double(width),
+                                             lowerBound: range.lowerBound,
+                                             upperBound: range.upperBound,
+                                             step: step)
             let fraction = span > 0 ? (clamped(value) - range.lowerBound) / span : 0
             let zeroFraction = span > 0
                 ? (min(max(defaultValue, range.lowerBound), range.upperBound) - range.lowerBound) / span
@@ -198,24 +205,42 @@ struct LumenSlider: View {
                         // you for the rest of the gesture.
                         if !isDragging {
                             isDragging = true
-                            let thumbX = CGFloat(fraction) * width
-                            let grabbedThumb =
-                                abs(drag.startLocation.x - thumbX) <= LumenSlider.grabRadius
-                            if grabbedThumb {
+                            let thumbX = fraction * Double(width)
+                            if SliderDrag.grabsThumb(
+                                pressX: Double(drag.startLocation.x), thumbX: thumbX) {
                                 dragStartValue = value
                             } else {
-                                let start = width > 0 ? drag.startLocation.x / width : 0
-                                dragStartValue = snap(clamped(
-                                    range.lowerBound + Double(start) * span))
+                                dragStartValue = geometryOfDrag.valueAtPress(
+                                    x: Double(drag.startLocation.x))
                                 value = dragStartValue
                             }
                             onEditingChanged?(true)
                         }
-                        let travelled = drag.location.x - drag.startLocation.x
-                        let deltaFraction = width > 0 ? Double(travelled / width) : 0
-                        value = snap(clamped(dragStartValue + deltaFraction * span))
+                        let travelled = Double(drag.location.x - drag.startLocation.x)
+                        let moved = geometryOfDrag.value(from: dragStartValue,
+                                                         travelled: travelled)
+                        if moved != value { value = moved }
                     }
-                    .onEnded { _ in
+                    .onEnded { drag in
+                        // THE RELEASE IS A SAMPLE, and it is the last one.
+                        //
+                        // This used to set a flag and throw the location away, which
+                        // made what a gesture was worth depend on whether a motion
+                        // event happened to beat the mouse-up. A relative drag reads
+                        // the pointer's current offset from the press, so dropping the
+                        // interior of a gesture is harmless — but dropping its END is
+                        // not, and the end is exactly what gets dropped when the main
+                        // actor is behind: AppKit coalesces the queued motion events
+                        // and the button comes up before the survivor is delivered.
+                        // Reading the release closes it: drag to 100 and the control
+                        // reads 100, however much of the gesture the app missed.
+                        if isDragging {
+                            let travelled = Double(drag.location.x - drag.startLocation.x)
+                            let settled = SliderDrag.endedValue(track: geometryOfDrag,
+                                                                from: dragStartValue,
+                                                                travelled: travelled)
+                            if settled != value { value = settled }
+                        }
                         isDragging = false
                         onEditingChanged?(false)
                     }
@@ -257,10 +282,10 @@ struct LumenSlider: View {
         min(max(v, range.lowerBound), range.upperBound)
     }
 
-    private func snap(_ v: Double) -> Double {
-        guard step > 0 else { return v }
-        return (v / step).rounded() * step
-    }
+    // There is deliberately no `snap` here any more. The clamp-then-snap the drag
+    // applies is `SliderTrack.resolve`, in LumenCore, where it is tested — and a second
+    // copy of it sitting in this file is how the two would come to round differently
+    // without anything being able to notice.
 
     private func reset() {
         if let onReset {
