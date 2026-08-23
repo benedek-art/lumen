@@ -231,6 +231,46 @@ public struct MaskComponent: Codable, Equatable, Sendable {
         }
         return nil
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case op, kind, amount, invert, strokesRef, line, center, radii, rotation,
+             feather, lo, hi, smooth, samples, rangeAmount, chromaSel, lumaSel,
+             model, prompt, personParts, classes, depthLo, depthHi
+    }
+
+    /// Tolerant of an absent key, including the two that say what the component IS.
+    /// `op` and `kind` have no default in the memberwise initializer above, and the pair
+    /// chosen here is the one that cannot invent a selection: a `brush` carrying no
+    /// strokes rasterizes empty — that is what an unpainted component already is — and
+    /// `add` folds an empty plane in as `max(acc, 0)`, which is the identity. `intersect`
+    /// would have zeroed the whole stack. `validationError()` then reports the component
+    /// as a brush with no strokesRef, so it is visible rather than merely harmless.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.op = try c.decodeIfPresent(MaskOp.self, forKey: .op) ?? .add
+        self.kind = try c.decodeIfPresent(MaskKind.self, forKey: .kind) ?? .brush
+        self.amount = try c.decodeIfPresent(Double.self, forKey: .amount) ?? 100
+        self.invert = try c.decodeIfPresent(Bool.self, forKey: .invert) ?? false
+        self.strokesRef = try c.decodeIfPresent(String.self, forKey: .strokesRef)
+        self.line = try c.decodeIfPresent([Double].self, forKey: .line)
+        self.center = try c.decodeIfPresent([Double].self, forKey: .center)
+        self.radii = try c.decodeIfPresent([Double].self, forKey: .radii)
+        self.rotation = try c.decodeIfPresent(Double.self, forKey: .rotation)
+        self.feather = try c.decodeIfPresent(Double.self, forKey: .feather)
+        self.lo = try c.decodeIfPresent(Double.self, forKey: .lo)
+        self.hi = try c.decodeIfPresent(Double.self, forKey: .hi)
+        self.smooth = try c.decodeIfPresent(Double.self, forKey: .smooth)
+        self.samples = try c.decodeIfPresent([[Double]].self, forKey: .samples)
+        self.rangeAmount = try c.decodeIfPresent(Double.self, forKey: .rangeAmount)
+        self.chromaSel = try c.decodeIfPresent(Double.self, forKey: .chromaSel)
+        self.lumaSel = try c.decodeIfPresent(Double.self, forKey: .lumaSel)
+        self.model = try c.decodeIfPresent(String.self, forKey: .model)
+        self.prompt = try c.decodeIfPresent([[Double]].self, forKey: .prompt)
+        self.personParts = try c.decodeIfPresent([String].self, forKey: .personParts)
+        self.classes = try c.decodeIfPresent([String].self, forKey: .classes)
+        self.depthLo = try c.decodeIfPresent(Double.self, forKey: .depthLo)
+        self.depthHi = try c.decodeIfPresent(Double.self, forKey: .depthHi)
+    }
 }
 
 /// Mask refinement chain (docs/08 §8.5). Wire-name mapping to the doc's controls:
@@ -253,6 +293,22 @@ public struct MaskRefine: Codable, Equatable, Sendable {
         self.levelsLo = levelsLo
         self.levelsHi = levelsHi
         self.levelsGamma = levelsGamma
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case feather, edge, blur, levelsLo, levelsHi, levelsGamma
+    }
+
+    /// Tolerant of a recipe written before any of these keys existed: each falls
+    /// back to the default in the memberwise initializer above. See RecipeDecoding.swift.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.feather = try c.decodeIfPresent(Double.self, forKey: .feather) ?? 0
+        self.edge = try c.decodeIfPresent(Double.self, forKey: .edge) ?? 0
+        self.blur = try c.decodeIfPresent(Double.self, forKey: .blur) ?? 0
+        self.levelsLo = try c.decodeIfPresent(Double.self, forKey: .levelsLo) ?? 0
+        self.levelsHi = try c.decodeIfPresent(Double.self, forKey: .levelsHi) ?? 100
+        self.levelsGamma = try c.decodeIfPresent(Double.self, forKey: .levelsGamma) ?? 1
     }
 }
 
@@ -320,6 +376,46 @@ public struct LocalAdjust: Codable, Equatable, Sendable {
         self.pointColors = pointColors
         self.curve = curve
         self.wheels = wheels
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case exposure, contrast, highlights, shadows, whites, blacks, temp, tint,
+             hue, sat, vibrance, texture, clarity, dehaze, sharpness, noise,
+             noiseChroma, moire, defringe, grainAmount, colorTint, colorTintStrength,
+             pointColors, curve, wheels
+    }
+
+    /// Tolerant of a recipe written before any of these keys existed: each falls
+    /// back to the default in the memberwise initializer above. See RecipeDecoding.swift.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.exposure = try c.decodeIfPresent(Double.self, forKey: .exposure) ?? 0
+        self.contrast = try c.decodeIfPresent(Double.self, forKey: .contrast) ?? 0
+        self.highlights = try c.decodeIfPresent(Double.self, forKey: .highlights) ?? 0
+        self.shadows = try c.decodeIfPresent(Double.self, forKey: .shadows) ?? 0
+        self.whites = try c.decodeIfPresent(Double.self, forKey: .whites) ?? 0
+        self.blacks = try c.decodeIfPresent(Double.self, forKey: .blacks) ?? 0
+        self.temp = try c.decodeIfPresent(Double.self, forKey: .temp) ?? 0
+        self.tint = try c.decodeIfPresent(Double.self, forKey: .tint) ?? 0
+        self.hue = try c.decodeIfPresent(Double.self, forKey: .hue) ?? 0
+        self.sat = try c.decodeIfPresent(Double.self, forKey: .sat) ?? 0
+        self.vibrance = try c.decodeIfPresent(Double.self, forKey: .vibrance) ?? 0
+        self.texture = try c.decodeIfPresent(Double.self, forKey: .texture) ?? 0
+        self.clarity = try c.decodeIfPresent(Double.self, forKey: .clarity) ?? 0
+        self.dehaze = try c.decodeIfPresent(Double.self, forKey: .dehaze) ?? 0
+        self.sharpness = try c.decodeIfPresent(Double.self, forKey: .sharpness) ?? 0
+        self.noise = try c.decodeIfPresent(Double.self, forKey: .noise) ?? 0
+        self.noiseChroma = try c.decodeIfPresent(Double.self, forKey: .noiseChroma) ?? 0
+        self.moire = try c.decodeIfPresent(Double.self, forKey: .moire) ?? 0
+        self.defringe = try c.decodeIfPresent(Double.self, forKey: .defringe) ?? 0
+        self.grainAmount = try c.decodeIfPresent(Double.self, forKey: .grainAmount) ?? 0
+        self.colorTint = try c.decodeIfPresent([Double].self, forKey: .colorTint)
+        self.colorTintStrength = try c.decodeIfPresent(Double.self, forKey: .colorTintStrength)
+            ?? 0
+        self.pointColors = try c.decodeIfPresent([PointColor].self, forKey: .pointColors)
+            ?? []
+        self.curve = try c.decodeIfPresent(CurveSet.self, forKey: .curve)
+        self.wheels = try c.decodeIfPresent(GradingWheels.self, forKey: .wheels)
     }
 }
 

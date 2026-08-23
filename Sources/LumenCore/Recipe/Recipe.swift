@@ -105,6 +105,26 @@ public struct Recipe: Codable, Equatable, Sendable {
         // stage lands buys the same protection and costs nothing until then.
         return copy
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case pipelineVersion, develop, look, masks
+    }
+
+    /// Tolerant of a recipe written before any of these keys existed. `pipelineVersion`
+    /// is the one fallback here that is a claim rather than a value: an absent version
+    /// means a document nobody's writer produced — every writer this format has had
+    /// forces the key in, sparse or not — so it reads as the current vocabulary, which
+    /// is what `Recipe()` itself says. A version that IS present is never overwritten,
+    /// and `testARecipeWrittenAtAnOlderVersionStillReportsThatVersion` is what keeps a
+    /// stray `??` from stamping today's number onto every old recipe in the catalog.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.pipelineVersion = try c.decodeIfPresent(Int.self, forKey: .pipelineVersion)
+            ?? currentPipelineVersion
+        self.develop = try c.decodeIfPresent(Develop.self, forKey: .develop) ?? Develop()
+        self.look = try c.decodeIfPresent(Look.self, forKey: .look) ?? Look()
+        self.masks = try c.decodeIfPresent([Mask].self, forKey: .masks) ?? []
+    }
 }
 
 // MARK: - Develop (per-image normalization, D4)
@@ -147,6 +167,31 @@ public struct Develop: Codable, Equatable, Sendable {
         self.geometry = geometry
         self.heal = heal
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case raw, tone, zones, curve, color, mixer, pointColors, detail, denoise,
+             geometry, heal
+    }
+
+    /// Tolerant of a recipe written before any of these keys existed: each falls
+    /// back to the default in the memberwise initializer above. See RecipeDecoding.swift.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.raw = try c.decodeIfPresent(RawParams.self, forKey: .raw) ?? RawParams()
+        self.tone = try c.decodeIfPresent(Tone.self, forKey: .tone) ?? Tone()
+        self.zones = try c.decodeIfPresent(Zones.self, forKey: .zones) ?? Zones()
+        self.curve = try c.decodeIfPresent(CurveSet.self, forKey: .curve) ?? CurveSet()
+        self.color = try c.decodeIfPresent(ColorAdjust.self, forKey: .color)
+            ?? ColorAdjust()
+        self.mixer = try c.decodeIfPresent(Mixer.self, forKey: .mixer) ?? Mixer()
+        self.pointColors = try c.decodeIfPresent([PointColor].self, forKey: .pointColors)
+            ?? []
+        self.detail = try c.decodeIfPresent(Detail.self, forKey: .detail) ?? Detail()
+        self.denoise = try c.decodeIfPresent(Denoise.self, forKey: .denoise) ?? Denoise()
+        self.geometry = try c.decodeIfPresent(Geometry.self, forKey: .geometry)
+            ?? Geometry()
+        self.heal = try c.decodeIfPresent(Heal.self, forKey: .heal) ?? Heal()
+    }
 }
 
 /// Vibrance and Saturation on the H-K-aware UCS model (D21), plus the two dials that
@@ -188,6 +233,20 @@ public struct ColorAdjust: Codable, Equatable, Sendable {
     /// `testDensityIsLiveExactlyWhereItChangesThePicture` is what stops it drifting from
     /// the engine's own guard.
     public var densityIsLive: Bool { saturation > 0 }
+
+    private enum CodingKeys: String, CodingKey {
+        case vibrance, saturation, density, protectSkin
+    }
+
+    /// Tolerant of a recipe written before any of these keys existed: each falls
+    /// back to the default in the memberwise initializer above. See RecipeDecoding.swift.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.vibrance = try c.decodeIfPresent(Double.self, forKey: .vibrance) ?? 0
+        self.saturation = try c.decodeIfPresent(Double.self, forKey: .saturation) ?? 0
+        self.density = try c.decodeIfPresent(Double.self, forKey: .density) ?? 50
+        self.protectSkin = try c.decodeIfPresent(Double.self, forKey: .protectSkin) ?? 70
+    }
 }
 
 /// Parameters consumed by the RAW decode stage (docs/14 S1–S5).
@@ -205,6 +264,20 @@ public struct RawParams: Codable, Equatable, Sendable {
         self.decoderVersion = decoderVersion
         self.temp = temp
         self.tint = tint
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case decoder, decoderVersion, temp, tint
+    }
+
+    /// Tolerant of a recipe written before any of these keys existed: each falls
+    /// back to the default in the memberwise initializer above. See RecipeDecoding.swift.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.decoder = try c.decodeIfPresent(String.self, forKey: .decoder) ?? "apple"
+        self.decoderVersion = try c.decodeIfPresent(Int.self, forKey: .decoderVersion)
+        self.temp = try c.decodeIfPresent(Double.self, forKey: .temp)
+        self.tint = try c.decodeIfPresent(Double.self, forKey: .tint)
     }
 }
 
@@ -230,6 +303,24 @@ public struct Tone: Codable, Equatable, Sendable {
         self.shadows = shadows
         self.whites = whites
         self.blacks = blacks
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case exposure, contrast, contrastPivot, highlights, shadows, whites, blacks
+    }
+
+    /// Tolerant of a recipe written before any of these keys existed: each falls
+    /// back to the default in the memberwise initializer above. See RecipeDecoding.swift.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.exposure = try c.decodeIfPresent(Double.self, forKey: .exposure) ?? 0
+        self.contrast = try c.decodeIfPresent(Double.self, forKey: .contrast) ?? 0
+        self.contrastPivot = try c.decodeIfPresent(Double.self, forKey: .contrastPivot)
+            ?? 0
+        self.highlights = try c.decodeIfPresent(Double.self, forKey: .highlights) ?? 0
+        self.shadows = try c.decodeIfPresent(Double.self, forKey: .shadows) ?? 0
+        self.whites = try c.decodeIfPresent(Double.self, forKey: .whites) ?? 0
+        self.blacks = try c.decodeIfPresent(Double.self, forKey: .blacks) ?? 0
     }
 }
 
@@ -259,6 +350,29 @@ public struct Zones: Codable, Equatable, Sendable {
         self.bright = bright
         self.global = global
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case pivots, dark, shadow, mid, light, bright, global
+    }
+
+    /// Tolerant of a recipe written before any of these keys existed: each falls
+    /// back to the default in the memberwise initializer above. See RecipeDecoding.swift.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.pivots = RecipeWire.fixedLength(
+            try c.decodeIfPresent([Double].self, forKey: .pivots),
+            default: Zones.defaultPivots)
+        self.dark = try c.decodeIfPresent(ZoneAdjust.self, forKey: .dark) ?? ZoneAdjust()
+        self.shadow = try c.decodeIfPresent(ZoneAdjust.self, forKey: .shadow)
+            ?? ZoneAdjust()
+        self.mid = try c.decodeIfPresent(ZoneAdjust.self, forKey: .mid) ?? ZoneAdjust()
+        self.light = try c.decodeIfPresent(ZoneAdjust.self, forKey: .light)
+            ?? ZoneAdjust()
+        self.bright = try c.decodeIfPresent(ZoneAdjust.self, forKey: .bright)
+            ?? ZoneAdjust()
+        self.global = try c.decodeIfPresent(ZoneAdjust.self, forKey: .global)
+            ?? ZoneAdjust()
+    }
 }
 
 /// Per-zone adjustment: exposure in stops, a color-wheel offset, saturation, falloff.
@@ -276,6 +390,22 @@ public struct ZoneAdjust: Codable, Equatable, Sendable {
         self.wheel = wheel
         self.sat = sat
         self.falloff = falloff
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case ev, wheel, sat, falloff
+    }
+
+    /// Tolerant of a recipe written before any of these keys existed: each falls
+    /// back to the default in the memberwise initializer above. See RecipeDecoding.swift.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.ev = try c.decodeIfPresent(Double.self, forKey: .ev) ?? 0
+        self.wheel = RecipeWire.fixedLength(
+            try c.decodeIfPresent([Double].self, forKey: .wheel),
+            default: [0, 0])
+        self.sat = try c.decodeIfPresent(Double.self, forKey: .sat) ?? 0
+        self.falloff = try c.decodeIfPresent(Double.self, forKey: .falloff) ?? 0.5
     }
 }
 
@@ -305,6 +435,25 @@ public struct CurveSet: Codable, Equatable, Sendable {
         self.luma = luma
         self.preserveLuminance = preserveLuminance
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case parametric, point, r, g, b, luma, preserveLuminance
+    }
+
+    /// Tolerant of a recipe written before any of these keys existed: each falls
+    /// back to the default in the memberwise initializer above. See RecipeDecoding.swift.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.parametric = try c.decodeIfPresent(ParametricCurve.self, forKey: .parametric)
+            ?? ParametricCurve()
+        self.point = try c.decodeIfPresent([[Double]].self, forKey: .point)
+        self.r = try c.decodeIfPresent([[Double]].self, forKey: .r)
+        self.g = try c.decodeIfPresent([[Double]].self, forKey: .g)
+        self.b = try c.decodeIfPresent([[Double]].self, forKey: .b)
+        self.luma = try c.decodeIfPresent([[Double]].self, forKey: .luma)
+        self.preserveLuminance = try c.decodeIfPresent(Bool.self, forKey: .preserveLuminance)
+            ?? true
+    }
 }
 
 /// Four-region parametric curve with movable region splits (docs/04).
@@ -323,6 +472,23 @@ public struct ParametricCurve: Codable, Equatable, Sendable {
         self.shadows = shadows
         self.splits = splits
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case highlights, lights, darks, shadows, splits
+    }
+
+    /// Tolerant of a recipe written before any of these keys existed: each falls
+    /// back to the default in the memberwise initializer above. See RecipeDecoding.swift.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.highlights = try c.decodeIfPresent(Double.self, forKey: .highlights) ?? 0
+        self.lights = try c.decodeIfPresent(Double.self, forKey: .lights) ?? 0
+        self.darks = try c.decodeIfPresent(Double.self, forKey: .darks) ?? 0
+        self.shadows = try c.decodeIfPresent(Double.self, forKey: .shadows) ?? 0
+        self.splits = RecipeWire.fixedLength(
+            try c.decodeIfPresent([Double].self, forKey: .splits),
+            default: [0.25, 0.5, 0.75])
+    }
 }
 
 /// The 8-band Color Mixer (D13). Band order is fixed:
@@ -335,6 +501,20 @@ public struct Mixer: Codable, Equatable, Sendable {
                 uniformity: Double = 0) {
         self.bands = bands
         self.uniformity = uniformity
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case bands, uniformity
+    }
+
+    /// Tolerant of a recipe written before any of these keys existed: each falls
+    /// back to the default in the memberwise initializer above. See RecipeDecoding.swift.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.bands = RecipeWire.fixedLength(
+            try c.decodeIfPresent([MixerBand].self, forKey: .bands),
+            default: Array(repeating: MixerBand(), count: 8))
+        self.uniformity = try c.decodeIfPresent(Double.self, forKey: .uniformity) ?? 0
     }
 }
 
@@ -375,6 +555,28 @@ public struct MixerBand: Codable, Equatable, Sendable {
         self.core = core
         self.feather = feather
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case hue, sat, lum, core, feather
+    }
+
+    /// Tolerant of a recipe written before `core` and `feather` existed — which is every
+    /// recipe written before the inner and outer ring handles shipped, and which is the
+    /// decode failure that took a whole folder's catalog registration down with it. The
+    /// two arc pairs fall back to the engine's own canonical geometry, so a band whose
+    /// handles were never stored reaches exactly as far as it always did.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.hue = try c.decodeIfPresent(Double.self, forKey: .hue) ?? 0
+        self.sat = try c.decodeIfPresent(Double.self, forKey: .sat) ?? 0
+        self.lum = try c.decodeIfPresent(Double.self, forKey: .lum) ?? 0
+        self.core = RecipeWire.fixedLength(
+            try c.decodeIfPresent([Double].self, forKey: .core),
+            default: MixerBand.defaultCore)
+        self.feather = RecipeWire.fixedLength(
+            try c.decodeIfPresent([Double].self, forKey: .feather),
+            default: MixerBand.defaultFeather)
+    }
 }
 
 /// A sampled Point Color swatch (D14).
@@ -390,6 +592,27 @@ public struct PointColor: Codable, Equatable, Sendable {
         self.range = range
         self.variance = variance
         self.shift = shift
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case sample, range, variance, shift
+    }
+
+    /// Tolerant of an absent key, with one fallback that the memberwise initializer above
+    /// does not supply: `sample` has no default there because a swatch with no sampled
+    /// colour is not a swatch. A neutral triple is the safe reading of one that arrives
+    /// without it — `ColorEngine.compiledSwatches` skips a swatch whose shift is zero and
+    /// clamps what it selects, so a black reference costs at most one dead swatch, where
+    /// throwing costs the photograph's whole edit. The fixed length matters more than the
+    /// value: `ColorPanel` reads `sample[0…2]` with no guard at all.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.sample = RecipeWire.fixedLength(
+            try c.decodeIfPresent([Double].self, forKey: .sample),
+            default: [0, 0, 0])
+        self.range = try c.decodeIfPresent(Double.self, forKey: .range) ?? 50
+        self.variance = try c.decodeIfPresent(Double.self, forKey: .variance) ?? 0
+        self.shift = try c.decodeIfPresent(HSLShift.self, forKey: .shift) ?? HSLShift()
     }
 }
 
@@ -422,6 +645,19 @@ public struct HSLShift: Codable, Equatable, Sendable {
         self.s = s
         self.l = l
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case h, s, l
+    }
+
+    /// Tolerant of a recipe written before any of these keys existed: each falls
+    /// back to the default in the memberwise initializer above. See RecipeDecoding.swift.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.h = try c.decodeIfPresent(Double.self, forKey: .h) ?? 0
+        self.s = try c.decodeIfPresent(Double.self, forKey: .s) ?? 0
+        self.l = try c.decodeIfPresent(Double.self, forKey: .l) ?? 0
+    }
 }
 
 /// Presence + sharpening (docs/06).
@@ -440,6 +676,23 @@ public struct Detail: Codable, Equatable, Sendable {
         self.clarity = clarity
         self.dehaze = dehaze
         self.sharpen = sharpen
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case capture, texture, clarity, dehaze, sharpen
+    }
+
+    /// Tolerant of a recipe written before any of these keys existed: each falls
+    /// back to the default in the memberwise initializer above. See RecipeDecoding.swift.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.capture = try c.decodeIfPresent(CaptureSharpen.self, forKey: .capture)
+            ?? CaptureSharpen()
+        self.texture = try c.decodeIfPresent(Double.self, forKey: .texture) ?? 0
+        self.clarity = try c.decodeIfPresent(Double.self, forKey: .clarity) ?? 0
+        self.dehaze = try c.decodeIfPresent(Double.self, forKey: .dehaze) ?? 0
+        self.sharpen = try c.decodeIfPresent(ManualSharpen.self, forKey: .sharpen)
+            ?? ManualSharpen()
     }
 }
 
@@ -480,6 +733,19 @@ public struct CaptureSharpen: Codable, Equatable, Sendable {
         self.auto = auto
         self.radius = radius
         self.amount = amount
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case auto, radius, amount
+    }
+
+    /// Tolerant of a recipe written before any of these keys existed: each falls
+    /// back to the default in the memberwise initializer above. See RecipeDecoding.swift.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.auto = try c.decodeIfPresent(Bool.self, forKey: .auto) ?? true
+        self.radius = try c.decodeIfPresent(Double.self, forKey: .radius)
+        self.amount = try c.decodeIfPresent(Double.self, forKey: .amount)
     }
 }
 
@@ -527,6 +793,22 @@ public struct ManualSharpen: Codable, Equatable, Sendable {
         // Toward half the base radius at Detail 100 — the finest band the reference
         // weights is about one octave below the nominal one.
         return Num.clamp(base * (1 - 0.5 * fine), 0.2, 5)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case amount, radius, detail, masking, haloSuppression
+    }
+
+    /// Tolerant of a recipe written before any of these keys existed: each falls
+    /// back to the default in the memberwise initializer above. See RecipeDecoding.swift.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.amount = try c.decodeIfPresent(Double.self, forKey: .amount) ?? 0
+        self.radius = try c.decodeIfPresent(Double.self, forKey: .radius) ?? 1.0
+        self.detail = try c.decodeIfPresent(Double.self, forKey: .detail) ?? 25
+        self.masking = try c.decodeIfPresent(Double.self, forKey: .masking) ?? 0
+        self.haloSuppression = try c.decodeIfPresent(Double.self, forKey: .haloSuppression)
+            ?? 0
     }
 }
 
@@ -587,6 +869,21 @@ public struct Denoise: Codable, Equatable, Sendable {
             let blend = fraction(amount)
             return (blend * 0.6, blend)
         }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case mode, amount, model, classic
+    }
+
+    /// Tolerant of a recipe written before any of these keys existed: each falls
+    /// back to the default in the memberwise initializer above. See RecipeDecoding.swift.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.mode = try c.decodeIfPresent(Mode.self, forKey: .mode) ?? .classic
+        self.amount = try c.decodeIfPresent(Double.self, forKey: .amount) ?? 50
+        self.model = try c.decodeIfPresent(String.self, forKey: .model)
+        self.classic = try c.decodeIfPresent(ClassicNR.self, forKey: .classic)
+            ?? ClassicNR()
     }
 }
 
@@ -705,6 +1002,22 @@ public struct Geometry: Codable, Equatable, Sendable {
         self.upright = upright
         self.lens = lens
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case crop, angle, flipH, upright, lens
+    }
+
+    /// Tolerant of a recipe written before any of these keys existed: each falls
+    /// back to the default in the memberwise initializer above. See RecipeDecoding.swift.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.crop = try c.decodeIfPresent(Crop.self, forKey: .crop) ?? Crop()
+        self.angle = try c.decodeIfPresent(Double.self, forKey: .angle) ?? 0
+        self.flipH = try c.decodeIfPresent(Bool.self, forKey: .flipH) ?? false
+        self.upright = try c.decodeIfPresent(Upright.self, forKey: .upright)
+        self.lens = try c.decodeIfPresent(LensCorrections.self, forKey: .lens)
+            ?? LensCorrections()
+    }
 }
 
 public struct Crop: Codable, Equatable, Sendable {
@@ -718,6 +1031,20 @@ public struct Crop: Codable, Equatable, Sendable {
         self.y = y
         self.w = w
         self.h = h
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case x, y, w, h
+    }
+
+    /// Tolerant of a recipe written before any of these keys existed: each falls
+    /// back to the default in the memberwise initializer above. See RecipeDecoding.swift.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.x = try c.decodeIfPresent(Double.self, forKey: .x) ?? 0
+        self.y = try c.decodeIfPresent(Double.self, forKey: .y) ?? 0
+        self.w = try c.decodeIfPresent(Double.self, forKey: .w) ?? 1
+        self.h = try c.decodeIfPresent(Double.self, forKey: .h) ?? 1
     }
 }
 
@@ -744,6 +1071,24 @@ public struct Upright: Codable, Equatable, Sendable {
         self.offsetY = offsetY
         self.strength = strength
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case vertical, horizontal, rotate, aspect, scale, offsetX, offsetY, strength
+    }
+
+    /// Tolerant of a recipe written before any of these keys existed: each falls
+    /// back to the default in the memberwise initializer above. See RecipeDecoding.swift.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.vertical = try c.decodeIfPresent(Double.self, forKey: .vertical) ?? 0
+        self.horizontal = try c.decodeIfPresent(Double.self, forKey: .horizontal) ?? 0
+        self.rotate = try c.decodeIfPresent(Double.self, forKey: .rotate) ?? 0
+        self.aspect = try c.decodeIfPresent(Double.self, forKey: .aspect) ?? 0
+        self.scale = try c.decodeIfPresent(Double.self, forKey: .scale) ?? 100
+        self.offsetX = try c.decodeIfPresent(Double.self, forKey: .offsetX) ?? 0
+        self.offsetY = try c.decodeIfPresent(Double.self, forKey: .offsetY) ?? 0
+        self.strength = try c.decodeIfPresent(Double.self, forKey: .strength) ?? 100
+    }
 }
 
 public struct LensCorrections: Codable, Equatable, Sendable {
@@ -755,6 +1100,19 @@ public struct LensCorrections: Codable, Equatable, Sendable {
         self.profile = profile
         self.removeCA = removeCA
         self.defringe = defringe
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case profile, removeCA, defringe
+    }
+
+    /// Tolerant of a recipe written before any of these keys existed: each falls
+    /// back to the default in the memberwise initializer above. See RecipeDecoding.swift.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.profile = try c.decodeIfPresent(Bool.self, forKey: .profile) ?? true
+        self.removeCA = try c.decodeIfPresent(Bool.self, forKey: .removeCA) ?? true
+        self.defringe = try c.decodeIfPresent(Defringe.self, forKey: .defringe)
     }
 }
 
@@ -776,6 +1134,23 @@ public struct Defringe: Codable, Equatable, Sendable {
         self.greenHueLo = greenHueLo
         self.greenHueHi = greenHueHi
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case purpleAmount, purpleHueLo, purpleHueHi, greenAmount, greenHueLo,
+             greenHueHi
+    }
+
+    /// Tolerant of a recipe written before any of these keys existed: each falls
+    /// back to the default in the memberwise initializer above. See RecipeDecoding.swift.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.purpleAmount = try c.decodeIfPresent(Double.self, forKey: .purpleAmount) ?? 0
+        self.purpleHueLo = try c.decodeIfPresent(Double.self, forKey: .purpleHueLo) ?? 30
+        self.purpleHueHi = try c.decodeIfPresent(Double.self, forKey: .purpleHueHi) ?? 70
+        self.greenAmount = try c.decodeIfPresent(Double.self, forKey: .greenAmount) ?? 0
+        self.greenHueLo = try c.decodeIfPresent(Double.self, forKey: .greenHueLo) ?? 40
+        self.greenHueHi = try c.decodeIfPresent(Double.self, forKey: .greenHueHi) ?? 60
+    }
 }
 
 /// Heal/clone stroke vectors live in content-addressed blobs (docs/15 §15.4 rule 4).
@@ -786,5 +1161,17 @@ public struct Heal: Codable, Equatable, Sendable {
     public init(strokesRef: String? = nil, count: Int = 0) {
         self.strokesRef = strokesRef
         self.count = count
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case strokesRef, count
+    }
+
+    /// Tolerant of a recipe written before any of these keys existed: each falls
+    /// back to the default in the memberwise initializer above. See RecipeDecoding.swift.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.strokesRef = try c.decodeIfPresent(String.self, forKey: .strokesRef)
+        self.count = try c.decodeIfPresent(Int.self, forKey: .count) ?? 0
     }
 }

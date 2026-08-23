@@ -162,4 +162,17 @@ public struct LookSubset: Codable, Equatable, Sendable {
     }
 
     public static let maximumNameLength = 120
+
+    private enum CodingKeys: String, CodingKey {
+        case pipelineVersion, look
+    }
+
+    /// Tolerant of a recipe written before any of these keys existed: each falls
+    /// back to the default in the memberwise initializer above. See RecipeDecoding.swift.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.pipelineVersion = try c.decodeIfPresent(Int.self, forKey: .pipelineVersion)
+            ?? currentPipelineVersion
+        self.look = try c.decodeIfPresent(Look.self, forKey: .look) ?? Look()
+    }
 }
