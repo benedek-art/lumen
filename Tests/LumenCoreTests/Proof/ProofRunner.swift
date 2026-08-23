@@ -89,10 +89,20 @@ enum ProofRunner {
         // ceiling has been agreed. A control entitled to leave the range — a global
         // exposure move — records nil, because "overshoot 120" on Exposure is not a
         // finding, it is the control working.
-        let overshoot: Double? = spec.mayLeaveRange
-            ? nil
-            : Swift.max(ProofMetrics.overshoot(highEnd, against: neutral),
-                        ProofMetrics.overshoot(lowEnd, against: neutral))
+        //
+        // Both ends, both directions. `overshoot` stays the larger of the two so the
+        // ceiling assertion reads exactly the quantity it always read; the two halves
+        // are recorded beside it so a future ceiling can be put on the one that means
+        // "rim" rather than on their maximum (PROOF-02).
+        let excursion: (above: Double, below: Double)? = spec.mayLeaveRange ? nil : {
+            let atHigh = ProofMetrics.overshoot(highEnd, against: neutral)
+            let atLow = ProofMetrics.overshoot(lowEnd, against: neutral)
+            return (Swift.max(atHigh.above, atLow.above),
+                    Swift.max(atHigh.below, atLow.below))
+        }()
+        let overshootAbove = excursion?.above
+        let overshootBelow = excursion?.below
+        let overshoot = excursion.map { Swift.max($0.above, $0.below) }
 
         // Hue rotation is only defined where the frame carries chroma. On a grey ramp
         // every pixel is on the neutral axis and the angle is rounding error — the
@@ -113,6 +123,7 @@ enum ProofRunner {
             isMonotone: sweep.isMonotone,
             givenBack: sweep.givenBack,
             overshoot: overshoot,
+            overshootAbove: overshootAbove, overshootBelow: overshootBelow,
             hueRotation: hueRotation,
             shippingReader: spec.shippingReader,
             baselineTier: nil, baselineNote: nil)

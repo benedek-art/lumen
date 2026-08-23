@@ -9,6 +9,8 @@
   "isMonotone" : true,
   "meanSeparation" : 1.4372694914384427,
   "overshoot" : 0.9923183144374121,
+  "overshootAbove" : 0.13343198121324917,
+  "overshootBelow" : 0.9923183144374121,
   "panel" : "Detail",
   "shippingReader" : "Sources\/LumenPipeline\/RenderGraph.swift:700",
   "smallestLiveStep" : 0.183201968509195,

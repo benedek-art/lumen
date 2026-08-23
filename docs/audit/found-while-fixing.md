@@ -227,8 +227,10 @@ separable because `RenderPlan.exactColor` exists to be measured against. A metri
 cannot be compared with an exact evaluation of the same thing cannot tell its own error
 from the code's.
 
-**PROOF-02 — overshoot, now measured on the six controls that can produce it.** Recorded,
-not asserted.
+**PROOF-02 — overshoot, now measured on the seven controls that can produce it, and
+split by direction.** MEASURED. (Six was a miscount; the list below has always had seven.)
+`detail.dehaze` is the fix working; the metric was reporting two different facts as one
+number, and no longer does.
 
 In sRGB code values beyond the input's own range, at full travel:
 
@@ -247,12 +249,74 @@ anything. `sharpen.masking` at exactly 0.00 is a gate behaving like a gate. And
 and now discloses (DETAIL-04), on a shipping path that runs a guided band where the
 halo-free property belongs to a local Laplacian that does not ship.
 
-`detail.dehaze` at 51.14 is the one worth a second look. docs/19 recorded that an earlier
-dehaze put a tenth of a test frame above scene white at +50 and nearly half at +100, and
-that was fixed; whether 51 code values of excursion on a veiled sky is the fix working or
-the fix incomplete is not something this harness can say on its own.
+**`detail.dehaze` at 51.14 is not an overshoot.** Every code value of it is BELOW the
+veiled frame's own darkest value, and none of it is above the brightest. Measured on
+`ProofFrames.hazySky`, whose neutral render spans 97.80…204.18:
 
-**Why none of these is asserted yet.** A ceiling is a promise about what the code may do,
-and every promise in this repository that turned out to be false started as somebody's
-reasonable guess. These are measurements. They become promises when someone has decided
-what the right answer is, and the records make that decision visible whenever it happens.
+```
+amount   above scene white   below the floor   worst excursion   at code 255
+  +25         0.0000%             1.98%             10.91            0.000%
+  +50         0.0000%             6.92%             23.04            0.000%
+  +75         0.0000%            17.93%             36.37            0.000%
+ +100         0.0000%            33.51%             51.14            0.000%
+```
+
+docs/19 recorded the earlier dehaze putting a tenth of a test frame above scene white at
++50 and nearly half at +100. That is the number in the first column, and it is zero at
+every setting. Nothing clips either: the darkest output sits at 46.66 of 255. The whole
+51.14 is the black point coming back down, which is what removing a veil is.
+
+**And it lands where a black-point restoration should.** At +100, 84.11% of GROUND pixels
+sit below the veiled floor and **0.00%** of sky pixels do — the opposite of the failure
+this was checked for, because the haze is thickest in the sky (the dark-channel
+transmission runs 0.080 at the top row to 0.783 at the bottom) and the sky guard raises
+the floor there. Negative travel produces no excursion in either direction at any setting.
+
+**Against the reference implementation's floor**, which is the comparison that settles
+whether the amplification is still capable of the docs/19 failure. He, Sun & Tang (CVPR
+2009) invert with `t0 = 0.1`, a tenfold amplification of `(I − A)`, and the Lumen dehaze
+docs/19 condemned used the same 0.1. The dark-channel map here is still floored at 0.02
+and reaches 0.0803 on this frame, but that map is not what the inversion divides by: the
+sky guard and `dehazeDistance` raise it to an effective `tv` of 0.5262…0.8061, so the
+amplification actually applied is at most **1.90×**, and the structural floor
+`tMin = mix(0.55, 0.05, 0.20) = 0.45` caps it at 2.22× anywhere. That is a fifth of the
+paper's, and it is why the frame cannot be driven above its own white. The estimator also
+under-reads the airlight on this frame — (0.4364, 0.5039, 0.6690) against the (0.55, 0.62,
+0.78) the frame was built with — which makes the correction gentler, not harsher.
+P6 tier (b): a published paper, and the delta is a design difference, not an error.
+
+**No ceiling declared, and this is the reason.** On the metric as it stood, a ceiling on
+`detail.dehaze` would have been a promise about how much of the black point the control is
+allowed to restore — a bound on the control WORKING, which tightening later would be a bug
+rather than an improvement. That is exactly the promise this file warns against. What is
+worth binding is the above-white number, which is now recorded separately as
+`overshootAbove` and measures 0.00 at both ends of the travel. **Recommended: an
+`overshootCeiling` of 2.0 on `detail.dehaze`** — under the 2.9-of-255 level docs/19
+established as the threshold of invisibility, so it is a promise a photographer would
+notice being broken, with enough margin that retuning the sky guard does not turn the
+suite red on an estimate. Not applied here: `ProofRegistry.swift` is owned by another
+agent this round, and the change is one argument on one entry.
+
+**The split, on all seven controls that can produce an excursion.** This is the table the
+single number was hiding:
+
+```
+                  above    below
+detail.texture    18.56    19.67
+detail.clarity     4.29     3.61
+detail.dehaze      0.00    51.14
+sharpen.amount    41.51    29.48
+sharpen.radius     6.40     4.48
+sharpen.detail     0.13     0.99
+sharpen.masking    0.00     0.00
+```
+
+Every rimming control has both lobes, because that is what a rim is. `detail.dehaze` — the
+one whose single number was the largest on the list and the one that got investigated —
+has only the lower one. Read as one number it was the worst offender; read as two it is
+the only control in the registry that never pushes a pixel above the frame's own white.
+
+**Why the other six are still unasserted.** Unchanged: they are measurements, and they
+become promises when someone has decided what the right answer is. What the split adds is
+that the decision is now askable for each separately — a maximum never said which lobe was
+being bounded.

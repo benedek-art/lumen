@@ -20,8 +20,14 @@ enum ProofMetrics {
 
     /// sRGB OETF. Inlined for the same reason `ProofFrames` inlines its EOTF: the ruler
     /// must not be built out of the thing being measured.
+    ///
+    /// The clamp is written value-first. `Swift.min(1, .nan)` returns 1 and
+    /// `Swift.max(0, 1)` returns 1, so the original order turned a non-finite render
+    /// into a frame of clean 255s before any metric saw it — the ruler laundering the
+    /// thing it is meant to measure (TEST-01). Value-first is identical for every finite
+    /// input and carries a NaN through to the assertions.
     static func linearToSRGB(_ x: Double) -> Double {
-        let v = Swift.max(0, Swift.min(1, x))
+        let v = Swift.min(Swift.max(x, 0), 1)
         return v <= 0.0031308 ? 12.92 * v : 1.055 * pow(v, 1 / 2.4) - 0.055
     }
 
@@ -47,7 +53,10 @@ enum ProofMetrics {
         let ca = codeValues(a), cb = codeValues(b)
         precondition(ca.count == cb.count, "authority needs two renders of one frame")
         var peak = 0.0
-        for i in 0..<ca.count { peak = Swift.max(peak, abs(ca[i] - cb[i])) }
+        // `runningMax`, not `Swift.max`: every other number in a record is derived
+        // from this one, and an accumulator that steps over a NaN reports a control
+        // as merely weak instead of broken (TEST-01).
+        for i in 0..<ca.count { peak = runningMax(peak, abs(ca[i] - cb[i])) }
         return peak
     }
 
@@ -171,23 +180,40 @@ enum ProofMetrics {
 
     // MARK: - P4 behaviour
 
-    /// Worst overshoot beyond the input's own range, in code values, measured near a
-    /// known edge. This is the halo/rim number.
+    /// Worst excursion beyond the input's own range, in code values, measured near a
+    /// known edge. This is the halo/rim number, and it is TWO numbers.
     ///
     /// A sharpening or local-contrast operator is allowed to steepen an edge. It is not
     /// allowed to make one side brighter than the frame's brightest input or darker than
     /// its darkest — that is a rim, and it is the artifact that separates a good
     /// implementation of these operators from a naive one.
-    static func overshoot(_ rendered: ImageBuffer, against input: ImageBuffer) -> Double {
+    ///
+    /// Split by direction, because for one operator on the registry the two directions
+    /// are not the same kind of fact and their maximum told a story that was not true
+    /// (PROOF-02). `detail.dehaze` recorded 51.14 on a veiled sky, which read as a rim
+    /// and was investigated as one; measured separately it is 0.00 above the frame's
+    /// brightest value and 51.14 below its darkest, on 84% of the ground and 0% of the
+    /// sky. Removing a veil restores a black point, and a black point cannot be restored
+    /// without going under the veiled frame's own floor. The number was right and its
+    /// name was wrong.
+    ///
+    /// Both accumulators are `runningMax` rather than `Swift.max` (TEST-01). A ceiling is
+    /// asserted against this number, and a render that had gone non-finite would fail
+    /// both comparisons, accumulate nothing, and report an excursion of 0.00 — a clean
+    /// pass on a frame that is entirely NaN.
+    static func overshoot(_ rendered: ImageBuffer, against input: ImageBuffer)
+        -> (above: Double, below: Double)
+    {
         let inCodes = codeValues(input), outCodes = codeValues(rendered)
         precondition(inCodes.count == outCodes.count)
         let lo = inCodes.min() ?? 0, hi = inCodes.max() ?? 255
-        var worst = 0.0
+        var above = 0.0, below = 0.0
         for v in outCodes {
-            if v > hi { worst = Swift.max(worst, v - hi) }
-            if v < lo { worst = Swift.max(worst, lo - v) }
+            guard v.isFinite else { above = .nan; below = .nan; break }
+            if v > hi { above = runningMax(above, v - hi) }
+            if v < lo { below = runningMax(below, lo - v) }
         }
-        return worst
+        return (above, below)
     }
 
     /// Largest hue rotation between two renders, in degrees, over pixels with enough

@@ -122,6 +122,12 @@ final class ControlProofTests: XCTestCase {
     }
 
     func testNoControlLeavesTheRangeUnlessItIsEntitledTo() {
+        var report = [String]()
+        defer {
+            print("\n=== excursion beyond the frame's own range, sRGB code values ===")
+            report.forEach { print("  " + $0) }
+            print("")
+        }
         for spec in ProofRegistry.all where !spec.mayLeaveRange {
             let record = ProofRunner.measured(spec)
             guard let overshoot = record.overshoot else {
@@ -129,6 +135,10 @@ final class ControlProofTests: XCTestCase {
                         + "overshoot measurement")
                 continue
             }
+            // Formatted outside the interpolation, per `ProofRecord.summary`.
+            let above = String(format: "%.2f", record.overshootAbove ?? -1)
+            let below = String(format: "%.2f", record.overshootBelow ?? -1)
+            report.append("\(spec.id)  above \(above)  below \(below)")
             guard let ceiling = spec.overshootCeiling else { continue }
             XCTAssertLessThan(
                 overshoot, ceiling,

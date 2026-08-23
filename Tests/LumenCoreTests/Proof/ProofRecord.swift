@@ -58,7 +58,16 @@ struct ProofRecord: Codable, Equatable {
     var givenBack: Double
     /// Worst excursion beyond the input's own range, in code values. Nil where the
     /// control cannot produce one (a global tone move legitimately leaves the range).
+    /// The larger of the two below, and what a declared ceiling is asserted against.
     var overshoot: Double?
+    /// The same excursion split by direction: above the input's brightest value, and
+    /// below its darkest. Nil on the same controls `overshoot` is nil on.
+    ///
+    /// Recorded separately because their maximum is not one fact. `detail.dehaze` on a
+    /// veiled sky reads 0.00 above and 51.14 below, and the sum of those two words is
+    /// "rim" while the truth is "restored the black point the haze lifted" (PROOF-02).
+    var overshootAbove: Double?
+    var overshootBelow: Double?
     /// Largest hue rotation over the sweep, degrees. Nil where not applicable.
     var hueRotation: Double?
 
@@ -96,6 +105,8 @@ struct ProofRecord: Codable, Equatable {
             && isMonotone == other.isMonotone
             && near(givenBack, other.givenBack)
             && near(overshoot, other.overshoot)
+            && near(overshootAbove, other.overshootAbove)
+            && near(overshootBelow, other.overshootBelow)
             && near(hueRotation, other.hueRotation)
     }
 
@@ -119,9 +130,16 @@ struct ProofRecord: Codable, Equatable {
         // inner quotes reads as code. The first draft said "NOT monotone" there and the
         // checker duly reported `NOT` as an identifier declared nowhere in-tree.
         let shape = isMonotone ? "monotone" : "not monotone"
+        // The excursion belongs in the one-liner because without it a record that
+        // drifted ONLY in one of these fields printed two identical lines under
+        // "committed" and "now", which is a red test nobody can read. Both halves, in
+        // the order the metric reports them.
+        let excursion = overshootAbove.map { above in
+            "  out of range up " + f(above, 2) + " down " + f(overshootBelow ?? 0, 2)
+        } ?? ""
         return "\(id)  authority \(f(authority, 2))  mean \(f(meanSeparation, 3))"
             + "  front \(f(frontLoading * 100, 0))%  dead \(deadSteps)  \(shape)"
-            + "  gave back \(f(givenBack, 3))"
+            + "  gave back \(f(givenBack, 3))" + excursion
     }
 }
 
