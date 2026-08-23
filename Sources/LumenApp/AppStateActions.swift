@@ -58,8 +58,8 @@ extension AppState {
                 self.history.record(before: before, after: after, coalescingKey: nil,
                                     label: "Auto Tone")
                 for (url, recipe) in applied {
-                    let id = self.allPhotos.first(where: { $0.id == url })?.catalogID
-                    self.catalog?.saveRecipe(recipe, url: url, catalogID: id)
+                    self.catalog?.saveRecipe(recipe, url: url,
+                                             catalogID: self.catalogID(for: url))
                 }
                 self.statusMessage = "Auto applied to \(applied.count) photo"
                     + (applied.count == 1 ? "" : "s")

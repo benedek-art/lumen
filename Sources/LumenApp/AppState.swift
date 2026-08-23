@@ -964,7 +964,36 @@ final class AppState: ObservableObject {
     /// every mutation of those four inputs calls it.
     private var photoCache: [PhotoItem]?
 
-    func invalidatePhotoCache() { photoCache = nil }
+    /// URL to catalog row id, memoised beside the contact sheet.
+    ///
+    /// `persist` needed this and did not have it, so it ran
+    /// `allPhotos.first(where: { $0.id == url })` — a linear scan of every photograph in
+    /// the source, comparing URLs, ONCE PER CHANGED PHOTO PER MOUSE EVENT. On a batch
+    /// drag over a forty-frame selection at five thousand files that is two hundred
+    /// thousand URL comparisons per event, on the main actor, in front of the render.
+    /// And it was pure waste: `updateRecipe` iterates `editTargets`, which are
+    /// `PhotoItem`s that already carry `catalogID`. The scan existed only because
+    /// `persist` had been handed a `[URL: Recipe]` and had thrown the items away.
+    ///
+    /// Keyed and invalidated exactly like `photoCache`, because it is derived from the
+    /// same array.
+    private var catalogIDCache: [URL: Int64]?
+
+    func invalidatePhotoCache() {
+        photoCache = nil
+        catalogIDCache = nil
+    }
+
+    /// The catalog row for a file, in one lookup.
+    func catalogID(for url: URL) -> Int64? {
+        if let catalogIDCache { return catalogIDCache[url] }
+        var built = [URL: Int64](minimumCapacity: allPhotos.count)
+        for item in allPhotos {
+            if let id = item.catalogID { built[item.id] = id }
+        }
+        catalogIDCache = built
+        return built[url]
+    }
 
     var photos: [PhotoItem] {
         if let photoCache { return photoCache }
@@ -2127,8 +2156,10 @@ final class AppState: ObservableObject {
     private func persist(_ changes: [URL: Recipe]) {
         guard let catalog else { return }
         for (url, recipe) in changes {
-            let id = allPhotos.first(where: { $0.id == url })?.catalogID
-            catalog.saveRecipe(recipe, url: url, catalogID: id)
+            // One dictionary lookup. This was `allPhotos.first(where:)` — a linear scan
+            // of the whole source, per changed photo, per mouse event, on the main
+            // actor, in front of the render. See `catalogIDCache`.
+            catalog.saveRecipe(recipe, url: url, catalogID: catalogID(for: url))
         }
         refreshLibraryQueryIfEditStateShows()
     }
