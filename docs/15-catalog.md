@@ -452,6 +452,42 @@ The doctrine, each rule with its reason:
 Virtual copies are `edit` rows with `kind='version'` (docs/10 calls them Versions); snapshots are
 `kind='snapshot'` rows. Both cost bytes, not files.
 
+### What `look.subset` holds
+
+A saved look is `{"pipelineVersion": n, "look": {…}}` — the recipe's `look` subtree, whole, plus
+the vocabulary version it was written in (docs/14 §3: "a named look is the look-slice of a recipe
+plus its `pipelineVersion`"). Same serialization discipline as a recipe: canonical, sparse,
+sorted keys, fixed float formatting.
+
+**Whole, with no exceptions inside the subtree.** `look.lut` travels with a look even though no
+stage renders it, because the alternative is a second dead-field decision to unwind on the day a
+LUT stage lands, and because a LUT is the most look-shaped thing in the format. `Recipe.render
+Identity` strips it for an unrelated reason — that projection answers "do these two recipes
+produce the same pixels", and what a photographer's saved look remembers is a different question.
+
+**Nothing outside it travels.** Not `develop` (white balance is derived from one camera's as-shot
+neutral, exposure and tone are one frame's light, geometry is one frame's crop), and not `masks`
+— docs/14 §3 says masks declare their own register and that look-tagged ones travel, and `Mask`
+carries no register field yet, so there is no look-tagged mask to carry. Carrying all of them
+instead would move one photograph's brush blobs and radial centres onto another, which is the
+same defect as moving a crop. `LookSubset` in LumenCore is the single place that decides this,
+and `SavedLookTests` fails if a top-level recipe key is ever added without the decision being
+made.
+
+Applying a look raises the target recipe's `pipelineVersion` to the higher of the two and never
+lowers it: a v2 look can express "black and white, off, mix kept", which a v1 reader would render
+as black and white, while a v1 look must not restamp a v2 document whose develop half it never
+touched.
+
+`look` rows are unique on `(kind, COALESCE(grp, ''), name)` — schema version 3. A look is reached
+for by name, so two rows the browser draws identically are two things the photographer cannot
+choose between; saving over a name is how a look is updated, and renaming onto a taken name is
+refused. Nothing references `look.id`: a look is *copied into* a recipe at apply time, so deleting
+one never un-grades a photograph that used it.
+
+`look.thumb` still has no writer. A swatch has to be rendered through the pipeline against some
+photograph, and which photograph is a question this pass did not answer; the browser lists names.
+
 ---
 
 ## 15.5 XMP sidecar policy
