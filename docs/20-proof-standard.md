@@ -95,16 +95,29 @@ from a fixed set so that records are comparable across controls and across time:
 | Frame | Contains | Used by |
 |---|---|---|
 | `neutralRamp` | a linear grey ramp over the working range | tone, curves, display transform |
-| `colourChart` | 24 patches at known chromaticities, including two skin tones | white balance, mixer, point colour, grade, primaries |
+| `colourChart` | 24 patches at known chromaticities, including two skin tones | white balance, mixer, point colour |
 | `stepEdge` | a hard edge at a known contrast | sharpening, halo and rim bounds, edge-aware masks |
 | `fineTexture` | band-limited detail at several spatial frequencies | texture, clarity, capture sharpening |
 | `noisyISO6400` | a clean frame plus a measured sensor-noise model | every denoise control |
 | `hazySky` | a veiled gradient with a known airlight | dehaze, and the gradient-vs-edge case that has twice reverted the Texture port |
 | `hotPixels` | isolated spikes on an otherwise clean frame | hot pixels |
 | `chromaEdge` | a saturated colour boundary | colour denoise, defringe, chromatic aberration |
+| `noisyChromaEdge` | `chromaEdge` under the same sensor-noise model, with `chromaEdge` as ground truth | colour denoise scored on what it costs as well as what it removes |
+| `tonalColourWedge` | eight band-centre hues over the whole −9…+5 EV zone axis, one luminance per row | grading wheels, zone geometry, primaries, the B&W mix, film stocks |
 
 A control swept on a frame that does not contain its subject records `INVALID PROBE`,
 not a result.
+
+The last two rows were added after the set was declared fixed, and each says which
+existing frame it replaced and why — which is the bar for adding another one.
+`noisyChromaEdge` exists because `noisyISO6400`'s clean twin is neutral, so a colour
+denoiser that annihilates every chroma band scores perfectly on it: the frame could say
+what the control removed and never what it cost. `tonalColourWedge` exists because
+`colourChart` spans only about −2.5…+2.2 EV, which on the grading panel's −9…+5 axis is
+the mid zone and nothing else — the shadows and highlights wheels, the zone pivots and
+the primaries' shadow tint were all being asked to act through windows nearly shut over
+every pixel in the frame, and a `neutralRamp` that spans the axis carries no chroma for
+any of them to act on.
 
 ## The record
 

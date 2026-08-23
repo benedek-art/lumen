@@ -105,6 +105,21 @@ enum ProofFrames {
         }
     }
 
+    /// The scene-linear working-space colour of a ColorChecker patch, 1-based.
+    ///
+    /// Point Colour selects by SAMPLED COLOUR: `PointColor.sample` is a working-space
+    /// triple, and the engine's selection weight is a distance from it in OKLCh. A
+    /// swatch whose sample is not a colour the frame actually contains selects nothing,
+    /// weight is zero at every pixel, and the whole control measures dead — the same
+    /// class of probe error `colorDetail` and `hotPixels` recorded, arriving through the
+    /// control's parameters rather than through the frame. This is the accessor that
+    /// makes the two agree by construction.
+    static func chartPatchColour(_ number: Int) -> RGB {
+        let frame = colourChart()
+        let p = chartPatchCentre(number)
+        return frame[p.x, p.y]
+    }
+
     /// Index of a ColorChecker patch in `colourChart`, 1-based as the chart numbers them.
     /// Dark skin is 1, light skin is 2, Neutral 5 is 22.
     static func chartPatchCentre(_ number: Int, width: Int = 240, height: Int = 160)
@@ -114,6 +129,81 @@ enum ProofFrames {
         let col = i % 6, row = i / 6
         return (Int((Double(col) + 0.5) / 6 * Double(width)),
                 Int((Double(row) + 0.5) / 4 * Double(height)))
+    }
+
+    // MARK: - The tonal colour wedge
+
+    /// The eight band-centre hues, as full-saturation sRGB triples.
+    ///
+    /// Transcribed as FIXED DATA, exactly like the ColorChecker patches above and for
+    /// the same reason: a frame derived at run time from `ColorEngine.bandHueCentres`
+    /// and `OKLabTransform` would move whenever either of them moved, and the ruler
+    /// would follow the thing being measured. Each triple was found once by walking the
+    /// full-saturation sRGB hue wheel and keeping the position whose working-space OKLab
+    /// hue was closest to a band centre; the worst residual is 0.011°.
+    ///
+    /// `testTheWedgeSitsOnTheBandCentres` re-derives those angles and fails if this
+    /// table has stopped describing them. That failure would be real information — the
+    /// band anchor is golden-locked and a `pipelineVersion` bump — rather than noise.
+    static let bandCentreSRGB: [(Double, Double, Double)] = [
+        (255, 0, 0), (255, 172, 0), (220, 255, 0), (0, 255, 184),
+        (0, 229, 255), (0, 135, 255), (144, 0, 255), (255, 0, 189),
+    ]
+
+    /// Eight saturated hues, one per band centre, over the WHOLE tonal axis the zone
+    /// systems are denominated on: −9…+5 EV, which is `ToneEngine`'s black and white
+    /// anchors and therefore exactly the span `ZoneWindows` normalizes into [0,1].
+    ///
+    /// **Why neither existing colour frame would do, said plainly, because getting this
+    /// wrong is how this repository has produced three fake findings.**
+    ///
+    /// `colourChart` carries chroma and nothing else. Its darkest patch sits about
+    /// −2.5 EV from mid-grey and its brightest about +2.2, so on the grading panel's
+    /// −9…+5 axis the entire chart lands inside the MID zone. Sweeping the shadows or
+    /// the highlights wheel there measures a zone window that is nearly closed over
+    /// every pixel in the frame — which is precisely the mistake
+    /// `testAGradingWheelsHueIsContinuousAndClosed` records having made and fixed
+    /// ("the shadows wheel had almost nothing to act on and a 180° rotation moved the
+    /// probes by 0.007"). The primaries' Shadows Tint is worse served still: its window
+    /// is pinned at −3 EV with a 1.5 EV half-width (`ColorEngine.tintPivotEV`), so the
+    /// chart reaches only the very foot of it.
+    ///
+    /// `neutralRamp` spans the axis and carries no chroma at all. A purity control, a
+    /// hue rotation and a B&W band all need a colour to act on, and `chromaGate` shuts
+    /// two of them off entirely on the neutral axis.
+    ///
+    /// The wedge is both: eight columns of constant hue, each row a constant luminance,
+    /// so every zone window and every hue band has an equally saturated representative
+    /// at every tonal position. Scaling an RGB triple scales OKLab's `a` and `b` by the
+    /// same cube root, so a column's hue is EXACTLY constant down its whole length and
+    /// only its chroma falls with luminance — the way a darker surface colour behaves.
+    static func tonalColourWedge(width: Int = 256, height: Int = 128) -> ImageBuffer {
+        let toWorking = RGBColorSpace.srgb.matrix(to: workingSpace)
+        let weights = RGBColorSpace.srgb.luminanceWeights
+        // Normalized to unit luminance in sRGB before the matrix. Luminance is CIE Y and
+        // the matrix preserves XYZ, so the working-space luminance is the same number:
+        // every column of a row sits at ONE tonal position, which is what makes a zone
+        // window's weight the same for all eight hues.
+        let directions: [RGB] = bandCentreSRGB.map { p in
+            let c = RGB(srgbToLinear(p.0 / 255), srgbToLinear(p.1 / 255),
+                        srgbToLinear(p.2 / 255))
+            let y = Swift.max(c.r * weights.r + c.g * weights.g + c.b * weights.b, 1e-12)
+            return toWorking.apply(RGB(c.r / y, c.g / y, c.b / y))
+        }
+        return ImageBuffer(width: width, height: height) { u, v in
+            let column = Swift.min(Int(u * 8), 7)
+            let luminance = midGrey * exp2(-9 + 14 * v)
+            return directions[column] * luminance
+        }
+    }
+
+    /// Which column of `tonalColourWedge` carries a band, and at which row an EV sits.
+    static func wedgeSample(band: Int, ev: Double,
+                            width: Int = 256, height: Int = 128) -> (x: Int, y: Int) {
+        let u = (Double(band) + 0.5) / 8
+        let v = (ev + 9) / 14
+        return (Int(u * Double(width)),
+                Swift.max(0, Swift.min(height - 1, Int(v * Double(height)))))
     }
 
     /// A hard vertical edge, four stops from one side to the other.

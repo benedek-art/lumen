@@ -79,6 +79,82 @@ final class ProofFrameTests: XCTestCase {
         }
     }
 
+    // MARK: - The tonal colour wedge
+
+    /// The wedge's whole reason for existing: chroma at EVERY tonal position, including
+    /// the shadow zone the chart cannot reach.
+    func testTheWedgeSpansTheZoneAxisAndCarriesChromaThroughout() {
+        let frame = ProofFrames.tonalColourWedge()
+        let ctx = OKLabTransform.working
+        let weights = RGBColorSpace.rec2020.luminanceWeights
+        func ev(_ c: RGB) -> Double {
+            log2((c.r * weights.r + c.g * weights.g + c.b * weights.b)
+                 / ProofFrames.midGrey)
+        }
+        // The grading panel's axis is blackAnchor −9 EV to whiteAnchor +5 EV. Half a
+        // row at each end.
+        let top = ProofFrames.wedgeSample(band: 0, ev: -9)
+        let bottom = ProofFrames.wedgeSample(band: 0, ev: 5)
+        XCTAssertEqual(ev(frame[top.x, top.y]), -9, accuracy: 0.15)
+        XCTAssertEqual(ev(frame[bottom.x, bottom.y]), 5, accuracy: 0.15)
+
+        // And chroma where the shadow windows actually sit. The primaries' Shadows Tint
+        // is pinned at −3 EV with a 1.5 EV half-width and the grading shadows zone runs
+        // below about −4.4 EV; a wedge with no chroma down there would send every one of
+        // those proofs the way `colorDetail` went on a neutral frame.
+        for band in 0..<8 {
+            for stop in [-6.0, -4.5, -3.0, 0.0, 3.0] {
+                let p = ProofFrames.wedgeSample(band: band, ev: stop)
+                let lch = ctx.toLCh(frame[p.x, p.y])
+                XCTAssertGreaterThan(lch.C, 0.02,
+                                     "band \(band) at \(stop) EV has no chroma to act on")
+            }
+        }
+    }
+
+    /// Every column sits on the hue its band is defined at, and stays there all the way
+    /// down. A wedge whose columns have drifted off the band centres would let a B&W
+    /// band or a mixer band measure on a neighbour's colour and never say so.
+    func testTheWedgeSitsOnTheBandCentres() {
+        let frame = ProofFrames.tonalColourWedge()
+        let ctx = OKLabTransform.working
+        for (band, centre) in ColorEngine.bandHueCentres.enumerated() {
+            for stop in [-6.0, -3.0, 0.0, 3.0] {
+                let p = ProofFrames.wedgeSample(band: band, ev: stop)
+                let hue = ctx.toLCh(frame[p.x, p.y]).h
+                var delta = abs(Num.wrapHue(hue - centre))
+                if delta > 180 { delta = 360 - delta }
+                XCTAssertLessThan(delta, 1.0,
+                                  "wedge column \(band) sits at \(hue)°, not on its band "
+                                      + "centre \(centre)°, at \(stop) EV")
+            }
+        }
+    }
+
+    /// One row is one tonal position for all eight hues, or a zone window weights the
+    /// columns differently and a per-band number stops being comparable across bands.
+    func testTheWedgeHoldsOneLuminancePerRow() {
+        let frame = ProofFrames.tonalColourWedge()
+        let weights = RGBColorSpace.rec2020.luminanceWeights
+        func luminance(_ c: RGB) -> Double {
+            c.r * weights.r + c.g * weights.g + c.b * weights.b
+        }
+        for stop in [-6.0, -3.0, 0.0, 3.0] {
+            let anchor = ProofFrames.wedgeSample(band: 0, ev: stop)
+            let reference = luminance(frame[anchor.x, anchor.y])
+            for band in 1..<8 {
+                let p = ProofFrames.wedgeSample(band: band, ev: stop)
+                // 1e-6, not 1e-9: `ImageBuffer` stores Float, so the tightest a frame
+                // can agree with itself is about 1e-7 relative. The construction is
+                // exact in Double and the residual measured here is 4e-8 — three orders
+                // below anything a hue that had drifted off its row would produce.
+                XCTAssertEqual(luminance(frame[p.x, p.y]) / reference, 1, accuracy: 1e-6,
+                               "band \(band) is not at the same luminance as band 0 at "
+                                   + "\(stop) EV")
+            }
+        }
+    }
+
     func testTheNoisyFrameIsNoisyAndItsTwinIsNot() {
         let noisy = ProofFrames.noisyISO6400()
         let clean = ProofFrames.cleanISO6400()
