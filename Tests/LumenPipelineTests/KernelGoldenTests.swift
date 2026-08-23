@@ -1072,6 +1072,11 @@ final class KernelGoldenTests: XCTestCase {
         let url = URL(fileURLWithPath: "/dev/null")
         let asShotTemperature: Double = 5500
         let asShotTint: Double = 0
+        // The stub hands back a CIImage it was given, with no decoder behind it, so
+        // `.sceneLinear` is what it is: the probe reads exactly the pixels it was
+        // handed. Naming it anything else would put a provenance on a measurement no
+        // decoder produced, which is the failure the protocol requirement exists to stop.
+        let statisticsProvenance: RawStatistics.Provenance = .sceneLinear
         private let image: CIImage
         init(_ image: CIImage) { self.image = image }
         var nativePixelSize: (width: Int, height: Int) {

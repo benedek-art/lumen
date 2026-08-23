@@ -174,7 +174,7 @@ jobs:
   # the `proof-macos` lane below.
   engine-linux:
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: Cache the Swift toolchain
@@ -186,12 +186,19 @@ jobs:
       - name: Install the Swift toolchain
         if: steps.swift-cache.outputs.cache-hit != 'true'
         run: sh scripts/install-linux-toolchain.sh
-      - name: Test — the whole engine
+      - name: Test — the engine, without the control sweep
         shell: bash
         run: |
           export PATH="/opt/swift/usr/bin:$PATH"
           set +e
-          swift test --filter LumenCoreTests 2>&1 | tee engine.log
+          # `ControlProofTests` is skipped here and runs beside this lane in
+          # `proof-linux`. It sweeps 46 controls at 21 settings each, every one baking a
+          # 65-cubed colour cube, and it pushed this job past its own 25-minute timeout —
+          # a lane that is cancelled tells you nothing at all, which is worse than a slow
+          # one. Splitting keeps "did I break something ordinary" at about eight minutes
+          # while the drift check still runs on every push, in parallel rather than in
+          # series behind it.
+          swift test --filter LumenCoreTests --skip ControlProofTests 2>&1 | tee engine.log
           status=$?
           echo "=== compile errors ==="
           grep -E "error:" engine.log | grep -v ": error: -\[" \
@@ -245,3 +252,52 @@ jobs:
           path: Tests/LumenCoreTests/Proof/evidence/
           if-no-files-found: ignore
           retention-days: 30
+
+  # The control sweep, on the free lane, beside `engine-linux` rather than inside it.
+  #
+  # This is the drift check docs/20 describes: 46 controls swept at 21 settings, measured
+  # in sRGB code values, compared against the records committed under
+  # `Tests/LumenCoreTests/Proof/records`. A number that moves here is either a fix or a
+  # regression and the commit message has to say which — which is the whole point of
+  # committing them, since every defect docs/19 found was invisible until somebody
+  # thought to measure and none would have surfaced in a code review.
+  #
+  # It is slow because it is doing real work: each setting bakes a 65-cubed colour cube.
+  # That is the cost of the answer, and the lever is the size of the registry rather than
+  # the concurrency — `LUT3D` already parallelises its own bake, so a concurrent outer
+  # loop oversubscribes instead of helping.
+  proof-linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache the Swift toolchain
+        id: swift-cache
+        uses: actions/cache@v4
+        with:
+          path: /opt/swift
+          key: swift-6.1.2-ubuntu24.04
+      - name: Install the Swift toolchain
+        if: steps.swift-cache.outputs.cache-hit != 'true'
+        run: sh scripts/install-linux-toolchain.sh
+      - name: Every registered control still measures what the record says
+        shell: bash
+        run: |
+          export PATH="/opt/swift/usr/bin:$PATH"
+          set +e
+          swift test --filter ControlProofTests 2>&1 | tee proof.log
+          status=$?
+          echo "=== measured authority ==="
+          sed -n '/control authority/,/^$/p' proof.log | head -60
+          echo "=== failures ==="
+          grep -E ": error: -\\[" proof.log | sed "s#$PWD/##" \\
+            | sed 's/^.*error: //' | head -30
+          exit $status
+      - name: Keep the evidence sheets
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: proof-evidence-linux
+          path: Tests/LumenCoreTests/Proof/evidence/
+          if-no-files-found: ignore
+          retention-days: 14

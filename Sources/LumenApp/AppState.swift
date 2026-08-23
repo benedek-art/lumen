@@ -1498,9 +1498,15 @@ final class AppState: ObservableObject {
                 if let set = blobs.strokeSet(for: ref) { loaded[ref] = set }
             }
             guard !loaded.isEmpty else { return }
-            await MainActor.run {
+            // `loaded` is bound to a `let` before the hop, and `self` is captured
+            // explicitly in the capture list rather than referenced through the
+            // enclosing scope. Both were warnings — "reference to captured var in
+            // concurrently-executing code" — and both are ERRORS under the Swift 6
+            // language mode this package will move to.
+            let resolved = loaded
+            await MainActor.run { [weak self] in
                 guard let self else { return }
-                for (ref, set) in loaded { self.strokeCache[ref] = set }
+                for (ref, set) in resolved { self.strokeCache[ref] = set }
             }
         }
     }
