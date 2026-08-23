@@ -1,0 +1,15 @@
+{
+  "authority" : 161.94191866454617,
+  "deadSteps" : 0,
+  "frame" : "neutralRamp",
+  "frontLoading" : 0.643341221387545,
+  "givenBack" : 0.9825720324324152,
+  "id" : "zones.pivot.2",
+  "isMonotone" : false,
+  "meanSeparation" : 42.93599553170872,
+  "panel" : "Zones",
+  "shippingReader" : "Sources\/LumenPipeline\/RenderGraph.swift:486",
+  "smallestLiveStep" : 10.040837593373723,
+  "travelHigh" : 0.73,
+  "travelLow" : 0.27
+}

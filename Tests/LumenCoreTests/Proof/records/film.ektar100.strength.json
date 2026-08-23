@@ -1,0 +1,16 @@
+{
+  "authority" : 167.2908337088401,
+  "deadSteps" : 0,
+  "frame" : "tonalColourWedge",
+  "frontLoading" : 0.7076087892885228,
+  "givenBack" : 0,
+  "hueRotation" : 63.50368073074827,
+  "id" : "film.ektar100.strength",
+  "isMonotone" : true,
+  "meanSeparation" : 17.73872741590946,
+  "panel" : "Film Lab",
+  "shippingReader" : "Sources\/LumenPipeline\/RenderGraph.swift:147",
+  "smallestLiveStep" : 4.932763820835817,
+  "travelHigh" : 100,
+  "travelLow" : 0
+}

@@ -1,0 +1,16 @@
+{
+  "authority" : 159.24459034586982,
+  "deadSteps" : 0,
+  "frame" : "tonalColourWedge",
+  "frontLoading" : 0.6974125555203089,
+  "givenBack" : 0,
+  "hueRotation" : 54.78934755965906,
+  "id" : "film.velvia50.strength",
+  "isMonotone" : true,
+  "meanSeparation" : 17.812871907456074,
+  "panel" : "Film Lab",
+  "shippingReader" : "Sources\/LumenPipeline\/RenderGraph.swift:147",
+  "smallestLiveStep" : 4.818281613807926,
+  "travelHigh" : 100,
+  "travelLow" : 0
+}

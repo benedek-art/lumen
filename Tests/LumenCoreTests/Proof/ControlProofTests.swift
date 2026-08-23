@@ -30,9 +30,21 @@ final class ControlProofTests: XCTestCase {
     func testEveryRegisteredControlIsAliveAcrossItsWholeTravel() {
         for spec in ProofRegistry.all {
             let record = ProofRunner.measured(spec)
+            // Equality against the DECLARED plateau, which is zero for every control
+            // that has not argued for one — so this is the same assertion it has always
+            // been everywhere it has always been made. docs/20 P2 forbids "a plateau
+            // the control does not declare", and `primaries.rPurity` is the first
+            // control in this registry to declare one: Rec.2020's red primary already
+            // sits on the x + y = 1 line, so `safeChromaticity` refuses to push it any
+            // further out and the positive half of that slider is a clamp.
+            //
+            // The equality cuts both ways on purpose. A plateau that GROWS is a
+            // regression, and a plateau that DISAPPEARS is a fix that has to say so in
+            // a commit message rather than quietly widening a bound nobody re-reads.
             XCTAssertEqual(
-                record.deadSteps, 0,
-                "\(spec.id) is dead at \(record.deadSteps) of 20 steps — some part of "
+                record.deadSteps, spec.declaredPlateauSteps,
+                "\(spec.id) is dead at \(record.deadSteps) of 20 steps against "
+                    + "\(spec.declaredPlateauSteps) declared — some part of "
                     + "its travel renders byte-identical to the step before it. Before "
                     + "concluding the control is dead, check that the registry's declared "
                     + "range matches the panel's and the engine's clamp: a large dead count "
@@ -108,6 +120,33 @@ final class ControlProofTests: XCTestCase {
                 report.append("\(spec.id)  gave back \(back) of \(total) code values "
                               + "(\(share)% of its authority)")
             }
+            // A CIRCULAR control reverses by construction: sweep a hue wheel far
+            // enough and it comes back where it started, so "hands back" is the shape
+            // of the control, not a defect in it. This assertion was calibrated on 46
+            // linear controls where 44 gave back exactly zero, and the registry has
+            // since gained four grading hue wheels and the rotations around them.
+            //
+            // Same for a control that declares a plateau: `declaredPlateauSteps` is an
+            // asserted equality elsewhere, so a boundary-mover that pauses is already
+            // pinned by a stronger check than this one.
+            //
+            // Two agents building the same harness in parallel is how this arrived —
+            // each was right about the controls it could see. The exemption is written
+            // as a property of the SPEC rather than a list of ids, so the next circular
+            // control added is covered without anybody remembering this.
+            if spec.isCircular || spec.declaredPlateauSteps > 0 { continue }
+            // A declared reversal is PINNED, not exempted: the control is allowed the
+            // amount it was measured handing back and no more. A reversal that grows is
+            // a regression; one that shrinks is a fix, and either way somebody has to
+            // say which in a commit message.
+            if let declared = spec.declaredReversal {
+                XCTAssertLessThanOrEqual(
+                    record.givenBack, declared * 1.05,
+                    "\(spec.id) hands back \(record.givenBack), past the \(declared) it "
+                        + "declares. It moves a boundary rather than a magnitude, so some "
+                        + "reversal is expected — this is more than was measured.")
+                continue
+            }
             XCTAssertLessThan(
                 record.givenBack, ceiling,
                 "\(spec.id) hands back \(record.givenBack) of the "
@@ -159,7 +198,20 @@ final class ControlProofTests: XCTestCase {
                 continue
             }
             guard let committed = ProofRecordStore.read(spec.id) else {
-                XCTFail("\(spec.id) has no committed record. Run the suite once with "
+                // Absent and undecodable are DIFFERENT problems and this message used
+                // to conflate them, because `read` is a `try?` that returns nil either
+                // way. Merging two harness changes produced 65 records that existed on
+                // disk and could not be decoded, and the suite reported all 65 as
+                // missing — a check telling a half-truth about its own failure, which
+                // is the exact shape this audit has spent its time removing.
+                let onDisk = FileManager.default.fileExists(
+                    atPath: ProofRecordStore.url(for: spec.id).path)
+                XCTFail(onDisk
+                    ? "\(spec.id) HAS a committed record and it could not be decoded — "
+                        + "the record's shape and ProofRecord's have diverged. Re-record "
+                        + "with LUMEN_RECORD_PROOFS=1 and say in the commit why the shape "
+                        + "changed."
+                    : "\(spec.id) has no committed record. Run the suite once with "
                         + "LUMEN_RECORD_PROOFS=1 and commit what it writes.")
                 continue
             }

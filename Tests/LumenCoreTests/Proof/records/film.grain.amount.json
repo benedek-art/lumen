@@ -1,0 +1,16 @@
+{
+  "authority" : 19.427737096337182,
+  "deadSteps" : 0,
+  "frame" : "grainField",
+  "frontLoading" : 0.5631656700179268,
+  "givenBack" : 0,
+  "hueRotation" : 0,
+  "id" : "film.grain.amount",
+  "isMonotone" : true,
+  "meanSeparation" : 2.919107007265883,
+  "panel" : "Film Lab",
+  "shippingReader" : "Sources\/LumenPipeline\/RenderGraph.swift:168",
+  "smallestLiveStep" : 0.9722008380820171,
+  "travelHigh" : 100,
+  "travelLow" : 0
+}

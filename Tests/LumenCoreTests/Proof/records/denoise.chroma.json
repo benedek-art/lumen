@@ -1,0 +1,19 @@
+{
+  "authority" : 22.02071419987648,
+  "deadSteps" : 0,
+  "frame" : "noisyChromaEdge",
+  "frontLoading" : 0.8773006086646897,
+  "givenBack" : 0,
+  "hueRotation" : 10.032976327811639,
+  "id" : "denoise.chroma",
+  "isMonotone" : true,
+  "meanSeparation" : 2.7083932355704534,
+  "overshoot" : 0,
+  "overshootAbove" : 0,
+  "overshootBelow" : 0,
+  "panel" : "Detail",
+  "shippingReader" : "Sources\/LumenPipeline\/RenderGraph.swift:265",
+  "smallestLiveStep" : 0.48022976134176787,
+  "travelHigh" : 100,
+  "travelLow" : 0
+}

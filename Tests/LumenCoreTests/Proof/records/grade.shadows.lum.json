@@ -1,0 +1,16 @@
+{
+  "authority" : 55.180294735307704,
+  "deadSteps" : 0,
+  "frame" : "tonalColourWedge",
+  "frontLoading" : 0.41129974188906937,
+  "givenBack" : 0,
+  "hueRotation" : 0.9368287588353041,
+  "id" : "grade.shadows.lum",
+  "isMonotone" : true,
+  "meanSeparation" : 2.8672046416074664,
+  "panel" : "Grade",
+  "shippingReader" : "Sources\/LumenPipeline\/RenderGraph.swift:101",
+  "smallestLiveStep" : 1.6066079837463754,
+  "travelHigh" : 1,
+  "travelLow" : -1
+}

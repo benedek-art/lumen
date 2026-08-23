@@ -1,0 +1,19 @@
+{
+  "authority" : 9.602173761109782,
+  "deadSteps" : 0,
+  "frame" : "noisyISO6400",
+  "frontLoading" : 0.6550859289823935,
+  "givenBack" : 0,
+  "hueRotation" : 2.140900458484907,
+  "id" : "denoise.luma",
+  "isMonotone" : true,
+  "meanSeparation" : 3.0484433957336226,
+  "overshoot" : 0,
+  "overshootAbove" : 0,
+  "overshootBelow" : 0,
+  "panel" : "Detail",
+  "shippingReader" : "Sources\/LumenPipeline\/RenderGraph.swift:265",
+  "smallestLiveStep" : 0.4041708463141731,
+  "travelHigh" : 100,
+  "travelLow" : 0
+}

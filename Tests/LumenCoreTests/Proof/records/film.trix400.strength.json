@@ -1,0 +1,16 @@
+{
+  "authority" : 194.60754094408748,
+  "deadSteps" : 0,
+  "frame" : "tonalColourWedge",
+  "frontLoading" : 0.7199543304124217,
+  "givenBack" : 0,
+  "hueRotation" : 0,
+  "id" : "film.trix400.strength",
+  "isMonotone" : true,
+  "meanSeparation" : 33.165470498599255,
+  "panel" : "Film Lab",
+  "shippingReader" : "Sources\/LumenPipeline\/RenderGraph.swift:147",
+  "smallestLiveStep" : 6.477229694866679,
+  "travelHigh" : 100,
+  "travelLow" : 0
+}
