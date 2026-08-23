@@ -113,6 +113,39 @@ public enum CanonicalJSON {
         return serialize(sparsed)
     }
 
+    /// Canonical sparse serialization of a saved look: the string stored in the
+    /// catalog's `look.subset` column.
+    ///
+    /// The same discipline as a recipe, for the same reason — a look is compared, keyed
+    /// and diffed by its text, so the text has to be a function of the value and not of
+    /// the order a dictionary happened to iterate in. `pipelineVersion` is forced in
+    /// past the sparse pass on the same grounds as a recipe's: a reader has to know
+    /// which vocabulary the slice is written in before it can read it, and a look saved
+    /// at the current version would otherwise store no version at all and become
+    /// indistinguishable from one saved at version 1 the moment the version moves.
+    public static func canonicalLookJSON(_ subset: LookSubset) throws -> String {
+        let full = try tree(of: subset)
+        let defaults = try tree(of: LookSubset())
+        var sparsed = sparse(full, defaults: defaults)
+        if case .object(var obj) = sparsed {
+            obj["pipelineVersion"] = .number(Double(subset.pipelineVersion))
+            sparsed = .object(obj)
+        }
+        return serialize(sparsed)
+    }
+
+    /// Decode a saved look from (possibly sparse) JSON. Missing keys fall back to
+    /// defaults, unknown keys are ignored — so a look written by a later build loses
+    /// what this one cannot read instead of failing to open, which is the same
+    /// forward-compatibility posture recipes take.
+    public static func decodeLookSubset(from json: Data) throws -> LookSubset {
+        let sparseTree = try JSONDecoder().decode(JSONValue.self, from: json)
+        let defaults = try tree(of: LookSubset())
+        let merged = merge(defaults: defaults, overlay: sparseTree)
+        let data = Data(serialize(merged).utf8)
+        return try JSONDecoder().decode(LookSubset.self, from: data)
+    }
+
     /// Decode a recipe from (possibly sparse) JSON: missing keys fall back to defaults,
     /// unknown keys are ignored — forward compatibility for free.
     public static func decodeRecipe(from json: Data) throws -> Recipe {
