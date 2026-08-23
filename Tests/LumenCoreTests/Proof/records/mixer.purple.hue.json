@@ -3,6 +3,7 @@
   "deadSteps" : 0,
   "frame" : "colourChart",
   "frontLoading" : 0.6153003410940359,
+  "givenBack" : 0,
   "hueRotation" : 38.23373011089956,
   "id" : "mixer.purple.hue",
   "isMonotone" : true,

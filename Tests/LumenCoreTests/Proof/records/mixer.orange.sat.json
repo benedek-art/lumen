@@ -3,6 +3,7 @@
   "deadSteps" : 0,
   "frame" : "colourChart",
   "frontLoading" : 0.9265090063419816,
+  "givenBack" : 0,
   "hueRotation" : 18.884382868205535,
   "id" : "mixer.orange.sat",
   "isMonotone" : true,

@@ -3,6 +3,7 @@
   "deadSteps" : 0,
   "frame" : "neutralRamp",
   "frontLoading" : 0.5412280526055944,
+  "givenBack" : 0,
   "id" : "curve.highlights",
   "isMonotone" : true,
   "meanSeparation" : 7.414300119308574,

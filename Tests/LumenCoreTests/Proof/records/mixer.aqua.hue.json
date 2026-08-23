@@ -3,6 +3,7 @@
   "deadSteps" : 0,
   "frame" : "colourChart",
   "frontLoading" : 0.7426083817877442,
+  "givenBack" : 0,
   "hueRotation" : 29.66423651767687,
   "id" : "mixer.aqua.hue",
   "isMonotone" : true,

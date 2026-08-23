@@ -3,6 +3,7 @@
   "deadSteps" : 0,
   "frame" : "stepEdge",
   "frontLoading" : 0.6743528716849535,
+  "givenBack" : 0,
   "hueRotation" : 0,
   "id" : "sharpen.amount",
   "isMonotone" : true,

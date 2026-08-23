@@ -111,6 +111,7 @@ enum ProofRunner {
             meanSeparation: ProofMetrics.meanSeparation(lowEnd, highEnd),
             frontLoading: sweep.frontLoading,
             isMonotone: sweep.isMonotone,
+            givenBack: sweep.givenBack,
             overshoot: overshoot,
             hueRotation: hueRotation,
             shippingReader: spec.shippingReader,

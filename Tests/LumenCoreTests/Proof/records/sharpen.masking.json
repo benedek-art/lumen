@@ -3,6 +3,7 @@
   "deadSteps" : 0,
   "frame" : "fineTexture",
   "frontLoading" : 0.5529826675358451,
+  "givenBack" : 0,
   "hueRotation" : 0,
   "id" : "sharpen.masking",
   "isMonotone" : true,

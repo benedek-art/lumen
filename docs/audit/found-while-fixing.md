@@ -164,22 +164,68 @@ because the estimator saw a call site and not a coordinate system.
 
 ---
 
-**PROOF-01 — two mixer controls are not monotone over their travel.** UNPROVEN, recorded
-rather than asserted past.
+**PROOF-01 — two mixer controls are not monotone over their travel.** MEASURED, and the
+metric was the thing that needed fixing. Neither is a defect in `ColorEngine`.
 
 The 46-control sweep found `mixer.magenta.sat` and `mixer.red.hue` change direction
-somewhere in their travel. Both are recorded with `isMonotone: false` in their proof
-records, and the monotonicity assertion is NOT yet applied to the mixer, because asserting
-a property before understanding whether it should hold is how a suite acquires a test
-nobody trusts.
+somewhere in their travel. Both are still recorded with `isMonotone: false`, because that
+is a true statement about the measurement; what has changed is that the record now also
+carries `givenBack` — how much of its own effect a control hands back, in code values —
+and the suite asserts a ceiling on that number for all 46 controls, the mixer included.
 
-`mixer.red.hue` has an innocent explanation available: red is the band that straddles the
-wrap point in hue space, so a shift can carry patches across it and the measured direction
-reverses without anything being wrong. That is a hypothesis, not a finding — it needs
-checking against the band's actual boundaries.
+**`mixer.magenta.sat` is the ruler, not the control.** On chart patch 17 the post-mixer
+lightness and hue hold at 0.58292 and 344.248° at every one of the 21 settings while
+chroma steps linearly 0 → 0.29101; the band weights are `[0,0,0,0,0,0,0,1]` with the
+chroma gate at 1.0, so the patch sits dead centre in magenta and (c) — a patch near a band
+boundary — is ruled out by measurement rather than by argument. `RenderPlan.exactColor`,
+which evaluates the same recipe without the tables, is monotone at all 21 steps in the
+channel that carries the peak. Only the 65³ colour-grade table reverses, and its error
+there converges away with table size, which is what makes it interpolation:
 
-`mixer.magenta.sat` has no such explanation. A band's saturation should move one way over
-its travel. It is the one to look at first.
+```
+mixer magenta sat +90, patch 17 green, scene-linear
+  exact  0.031798    33³  −0.000779    65³  0.002685    129³  0.030754
+```
+
+4.84 code values of table error at 65³, against a reversal of 0.46 in a travel of 85.81.
+The sweep runs at 65³ because docs/18 measured that 33³ contributes 0.197 stops of its
+own; the table is right for the job and its residual error is simply larger than 1e-9.
+
+**`mixer.red.hue` reverses with the tables removed too, and the recorded hypothesis was
+wrong.** Red's feather does straddle the wrap point — its arc runs 351.73°…66.73° — but
+band membership is evaluated on the STAGE INPUT hue, which no slider moves, and patch 15's
+weights are `[1,0,0,0,0,0,0,0]` at every setting. Nothing crosses a boundary. What is
+actually happening is that the engine is exactly monotone in the axis it moves (L 0.50023
+and C 0.15267 held, hue stepping 4.5° per 10 units — the 45° at ±100 that
+`hueRangeDegrees` promises) while the patch's BLUE channel is driven through zero:
+
+```
+mixer red hue, patch 15 blue, scene-linear after the mixer
+  +40  0.01238     +60  0.00073     +80  −0.00784     +100  −0.01379
+```
+
+Past that crossing the colour is outside the gamut and picture formation, not the mixer,
+decides what blue is rendered; the rendered value flattens at ~24 code values and drifts
+back up by 0.95. The peak CHORD from one end of a curve is not a monotone function of the
+angle. This is docs/20 P4's circular-control clause arriving at the mixer: an angular
+control measured by a straight-line distance will reverse, and the answer is a different
+metric, not an exemption.
+
+**What the assertion is now.** `givenBack < 5% of authority`, on every control. The two
+above are the only ones in the registry that give anything back at all — 0.53% and 0.88%
+— and the other forty-four give back exactly zero, so the ceiling sits six times over the
+worst reading and an order of magnitude under anything a photographer could see. The
+shape it exists to catch is DETAIL-14's: a slider whose top half undoes part of its bottom
+half. Verified able to fail.
+
+**The general point, and it is the reusable one.** The boolean was measuring the ruler as
+well as the thing, at a tolerance six orders of magnitude finer than the ruler's own
+error, and nothing in its name said so. Two of the three candidate explanations for a
+finding like this — a defect in the code, or a defect in the probe — were the ones on
+file; the one that turned out to be right for `magenta.sat` was neither, and it was only
+separable because `RenderPlan.exactColor` exists to be measured against. A metric that
+cannot be compared with an exact evaluation of the same thing cannot tell its own error
+from the code's.
 
 **PROOF-02 — overshoot, now measured on the six controls that can produce it.** Recorded,
 not asserted.

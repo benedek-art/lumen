@@ -3,6 +3,7 @@
   "deadSteps" : 0,
   "frame" : "neutralRamp",
   "frontLoading" : 0.597015389678001,
+  "givenBack" : 0,
   "id" : "tone.contrastPivot",
   "isMonotone" : true,
   "meanSeparation" : 34.767417186781124,

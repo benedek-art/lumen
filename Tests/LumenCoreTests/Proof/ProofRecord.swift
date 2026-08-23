@@ -48,6 +48,14 @@ struct ProofRecord: Codable, Equatable {
 
     // MARK: P4 — well-behaved
     var isMonotone: Bool
+    /// How much of its own effect the control takes back over its travel, in code
+    /// values — the sum of every backward step in the cumulative response.
+    ///
+    /// `isMonotone` says whether this is exactly zero; this says how much. Two of the
+    /// mixer's controls are not exactly monotone for reasons that are not defects
+    /// (PROOF-01, and `ProofMetrics.Sweep.givenBack` carries the evidence), and a
+    /// boolean cannot tell that apart from a control that visibly reverses.
+    var givenBack: Double
     /// Worst excursion beyond the input's own range, in code values. Nil where the
     /// control cannot produce one (a global tone move legitimately leaves the range).
     var overshoot: Double?
@@ -86,6 +94,7 @@ struct ProofRecord: Codable, Equatable {
             && near(meanSeparation, other.meanSeparation)
             && near(frontLoading, other.frontLoading)
             && isMonotone == other.isMonotone
+            && near(givenBack, other.givenBack)
             && near(overshoot, other.overshoot)
             && near(hueRotation, other.hueRotation)
     }
@@ -112,6 +121,7 @@ struct ProofRecord: Codable, Equatable {
         let shape = isMonotone ? "monotone" : "not monotone"
         return "\(id)  authority \(f(authority, 2))  mean \(f(meanSeparation, 3))"
             + "  front \(f(frontLoading * 100, 0))%  dead \(deadSteps)  \(shape)"
+            + "  gave back \(f(givenBack, 3))"
     }
 }
 

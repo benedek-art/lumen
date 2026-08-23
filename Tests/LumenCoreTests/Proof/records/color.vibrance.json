@@ -3,6 +3,7 @@
   "deadSteps" : 0,
   "frame" : "colourChart",
   "frontLoading" : 0.8765645329270925,
+  "givenBack" : 0,
   "hueRotation" : 8.824816306748176,
   "id" : "color.vibrance",
   "isMonotone" : true,

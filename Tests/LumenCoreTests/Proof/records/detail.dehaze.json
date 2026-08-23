@@ -3,6 +3,7 @@
   "deadSteps" : 0,
   "frame" : "hazySky",
   "frontLoading" : 0.45407839844625186,
+  "givenBack" : 0,
   "hueRotation" : 2.953557486998079,
   "id" : "detail.dehaze",
   "isMonotone" : true,

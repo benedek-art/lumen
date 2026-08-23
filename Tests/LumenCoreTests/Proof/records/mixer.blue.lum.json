@@ -3,6 +3,7 @@
   "deadSteps" : 0,
   "frame" : "colourChart",
   "frontLoading" : 0.6876444534605409,
+  "givenBack" : 0,
   "hueRotation" : 3.170606643184442,
   "id" : "mixer.blue.lum",
   "isMonotone" : true,
