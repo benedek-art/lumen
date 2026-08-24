@@ -39,7 +39,13 @@ struct LumenApp: App {
                 // Neutral dark chrome, always: the surround must not bias a colour
                 // judgement about the photograph (docs/00 Law 7).
                 .preferredColorScheme(.dark)
-                .onAppear { delegate.state = state }
+                .onAppear {
+                    delegate.state = state
+                    // The owner's first Mac session started at the empty state and
+                    // so has every launch since; a daily driver reopens where you
+                    // left off. Quiet no-op when the bookmark is gone or revoked.
+                    state.reopenLastFolder()
+                }
         }
         .commands {
             CommandGroup(replacing: .newItem) {

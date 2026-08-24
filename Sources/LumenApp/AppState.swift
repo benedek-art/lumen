@@ -1665,7 +1665,54 @@ final class AppState: ObservableObject {
         }
     }
 
+    // MARK: Reopening the last folder
+
+    /// Security-scoped bookmark of the last folder the owner opened, so a launch does
+    /// not start at the empty state every single time. UserDefaults rather than the
+    /// catalog's `folder.bookmark` column for now: the column has no store API yet,
+    /// and a bookmark is genuinely per-machine state — it names a sandbox grant, not a
+    /// fact about the photographs. (When folder rows grow an API, this migrates.)
+    private static let lastFolderBookmarkKey = "lumen.lastFolder.bookmark"
+
+    /// Reopen the folder from the previous session, if its bookmark still resolves.
+    /// Called once at launch by the scene; quietly does nothing on a fresh install, a
+    /// deleted folder, or a revoked grant — the empty state is the correct fallback,
+    /// not an error dialog about a folder the owner may not remember.
+    func reopenLastFolder() {
+        guard folderURL == nil,
+              let data = UserDefaults.standard.data(forKey: Self.lastFolderBookmarkKey)
+        else { return }
+        var stale = false
+        // Scoped first, plain second: the app ships ad-hoc signed with no sandbox
+        // entitlement today, where scoped bookmarks fail to CREATE but a plain one
+        // resolves fine — and if it ever moves into the sandbox, the scoped branch is
+        // the one that works. `startAccessingSecurityScopedResource` is called for the
+        // scoped case and its result deliberately unchecked: on a plain bookmark it
+        // returns false and means nothing.
+        let url = (try? URL(resolvingBookmarkData: data, options: [.withSecurityScope],
+                            relativeTo: nil, bookmarkDataIsStale: &stale))
+            ?? (try? URL(resolvingBookmarkData: data, options: [],
+                         relativeTo: nil, bookmarkDataIsStale: &stale))
+        guard let url else { return }
+        _ = url.startAccessingSecurityScopedResource()
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        if stale { rememberFolder(url) }
+        openFolder(url)
+    }
+
+    private func rememberFolder(_ url: URL) {
+        let data = (try? url.bookmarkData(options: [.withSecurityScope],
+                                          includingResourceValuesForKeys: nil,
+                                          relativeTo: nil))
+            ?? (try? url.bookmarkData(options: [],
+                                      includingResourceValuesForKeys: nil,
+                                      relativeTo: nil))
+        guard let data else { return }
+        UserDefaults.standard.set(data, forKey: Self.lastFolderBookmarkKey)
+    }
+
     func openFolder(_ url: URL) {
+        rememberFolder(url)
         folderURL = url
         selection = []
         primarySelection = nil
