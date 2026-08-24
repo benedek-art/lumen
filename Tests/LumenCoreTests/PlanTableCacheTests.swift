@@ -176,4 +176,106 @@ final class PlanTableCacheTests: XCTestCase {
         XCTAssertEqual(draft.colorGradeLUT.size, 17)
         XCTAssertEqual(interactive.colorGradeLUT.size, LUT3D.interactiveSize)
     }
+
+    // MARK: - Stale-while-bake (docs/23 M1a)
+    //
+    // The contract: a DRAFT frame may show the previous event's table while the exact
+    // one bakes off the render path; a settle or export frame may not. Staleness is
+    // bounded to "the newest table the slot holds", and it converges the moment the
+    // background bake lands. These tests drive the cache directly; the RenderPlan
+    // plumbing that chooses between `table` and `tableAllowingStale` is asserted by
+    // testACacheHitEqualsAColdBake above continuing to pass for the settle path.
+
+    /// A tiny distinguishable table: every sample carries `mark` in its red channel.
+    private func markedLUT(_ mark: Double) -> LUT3D {
+        LUT3D(size: 5) { rgb in RGB(mark, rgb.g, rgb.b) }
+    }
+
+    private func waitForBakes(timeoutSeconds: Double = 5.0) {
+        let deadline = Date(timeIntervalSinceNow: timeoutSeconds)
+        while PlanTableCache.hasPendingBake(.finish), Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.005)
+        }
+        XCTAssertFalse(PlanTableCache.hasPendingBake(.finish),
+                       "background bake did not drain within \(timeoutSeconds)s")
+    }
+
+    func testTheFirstEverRequestBakesSynchronously() {
+        PlanTableCache.clear()
+        waitForBakes()
+        PlanTableCache.clear()
+        var builds = 0
+        let out = PlanTableCache.tableAllowingStale(.finish, key: "first", size: 5) {
+            builds += 1
+            return self.markedLUT(1)
+        }
+        XCTAssertEqual(builds, 1, "an empty slot has nothing to be stale from")
+        XCTAssertEqual(out, markedLUT(1))
+    }
+
+    func testAStaleTableIsServedWhileTheExactOneBakesAndThenConverges() {
+        PlanTableCache.clear()
+        waitForBakes()
+        PlanTableCache.clear()
+        _ = PlanTableCache.tableAllowingStale(.finish, key: "A", size: 5) { self.markedLUT(1) }
+
+        let immediate = PlanTableCache.tableAllowingStale(.finish, key: "B", size: 5) {
+            self.markedLUT(2)
+        }
+        XCTAssertEqual(immediate, markedLUT(1),
+                       "the draft frame should get A's table while B bakes")
+
+        waitForBakes()
+        var rebaked = false
+        let after = PlanTableCache.tableAllowingStale(.finish, key: "B", size: 5) {
+            rebaked = true
+            return self.markedLUT(2)
+        }
+        XCTAssertEqual(after, markedLUT(2), "the next frame should pick up the exact table")
+        XCTAssertFalse(rebaked, "the exact table should come from the background bake, "
+                           + "not a second synchronous one")
+    }
+
+    func testTheBlockingPathNeverReturnsStale() {
+        PlanTableCache.clear()
+        waitForBakes()
+        PlanTableCache.clear()
+        _ = PlanTableCache.tableAllowingStale(.finish, key: "A", size: 5) { self.markedLUT(1) }
+        // The settle/export path asks `table` for a key the slot does not hold: it
+        // must bake NOW, whatever the stale machinery is doing.
+        let settled = PlanTableCache.table(.finish, key: "C", size: 5) { self.markedLUT(3) }
+        XCTAssertEqual(settled, markedLUT(3))
+    }
+
+    func testABurstOfKeysCoalescesToTheNewestBake() {
+        PlanTableCache.clear()
+        waitForBakes()
+        PlanTableCache.clear()
+        _ = PlanTableCache.tableAllowingStale(.finish, key: "A", size: 5) { self.markedLUT(0) }
+
+        let counterLock = NSLock()
+        var builds = 0
+        for i in 1...40 {
+            _ = PlanTableCache.tableAllowingStale(.finish, key: "k\(i)", size: 5) {
+                counterLock.lock(); builds += 1; counterLock.unlock()
+                Thread.sleep(forTimeInterval: 0.005)
+                return self.markedLUT(Double(i))
+            }
+        }
+        waitForBakes()
+
+        counterLock.lock(); let executed = builds; counterLock.unlock()
+        XCTAssertLessThan(executed, 10,
+            "a 40-event burst executed \(executed) background bakes — pending should "
+                + "keep only the newest, not replay the drag")
+
+        // The newest key must be exactly what the drain left behind.
+        var rebaked = false
+        let newest = PlanTableCache.table(.finish, key: "k40", size: 5) {
+            rebaked = true
+            return self.markedLUT(40)
+        }
+        XCTAssertFalse(rebaked, "k40 should already be in the cache from the drain")
+        XCTAssertEqual(newest, markedLUT(40))
+    }
 }

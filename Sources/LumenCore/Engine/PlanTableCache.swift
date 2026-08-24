@@ -37,14 +37,26 @@ enum PlanTableCache {
         case colorGrade
     }
 
-    /// Four entries per slot. A drag revisits one key over and over, so even one would
-    /// hit almost always; four covers flipping between a couple of render presets or
-    /// A/B-ing two recipes without thrashing. Each entry at the interactive size is
-    /// about 1.4 MB, so a full cache is under 12 MB.
-    private static let capacity = 4
+    /// Eight entries per slot. A drag revisits one key over and over, so even one would
+    /// hit almost always; eight covers flipping between a couple of render presets or
+    /// A/B-ing two recipes without thrashing, plus the stale chain a drag through
+    /// `tableAllowingStale` leaves behind. Each entry at the interactive size is about
+    /// 1.4 MB, so a full cache is under 24 MB.
+    private static let capacity = 8
 
     private static let lock = NSLock()
     private static var entries: [Slot: [(key: String, table: LUT3D)]] = [:]
+
+    /// One background bake at a time per slot, newest request wins.
+    ///
+    /// `pending` holds at most ONE deferred bake per slot — the latest one asked for.
+    /// A drag produces a fresh key on every mouse event; baking each of them would
+    /// just replay the drag in the background at 23.7 ms a step, seconds behind the
+    /// hand. Only the newest can ever be shown, so only the newest is kept.
+    private static var inFlight: Set<Slot> = []
+    private static var pending: [Slot: (key: String, bakeExact: () -> LUT3D)] = [:]
+    private static let bakeQueue = DispatchQueue(label: "lumen.plantable.bake",
+                                                 qos: .userInitiated)
 
     /// The table for `key`, building it only if it is not already held.
     ///
@@ -74,11 +86,89 @@ enum PlanTableCache {
         return built
     }
 
+    /// The table for `key` if it is already held; otherwise the NEWEST table in the
+    /// slot while the exact one bakes in the background. Draft frames only.
+    ///
+    /// This is what lets Whites, Blacks, the curve, the mixer and the wheels drag at
+    /// frame rate instead of paying a 23.7 ms finish bake (and often a colour-grade
+    /// bake on top) inside every frame: the drag frame shows the previous event's
+    /// table — one mouse event of slider travel stale, an error that decays to zero
+    /// the moment the hand pauses — and the exact bake lands off the render path,
+    /// picked up by the next frame. Settle and export must never come through here;
+    /// they call `table`, which blocks on the exact bake, so the picture at rest and
+    /// the exported file are exact by construction.
+    ///
+    /// The first request ever for a slot has nothing to be stale from and bakes
+    /// synchronously — a cold app pays one exact bake, not a blank frame.
+    static func tableAllowingStale(_ slot: Slot, key: String, size: Int,
+                                   build: @escaping () -> LUT3D) -> LUT3D {
+        guard size <= LUT3D.interactiveSize else { return build() }
+
+        lock.lock()
+        let slotEntries = entries[slot] ?? []
+        if let hit = slotEntries.first(where: { $0.key == key })?.table {
+            lock.unlock()
+            return hit
+        }
+        guard let newest = slotEntries.first?.table else {
+            lock.unlock()
+            return table(slot, key: key, size: size, build: build)
+        }
+        // Replace, never append: only the newest deferred bake can ever be shown.
+        pending[slot] = (key: key, bakeExact: build)
+        let mustStart = !inFlight.contains(slot)
+        if mustStart { inFlight.insert(slot) }
+        lock.unlock()
+
+        if mustStart { bakeQueue.async { drainPending(slot) } }
+        return newest
+    }
+
+    /// Bake the latest pending key for `slot`, and keep going if another arrived while
+    /// baking. Runs on `bakeQueue`; `inFlight` guarantees one drain per slot.
+    private static func drainPending(_ slot: Slot) {
+        while true {
+            lock.lock()
+            guard let next = pending.removeValue(forKey: slot) else {
+                inFlight.remove(slot)
+                lock.unlock()
+                return
+            }
+            lock.unlock()
+
+            let built = next.bakeExact()
+
+            lock.lock()
+            var slotEntries = entries[slot] ?? []
+            slotEntries.removeAll { $0.key == next.key }
+            slotEntries.insert((key: next.key, table: built), at: 0)
+            if slotEntries.count > capacity {
+                slotEntries.removeLast(slotEntries.count - capacity)
+            }
+            entries[slot] = slotEntries
+            lock.unlock()
+        }
+    }
+
+    /// True while a background bake (or a queued one) is outstanding for `slot`.
+    /// For tests, and for a caller that wants to know whether a settle render would
+    /// still find a fresher table than the frame it just drew.
+    static func hasPendingBake(_ slot: Slot) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return inFlight.contains(slot) || pending[slot] != nil
+    }
+
     /// Drop everything. For tests that want to measure a cold bake, and for a caller
     /// that has just finished an export and would rather have the memory back.
+    ///
+    /// Deliberately does NOT cancel an in-flight background bake — the drain loop will
+    /// finish and store its table into the fresh cache, which is stale-cache behaviour,
+    /// not corruption: the key still describes the table exactly.
     static func clear() {
         lock.lock()
         entries.removeAll()
+        pending.removeAll()
         lock.unlock()
     }
 

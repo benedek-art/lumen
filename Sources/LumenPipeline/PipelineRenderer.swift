@@ -239,7 +239,16 @@ public final class PipelineRenderer {
                               // than one per frame.
                               lutSize: LUT3D.interactiveSize,
                               captureISO: source.captureMetadata.iso,
-                              softProof: softProof)
+                              softProof: softProof,
+                              // A draft frame may ride the previous event's finish and
+                              // colour-grade tables while the exact bake lands off the
+                              // render path — this is what takes the 23.7 ms
+                              // finish bake (and the colour-grade bake on top of it,
+                              // for Whites and Blacks) out of every frame of a drag.
+                              // The settle render comes through here with draft: false
+                              // and blocks on the exact tables, so the picture at rest
+                              // never shows a stale one.
+                              allowStaleTables: draft)
         let graph = makeGraph(plan: plan, decoded: decoded, draft: draft,
                               strokeSets: strokeSets,
                               aiMattes: mattes[source.url]?.planes ?? [:])

@@ -97,6 +97,12 @@ public struct RenderPlan: Sendable {
     /// every threshold in S3 is denominated in. A file with no ISO recorded falls back
     /// to the base-ISO profile, which is the gentlest of the seed curve — under-denoising
     /// an unknown body is recoverable, over-denoising it is not.
+    /// `allowStaleTables` routes the two cached bakes through
+    /// `PlanTableCache.tableAllowingStale`: a plan built for a DRAFT frame may carry
+    /// the previous event's table while the exact one bakes off the render path —
+    /// one mouse event of slider travel stale, gone the moment the hand pauses.
+    /// Settle and export plans must leave it false; their tables are exact by
+    /// construction, which is what makes the staleness bounded instead of sticky.
     public init(recipe: Recipe,
                 asShotKelvin: Double = 5500,
                 asShotTint: Double = 0,
@@ -104,7 +110,8 @@ public struct RenderPlan: Sendable {
                 lutSize: Int = LUT3D.interactiveSize,
                 captureISO: Double? = nil,
                 space: RGBColorSpace = .rec2020,
-                softProof: SoftProof? = nil) {
+                softProof: SoftProof? = nil,
+                allowStaleTables: Bool = false) {
         self.recipe = recipe
         let develop = recipe.develop
         let look = recipe.look
@@ -154,7 +161,11 @@ public struct RenderPlan: Sendable {
                 [develop.mixer, develop.pointColors, develop.color,
                  look.primaries, look.bw, look.wheels, look.printerLights])
             self.colorGradeLUT = key.map {
-                PlanTableCache.table(.colorGrade, key: $0, size: lutSize, build: bake)
+                allowStaleTables
+                    ? PlanTableCache.tableAllowingStale(.colorGrade, key: $0,
+                                                        size: lutSize, build: bake)
+                    : PlanTableCache.table(.colorGrade, key: $0, size: lutSize,
+                                           build: bake)
             } ?? bake()
         }
 
@@ -236,8 +247,13 @@ public struct RenderPlan: Sendable {
                 [look.render, develop.curve])
         }
         let bakePlain = { LUT3D(size: lutSize, transform: display) }
+        // The proofed variant below stays on the blocking path either way: it is a
+        // cheap map over `plain`, and mapping a stale `plain` keeps the two consistent.
         let plain = baseKey.map {
-            PlanTableCache.table(.finish, key: $0, size: lutSize, build: bakePlain)
+            allowStaleTables
+                ? PlanTableCache.tableAllowingStale(.finish, key: $0, size: lutSize,
+                                                    build: bakePlain)
+                : PlanTableCache.table(.finish, key: $0, size: lutSize, build: bakePlain)
         } ?? bakePlain()
 
         // Baked ONCE and then mapped, not baked twice.

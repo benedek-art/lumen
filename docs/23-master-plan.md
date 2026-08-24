@@ -91,9 +91,13 @@ what the owner touches.
       AppleRawSource contract tests (as-shot neutral UNITS have never been verified),
       draft-demosaic delta, perf lane, Vision-matte tests
 - [ ] De-risking probes run and recorded:
-      - [ ] (a) full-pipeline draft cost on the runner at 1024/1536/2048 —
-            `PerfProbeTests` rides the gpu-parity lane and prints the table on every
-            pipeline-touching push
+      - [x] (a) full-pipeline draft cost, gpu-parity run #2's GPU (a runner VM, weaker
+            than any Mac the app will meet): gated draft → full pipeline at 1024:
+            10.2 → **25.1 ms**; 1536: 16.5 → **36.3 ms**; 2048: 23.4 → **44.8 ms**.
+            Decision rule was "≤60 ms at 1536 on the runner clears 35 ms on the owner's
+            machine" — cleared with room. **M1a's no-stage-gating draft is viable; the
+            DraftLadder should land most machines at 1536–2048.** `PerfProbeTests`
+            reprints this table on every pipeline-touching push.
       - [x] (b) mask re-raster cost at 1024, release build, this container's x86 CPU
             (an M-series Mac is typically 2–4x faster): geometry-only combine
             (linear+radial) **12.8 ms**; luma-range + guided refine **190.7 ms**;
@@ -124,10 +128,15 @@ The draft-render redesign — full pipeline at draft resolution, no stage gating
       drafts; settle always exact; grain plate cached per (stock, extent)
 - [ ] `DraftLadder` in LumenCore/Interaction (2048→1600→1280→1024 by measured draft
       time, ≤35ms p95 target), Linux-tested; replaces LoupeView's fixed draftTarget
-- [ ] `PlanTableCache` stale-while-bake: interactive plans may get the newest stale
-      table while a single-flight background bake computes the exact one; settle +
-      export ALWAYS exact; capacity 4→8; Linux tests (converges in one call,
-      non-interactive never stale, single-flight coalesces)
+- [x] `PlanTableCache` stale-while-bake: `tableAllowingStale` returns the newest table
+      in a slot while a single-flight background bake (newest-wins pending) computes
+      the exact one; `RenderPlan(allowStaleTables:)` routes the finish + colorGrade
+      bakes; `PipelineRenderer.renderPreview` passes `allowStaleTables: draft`; settle
+      + export stay on the blocking path — the picture at rest and the exported file
+      are exact by construction. Capacity 4→8. Four new Linux tests (first-request
+      bakes synchronously, stale-then-converges, blocking-path-never-stale,
+      40-event-burst coalesces), each watched failing with its defect substituted
+      (synchronous-bake; replay-the-drag).
 - [ ] `onEditingChanged` consumed: settle at finger-up; catalog writes + fingerprints
       per-gesture; scope timer armed once; overlay raster deferred during drag
 - [ ] **`DraftTruthfulnessTests`** (macOS CI): draft vs settle at the same size on a
