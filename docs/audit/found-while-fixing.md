@@ -766,3 +766,52 @@ should be treated as established.
   full panel range. This looks like an oversight rather than a decision, but widening it
   re-pins a committed record and is left for its own change. It is a coverage gap, not a
   defect: ±5 EV is the same range Lightroom ships.
+
+## PROOF-08 — Two controls were being proved over part of their own travel
+
+The proof records are the answer to "does this control work", so a record that measures
+less than the control is a claim about a slider the photographer does not have. Every
+registry spec whose id maps to a panel slider was cross-referenced against that slider's
+declared range. Fourteen could be compared automatically; three disagreed, all in Basic:
+
+| spec | swept | panel | coverage | |
+|---|---|---|---|---|
+| `raw.temp` | 3000–9000 K | 2000–50000 K | 12% | **deliberate**, and documented in the spec |
+| `raw.tint` | ±100 | ±150 | **67%** | undocumented |
+| `tone.exposure` | ±2 | ±5 | **40%** | undocumented |
+
+`raw.temp` is the one that is fine. Its spec explains that sweeping the declared range
+would report a control delivering ~97% of its effect in the first fifteenth of its
+travel — which is true, and is a fact about Kelvin rather than about the engine, so the
+spec deliberately measures the photographic range and `SliderScaleTests` measures the
+other half. That argument survives WB-01: the axis fix is in the slider, and this spec
+was never measuring the slider.
+
+The other two are now swept over their panel ranges. `raw.tint` at ±150 is entirely
+admissible at the 5500 K neutral `RenderPlan` adapts from — the guard's bound there is
++156 — so it measures real travel throughout rather than running into a clamp.
+
+Both re-pin their records. `.github/workflows/ci.yml` grew a `record_proofs` dispatch
+input for exactly this: a manual run sets `LUMEN_RECORD_PROOFS` and uploads the rewritten
+records as an artifact, so a deliberate change can be re-recorded without a Swift
+toolchain in the tree. It is gated on `workflow_dispatch` and can never fire on a push,
+because the drift test is the thing that makes an ACCIDENTAL change visible and a lane
+that silently re-records is a lane that proves nothing.
+
+**The remaining 29 specs could not be compared this way** — their ids are built in loops
+(`grade.\(id).hue`, `zones.\(id).ev`, `mixer.\(band).\(axis)`) and their ranges come
+from arrays rather than literals. Whether those match their panels is not established
+here, and saying so is the point: this pass checked 14 of 43.
+
+## A correction, recorded because it was stated before it was checked
+
+While reading `ci.yml` I concluded that `swift test ... | tee proof.log` followed by
+`status=$?` captured tee's exit code, and that the proof lane was therefore incapable of
+failing. That is wrong. GitHub runs `shell: bash` as
+`bash --noprofile --norc -eo pipefail {0}`, so pipefail is already set and the pipeline
+carries the first non-zero status; `set +e` turns off errexit without touching it. The
+refutation was already on screen — `engine-linux` reported three failures on run 178
+through exactly this construct. Recorded here rather than quietly deleted, because "the
+check cannot fail" is the most valuable kind of finding when true and the most misleading
+when not, and the habit that produces it is the same one that produced the three refuted
+theories in MAC-07.

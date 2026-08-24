@@ -4,6 +4,15 @@ on:
   push:
     branches: ["**"]
   workflow_dispatch:
+    inputs:
+      record_proofs:
+        description: >-
+          Re-record the committed proof records instead of checking them. Use after a
+          DELIBERATE behaviour change, then download the `proof-records-linux` artifact
+          and commit what it contains. The drift test is what makes an accidental
+          change visible, so this must never run on a push.
+        type: boolean
+        default: false
 
 # One run per branch. macOS runners are scarce and the suite takes ten minutes, so a
 # burst of pushes queues rounds whose answers nobody will read by the time they land —
@@ -311,10 +320,23 @@ jobs:
         run: sh scripts/install-linux-toolchain.sh
       - name: Every registered control still measures what the record says
         shell: bash
+        env:
+          # Set ONLY by a manual dispatch asking for it. `ControlProofTests` writes the
+          # records instead of comparing them when this is present at all, so it must
+          # stay unset — not "false" — on every push.
+          LUMEN_RECORD_PROOFS: ${{ inputs.record_proofs && '1' || '' }}
         run: |
           export PATH="/opt/swift/usr/bin:$PATH"
+          if [ -n "$LUMEN_RECORD_PROOFS" ]; then
+            echo "RECORDING — this run rewrites the records and proves nothing."
+          fi
           set +e
           swift test --filter ControlProofTests 2>&1 | tee proof.log
+          # `$?` and not `${PIPESTATUS[0]}` because GitHub runs `shell: bash` as
+          # `bash --noprofile --norc -eo pipefail`, so the pipeline already carries the
+          # first non-zero status and `set +e` above turns off errexit without touching
+          # pipefail. Checked rather than assumed: this construct is what reported
+          # engine-linux's three failures on run 178.
           status=$?
           echo "=== measured authority ==="
           sed -n '/control authority/,/^$/p' proof.log | head -200
@@ -328,4 +350,12 @@ jobs:
           name: proof-evidence-linux
           path: Tests/LumenCoreTests/Proof/evidence/
           if-no-files-found: ignore
+          retention-days: 14
+      - name: Keep the re-recorded records
+        if: ${{ always() && inputs.record_proofs }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proof-records-linux
+          path: Tests/LumenCoreTests/Proof/records/
+          if-no-files-found: error
           retention-days: 14

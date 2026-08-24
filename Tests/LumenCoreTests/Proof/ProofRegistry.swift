@@ -181,8 +181,13 @@ enum ProofRegistry {
     /// of 15 says "this must stay a control", which is the assertion that was missing.
     static let tone: [ControlSpec] = [
         ControlSpec(
+            // The PANEL's range, not a subset of it. This swept ±2 while the row
+            // ships ±5 (hard ±10), so the record covered 40% of the drag — and it was
+            // the only tone control not swept over its own panel range, which reads as
+            // an oversight rather than a decision. Every number in this record moved
+            // when it was widened; the control did not.
             id: "tone.exposure", panel: "Basic", displayName: "Exposure",
-            low: -2, high: 2,
+            low: -5, high: 5,
             frameName: "neutralRamp", frame: { ProofFrames.neutralRamp() },
             shippingReader: "Sources/LumenPipeline/RenderGraph.swift:86",
             authorityFloor: 120,
@@ -281,8 +286,14 @@ enum ProofRegistry {
             authorityFloor: 60,
             apply: { r, v in r.develop.raw.temp = v }),
         ControlSpec(
+            // ±150 is the panel's soft range; this swept ±100, so a third of the row
+            // went unmeasured. That third is now where the interesting behaviour is:
+            // `ColorTemperature.tintLimit` bounds the magenta half, and at the 5500 K
+            // neutral `RenderPlan` adapts from, the bound is +156 — so the whole of
+            // ±150 is admissible here and this measures real travel throughout rather
+            // than running into a clamp.
             id: "raw.tint", panel: "Basic", displayName: "Tint",
-            low: -100, high: 100,
+            low: -150, high: 150,
             frameName: "colourChart", frame: { ProofFrames.colourChart() },
             shippingReader: "Sources/LumenPipeline/RenderGraph.swift:86",
             authorityFloor: 25,
