@@ -71,7 +71,7 @@ final class PerfProbeTests: XCTestCase {
             let source = syntheticFrame(longEdge: longEdge)
             let plan = RenderPlan(recipe: recipe, lutSize: LUT3D.interactiveSize)
 
-            func frame(draft: Bool) -> Double {
+            func renderPass(draft: Bool) -> Double {
                 let opts = RenderGraph.Options(longEdge: longEdge, draft: draft,
                                                lutSize: LUT3D.interactiveSize)
                 var best = Double.greatestFiniteMagnitude
@@ -86,8 +86,8 @@ final class PerfProbeTests: XCTestCase {
                 return best
             }
 
-            let gated = frame(draft: true)
-            let full = frame(draft: false)
+            let gated = renderPass(draft: true)
+            let full = renderPass(draft: false)
             print(String(format:
                 "PERFPROBE longEdge %4d: gated draft %7.1f ms   full pipeline %7.1f ms   delta %+.1f ms",
                 longEdge, gated, full, full - gated))
