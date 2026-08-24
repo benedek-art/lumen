@@ -22,8 +22,22 @@ final class ControlProofTests: XCTestCase {
 
     /// Set to regenerate the committed records after a deliberate behaviour change.
     /// The drift test below is what makes an accidental one visible.
+    ///
+    /// PRESENCE IS NOT ENOUGH, and this used to test for it. A CI `env:` block whose
+    /// value comes from a `${{ }}` expression sets the variable to the EMPTY STRING
+    /// when the expression is falsy rather than leaving it unset — so `!= nil` was true
+    /// on every push, and the lane rewrote the records it existed to check. It went
+    /// green for a full run on measurements that had really moved (tone.exposure
+    /// measured 251.54 against a committed 169.07 and reported no drift).
+    ///
+    /// A check whose failure mode is "silently stops checking" has to be hard to turn
+    /// on by accident, so it now wants a value that means yes.
     private var isRecording: Bool {
-        ProcessInfo.processInfo.environment["LUMEN_RECORD_PROOFS"] != nil
+        guard let raw = ProcessInfo.processInfo.environment["LUMEN_RECORD_PROOFS"] else {
+            return false
+        }
+        let value = raw.trimmingCharacters(in: .whitespaces).lowercased()
+        return !["", "0", "false", "no", "off"].contains(value)
     }
 
     // MARK: - P2 and P3: every control is alive, and does enough to be seen

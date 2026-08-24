@@ -320,14 +320,21 @@ jobs:
         run: sh scripts/install-linux-toolchain.sh
       - name: Every registered control still measures what the record says
         shell: bash
-        env:
-          # Set ONLY by a manual dispatch asking for it. `ControlProofTests` writes the
-          # records instead of comparing them when this is present at all, so it must
-          # stay unset — not "false" — on every push.
-          LUMEN_RECORD_PROOFS: ${{ inputs.record_proofs && '1' || '' }}
         run: |
           export PATH="/opt/swift/usr/bin:$PATH"
-          if [ -n "$LUMEN_RECORD_PROOFS" ]; then
+          # Exported HERE, and only when asked for. It must NOT be an `env:` block with
+          # a `${{ }}` expression: on a push `inputs.record_proofs` is null and the
+          # expression yields the EMPTY STRING, which GitHub still sets as a variable.
+          # `ControlProofTests` asks `environment["LUMEN_RECORD_PROOFS"] != nil`, and an
+          # empty string is not nil — so every push silently re-recorded the records it
+          # was supposed to be checking, and the lane went green on measurements that
+          # had genuinely drifted. Run 181 is the one that did it: tone.exposure
+          # measured 251.54 against a committed 169.07 and reported no drift at all.
+          # The shell's own `-n` test disagreed with Swift's `!= nil` test, which is why
+          # nothing printed either. The test now refuses empty and "false" as well, so
+          # both ends have to be wrong before this can happen again.
+          if [ "${{ inputs.record_proofs }}" = "true" ]; then
+            export LUMEN_RECORD_PROOFS=1
             echo "RECORDING — this run rewrites the records and proves nothing."
           fi
           set +e

@@ -869,3 +869,61 @@ their panel's range (PROOF-08), and only three specs use non-literal bounds
 engine's own limits and so cannot drift from the panel independently. The grading wheels
 (`grade.\(id).hue/sat/lum`) have no panel `range:` to compare against because they are
 wheels rather than sliders.
+
+## PROOF-10 — The lane silently re-recorded instead of checking, for one full run
+
+Self-inflicted, in the commit that added the recording input, and worth writing down at
+length because the commit message for that change contains the exact warning it then
+violated: *"a lane that silently re-records is a lane that proves nothing."*
+
+The recording input was wired as a step-level environment variable:
+
+```yaml
+env:
+  LUMEN_RECORD_PROOFS: ${{ inputs.record_proofs && '1' || '' }}
+```
+
+On a push `inputs.record_proofs` is null, so the expression yields the **empty string** —
+and GitHub sets the variable anyway. `ControlProofTests.isRecording` asked
+`environment["LUMEN_RECORD_PROOFS"] != nil`, and `Optional("")` is not nil. So every push
+took the recording branch: the drift test wrote 111 records into the runner's checkout,
+`continue`d past every comparison, and reported an empty drift list.
+
+Two details made it invisible:
+
+- The step's own guard was `if [ -n "$LUMEN_RECORD_PROOFS" ]`, which tests for NON-EMPTY.
+  The shell said "not recording" and Swift said "recording" about the same variable, so
+  the banner that would have announced it never printed.
+- The `Keep the re-recorded records` upload is gated on `inputs.record_proofs` directly,
+  which was correctly falsy — so the rewritten records were never uploaded either. They
+  were written, used to make the lane green, and thrown away with the runner.
+
+**What it cost.** Run 181 reported `proof-linux` green while the measurements had really
+moved. From that run's own authority listing against the committed records:
+
+| control | measured | committed |
+|---|---|---|
+| `tone.exposure` | **251.54** | 169.07 |
+| `raw.tint` | **154.97** | 100.13 |
+
+Both were expected to drift — the sweeps had just been widened to their panel ranges —
+and a green lane is exactly what should not have happened. The tell was in the timing:
+the drift test passed in **0.084 seconds**, when re-measuring 111 controls takes minutes.
+It was writing files, not comparing them.
+
+**Scope.** The defect existed only between the commit that introduced the `env:` block
+and this one. Runs before it — including run 177, which verified the decode-tolerance and
+responsiveness merges — used the old step and are unaffected. Run 181's `proof-linux` is
+void; its other five jobs are not.
+
+**Fixed at both ends, because either alone would have been enough to hide it.** The
+variable is now exported inside the step, only when the input is literally `true`, so it
+is absent rather than empty on a push. And `isRecording` no longer accepts presence: it
+requires a value that means yes, rejecting empty, `0`, `false`, `no` and `off`. A check
+whose failure mode is "silently stops checking" should be hard to turn on by accident.
+
+**The lesson, stated plainly because it is the second time this session.** The other was
+reading `status=$?` after a pipe as tee's exit code and concluding the lane could not
+fail — wrong, and the refutation was already on screen. Both mistakes are the same shape:
+reasoning about whether a check works from the shape of the code rather than from what it
+did. The timing was in the log the whole time. 0.084 seconds is not a measurement.
