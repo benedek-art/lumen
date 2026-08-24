@@ -88,6 +88,12 @@ struct LumenSlider: View {
     var bipolar: Bool = true
     var wand: (() -> Void)?
     var onEditingChanged: ((Bool) -> Void)?
+    /// Injected once at the root (ContentView) and fired by EVERY slider in the app —
+    /// which is the point: `onEditingChanged` sat unconsumed for the app's whole life
+    /// because it needed wiring at ~90 call sites, and the costs of not knowing a drag
+    /// was in flight (a SQLite write plus a canonical-JSON fingerprint per photo per
+    /// mouse event, a scope timer restarted per event) were being paid everywhere.
+    @Environment(\.sliderGestureChanged) private var sliderGestureChanged
 
     /// What double-clicking the label should do, when writing `defaultValue` is not it.
     ///
@@ -221,6 +227,7 @@ struct LumenSlider: View {
                                 value = dragStartValue
                             }
                             onEditingChanged?(true)
+                            sliderGestureChanged(true)
                         }
                         let travelled = Double(drag.location.x - drag.startLocation.x)
                         let moved = geometryOfDrag.value(from: dragStartValue,
@@ -249,6 +256,7 @@ struct LumenSlider: View {
                         }
                         isDragging = false
                         onEditingChanged?(false)
+                        sliderGestureChanged(false)
                     }
             )
             .onTapGesture(count: 2) { reset() }
@@ -299,8 +307,10 @@ struct LumenSlider: View {
             return
         }
         onEditingChanged?(true)
+        sliderGestureChanged(true)
         value = defaultValue
         onEditingChanged?(false)
+        sliderGestureChanged(false)
     }
 
     private func commitText() {
@@ -317,9 +327,11 @@ struct LumenSlider: View {
         // Typing reaches the hard limit; dragging does not. That asymmetry is what
         // makes soft limits helpful instead of restrictive.
         onEditingChanged?(true)
+        sliderGestureChanged(true)
         value = min(max(parsed, effectiveHardRange.lowerBound),
                     effectiveHardRange.upperBound)
         onEditingChanged?(false)
+        sliderGestureChanged(false)
     }
 }
 
@@ -408,6 +420,12 @@ struct LumenColorWheel: View {
     @Binding var sat: Double        // 0…1
     @Binding var lum: Double        // −1…+1
     var onEditingChanged: ((Bool) -> Void)?
+    /// Injected once at the root (ContentView) and fired by EVERY slider in the app —
+    /// which is the point: `onEditingChanged` sat unconsumed for the app's whole life
+    /// because it needed wiring at ~90 call sites, and the costs of not knowing a drag
+    /// was in flight (a SQLite write plus a canonical-JSON fingerprint per photo per
+    /// mouse event, a scope timer restarted per event) were being paid everywhere.
+    @Environment(\.sliderGestureChanged) private var sliderGestureChanged
 
     private let diameter: CGFloat = 68
 
@@ -432,6 +450,7 @@ struct LumenColorWheel: View {
                 DragGesture(minimumDistance: 0)
                     .onChanged { drag in
                         onEditingChanged?(true)
+                        sliderGestureChanged(true)
                         let dx = drag.location.x - diameter / 2
                         let dy = drag.location.y - diameter / 2
                         let r = min((dx * dx + dy * dy).squareRoot() / (diameter / 2), 1)
@@ -439,13 +458,18 @@ struct LumenColorWheel: View {
                             .truncatingRemainder(dividingBy: 360)
                         sat = Double(r)
                     }
-                    .onEnded { _ in onEditingChanged?(false) }
+                    .onEnded { _ in
+                        onEditingChanged?(false)
+                        sliderGestureChanged(false)
+                    }
             )
             .onTapGesture(count: 2) {
                 onEditingChanged?(true)
+                sliderGestureChanged(true)
                 sat = 0
                 lum = 0
                 onEditingChanged?(false)
+                sliderGestureChanged(false)
             }
 
             Text(title)

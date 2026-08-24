@@ -2194,15 +2194,65 @@ final class AppState: ObservableObject {
         guard !after.isEmpty else { return }
         history.record(before: before, after: after, coalescingKey: coalescingKey,
                        label: label)
-        persist(changed)
-        // Renaming a mask changes the recipe without changing the picture. Re-binning
-        // the scopes for it would mean a proxy render per keystroke.
+        if sliderGestureActive {
+            // Mid-gesture: the in-memory recipe is current (the render reads that),
+            // the catalog write and the scope re-bin land once at release. The overlay
+            // stays live below — it is the picture OF the drag.
+            for (url, recipe) in changed { pendingGesturePersist[url] = recipe }
+            if touchedPixels { pendingGestureTouchedPixels = true }
+        } else {
+            persist(changed)
+            // Renaming a mask changes the recipe without changing the picture.
+            // Re-binning the scopes for it would mean a proxy render per keystroke.
+            if touchedPixels {
+                scheduleScopeRefresh()
+                // Adding a Subject or People component is the moment its matte is
+                // wanted.
+                ensureMaskMattes()
+            }
+        }
         if touchedPixels {
-            scheduleScopeRefresh()
-            // The overlay is a picture of the mask, so editing the mask must move it.
-            // Cheap when nothing is soloed — the refresh guards on that first.
+            // The overlay is a picture of the mask, so editing the mask must move it —
+            // including while dragging the mask's own sliders. Its refresh is
+            // generation-guarded and cancels its predecessor, so per-event is cheap.
             refreshMaskOverlay()
-            // Adding a Subject or People component is the moment its matte is wanted.
+        }
+    }
+
+    // MARK: Slider gestures
+
+    /// True between the first movement of a slider gesture and its release.
+    ///
+    /// While it holds, `updateRecipe` keeps the in-memory recipe current (the render
+    /// path reads that) but defers the catalog write — a SQLite statement plus four
+    /// whole-recipe JSON codings for the fingerprint, previously paid PER PHOTO PER
+    /// MOUSE EVENT on the lane every thumbnail decode shares — and the scope
+    /// re-binning, whose 180 ms debounce a drag restarted every event and so never
+    /// fired anyway. Both land once, at release.
+    private(set) var sliderGestureActive = false
+    private var pendingGesturePersist: [URL: Recipe] = [:]
+    private var pendingGestureTouchedPixels = false
+
+    func sliderGesture(active: Bool) {
+        if active {
+            sliderGestureActive = true
+            return
+        }
+        guard sliderGestureActive else { return }
+        sliderGestureActive = false
+        flushSliderGesture()
+    }
+
+    /// Also called from `prepareToQuit`: a gesture whose release the app never saw
+    /// (a cancelled drag, a window torn down mid-gesture) must not cost the edit.
+    func flushSliderGesture() {
+        if !pendingGesturePersist.isEmpty {
+            persist(pendingGesturePersist)
+            pendingGesturePersist = [:]
+        }
+        if pendingGestureTouchedPixels {
+            pendingGestureTouchedPixels = false
+            scheduleScopeRefresh()
             ensureMaskMattes()
         }
     }
@@ -2228,6 +2278,8 @@ final class AppState: ObservableObject {
     /// pending batch and then checkpoints and closes the database. It is synchronous
     /// because `applicationWillTerminate` is the last moment anything runs.
     func prepareToQuit() {
+        // A gesture whose release never arrived must not cost the edit.
+        flushSliderGesture()
         // Eviction before the database closes, because the eviction runs through it.
         // docs/10 §10.10: the photographer never hears about this — no menu item, no
         // confirmation, no "Optimize Catalog" ritual.

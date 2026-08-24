@@ -51,6 +51,12 @@ struct ContentView: View {
         }
         .frame(minWidth: 1180, minHeight: 720)
         .keyboardGrammar()
+        // Every slider and wheel in the tree reports its gesture through this one
+        // hook (RenderRequest.swift), so a drag defers per-event catalog writes and
+        // scope re-bins to its release without ninety call sites knowing about it.
+        .environment(\.sliderGestureChanged, { [weak state] active in
+            state?.sliderGesture(active: active)
+        })
         // One presenter, not three: chained `.sheet` modifiers on a single view are
         // not reliably independent, and "Export silently does nothing because the
         // keyboard sheet flag is also set" is not a failure anybody would diagnose.

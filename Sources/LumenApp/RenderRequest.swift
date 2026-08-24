@@ -16,6 +16,24 @@
 
 import Foundation
 import LumenCore
+import SwiftUI
+
+// MARK: - The drag-in-flight signal
+
+/// Fired `true` at the first movement of any slider or wheel gesture and `false` at
+/// its release, injected once at the root. `AppState.sliderGesture(active:)` is the
+/// one consumer: it defers per-event catalog writes and scope re-binning to the
+/// gesture's end. The default is a no-op so previews and tests need no setup.
+private struct SliderGestureKey: EnvironmentKey {
+    static let defaultValue: (Bool) -> Void = { _ in }
+}
+
+extension EnvironmentValues {
+    var sliderGestureChanged: (Bool) -> Void {
+        get { self[SliderGestureKey.self] }
+        set { self[SliderGestureKey.self] = newValue }
+    }
+}
 
 /// Everything that should restart a surface's render task, cheap to compare
 /// (`Recipe` is `Equatable` — no fingerprint hashing on the main actor per body pass).

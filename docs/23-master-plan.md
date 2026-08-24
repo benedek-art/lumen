@@ -136,6 +136,7 @@ The draft-render redesign — full pipeline at draft resolution, no stage gating
       the green baseline.
 - [ ] `DraftLadder` in LumenCore/Interaction (2048→1600→1280→1024 by measured draft
       time, ≤35ms p95 target), Linux-tested; replaces LoupeView's fixed draftTarget
+      (queued behind the in-flight proof sweep — LumenCore pushes restart it)
 - [x] `PlanTableCache` stale-while-bake: `tableAllowingStale` returns the newest table
       in a slot while a single-flight background bake (newest-wins pending) computes
       the exact one; `RenderPlan(allowStaleTables:)` routes the finish + colorGrade
@@ -145,21 +146,37 @@ The draft-render redesign — full pipeline at draft resolution, no stage gating
       bakes synchronously, stale-then-converges, blocking-path-never-stale,
       40-event-burst coalesces), each watched failing with its defect substituted
       (synchronous-bake; replay-the-drag).
-- [ ] `onEditingChanged` consumed: settle at finger-up; catalog writes + fingerprints
-      per-gesture; scope timer armed once; overlay raster deferred during drag
-- [ ] **`DraftTruthfulnessTests`** (macOS CI): draft vs settle at the same size on a
-      recipe exercising every formerly-gated stage — the permanent lock
+- [x] Gesture-in-flight signal consumed: `sliderGestureChanged` environment hook fired
+      by every slider/wheel, one consumer (`AppState.sliderGesture`); catalog writes +
+      fingerprints land once at release instead of per event; scope re-bin lands at
+      release; the mask overlay deliberately stays live per event (it is the picture
+      of the drag, and its refresh now cancels its predecessor); a gesture whose
+      release the app never sees is flushed by `prepareToQuit`. (Immediate-settle at
+      finger-up deferred: the 40 ms debounce already covers it.)
+- [x] **`DraftTruthfulnessTests`** (macOS CI): draft vs settle at the same size on a
+      recipe exercising every formerly-gated stage — the permanent lock. Green on
+      gpu-parity #4 (54 tests, 0 failures); **watched failing on #5** with the
+      substituted defect (maskSource: draft) — one failure, exactly this test,
+      "differ by 17/255 — a stage is being gated out of one of them"; reverted on #6.
 
 App-layer waste, low-risk first:
 
-- [ ] FilterBar's 14 counts + Sidebar's 2 filters + editTargets scans memoised;
-      BasicPanel's 16 Recipe copies/pass eliminated; logic in LumenCore where testable
-- [ ] ScopesView raster off the main thread, memoised per scope generation
+- [x] FilterBar's 14 counts + Sidebar's 2 filters memoised (`AppState.cullCounts`, one
+      pass, invalidated with the photo cache); `selectedPhotos` memoised so
+      `editTargets` stops scanning per body read. (Deviation: the counts live app-side
+      for now — they will be covered by LumenAppTests when the target lands, instead
+      of moving to LumenCore mid-sweep. BasicPanel's Recipe copies ride the
+      `@Observable` migration.)
+- [x] ScopesView rasters moved into `ScopeRaster`, built once per measurement on the
+      binning task, carried on `ScopeData`; the view draws stored CGImages
 - [ ] AppleRawSource decode cache: single entry → small keyed cache
-- [ ] refreshMaskOverlay cancellable; supersession checked BEFORE the actor call
-- [ ] PixelSampler lazy (only when readout/clipping overlay is on)
-- [ ] RenderKey construction unified; CompareView adopts it (kills the still-live
-      half/double zoom pump + stale-mask defects there)
+- [x] refreshMaskOverlay: stored task, cancelled by its successor, generation checked
+      before the actor call (the claimed-too-late defect, closed in its last hideout)
+- [x] PixelSampler lazy: task key carries whether any consumer (readout under cursor,
+      clipping overlay, mask overlay) is live; nil otherwise
+- [x] `ViewerRenderKey` (RenderRequest.swift) unified; both compare panes adopt it —
+      brush blobs, mattes and the soft proof now restart their renders too — and adopt
+      `DraftResolution`, killing the half/double zoom pump still live in compare
 - [ ] Then, ONE isolated revert-friendly commit: AppState → `@Observable`
       (56 props, 25 sites, 19 files)
 - [ ] `LumenAppTests` target; first tests: memoised counts, keyed decode cache,
