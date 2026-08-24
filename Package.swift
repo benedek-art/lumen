@@ -69,5 +69,16 @@ let package = Package(
             dependencies: ["LumenCore", "LumenPipeline"],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
+        // The app layer's tests — the target docs/21 pattern 6 said was missing while
+        // 39% of the codebase went unfalsifiable by construction. Files are
+        // `#if os(macOS)` like LumenPipelineTests', so the Linux lanes build an empty
+        // target and lose nothing. Tests here exercise pure app logic (counts, keys,
+        // gesture bookkeeping) — never a full `AppState`, whose init opens the real
+        // catalog in Application Support.
+        .testTarget(
+            name: "LumenAppTests",
+            dependencies: ["LumenApp", "LumenCore"],
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
     ]
 )

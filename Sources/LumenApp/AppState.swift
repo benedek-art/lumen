@@ -1011,11 +1011,28 @@ final class AppState: ObservableObject {
     /// photos that is ~80,000 element visits of pure bookkeeping per mouse move,
     /// before a pixel was requested. The numbers only change when the roll or a cull
     /// decision does, which is exactly `invalidatePhotoCache()`'s definition.
-    struct CullCounts {
+    struct CullCounts: Equatable {
         var flags: [PhotoFlag: Int] = [:]
         /// Index r = photos with rating ≥ r, for r in 1...5. Index 0 unused.
         var ratingAtLeast = [Int](repeating: 0, count: 6)
         var labels: [ColorLabel: Int] = [:]
+
+        /// Pure and static so `LumenAppTests` can pin it without constructing an
+        /// `AppState` — whose init opens the real catalog in Application Support,
+        /// which no unit test should touch.
+        static func counting(_ photos: [PhotoItem]) -> CullCounts {
+            var counts = CullCounts()
+            for photo in photos {
+                counts.flags[photo.flag, default: 0] += 1
+                counts.labels[photo.label, default: 0] += 1
+                if photo.rating > 0 {
+                    for r in 1...Swift.min(photo.rating, 5) {
+                        counts.ratingAtLeast[r] += 1
+                    }
+                }
+            }
+            return counts
+        }
     }
 
     private var cullCountsCache: CullCounts?
@@ -1023,14 +1040,7 @@ final class AppState: ObservableObject {
 
     var cullCounts: CullCounts {
         if let cullCountsCache { return cullCountsCache }
-        var counts = CullCounts()
-        for photo in allPhotos {
-            counts.flags[photo.flag, default: 0] += 1
-            counts.labels[photo.label, default: 0] += 1
-            if photo.rating > 0 {
-                for r in 1...Swift.min(photo.rating, 5) { counts.ratingAtLeast[r] += 1 }
-            }
-        }
+        let counts = CullCounts.counting(allPhotos)
         cullCountsCache = counts
         return counts
     }
