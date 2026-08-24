@@ -110,7 +110,30 @@ actor RenderCoordinator {
                          strokeSets: [String: BrushStrokeSet],
                          showingUncropped: Bool = false,
                          softProof: SoftProof? = nil) async -> RenderResult? {
-        func stale() -> Bool { coalesced && generation < latestGeneration }
+        // Stale by TICKET, or stale because the caller has gone away.
+        //
+        // The ticket alone could not drop a backlog. `latestGeneration` is claimed when
+        // a request ENTERS this actor, and the actor is serial with a synchronous
+        // render inside it — so while one frame is being produced, the twelve requests
+        // queued behind it have not raised the number and every one of them compares as
+        // current when its turn comes. A drag delivers an event every 8–16 ms and a
+        // render costs tens of milliseconds, so the queue grew for the whole gesture
+        // and every superseded frame was rendered in full. That is the mechanism behind
+        // "the image isn't really updating very well": not a slow render, an unbounded
+        // one per event.
+        //
+        // Cancellation is the signal that was already there and unread. The viewer
+        // drives these from `.task(id:)`, which cancels the previous task the moment
+        // the id moves, so a request nobody is waiting for arrives here already
+        // cancelled. Checking it costs a load and collapses the backlog to at most one
+        // frame behind. Work that must not be dropped — the export path — does not come
+        // through here.
+        func stale() -> Bool {
+            if Task.isCancelled { return true }
+            return coalesced && generation < latestGeneration
+        }
+
+        guard !stale() else { return nil }
 
         do {
             let source = try self.source(for: url)

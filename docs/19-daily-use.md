@@ -45,6 +45,66 @@ comes up on the screen and then when I let go it applies something different."
 | Canonicalization off the input path | `saveRecipe` ran 4 JSON encodes + 4 decodes of the whole recipe on the main actor per mouse event — ×40 on a batch drag — to build a string it then handed to a background queue |
 | `AppState.photos` memoised | 1.68 ms to rebuild at 5 000 frames (+2.41 ms under filename sort), read from seven places, re-evaluated on every published write: ~12 ms of main-actor bookkeeping per mouse move before a pixel was requested |
 
+## Phase 1, second pass — the first session on a Mac
+
+Phase 1's four fixes had never been seen by a human. The owner ran the app on a Mac for
+the first time and the loudest complaint was still responsiveness: *"Right now the
+sliders are really slow. Everything is super unresponsive. The image isn't really
+updating very well"*, and *"there are lots of zoom in, zoom out things that happen when
+I'm not pressed on the image full screen."* He also reported Highlights, Whites and
+Blacks as not working.
+
+**Highlights was not dead, and the drag was not eaten.** The screenshot reads Highlights
+2, Shadows 7, Whites 11, Blacks −7 — tiny values on ±100 controls, where Phase 2's
+measured authorities are 55.8 / 47.6 / 23.3 code values at full travel. The offered
+explanation was that the interface dropped most of his gesture. It does not hold: the
+drag is relative, so the value is a pure function of where the pointer is now relative to
+the press, and event coalescing keeps the newest sample. A drag to the end of the track
+that loses every event but one still reports the end of the track. On the ~158-point
+track the develop column affords, a ±100 control moves 1.27 units per point — Highlights
+2 is one and a half points of travel, Whites 11 is nine. Those are presses that moved a
+few pixels. The picture never answered him, so he never committed to a gesture.
+
+| Fix | What it was |
+|---|---|
+| The release is a sample | `onEnded` set a flag and ignored `value.location`, so what a drag was worth depended on whether a motion event beat the mouse-up — and that is exactly the sample a blocked main actor loses. Drag arithmetic moved to `SliderTrack` / `SliderDrag` in LumenCore, where it is tested |
+| The backfill stopped holding the catalog's only lane | `backfillMetadata` ran its whole paged loop — the transactions AND a file open plus a megabyte hash per photograph — inside one `queue.async`. For minutes, every recipe write, grid query and preview lookup sat behind it. It now drives from a `maintenance` queue and holds the lane for one transaction at a time |
+| Decode workers suspend instead of blocking | `previewState` was `queue.sync` from eight `Task.detached` workers. A blocked cooperative thread cannot run anybody else's continuation, so with the pool full the render actor got no turn and every `await` in the refine driver stopped resuming — the interface moves, the picture does not. Now `async` through the existing continuation |
+| Render coalescing that can actually drop | The generation ticket is claimed when a request *enters* the serial actor, so a queued backlog always compares as current and every superseded frame of a drag was rendered in full. `.task(id:)` had already cancelled those tasks; `produce` now reads `Task.isCancelled` |
+| `catalogID` memoised | `persist` ran `allPhotos.first(where:)` — a linear scan of the source, per changed photo, per mouse event, for an id `editTargets` already carried. 200 000 URL comparisons per event on a 40-frame batch drag at 5 000 files |
+
+**The unexpected zoom is two defects, neither of them a stray gesture.** There is no
+magnify or scroll handling anywhere in the app and `zoomLevel` has one writer, so the
+shape everybody looked for does not exist. What does: (1) the viewer's press gesture
+toggled the zoom whenever the pointer moved under three points, on a gesture covering the
+whole canvas whose pan branch returns early at fit — so at fit *every* press, including
+one on the grey surround and one meant to focus the window, zoomed in, and the next
+zoomed out; and (2) above fit the frame is drawn at `proxyPixels × ratio`, while the
+draft pass is asked for exactly half the settle's long edge — so the photograph halved
+and doubled on every render, which during a drag is every mouse event. `ViewportClick`
+and `DraftResolution` in LumenCore are the two rules, with tests.
+
+**The blue rectangle** the owner asked about is macOS's own focus ring on `.focusable()`.
+The viewer must stay focusable — the bare-key grammar depends on it — so the ring is
+suppressed with `.focusEffectDisabled()`. Law 7 makes chrome zero-chroma grey precisely
+so nothing in the surround biases a colour judgement, and a saturated blue rectangle
+framing the photograph is the largest chroma on screen. Nothing replaces it: the ring
+answered "does the image have focus", and the question actually being asked is "why did
+my keys stop working", whose answer is always a text field having taken focus — which the
+ring never said.
+
+**What is proved and what is only read.** The three LumenCore rules — the drag
+arithmetic, the click gate, the draft's pixel size — are under test: 641 tests green, and
+each rule was watched failing with its shipped defect substituted back (ENV-01 in the
+audit ledger has the table). Everything else here is READ FROM SOURCE and has no test,
+because `Sources/LumenApp` has no test target: the backfill's hold on the catalog queue,
+the cooperative-thread starvation, the render backlog, the `catalogID` scan, and both
+zoom defects *as they manifest in the app* are arguments from the code rather than
+measurements. This is still audit UX-01. Until a signpost trace exists on the owner's
+Mac — NSEvent receipt to render completion for the slider loop, and one around
+`previewState` and one backfill chunk — "the sliders feel right" remains a
+code-inspection claim.
+
 ## Phase 2 — the sliders are accurate
 
 Measured authority over −8…+5 EV, full travel, in sRGB code values:

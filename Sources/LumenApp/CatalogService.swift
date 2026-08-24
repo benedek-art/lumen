@@ -35,6 +35,21 @@ final class CatalogService: @unchecked Sendable {
 
     private let store: CatalogStore
     private let queue = DispatchQueue(label: "dev.lumenapp.catalog", qos: .utility)
+
+    /// Where a long enrichment pass DRIVES from, so that `queue` only ever holds the
+    /// database work.
+    ///
+    /// `queue` is the catalog's one serial lane and everything the user can feel goes
+    /// through it: the recipe write behind every slider event, the preview lookup in
+    /// front of every thumbnail, every grid query. A pass that occupies it for minutes
+    /// stops all three — and the backfill did exactly that, running its whole paged
+    /// loop, including a file open and a megabyte read per photograph, inside ONE
+    /// `queue.async` block. Eight decode workers then queued behind one EXIF parse,
+    /// which is the shape the preview cache's own author flagged as the thing to
+    /// measure first. Driving from here and hopping on per statement means the queue is
+    /// held for a transaction at a time instead of for a folder at a time.
+    private let maintenance = DispatchQueue(label: "dev.lumenapp.catalog.maintenance",
+                                            qos: .utility)
     private let directory: URL
 
     /// Called when a write fails. Every failure in here used to go to `NSLog` and
@@ -275,53 +290,117 @@ final class CatalogService: @unchecked Sendable {
     /// finished. It used to report `(done, total)` against a total taken from the single
     /// fetch; paging has no such number up front, and inventing one to keep the old
     /// shape would have made the caller's "last batch" test a guess.
+    ///
+    /// The pass DRIVES from `maintenance` and only touches the store inside short
+    /// `queue.sync` hops, which is the difference between holding the catalog's serial
+    /// lane for a transaction and holding it for a folder.
+    ///
+    /// It used to run entirely inside one `queue.async`: the paging, the transactions,
+    /// AND the per-photograph file work — `CaptureMetadataReader.read` opens a file and
+    /// parses EXIF, `QuickSignature.compute` reads a megabyte and hashes it. Five
+    /// thousand of each, on the one queue that every recipe write, every preview lookup
+    /// and every grid query has to get through. For as long as that ran: a slider event
+    /// enqueued a recipe write that would not execute; a thumbnail's `previewState`
+    /// blocked its worker in `queue.sync`, and eight of those are eight cooperative
+    /// threads not running anybody's `await`. The reordering below changes what is
+    /// computed not at all — the file work simply happens on this thread rather than on
+    /// the catalog's.
     func backfillMetadata(folder: URL,
                           onProgress: ((_ done: Int, _ finished: Bool) -> Void)? = nil) {
-        queue.async { [store, weak self] in
-            do {
-                let folderID = try store.registerFolder(path: folder.path)
-                var done = 0
-                var cursor: Int64 = 0
-                while true {
-                    let chunk = try store.photosMissingMetadata(
-                        folderID: folderID, afterID: cursor, limit: 200)
-                    guard let last = chunk.last else { break }
-                    cursor = last.id
-                    let read: [(photoID: Int64, metadata: PhotoMetadata)] =
-                        chunk.compactMap { row in
-                            let url = folder.appendingPathComponent(row.filename)
-                            guard let metadata = CaptureMetadataReader.read(url: url)
-                            else { return nil }
-                            return (photoID: row.id, metadata: metadata)
-                        }
-                    try store.setMetadata(read)
-                    done += chunk.count
-                    onProgress?(done, false)
-                }
-                onProgress?(done, true)
+        maintenance.async { [store, weak self] in
+            // The lane, captured once. A service that has gone away between the ask and
+            // this line has nothing to enrich.
+            guard let queue = self?.queue else { return }
 
-                var signatureCursor: Int64 = 0
-                while true {
-                    let chunk = try store.photosMissingQuickSig(
-                        folderID: folderID, afterID: signatureCursor, limit: 200)
-                    guard let last = chunk.last else { break }
-                    signatureCursor = last.id
-                    let signed: [(photoID: Int64, signature: String)] =
-                        chunk.compactMap { row in
-                            let url = folder.appendingPathComponent(row.filename)
-                            guard let signature = try? QuickSignature.compute(url: url)
-                            else { return nil }
-                            return (photoID: row.id, signature: signature)
-                        }
-                    try store.setQuickSigs(signed)
-                }
-            } catch {
-                // Not surfaced to the user: metadata is an enrichment, and a folder
-                // whose EXIF could not be read still browses, culls and edits. Saying
-                // so would be noise on a path nobody asked for.
+            // Errors are logged where they happen and end the pass. Not surfaced: a
+            // folder whose EXIF could not be read still browses, culls and edits, this
+            // is an enrichment, and a modal about it would be noise on a path nobody
+            // asked for.
+            func stopped(_ error: Error) {
                 NSLog("Lumen catalog: metadata backfill stopped — %@",
                       String(describing: error))
-                _ = self
+            }
+
+            var folderID: Int64 = 0
+            var broke = false
+            queue.sync {
+                do { folderID = try store.registerFolder(path: folder.path) }
+                catch {
+                    stopped(error)
+                    broke = true
+                }
+            }
+            guard !broke else { return }
+
+            var done = 0
+            var cursor: Int64 = 0
+            while true {
+                var chunk: [(id: Int64, filename: String)] = []
+                queue.sync {
+                    do {
+                        chunk = try store.photosMissingMetadata(
+                            folderID: folderID, afterID: cursor, limit: 200)
+                    } catch {
+                        stopped(error)
+                        broke = true
+                    }
+                }
+                guard !broke else { return }
+                guard let last = chunk.last else { break }
+                cursor = last.id
+                // OFF the catalog queue: this is a file open and an EXIF parse per
+                // photograph, and it is what used to hold the lane.
+                let read: [(photoID: Int64, metadata: PhotoMetadata)] =
+                    chunk.compactMap { row in
+                        let url = folder.appendingPathComponent(row.filename)
+                        guard let metadata = CaptureMetadataReader.read(url: url)
+                        else { return nil }
+                        return (photoID: row.id, metadata: metadata)
+                    }
+                queue.sync {
+                    do { try store.setMetadata(read) }
+                    catch {
+                        stopped(error)
+                        broke = true
+                    }
+                }
+                guard !broke else { return }
+                done += chunk.count
+                onProgress?(done, false)
+            }
+            onProgress?(done, true)
+
+            var signatureCursor: Int64 = 0
+            while true {
+                var chunk: [(id: Int64, filename: String)] = []
+                queue.sync {
+                    do {
+                        chunk = try store.photosMissingQuickSig(
+                            folderID: folderID, afterID: signatureCursor, limit: 200)
+                    } catch {
+                        stopped(error)
+                        broke = true
+                    }
+                }
+                guard !broke else { return }
+                guard let last = chunk.last else { break }
+                signatureCursor = last.id
+                // A megabyte read and a hash per photograph, likewise off the lane.
+                let signed: [(photoID: Int64, signature: String)] =
+                    chunk.compactMap { row in
+                        let url = folder.appendingPathComponent(row.filename)
+                        guard let signature = try? QuickSignature.compute(url: url)
+                        else { return nil }
+                        return (photoID: row.id, signature: signature)
+                    }
+                queue.sync {
+                    do { try store.setQuickSigs(signed) }
+                    catch {
+                        stopped(error)
+                        broke = true
+                    }
+                }
+                guard !broke else { return }
             }
         }
     }
@@ -923,27 +1002,36 @@ final class CatalogService: @unchecked Sendable {
     /// One call rather than two because this runs on a decode worker, once per
     /// thumbnail, on the path README goal #1 is measured on. Two `queue.sync`s per grid
     /// cell would put eight decode workers behind each other for no reason.
-    struct PreviewState {
+    struct PreviewState: Sendable {
         var fingerprint: String
         var rows: [PreviewRow]
     }
 
-    func previewState(photoID: Int64) -> PreviewState? {
-        var result: PreviewState?
-        queue.sync {
-            do {
-                result = PreviewState(
-                    fingerprint: try store.currentRecipeFingerprint(photoID: photoID),
-                    rows: try store.previews(photoID: photoID))
-            } catch {
-                // A failed read here is a cache miss, not something the user needs to
-                // be told: the caller decodes the original instead, which is what it
-                // did on every launch before this cache was wired at all.
-                NSLog("Lumen catalog: preview lookup failed — %@",
-                      String(describing: error))
-            }
+    /// AWAIT, never `queue.sync`.
+    ///
+    /// This used to block. The caller is a `Task.detached` decode worker and there are
+    /// eight of them, so eight cooperative-pool threads could sit inside `queue.sync`
+    /// at once — and the pool is about as wide as the machine has cores. A blocked
+    /// cooperative thread is not a slow thread, it is a thread that cannot run anybody
+    /// else's continuation: with the pool full, the render actor gets no turn, the
+    /// sampler's detached task gets no turn, and every `await` in the viewer's refine
+    /// driver stops resuming. The main actor keeps running, so the interface still
+    /// moves while the picture does not — "everything is super unresponsive… the image
+    /// isn't really updating very well", which is a fair description of exactly that.
+    ///
+    /// The hop is the same hop; suspending across it instead of blocking is the whole
+    /// change. A worker that is waiting for the catalog now yields its thread.
+    func previewState(photoID: Int64) async -> PreviewState? {
+        await onQueue("preview lookup", fallback: nil) {
+            (store: CatalogStore) -> PreviewState? in
+            // A failed read is a cache MISS, not something the user needs to be told:
+            // `onQueue` logs it and returns the fallback, and the caller decodes the
+            // original instead — which is what it did on every launch before this cache
+            // was wired at all.
+            return PreviewState(
+                fingerprint: try store.currentRecipeFingerprint(photoID: photoID),
+                rows: try store.previews(photoID: photoID))
         }
-        return result
     }
 
     /// File a preview. Asynchronous: the pixels are already on screen by the time this

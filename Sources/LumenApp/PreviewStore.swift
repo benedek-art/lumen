@@ -131,10 +131,17 @@ final class PreviewStore: @unchecked Sendable {
     /// catalog, or the size asked for is not a rung — and the caller decodes without
     /// recording. A non-nil plan with a nil payload is a miss the caller should record
     /// the result of.
-    func plan(for url: URL, pixels: Int) -> WritePlan? {
+    ///
+    /// `async` because the catalog hop it makes must SUSPEND the worker rather than
+    /// block it. Eight decode workers all sitting inside one `queue.sync` is eight
+    /// cooperative-pool threads that cannot run anybody else's continuation, and the
+    /// pool is about as wide as the machine has cores — see `CatalogService
+    /// .previewState`, where the same note explains why the picture stops updating
+    /// while the interface keeps moving.
+    func plan(for url: URL, pixels: Int) async -> WritePlan? {
         guard let level = ThumbnailLadder.level(for: pixels),
               let photoID = photoID(for: url),
-              let state = catalog.previewState(photoID: photoID) else { return nil }
+              let state = await catalog.previewState(photoID: photoID) else { return nil }
         var payload: Payload?
         if case .serve(let row) = PreviewCache.decide(request: level,
                                                       fingerprint: state.fingerprint,
