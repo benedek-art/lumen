@@ -135,10 +135,59 @@ final class TintGuardTests: XCTestCase {
         let engine = WhiteBalanceEngine(asShotKelvin: 2400, asShotTint: 250,
                                         targetKelvin: nil, targetTint: nil)
         XCTAssertTrue(engine.isIdentity, "an untouched file should render as shot")
+
         let moved = WhiteBalanceEngine(asShotKelvin: 2400, asShotTint: 250,
                                        targetKelvin: 5500, targetTint: 0)
         let out = moved.apply(neutral)
         XCTAssertTrue(out.r.isFinite && out.g.isFinite && out.b.isFinite)
-        XCTAssertGreaterThanOrEqual(min(out.r, out.g, out.b), 0)
+        // NOT "no channel is negative", which is a law this cannot have and should not
+        // claim. Adapting a strongly magenta neutral to daylight means removing
+        // magenta, and the result is a colour more saturated than Rec.2020's green
+        // primary — legitimately outside the working space, and it lands at
+        // b = -0.0039 here, about 2% of the input. What the guard owes is that the
+        // result stays a picture: luminance positive, magnitudes sane. Before it, the
+        // same shape of case reached RGB(-0.040, -3.101, 33.579).
+        XCTAssertGreaterThan(out.g, 0, "luminance must not invert")
+        XCTAssertGreaterThan(out.r, 0)
+        XCTAssertGreaterThan(out.b, -0.05, "a small out-of-gamut excursion, not an inversion")
+        XCTAssertLessThan(Swift.max(out.r, out.g, out.b), 2.0)
+    }
+
+    // MARK: - What "slightly blue to entirely full blue" actually was
+
+    func testOneUnitOfTintIsNeverWorthMoreThanTheWholeSlider() {
+        // The pole's signature, and the closest thing to the owner's own words that can
+        // be written as an assertion. A control that inverts does not merely reach a
+        // wrong value — it JUMPS there, and the jump is between two adjacent settings
+        // the slider steps through one at a time.
+        //
+        // Measured across every temperature a camera can report, stepping tint by its
+        // own unit through the whole hard range: the largest single-step change in the
+        // adapted neutral was **4212.58** before the guard, against 0.0012 for a step
+        // in the middle of the range. One click of the slider was worth three and a
+        // half million ordinary clicks. It is now 0.1477 at worst.
+        var worst = 0.0
+        var worstAt = (kelvin: 0.0, tint: 0.0)
+        for kelvin in stride(from: 2000.0, through: 15000.0, by: 250) {
+            var previous: RGB?
+            for tint in stride(from: -300.0, through: 300.0, by: 1) {
+                let out = WhiteBalanceEngine(asShotKelvin: kelvin, asShotTint: 0,
+                                             targetKelvin: kelvin, targetTint: tint)
+                    .apply(neutral)
+                if let previous {
+                    let step = Swift.max(abs(out.r - previous.r),
+                                         Swift.max(abs(out.g - previous.g),
+                                                   abs(out.b - previous.b)))
+                    if step > worst {
+                        worst = step
+                        worstAt = (kelvin, tint)
+                    }
+                }
+                previous = out
+            }
+        }
+        XCTAssertLessThan(worst, 0.5,
+                          "one unit of tint moved the neutral by \(worst) at "
+                              + "\(worstAt.kelvin) K / tint \(worstAt.tint)")
     }
 }

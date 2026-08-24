@@ -1757,7 +1757,15 @@ final class RobustnessTests: XCTestCase {
                 let back = ColorTemperature.temperatureAndTint(for: chroma)
                 XCTAssertEqual(back.kelvin, kelvin, accuracy: kelvin * 0.01,
                                "K at \(kelvin)/\(tint)")
-                XCTAssertEqual(back.tint, tint, accuracy: 1.0,
+                // Against the GUARDED tint, not the number handed in. The magenta half
+                // of the forward map is bounded by `tintLimit(kelvin:)` — past it the
+                // map is deliberately not injective, and this assertion was checking
+                // that the inverse recovered a tint the render would NOT have used.
+                // Two of these pairs are past the bound (2500 K/+120 clamps to +56.80,
+                // 4000 K/+120 to +114.51) and the rest are unchanged.
+                XCTAssertEqual(back.tint,
+                               ColorTemperature.clampedTint(kelvin: kelvin, tint: tint),
+                               accuracy: 1.0,
                                "tint at \(kelvin)/\(tint)")
             }
         }

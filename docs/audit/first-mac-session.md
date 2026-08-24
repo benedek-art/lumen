@@ -39,8 +39,14 @@ use did.
 
 ## Confirmed, and predicted
 
-**MAC-02 — the temperature slider's scale.** *"Why does it go from 2,000 Kelvin to 50,000
-Kelvin? I don't think anything even changes above like 15,000 Kelvin."*
+**MAC-02 — the temperature slider's scale.** FIXED (WB-01 in found-while-fixing.md).
+*"Why does it go from 2,000 Kelvin to 50,000 Kelvin? I don't think anything even changes
+above like 15,000 Kelvin."*
+
+Measured: 15000–50000 K is 72.9% of a linear track and carries 4.4% of the change. He was
+right to within a rounding error. The slider is now on `SliderScale.reciprocal` — the
+mired axis — where the share of the track above 15000 K (9.7%) matches the share of the
+change it carries. Range unchanged.
 
 This is TONE-09, found by reading, now confirmed by a photographer without prompting. The
 engine already works in mireds — `1e6 / kelvin`, the perceptually even axis every other
@@ -81,26 +87,62 @@ to be false on measurement. It gets confirmed or refuted, not assumed.
 
 ## Interface
 
-**MAC-05 — the blue rectangle around the image.** *"I think we should remove that blue
-square."* It is macOS's own focus ring: `LoupeView` is `.focusable()` and focused on
+**MAC-05 — the blue rectangle around the image.** FIXED. *"I think we should remove that
+blue square."* It is macOS's own focus ring: `LoupeView` is `.focusable()` and focused on
 appear, which it must be, because the entire bare-key culling grammar depends on it. The
 ring is the system's, not the app's.
 
 **MAC-06 — the histogram readout row collides with the panel below it.** *"I want to make
 sure that the working percent, the sRGB, and output 255 is not in the same layer or
 visually the same as the other pages, like the color or the curves, because they're kind of
-overlapping."* UX-15 recorded truncation risk in this panel at 320 pt; this is that risk
-arriving as overlap rather than truncation.
+overlapping."* UX-15 recorded truncation risk in this panel at 320 pt. It is not that:
+it is a plain layout overflow, and the arithmetic is unambiguous. `DevelopPanel` pinned
+the histogram to `.frame(height: 96)` while its content is 157 points — 6 padding, a
+graph pinned to `graphHeight` (104), the readout line (14), the space picker (~19), two
+4-point gaps, 6 more padding. `.frame(height:)` does not clip, so about 30 points of
+"Working % | sRGB 255 | Output 255" were drawn over the divider and the section switcher
+underneath. Scopes had the same defect at 204 points pinned to 190.
 
-**MAC-07 — unexpected zoom.** *"There are lots of zoom in, zoom out things that happen when
-I'm not pressed on the image full screen."* Narrowing detail worth keeping: it happens in
-fit mode, not at 1:1.
+FIXED by removing both fixed heights, so each view sizes to its own content.
 
-**MAC-08 — tint's response is uneven.** *"If I try to tint it blue, it goes from slightly
-blue to an entirely full blue."*
+**MAC-07 — unexpected zoom.** STILL OPEN, and now with three refuted theories rather
+than none. *"There are lots of zoom in, zoom out things that happen when I'm not pressed
+on the image full screen."* It happens in fit mode, not at 1:1.
 
-**MAC-09 — exposure is very intense.** Its recorded authority is 169.07 code values, the
-largest of any control in the registry by a wide margin.
+What it is NOT:
+
+1. *A stray magnify or scroll gesture.* There is no `MagnificationGesture`, no
+   `scrollWheel` handler and no magnify handling anywhere in `Sources/LumenApp`.
+2. *A draft/settle resolution change.* In fit mode `effectiveRatio` derives the ratio
+   from the rendered image's own dimensions, so the drawn size equals the container
+   whatever resolution came back. A 1024-pixel draft and a 3000-pixel settle draw at
+   identical on-screen size by construction.
+3. *Container jitter re-keying the render.* `requestedLongEdge` quantises to 256-pixel
+   buckets, so a container has to change by a lot before the render key moves.
+
+Three plausible mechanisms, all false on inspection — the same shape as the dropped-drag
+theory in MAC-04, which was also plausible and also wrong. The next step is not a fourth
+guess. It needs one observation from the owner: does it happen while a slider is being
+dragged, while the folder is still loading, on window resize, or at random with the
+pointer still? Each of those points at a different half of the code.
+
+**MAC-08 — tint's response is uneven.** FIXED, and it was worse than "uneven" (WB-02 in
+found-while-fixing.md). *"If I try to tint it blue, it goes from slightly blue to an
+entirely full blue."*
+
+Chromatic adaptation divides by the cone response of the illuminant it adapts from. Far
+enough toward magenta the S cone response falls **through zero** and the blue gain comes
+out negative — the picture inverts. At 2750 K with tint +80 a 0.18 neutral rendered
+RGB(-0.040, -3.101, 33.579). The pole sat inside the slider's own travel and moved with
+temperature: +45 at 2000 K, +80 at 2750 K. "Slightly blue then entirely full blue" is a
+precise description of crossing it.
+
+**MAC-09 — exposure is very intense.** NOT A DEFECT, with one real gap behind it. The
+panel is −5…+5 EV (hard −10…+10), which is the range Lightroom ships, so the control is
+at parity and its recorded authority of 169.07 code values is what ±5 EV should be worth.
+The gap is in the proof, not the control: `ProofRegistry` sweeps `tone.exposure` at ±2
+while every other tone control sweeps its full panel range, so the record covers 40% of
+the drag. Widening it re-pins a committed record and is left for its own change.
 
 **MAC-10 — double-click to reset a slider.** He asked for it. **It already exists** —
 `LumenControls.swift` has `onTapGesture(count: 2) { reset() }` at three separate sites. So

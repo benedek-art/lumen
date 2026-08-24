@@ -194,11 +194,32 @@ struct DevelopPanel: View {
     var body: some View {
         VStack(spacing: 0) {
             header
+            // NEITHER of these carries a fixed height any more, and that is the fix
+            // for MAC-06 rather than a style preference.
+            //
+            // The histogram was pinned to 96 points and its content is 157: 6 of
+            // padding, a graph pinned to `graphHeight` (104), the readout line (14),
+            // the space picker (~19), the two 4-point gaps and 6 more of padding.
+            // `.frame(height:)` does not clip — it sets the layout size and lets the
+            // content draw past it — so roughly 30 points of "Working % | sRGB 255 |
+            // Output 255" were painted straight over the divider and the section
+            // switcher below. That is exactly what the owner reported: "the working
+            // percent, the sRGB, and output 255 is not in the same layer or visually
+            // the same as the other pages, like the color or the curves, because
+            // they're kind of overlapping." He read a layout overflow as a layering
+            // problem, which is the right reading of what it looked like.
+            //
+            // Scopes had the same defect, smaller: 204 points of content pinned to 190.
+            //
+            // Both now size to their content, so the graph constants inside each view
+            // are the single source of truth for how tall it is. Restoring a fixed
+            // height here means re-deriving that sum by hand and re-deriving it again
+            // every time a row is added to either view, which is the arithmetic that
+            // was got wrong once already.
             if state.showHistogram {
                 // The histogram sits above the sliders because it is the instrument
                 // they are being read against, not a panel of its own.
                 HistogramView(histogram: state.scopes?.histogram)
-                    .frame(height: 96)
                     .padding(.horizontal, 8)
                     .padding(.bottom, 4)
             }
@@ -206,7 +227,6 @@ struct DevelopPanel: View {
                 ScopesView(waveform: state.scopes?.waveform,
                            parade: state.scopes?.parade,
                            vectorscope: state.scopes?.vectorscope)
-                    .frame(height: 190)
                     .padding(.horizontal, 8)
                     .padding(.bottom, 4)
             }

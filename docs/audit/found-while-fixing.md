@@ -716,8 +716,34 @@ scrubs temperature past a warm value and back is worse than a slider whose last 
 points are inert on a 2000 K frame. Past the bound the slider goes on moving and the
 picture stops changing, which is an ordinary thing for a control to do.
 
-Held by `TintGuardTests`, which sweeps all 193 temperatures × 121 tints the app can ask
-for and asserts no channel goes negative or non-finite anywhere.
+**The number that matches his sentence.** A pole does not just reach a wrong value, it
+JUMPS there — and the jump is between two settings the slider steps through one at a
+time. Stepping tint by its own unit across every temperature a camera can report, the
+largest single-step change in the adapted neutral was:
+
+| | worst one-unit tint step |
+|---|---|
+| before the guard | **4212.58** (at 12000 K, tint +290) |
+| after | **0.1477** |
+| an ordinary step, 5500 K mid-range | 0.0012 |
+
+One click of the slider was worth three and a half million ordinary clicks. "Slightly
+blue to an entirely full blue" is a precise description of that. `TintGuardTests`
+asserts the worst step stays under 0.5.
+
+**What the guard does NOT do, stated so it is not read as more than it is.** It removes
+the pole; it does not gamut-map. Two things remain true and are correct:
+
+- A strongly magenta as-shot neutral adapted to daylight can still put one channel
+  slightly negative (measured: −0.0039 on a 0.18 input, about 2%). That is a real
+  out-of-gamut colour — more saturated than Rec.2020's green primary — not a failure,
+  and the test asserts luminance and boundedness rather than claiming non-negativity.
+- Driving BOTH ends to extremes (a 15000 K shade frame adapted to 2000 K with full
+  magenta) still reaches −1.49 / +17.9. That is a huge but finite, monotone,
+  continuous edit — the control doing what it was asked. Unguarded the same sweep
+  reached −28.5 / +85.0.
+
+The property that was broken was continuity, and that is the one now held.
 
 **Reproduced independently.** These two findings were first measured on a branch that
 was destroyed before it could be merged, and were re-derived from scratch here against a
