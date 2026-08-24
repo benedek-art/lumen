@@ -26,8 +26,18 @@ public struct RenderGraph {
     public struct Options: Sendable {
         /// Long edge of the image being rendered, used to scale spatial radii.
         public var longEdge: Int
-        /// Skip the expensive spatial stages for the first interactive frame.
-        public var draft: Bool
+        /// This render IS the image a mask samples: skip S3 denoise and S8 presence,
+        /// because a luma or colour band is denominated in the corrected scene's
+        /// levels and neither stage moves those meaningfully at raster resolution —
+        /// and the raster caller pays for this render on top of every frame.
+        ///
+        /// This used to be `draft`, which ALSO gated S11 local, S12 sharpening,
+        /// halation, S15b local curves and grain out of every interactive frame — so
+        /// the picture during a drag omitted seven stages and every mask, and jumped
+        /// on release. That was the owner's first complaint in both Mac sessions
+        /// (docs/19, DETAIL-20). A draft now runs the whole graph at draft RESOLUTION;
+        /// the only render that skips stages is the mask source, under its real name.
+        public var maskSource: Bool
         /// Table size — interactive during a drag, export size when it settles.
         public var lutSize: Int
         /// `(rendered long edge ÷ the file's own long edge)²` — the factor by which the
@@ -40,11 +50,11 @@ public struct RenderGraph {
         /// much lighter export of the same photograph.
         public var noiseScale: Double
 
-        public init(longEdge: Int, draft: Bool = false,
+        public init(longEdge: Int, maskSource: Bool = false,
                     lutSize: Int = LUT3D.interactiveSize,
                     noiseScale: Double = 1) {
             self.longEdge = longEdge
-            self.draft = draft
+            self.maskSource = maskSource
             self.lutSize = lutSize
             self.noiseScale = noiseScale
         }
@@ -75,10 +85,11 @@ public struct RenderGraph {
         // noise model is a statement about the sensor's own linear signal and stops
         // being true the moment a curve or a matrix has touched it.
         //
-        // Draft frames skip it, which also takes it off the mask rasterizer's path:
-        // that caller asks for `draft: true` at a 1024 px proxy, where the noise it
-        // would remove is already averaged away by the downsample.
-        if !options.draft {
+        // The mask source skips it: at a 1024 px proxy the noise it would remove is
+        // already averaged away by the downsample, and a band's placement does not
+        // move with it. Interactive drafts run it — at draft resolution, where
+        // `noiseScale` has already shrunk the work to match.
+        if !options.maskSource {
             image = applyDenoise(image, plan: plan, options: options)
         }
 
@@ -90,8 +101,9 @@ public struct RenderGraph {
             image = applyTone(image, plan: plan, options: options)
         }
 
-        // S8 — presence, off one base–detail decomposition.
-        if !options.draft {
+        // S8 — presence, off one base–detail decomposition. The mask source skips it
+        // for the same reason as S3: local contrast does not move a band's levels.
+        if !options.maskSource {
             image = applyPresence(image, plan: plan, options: options)
         }
 
@@ -108,13 +120,13 @@ public struct RenderGraph {
         var image = localStageInput(input, plan: plan, options: options)
 
         // S11 — local adjustments, blended through each mask's alpha.
-        if !plan.masks.isEmpty && !options.draft {
+        if !plan.masks.isEmpty {
             image = applyLocal(image, plan: plan, options: options)
         }
 
         // S12 — creative sharpening, after local so masked clarity is not
         // double-sharpened.
-        if !options.draft, plan.detail.sharpen.amount > 0 {
+        if plan.detail.sharpen.amount > 0 {
             image = Self.applySharpen(image, plan.detail.sharpen, longEdge: options.longEdge)
         }
 
@@ -124,7 +136,7 @@ public struct RenderGraph {
             image = applyVignette(image, ev: plan.vignetteEV,
                                   crop: plan.recipe.develop.geometry.crop)
         }
-        if let film = plan.filmChain, film.halationAmount > 0, !options.draft {
+        if let film = plan.filmChain, film.halationAmount > 0 {
             image = applyHalation(image, film: film, longEdge: options.longEdge)
         }
 
@@ -159,13 +171,12 @@ public struct RenderGraph {
         // rest of a mask's sub-recipe is a scene-referred delta at S11; a curve is a
         // picture-domain instinct and has to see the formed picture, so it composites
         // here, through the same alpha S11 used.
-        if !plan.masks.isEmpty && !options.draft {
+        if !plan.masks.isEmpty {
             image = applyLocalCurves(image, plan: plan, options: options)
         }
 
         // Grain lives inside picture formation, in the density domain.
-        if let film = plan.filmChain, film.grainAmount > 0, let plate = grainPlate,
-           !options.draft {
+        if let film = plan.filmChain, film.grainAmount > 0, let plate = grainPlate {
             image = applyGrain(image, plate: plate, film: film)
         }
 

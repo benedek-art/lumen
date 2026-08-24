@@ -120,12 +120,20 @@ what the owner touches.
 
 The draft-render redesign — full pipeline at draft resolution, no stage gating:
 
-- [ ] `RenderGraph.swift`: delete the `!options.draft` gates (S3/S8/S11/S12/halation/
-      S15b/grain); `draft` survives only where it means something real (draft demosaic,
-      noiseScale)
-- [ ] `PipelineRenderer.makeGraph`: delete `guard !draft else { return graph }`
-- [ ] `MaskRasterCache`: exact-hit reuse; stale-while-drag for source-reading masks in
-      drafts; settle always exact; grain plate cached per (stock, extent)
+- [x] `RenderGraph.swift`: the `!options.draft` gates are GONE (S3/S8/S11/S12/halation/
+      S15b/grain); `Options.draft` renamed to `Options.maskSource`, which gates only
+      S3+S8 for the two mask-source call sites — `draft` survives only at decode
+- [x] `PipelineRenderer.makeGraph`: the empty-graph draft branch deleted; drafts build
+      masks and the grain plate like any frame
+- [x] `MaskRasterCache`: per-mask stale-while-bake (exact-hit reuse; first sight bakes
+      synchronously; draft miss returns the previous raster while a single-flight
+      newest-wins background bake computes the exact one; settle/export never stale).
+      Keyed on canonical mask JSON + raster size + stroke counts + matte kinds + the
+      S6–S10 recipe subtrees when the mask reads the picture. Policy tests in
+      `MaskRasterCacheTests`; the truthfulness lock is `DraftTruthfulnessTests`
+      (draft vs settle per-pixel at the same size, plus a discriminator that the
+      stages are actually present). Watched-failing runs recorded in the log after
+      the green baseline.
 - [ ] `DraftLadder` in LumenCore/Interaction (2048→1600→1280→1024 by measured draft
       time, ≤35ms p95 target), Linux-tested; replaces LoupeView's fixed draftTarget
 - [x] `PlanTableCache` stale-while-bake: `tableAllowingStale` returns the newest table

@@ -93,6 +93,10 @@ public final class PipelineRenderer {
     private var matteOrder: [URL] = []
     private static let matteCacheLimit = 12
 
+    /// Rasters kept across frames so a draft can run S11 without paying
+    /// `MaskRaster.combine` per mouse event. See the type's header for the contract.
+    private let maskRasters = MaskRasterCache()
+
     /// One file's mattes, and which kinds have been LOOKED for.
     ///
     /// The two are one value because they are evicted together, and they used to be
@@ -249,7 +253,8 @@ public final class PipelineRenderer {
                               // and blocks on the exact tables, so the picture at rest
                               // never shows a stale one.
                               allowStaleTables: draft)
-        let graph = makeGraph(plan: plan, decoded: decoded, draft: draft,
+        let graph = makeGraph(plan: plan, decoded: decoded,
+                              allowStaleRasters: draft,
                               strokeSets: strokeSets,
                               aiMattes: mattes[source.url]?.planes ?? [:])
         // Preview decodes are downsampled, and downsampling averages the noise down
@@ -257,7 +262,6 @@ public final class PipelineRenderer {
         // factor — squared, because it is a variance.
         var image = graph.build(decoded, plan: plan,
                                 options: RenderGraph.Options(longEdge: longEdge,
-                                                             draft: draft,
                                                              noiseScale: scale * scale))
         image = Self.applyGeometry(image, recipe: recipe, scaleTo: maxLongEdge,
                                    skipCrop: showingUncropped)
@@ -327,13 +331,13 @@ public final class PipelineRenderer {
                               lutSize: LUT3D.exportSize,
                               captureISO: source.captureMetadata.iso)
 
-        let graph = makeGraph(plan: plan, decoded: decoded, draft: false,
+        let graph = makeGraph(plan: plan, decoded: decoded,
+                              allowStaleRasters: false,
                               strokeSets: strokeSets,
                               aiMattes: mattes[source.url]?.planes ?? [:],
                               deferGrain: true)
         var image = graph.build(decoded, plan: plan,
                                 options: RenderGraph.Options(longEdge: longEdge,
-                                                             draft: false,
                                                              lutSize: LUT3D.exportSize))
         // The resize is where a shared render WOULD fork, and today nothing forks here.
         //
@@ -507,7 +511,7 @@ public final class PipelineRenderer {
             throw RenderError.decodeFailed
         }
         let longEdge = Int(Swift.max(decoded.extent.width, decoded.extent.height))
-        let options = RenderGraph.Options(longEdge: longEdge, draft: false,
+        let options = RenderGraph.Options(longEdge: longEdge,
                                           lutSize: LUT3D.exportSize)
 
         let sdrPlan = RenderPlan(recipe: recipe, asShotKelvin: source.asShotTemperature,
@@ -521,9 +525,11 @@ public final class PipelineRenderer {
                                  captureISO: source.captureMetadata.iso)
 
         let cached = mattes[source.url]?.planes ?? [:]
-        let sdrGraph = makeGraph(plan: sdrPlan, decoded: decoded, draft: false,
+        let sdrGraph = makeGraph(plan: sdrPlan, decoded: decoded,
+                                 allowStaleRasters: false,
                                  strokeSets: strokeSets, aiMattes: cached)
-        let hdrGraph = makeGraph(plan: hdrPlan, decoded: decoded, draft: false,
+        let hdrGraph = makeGraph(plan: hdrPlan, decoded: decoded,
+                                 allowStaleRasters: false,
                                  strokeSets: strokeSets, aiMattes: cached)
         let sdr = Self.applyGeometry(sdrGraph.build(decoded, plan: sdrPlan, options: options),
                                      recipe: recipe)
@@ -710,14 +716,19 @@ public final class PipelineRenderer {
     /// `Options` because that is already how the graph is told a stage has nothing to
     /// run on, and because building a full-resolution plate the export will not use is
     /// the waste this is here to avoid.
-    private func makeGraph(plan: RenderPlan, decoded: CIImage, draft: Bool,
+    private func makeGraph(plan: RenderPlan, decoded: CIImage,
+                           allowStaleRasters: Bool,
                            strokeSets: [String: BrushStrokeSet],
                            aiMattes: [String: Plane],
                            deferGrain: Bool = false) -> RenderGraph {
         var graph = RenderGraph()
-        guard !draft else { return graph }
         let extent = decoded.extent
 
+        // This used to `guard !draft else { return graph }` — so during every drag,
+        // every mask rendered as absent and popped in on release, along with the
+        // grain plate. Drafts now build the full graph; what makes that affordable is
+        // `MaskRasterCache` below, which lets a draft frame reuse a raster instead of
+        // paying probe (b)'s 12–190 ms per mask per event.
         if !plan.masks.isEmpty {
             // Mask rasters are smooth by construction, so they cost a fraction of the
             // frame at proxy resolution and upsample without visible error.
@@ -744,12 +755,39 @@ public final class PipelineRenderer {
                                     width: width, height: height, extent: extent,
                                     strokeSets: strokeSets)
 
+            // Everything the raster reads goes into the key, or the cache lies —
+            // PlanTableCache's rule, applied to planes. The source image is keyed by
+            // the recipe subtrees `localStageInput` reads (S6–S10; S3/S8 are skipped
+            // for a mask source), OVER-keyed on whole subtrees deliberately: an extra
+            // rebake costs a background raster, an under-key shows last week's mask.
+            let sourceKey: String? = source == nil ? "-"
+                : Self.maskSourceFingerprint(recipe: plan.recipe)
+
             for mask in plan.masks {
-                let alpha = MaskRaster.combine(mask: mask,
-                                               size: (width: width, height: height),
-                                               source: source,
-                                               strokeSets: strokeSets,
-                                               aiMattes: aiMattes)
+                let bake = {
+                    MaskRaster.combine(mask: mask,
+                                       size: (width: width, height: height),
+                                       source: source,
+                                       strokeSets: strokeSets,
+                                       aiMattes: aiMattes)
+                }
+                let alpha: Plane
+                if let sourceKey,
+                   let maskJSON = (try? CanonicalJSON.tree(of: mask))
+                       .map(CanonicalJSON.serialize) {
+                    let strokesKey = mask.components.compactMap(\.strokesRef)
+                        .map { "\($0):\(strokeSets[$0]?.strokes.count ?? 0)" }
+                        .joined(separator: ",")
+                    let mattesKey = aiMattes.keys.sorted().joined(separator: ",")
+                    let key = [maskJSON, "\(width)x\(height)", strokesKey, mattesKey,
+                               sourceKey].joined(separator: "|")
+                    alpha = maskRasters.plane(maskID: mask.id, key: key,
+                                              allowStale: allowStaleRasters,
+                                              bakeExact: bake)
+                } else {
+                    // An unencodable mask must not collide with anything: no cache.
+                    alpha = bake()
+                }
                 guard let image = Self.image(from: alpha, targetExtent: extent) else {
                     continue
                 }
@@ -849,13 +887,33 @@ public final class PipelineRenderer {
         let small = decoded
             .transformed(by: CGAffineTransform(scaleX: scaleX, y: scaleY))
             .cropped(to: CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height)))
-        // Draft: the mask is sampling the picture's LUMINANCE and COLOUR, and the
-        // spatial stages move neither meaningfully at this size. Skipping them keeps
-        // this to one cheap pass.
+        // The mask is sampling the picture's LUMINANCE and COLOUR, and the spatial
+        // stages move neither meaningfully at this size. Skipping them keeps this to
+        // one cheap pass — under its own name now that `draft` no longer gates stages.
         let staged = RenderGraph().localStageInput(
-            small, plan: plan, options: RenderGraph.Options(longEdge: Swift.max(width, height),
-                                                            draft: true))
+            small, plan: plan,
+            options: RenderGraph.Options(longEdge: Swift.max(width, height),
+                                         maskSource: true))
         return Self.buffer(from: staged, context: context)
+    }
+
+    /// The recipe subtrees the mask-source image is a function of — S6 white balance
+    /// and exposure, S7 tone and zones, S9/S10 colour and grade — serialized
+    /// canonically for the raster cache's key. Nil when any subtree fails to encode,
+    /// which the caller treats as "do not cache".
+    static func maskSourceFingerprint(recipe: Recipe) -> String? {
+        var parts: [String] = []
+        let inputs: [any Encodable] = [
+            recipe.develop.raw, recipe.develop.tone, recipe.develop.zones,
+            recipe.develop.color, recipe.develop.mixer, recipe.develop.pointColors,
+            recipe.look.wheels, recipe.look.printerLights, recipe.look.primaries,
+            recipe.look.bw,
+        ]
+        for value in inputs {
+            guard let tree = try? CanonicalJSON.tree(of: value) else { return nil }
+            parts.append(CanonicalJSON.serialize(tree))
+        }
+        return parts.joined(separator: "|")
     }
 
     /// Long edge a mask raster is computed at. Masks are low-frequency fields; the
@@ -1121,8 +1179,9 @@ public final class PipelineRenderer {
     /// what it will be applied to, and it is applied to the output of this function's
     /// own stage list.
     ///
-    /// `draft: true` matches `maskSource` exactly, and for the same reason — a mask
-    /// samples luminance and colour, and denoise and presence move neither.
+    /// `maskSource: true` matches the raster's own source exactly, and for the same
+    /// reason — a mask samples luminance and colour, and denoise and presence move
+    /// neither.
     ///
     /// One approximation, stated: `maskSource` stages a 1024 px proxy while this stages
     /// the decode, and the tone stage's guided mask has a scale-dependent radius. The
@@ -1140,7 +1199,7 @@ public final class PipelineRenderer {
         let longEdge = Int(Swift.max(decoded.extent.width, decoded.extent.height))
         let staged = RenderGraph().localStageInput(
             decoded, plan: plan,
-            options: RenderGraph.Options(longEdge: longEdge, draft: true))
+            options: RenderGraph.Options(longEdge: longEdge, maskSource: true))
         // Cropped back to the decode's own extent so the normalized coordinate means
         // the same thing it did going in. Every stage in that list preserves the
         // extent today; a stage that stopped doing so would otherwise move the

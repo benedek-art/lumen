@@ -225,8 +225,7 @@ final class KernelGoldenTests: XCTestCase {
             var graph = RenderGraph()
             graph.maskImages[mask.id] = alphaImage
             let output = graph.build(ciImage(from: source), plan: plan,
-                                     options: RenderGraph.Options(longEdge: width,
-                                                                  draft: false))
+                                     options: RenderGraph.Options(longEdge: width))
             guard let gpu = readBack(output, width: width, height: height) else {
                 return nil
             }
@@ -260,8 +259,7 @@ final class KernelGoldenTests: XCTestCase {
         let plainPlan = RenderPlan(recipe: plainRecipe, lutSize: LUT3D.exportSize)
         guard let plain = readBack(
             RenderGraph().build(ciImage(from: source), plan: plainPlan,
-                                options: RenderGraph.Options(longEdge: width,
-                                                             draft: false)),
+                                options: RenderGraph.Options(longEdge: width)),
             width: width, height: height) else { return XCTFail("plain render failed") }
         // Column 44 of 64, NOT the middle. `testImage` maps `ev = -14 + u * 20`, so the
         // middle column sits at -3.8 EV — nearly four stops below middle grey, where the
@@ -404,7 +402,6 @@ final class KernelGoldenTests: XCTestCase {
         func render(lutSize: Int) -> ImageBuffer? {
             let out = graph.build(ciImage(from: source), plan: plan,
                                   options: RenderGraph.Options(longEdge: width,
-                                                               draft: false,
                                                                lutSize: lutSize))
             return readBack(out, width: width, height: height)
         }
@@ -923,7 +920,7 @@ final class KernelGoldenTests: XCTestCase {
             let plan = RenderPlan(recipe: recipe, lutSize: LUT3D.exportSize)
             let output = RenderGraph().build(
                 ciImage(from: source), plan: plan,
-                options: RenderGraph.Options(longEdge: longEdge, draft: false))
+                options: RenderGraph.Options(longEdge: longEdge))
             return readBack(output, width: side, height: side)
         }
 
@@ -1721,18 +1718,21 @@ final class KernelGoldenTests: XCTestCase {
         recipe.develop.tone.exposure = 0.5
         recipe.develop.tone.contrast = 25
         recipe.develop.color.saturation = 15
+        // Off explicitly: a default recipe denoises, the reference has no S3, and
+        // `draft: true` — which used to hide that gap by gating S3 out — is gone.
+        recipe.develop.denoise.mode = .off
 
         let source = testImage(width: 48, height: 12)
         let plan = RenderPlan(recipe: recipe, lutSize: LUT3D.exportSize)
         let graph = RenderGraph()
         let output = graph.build(ciImage(from: source), plan: plan,
-                                 options: RenderGraph.Options(longEdge: 48, draft: true))
+                                 options: RenderGraph.Options(longEdge: 48))
         guard let gpu = readBack(output, width: source.width, height: source.height) else {
             return XCTFail("graph render failed")
         }
 
-        // Draft skips the spatial stages on both sides, so this compares exactly the
-        // colour path: matrix, tone gain, tables.
+        // Presence is zero, sharpening is zero and denoise is forced off, so this
+        // compares exactly the colour path: matrix, tone gain, tables.
         let reference = ReferenceRenderer.render(source, plan: plan)
 
         var worst = 0.0
@@ -1761,10 +1761,11 @@ final class KernelGoldenTests: XCTestCase {
         let source = ImageBuffer(width: 32, height: 4) { u, _ in
             RGB(gray: 0.18 * pow(2, -8 + u * 12))
         }
-        let plan = RenderPlan(recipe: Recipe())
+        var recipe = Recipe()
+        recipe.develop.denoise.mode = .off   // a default recipe denoises; not the subject
+        let plan = RenderPlan(recipe: recipe)
         let output = RenderGraph().build(ciImage(from: source), plan: plan,
-                                         options: RenderGraph.Options(longEdge: 32,
-                                                                      draft: true))
+                                         options: RenderGraph.Options(longEdge: 32))
         guard let result = readBack(output, width: source.width, height: source.height)
         else { return XCTFail("render failed") }
 
@@ -1838,8 +1839,7 @@ final class KernelGoldenTests: XCTestCase {
         let source = texturedTestImage(width: 64, height: 32)
         let plan = RenderPlan(recipe: recipe, lutSize: LUT3D.exportSize)
         let output = RenderGraph().build(ciImage(from: source), plan: plan,
-                                         options: RenderGraph.Options(longEdge: 64,
-                                                                      draft: false))
+                                         options: RenderGraph.Options(longEdge: 64))
         guard let gpu = readBack(output, width: source.width, height: source.height) else {
             return XCTFail("graph render failed")
         }
@@ -1872,8 +1872,7 @@ final class KernelGoldenTests: XCTestCase {
             let p = RenderPlan(recipe: r, lutSize: LUT3D.exportSize)
             guard let out = readBack(
                 RenderGraph().build(ciImage(from: frame), plan: p,
-                                    options: RenderGraph.Options(longEdge: 64,
-                                                                 draft: false)),
+                                    options: RenderGraph.Options(longEdge: 64)),
                 width: frame.width, height: frame.height) else {
                 throw XCTSkip("render failed")
             }
@@ -2629,7 +2628,7 @@ final class KernelGoldenTests: XCTestCase {
             let expected = plan.classicalDenoise.apply(source)
             let output = RenderGraph().applyDenoise(
                 input, plan: plan,
-                options: RenderGraph.Options(longEdge: width, draft: false))
+                options: RenderGraph.Options(longEdge: width))
             guard let got = readBack(output, width: width, height: height) else {
                 return XCTFail("\(name): denoise render failed")
             }
@@ -2676,7 +2675,7 @@ final class KernelGoldenTests: XCTestCase {
         let expected = plan.classicalDenoise.apply(source)
         let output = RenderGraph().applyDenoise(
             ciImage(from: source), plan: plan,
-            options: RenderGraph.Options(longEdge: width, draft: false))
+            options: RenderGraph.Options(longEdge: width))
         guard let got = readBack(output, width: width, height: height) else {
             return XCTFail("blotch render failed")
         }
@@ -2711,7 +2710,7 @@ final class KernelGoldenTests: XCTestCase {
         let expected = plan.classicalDenoise.hotPixelPass(source)
         let output = RenderGraph().applyDenoise(
             ciImage(from: source), plan: plan,
-            options: RenderGraph.Options(longEdge: width, draft: false))
+            options: RenderGraph.Options(longEdge: width))
         guard let got = readBack(output, width: width, height: height) else {
             return XCTFail("hot pixel render failed")
         }
@@ -2745,13 +2744,13 @@ final class KernelGoldenTests: XCTestCase {
         let source = noisyFrame(width: width, height: height, profile: profile)
         let input = ciImage(from: source)
 
-        func render(_ denoise: Denoise, draft: Bool = false) throws -> ImageBuffer {
+        func render(_ denoise: Denoise) throws -> ImageBuffer {
             var recipe = Recipe()
             recipe.develop.denoise = denoise
             let plan = RenderPlan(recipe: recipe, captureISO: iso)
             let out = RenderGraph().build(
                 input, plan: plan,
-                options: RenderGraph.Options(longEdge: width, draft: draft))
+                options: RenderGraph.Options(longEdge: width))
             guard let buffer = readBack(out, width: width, height: height) else {
                 throw RenderError.renderFailed
             }
@@ -2786,10 +2785,11 @@ final class KernelGoldenTests: XCTestCase {
     func testMidGreyLandsWhereTheTransformPromises() throws {
         try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
         let source = ImageBuffer(width: 8, height: 4) { _, _ in RGB(gray: 0.18) }
-        let plan = RenderPlan(recipe: Recipe())
+        var recipe = Recipe()
+        recipe.develop.denoise.mode = .off   // a default recipe denoises; not the subject
+        let plan = RenderPlan(recipe: recipe)
         let output = RenderGraph().build(ciImage(from: source), plan: plan,
-                                         options: RenderGraph.Options(longEdge: 8,
-                                                                      draft: true))
+                                         options: RenderGraph.Options(longEdge: 8))
         guard let result = readBack(output, width: 8, height: 4) else {
             return XCTFail("render failed")
         }
@@ -2839,9 +2839,11 @@ final class KernelGoldenTests: XCTestCase {
         }
         let proof = SoftProof(enabled: true, space: .srgb,
                               intent: .relativeColorimetric, showGamutWarning: true)
-        let plan = RenderPlan(recipe: Recipe(), lutSize: LUT3D.exportSize,
+        var recipe = Recipe()
+        recipe.develop.denoise.mode = .off   // a default recipe denoises; not the subject
+        let plan = RenderPlan(recipe: recipe, lutSize: LUT3D.exportSize,
                               softProof: proof)
-        let options = RenderGraph.Options(longEdge: width, draft: true)
+        let options = RenderGraph.Options(longEdge: width)
         let output = RenderGraph().build(ciImage(from: source), plan: plan,
                                          options: options)
         guard let gpu = readBack(output, width: width, height: height) else {
@@ -2857,7 +2859,7 @@ final class KernelGoldenTests: XCTestCase {
         // And the neutral half has to survive proofing untouched, which is the half a
         // stage that tinted everything would still pass without.
         let plain = RenderGraph().build(ciImage(from: source),
-                                        plan: RenderPlan(recipe: Recipe(),
+                                        plan: RenderPlan(recipe: recipe,
                                                          lutSize: LUT3D.exportSize),
                                         options: options)
         guard let unproofed = readBack(plain, width: width, height: height) else {
@@ -2885,19 +2887,21 @@ final class KernelGoldenTests: XCTestCase {
         let source = ImageBuffer(width: width, height: height) { u, _ in
             u < 0.5 ? RGB(0.02, 1.1, 0.02) : RGB(gray: 0.18)
         }
-        let options = RenderGraph.Options(longEdge: width, draft: true)
+        let options = RenderGraph.Options(longEdge: width)
+        var quietRecipe = Recipe()
+        quietRecipe.develop.denoise.mode = .off   // a default recipe denoises
         let proof = SoftProof(enabled: true, space: .srgb,
                               intent: .relativeColorimetric, showGamutWarning: false)
         guard let proofed = readBack(
                 RenderGraph().build(ciImage(from: source),
-                                    plan: RenderPlan(recipe: Recipe(),
+                                    plan: RenderPlan(recipe: quietRecipe,
                                                      lutSize: LUT3D.exportSize,
                                                      softProof: proof),
                                     options: options),
                 width: width, height: height),
               let plain = readBack(
                 RenderGraph().build(ciImage(from: source),
-                                    plan: RenderPlan(recipe: Recipe(),
+                                    plan: RenderPlan(recipe: quietRecipe,
                                                      lutSize: LUT3D.exportSize),
                                     options: options),
                 width: width, height: height)
