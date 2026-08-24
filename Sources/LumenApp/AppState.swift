@@ -852,6 +852,11 @@ final class AppState: ObservableObject {
     /// user happens to touch a slider.
     @Published var showHistogram = true { didSet { scopesBecameVisible(oldValue) } }
     @Published var showScopes = false { didSet { scopesBecameVisible(oldValue) } }
+    /// The latency instrument (docs/23 M1b): draft/settle wall times and input→draft
+    /// in the loupe's corner. Debug menu; off by default and free when off.
+    @Published var showLatencyHUD = false {
+        didSet { LatencyHUD.shared.enabled = showLatencyHUD }
+    }
     /// The histogram and scopes for the current photo, binned from a small proxy of
     /// the actual composite off the main actor.
     @Published var scopes: ScopeData?
@@ -2273,6 +2278,8 @@ final class AppState: ObservableObject {
             // including while dragging the mask's own sliders. Its refresh is
             // generation-guarded and cancels its predecessor, so per-event is cheap.
             refreshMaskOverlay()
+            // The HUD's input side: the next draft that lands closes the loop.
+            LatencyHUD.shared.noteInput()
         }
     }
 

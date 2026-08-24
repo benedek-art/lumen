@@ -362,6 +362,7 @@ final class PhotoRenderModel: ObservableObject {
         // remains between draft and settle is sharpness alone — which reads as the
         // picture resolving rather than as the picture changing.
         let draftTarget = Swift.max(draftLongEdge, Swift.min(fullLongEdge / 2, 2048))
+        let draftStarted = DispatchTime.now().uptimeNanoseconds
         let draft = await coordinator.render(url: url, recipe: recipe,
                                              maxLongEdge: Swift.max(draftTarget, 64),
                                              draft: true, generation: draftGeneration,
@@ -371,6 +372,11 @@ final class PhotoRenderModel: ObservableObject {
         guard !Task.isCancelled else { return }
         if let draft, draft.generation == latestGeneration {
             apply(draft, url: url)
+            // Wall time around the await, actor queueing included — queueing is what
+            // a hand feels. Free when the HUD is off.
+            LatencyHUD.shared.noteDraft(
+                milliseconds: Double(DispatchTime.now().uptimeNanoseconds - draftStarted) / 1e6,
+                longEdge: Swift.max(draftTarget, 64))
         }
 
         // The debounce, and nothing but the debounce: everything after this point still
@@ -388,6 +394,7 @@ final class PhotoRenderModel: ObservableObject {
         while attempt < PhotoRenderModel.qualityAttempts {
             let generation: UInt64 = PhotoRenderModel.nextGeneration()
             latestGeneration = generation
+            let settleStarted = DispatchTime.now().uptimeNanoseconds
             let result = await coordinator.render(url: url, recipe: recipe,
                                                   maxLongEdge: Swift.max(fullLongEdge, 64),
                                                   draft: false, generation: generation,
@@ -397,6 +404,9 @@ final class PhotoRenderModel: ObservableObject {
             guard !Task.isCancelled else { return }
             if let result, result.generation == generation, latestGeneration == generation {
                 apply(result, url: url)
+                LatencyHUD.shared.noteSettle(
+                    milliseconds: Double(DispatchTime.now().uptimeNanoseconds - settleStarted) / 1e6,
+                    longEdge: Swift.max(fullLongEdge, 64))
                 return
             }
             // Something newer of ours is already in flight: that request owns the frame.
@@ -857,6 +867,9 @@ struct LoupeView: View {
 
     private var badges: some View {
         VStack(alignment: .leading, spacing: 4) {
+            if state.showLatencyHUD {
+                LatencyHUDView()
+            }
             if model.usedEmbeddedPreview, model.imageURL == photo.id {
                 // Never silently show something that is not the edit.
                 LumenBadge(text: "EMBEDDED PREVIEW", emphasized: true)

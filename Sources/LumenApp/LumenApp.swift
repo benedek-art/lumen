@@ -61,6 +61,15 @@ struct LumenApp: App {
                     .disabled(state.catalog == nil)
             }
 
+            // Instruments for a test session, not features: everything here exists
+            // so an owner session produces numbers instead of impressions.
+            CommandMenu("Debug") {
+                Button(state.showLatencyHUD ? "Hide Latency HUD" : "Show Latency HUD") {
+                    state.showLatencyHUD.toggle()
+                }
+                .keyboardShortcut("l", modifiers: [.command, .option])
+            }
+
             CommandGroup(replacing: .undoRedo) {
                 Button(state.history.undoLabel.map { "Undo \($0)" } ?? "Undo") {
                     state.undo()
