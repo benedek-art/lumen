@@ -593,16 +593,42 @@ release resolves through it like any other sample.
 
 ---
 
-**ENV-01 — the Swift toolchain could not be installed in the environment this batch was
-written in, so `swift test` and `swiftc -parse` were both unavailable.** Recorded because
-it changes how everything above should be read.
+**ENV-01 — the Swift toolchain was unavailable for most of this batch and appeared before
+the end of it, so the four commits before this one understate their own verification.**
 
-`scripts/install-linux-toolchain.sh` fails at the fetch: the agent proxy answers 403 to
-CONNECT for `download.swift.org`, the release tarballs are not GitHub assets, and there is
-no Swift binary anywhere on the machine. The only gates that ran were
-`scripts/check-swift-surface.py` and `scripts/gen-fixtures.py --check`, both exit 0, and
-the surface checker was verified able to fail twice on this diff — once on a misspelt
-static reference and once on a wrong argument label. Note what it did NOT catch: the same
-wrong label on an INSTANCE call, two lines away, went unreported. Its own header says it
-sees labels and not types; it evidently also misses some labels on lowercase receivers.
-Every test added in this batch is unrun, and every behavioural claim is read from source.
+`scripts/install-linux-toolchain.sh` failed at the fetch — the agent proxy answers 403 to
+CONNECT for `download.swift.org`, the release tarballs are not GitHub assets, and there
+was no `swiftc` on the machine. Every commit in this batch was therefore written blind,
+and each says so. A toolchain then appeared at `/opt/swift` partway through (Swift 6.1.2,
+installed by something outside this session), and everything was run afterwards. The code
+is unchanged by that; only what can be claimed about it is.
+
+What the run says:
+
+    swift test --filter LumenCoreTests --skip ControlProofTests
+      641 tests, 0 failures, exit 0   (612 before this batch, plus the 29 added)
+    swiftc -parse -swift-version 5 $(find Sources -name '*.swift')   exit 0
+    scripts/check-swift-surface.py   exit 0
+    scripts/gen-fixtures.py --check  exit 0
+
+**Verified able to fail, four substitutions, each the SHIPPED defect put back:**
+
+| Substituted | Result |
+|---|---|
+| `DraftResolution.draftLongEdge` returns `max(fit, min(settled/2, 2048))` — the viewer's own draft arithmetic | 5 of 8 `DraftResolutionTests` red, incl. "the frame changed size between the draft and the settle at 1.0/2.0/1.25/8.0" |
+| `ViewportClick.togglesZoom` returns `press.travel < travelTolerance` — the one comparison the loupe shipped | 6 of 8 `ViewportClickTests` red |
+| `SliderDrag.endedValue` ignores `travelled` and returns `resolve(start)` — the release the slider threw away | `testTheReleaseCarriesTheGestureToWhereThePointerActuallyIs` red at 0.0 against 100.0, plus two more |
+| `SliderTrack.valueAtPress` ignores `x`; `thumbGrabRadius` set to 2 | `testAPressOnTheTrackLandsWhereItWasPressed` and `testGrabbingTheThumbIsWiderThanTheThumbIsDrawn` red |
+
+A fifth substitution proved the new parse gate: an unbalanced brace in `LoupeView.swift`
+returns exit 1 with `expected '}' in struct`. Reverted; the tree is byte-identical to the
+state that exits 0 on all four gates.
+
+**And one thing the surface checker cannot see, worth recording because a clean run from
+it reads as more than it is.** Three probes were run against it. A misspelt static
+reference (`LoupeView.draftLongEdgeXX`) was caught. A wrong argument label at a STATIC
+call site (`SliderDrag.endedValue(track:from:travel:)`) was caught. The SAME wrong label
+two lines away on an INSTANCE call — `geometryOfDrag.value(from:travel:)` against a
+declared `value(from:travelled:)` — was NOT caught, and the run exited 0. Its header is
+honest that it sees labels and not types; it is also blind to some labels on lowercase
+receivers, and `swiftc -parse` does not see them either. Only a compile does.

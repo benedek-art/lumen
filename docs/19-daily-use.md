@@ -93,12 +93,17 @@ answered "does the image have focus", and the question actually being asked is "
 my keys stop working", whose answer is always a text field having taken focus — which the
 ring never said.
 
-**None of this was run.** There is no Swift toolchain reachable from the environment this
-was written in (download.swift.org answers 403 through the proxy), so `swift test` and
-`swiftc -parse` were both unavailable; the LumenCore tests added here are unrun and every
-claim above is read from source. The two Python gates were run and stay green. This is
-still audit UX-01: the five loops have no instrumentation, and until a signpost trace
-exists on the owner's Mac, "the sliders feel right" remains a code-inspection claim.
+**What is proved and what is only read.** The three LumenCore rules — the drag
+arithmetic, the click gate, the draft's pixel size — are under test: 641 tests green, and
+each rule was watched failing with its shipped defect substituted back (ENV-01 in the
+audit ledger has the table). Everything else here is READ FROM SOURCE and has no test,
+because `Sources/LumenApp` has no test target: the backfill's hold on the catalog queue,
+the cooperative-thread starvation, the render backlog, the `catalogID` scan, and both
+zoom defects *as they manifest in the app* are arguments from the code rather than
+measurements. This is still audit UX-01. Until a signpost trace exists on the owner's
+Mac — NSEvent receipt to render completion for the slider loop, and one around
+`previewState` and one backfill chunk — "the sliders feel right" remains a
+code-inspection claim.
 
 ## Phase 2 — the sliders are accurate
 
