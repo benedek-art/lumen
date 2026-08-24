@@ -169,7 +169,9 @@ App-layer waste, low-risk first:
       `@Observable` migration.)
 - [x] ScopesView rasters moved into `ScopeRaster`, built once per measurement on the
       binning task, carried on `ScopeData`; the view draws stored CGImages
-- [ ] AppleRawSource decode cache: single entry → small keyed cache
+- [x] AppleRawSource decode cache: single entry → 8-entry keyed LRU (six consumers —
+      loupe draft/settle, compare panes, scopes, sampler — stopped evicting each other
+      per event)
 - [x] refreshMaskOverlay: stored task, cancelled by its successor, generation checked
       before the actor call (the claimed-too-late defect, closed in its last hideout)
 - [x] PixelSampler lazy: task key carries whether any consumer (readout under cursor,
@@ -179,8 +181,11 @@ App-layer waste, low-risk first:
       `DraftResolution`, killing the half/double zoom pump still live in compare
 - [ ] Then, ONE isolated revert-friendly commit: AppState → `@Observable`
       (56 props, 25 sites, 19 files)
-- [ ] `LumenAppTests` target; first tests: memoised counts, keyed decode cache,
-      RenderKey parity across views
+- [x] `LumenAppTests` target exists (links on Linux too — the `@main` stub);
+      first tests: the memoised counts pinned against the exact reduce expressions
+      they replaced
+- [ ] Still owed from that bullet: keyed decode-cache test (the cache is
+      macOS/LumenPipeline) and RenderKey parity across views
 
 ## M1b — Truth polish + instrumentation
 
@@ -191,8 +196,9 @@ App-layer waste, low-risk first:
 - [ ] Preview dither / deeper intermediate (loupe banding the export doesn't have)
 - [ ] Latency HUD behind a debug key (drag→photon, draft/settle ms, ladder rung, cache
       hits) + os_signpost around decode/plan/rasterize/render
-- [ ] Last folder remembered across launches (security-scoped bookmark; the schema
-      column exists with no writer)
+- [x] Last folder remembered across launches (security-scoped bookmark in
+      UserDefaults, plain-bookmark fallback both directions, existence-checked;
+      checklist step 1 verifies it on a real Mac)
 
 **Owner session A:** drag every basic slider on a masked, denoised, sharpened real RAW —
 nothing may change on release; Highlights/Whites/Blacks judged with the HUD visible
