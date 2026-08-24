@@ -51,9 +51,11 @@ jobs:
           grep -E "warning:" build.log | sed 's#/Users/runner/work/lumen/lumen/##' | sort -u | head -30
           exit $status
 
-  # The fast lane. Nine tests are 92% of the suite's wall clock — measured, from the
-  # streamed log: 232s, 196s, 125s, 90s, 74s, 57s, 53s, 46s, 44s out of 997s. The other
-  # 235 tests run in about seventy seconds put together.
+  # The fast lane. A handful of whole-pipeline tests are ~92% of the suite's wall clock
+  # — measured once from the streamed log: 232s, 196s, 125s, 90s, 74s, 57s, 53s, 46s,
+  # 44s out of 997s; the rest of the suite ran in about seventy seconds put together.
+  # (Those figures were taken at a point in time and the suite has grown since; the
+  # SHAPE — a few slow whole-pipeline tests dominating — is what this lane is built on.)
   #
   # Skipping those nine here turns "did I break something ordinary" from a
   # seventeen-minute answer into a two-minute one, which is the difference between a
@@ -168,10 +170,11 @@ jobs:
         run: python3 scripts/check-swift-surface.py
 
 
-  # The engine suite, on the lane that costs nothing. LumenCore is eighteen thousand
-  # lines of pure Swift — colour science, tone, grade, film, detail, denoise, mask
-  # algebra, catalog and XMP — with no Apple framework anywhere in it, so all 363 of its
-  # tests run here in about six minutes on a runner that is not rationed.
+  # The engine suite, on the lane that costs nothing. LumenCore is pure Swift — colour
+  # science, tone, grade, film, detail, denoise, mask algebra, catalog and XMP — with no
+  # Apple framework anywhere in it, so its whole suite runs here in a few minutes on a
+  # runner that is not rationed. (No count in this comment on purpose: two previous
+  # counts here went stale within days. The test log is the count.)
   #
   # The catalog is included only because `Sources/CSQLite3` exists: Ubuntu ships a header
   # and a shared object and no modulemap, so `canImport(SQLite3)` was FALSE here and
@@ -320,21 +323,26 @@ jobs:
         run: sh scripts/install-linux-toolchain.sh
       - name: Every registered control still measures what the record says
         shell: bash
+        env:
+          # Set to '1' only by a manual dispatch asking for it. On a push the
+          # expression yields the empty string, WHICH GITHUB STILL SETS — and that is
+          # fine now, because `ControlProofTests.isRecording` refuses empty (and "0",
+          # "false", "no", "off") since 62f301c. The guard lives in the Swift, not in
+          # this file: the silent-re-record incident (run 181 reported no drift while
+          # tone.exposure measured 251.54 against a committed 169.07) was the pairing
+          # of THIS empty string with a Swift check that read mere presence as yes.
+          #
+          # Do NOT move this expression into the `run:` script instead. That was tried
+          # in 62f301c — `if [ "${{ inputs.record_proofs }}" = "true" ]` inline — and
+          # GitHub refused to create jobs for the whole workflow: runs 182, 183 and 184
+          # each report "failure" with ZERO jobs, created and completed in the same
+          # second, while a one-job canary workflow on the same push ran fine. The YAML
+          # parses; the run-creation service rejects it anyway. This env: form had run
+          # 181 times before the change.
+          LUMEN_RECORD_PROOFS: ${{ inputs.record_proofs && '1' || '' }}
         run: |
           export PATH="/opt/swift/usr/bin:$PATH"
-          # Exported HERE, and only when asked for. It must NOT be an `env:` block with
-          # a `${{ }}` expression: on a push `inputs.record_proofs` is null and the
-          # expression yields the EMPTY STRING, which GitHub still sets as a variable.
-          # `ControlProofTests` asks `environment["LUMEN_RECORD_PROOFS"] != nil`, and an
-          # empty string is not nil — so every push silently re-recorded the records it
-          # was supposed to be checking, and the lane went green on measurements that
-          # had genuinely drifted. Run 181 is the one that did it: tone.exposure
-          # measured 251.54 against a committed 169.07 and reported no drift at all.
-          # The shell's own `-n` test disagreed with Swift's `!= nil` test, which is why
-          # nothing printed either. The test now refuses empty and "false" as well, so
-          # both ends have to be wrong before this can happen again.
-          if [ "${{ inputs.record_proofs }}" = "true" ]; then
-            export LUMEN_RECORD_PROOFS=1
+          if [ "$LUMEN_RECORD_PROOFS" = "1" ]; then
             echo "RECORDING — this run rewrites the records and proves nothing."
           fi
           set +e
