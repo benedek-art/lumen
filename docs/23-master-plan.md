@@ -62,7 +62,13 @@ what the owner touches.
 - [x] ~~Dispatch gpu-parity~~ → better: the dispatch APIs 403 for this session, so the
       lane now **triggers itself** — `gpu-parity.yml` runs on any push touching
       LumenPipeline/Engine/Image/Color or the pipeline tests (its own file included, so
-      the push that created it is its first run ever). Triage of that first run: below.
+      the push that created it is its first run ever). **First run (gpu-parity #1,
+      2026-08-24 21:02): 48 tests, 0 failures, 0 skips, 35s on an arm64 GPU runner —
+      including `testGraphMatchesTheReferenceRendererOnTheColourPath` (2.18s) and
+      `testGraphMatchesTheReferenceRendererWithTheSpatialStagesOn` (4.62s), executed
+      for the first time in the project's history and green.** Nothing to triage; the
+      known caveat stands that the spatial tolerance is a 0.25 smoke bound, to be
+      tightened by measurement in M3.
 - [x] The two stale proof records re-pinned (tone.exposure ±2→±5 authority 169.07→
       251.54, raw.tint ±100→±150 authority 100.13→154.97), measured locally on the same
       Swift 6.1.2 the lane runs, matching run 181's discarded measurement to rounding;
@@ -84,9 +90,18 @@ what the owner touches.
 - [ ] Two owner-provided real RAW fixtures committed (<15MB total) unlocking
       AppleRawSource contract tests (as-shot neutral UNITS have never been verified),
       draft-demosaic delta, perf lane, Vision-matte tests
-- [ ] De-risking probes run and recorded: (a) full-pipeline draft cost on the runner at
-      1024/1536/2048; (b) mask re-raster cost at 1024 on Linux; (c) draft-demosaic
-      color delta (needs the RAW fixture)
+- [ ] De-risking probes run and recorded:
+      - [ ] (a) full-pipeline draft cost on the runner at 1024/1536/2048 —
+            `PerfProbeTests` rides the gpu-parity lane and prints the table on every
+            pipeline-touching push
+      - [x] (b) mask re-raster cost at 1024, release build, this container's x86 CPU
+            (an M-series Mac is typically 2–4x faster): geometry-only combine
+            (linear+radial) **12.8 ms**; luma-range + guided refine **190.7 ms**;
+            geometry + feather-40 refine chain **105.0 ms**. Verdict: geometry-only
+            masks are borderline per-frame viable; anything through the refine chain is
+            not. **M1a's stale-while-drag MaskRasterCache is load-bearing, not a
+            nicety.**
+      - [ ] (c) draft-demosaic color delta (needs the RAW fixture)
 - [x] Honesty pass: README's "nobody has run it on a Mac" + line count, CI comment test
       counts, "thirty-two kernels" (there are 33) — plus two the audits missed: the
       install script's "three tests fail here" paragraph (those tests were measured,
