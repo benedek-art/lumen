@@ -262,11 +262,6 @@ public final class PipelineRenderer {
         // factor — squared, because it is a variance.
         var image = graph.build(decoded, plan: plan,
                                 options: RenderGraph.Options(longEdge: longEdge,
-                                                             // DELIBERATE RED: the
-                                                             // exact wrong change the
-                                                             // truthfulness lock must
-                                                             // catch. Reverted next.
-                                                             maskSource: draft,
                                                              noiseScale: scale * scale))
         image = Self.applyGeometry(image, recipe: recipe, scaleTo: maxLongEdge,
                                    skipCrop: showingUncropped)
