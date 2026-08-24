@@ -8,6 +8,7 @@
 // levels — below what an 8-bit display can show — because no assertion anywhere asked
 // how MUCH a control does. These do.
 
+import Foundation
 import XCTest
 import LumenCore
 
@@ -212,18 +213,47 @@ final class ControlProofTests: XCTestCase {
                         + "with LUMEN_RECORD_PROOFS=1 and say in the commit why the shape "
                         + "changed."
                     : "\(spec.id) has no committed record. Run the suite once with "
-                        + "LUMEN_RECORD_PROOFS=1 and commit what it writes.")
+                        + "LUMEN_RECORD_PROOFS=1 and commit what it writes, or paste "
+                        + "the JSON below into "
+                        + "Tests/LumenCoreTests/Proof/records/\(spec.id).json:\n"
+                        + ControlProofTests.recordJSON(fresh))
                 continue
             }
             if !fresh.agrees(with: committed) {
                 drifted.append("  \(spec.id)\n    committed: \(committed.summary)"
-                               + "\n    now:       \(fresh.summary)")
+                               + "\n    now:       \(fresh.summary)"
+                               // The new record in full, byte-identical to what
+                               // `ProofRecordStore.write` would put on disk, so a
+                               // DELIBERATE change can be committed straight out of a
+                               // red run's log. `summary` rounds, so it cannot serve;
+                               // and the artifact upload cannot either from anywhere
+                               // that can read the log but not reach the blob store it
+                               // lands in. Both were tried before this.
+                               + "\n    --- \(spec.id).json ---\n"
+                               + ControlProofTests.recordJSON(fresh)
+                               + "\n    --- end \(spec.id).json ---")
             }
         }
         XCTAssertTrue(
             drifted.isEmpty,
             "A control's measured behaviour moved. That is either a fix or a regression, "
                 + "and the commit message has to say which:\n" + drifted.joined(separator: "\n"))
+    }
+
+    /// One record as the exact bytes `ProofRecordStore.write` would put on disk.
+    ///
+    /// Same encoder settings on purpose — pretty printed, sorted keys — so what a red
+    /// run prints can be pasted into the records directory without reformatting, and a
+    /// diff of the result reads as a change in one number rather than a reshuffled blob.
+    static func recordJSON(_ record: ProofRecord) -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        guard let data = try? encoder.encode(record),
+              let text = String(data: data, encoding: .utf8)
+        else {
+            return "<record for \(record.id) could not be encoded>"
+        }
+        return text
     }
 
     // MARK: - Evidence
