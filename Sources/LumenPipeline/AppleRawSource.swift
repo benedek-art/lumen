@@ -113,8 +113,16 @@ public final class AppleRawSource: ImageSource {
         let lensProfile: Bool
     }
 
-    private var cachedKey: DecodeKey?
-    private var cachedImage: CIImage?
+    /// A handful of entries, not one. The viewer settles at one scale, the draft at
+    /// another, the scope probe decodes at 512, the mask raster at ≤1024, and
+    /// clipping statistics and auto-tone at their own sizes — six consumers whose
+    /// keys legitimately differ, all against a single-entry cache, so every one of
+    /// them EVICTED the viewer's demosaic and the viewer paid it again on the next
+    /// frame. On a 45 MP RAW the demosaic is the whole cost of the interaction. Eight
+    /// entries covers the working set; the values are lazy CIImage recipes, so the
+    /// held cost is filter descriptions, not pixels.
+    private static let decodeCacheCapacity = 8
+    private var decodeCache: [(key: DecodeKey, image: CIImage)] = []
 
     public func decode(recipe: Recipe, draft: Bool, scaleFactor: Double = 1.0) -> CIImage? {
         let dev = recipe.develop
@@ -127,12 +135,12 @@ public final class AppleRawSource: ImageSource {
                             colorNR: standIn.chroma,
                             lensProfile: dev.geometry.lens.profile)
         // Core Image is lazy, so the cached value is a recipe rather than pixels — but
-        // it is a recipe bound to the filter's CURRENT settings, which is exactly why
-        // it can only be reused when nothing the filter reads has changed. The source
-        // lives inside an actor, so there is no window where another caller mutates the
-        // filter between the check and the use.
-        if let cachedKey, cachedKey == key, let cachedImage {
-            return cachedImage
+        // it is a recipe bound to the filter's settings AT DECODE TIME, which is why a
+        // hit must match every field the filter reads. The source lives inside an
+        // actor, so there is no window where another caller mutates the filter between
+        // the check and the use.
+        if let hit = decodeCache.first(where: { $0.key == key })?.image {
+            return hit
         }
 
         filter.isDraftModeEnabled = draft
@@ -193,8 +201,13 @@ public final class AppleRawSource: ImageSource {
         filter.isLensCorrectionEnabled = dev.geometry.lens.profile
 
         let image = filter.outputImage
-        cachedKey = image == nil ? nil : key
-        cachedImage = image
+        if let image {
+            decodeCache.removeAll { $0.key == key }
+            decodeCache.insert((key: key, image: image), at: 0)
+            if decodeCache.count > Self.decodeCacheCapacity {
+                decodeCache.removeLast(decodeCache.count - Self.decodeCacheCapacity)
+            }
+        }
         return image
     }
 
