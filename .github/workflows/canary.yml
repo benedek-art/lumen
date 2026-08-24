@@ -1,0 +1,18 @@
+# TEMPORARY diagnostic, added while ci.yml runs #182 and #183 both died in the same
+# second they were created — conclusion "failure", zero jobs, no logs — on a public
+# repository with a workflow file that parses. That is the allocation-failure signature
+# BUILDING.md records from the private-repo outage, but the repo is public now, so the
+# cause must be something else. This one-job echo answers the only question that
+# matters: can ANY workflow on this branch get a runner? If canary runs while CI
+# zero-jobs, the problem is something about ci.yml the parser accepts and the runner
+# service refuses; if both die, it is the account or GitHub. Delete once CI is green.
+name: Canary
+on:
+  push:
+    branches: ["**"]
+jobs:
+  canary:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - run: echo "runner allocated at $(date -u)"
