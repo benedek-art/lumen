@@ -43,7 +43,7 @@ export it (⌘E).
 | Target | Contents | Platforms |
 |---|---|---|
 | `LumenCore` | The whole engine as pure Swift: colour science, the display transform, tone, curves, colour and grade, the film chain, spatial filters, denoise, mask rasterization, scopes, the SQLite catalog, the recipe format. No UI, no Apple-only frameworks. | macOS + Linux |
-| `LumenPipeline` | The Core Image render path: thirty-two small kernels, the graph, the RAW stage, export. No AppKit, no SwiftUI — deliberately, so it stays testable headless. | macOS |
+| `LumenPipeline` | The Core Image render path: thirty-three small kernels, the graph, the RAW stage, export. No AppKit, no SwiftUI — deliberately, so it stays testable headless. | macOS |
 | `LumenApp` | The SwiftUI application. | macOS |
 
 ## How this code was verified
@@ -236,7 +236,7 @@ S15 curve    ┘        one 3-D table, log domain in, display-linear out
 S16 geometry          crop ∘ rotate, one resample
 ```
 
-The custom-shader surface is therefore thirty-two small kernels
+The custom-shader surface is therefore thirty-three small kernels
 (`Sources/LumenPipeline/Kernels.swift`) — the log shaper, image-by-image arithmetic for
 the guided filter, mask compositing, grain, vignette, dehaze, halation, and the nine
 that make up S3's variance-stabilizing transform and à-trous shrinkage. Everything else

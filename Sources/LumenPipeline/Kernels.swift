@@ -1,5 +1,7 @@
 // Kernels.swift
-// The complete custom-shader surface of Lumen's render path: thirty-two small kernels.
+// The complete custom-shader surface of Lumen's render path: thirty-three small kernels.
+// (A count that was "thirty-two" in three places while the registry held 33 — if you add
+// a kernel, grep for the number word and update all of them, or better, stop counting.)
 //
 // That number is the point. Nearly every colour-bearing stage is a pure RGB→RGB
 // function, so the engine evaluates it once in LumenCore's reference implementation

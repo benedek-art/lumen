@@ -23,7 +23,7 @@ Apple's platform is what makes it one-person-sized *well*.
 
 ## Status
 
-**The app exists.** Roughly 32,000 lines of Swift across three targets: the engine, the
+**The app exists.** Roughly 50,000 lines of Swift across three targets: the engine, the
 Core Image render path, and the SwiftUI application. Browse a folder, cull it at key-repeat
 speed, develop with Lumen's own tone and colour stack, mask, grade, apply a film stock, and
 export several recipes at once.
@@ -41,9 +41,13 @@ What is built, by phase:
 | 7 — Film Lab, output, HDR | Six stocks with real characteristic curves, halation and density-domain grain; multi-recipe export; ISO 21496-1 gain-map maths. The HDR *viewport* is not built. |
 | 8 — Dailies | Scopes, histogram with draggable zones, compare and survey. Heal and AI culling assists are not built. |
 
-Nobody has run it on a Mac yet — CI compiles it and runs both suites on every push, but the
-first launch on real camera files is still ahead. [BUILDING.md](BUILDING.md) is the honest
-ledger: how to run it, how it was verified without a local toolchain, and every known gap.
+The owner has run it on a Mac twice (2026-08-23) against his own RAW folders, and the
+sessions are recorded in `docs/audit/first-mac-session.md` and docs/19: the app launches,
+decodes, culls, edits and exports — and the sliders were slow, the temperature scale was
+wrong, and the tint slider inverted the picture, all since fixed in code and none yet
+re-verified by a human. `docs/23-master-plan.md` is the plan that closes that gap;
+[BUILDING.md](BUILDING.md) is the honest ledger: how to run it, how it was verified, and
+every known gap.
 
 ## What "better, for me" means — measurably
 
