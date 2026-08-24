@@ -515,17 +515,22 @@ struct FilterBar: View {
     // Flag, rating and label counts come from the roll in memory, which holds the
     // culling state a keystroke has already written. Asking the catalog would be one
     // round trip per chip per keystroke to arrive at the same number one frame later.
+    //
+    // Through `AppState.cullCounts` — ONE memoised pass — because this bar is on
+    // screen in every view mode and these three used to be fourteen separate reduces
+    // over the whole roll per body evaluation, re-run on every publish.
 
     private func flagCount(_ flag: PhotoFlag) -> Int {
-        state.allPhotos.reduce(0) { $0 + ($1.flag == flag ? 1 : 0) }
+        state.cullCounts.flags[flag] ?? 0
     }
 
     private func ratingCount(_ minimum: Int) -> Int {
-        state.allPhotos.reduce(0) { $0 + ($1.rating >= minimum ? 1 : 0) }
+        guard (1...5).contains(minimum) else { return 0 }
+        return state.cullCounts.ratingAtLeast[minimum]
     }
 
     private func labelCount(_ label: ColorLabel) -> Int {
-        state.allPhotos.reduce(0) { $0 + ($1.label == label ? 1 : 0) }
+        state.cullCounts.labels[label] ?? 0
     }
 
     private static func flagName(_ flag: PhotoFlag) -> String {

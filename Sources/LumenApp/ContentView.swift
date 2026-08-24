@@ -191,8 +191,9 @@ private struct Sidebar: View {
     }
 
     private var counts: some View {
-        let picked = state.allPhotos.filter { $0.flag == .picked }.count
-        let rejected = state.allPhotos.filter { $0.flag == .rejected }.count
+        // Memoised in AppState.cullCounts; these were two more full passes per body.
+        let picked = state.cullCounts.flags[.picked] ?? 0
+        let rejected = state.cullCounts.flags[.rejected] ?? 0
         return VStack(alignment: .leading, spacing: 3) {
             row("All photos", state.allPhotos.count)
             row("Picked", picked)

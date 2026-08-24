@@ -476,7 +476,9 @@ final class AppState: ObservableObject {
             saveSourceState()
         }
     }
-    @Published var selection: Set<URL> = []
+    @Published var selection: Set<URL> = [] {
+        didSet { selectedPhotosCache = nil }
+    }
     @Published var primarySelection: PhotoItem? {
         didSet {
             guard primarySelection?.id != oldValue?.id else { return }
@@ -530,24 +532,38 @@ final class AppState: ObservableObject {
     @Published var maskOverlayTint: MaskOverlay.Tint = .red
 
     private var maskOverlayGeneration: Int = 0
+    private var maskOverlayTask: Task<Void, Never>?
 
     /// Rebuild it for the mask the panel is showing. Superseded by generation, like
     /// every other background render here, so a fast sequence of edits does not land
     /// out of order.
+    ///
+    /// Supersession is checked BEFORE the actor call, not only after. The old shape —
+    /// an unstored `Task {}` whose generation check sat past the `await` — meant every
+    /// mouse event of a drag queued a full mask rasterization on the render actor and
+    /// only threw the result away afterwards: the exact claimed-too-late defect the
+    /// render coalescer was fixed for (391563a), rebuilt in the one path that fix did
+    /// not touch, and blocking viewer frames during precisely the edits the overlay
+    /// exists to visualise.
     func refreshMaskOverlay() {
         maskOverlayGeneration &+= 1
         let generation = maskOverlayGeneration
+        maskOverlayTask?.cancel()
         guard let maskID = soloMaskOverlay, let photo = primarySelection else {
             maskOverlayAlpha = nil
             return
         }
         let recipe = recipe(for: photo)
         let strokes = strokeSets(for: recipe)
-        Task { [weak self] in
+        maskOverlayTask = Task { [weak self] in
             guard let self else { return }
+            // Let the burst settle: of N refreshes queued in one runloop turn, only
+            // the newest survives to touch the actor at all.
+            await Task.yield()
+            guard !Task.isCancelled, self.maskOverlayGeneration == generation else { return }
             let raster = await self.renderCoordinator.maskAlpha(
                 url: photo.id, recipe: recipe, maskID: maskID, strokeSets: strokes)
-            guard self.maskOverlayGeneration == generation else { return }
+            guard !Task.isCancelled, self.maskOverlayGeneration == generation else { return }
             self.maskOverlayAlpha = raster
         }
     }
@@ -982,6 +998,41 @@ final class AppState: ObservableObject {
     func invalidatePhotoCache() {
         photoCache = nil
         catalogIDCache = nil
+        cullCountsCache = nil
+        selectedPhotosCache = nil
+    }
+
+    /// One pass over the roll for every number the chrome shows, memoised.
+    ///
+    /// `FilterBar` is on screen in every view mode and used to run FOURTEEN separate
+    /// `reduce` passes over `allPhotos` per body evaluation — three flags, five rating
+    /// thresholds, six labels — and the sidebar ran two `filter` passes more, on every
+    /// one of the ≥2 `objectWillChange` publishes a slider event produces. At 5,000
+    /// photos that is ~80,000 element visits of pure bookkeeping per mouse move,
+    /// before a pixel was requested. The numbers only change when the roll or a cull
+    /// decision does, which is exactly `invalidatePhotoCache()`'s definition.
+    struct CullCounts {
+        var flags: [PhotoFlag: Int] = [:]
+        /// Index r = photos with rating ≥ r, for r in 1...5. Index 0 unused.
+        var ratingAtLeast = [Int](repeating: 0, count: 6)
+        var labels: [ColorLabel: Int] = [:]
+    }
+
+    private var cullCountsCache: CullCounts?
+    private var selectedPhotosCache: [PhotoItem]?
+
+    var cullCounts: CullCounts {
+        if let cullCountsCache { return cullCountsCache }
+        var counts = CullCounts()
+        for photo in allPhotos {
+            counts.flags[photo.flag, default: 0] += 1
+            counts.labels[photo.label, default: 0] += 1
+            if photo.rating > 0 {
+                for r in 1...Swift.min(photo.rating, 5) { counts.ratingAtLeast[r] += 1 }
+            }
+        }
+        cullCountsCache = counts
+        return counts
     }
 
     /// The catalog row for a file, in one lookup.
@@ -1048,7 +1099,10 @@ final class AppState: ObservableObject {
     /// selecting forty frames quietly shrank both the export and the count that
     /// promised what would be exported.
     var selectedPhotos: [PhotoItem] {
-        allPhotos.filter { selection.contains($0.id) }
+        if let selectedPhotosCache { return selectedPhotosCache }
+        let selected = allPhotos.filter { selection.contains($0.id) }
+        selectedPhotosCache = selected
+        return selected
     }
 
     // MARK: The library query

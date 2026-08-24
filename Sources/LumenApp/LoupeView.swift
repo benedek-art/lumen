@@ -435,37 +435,9 @@ struct LoupeView: View {
     @EnvironmentObject var state: AppState
     let photo: PhotoItem
 
-    /// Everything that should trigger a re-render, cheap to compare (`Recipe` is
-    /// `Equatable` — no fingerprint hashing on the main actor per body pass).
-    private struct RenderKey: Equatable {
-        let url: URL
-        let recipe: Recipe
-        let longEdge: Int
-        /// Which brush blobs are actually in memory right now.
-        ///
-        /// The render consumes stroke sets that are passed alongside the recipe rather
-        /// than contained in it — a `strokesRef` is a promise that bytes exist, not the
-        /// bytes — and they arrive asynchronously: `loadStrokeSets` reads the blobs off
-        /// the actor and publishes them into `strokeCache`. That publish re-evaluates
-        /// `body`, but `.task(id:)` only restarts when the id CHANGES, and the id did
-        /// not mention them. So selecting a photo whose mask uses a brush painted in an
-        /// earlier session rendered with that component contributing nothing, and stayed
-        /// that way until some unrelated edit moved the recipe. This is the same shape
-        /// as a fingerprint that omits a field the render reads.
-        let strokeRefs: Set<String>
-        /// The proof is not in the recipe — it is a viewing mode — so without it here
-        /// `.task(id:)` would not restart when the proof is switched on, and the key
-        /// would be the same key for two different pictures. That is the same shape as a
-        /// fingerprint that omits a field the render reads.
-        let softProof: SoftProof?
-        /// Which AI mattes the renderer holds for this file right now.
-        ///
-        /// Same shape as `strokeRefs`, and the same trap: a Subject mask's matte is
-        /// computed asynchronously and lives beside the recipe rather than inside it,
-        /// so a key that does not mention it renders that mask empty and stays that
-        /// way until an unrelated edit happens to move the recipe.
-        let matteKinds: Set<String>
-    }
+    // The render key is `ViewerRenderKey` in RenderRequest.swift — shared with the
+    // compare and survey panes so the beside-the-recipe inputs (brush blobs, mattes,
+    // soft proof) can never again be in one surface's key and not another's.
 
     /// Above this we stop asking for more pixels; a real 1:1 on a 45 MP frame is the
     /// tiled Metal viewport's job, and the badge says which one you are looking at.
@@ -548,10 +520,8 @@ struct LoupeView: View {
             }
             // `.task`'s action is `@Sendable`, so it touches no main-actor state
             // directly: everything goes through the `@MainActor` methods below.
-            .task(id: RenderKey(url: photo.id, recipe: recipe, longEdge: longEdge,
-                                strokeRefs: Set(state.strokeSets(for: recipe).keys),
-                                softProof: state.activeSoftProof,
-                                matteKinds: state.maskMatteKinds(for: photo.id))) {
+            .task(id: ViewerRenderKey.current(url: photo.id, recipe: recipe,
+                                              longEdge: longEdge, state: state)) {
                 await renderCurrent(longEdge: longEdge)
             }
             .task(id: BeforeKey(url: photo.id, recipe: beforeRecipe,
@@ -559,7 +529,7 @@ struct LoupeView: View {
                                 strokeRefs: Set(state.strokeSets(for: beforeRecipe).keys))) {
                 await renderBefore(longEdge: longEdge)
             }
-            .task(id: model.revision) {
+            .task(id: SamplerKey(revision: model.revision, needed: samplerNeeded)) {
                 await rebuildSampler()
             }
         }
@@ -1080,9 +1050,26 @@ struct LoupeView: View {
 
     // MARK: Readout
 
+    /// Whether anything on screen actually reads the sampler right now. It used to be
+    /// rebuilt unconditionally on every rendered frame — a full-resolution draw and up
+    /// to ~45 MB of allocation per draft AND settle, for a readout usually not under
+    /// the cursor and overlays usually off. The task key carries this flag, so turning
+    /// an overlay on (or the cursor arriving with the readout enabled) builds it then,
+    /// at the cost of the readout appearing one build later instead of instantly.
+    private var samplerNeeded: Bool {
+        (viewport.showReadout && cursor != nil)
+            || state.clippingOverlay != nil
+            || state.soloMaskOverlay != nil
+    }
+
+    private struct SamplerKey: Equatable {
+        var revision: Int
+        var needed: Bool
+    }
+
     @MainActor
     private func rebuildSampler() async {
-        guard let cg = model.image else {
+        guard samplerNeeded, let cg = model.image else {
             sampler = nil
             return
         }

@@ -16,11 +16,20 @@ import Foundation
 import LumenCore
 import SwiftUI
 
-struct ScopeData: Sendable {
+struct ScopeData: @unchecked Sendable {
     var histogram: Histogram?
     var waveform: Waveform?
     var parade: Parade?
     var vectorscope: Vectorscope?
+
+    /// The traces, pre-rasterized on the same detached task that binned the pixels.
+    /// `ScopesView` used to rasterize these inside `body` — up to ~197k pixels and a
+    /// megabyte of allocation per evaluation, re-run on every publish during a drag.
+    /// (`@unchecked`: CGImage is immutable and safely crosses the hop from the
+    /// detached task; it just predates Sendable.)
+    var waveformImage: CGImage?
+    var paradeImages: [CGImage]?    // R, G, B — one normalization, in ScopeRaster
+    var vectorscopeImage: CGImage?
 }
 
 extension AppState {
@@ -52,18 +61,14 @@ extension AppState {
             // One-shot: the scopes must not claim a render ticket. Coalescing exists
             // to let the newest *viewer* frame win, and a measurement that joined that
             // race would cancel the frame the user is actually waiting on.
-            // NOT draft. Draft mode exists so a full-resolution interactive frame can
-            // skip the expensive spatial stages, and it skips exactly the ones a
-            // photographer watches the scopes for: presence (texture, clarity,
-            // dehaze), every local adjustment, creative sharpening, halation and
-            // grain — and `makeGraph` returns an empty graph outright, so no mask is
-            // even rasterized. Measuring that render meant dragging Clarity changed the
-            // picture without moving the histogram by one bin, while this file's own
-            // header promised the scopes describe the picture you are looking at.
             //
-            // The proxy is 512 px precisely so the full-quality path is affordable
-            // here; skipping stages to save time on a 512 px frame was buying nothing
-            // and paying for it with a wrong answer.
+            // NOT draft — for the tables, now that the stage gates are gone. A draft
+            // may ride one-event-stale colour tables and mask rasters
+            // (`allowStaleTables`/`MaskRasterCache`), which is right for a picture
+            // chasing a hand and wrong for a measurement: an instrument reading a
+            // stale table would disagree with the settle by exactly the amount the
+            // user is asking it about. The proxy is 512 px precisely so the exact
+            // path is affordable here.
             guard let result = await coordinator.renderOneShot(
                 url: url, recipe: recipe,
                 maxLongEdge: AppState.scopeProxyLongEdge, draft: false,
@@ -76,7 +81,20 @@ extension AppState {
             // time a slider settles, so the arithmetic gets its own thread explicitly.
             let data = await Task.detached(priority: .utility) { () -> ScopeData? in
                 guard let buffer = AppState.buffer(from: result.image) else { return nil }
-                return AppState.measure(buffer, includeScopes: wantsScopes)
+                var measured = AppState.measure(buffer, includeScopes: wantsScopes)
+                // Rasterize HERE, once per measurement, so the view never does — the
+                // traces used to be re-rasterized on every body evaluation.
+                if let waveform = measured.waveform {
+                    measured.waveformImage = ScopeRaster.waveform(
+                        waveform, peak: waveform.peak, tint: ScopeTint.neutral)
+                }
+                if let parade = measured.parade {
+                    measured.paradeImages = ScopeRaster.parade(parade)
+                }
+                if let vectorscope = measured.vectorscope {
+                    measured.vectorscopeImage = ScopeRaster.vectorscope(vectorscope)
+                }
+                return measured
             }.value
 
             guard let data, self.scopeGeneration == generation else { return }

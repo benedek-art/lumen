@@ -224,9 +224,7 @@ struct DevelopPanel: View {
                     .padding(.bottom, 4)
             }
             if state.showScopes {
-                ScopesView(waveform: state.scopes?.waveform,
-                           parade: state.scopes?.parade,
-                           vectorscope: state.scopes?.vectorscope)
+                ScopesView(scopes: state.scopes)
                     .padding(.horizontal, 8)
                     .padding(.bottom, 4)
             }

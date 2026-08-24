@@ -204,12 +204,6 @@ private struct ComparePane: View {
     @Environment(\.displayScale) private var displayScale: CGFloat
     @State private var dragStartCenter: CGPoint?
 
-    private struct RenderKey: Equatable {
-        let url: URL
-        let recipe: Recipe
-        let longEdge: Int
-    }
-
     var body: some View {
         GeometryReader { geometry in
             let container = geometry.size
@@ -248,9 +242,9 @@ private struct ComparePane: View {
                                   lineWidth: isPrimary ? 2 : 1)
                     .allowsHitTesting(false)
             }
-            .task(id: RenderKey(url: photo.id,
-                                recipe: state.recipe(for: photo),
-                                longEdge: longEdge)) {
+            .task(id: ViewerRenderKey.current(url: photo.id,
+                                              recipe: state.recipe(for: photo),
+                                              longEdge: longEdge, state: state)) {
                 await render(longEdge: longEdge)
             }
         }
@@ -263,9 +257,19 @@ private struct ComparePane: View {
                          recipe: recipe,
                          coordinator: state.renderCoordinator,
                          thumbnails: state.thumbnails,
-                         draftLongEdge: LoupeView.draftLongEdge,
+                         // `DraftResolution`, exactly as the loupe: a fixed draft size
+                         // above fit drew the photograph at half size and doubled it on
+                         // every render — the zoom pump, fixed in the loupe and still
+                         // live here until this line.
+                         draftLongEdge: DraftResolution.draftLongEdge(
+                             settledLongEdge: longEdge,
+                             fitLongEdge: LoupeView.draftLongEdge,
+                             zoomRatio: sync.zoom),
                          fullLongEdge: longEdge,
-                         strokeSets: state.strokeSets(for: recipe))
+                         strokeSets: state.strokeSets(for: recipe),
+                         // ⇧S must mean the same thing in E and C: the loupe passes
+                         // the proof, so the panes do too.
+                         softProof: state.activeSoftProof)
     }
 
     // MARK: Geometry
@@ -365,12 +369,6 @@ private struct SurveyCell: View {
     @StateObject private var model: PhotoRenderModel = PhotoRenderModel()
     @Environment(\.displayScale) private var displayScale: CGFloat
 
-    private struct RenderKey: Equatable {
-        let url: URL
-        let recipe: Recipe
-        let longEdge: Int
-    }
-
     var body: some View {
         GeometryReader { geometry in
             let container = geometry.size
@@ -424,9 +422,9 @@ private struct SurveyCell: View {
                                   lineWidth: isPrimary ? 2 : 1)
                     .allowsHitTesting(false)
             }
-            .task(id: RenderKey(url: photo.id,
-                                recipe: state.recipe(for: photo),
-                                longEdge: longEdge)) {
+            .task(id: ViewerRenderKey.current(url: photo.id,
+                                              recipe: state.recipe(for: photo),
+                                              longEdge: longEdge, state: state)) {
                 await render(longEdge: longEdge)
             }
         }
@@ -439,9 +437,16 @@ private struct SurveyCell: View {
                          recipe: recipe,
                          coordinator: state.renderCoordinator,
                          thumbnails: state.thumbnails,
-                         draftLongEdge: 512,
+                         // Survey panes have no zoom; DraftResolution at fit returns
+                         // the floor, so this stays the cheap 512 draft it was — but
+                         // through the shared rule rather than a bare number.
+                         draftLongEdge: DraftResolution.draftLongEdge(
+                             settledLongEdge: longEdge,
+                             fitLongEdge: 512,
+                             zoomRatio: 0),
                          fullLongEdge: longEdge,
-                         strokeSets: state.strokeSets(for: recipe))
+                         strokeSets: state.strokeSets(for: recipe),
+                         softProof: state.activeSoftProof)
     }
 
     private func requestedLongEdge(container: CGSize) -> Int {
