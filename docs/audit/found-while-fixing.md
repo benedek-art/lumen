@@ -815,3 +815,57 @@ through exactly this construct. Recorded here rather than quietly deleted, becau
 check cannot fail" is the most valuable kind of finding when true and the most misleading
 when not, and the habit that produces it is the same one that produced the three refuted
 theories in MAC-07.
+
+## PROOF-09 — Thirteen shipping sliders have no proof record at all
+
+This is the registry's own standard, not an imported one. Its header states the contract
+in a sentence: *"a control absent from this file is a visible omission."* There is no
+documented exclusion list, so absence is a gap by construction.
+
+Cross-referencing every `LumenSlider` that names a binder key against the registry's spec
+ids — after mapping the four sharpen aliases (`detail.sharpen.amount` is the panel's key
+for the registry's `sharpen.amount`, and likewise radius/detail/masking) and the two
+denoise ones (`denoise.classic.luma` ↔ `denoise.luma`, `.chroma` ↔ `denoise.chroma`) —
+**17 of 31 keyed sliders had no spec, of which 13 survive the aliasing**:
+
+| panel | slider | key | range |
+|---|---|---|---|
+| Basic | Density | `color.density` | 0…100 |
+| Basic | Protect Skin | `color.protectSkin` | 0…100 |
+| Detail | Radius (capture) | `detail.capture.radius` | 0.4…2.0 |
+| Detail | Amount (capture) | `detail.capture.amount` | 0…150 |
+| Detail | Halo Suppression | `detail.sharpen.haloSuppression` | 0…100 |
+| Detail | Luminance Detail | `denoise.classic.lumaDetail` | 0…100 |
+| Detail | Luminance Contrast | `denoise.classic.lumaContrast` | 0…100 |
+| Detail | Colour Detail | `denoise.classic.colorDetail` | 0…100 |
+| Detail | Colour Smoothness | `denoise.classic.colorSmoothness` | 0…100 |
+| Detail | Hot Pixels | `denoise.classic.hotPixels` | 0…100 |
+| Detail | Amount (AI denoise) | `denoise.amount` | 0…100 |
+| Effects | Vignette Amount | `look.vignette` | −3.0…1.0 |
+| Effects | Angle | `geometry.angle` | −45…45 |
+
+Two of these are named in existing audit items as needing a GPU before they can be
+proved (`geometry.angle` sits with GEO-16/GEO-17), and the capture-sharpening pair has
+its own history in DETAIL-11. The other ten are not blocked on anything; they were simply
+never registered.
+
+Worth being exact about what this does and does not say. It does NOT say these controls
+are broken — several are covered by ordinary tests elsewhere in the suite. It says they
+have not been put through the six questions docs/20 asks of every control, so nobody can
+say from the records whether they are alive across their travel, have visible authority,
+are monotone, or hand back part of their own effect. That is the difference between
+"nothing has reported this broken" and "this is proven to work", which is the whole
+distinction the proof programme exists to hold.
+
+Not fixed here. Adding thirteen specs means choosing a frame, an authority floor and a
+shipping reader for each, and re-pinning thirteen records through the CI recording lane —
+it is its own piece of work, and doing it badly would produce thirteen records that assert
+nothing. Recorded as the largest remaining gap in the proof programme.
+
+**The range audit itself is now complete**, which the previous entry could not say: all
+46 registry specs were compared against the panels. Only three sweeps disagreed with
+their panel's range (PROOF-08), and only three specs use non-literal bounds
+(`printer.master`, `printer.\(id)`, `zones.pivot.\(index)`), which take theirs from the
+engine's own limits and so cannot drift from the panel independently. The grading wheels
+(`grade.\(id).hue/sat/lum`) have no panel `range:` to compare against because they are
+wheels rather than sliders.
