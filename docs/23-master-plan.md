@@ -54,28 +54,46 @@ what the owner touches.
 
 ## M0 — The verification loop works again
 
-- [ ] HEAD compiled by CI (push; run #182 died with zero jobs — transient allocation)
-- [ ] **gpu-parity (proof-macos) dispatched for the first time in project history**;
-      every red fixed or XCTSkip'd with an issue reference — no silent skips
-- [ ] The two stale proof records re-pinned (tone.exposure ±2→±5, raw.tint ±100→±150),
-      per-record rationale in the commit; drift lane watched failing on a wrong record
-- [ ] CI restructured:
-      - [ ] `ProofSmokeTests` (~8 sentinel controls × 5 steps) in engine-linux, per push
-      - [ ] `gpu-parity`: paths-filtered push (LumenPipeline/Engine/Image + pipeline
-            tests) + nightly + dispatch; skip-list guard greps test-fast's `--skip`
-            names against the tree
-      - [ ] `proof-linux` full sweep: nightly + dispatch (off push)
-      - [ ] `perf-macos`: measure draft@1024/1536/2048, settle@2560, LUT cold bake, one
-            24MP export; generous ceilings; numbers to step summary + CSV artifact
-      - [ ] `app-bundle`: main + dispatch only
+- [ ] HEAD compiled by CI. (Corrected diagnosis: runs #182–184 were NOT transient —
+      GitHub refuses to create jobs for a workflow whose `run:` script embeds
+      `${{ inputs.* }}` inline; a one-job canary on the same push allocated fine while
+      CI zero-jobbed. The expression moved back to the `env:` block where it ran 181
+      times; run #185 allocated jobs and is the proof.)
+- [x] ~~Dispatch gpu-parity~~ → better: the dispatch APIs 403 for this session, so the
+      lane now **triggers itself** — `gpu-parity.yml` runs on any push touching
+      LumenPipeline/Engine/Image/Color or the pipeline tests (its own file included, so
+      the push that created it is its first run ever). Triage of that first run: below.
+- [x] The two stale proof records re-pinned (tone.exposure ±2→±5 authority 169.07→
+      251.54, raw.tint ±100→±150 authority 100.13→154.97), measured locally on the same
+      Swift 6.1.2 the lane runs, matching run 181's discarded measurement to rounding;
+      the comparison was watched failing first with the stale number substituted back.
+- [x] CI restructured:
+      - [x] `ProofSmokeTests` (8 sentinel controls × 5 steps, ~3.5 min) runs in
+            engine-linux on every push
+      - [x] `gpu-parity.yml`: paths-filtered push + dispatch; skip-list guard greps
+            test-fast's `--skip` names against the tree (it found one already:
+            a skip naming a test 1bca87f had reshaped away)
+      - [x] `proof.yml` (the 80-min full sweep): paths-filtered push + nightly +
+            dispatch — on the push trigger it never survived a working session; the
+            smoke sentinels are the per-push guard now
+      - [ ] `perf-macos`: DEFERRED to M1 — a perf lane with no perf tests is noise;
+            it lands with the latency HUD and DraftTruthfulnessTests
+      - [x] `app-bundle`: KEPT on every push (deviation from the first draft of this
+            plan) — Actions minutes are free on a public repo, and a per-push
+            installable artifact is the ship-to-self loop
 - [ ] Two owner-provided real RAW fixtures committed (<15MB total) unlocking
       AppleRawSource contract tests (as-shot neutral UNITS have never been verified),
       draft-demosaic delta, perf lane, Vision-matte tests
 - [ ] De-risking probes run and recorded: (a) full-pipeline draft cost on the runner at
       1024/1536/2048; (b) mask re-raster cost at 1024 on Linux; (c) draft-demosaic
       color delta (needs the RAW fixture)
-- [ ] Honesty pass: README's "nobody has run it on a Mac" + line count, CI comment test
-      counts, "thirty-two kernels" (there are 33)
+- [x] Honesty pass: README's "nobody has run it on a Mac" + line count, CI comment test
+      counts, "thirty-two kernels" (there are 33) — plus two the audits missed: the
+      install script's "three tests fail here" paragraph (those tests were measured,
+      re-bounded and green in 1bca87f before this plan existed; the paragraph outlived
+      the failure — so the "3 known-red LUT-edge tests" this milestone budgeted for
+      turned out to be already closed), and test-fast's skip roster carrying a test
+      name 1bca87f had reshaped away.
 
 **Exit gate:** full CI green including gpu-parity's first-ever run; probes measured.
 

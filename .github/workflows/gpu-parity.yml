@@ -1,0 +1,73 @@
+# The lane that answers "does the GPU still agree with the mathematics" — the two
+# whole-graph parity goldens plus every kernel golden in LumenPipelineTests.
+#
+# This exists because its predecessor, a dispatch-only job inside ci.yml, was NEVER
+# dispatched: not once in the project's history. Eleven commits touched
+# Sources/LumenPipeline in the window where nothing ran it, one of them changing a blur
+# radius by a factor of three. A lane that requires a human at the Actions tab does not
+# run, so this one triggers itself on exactly the pushes that can break parity — and
+# its own file is in the paths so the push that lands a lane change also exercises it.
+#
+# LumenCore's own heavy tests (RobustnessTests, EngineIntegrationTests,
+# ScaleHonestyTests) are NOT here: engine-linux already runs the whole of
+# LumenCoreTests on every push, on a free runner. This lane is the macOS-only remainder.
+name: GPU parity
+on:
+  push:
+    paths:
+      - "Sources/LumenPipeline/**"
+      - "Sources/LumenCore/Engine/**"
+      - "Sources/LumenCore/Image/**"
+      - "Sources/LumenCore/Color/**"
+      - "Tests/LumenPipelineTests/**"
+      - ".github/workflows/gpu-parity.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: gpu-parity-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gpu-parity:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Every --skip in test-fast still names a test that exists
+        shell: bash
+        # A skip outlives the test it skips silently: test-fast carried
+        # `--skip testExportTableErrorStaysUnderOnePercent` for days after 1bca87f
+        # renamed that test away. An orphaned skip is harmless right up until a test is
+        # RENAMED INTO the orphaned name's family and quietly stops running, so the
+        # roster is checked where the parity lane runs — the lane whose absence is how
+        # skips go stale.
+        run: |
+          fail=0
+          for name in $(grep -oE '\-\-skip [A-Za-z]+' .github/workflows/ci.yml \
+                          | awk '{print $2}' | sort -u); do
+            if [ "$name" = "ControlProofTests" ]; then
+              grep -rq "class $name" Tests/ || { echo "orphaned skip: $name"; fail=1; }
+            else
+              grep -rq "func $name" Tests/ || { echo "orphaned skip: $name"; fail=1; }
+            fi
+          done
+          exit $fail
+      - name: Every pipeline golden, the whole-graph parity pair included
+        shell: bash
+        run: |
+          set +e
+          swift test --filter LumenPipelineTests 2>&1 | tee parity.log
+          # `$?` and not `${PIPESTATUS[0]}`: GitHub runs `shell: bash` with pipefail on,
+          # and `set +e` turns off errexit without touching it. Same construct, same
+          # reasoning, as the proof lane.
+          status=$?
+          echo "=== summary ==="
+          grep -E "Executed [0-9]+ test" parity.log | tail -1
+          echo "=== failing tests ==="
+          grep -E ": error: -\[" parity.log \
+            | sed -E 's/^.*error: -\[([^]]*)\].*/\1/' | sort | uniq -c | sort -rn | head -30
+          echo "=== first failures per test ==="
+          grep -E ": error: -\[" parity.log | sed 's#/Users/runner/work/lumen/lumen/##' \
+            | sed 's/^.*error: //' \
+            | awk '{ key = $1 " " $2; if (seen[key]++ < 2) print }' | head -40
+          exit $status
