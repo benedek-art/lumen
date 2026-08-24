@@ -327,17 +327,118 @@ public enum ColorTemperature {
             + 0.2226347e3 / t + 0.240390
     }
 
+    // MARK: - The magenta guard
+
+    /// How much of a physical illuminant's cone response the guard insists survives.
+    ///
+    /// **The defect this exists for.** `ChromaticAdaptation.adapt` divides by the cone
+    /// response of the illuminant it is adapting *from*. Push tint far enough toward
+    /// magenta and the chromaticity leaves the region any light source occupies; the
+    /// S (blue) cone response falls through zero, and the adaptation matrix passes
+    /// through a pole and comes out the other side with a NEGATIVE blue gain. The
+    /// picture does not merely go magenta, it inverts to full blue.
+    ///
+    /// That pole sits INSIDE the range the slider could be dragged to, and how far in
+    /// depends on the temperature: the S cone crosses zero at tint +45 at 2000 K, +80
+    /// at 2750 K, +185 at 5500 K. So on any warm frame the magenta half of the tint
+    /// slider inverted the photograph somewhere before a third of its travel. The
+    /// owner's first session reported it as "it goes from slightly blue to an entirely
+    /// full blue visual", which is exactly what a sign flip in the blue gain looks
+    /// like.
+    ///
+    /// **What the number means.** The guard's real effect is a ceiling on the blue
+    /// gain: holding the S response at or above this fraction of a physical
+    /// illuminant's holds the adaptation's blue multiplier at or below 1/0.15 ≈ 6.7×.
+    /// That is the quantity worth bounding, and it is why a floor rather than a fixed
+    /// tint limit is the right shape — the bound then means the same thing at every
+    /// temperature, and the tint it corresponds to falls out.
+    ///
+    /// **Why 0.15.** It is the largest floor that leaves the shipped ±150 tint range
+    /// unclamped at and above 5500 K (the limit it implies at 5500 K is +156), so
+    /// daylight and cooler edits render exactly as they did. Below that it engages
+    /// progressively — +143 at 5000 K, +128 at 4500 K, +87 at 3200 K, +36 at 2000 K —
+    /// which is the warm end where the pole actually sat. A higher floor (0.25 ⇒ +135
+    /// at 5500 K) would start clamping ordinary daylight work; a lower one (0.05 ⇒
+    /// +177) admits a 20× blue gain, which blows the channel out without help from any
+    /// sign flip.
+    public static let tintConeFloor: Double = 0.15
+
+    /// The largest magenta tint at `kelvin` that still describes a colour a light
+    /// source could be, by the floor above.
+    ///
+    /// Only the magenta direction is bounded. Green tint moves the chromaticity toward
+    /// the interior of the plane, where every cone response grows; it is admissible
+    /// across the whole range and is left alone.
+    ///
+    /// Monotone by construction — the S response falls strictly as tint rises — so a
+    /// bisection finds the boundary exactly rather than approximately. Called twice
+    /// when a render plan is built, never per pixel.
+    public static func tintLimit(kelvin: Double) -> Double {
+        let base = unguardedConeResponse(kelvin: kelvin, tint: 0)
+        guard base.r > 0, base.g > 0, base.b > 0 else { return maxTint }
+
+        func admissible(_ t: Double) -> Bool {
+            let c = unguardedConeResponse(kelvin: kelvin, tint: t)
+            return c.r >= tintConeFloor * base.r
+                && c.g >= tintConeFloor * base.g
+                && c.b >= tintConeFloor * base.b
+        }
+
+        // The hard end of the slider. Above about 20000 K nothing in range offends,
+        // and the bisection is skipped entirely.
+        let ceiling = 300.0
+        if admissible(ceiling) { return ceiling }
+
+        var lo = 0.0
+        var hi = ceiling
+        for _ in 0..<40 {
+            let mid = (lo + hi) / 2
+            if admissible(mid) { lo = mid } else { hi = mid }
+        }
+        return lo
+    }
+
+    /// What `tint` is actually worth at `kelvin`, once physics has had its say.
+    public static func clampedTint(kelvin: Double, tint: Double) -> Double {
+        guard tint > 0 else { return tint }
+        return Swift.min(tint, tintLimit(kelvin: kelvin))
+    }
+
+    /// The CAT16 cone response of the chromaticity a (Kelvin, tint) pair asks for,
+    /// WITHOUT the guard — which is the quantity the guard is defined in terms of, and
+    /// so the one function here that must not call `chromaticity(kelvin:tint:)`.
+    private static func unguardedConeResponse(kelvin: Double, tint: Double) -> RGB {
+        let base = locus(kelvin: kelvin)
+        guard tint != 0 else { return ChromaticAdaptation.cat16.apply(base.xyz()) }
+        let (u, v) = base.uv
+        let c = Chromaticity.fromUV(u: u, v: v + tint * tintUnitInV)
+        return ChromaticAdaptation.cat16.apply(c.xyz())
+    }
+
     /// Chromaticity for a (Kelvin, tint) pair. Tint offsets perpendicular to the
     /// locus in CIE 1960 uv — positive tint toward magenta, negative toward green,
     /// matching every photographic UI ever shipped.
+    ///
+    /// Magenta is bounded by `tintLimit(kelvin:)`. Past that bound the slider goes on
+    /// moving and the picture stops changing, which is an ordinary thing for a control
+    /// to do and the thing it did before was invert the photograph. The panel range is
+    /// deliberately NOT narrowed to match: the bound moves with temperature, so a
+    /// contracting slider would either strand the readout above what the render used
+    /// or rewrite a tint the photographer had set, and losing his number while he
+    /// scrubs the temperature past a warm value and back is worse than a slider whose
+    /// last few points are inert on a 2000 K frame.
     public static func chromaticity(kelvin: Double, tint: Double) -> Chromaticity {
         let base = locus(kelvin: kelvin)
-        guard tint != 0 else { return base }
+        let guarded = clampedTint(kelvin: kelvin, tint: tint)
+        guard guarded != 0 else { return base }
         let (u, v) = base.uv
-        return Chromaticity.fromUV(u: u, v: v + tint * tintUnitInV)
+        return Chromaticity.fromUV(u: u, v: v + guarded * tintUnitInV)
     }
 
-    /// Inverse of `chromaticity(kelvin:tint:)`, and exactly its inverse.
+    /// Inverse of `chromaticity(kelvin:tint:)`, and exactly its inverse over the
+    /// range that function can represent — its magenta half is bounded by
+    /// `tintLimit(kelvin:)`, and a colour sampled from beyond that bound reports the
+    /// tint the render would actually use rather than one it would silently pull in.
     ///
     /// Tint offsets the v coordinate and leaves u alone, so the temperature is
     /// recovered by matching **u** — not by finding the nearest point on the locus.
@@ -379,8 +480,8 @@ public enum ColorTemperature {
             step /= 2
         }
 
-        let kelvin = 1e6 / bestMired
+        let kelvin = Num.clamp(1e6 / bestMired, minKelvin, maxKelvin)
         let tint = (v - locus(kelvin: kelvin).uv.v) / tintUnitInV
-        return (Num.clamp(kelvin, minKelvin, maxKelvin), Num.clamp(tint, -300, 300))
+        return (kelvin, clampedTint(kelvin: kelvin, tint: Num.clamp(tint, -300, 300)))
     }
 }

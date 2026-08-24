@@ -632,3 +632,111 @@ two lines away on an INSTANCE call — `geometryOfDrag.value(from:travel:)` agai
 declared `value(from:travelled:)` — was NOT caught, and the run exited 0. Its header is
 honest that it sees labels and not types; it is also blind to some labels on lowercase
 receivers, and `swiftc -parse` does not see them either. Only a compile does.
+
+---
+
+## WB-01 — The temperature slider spends 73% of its travel on 4% of its effect
+
+FIXED. The owner's first Mac session: *"Why does it go from 2,000 Kelvin to 50,000
+Kelvin? Also, I don't think that anything even changes above like 15,000 Kelvin."*
+
+Both halves are correct, and this is the measurement. A 0.18 neutral, adapting from a
+5500 K as-shot, swept across the panel's own 2000–50000 K range; the quantity is the
+path length the result traces through sRGB code values, which is what the eye is being
+asked to notice.
+
+| | code values travelled | share of a LINEAR track |
+|---|---|---|
+| 2000 → 15000 K | 241.59 | 27.1% |
+| 15000 → 50000 K | **11.14** | **72.9%** |
+
+By fifths of a linear track: **93.3 / 4.3 / 1.4 / 0.6 / 0.4 %**. The last fifth of the
+Temp slider is 0.4% of the control.
+
+The axis this should have been on has been named in this repo since before the slider
+was written. `ColorTemperature.temperatureAndTint` searches in mireds and says why —
+*"the axis that is perceptually even in Kelvin and the reason every camera UI steps in
+mireds underneath"* — and `BasicPanel` carried a comment admitting the row above it was
+linear *"until LumenSlider grows a scale transform"*. It has now grown one:
+`SliderScale`, in LumenCore next to the rest of the drag arithmetic, where it is tested.
+
+On the mired axis the same range spends its fifths **21.4 / 33.6 / 18.8 / 15.6 / 10.5 %**
+— worst fifth within 3.2× of the best, against 233× before. The property that matters is
+the match between the two tables: above 15000 K is now 9.7% of the track and carries
+4.4% of the change, so travel buys change at roughly a constant rate. `SliderScaleTests`
+asserts exactly that, and asserts the linear axis fails it, so the fix cannot be quietly
+reverted.
+
+The range is unchanged at 2000–50000 K. It matches the field and the documented spec;
+what was wrong was never its width but where its travel went.
+
+## WB-02 — The magenta half of the tint slider inverted the picture
+
+FIXED, and this one is a genuine engine defect rather than a scale problem. The owner:
+*"if I try to tint it blue, it goes from slightly blue to an entirely full blue visual,
+so it's very bad."*
+
+`ChromaticAdaptation.adapt` divides by the cone response of the illuminant it is adapting
+*from*. Push tint far enough toward magenta and the chromaticity leaves the region any
+light source occupies, the S (blue) cone response falls **through zero**, and the
+adaptation matrix passes through a pole and comes out the far side with a negative blue
+gain. Adapting a 0.18 neutral at 2750 K with tint +80, before the fix:
+
+    RGB(-0.040, -3.101, 33.579)
+
+Negative luminance, and a blue channel 186× the neutral it started from — not a magenta
+cast, an inversion.
+
+The pole sat **inside the range the slider could be dragged to**, and moved with
+temperature:
+
+| temperature | S cone crosses zero at tint |
+|---|---|
+| 2000 K | **+45** |
+| 2750 K | **+80** |
+| 5500 K | +185 |
+| 10000 K | +275 |
+
+So on any frame warmer than about 5000 K, the magenta half of the tint slider inverted
+the photograph before a third of its travel — worst on exactly the tungsten and
+candlelight frames where a magenta correction is most often wanted.
+
+The guard is a floor on the cone response, `ColorTemperature.tintConeFloor = 0.15`,
+which is really a ceiling on the blue gain of 1/0.15 ≈ 6.7×. A floor rather than a fixed
+tint limit is the right shape because the bound then means the same thing at every
+temperature and the admissible tint falls out of it: +36 at 2000 K, +87 at 3200 K, +128
+at 4500 K, +156 at 5500 K. 0.15 is the largest floor that leaves the shipped ±150 range
+untouched at and above 5500 K, so no daylight recipe anyone already has renders
+differently.
+
+The panel range is deliberately **not** narrowed to follow the bound. The bound moves
+with temperature, so a contracting slider would either strand the readout above what the
+render used or rewrite a tint the photographer had set — and losing his number while he
+scrubs temperature past a warm value and back is worse than a slider whose last few
+points are inert on a 2000 K frame. Past the bound the slider goes on moving and the
+picture stops changing, which is an ordinary thing for a control to do.
+
+Held by `TintGuardTests`, which sweeps all 193 temperatures × 121 tints the app can ask
+for and asserts no channel goes negative or non-finite anywhere.
+
+**Reproduced independently.** These two findings were first measured on a branch that
+was destroyed before it could be merged, and were re-derived from scratch here against a
+Python mirror of `ColorSpaces.swift`. The 2750 K / +80 case came back bit-for-bit
+identical — `RGB(-0.040, -3.101, 33.579)` — which is why the lost branch's other claims
+are recorded rather than discarded. The temperature fifths differ slightly from what that
+branch reported (89.6 / 6.7 / 2.1 / 1.0 / 0.6 against the 93.3 / 4.3 / 1.4 / 0.6 / 0.4
+above); the numbers in this file are the ones this tree can reproduce, and the ones the
+tests assert.
+
+## WB-03 — Two claims from the lost branch that are NOT yet verified here
+
+Recorded so they are not lost a second time. Neither has been re-derived, and neither
+should be treated as established.
+
+- **`minTint` / `maxTint` were declared with zero readers.** `maxTint` now has one
+  (`tintLimit`'s fallback). `minTint` still has none.
+- **The exposure proof measures 40% of the drag.** The panel is −5…+5 (hard −10…+10);
+  `ProofRegistry`'s `tone.exposure` sweeps ±2, while every other tone control sweeps its
+  full panel range. This looks like an oversight rather than a decision, but widening it
+  re-pins a committed record and is left for its own change. It is a coverage gap, not a
+  defect: ±5 EV is the same range Lightroom ships.

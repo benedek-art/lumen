@@ -99,14 +99,22 @@ struct BasicPanel: View {
                               onReset: { applyAsShot() }) {
             VStack(alignment: .leading, spacing: 2) {
                 presetRow
-                // The Kelvin axis is perceptually log-scaled in the spec; the shipped
-                // slider is linear until LumenSlider grows a scale transform, so typed
-                // entry is the accurate way into the low end.
+                // The Kelvin axis is perceptually even in MIREDS, not in Kelvin, which
+                // is why every camera UI steps in them underneath and why this
+                // package's own eyedropper searches in them. The slider was linear in
+                // Kelvin, so the top 72.9% of its travel carried 4.4% of its effect
+                // and the first fifth carried 93.3% — the owner reported it as
+                // "nothing even changes above like 15,000", which was an accurate
+                // reading of the control. `.reciprocal` spends the fifths
+                // 21.4 / 33.6 / 18.8 / 15.6 / 10.5 instead. The range is unchanged:
+                // 2000–50000 K is the documented span and matches the field, and what
+                // was wrong was never its width but where its travel went.
                 LumenSlider(title: "Temp",
                             value: binder.value(\.develop.raw.temp, "wb.temp",
                                                 orAuto: display.temperature),
                             range: 2000...50000,
                             hardRange: 2000...50000,
+                            scale: .reciprocal,
                             defaultValue: display.temperature,
                             step: 10, decimals: 0, bipolar: false,
                             // Double-clicking the label CLEARS the override rather than

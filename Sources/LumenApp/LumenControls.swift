@@ -71,6 +71,10 @@ struct LumenSlider: View {
     var range: ClosedRange<Double>
     /// Where typing is still accepted. Defaults to `range`.
     var hardRange: ClosedRange<Double>?
+    /// How position maps to value along the track. Linear for every control but Temp,
+    /// whose Kelvin axis spends 72.9% of its travel on 4.4% of its effect until it is
+    /// put on the mired axis `SliderScale.reciprocal` describes.
+    var scale: SliderScale = .linear
     var defaultValue: Double = 0
     var step: Double = 1
     var decimals: Int = 0
@@ -142,17 +146,19 @@ struct LumenSlider: View {
     private var track: some View {
         GeometryReader { geometry in
             let width = geometry.size.width
-            let span = range.upperBound - range.lowerBound
             // The drag's arithmetic, as the value `SliderDragTests` checks rather than
             // as expressions inlined into a gesture closure in a target with no tests.
             let geometryOfDrag = SliderTrack(width: Double(width),
                                              lowerBound: range.lowerBound,
                                              upperBound: range.upperBound,
-                                             step: step)
-            let fraction = span > 0 ? (clamped(value) - range.lowerBound) / span : 0
-            let zeroFraction = span > 0
-                ? (min(max(defaultValue, range.lowerBound), range.upperBound) - range.lowerBound) / span
-                : 0
+                                             step: step,
+                                             scale: scale)
+            // Where the thumb is DRAWN comes from the same object that decides what a
+            // drag is worth. These were two separate expressions, both linear, and
+            // agreeing only because nothing was non-linear yet; a mired track would
+            // have drawn the thumb somewhere the drag would not have put it.
+            let fraction = geometryOfDrag.fraction(of: value)
+            let zeroFraction = geometryOfDrag.fraction(of: defaultValue)
             ZStack(alignment: .leading) {
                 Capsule()
                     .fill(Lumen.trackColor)
@@ -278,10 +284,10 @@ struct LumenSlider: View {
         String(format: "%.\(decimals)f", value)
     }
 
-    private func clamped(_ v: Double) -> Double {
-        min(max(v, range.lowerBound), range.upperBound)
-    }
-
+    // There is deliberately no `clamp` here any more either, for the same reason:
+    // where a value sits on the track is `SliderTrack.fraction(of:)`, which clamps in
+    // position space because that is the only space a non-linear axis can be pinned in.
+    //
     // There is deliberately no `snap` here any more. The clamp-then-snap the drag
     // applies is `SliderTrack.resolve`, in LumenCore, where it is tested — and a second
     // copy of it sitting in this file is how the two would come to round differently

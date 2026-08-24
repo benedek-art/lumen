@@ -265,10 +265,15 @@ enum ProofRegistry {
         ControlSpec(
             // Swept over the PHOTOGRAPHIC range, not the control's full 2000…50000 K.
             // Sweeping the declared range would report a control delivering ~97% of its
-            // effect in the first fifteenth of its travel — which is true, and is
+            // effect in the first fifteenth of its travel — which is true, and was
             // TONE-09 (the slider is linear in Kelvin where it should be reciprocal),
             // a defect in the SLIDER's scale rather than in what the engine does. Two
             // separate facts deserve two separate measurements; this one is the engine's.
+            //
+            // TONE-09 is now fixed: the panel passes `SliderScale.reciprocal`, and
+            // `SliderScaleTests` measures the other fact — that the track's travel is
+            // spent where the change is. This spec is deliberately unchanged, because
+            // widening it would fold the two measurements back into one number.
             id: "raw.temp", panel: "Basic", displayName: "Temperature",
             low: 3000, high: 9000, neutral: 5500,
             frameName: "colourChart", frame: { ProofFrames.colourChart() },

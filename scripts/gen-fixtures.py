@@ -2328,7 +2328,15 @@ def gen_perceptual_checks():
 # ---------------------------------------------------------------------------
 
 MIN_KELVIN, MAX_KELVIN = 2000.0, 50000.0
+MIN_TINT, MAX_TINT = -150.0, 150.0
 TINT_UNIT_IN_V = 0.05 / 150.0
+
+# CAT16 cone response matrix (CAM16, Li et al. 2017) — mirrors
+# ChromaticAdaptation.cat16. Present here only because the magenta guard below is
+# defined in terms of the cone responses adaptation divides by.
+CAT16 = [[0.401288, 0.650173, -0.051461],
+         [-0.250268, 1.204414, 0.045854],
+         [-0.002079, 0.048952, 0.953127]]
 
 
 def xy_to_uv(x, y):
@@ -2379,12 +2387,70 @@ def locus(kelvin):
     return (p[0] + (d[0] - p[0]) * w, p[1] + (d[1] - p[1]) * w)
 
 
-def wb_chromaticity(kelvin, tint):
+# How much of a physical illuminant's cone response the magenta guard insists
+# survives. Mirrors ColorTemperature.tintConeFloor.
+#
+# The defect it exists for: chromatic adaptation divides by the cone response of the
+# illuminant it adapts FROM. Push tint far enough toward magenta and the S response
+# falls through zero, and the adaptation comes out the far side with a negative blue
+# gain — the picture inverts rather than going magenta. The S cone crossed zero at
+# tint +45 at 2000 K and +80 at 2750 K, both inside the slider's own travel.
+TINT_CONE_FLOOR = 0.15
+
+
+def _unguarded_cone_response(kelvin, tint):
+    """CAT16 cone response of the chromaticity a (K, tint) pair asks for, before the
+    guard — the quantity the guard is defined in terms of, so it must not call
+    wb_chromaticity."""
     base = locus(kelvin)
     if tint == 0:
+        c = base
+    else:
+        u, v = xy_to_uv(*base)
+        c = uv_to_xy(u, v + tint * TINT_UNIT_IN_V)
+    x, y = c
+    return mat_apply(CAT16, (x / y, 1.0, (1 - x - y) / y))
+
+
+def tint_limit(kelvin):
+    """Largest magenta tint at this temperature that still describes a colour a light
+    source could be. Only magenta is bounded; green moves toward the interior of the
+    plane where every cone response grows."""
+    base = _unguarded_cone_response(kelvin, 0.0)
+    if min(base) <= 0:
+        return MAX_TINT
+
+    def admissible(t):
+        c = _unguarded_cone_response(kelvin, t)
+        return all(c[i] >= TINT_CONE_FLOOR * base[i] for i in range(3))
+
+    ceiling = 300.0
+    if admissible(ceiling):
+        return ceiling
+    lo, hi = 0.0, ceiling
+    for _ in range(40):
+        mid = (lo + hi) / 2
+        if admissible(mid):
+            lo = mid
+        else:
+            hi = mid
+    return lo
+
+
+def clamped_tint(kelvin, tint):
+    """What a tint is actually worth once physics has had its say."""
+    if tint <= 0:
+        return tint
+    return min(tint, tint_limit(kelvin))
+
+
+def wb_chromaticity(kelvin, tint):
+    base = locus(kelvin)
+    guarded = clamped_tint(kelvin, tint)
+    if guarded == 0:
         return base
     u, v = xy_to_uv(*base)
-    return uv_to_xy(u, v + tint * TINT_UNIT_IN_V)
+    return uv_to_xy(u, v + guarded * TINT_UNIT_IN_V)
 
 
 def temperature_and_tint(chroma):
@@ -2411,8 +2477,9 @@ def temperature_and_tint(chroma):
             best, best_mired = b, hi
         step /= 2
     kelvin = 1e6 / best_mired
+    kelvin = min(max(kelvin, MIN_KELVIN), MAX_KELVIN)
     tint = (v - xy_to_uv(*locus(kelvin))[1]) / TINT_UNIT_IN_V
-    return (min(max(kelvin, MIN_KELVIN), MAX_KELVIN), min(max(tint, -300.0), 300.0))
+    return (kelvin, clamped_tint(kelvin, min(max(tint, -300.0), 300.0)))
 
 
 def gen_white_balance_checks():
@@ -2451,7 +2518,11 @@ def gen_white_balance_checks():
         for tint in (-120.0, -80.0, -40.0, 0.0, 40.0, 80.0, 120.0):
             chroma = wb_chromaticity(k, tint)
             got_k, got_t = temperature_and_tint(chroma)
-            dk, dt = abs(got_k - k) / k, abs(got_t - tint)
+            # Against the GUARDED tint: past the magenta bound the forward map is
+            # deliberately not injective, and an inverse that recovered the number it
+            # was handed rather than the one that was rendered would be lying.
+            dk = abs(got_k - k) / k
+            dt = abs(got_t - clamped_tint(k, tint))
             if dk > worst_k:
                 worst_k, where = dk, f"{k:.0f} K / tint {tint:.0f}"
             worst_t = max(worst_t, dt)
