@@ -194,6 +194,8 @@ public enum KeyGrammar {
             KeyRow(KeyBinding("g", command: true, shift: true), "Unstack"),
             KeyRow(KeyBinding("\\", command: true), "Clear the filter"),
             KeyRow(KeyBinding("/", command: true), "This reference"),
+            KeyRow(KeyBinding("l", command: true, option: true),
+                   "Show / hide the latency HUD (Debug)"),
         ]),
     ]
 
