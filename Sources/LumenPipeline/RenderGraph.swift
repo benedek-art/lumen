@@ -491,7 +491,13 @@ public struct RenderGraph {
         // The mask is edge-aware and computed in log space, so it stays valid when
         // Exposure moves — the exposure-independent property the tone equalizer needs.
         let radius = Swift.max(Int(Double(options.longEdge) * 0.02), 2)
-        let mask = Self.guidedSelfFilter(lum, radius: radius, epsilon: 0.004) ?? lum
+        // ε from the reference, in lockstep — the fifth units bug lived HERE as a bare
+        // 0.004 on the encoded plane (a 1.52 EV threshold; Shadows +100 haloed a 4 EV
+        // edge by half a stop). The number and its measurement live on
+        // `ReferenceRenderer.toneMaskContrastThresholdEV`.
+        let mask = Self.guidedSelfFilter(
+            lum, radius: radius,
+            epsilon: ReferenceRenderer.toneMaskEpsilon) ?? lum
         // The plan's stored cube, baked once per plan. Calling `toneGainCube()`
         // rebuilt 32 768 samples on every frame of every slider drag.
         let cube = plan.toneGainCube32 ?? plan.toneGainCube()

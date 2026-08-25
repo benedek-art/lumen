@@ -152,13 +152,32 @@ public enum ReferenceRenderer {
 
     // MARK: - Stages
 
+    /// The tone mask's contrast threshold: local structure flatter than this many
+    /// stops is one surface and gets one gain; anything steeper is an edge the mask
+    /// must not cross. MEASURED, not chosen (ToneMaskEdgeTests): at the shipped
+    /// ε=0.004 — √0.004 encoded × 24 EV/unit = 1.52 EV, the fifth instance of
+    /// BUILDING.md's units bug — Shadows +100 lifted the bright side of a 4 EV
+    /// shadow/midtone edge by 0.497 EV, a half-stop halo beside every backlit
+    /// subject. The naive ÷24² correction (0.06 EV) fails the other way: at ±0.2 EV
+    /// of high-ISO luminance noise the mask follows the grain at σ 0.090 EV and the
+    /// tone gains re-print it. 0.375 EV is the measured knee — halo 0.052 EV, noise
+    /// σ 0.010 EV — with about 2x margin to each bar.
+    public static let toneMaskContrastThresholdEV: Double = 0.375
+    /// The threshold CONVERTED to the encoded plane the mask runs on (rule 1 of the
+    /// units section in BUILDING.md: write the conversion, not the result).
+    public static var toneMaskEpsilon: Double {
+        let encoded = toneMaskContrastThresholdEV * LumenLog.invRange
+        return encoded * encoded
+    }
+
     static func applyTone(_ image: ImageBuffer, plan: RenderPlan, longEdge: Int,
                           space: RGBColorSpace) -> ImageBuffer {
         let luminance = image.luminancePlane(space: space)
         let log = luminance.map { LumenLog.encode(Swift.max($0, 0)) }
         let radius = Swift.max(Int(Double(longEdge) * 0.02), 2)
         let mask = SpatialOps.exposureIndependentGuidedFilter(
-            luminance: log, radius: radius, epsilon: 0.004, iterations: 1)
+            luminance: log, radius: radius, epsilon: Self.toneMaskEpsilon,
+            iterations: 1)
 
         var out = image
         let lut = plan.toneGainLUT
