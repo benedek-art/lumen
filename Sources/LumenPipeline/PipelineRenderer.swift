@@ -266,6 +266,13 @@ public final class PipelineRenderer {
         image = Self.applyGeometry(image, recipe: recipe, scaleTo: maxLongEdge,
                                    skipCrop: showingUncropped)
 
+        // The preview quantizes to 8-bit sRGB on the next line, and it did so
+        // UNDITHERED while the export dithered — so the loupe showed banding in
+        // exactly the skies the exported file would render clean, and a photographer
+        // judging the sky was judging an artifact the file does not have. Same plate,
+        // same amplitude table, same everything as the export's.
+        image = Self.applyDither(image, colorSpace: .srgb, bitDepth: 8)
+
         guard let cgImage = context.createCGImage(
             image, from: image.extent, format: .RGBA8,
             colorSpace: CGColorSpace(name: CGColorSpace.sRGB)) else {

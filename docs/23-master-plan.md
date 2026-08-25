@@ -134,9 +134,13 @@ The draft-render redesign — full pipeline at draft resolution, no stage gating
       (draft vs settle per-pixel at the same size, plus a discriminator that the
       stages are actually present). Watched-failing runs recorded in the log after
       the green baseline.
-- [ ] `DraftLadder` in LumenCore/Interaction (2048→1600→1280→1024 by measured draft
-      time, ≤35ms p95 target), Linux-tested; replaces LoupeView's fixed draftTarget
-      (queued behind the in-flight proof sweep — LumenCore pushes restart it)
+- [x] `DraftLadder` in LumenCore/Interaction (2048→1600→1280→1024 by measured draft
+      time, 35 ms budget): down on ONE hot frame, up after a 12-frame streak of clear
+      headroom, never above the caller's request, deaf to frames that were not its
+      own answer. Six Linux tests; machinery substitutions watched failing
+      (never-steps-down; streak-survives-middling). Wired per PhotoRenderModel so a
+      compare pane's small frames never teach the loupe's ladder; learns from the
+      same wall-time number the HUD shows
 - [x] `PlanTableCache` stale-while-bake: `tableAllowingStale` returns the newest table
       in a slot while a single-flight background bake (newest-wins pending) computes
       the exact one; `RenderPlan(allowStaleTables:)` routes the finish + colorGrade
@@ -189,13 +193,24 @@ App-layer waste, low-risk first:
 
 ## M1b — Truth polish + instrumentation
 
-- [ ] The ε=0.004 tone-mask measurement (`ToneMaskEdgeTests`, Linux): step edges
-      Δ∈{0.5,1,2,3} EV at r=20px ± noise variant, through the real RenderPlan path;
-      halo_EV > 0.1 at Δ∈{1,2} convicts; candidate fix ε′ = 0.004/24² ≈ 6.9e-6 in
-      ReferenceRenderer + RenderGraph in lockstep; noise-residual guard < 0.02 EV
-- [ ] Preview dither / deeper intermediate (loupe banding the export doesn't have)
-- [ ] Latency HUD behind a debug key (drag→photon, draft/settle ms, ladder rung, cache
-      hits) + os_signpost around decode/plan/rasterize/render
+- [x] The ε=0.004 tone-mask measurement (`ToneMaskEdgeTests`, Linux): CONVICTED —
+      the shipped ε sat on the encoded plane (√0.004 × 24 = a 1.52 EV threshold),
+      Shadows +100 haloed a 4 EV shadow/midtone edge by 0.497 EV. Deviation from the
+      bullet's candidate: ε′ = 0.004/24² fails the OTHER way (the mask follows
+      ±0.2 EV high-ISO noise at σ 0.090 EV); the fix is the measured knee, a 0.375 EV
+      contrast threshold (halo 0.052 EV, noise σ 0.010 EV, ~2x margin to each bar),
+      as `ReferenceRenderer.toneMaskContrastThresholdEV` with the conversion written
+      and RenderGraph reading the same symbol. Two-sided watched-failing locks:
+      shipped ε reddens the halo test at 0.497, naive ε reddens the noise test at
+      0.092. Legitimate drift on the 16 toneGainLUT-family records (tone.* through
+      the mask + zones.*) re-pinned from the proof lane's own drift printout.
+- [x] Preview dither: `renderPreview` now runs the export's own `applyDither` before
+      its 8-bit sRGB quantize — the loupe no longer shows banding in skies the
+      exported file renders clean (checklist step 10 puts it in front of the owner)
+- [x] Latency HUD behind a debug key (⌥⌘L): input→draft ms, draft ms @size,
+      settle ms @size — the draft line's @size is the ladder's chosen rung
+- [ ] Still owed from that bullet: os_signpost around decode/plan/rasterize/render,
+      and cache-hit counters on the HUD
 - [x] Last folder remembered across launches (security-scoped bookmark in
       UserDefaults, plain-bookmark fallback both directions, existence-checked;
       checklist step 1 verifies it on a real Mac)
