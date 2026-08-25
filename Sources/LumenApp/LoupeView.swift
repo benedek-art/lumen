@@ -278,6 +278,11 @@ final class PhotoRenderModel: ObservableObject {
     /// Bumped whenever `image` is replaced — a cheap `Equatable` handle for `.task(id:)`
     /// since `CGImage` is not `Equatable`.
     @Published private(set) var revision: Int = 0
+
+    /// Which resolution the next draft renders at, learned from what drafts have been
+    /// costing on THIS machine — `DraftLadder` in LumenCore, with tests. Per model, so
+    /// a compare pane's small frames never teach the loupe's ladder anything.
+    private var draftLadder = DraftLadder()
     @Published private(set) var isDraft: Bool = false
     @Published private(set) var usedEmbeddedPreview: Bool = false
     /// Whatever the coordinator wants said out loud — "kernel library unavailable",
@@ -361,7 +366,12 @@ final class PhotoRenderModel: ObservableObject {
         // cursor. The colour is now identical to the settle by construction, so what
         // remains between draft and settle is sharpness alone — which reads as the
         // picture resolving rather than as the picture changing.
-        let draftTarget = Swift.max(draftLongEdge, Swift.min(fullLongEdge / 2, 2048))
+        // Half the settled request, floored at the zoom-aware draft size — then capped
+        // by the ladder's current rung, which is the one lever left now that a draft
+        // runs the full pipeline: a machine whose drafts run hot steps down within one
+        // frame, one with headroom earns the top rung back over a streak.
+        let draftRequested = Swift.max(draftLongEdge, fullLongEdge / 2)
+        let draftTarget = draftLadder.longEdge(requested: draftRequested)
         let draftStarted = DispatchTime.now().uptimeNanoseconds
         let draft = await coordinator.render(url: url, recipe: recipe,
                                              maxLongEdge: Swift.max(draftTarget, 64),
@@ -373,10 +383,13 @@ final class PhotoRenderModel: ObservableObject {
         if let draft, draft.generation == latestGeneration {
             apply(draft, url: url)
             // Wall time around the await, actor queueing included — queueing is what
-            // a hand feels. Free when the HUD is off.
-            LatencyHUD.shared.noteDraft(
-                milliseconds: Double(DispatchTime.now().uptimeNanoseconds - draftStarted) / 1e6,
-                longEdge: Swift.max(draftTarget, 64))
+            // a hand feels. The ladder learns from the same number the HUD shows.
+            let draftMs = Double(DispatchTime.now().uptimeNanoseconds - draftStarted) / 1e6
+            draftLadder.record(draftMilliseconds: draftMs,
+                               renderedLongEdge: Swift.max(draftTarget, 64),
+                               requested: draftRequested)
+            LatencyHUD.shared.noteDraft(milliseconds: draftMs,
+                                        longEdge: Swift.max(draftTarget, 64))
         }
 
         // The debounce, and nothing but the debounce: everything after this point still
