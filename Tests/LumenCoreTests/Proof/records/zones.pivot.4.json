@@ -6,7 +6,7 @@
   "givenBack" : 0,
   "id" : "zones.pivot.4",
   "isMonotone" : true,
-  "meanSeparation" : 9.539387959593157,
+  "meanSeparation" : 9.539386532795193,
   "panel" : "Zones",
   "shippingReader" : "Sources\/LumenPipeline\/RenderGraph.swift:486",
   "smallestLiveStep" : 3.4436348852514698,

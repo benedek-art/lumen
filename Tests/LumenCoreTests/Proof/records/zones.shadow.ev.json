@@ -6,7 +6,7 @@
   "givenBack" : 0,
   "id" : "zones.shadow.ev",
   "isMonotone" : true,
-  "meanSeparation" : 8.876379300553415,
+  "meanSeparation" : 8.876370268820379,
   "panel" : "Zones",
   "shippingReader" : "Sources\/LumenPipeline\/RenderGraph.swift:486",
   "smallestLiveStep" : 0.7097681012470272,

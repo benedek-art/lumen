@@ -6,10 +6,10 @@
   "givenBack" : 0,
   "id" : "zones.pivot.1",
   "isMonotone" : true,
-  "meanSeparation" : 8.748641446243395,
+  "meanSeparation" : 8.748269607373166,
   "panel" : "Zones",
   "shippingReader" : "Sources\/LumenPipeline\/RenderGraph.swift:486",
-  "smallestLiveStep" : 1.6703343635738506,
+  "smallestLiveStep" : 1.6703313713117538,
   "travelHigh" : 0.48,
   "travelLow" : 0.1
 }
