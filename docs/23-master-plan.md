@@ -326,8 +326,12 @@ and against Lightroom via owner-exported references.
 - [ ] UI/IA round from the same session: Basic panel reordered Tone → Presence →
       WB → Colour (done); DevelopNote collapsed to a hover-ⓘ except honesty
       notices (done); double-click-on-track reset already fixed, owner saw an old
-      build; DEEP visual/UX redesign requested ("looks like very old Apple") —
-      design audit in flight, direction proposal before any repaint
+      build; design audit delivered (docs/25) — headline: the shipped chrome
+      violated Law 7's 18-25% surround zone by an order of magnitude. OWNER CHOSE
+      OPTION A (2026-08-26), with a high-fidelity HTML mockup of Option B published
+      as an artifact for a later call; steps 1-2 (elevation ladder + type scale)
+      landed at df57ab9, checkpoint 1 (the brighter chrome, one full session before
+      judging) rides the next build; remaining A steps 3-9 in progress
 - [ ] First shipping-path golden that MOVES the six tone sliders through RenderGraph,
       preview + export scale
 - [ ] Tint honesty: tintLimit surfaced like effectiveHighlights; WB eyedropper cheap
