@@ -172,9 +172,12 @@ private struct Sidebar: View {
                 }
 
                 if let catalogStatus = state.catalogStatus {
+                    // Was .orange — the one chroma violation in the chrome (Law 7:
+                    // zero-chroma everywhere the photo isn't). Urgency reads through
+                    // primary-value text in a quiet chrome just as well.
                     Text(catalogStatus)
                         .font(.system(size: 10))
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(Lumen.primaryText)
                         .fixedSize(horizontal: false, vertical: true)
                 }
 

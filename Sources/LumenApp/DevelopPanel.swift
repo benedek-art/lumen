@@ -189,11 +189,11 @@ struct DevelopNote: View {
         } else {
             HStack(spacing: 3) {
                 Image(systemName: "info.circle")
-                    .font(.system(size: 9))
+                    .font(.system(size: 10))
                 Text("How this works")
-                    .font(.system(size: 9))
+                    .font(.system(size: 10))
             }
-            .foregroundStyle(Lumen.secondaryText.opacity(0.75))
+            .foregroundStyle(Lumen.tertiaryText)
             .help(text)
             .padding(.vertical, 1)
         }

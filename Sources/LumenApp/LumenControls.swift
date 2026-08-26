@@ -45,17 +45,45 @@ import SwiftUI
 // MARK: - Theme
 
 enum Lumen {
-    static let panelBackground = Color(nsColor: NSColor(white: 0.14, alpha: 1))
-    static let controlBackground = Color(nsColor: NSColor(white: 0.20, alpha: 1))
-    static let trackColor = Color(nsColor: NSColor(white: 0.32, alpha: 1))
-    static let fillColor = Color(nsColor: NSColor(white: 0.62, alpha: 1))
-    static let viewerBackground = Color(nsColor: NSColor(white: 0.16, alpha: 1))
-    static let separator = Color(nsColor: NSColor(white: 0.26, alpha: 1))
-    static let primaryText = Color(nsColor: NSColor(white: 0.88, alpha: 1))
-    static let secondaryText = Color(nsColor: NSColor(white: 0.58, alpha: 1))
+    // The elevation ladder (design audit, docs/25). The old theme was two grays and
+    // a pile of hairlines — panels at signal 0.14 ≈ 1.7% reflectance, an order of
+    // magnitude below the 18–25% zone Law 7 (docs/00) and D46 (docs/12 §12.7)
+    // prescribe so the surround does not push edits dark and over-cooked. Depth now
+    // comes from surface value: the photo sits in the CALMEST (darkest) field,
+    // panels sit at the Law 7 floor, wells carve DOWN, controls step UP. Every
+    // value zero-chroma, per the same law.
+
+    /// The photo's field — loupe, grid, compare surround. Darkest region, so
+    /// nothing in the window is calmer than the photograph's own home.
+    static let surroundCanvas = Color(nsColor: NSColor(white: 0.165, alpha: 1))
+    /// Status bar, filmstrip — the window's base plane.
+    static let windowBase = Color(nsColor: NSColor(white: 0.18, alpha: 1))
+    /// Sidebar, develop column, filter bar.
+    static let panel = Color(nsColor: NSColor(white: 0.20, alpha: 1))
+    /// Carved-down surfaces: histogram well, text fields, slider grooves,
+    /// chip-group wells. Depth goes down, not lines.
+    static let insetWell = Color(nsColor: NSColor(white: 0.145, alpha: 1))
+    /// Buttons and chips at rest / hovered / selected-pressed.
+    static let controlSurface = Color(nsColor: NSColor(white: 0.24, alpha: 1))
+    static let controlHover = Color(nsColor: NSColor(white: 0.27, alpha: 1))
+    static let controlActive = Color(nsColor: NSColor(white: 0.31, alpha: 1))
+
+    static let primaryText = Color(nsColor: NSColor(white: 0.92, alpha: 1))
+    static let secondaryText = Color(nsColor: NSColor(white: 0.66, alpha: 1))
+    static let tertiaryText = Color(nsColor: NSColor(white: 0.50, alpha: 1))
+
     /// The one accent, used only for state that must be noticed (modified markers,
     /// active tool). Deliberately desaturated so it never competes with the photo.
     static let accent = Color(nsColor: NSColor(red: 0.45, green: 0.58, blue: 0.72, alpha: 1))
+
+    // Legacy names, aliased onto the ladder so the migration can land call site by
+    // call site instead of as one unreviewable repaint. New code uses the ladder.
+    static let panelBackground = panel
+    static let controlBackground = controlSurface
+    static let viewerBackground = surroundCanvas
+    static let trackColor = Color(nsColor: NSColor(white: 0.34, alpha: 1))
+    static let fillColor = Color(nsColor: NSColor(white: 0.62, alpha: 1))
+    static let separator = Color(nsColor: NSColor(white: 0.30, alpha: 1))
 
     static let rowHeight: CGFloat = 22
     static let panelWidth: CGFloat = 320
@@ -387,14 +415,16 @@ struct LumenSectionHeader: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(Lumen.secondaryText)
             }
+            // The header now outranks the rows it governs (design audit §1.2: the
+            // highest-level element in the panel was the smallest text in it).
             Text(title.uppercased())
-                .font(.system(size: 10, weight: .semibold))
-                .tracking(0.6)
+                .font(.system(size: 11, weight: .semibold))
+                .tracking(0.8)
                 .foregroundStyle(Lumen.secondaryText)
             if isModified {
                 Circle()
                     .fill(Lumen.accent)
-                    .frame(width: 4, height: 4)
+                    .frame(width: 5, height: 5)
             }
             Spacer()
             if let onReset, isModified {

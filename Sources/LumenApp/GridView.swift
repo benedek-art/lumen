@@ -250,7 +250,9 @@ struct PhotoCell: View {
         HStack(spacing: 1) {
             ForEach(1...5, id: \.self) { index in
                 Image(systemName: "star.fill")
-                    .font(.system(size: 7))
+                    // 7pt was below any Mac legibility floor (design audit §1.9);
+                    // 10pt is the app-wide minimum now.
+                    .font(.system(size: 10))
                     .foregroundStyle(index <= photo.rating ? Color.white : Lumen.trackColor)
             }
         }
