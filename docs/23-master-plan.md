@@ -266,8 +266,13 @@ and against Lightroom via owner-exported references.
       sRGB-encoded): **no dead-then-jump quantization anywhere** — the engine's
       travel response is smooth, so session A's "switches little by little" points
       at frame delivery (the zoomed full-res drafts, since fixed), pending HUD
-      numbers. Findings: Whites is the least smooth control (max step 3.1× mean,
-      11-step dead run at highlight tones — the anchor solve is the suspect);
+      numbers. Findings: Whites read as the least smooth control (max step 3.1×
+      mean) — INVESTIGATED and acquitted: at 400-step granularity the response is
+      smooth with zonalScale exactly 1.0 across the whole travel; the "jumps" are an
+      end-loaded curve (the last 5 units deliver ~3× the mid-travel rate at a
+      bright-mid tone) and the dead stretch is the negative shelf legitimately out
+      of reach of a 0.72 patch. End-loading is a tuning question for the LR
+      references, not a discontinuity;
       Contrast at mid-grey is EXACTLY zero across full travel (the pivot contract,
       confirmed); the zones are hard-partitioned (Highlights/Whites touch nothing
       ≤ mid-grey, Shadows/Blacks nothing ≥ it) — a design difference vs Lightroom's
