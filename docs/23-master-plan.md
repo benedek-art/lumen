@@ -221,13 +221,45 @@ App-layer waste, low-risk first:
 **Owner session A:** drag every basic slider on a masked, denoised, sharpened real RAW —
 nothing may change on release; Highlights/Whites/Blacks judged with the HUD visible
 (settles MAC-04 with evidence); zoom stability; double-click reset.
+**HELD 2026-08-26** (docs/sessions/01-results.md): MAC-04 **closed** — all six tone
+controls owner-confirmed working; MAC-07 **root-caused** — the zoomed draw ratio never
+normalized for proxy resolution (fixed, `LoupeGeometry.zoomedRatio` + tests);
+double-click reset was genuinely broken (tap buried behind the drag; fixed). No
+pop-on-release reported.
 **Exit gate:** sliders feel immediate; no pop-on-release anywhere; MAC-04/MAC-07 closed
-or precisely characterized.
+or precisely characterized. **NOT YET MET**: the owner reports steppy, late-feeling
+updates ("switches little by little instead of a ramp") and no HUD numbers were
+captured — next session retests zoom + double-click and brings input→draft/draft-ms
+numbers; the steppiness suspect list is (a) pre-fix zoomed full-res drafts (fixed),
+(b) tone-LUT knot quantization (M2's first measurement, promoted).
 
 ## M2 — The basics are right
 
+Owner's framing after session A, now this milestone's charter: *"the difference
+between us and Lightroom is less so the product, it's more so the accuracy — I want a
+factual and testable area where this comes out as accurate as possible."* Accuracy
+means, concretely and testably: (1) **calibrated** — each slider's value means what it
+says, against a written physical contract per control (Exposure +1.00 multiplies
+scene-linear luminance by exactly 2; Contrast leaves its pivot untouched at any
+setting; Temp writes the Kelvin it shows; endpoints reach their documented targets);
+(2) **smooth** — fine travel produces proportionally fine output steps, measured at
+~200-step granularity, no plateaus-then-jumps (the owner's "switches little by
+little"); (3) **competitive** — recorded side-by-sides against open implementations,
+and against Lightroom via owner-exported references.
+
 - [ ] Tone-cube knot-density measurement (2 EV shelf through the 32³ cube vs direct
-      evaluation, Linux); 64³ or non-uniform knots only if the data says so
+      evaluation, Linux); 64³ or non-uniform knots only if the data says so —
+      PROMOTED to first: knot quantization is the standing suspect for session A's
+      steppiness
+- [ ] Fine-travel smoothness probe: each Basic-list control swept at ~200 steps
+      through the reference path; print max-step/median-step per control, then pin
+      bounds where the data supports them (measure first, assert second)
+- [ ] Calibration contracts written and asserted per basic control (the physical
+      claims above, each with a test at the stage where the claim is defined)
+- [ ] Owner-exported Lightroom references (same RAW, one slider moved, exported
+      TIFF/JPEG) for Exposure ±1/±2, Highlights/Shadows ±50/±100, Contrast ±50 —
+      the direct answer to "is Lightroom more accurate"; blocked on the owner, rides
+      the same ask as the RAW fixtures
 - [ ] First shipping-path golden that MOVES the six tone sliders through RenderGraph,
       preview + export scale
 - [ ] Tint honesty: tintLimit surfaced like effectiveHighlights; WB eyedropper cheap
