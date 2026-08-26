@@ -1666,7 +1666,11 @@ final class RobustnessTests: XCTestCase {
             }
             return bestAt
         }
-        XCTAssertEqual(peak(Zones.defaultPivots), 0.5, accuracy: 0.01)
+        // The default MID pivot read from the constant, not restated — this line
+        // held a literal 0.5 and broke the day the defaults moved to their
+        // documented EVs, which is exactly why restating constants in tests is the
+        // shape this file exists to prevent.
+        XCTAssertEqual(peak(Zones.defaultPivots), Zones.defaultPivots[2], accuracy: 0.01)
         XCTAssertEqual(peak([0.08, 0.25, 0.62, 0.75, 0.92]), 0.62, accuracy: 0.01,
                        "moving the midtone pivot did not move where the zone peaks")
     }

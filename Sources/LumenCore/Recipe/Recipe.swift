@@ -336,7 +336,18 @@ public struct Zones: Codable, Equatable, Sendable {
     public var bright: ZoneAdjust
     public var global: ZoneAdjust
 
-    public static let defaultPivots: [Double] = [0.08, 0.25, 0.5, 0.75, 0.92]
+    /// The documented pivot EVs (docs/04: −4 / −2 / 0 / +2 / +4 around mid-grey),
+    /// expressed on the normalized axis THROUGH the engine's own default anchors —
+    /// so the constants and the documentation cannot drift apart again. The old
+    /// hand-written values [0.08, 0.25, 0.5, 0.75, 0.92] were plausible-looking
+    /// fractions that put "Mids" at scene −2 EV and "Darks" at −7.9 EV, where the
+    /// display toe has nothing to show: the slider dossier's #1 defect, caught by
+    /// reading the numbers back through the axis they are used in
+    /// (`AccuracyProbeTests.testTheDefaultZonePivotsSitAtTheirDocumentedEVs`).
+    public static let defaultPivots: [Double] = [-4.0, -2.0, 0.0, 2.0, 4.0].map {
+        ($0 - ToneEngine.defaultBlackAnchorEV)
+            / (ToneEngine.defaultWhiteAnchorEV - ToneEngine.defaultBlackAnchorEV)
+    }
 
     public init(pivots: [Double] = Zones.defaultPivots,
                 dark: ZoneAdjust = ZoneAdjust(), shadow: ZoneAdjust = ZoneAdjust(),

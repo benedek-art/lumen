@@ -294,8 +294,12 @@ and against Lightroom via owner-exported references.
       B&W, the Curve's domain/monotonicity, WB's core math, the denoise framework,
       grain and halation mechanisms all CORRECT against the cited consensus.
 - [ ] Dossier-driven fix queue (full detail in docs/24; ranked by daily impact):
-      1. Zones panel DEFECT: stored default pivots put "Midtones" at scene −2 EV
-         (docs say 0 EV) and "Darks" at −7.9 EV where the toe shows nothing
+      1. ~~Zones panel DEFECT~~ FIXED: `Zones.defaultPivots` is now DEFINED by the
+         documented EVs (−4/−2/0/+2/+4) through the engine's own axis constants, so
+         numbers and docs cannot drift apart; the lock was watched failing at the
+         old constants (all five EVs named in the failure). Expected proof drift:
+         exactly the zones.* family, re-pinned from the sweep's printout. Contrast's
+         mid-grey pivot contract also asserted through the full pipeline.
       2. Sharpen Radius in output pixels — preview judgment ≠ export (M3 item,
          now with the exact fix site named)
       3. Mixer band centres are geometric (29.23°+45°k), not perceptual — orange

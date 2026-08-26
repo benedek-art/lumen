@@ -330,7 +330,7 @@ DEFAULT_RECIPE = {
         "raw": {"decoder": "apple"},
         "tone": {"exposure": 0, "contrast": 0, "contrastPivot": 0, "highlights": 0,
                  "shadows": 0, "whites": 0, "blacks": 0},
-        "zones": {"pivots": [0.08, 0.25, 0.5, 0.75, 0.92],
+        "zones": {"pivots": [(ev - (-9.0)) / (5.0 - (-9.0)) for ev in (-4.0, -2.0, 0.0, 2.0, 4.0)],
                   "dark": zone_adjust(), "shadow": zone_adjust(), "mid": zone_adjust(),
                   "light": zone_adjust(), "bright": zone_adjust(), "global": zone_adjust()},
         "curve": {"parametric": {"highlights": 0, "lights": 0, "darks": 0,
@@ -932,7 +932,10 @@ def exposure_stops(x, pivots, zone_ev, global_ev):
 
 def gen_zones_fixture():
     print("zones.json ...")
-    default_pivots = [0.08, 0.25, 0.5, 0.75, 0.92]
+    # The documented pivot EVs (docs/04: -4/-2/0/+2/+4 around mid-grey) through
+    # the default anchors (-9..+5), mirroring Zones.defaultPivots exactly —
+    # same operations, same IEEE doubles.
+    default_pivots = [(ev - (-9.0)) / (5.0 - (-9.0)) for ev in (-4.0, -2.0, 0.0, 2.0, 4.0)]
     custom_pivots = [0.1, 0.3, 0.6, 0.85]
     samples = [i / 24 for i in range(25)]
     cases = []

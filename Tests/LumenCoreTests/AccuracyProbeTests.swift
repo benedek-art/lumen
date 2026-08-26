@@ -28,6 +28,44 @@ final class AccuracyProbeTests: XCTestCase {
         }
     }
 
+    /// Contrast's contract, asserted through the FULL tabled pipeline this time
+    /// (the travel probe showed it holds; this pins it): mid-grey is the pivot, and
+    /// the pivot does not move, at any contrast, ever.
+    func testContrastLeavesMidGreyExactlyAlone() {
+        func rendered(_ contrast: Double) -> Double {
+            var recipe = Recipe()
+            recipe.develop.tone.contrast = contrast
+            let plan = RenderPlan(recipe: recipe)
+            let frame = ImageBuffer(width: 8, height: 8) { _, _ in RGB(gray: 0.18) }
+            return ReferenceRenderer.render(frame, plan: plan)[4, 4].r
+        }
+        let base = rendered(0)
+        for c in [-100.0, -50.0, 50.0, 100.0] {
+            XCTAssertEqual(rendered(c) * 255, base * 255, accuracy: 0.25,
+                           "Contrast \(c) moved mid-grey — the pivot's whole meaning "
+                               + "is that it does not move")
+        }
+    }
+
+    /// The Zones panel's contract (docs/04): the five default pivots sit at
+    /// −4 / −2 / 0 / +2 / +4 EV around mid-grey. The shipped constants put "Mids"
+    /// at scene −2 EV and "Darks" at −7.9 EV, where the display toe shows almost
+    /// nothing — the slider dossier's #1 defect. This reads the stored pivots back
+    /// through the engine's own axis, so the numbers and the docs cannot drift
+    /// apart again.
+    func testTheDefaultZonePivotsSitAtTheirDocumentedEVs() {
+        let engine = ToneEngine(tone: Tone(), zones: Zones())
+        let span = engine.whiteAnchorEV - engine.blackAnchorEV
+        let documented: [Double] = [-4, -2, 0, 2, 4]
+        let stored = Zones.defaultPivots
+        XCTAssertEqual(stored.count, documented.count)
+        for (x, ev) in zip(stored, documented) {
+            XCTAssertEqual(x * span + engine.blackAnchorEV, ev, accuracy: 1e-9,
+                           "a default pivot sits at \(x * span + engine.blackAnchorEV) "
+                               + "EV where docs/04 documents \(ev) EV")
+        }
+    }
+
     // MARK: Smoothness — does the shipping cube track the reference table?
 
     /// The GPU evaluates tone through a 32-knot cube resampled from the 1024-sample
