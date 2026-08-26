@@ -115,6 +115,8 @@ jobs:
   app-bundle:
     runs-on: macos-15
     timeout-minutes: 30
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - name: Build Lumen.app
@@ -129,6 +131,26 @@ jobs:
           name: Lumen-app
           path: Lumen.app.zip
           retention-days: 30
+      - name: Publish the rolling dev release the in-app updater reads
+        # One moving pre-release, `dev-latest`, holding the newest build of the
+        # working branch. The app's updater polls the PUBLIC releases API for it —
+        # release assets need no auth on a public repo, unlike Actions artifacts,
+        # which is the whole reason this exists. The body's `commit:` line is the
+        # updater's contract; change it and the updater goes blind.
+        if: github.ref == 'refs/heads/claude/photo-editor-design-plan-8ahzmm'
+          || github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git tag -f dev-latest
+          git push -f origin dev-latest
+          gh release delete dev-latest -y || true
+          gh release create dev-latest Lumen.app.zip \
+            --prerelease \
+            --title "Dev build ${GITHUB_SHA}" \
+            --notes "commit: ${GITHUB_SHA}
+          Rolling development build, replaced on every push. Installed copies of
+          Lumen update themselves from this release."
 
   # Linux lane: recompute every fixture with the Python reference and fail if the
   # committed fixtures no longer agree with it.

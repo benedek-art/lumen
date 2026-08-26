@@ -40,6 +40,14 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 </plist>
 PLIST
 
+# Stamp the build's identity into the bundle BEFORE signing (the signature seals the
+# plist). The in-app updater compares these against the rolling dev release; a build
+# without them (someone hand-rolling the plist) simply never offers updates.
+SHA="${GITHUB_SHA:-$(git rev-parse HEAD 2>/dev/null || echo unknown)}"
+NOW="$(date -u +%s)"
+/usr/libexec/PlistBuddy -c "Add :LumenBuildCommit string ${SHA}" "$APP/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Add :LumenBuildDate integer ${NOW}" "$APP/Contents/Info.plist"
+
 # Ad-hoc signature. NOT optional and NOT allowed to fail quietly: on Apple Silicon an
 # unsigned binary does not launch at all, so `|| true` here would hand back a bundle
 # that cannot start, with the failure hidden and nothing to read. If signing breaks,

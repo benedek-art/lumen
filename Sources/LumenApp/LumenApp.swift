@@ -45,9 +45,23 @@ struct LumenApp: App {
                     // so has every launch since; a daily driver reopens where you
                     // left off. Quiet no-op when the bookmark is gone or revoked.
                     state.reopenLastFolder()
+                    // The ship-to-self loop's last mile: an installed CI build
+                    // replaces itself from the rolling dev release. Delayed so the
+                    // launch render wins the disk and the network first; silent
+                    // unless there is genuinely a newer build.
+                    Task {
+                        try? await Task.sleep(nanoseconds: 3_000_000_000)
+                        await AppUpdater.shared.checkQuietly()
+                    }
                 }
         }
         .commands {
+            CommandGroup(after: .appInfo) {
+                Button("Check for Updates…") {
+                    Task { await AppUpdater.shared.check(interactive: true) }
+                }
+            }
+
             CommandGroup(replacing: .newItem) {
                 Button("Open Folder…") { state.chooseFolder() }
                     .keyboardShortcut("o", modifiers: [.command])
