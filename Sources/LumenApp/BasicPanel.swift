@@ -67,10 +67,13 @@ struct BasicPanel: View {
     private var recipe: Recipe { state.currentRecipe }
 
     var body: some View {
+        // Tone first: the owner edits light before colour, every session, and said so
+        // in exactly those words — the panel leads with Exposure and friends, White
+        // Balance moves below the visual controls it used to sit on top of.
         VStack(alignment: .leading, spacing: 2) {
-            whiteBalanceSection
             toneSection
             presenceSection
+            whiteBalanceSection
             saturationSection
         }
     }

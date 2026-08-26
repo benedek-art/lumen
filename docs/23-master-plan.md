@@ -317,12 +317,17 @@ and against Lightroom via owner-exported references.
       10. Texture one-band spectrum vs reference band-pass unmeasured post-fix;
           proof-registry holes (color.density, protectSkin, mixer.uniformity,
           colorBalance.*); H-K and tuning constants unpinned
-- [ ] Owner decisions the dossier surfaced (deliberate divergences, keep or match
-      LR): hard tone-zone partition at mid-grey vs LR/darktable feathering (the
-      biggest feel difference); compressed saturation push vs LR's linear;
-      luminance-preserving curve default (LR's 2023 "Refine Saturation 0") vs
-      LR's legacy chroma-pumping default; pure-gain Exposure vs LR's
-      midtone-weighted rolloff
+- [x] Owner decisions on the dossier's deliberate divergences (2026-08-26, in
+      chat): KEEP the compressed saturation push ("we want something subtle very
+      often, a saturation that doesn't really look like it's been edited" — the
+      design IS the preference), KEEP the luminance-preserving curve default, KEEP
+      pure-gain Exposure. Still open: hard tone-zone partition vs LR feathering —
+      decided after the LR side-by-side exports exist.
+- [ ] UI/IA round from the same session: Basic panel reordered Tone → Presence →
+      WB → Colour (done); DevelopNote collapsed to a hover-ⓘ except honesty
+      notices (done); double-click-on-track reset already fixed, owner saw an old
+      build; DEEP visual/UX redesign requested ("looks like very old Apple") —
+      design audit in flight, direction proposal before any repaint
 - [ ] First shipping-path golden that MOVES the six tone sliders through RenderGraph,
       preview + export scale
 - [ ] Tint honesty: tintLimit surfaced like effectiveHighlights; WB eyedropper cheap

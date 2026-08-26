@@ -163,19 +163,40 @@ struct DevelopDisclosure<Content: View>: View {
 
 /// A short explanatory line. Panels use it to say what an engine is doing rather than
 /// leaving the user to infer it from a slider name.
+///
+/// Collapsed by default since the owner's second session: thirty-one of these sat
+/// fully expanded and the panel read as documentation with sliders in it ("so much
+/// text that is honestly unnecessary"). The knowledge is one hover away on the ⓘ
+/// row — the same affordance as every slider's own tooltip. `prominent: true` keeps
+/// the old always-visible rendering, and it is reserved for notes doing honesty work
+/// (a control that is stored but not applied must say so without being asked).
 struct DevelopNote: View {
     private let text: String
+    private let prominent: Bool
 
-    init(_ text: String) {
+    init(_ text: String, prominent: Bool = false) {
         self.text = text
+        self.prominent = prominent
     }
 
     var body: some View {
-        Text(text)
-            .font(.system(size: 10))
-            .foregroundStyle(Lumen.secondaryText)
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(.vertical, 2)
+        if prominent {
+            Text(text)
+                .font(.system(size: 10))
+                .foregroundStyle(Lumen.secondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.vertical, 2)
+        } else {
+            HStack(spacing: 3) {
+                Image(systemName: "info.circle")
+                    .font(.system(size: 9))
+                Text("How this works")
+                    .font(.system(size: 9))
+            }
+            .foregroundStyle(Lumen.secondaryText.opacity(0.75))
+            .help(text)
+            .padding(.vertical, 1)
+        }
     }
 }
 

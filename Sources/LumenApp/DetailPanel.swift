@@ -131,7 +131,8 @@ struct DetailPanel: View {
                 // now matches the engine's 0…150 rather than stopping at the default.
                 DevelopNote("Amount pins the strength for this photo. Radius is stored "
                             + "but not applied in this build — the decode stage takes "
-                            + "the strength and measures the radius itself.")
+                            + "the strength and measures the radius itself.",
+                            prominent: true)
             }
         }
     }
@@ -422,7 +423,8 @@ struct DetailPanel: View {
                                 + "model ships, and the decoder stand-in Amount drives "
                                 + "on raw files is part of the raw decode, which this "
                                 + "file does not go through. Classic is the engine "
-                                + "that runs here.")
+                                + "that runs here.",
+                                prominent: true)
                 } else {
                     DevelopNote("No AI model ships yet. Amount drives the raw decoder's "
                                 + "own noise reduction as a stand-in, and because that "
