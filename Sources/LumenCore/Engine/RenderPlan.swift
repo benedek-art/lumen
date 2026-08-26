@@ -310,14 +310,20 @@ public struct RenderPlan: Sendable {
         self.vignetteEV = look.vignette
         self.masks = recipe.masks.filter { $0.enabled }
 
-        // Baked once, here, and only when the tone stage will actually read it.
+        // Baked once, here, and only when the tone stage will actually read it. At
+        // the plan's own fidelity: an export plan (lutSize == exportSize) gets the
+        // export-grade cube, because MEASURED (AccuracyProbeTests) the 32-knot cube
+        // parks up to 0.080 EV of error on Whites +100 at scene +0.8 EV — sky tones,
+        // in the delivered file. 65 knots halves the spacing and trilinear error
+        // falls with its square; the bake is once per export, not per frame.
         if toneEngine.isIdentity {
-            self.toneGainCube32 = nil
+            self.toneGainCubeBaked = nil
         } else {
             var peak = 1e-9
             for v in self.toneGainLUT.samples { peak = Swift.max(peak, v) }
             let lut = self.toneGainLUT
-            self.toneGainCube32 = LUT3D(size: 32) { encoded in
+            let cubeSize = lutSize >= LUT3D.exportSize ? LUT3D.exportSize : 32
+            self.toneGainCubeBaked = LUT3D(size: cubeSize) { encoded in
                 RGB(gray: lut.evaluate(encoded.r) / peak)
             }
         }
@@ -420,7 +426,10 @@ public struct RenderPlan: Sendable {
     ///
     /// Built only when the tone stage is live, because that is the only time anything
     /// reads it and an identity plan should not pay for a quarter of a million samples.
-    public let toneGainCube32: LUT3D?
+    /// 32 knots on an interactive plan, `LUT3D.exportSize` on an export one — the
+    /// name stopped carrying the number the day the number started depending on what
+    /// the plan is for.
+    public let toneGainCubeBaked: LUT3D?
 
     public func toneGainCube(size: Int = 32) -> LUT3D {
         let scale = toneGainScale

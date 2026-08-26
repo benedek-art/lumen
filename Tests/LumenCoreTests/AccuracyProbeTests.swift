@@ -52,7 +52,7 @@ final class AccuracyProbeTests: XCTestCase {
             let plan = RenderPlan(recipe: recipe)
             XCTAssertFalse(plan.toneIsIdentity, "\(name) should engage the tone stage")
             let lut = plan.toneGainLUT
-            let cube = plan.toneGainCube32 ?? plan.toneGainCube()
+            let cube = plan.toneGainCubeBaked ?? plan.toneGainCube()
             let scale = plan.toneGainScale
             var maxErr = 0.0
             var meanErr = 0.0
@@ -78,6 +78,54 @@ final class AccuracyProbeTests: XCTestCase {
             XCTAssertLessThan(maxErr, 0.5,
                               "\(name): the 32-knot cube has left the reference table "
                                   + "entirely — that is a defect, not knot density")
+        }
+
+        // The export contract, asserted: an export-fidelity plan bakes the
+        // export-size cube, and on the worst interactive case (Whites +100,
+        // 0.080 EV at 32 knots) the finer cube must cut the error by at least half.
+        // Trilinear error falls with the square of knot spacing, so the expected
+        // factor is ~4; half is the backstop that still proves the mechanism.
+        var whites = Recipe()
+        whites.develop.tone.whites = 100
+        let exportPlan = RenderPlan(recipe: whites, lutSize: LUT3D.exportSize)
+        guard let exportCube = exportPlan.toneGainCubeBaked else {
+            XCTFail("an export plan with live tone has no baked cube")
+            return
+        }
+        XCTAssertEqual(exportCube.size, LUT3D.exportSize,
+                       "the export plan must carry the export-grade tone cube")
+        let lut = exportPlan.toneGainLUT
+        let scale = exportPlan.toneGainScale
+        var maxErr = 0.0
+        for i in 0...2048 {
+            let y = Double(i) / 2048.0
+            let ref = lut.evaluate(y)
+            let shipped = exportCube.sample(RGB(gray: y)).r * scale
+            guard ref > 1e-6, shipped > 1e-6 else { continue }
+            maxErr = Swift.max(maxErr, abs(log2(shipped / ref)))
+        }
+        print(String(format: "TONECUBE-EXPORT whites+100 @%d knots: max %.4f EV",
+                     LUT3D.exportSize, maxErr))
+        XCTAssertLessThan(maxErr, 0.040,
+                          "the export cube must at least halve the 32-knot worst case")
+    }
+
+    /// The number the interactive-cube decision waits on (docs/23 M2): what a finer
+    /// bake costs at plan-init time, which during a drag is every mouse event.
+    func testWhatAFinerToneCubeCostsToBake() {
+        var recipe = Recipe()
+        recipe.develop.tone.whites = 100
+        let plan = RenderPlan(recipe: recipe)
+        for size in [32, 48, LUT3D.exportSize] {
+            let t0 = DispatchTime.now().uptimeNanoseconds
+            var cubes = 0
+            for _ in 0..<10 {
+                _ = plan.toneGainCube(size: size)
+                cubes += 1
+            }
+            let ms = Double(DispatchTime.now().uptimeNanoseconds - t0) / 1e6
+                / Double(cubes)
+            print(String(format: "BAKECOST tone cube %d^3: %6.2f ms per bake", size, ms))
         }
     }
 

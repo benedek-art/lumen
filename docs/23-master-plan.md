@@ -253,9 +253,15 @@ and against Lightroom via owner-exported references.
       0.065 EV (Blacks −100, scene −3.9 EV) — right where skies and deep shadows
       live. And `RenderGraph.applyTone` uses the SAME 32-knot cube on the export
       path.
-- [ ] Follow-up from that data: export bakes the tone cube at `LUT3D.exportSize`
-      (65); measure a 64-knot interactive bake's cost before touching the
-      interactive size
+- [x] Follow-up from that data, DONE with the numbers: `RenderPlan` now bakes its
+      stored tone cube at the plan's own fidelity — export plans (lutSize ==
+      exportSize) get the 65-knot cube, cutting the Whites +100 worst case 0.0797 →
+      0.0258 EV (asserted at ≤0.040, watched failing both ways with the 32-bake
+      substituted). Interactive STAYS 32, decided by measurement: a bake costs
+      15.7 ms at 32³ / 53 ms at 48³ / 132 ms at 65³ (debug, x86) and it runs at
+      plan init — during a drag, every mouse event. If the interactive 0.08 EV
+      localized error ever shows on a real photo, the route is baking the finer
+      cube stale-while-drag like the other tables, not paying 8x on the event path
 - [x] Fine-travel smoothness probe (200 steps × 6 tone controls × 5 patch tones,
       sRGB-encoded): **no dead-then-jump quantization anywhere** — the engine's
       travel response is smooth, so session A's "switches little by little" points

@@ -500,7 +500,7 @@ public struct RenderGraph {
             epsilon: ReferenceRenderer.toneMaskEpsilon) ?? lum
         // The plan's stored cube, baked once per plan. Calling `toneGainCube()`
         // rebuilt 32 768 samples on every frame of every slider drag.
-        let cube = plan.toneGainCube32 ?? plan.toneGainCube()
+        let cube = plan.toneGainCubeBaked ?? plan.toneGainCube()
         guard let normalized = ColorCube.filter(cube, image: mask) else {
             return image
         }

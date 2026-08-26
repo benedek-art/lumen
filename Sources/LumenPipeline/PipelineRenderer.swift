@@ -1614,7 +1614,7 @@ public final class PipelineRenderer {
 /// One code-step table per transfer curve, built at most once each.
 ///
 /// The table is a per-channel 1-D function carried in a 3-D cube, exactly as
-/// `RenderPlan.toneGainCube32` carries the tone gain — the stock colour-cube filter is
+/// `RenderPlan.toneGainCubeBaked` carries the tone gain — the stock colour-cube filter is
 /// the only table the GPU can fetch, so a 1-D function borrows it. Size 64 rather than
 /// the usual 33 because the function's whole point is the shadows, where sRGB's toe puts
 /// an 8× change of code width inside what would otherwise be a single cell.
