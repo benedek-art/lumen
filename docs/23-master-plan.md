@@ -54,7 +54,7 @@ what the owner touches.
 
 ## M0 — The verification loop works again
 
-- [ ] HEAD compiled by CI. (Corrected diagnosis: runs #182–184 were NOT transient —
+- [x] HEAD compiled by CI. (Corrected diagnosis: runs #182–184 were NOT transient —
       GitHub refuses to create jobs for a workflow whose `run:` script embeds
       `${{ inputs.* }}` inline; a one-job canary on the same push allocated fine while
       CI zero-jobbed. The expression moved back to the `env:` block where it ran 181
@@ -115,6 +115,9 @@ what the owner touches.
       name 1bca87f had reshaped away.
 
 **Exit gate:** full CI green including gpu-parity's first-ever run; probes measured.
+**MET 2026-08-26**: ci.yml #199 + gpu-parity #8 + proof sweep #4 (66-min honest run,
+all 111 records agree at HEAD with the ε fix in) all green on 7ee1dcb. Still open
+inside M0, owner-blocked: the two RAW fixtures and probe (c) behind them.
 
 ## M1a — The picture answers the drag
 
