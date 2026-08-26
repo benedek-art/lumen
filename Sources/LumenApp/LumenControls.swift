@@ -38,6 +38,7 @@
 
 #if os(macOS)
 
+import AppKit
 import LumenCore
 import SwiftUI
 
@@ -110,6 +111,9 @@ struct LumenSlider: View {
 
     @State private var isDragging = false
     @State private var dragStartValue: Double = 0
+    /// The press that began this gesture was the second click of a double-click, so
+    /// `reset()` ran and everything else the gesture delivers is ignored.
+    @State private var pressWasReset = false
     @State private var isEditingText = false
     @State private var textValue = ""
     @FocusState private var textFocused: Bool
@@ -217,6 +221,22 @@ struct LumenSlider: View {
                         // you for the rest of the gesture.
                         if !isDragging {
                             isDragging = true
+                            // The second press of a double-click resets — read off the
+                            // AppKit event, because a TapGesture(count: 2) behind a
+                            // minimumDistance-0 drag never fires: the drag claims the
+                            // press first, and the first click has already jumped the
+                            // value to the press point. The owner double-clicked a
+                            // track, watched nothing reset, and was right. Through
+                            // `reset()`, not `value = defaultValue`: the optional-backed
+                            // rows clear their override in `onReset`, and writing the
+                            // default PINS one (the header's Temp-wrote-5500K story).
+                            // The rest of this gesture is inert — a reset is not the
+                            // start of a drag.
+                            if (NSApp.currentEvent?.clickCount ?? 1) >= 2 {
+                                pressWasReset = true
+                                reset()
+                                return
+                            }
                             let thumbX = fraction * Double(width)
                             if SliderDrag.grabsThumb(
                                 pressX: Double(drag.startLocation.x), thumbX: thumbX) {
@@ -229,6 +249,7 @@ struct LumenSlider: View {
                             onEditingChanged?(true)
                             sliderGestureChanged(true)
                         }
+                        if pressWasReset { return }
                         let travelled = Double(drag.location.x - drag.startLocation.x)
                         let moved = geometryOfDrag.value(from: dragStartValue,
                                                          travelled: travelled)
@@ -247,6 +268,13 @@ struct LumenSlider: View {
                         // and the button comes up before the survivor is delivered.
                         // Reading the release closes it: drag to 100 and the control
                         // reads 100, however much of the gesture the app missed.
+                        if pressWasReset {
+                            // `reset()` already ran and closed its own edit events;
+                            // this release belongs to no drag.
+                            pressWasReset = false
+                            isDragging = false
+                            return
+                        }
                         if isDragging {
                             let travelled = Double(drag.location.x - drag.startLocation.x)
                             let settled = SliderDrag.endedValue(track: geometryOfDrag,
@@ -259,7 +287,11 @@ struct LumenSlider: View {
                         sliderGestureChanged(false)
                     }
             )
-            .onTapGesture(count: 2) { reset() }
+            // No `.onTapGesture(count: 2)` here any more: behind a minimumDistance-0
+            // drag it never fired (the drag claims the press), which is how "double-
+            // click to reset" shipped as a promise the track did not keep. The reset
+            // lives inside the drag's own press handling above, where the click count
+            // is actually visible.
         }
         .frame(height: Lumen.rowHeight)
     }
@@ -427,6 +459,12 @@ struct LumenColorWheel: View {
     /// mouse event, a scope timer restarted per event) were being paid everywhere.
     @Environment(\.sliderGestureChanged) private var sliderGestureChanged
 
+    /// Same double-click story as `LumenSlider`'s track: a TapGesture(count: 2)
+    /// behind a minimumDistance-0 drag never fires, so the reset reads the click
+    /// count off the AppKit event at press time instead.
+    @State private var dragActive = false
+    @State private var pressWasReset = false
+
     private let diameter: CGFloat = 68
 
     var body: some View {
@@ -449,6 +487,19 @@ struct LumenColorWheel: View {
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { drag in
+                        if !dragActive {
+                            dragActive = true
+                            if (NSApp.currentEvent?.clickCount ?? 1) >= 2 {
+                                pressWasReset = true
+                                onEditingChanged?(true)
+                                sliderGestureChanged(true)
+                                sat = 0
+                                lum = 0
+                                onEditingChanged?(false)
+                                sliderGestureChanged(false)
+                            }
+                        }
+                        if pressWasReset { return }
                         onEditingChanged?(true)
                         sliderGestureChanged(true)
                         let dx = drag.location.x - diameter / 2
@@ -459,18 +510,15 @@ struct LumenColorWheel: View {
                         sat = Double(r)
                     }
                     .onEnded { _ in
+                        dragActive = false
+                        if pressWasReset {
+                            pressWasReset = false
+                            return
+                        }
                         onEditingChanged?(false)
                         sliderGestureChanged(false)
                     }
             )
-            .onTapGesture(count: 2) {
-                onEditingChanged?(true)
-                sliderGestureChanged(true)
-                sat = 0
-                lum = 0
-                onEditingChanged?(false)
-                sliderGestureChanged(false)
-            }
 
             Text(title)
                 .font(.system(size: 9))
