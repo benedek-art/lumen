@@ -223,6 +223,24 @@ enum LoupeGeometry {
         return CGSize(width: CGFloat(Swift.max(w, 1)), height: CGFloat(Swift.max(h, 1)))
     }
 
+    /// The draw ratio while zoomed. `zoomLevel` means "one FULL-RESOLUTION pixel to
+    /// this many display pixels" — but the rendered image on screen is whatever proxy
+    /// the render path could afford: the ladder-capped draft, the instant embedded
+    /// preview, or the settle itself. Multiplying the proxy's own pixel count by the
+    /// bare zoom level drew a 1024px draft and a 4600px settle at a 4.5× different
+    /// on-screen size, which during a drag is every mouse event — the owner's
+    /// "glitches all over the place", and MAC-07's face. Normalizing by
+    /// full/rendered pins every proxy to the extent the settle will occupy, so what
+    /// changes between draft and settle is sharpness alone — the same contract fit
+    /// mode always had.
+    static func zoomedRatio(zoomLevel: Double, fullLongEdge: Int,
+                            renderedLongEdge: Int) -> Double {
+        guard zoomLevel > 0 else { return 1 }
+        guard fullLongEdge > 0, renderedLongEdge > 0 else { return zoomLevel }
+        let r = zoomLevel * Double(fullLongEdge) / Double(renderedLongEdge)
+        return r.isFinite && r > 0 ? r : zoomLevel
+    }
+
     /// Pan clamped so the image edge can never be dragged past the viewport centre:
     /// an axis that already fits is pinned to 0.
     static func clampPan(_ pan: CGSize, container: CGSize, drawn: CGSize) -> CGSize {
@@ -283,6 +301,18 @@ final class PhotoRenderModel: ObservableObject {
     /// costing on THIS machine — `DraftLadder` in LumenCore, with tests. Per model, so
     /// a compare pane's small frames never teach the loupe's ladder anything.
     private var draftLadder = DraftLadder()
+
+    /// What the zoomed draw normalizes against (`LoupeGeometry.zoomedRatio`): the
+    /// settle's ACTUAL pixel long edge once one has landed for the current request,
+    /// and the request's target until then. Reset when the request changes — a fit
+    /// settle is a proxy for the zoomed target, not the authority on it; the estimate
+    /// is only wrong (briefly, by the native-size shortfall) for a photo smaller than
+    /// the request, and the first zoomed settle corrects it.
+    private var settledActualLongEdge: Int?
+    private var requestedFullLongEdge: Int = 0
+    var displayFullLongEdge: Int? {
+        settledActualLongEdge ?? (requestedFullLongEdge > 0 ? requestedFullLongEdge : nil)
+    }
     @Published private(set) var isDraft: Bool = false
     @Published private(set) var usedEmbeddedPreview: Bool = false
     /// Whatever the coordinator wants said out loud — "kernel library unavailable",
@@ -345,6 +375,7 @@ final class PhotoRenderModel: ObservableObject {
             usedEmbeddedPreview = false
             isUnreadable = false
             note = nil
+            settledActualLongEdge = nil
             revision &+= 1
             if let thumbnails,
                let preview = await thumbnails.load(
@@ -357,6 +388,13 @@ final class PhotoRenderModel: ObservableObject {
                 isDraft = true
                 revision &+= 1
             }
+        }
+
+        // A new full-resolution target (zoom changed the request) outdates the old
+        // settle's authority over the zoomed draw scale.
+        if requestedFullLongEdge != fullLongEdge {
+            requestedFullLongEdge = fullLongEdge
+            settledActualLongEdge = nil
         }
 
         let draftGeneration: UInt64 = PhotoRenderModel.nextGeneration()
@@ -447,6 +485,9 @@ final class PhotoRenderModel: ObservableObject {
         usedEmbeddedPreview = result.usedEmbeddedPreview
         note = result.note
         isUnreadable = false
+        if !result.isDraft {
+            settledActualLongEdge = Swift.max(result.image.width, result.image.height)
+        }
         revision &+= 1
     }
 }
@@ -920,10 +961,25 @@ struct LoupeView: View {
 
     // MARK: Zoom / pan
 
-    private func effectiveRatio(image: CGImage, container: CGSize) -> Double {
-        if state.zoomLevel > 0 { return state.zoomLevel }
+    /// One ratio rule for every caller: at fit, the rendered image's own pixel count
+    /// sets the ratio (so any proxy fills the container); zoomed, the bare zoom level
+    /// is normalized by full/rendered (`LoupeGeometry.zoomedRatio`) so any proxy
+    /// occupies the settle's extent. Both branches are size-stable across the
+    /// draft/settle handoff by construction.
+    private func ratio(forZoom zoom: Double, image: CGImage,
+                       container: CGSize) -> Double {
+        if zoom > 0 {
+            return LoupeGeometry.zoomedRatio(
+                zoomLevel: zoom,
+                fullLongEdge: model.displayFullLongEdge ?? 0,
+                renderedLongEdge: Swift.max(image.width, image.height))
+        }
         return LoupeGeometry.fitRatio(imageWidth: image.width, imageHeight: image.height,
                                       container: container, displayScale: displayScale)
+    }
+
+    private func effectiveRatio(image: CGImage, container: CGSize) -> Double {
+        ratio(forZoom: state.zoomLevel, image: image, container: container)
     }
 
     /// Keeps the anchor point pinned across a zoom change, then re-clamps the pan.
@@ -933,14 +989,8 @@ struct LoupeView: View {
             viewport.pan = .zero
             return
         }
-        let oldRatio: Double = oldValue > 0
-            ? oldValue
-            : LoupeGeometry.fitRatio(imageWidth: cg.width, imageHeight: cg.height,
-                                     container: container, displayScale: displayScale)
-        let newRatio: Double = newValue > 0
-            ? newValue
-            : LoupeGeometry.fitRatio(imageWidth: cg.width, imageHeight: cg.height,
-                                     container: container, displayScale: displayScale)
+        let oldRatio = ratio(forZoom: oldValue, image: cg, container: container)
+        let newRatio = ratio(forZoom: newValue, image: cg, container: container)
         let oldDrawn = LoupeGeometry.drawnSize(imageWidth: cg.width, imageHeight: cg.height,
                                                ratio: oldRatio, displayScale: displayScale)
         let newDrawn = LoupeGeometry.drawnSize(imageWidth: cg.width, imageHeight: cg.height,
@@ -1046,8 +1096,11 @@ struct LoupeView: View {
             @unknown default: break
             }
             let drawn: CGSize = model.image.map {
-                LoupeGeometry.drawnSize(imageWidth: $0.width, imageHeight: $0.height,
-                                        ratio: state.zoomLevel, displayScale: displayScale)
+                LoupeGeometry.drawnSize(
+                    imageWidth: $0.width, imageHeight: $0.height,
+                    ratio: ratio(forZoom: state.zoomLevel, image: $0,
+                                 container: containerSize),
+                    displayScale: displayScale)
             } ?? containerSize
             viewport.pan = LoupeGeometry.clampPan(viewport.pan,
                                                   container: containerSize, drawn: drawn)
