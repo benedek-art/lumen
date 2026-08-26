@@ -286,6 +286,43 @@ and against Lightroom via owner-exported references.
       TIFF/JPEG) for Exposure ±1/±2, Highlights/Shadows ±50/±100, Contrast ±50 —
       the direct answer to "is Lightroom more accurate"; blocked on the owner, rides
       the same ask as the RAW fixtures
+- [x] Per-slider accuracy dossier (docs/24-slider-dossier-{tone,color,detail}.md):
+      EVERY user-facing slider audited — expected math from ≥2 independent cited
+      sources (Adobe docs, darktable/RawTherapee manuals, CIE/DNG/ASC standards,
+      the original papers), implementation at HEAD with file:line, verdict, ranked
+      gaps. Headlines: Exposure, Contrast+Pivot, Printer Lights (best-in-field),
+      B&W, the Curve's domain/monotonicity, WB's core math, the denoise framework,
+      grain and halation mechanisms all CORRECT against the cited consensus.
+- [ ] Dossier-driven fix queue (full detail in docs/24; ranked by daily impact):
+      1. Zones panel DEFECT: stored default pivots put "Midtones" at scene −2 EV
+         (docs say 0 EV) and "Darks" at −7.9 EV where the toe shows nothing
+      2. Sharpen Radius in output pixels — preview judgment ≠ export (M3 item,
+         now with the exact fix site named)
+      3. Mixer band centres are geometric (29.23°+45°k), not perceptual — orange
+         sits ~21° off, foliage lands in Yellow's core: the single largest LR
+         muscle-memory break; fix or formally accept
+      4. Masked grade reads default zone pivots, contradicting its own documented
+         contract (COLOR-16); masked Sat/Vibrance inherit invisible
+         density/protectSkin defaults (COLOR-27)
+      5. Point Color's eyedropper samples post-S6 while the engine compares at its
+         stage input — a swatch picked with tone moves selects the wrong colour
+      6. Dehaze GPU: sky guard missing on + branch, skyness on − branch (skies get
+         more correction than the reference defines)
+      7. Denoise luminanceAnchors: the same σ double-count measured-and-fixed for
+         chroma, unmeasured for luma; one ISO-25600 harness run settles it
+      8. Tint clamp unsurfaced (engine right, UI silent) + as-shot Kelvin/tint
+         units unverifiable without RAW fixtures
+      9. Capture sharpening: wire the dormant Richardson–Lucy or remove the dead
+         Radius control (M3 decision, already listed)
+      10. Texture one-band spectrum vs reference band-pass unmeasured post-fix;
+          proof-registry holes (color.density, protectSkin, mixer.uniformity,
+          colorBalance.*); H-K and tuning constants unpinned
+- [ ] Owner decisions the dossier surfaced (deliberate divergences, keep or match
+      LR): hard tone-zone partition at mid-grey vs LR/darktable feathering (the
+      biggest feel difference); compressed saturation push vs LR's linear;
+      luminance-preserving curve default (LR's 2023 "Refine Saturation 0") vs
+      LR's legacy chroma-pumping default; pure-gain Exposure vs LR's
+      midtone-weighted rolloff
 - [ ] First shipping-path golden that MOVES the six tone sliders through RenderGraph,
       preview + export scale
 - [ ] Tint honesty: tintLimit surfaced like effectiveHighlights; WB eyedropper cheap
