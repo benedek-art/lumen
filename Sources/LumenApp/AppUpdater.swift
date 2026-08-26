@@ -171,7 +171,7 @@ final class AppUpdater {
                 throw UpdateError("the download's size doesn't match the release's")
             }
 
-            let work = URL(fileURLWithPath: NSTemporaryDirectory())
+            let work = FileManager.default.temporaryDirectory
                 .appendingPathComponent("lumen-update-\(UUID().uuidString)")
             try FileManager.default.createDirectory(at: work,
                                                     withIntermediateDirectories: true)
