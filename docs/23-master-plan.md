@@ -247,15 +247,30 @@ setting; Temp writes the Kelvin it shows; endpoints reach their documented targe
 little"); (3) **competitive** — recorded side-by-sides against open implementations,
 and against Lightroom via owner-exported references.
 
-- [ ] Tone-cube knot-density measurement (2 EV shelf through the 32³ cube vs direct
-      evaluation, Linux); 64³ or non-uniform knots only if the data says so —
-      PROMOTED to first: knot quantization is the standing suspect for session A's
-      steppiness
-- [ ] Fine-travel smoothness probe: each Basic-list control swept at ~200 steps
-      through the reference path; print max-step/median-step per control, then pin
-      bounds where the data supports them (measure first, assert second)
-- [ ] Calibration contracts written and asserted per basic control (the physical
-      claims above, each with a test at the stage where the claim is defined)
+- [x] Tone-cube knot-density MEASURED (`AccuracyProbeTests`, 2048-point sweep, 7
+      moves): the 32-knot cube tracks the 1024-sample table to mean ≤0.006 EV, but
+      localized error peaks at **0.080 EV (Whites +100, scene +0.8 EV)** and
+      0.065 EV (Blacks −100, scene −3.9 EV) — right where skies and deep shadows
+      live. And `RenderGraph.applyTone` uses the SAME 32-knot cube on the export
+      path.
+- [ ] Follow-up from that data: export bakes the tone cube at `LUT3D.exportSize`
+      (65); measure a 64-knot interactive bake's cost before touching the
+      interactive size
+- [x] Fine-travel smoothness probe (200 steps × 6 tone controls × 5 patch tones,
+      sRGB-encoded): **no dead-then-jump quantization anywhere** — the engine's
+      travel response is smooth, so session A's "switches little by little" points
+      at frame delivery (the zoomed full-res drafts, since fixed), pending HUD
+      numbers. Findings: Whites is the least smooth control (max step 3.1× mean,
+      11-step dead run at highlight tones — the anchor solve is the suspect);
+      Contrast at mid-grey is EXACTLY zero across full travel (the pivot contract,
+      confirmed); the zones are hard-partitioned (Highlights/Whites touch nothing
+      ≤ mid-grey, Shadows/Blacks nothing ≥ it) — a design difference vs Lightroom's
+      overlapping zones that the LR references will quantify
+- [x] First calibration contract asserted: Exposure scales scene-linear light by
+      exactly 2^slider (1e-9 relative, ±4 EV) — `testExposureIsCalibratedInStops`
+- [ ] Remaining calibration contracts: Contrast pivot invariance as an assert (the
+      probe shows it holds), Temp writes the Kelvin it shows, endpoint targets per
+      control, Highlights/Shadows range-compression targets
 - [ ] Owner-exported Lightroom references (same RAW, one slider moved, exported
       TIFF/JPEG) for Exposure ±1/±2, Highlights/Shadows ±50/±100, Contrast ±50 —
       the direct answer to "is Lightroom more accurate"; blocked on the owner, rides
