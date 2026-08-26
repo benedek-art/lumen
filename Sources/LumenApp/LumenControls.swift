@@ -72,6 +72,12 @@ enum Lumen {
     static let secondaryText = Color(nsColor: NSColor(white: 0.66, alpha: 1))
     static let tertiaryText = Color(nsColor: NSColor(white: 0.50, alpha: 1))
 
+    /// The slider fill's two states, separated for real (~4:1 between them against
+    /// the groove): reading "what did I change" down a panel is the modified
+    /// state's whole job, and the audit measured the old opacity pair at ≈1.8:1.
+    static let sliderFillRest = Color(nsColor: NSColor(white: 0.42, alpha: 1))
+    static let sliderFillModified = Color(nsColor: NSColor(white: 0.72, alpha: 1))
+
     /// The one accent, used only for state that must be noticed (modified markers,
     /// active tool). Deliberately desaturated so it never competes with the photo.
     static let accent = Color(nsColor: NSColor(red: 0.45, green: 0.58, blue: 0.72, alpha: 1))
@@ -198,9 +204,15 @@ struct LumenSlider: View {
             let fraction = geometryOfDrag.fraction(of: value)
             let zeroFraction = geometryOfDrag.fraction(of: defaultValue)
             ZStack(alignment: .leading) {
+                // The groove CARVES DOWN into the panel (a well, not a painted-on
+                // stripe): the gradient's darker top edge is the light coming from
+                // above, the same depth cue the histogram well already used.
                 Capsule()
-                    .fill(Lumen.trackColor)
-                    .frame(height: 3)
+                    .fill(LinearGradient(
+                        colors: [Color(nsColor: NSColor(white: 0.115, alpha: 1)),
+                                 Lumen.insetWell],
+                        startPoint: .top, endPoint: .bottom))
+                    .frame(height: 4)
                 // Fill from the default toward the value: the eye reads the deviation,
                 // not the absolute position. Where the fill STARTS is the lower of the
                 // two, always — what decides it is where the default sits, not whether
@@ -208,9 +220,14 @@ struct LumenSlider: View {
                 // `min(fraction, fraction)` on every unipolar slider, which drew the
                 // bar starting at the thumb and running away from the default instead
                 // of toward it.
+                //
+                // The modified state now SEPARATES for real: the audit measured the
+                // old 0.5→0.9 opacity change at ≈1.8:1 against the track — invisible,
+                // in the one place a develop tool must answer "what did I change?"
+                // at a glance.
                 Capsule()
-                    .fill(Lumen.fillColor.opacity(isModified ? 0.9 : 0.5))
-                    .frame(width: max(abs(fraction - zeroFraction) * width, 1), height: 3)
+                    .fill(isModified ? Lumen.sliderFillModified : Lumen.sliderFillRest)
+                    .frame(width: max(abs(fraction - zeroFraction) * width, 1), height: 4)
                     .offset(x: min(fraction, zeroFraction) * width)
                 // The neutral mark. Sits under the thumb so the thumb covers it when
                 // the control is at its default, which is exactly when you do not
@@ -218,14 +235,15 @@ struct LumenSlider: View {
                 if bipolar && zeroFraction > 0.001 && zeroFraction < 0.999 {
                     Rectangle()
                         .fill(Lumen.separator)
-                        .frame(width: 1, height: 7)
+                        .frame(width: 1, height: 8)
                         .offset(x: zeroFraction * width - 0.5)
                 }
                 Circle()
                     .fill(Lumen.primaryText)
-                    .frame(width: isDragging ? 11 : 9, height: isDragging ? 11 : 9)
-                    .offset(x: fraction * width - (isDragging ? 5.5 : 4.5))
-                    .shadow(radius: isDragging ? 2 : 0)
+                    .overlay(Circle().strokeBorder(Color.white.opacity(0.10), lineWidth: 1))
+                    .frame(width: isDragging ? 12 : 10, height: isDragging ? 12 : 10)
+                    .offset(x: fraction * width - (isDragging ? 6 : 5))
+                    .shadow(color: .black.opacity(0.5), radius: isDragging ? 2.5 : 1, y: 0.5)
             }
             .frame(height: Lumen.rowHeight)
             .contentShape(Rectangle())

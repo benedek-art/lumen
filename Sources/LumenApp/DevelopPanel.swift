@@ -125,15 +125,14 @@ struct DevelopSection<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 6) {
-                LumenSectionHeader(title: title, isExpanded: nil,
-                                   isModified: isModified, onReset: onReset)
-                if !isModified {
-                    LumenBadge(text: "Default")
-                }
-            }
+            // No "Default" badge on clean sections any more (design audit §1.9):
+            // chrome announcing the ABSENCE of information, repeated per section per
+            // panel. The accent dot already says "modified"; silence says default.
+            LumenSectionHeader(title: title, isExpanded: nil,
+                               isModified: isModified, onReset: onReset)
             content
         }
+        .padding(.top, 8)
     }
 }
 
@@ -417,29 +416,36 @@ struct DevelopPanel: View {
 
 // MARK: - Footer button
 
+/// A verb, not a tile. The icon-above-caption 4×2 grid was the iPhoto/Aperture
+/// toolbar idiom — the audit's single most "2008" finding — and these are commands
+/// with key equivalents, not modes. Compact horizontal buttons, borderless at rest,
+/// surface on hover.
 private struct DevelopFooterButton: View {
     let title: String
     let systemImage: String
     let help: String
     let action: () -> Void
 
+    @State private var hovering = false
+
     var body: some View {
         Button(action: action) {
-            VStack(spacing: 2) {
+            HStack(spacing: 5) {
                 Image(systemName: systemImage)
-                    .font(.system(size: 11))
+                    .font(.system(size: 10))
                 Text(title)
-                    .font(.system(size: 9))
+                    .font(.system(size: 11))
                     .lineLimit(1)
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 5)
-            .background(Lumen.controlBackground)
+            .background(hovering ? Lumen.controlHover : Lumen.controlSurface)
             .foregroundStyle(Lumen.primaryText)
-            .clipShape(RoundedRectangle(cornerRadius: 4))
+            .clipShape(RoundedRectangle(cornerRadius: 5))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .onHover { hovering = $0 }
         .help(help)
     }
 }

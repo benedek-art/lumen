@@ -176,7 +176,10 @@ struct PhotoCell: View {
     }
 
     private var borderColor: Color {
-        if isPrimary { return Lumen.primaryText }
+        // Primary selection is the accent's textbook job (design audit §1.9): three
+        // grays meant "which one am I actually on?" took a second look. Accent =
+        // the photo you are on; light gray = also selected; quiet = the rest.
+        if isPrimary { return Lumen.accent }
         if isSelected { return Lumen.fillColor }
         return Lumen.separator
     }
