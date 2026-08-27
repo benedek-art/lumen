@@ -227,11 +227,19 @@ normalized for proxy resolution (fixed, `LoupeGeometry.zoomedRatio` + tests);
 double-click reset was genuinely broken (tap buried behind the drag; fixed). No
 pop-on-release reported.
 **Exit gate:** sliders feel immediate; no pop-on-release anywhere; MAC-04/MAC-07 closed
-or precisely characterized. **NOT YET MET**: the owner reports steppy, late-feeling
-updates ("switches little by little instead of a ramp") and no HUD numbers were
-captured — next session retests zoom + double-click and brings input→draft/draft-ms
-numbers; the steppiness suspect list is (a) pre-fix zoomed full-res drafts (fixed),
-(b) tone-LUT knot quantization (M2's first measurement, promoted).
+or precisely characterized. **ROOT-CAUSED 2026-08-27** after the owner re-reported it
+as "goes by notches … changes in one frame instead of a slope": neither suspect was
+it. The viewer cancelled its render task on every drag event and then DISCARDED any
+completed frame whose task had been cancelled — checking cancellation after the
+render had already run (RenderCoordinator's post-render stale(), PhotoRenderModel's
+pre-apply guard). Events outpace drafts, so during continuous motion every finished
+frame was rendered and thrown away, and the screen moved only at the hand's own
+micro-pauses. No draft speed could fix that loop. `FrameDelivery` (LumenCore) now
+holds the law — staleness belongs to STARTING work, never to finished work; a
+completed frame is delivered under identity+order guards alone — and the drag-storm
+simulation pins it: the old rule delivers 0 frames at 8 ms events / 30 ms renders,
+the new one delivers at render cadence (~33/s). Next owner session verifies feel;
+HUD numbers now measure the remaining ceiling (draft ms itself).
 
 ## M2 — The basics are right
 
@@ -294,12 +302,31 @@ and against Lightroom via owner-exported references.
       B&W, the Curve's domain/monotonicity, WB's core math, the denoise framework,
       grain and halation mechanisms all CORRECT against the cited consensus.
 - [ ] Dossier-driven fix queue (full detail in docs/24; ranked by daily impact):
+      0. ~~Path-to-white DEFECT~~ FIXED (owner: "+1.80 EV does not seem like an
+         exposed picture. It seems fake"): the display transform's ratio branch
+         curved the norm and kept the ratios FOREVER, so at the hue-stable default
+         no amount of overexposure could bleach a colour toward white — measured
+         96% chroma retained at +5 EV (`testOverexposureBleachesTowardWhite`,
+         watched failing at the shipped default). The pastel wash in the owner's
+         screenshot is that number. Fix: hue preservation now ramps quadratically
+         to per-channel across the shoulder (untouched at the pivot, fully
+         per-channel at the white anchor), giving 0.553 → 0.214 → 0.036 → 0.001 →
+         0.000 residual chroma at 0/+2/+3/+4/+5 EV — a slope to true white, with
+         midtones still fully hue-stable. This is the same mechanism darktable's
+         sigmoid ships 66% hue preservation to escape; ours escapes it structurally
+         and keeps the midtone virtue. Zones proof re-pins are unaffected (neutral
+         ramps are invariant under the hue blend: the inset matrix preserves greys).
       1. ~~Zones panel DEFECT~~ FIXED: `Zones.defaultPivots` is now DEFINED by the
          documented EVs (−4/−2/0/+2/+4) through the engine's own axis constants, so
          numbers and docs cannot drift apart; the lock was watched failing at the
-         old constants (all five EVs named in the failure). Expected proof drift:
-         exactly the zones.* family, re-pinned from the sweep's printout. Contrast's
-         mid-grey pivot contract also asserted through the full pipeline.
+         old constants (all five EVs named in the failure). Proof #6 confirmed the
+         drift on exactly the zones.* family and re-pinned from its printout;
+         PROOF-04 (Dark zone invisible) closed by measurement — Dark's authority
+         went 4.74 → 75.52 of 255 code values, and the authority floors re-anchored
+         at 70% of the new measurements (Light/Bright measure lower now because
+         their zones moved INTO the display shoulder, which is the transform being
+         honest, not the controls going dead). Contrast's mid-grey pivot contract
+         also asserted through the full pipeline.
       2. Sharpen Radius in output pixels — preview judgment ≠ export (M3 item,
          now with the exact fix site named)
       3. Mixer band centres are geometric (29.23°+45°k), not perceptual — orange

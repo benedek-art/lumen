@@ -285,10 +285,14 @@ enum LoupeGeometry {
 /// honest facts about it. Shared by the loupe and by every compare pane, because a
 /// second preview system is how the two drift apart.
 ///
-/// Generation numbers are the whole stale-result defence: every request takes the next
-/// number, `latestGeneration` records it, and a result whose generation is not the
-/// latest is dropped before it can be assigned. The coordinator carries the number back
-/// so a request superseded inside the actor is discarded there too.
+/// Generation numbers order everything: every request takes the next number, and the
+/// two rules of `FrameDelivery` (LumenCore) are applied against them — a request that
+/// is already superseded is dropped BEFORE it renders, but a frame that has finished
+/// rendering is delivered whatever happened to its task, guarded only by identity
+/// (still the photograph on screen) and order (newer than what is showing). The
+/// second rule is why a drag reads as a slope: its events cancel the running task
+/// faster than any render finishes, and the discipline that discarded those finished
+/// frames froze the picture until the hand paused.
 final class PhotoRenderModel: ObservableObject {
 
     @Published private(set) var image: CGImage?
@@ -351,6 +355,14 @@ final class PhotoRenderModel: ObservableObject {
 
     private var latestGeneration: UInt64 = 0
 
+    /// The url of the most recent `load` call — the user's current intent, whatever
+    /// state its task is in. `FrameDelivery.shouldShow`'s identity input: a completed
+    /// frame for any other photograph must never be applied, however fresh.
+    private var currentRequestURL: URL?
+    /// Generation of the newest frame actually applied — `shouldShow`'s order input,
+    /// so a slow old render can never overwrite a newer picture.
+    private var appliedGeneration: UInt64 = 0
+
     /// Request a render of `url` under `recipe`. Draft first so the frame is honest
     /// within one frame, quality after the settle pause. Both passes come from the same
     /// pipeline at two resolutions, so refine is visually monotone — quality improves,
@@ -365,6 +377,8 @@ final class PhotoRenderModel: ObservableObject {
               strokeSets: [String: BrushStrokeSet] = [:],
               showingUncropped: Bool = false,
               softProof: SoftProof? = nil) async {
+
+        currentRequestURL = url
 
         // New photo: drop the previous photo's pixels rather than showing them under a
         // new filename, and give this one the instant embedded-preview path (Law 11).
@@ -417,18 +431,33 @@ final class PhotoRenderModel: ObservableObject {
                                              strokeSets: strokeSets,
                                              showingUncropped: showingUncropped,
                                              softProof: softProof)
-        guard !Task.isCancelled else { return }
-        if let draft, draft.generation == latestGeneration {
-            apply(draft, url: url)
+        // Delivery BEFORE the cancellation check, deliberately — FrameDelivery in
+        // LumenCore is the law and holds the arithmetic. During a drag every event
+        // cancels this task and starts the next one, so "apply only if still current"
+        // meant every completed draft of the gesture was rendered and then discarded,
+        // and the picture moved only at pauses in the hand — the owner's "goes by
+        // notches ... changes in one frame instead of a slope". A finished frame is
+        // the freshest completed picture of the user's intent that exists; the only
+        // questions are identity and order, and `shouldShow` asks exactly those.
+        if let draft {
             // Wall time around the await, actor queueing included — queueing is what
-            // a hand feels. The ladder learns from the same number the HUD shows.
+            // a hand feels. The ladder learns from the same number the HUD shows,
+            // and it learns from every completed draft, delivered or not: the cost
+            // was real either way.
             let draftMs = Double(DispatchTime.now().uptimeNanoseconds - draftStarted) / 1e6
             draftLadder.record(draftMilliseconds: draftMs,
                                renderedLongEdge: Swift.max(draftTarget, 64),
                                requested: draftRequested)
             LatencyHUD.shared.noteDraft(milliseconds: draftMs,
                                         longEdge: Swift.max(draftTarget, 64))
+            if FrameDelivery.shouldShow(frameFor: url,
+                                        currentRequest: currentRequestURL,
+                                        generation: draft.generation,
+                                        newestShown: appliedGeneration) {
+                apply(draft, url: url)
+            }
         }
+        guard !Task.isCancelled else { return }
 
         // The debounce, and nothing but the debounce: everything after this point still
         // has to happen inside the deadline, so the wait is the part of the budget that
@@ -479,6 +508,7 @@ final class PhotoRenderModel: ObservableObject {
 
     @MainActor
     private func apply(_ result: RenderResult, url: URL) {
+        appliedGeneration = Swift.max(appliedGeneration, result.generation)
         image = result.image
         imageURL = url
         isDraft = result.isDraft

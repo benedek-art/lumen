@@ -189,7 +189,13 @@ actor RenderCoordinator {
                     + "flip are not applied to this preview"
             }
 
-            guard !stale() else { return nil }
+            // No staleness check HERE, deliberately (FrameDelivery in LumenCore is
+            // the law and the arithmetic). This used to re-check `stale()` after the
+            // render — but a drag cancels the viewer's task on every event, events
+            // outpace renders, so every completed frame was paid for and then thrown
+            // away, and the picture moved only when the hand paused. Finished work is
+            // never stale by cancellation: the caller decides against
+            // `FrameDelivery.shouldShow`, whose only questions are identity and order.
             return RenderResult(image: image, generation: generation, isDraft: draft,
                                 usedEmbeddedPreview: false,
                                 note: note)
