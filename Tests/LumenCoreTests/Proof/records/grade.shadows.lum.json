@@ -1,16 +1,16 @@
 {
-  "authority" : 55.180294735307704,
+  "authority" : 52.86687272994535,
   "deadSteps" : 0,
   "frame" : "tonalColourWedge",
-  "frontLoading" : 0.41129974188906937,
+  "frontLoading" : 0.4080870268997153,
   "givenBack" : 0,
-  "hueRotation" : 0.9368287588353041,
+  "hueRotation" : 0.6171877092116347,
   "id" : "grade.shadows.lum",
   "isMonotone" : true,
-  "meanSeparation" : 2.8672046416074664,
+  "meanSeparation" : 2.8310352585525744,
   "panel" : "Grade",
   "shippingReader" : "Sources\/LumenPipeline\/RenderGraph.swift:101",
-  "smallestLiveStep" : 1.6066079837463754,
+  "smallestLiveStep" : 1.5315612282468258,
   "travelHigh" : 1,
   "travelLow" : -1
 }
