@@ -1,16 +1,16 @@
 {
-  "authority" : 167.2908337088401,
+  "authority" : 100.70750086746649,
   "deadSteps" : 0,
   "frame" : "tonalColourWedge",
-  "frontLoading" : 0.7076087892885228,
+  "frontLoading" : 0.4365894901127064,
   "givenBack" : 0,
-  "hueRotation" : 63.50368073074827,
+  "hueRotation" : 40.28254576019458,
   "id" : "film.ektar100.strength",
   "isMonotone" : true,
-  "meanSeparation" : 17.73872741590946,
+  "meanSeparation" : 11.647491684688267,
   "panel" : "Film Lab",
   "shippingReader" : "Sources\/LumenPipeline\/RenderGraph.swift:147",
-  "smallestLiveStep" : 4.932763820835817,
+  "smallestLiveStep" : 3.4522212298055877,
   "travelHigh" : 100,
   "travelLow" : 0
 }

@@ -1,16 +1,16 @@
 {
-  "authority" : 160.97380540610627,
+  "authority" : 84.5509893378529,
   "deadSteps" : 0,
   "frame" : "tonalColourWedge",
-  "frontLoading" : 0.7055534941567567,
+  "frontLoading" : 0.45944006418652594,
   "givenBack" : 0,
-  "hueRotation" : 56.09671218725896,
+  "hueRotation" : 34.327470016751136,
   "id" : "film.portra400.strength",
   "isMonotone" : true,
-  "meanSeparation" : 15.659228637673628,
+  "meanSeparation" : 9.810420571017538,
   "panel" : "Film Lab",
   "shippingReader" : "Sources\/LumenPipeline\/RenderGraph.swift:147",
-  "smallestLiveStep" : 4.791507863765389,
+  "smallestLiveStep" : 3.105651755537906,
   "travelHigh" : 100,
   "travelLow" : 0
 }
