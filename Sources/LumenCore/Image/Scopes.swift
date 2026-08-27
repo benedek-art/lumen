@@ -313,14 +313,31 @@ public struct Histogram: Sendable {
         return m
     }
 
-    /// Bin heights scaled to [0,1] against the channel's own peak — what the graph draws.
+    /// Bin heights scaled to [0,1] for drawing — against a spike-resistant reference,
+    /// not the raw peak. Peak normalization let one bin erase the whole graph: at
+    /// +5 EV a third of the frame lands in the white bin and every other bin scaled
+    /// against it into sub-pixel heights, an empty panel captioned "29.86% white"
+    /// (owner session 2; docs/23 queue item 14). The reference is the
+    /// 99th-percentile NONZERO bin height — of the occupied bins, so a sparse
+    /// histogram keeps its exact proportions (the percentile of four bins is their
+    /// tallest) — and anything above it saturates at 1.0, the way Lightroom draws
+    /// its end spikes. `peak(_:)` still reports the true count.
     public func normalized(_ channel: Channel) -> [Double] {
-        let p: Int = peak(channel)
         let base: Int = channel.rawValue * bins
+        var occupied: [Int] = []
+        occupied.reserveCapacity(bins)
+        for i in 0..<bins where counts[base + i] > 0 { occupied.append(counts[base + i]) }
         var out = [Double](repeating: 0, count: bins)
-        guard p > 0 else { return out }
-        let inv: Double = 1.0 / Double(p)
-        for i in 0..<bins { out[i] = Double(counts[base + i]) * inv }
+        guard !occupied.isEmpty else { return out }
+        occupied.sort()
+        // Ceiling, not truncation: for up to a hundred occupied bins the index IS
+        // the maximum, so only histograms wide enough for a percentile to mean
+        // anything get clamped at all — a four-bin histogram must not scale to its
+        // third-tallest bin.
+        let reference: Int = occupied[Int((Double(occupied.count - 1) * 0.99).rounded(.up))]
+        guard reference > 0 else { return out }
+        let inv: Double = 1.0 / Double(reference)
+        for i in 0..<bins { out[i] = Swift.min(Double(counts[base + i]) * inv, 1.0) }
         return out
     }
 
