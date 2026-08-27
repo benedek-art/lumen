@@ -66,6 +66,48 @@ final class AccuracyProbeTests: XCTestCase {
         }
     }
 
+    /// Path-to-white: does overexposure BLEACH? The owner cranked Exposure to +4.7
+    /// and got a pastel painting — sky still blue, sand still yellow, at 98%
+    /// brightness — and called it fake. He was right: real film and every serious
+    /// renderer desaturate toward white as channels blow out. This measures the
+    /// residual display chroma of a saturated patch across an exposure sweep, at
+    /// several hue-preservation settings, so the default is chosen by number and
+    /// the bleach can never silently vanish again.
+    func testOverexposureBleachesTowardWhite() {
+        // Sun-lit sand, saturated but plausible.
+        let patch = RGB(1.0, 0.72, 0.42)
+        func residualChroma(exposureEV: Double, huePreservation: Double) -> Double {
+            var recipe = Recipe()
+            recipe.develop.tone.exposure = exposureEV
+            recipe.look.render.huePreservation = huePreservation
+            let plan = RenderPlan(recipe: recipe)
+            let frame = ImageBuffer(width: 8, height: 8) { _, _ in patch }
+            let out = ReferenceRenderer.render(frame, plan: plan)[4, 4]
+            let mx = out.maxComponent
+            guard mx > 1e-6 else { return 0 }
+            return (mx - Swift.min(out.r, Swift.min(out.g, out.b))) / mx
+        }
+        for hp in [100.0, 65.0, 0.0] {
+            var line = String(format: "PATHTOWHITE hp %3.0f:", hp)
+            for ev in [0.0, 2.0, 3.0, 4.0, 5.0] {
+                line += String(format: "  +%.0fEV %.3f", ev,
+                               residualChroma(exposureEV: ev, huePreservation: hp))
+            }
+            print(line)
+        }
+        // The contract, pinned at the DEFAULT preset: a saturated patch pushed
+        // +5 EV must have lost most of its colour on the way to white. At full
+        // hue preservation it keeps ~all of it, which is the measured defect.
+        let atDefault = residualChroma(exposureEV: 5, huePreservation:
+            DisplayTransformParams().huePreservation)
+        let atZero = residualChroma(exposureEV: 0, huePreservation:
+            DisplayTransformParams().huePreservation)
+        XCTAssertLessThan(atDefault, atZero * 0.45,
+                          "at +5 EV the default rendering keeps \(atDefault) of its "
+                              + "chroma vs \(atZero) at 0 EV — overexposure must "
+                              + "bleach, not turn pastel")
+    }
+
     // MARK: Smoothness — does the shipping cube track the reference table?
 
     /// The GPU evaluates tone through a 32-knot cube resampled from the 1024-sample

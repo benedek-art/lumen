@@ -21,11 +21,20 @@ import Foundation
 
 public struct DisplayTransformParams: Equatable, Sendable {
 
-    /// Slope at mid-grey, log-log. darktable-sigmoid-compatible range/default.
+    /// Slope at mid-grey, log-log — CALIBRATED: 1.5 here produces a measured
+    /// log-log slope of 1.5 at the pivot, by construction. The range and default
+    /// number match darktable's sigmoid, but not the semantic: dt's "contrast 1.5"
+    /// is a steepness knob whose realized mid-grey slope measures ~1.23
+    /// (docs/26 §3, measured via scripts/baselines). Same dial label, more actual
+    /// contrast here.
     public var contrast: Double = 1.5
     /// Toe ↔ shoulder emphasis. Slope at the pivot is unchanged by construction.
     public var skew: Double = 0
-    /// 0 = per-channel character (hotter sunsets), 100 = hue-stable.
+    /// 0 = per-channel character (hotter sunsets), 100 = hue-stable through the
+    /// midtones. Every setting ramps toward per-channel across the shoulder so
+    /// highlights bleach to display white (the path-to-white ramp in `apply`):
+    /// hue preservation is a promise about colour, not a licence to render a
+    /// +5 EV overexposure as pastel.
     public var huePreservation: Double = 100
     /// Display white in % of SDR white. 100 = SDR; up to 1600 on an EDR display.
     public var whiteTarget: Double = 100
@@ -295,8 +304,17 @@ public struct DisplayTransform: Sendable {
         let scaled = tone(norm)
         let ratio = norm > 0 ? inset * (scaled / norm) : RGB(black, black, black)
 
+        // Path to white. Ratios may hold through the midtones, but a display cannot
+        // show "brighter than white": above the pivot the only honest rendering of
+        // more light is less chroma, which the per-channel branch does by
+        // construction and the ratio branch never does — without this ramp a +5 EV
+        // overexposure kept 96% of its chroma (the owner's "pastel wash" screenshot).
+        // Quadratic in shoulder position: untouched at the pivot, fully per-channel
+        // at the white anchor.
         let t = Num.clamp(params.huePreservation, 0, 100) / 100
-        var out = perChannel.mix(ratio, t)
+        let evX = (log2(norm / DisplayTransform.midGrey) - minEV) / range
+        let shoulderU = Num.saturate((evX - pivotX) / Swift.max(1 - pivotX, 1e-6))
+        var out = perChannel.mix(ratio, t * (1 - shoulderU * shoulderU))
 
         out = outsetMatrix.apply(out)
         out = RGB(Swift.max(out.r, 0), Swift.max(out.g, 0), Swift.max(out.b, 0))
