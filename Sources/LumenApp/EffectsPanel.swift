@@ -188,9 +188,15 @@ struct EffectsPanel: View {
 
     private var grainReset: (() -> Void)? {
         guard recipe.look.filmLab != nil else { return nil }
+        // Reset lands on the STOCK's grain, the same number `isGrainModified`
+        // compares against and the Amount slider calls default. It wrote FilmGrain()
+        // (amount 0) — so the section stayed marked modified after its own Reset,
+        // and the two reset affordances in one section landed on two different
+        // numbers.
+        let neutral = FilmGrain(size: 1.0, amount: grainDefault)
         return {
             binder.edit("look.grain.reset") { recipe in
-                recipe.look.filmLab?.grain = FilmGrain()
+                recipe.look.filmLab?.grain = neutral
             }
         }
     }
@@ -399,11 +405,16 @@ struct EffectsPanel: View {
     /// find it.
     private var retouchSection: some View {
         DevelopSection("Retouch", isModified: false, onReset: nil) {
+            // Prominent: the whole point of this note is that someone hunting for
+            // the spot-removal tool LEARNS it is missing — behind the hover-ⓘ they
+            // find an empty section and conclude they cannot find the tool, the
+            // exact outcome the note was written to prevent.
             DevelopNote("Heal and clone are not implemented. The recipe format reserves "
                         + "them, and nothing renders them — a file that arrives carrying "
                         + "healed spots will show every spot still there. There is no "
                         + "control here rather than one that stores a value no stage "
-                        + "reads.")
+                        + "reads.",
+                        prominent: true)
         }
     }
 

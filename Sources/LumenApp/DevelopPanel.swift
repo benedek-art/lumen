@@ -409,8 +409,13 @@ struct DevelopPanel: View {
     }
 
     private var isRecipeModified: Bool {
+        // Against the photo's own baseline — a JPEG's untouched state carries the
+        // Linear preset, and comparing against bare defaults kept Reset lit and the
+        // panel marked modified on a file nobody had edited.
         let current = state.currentRecipe
-        return current != Recipe(pipelineVersion: current.pipelineVersion)
+        var baseline = state.currentStartingRecipe
+        baseline.pipelineVersion = current.pipelineVersion
+        return current != baseline
     }
 }
 

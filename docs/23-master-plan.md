@@ -327,6 +327,78 @@ and against Lightroom via owner-exported references.
       Dispositions with reasons for everything not Linux-measurable (capture
       sharpening, AI denoise amount, masks, geometry, export sliders) in docs/27
       §3.
+- [x] **Six-agent audit** (owner, session B: "take a bunch of agents… find any
+      issues… make sure everything's accurate"): six specialized agents swept the
+      app (UI/UX, concurrency, engine math, pipeline caches, persistence, docs
+      honesty) hunting more instances of this repo's proven bug classes. The two
+      deepest finds were in the engine and are FIXED with watched-failing probes
+      (the reversed AgX inset — its own commit tells the story — and the
+      tone-cube/scale normalizer split). Fixed in the same batch, each verified
+      against both sides: the crop tool missing from ViewerRenderKey; the mixer
+      ring's buried double-click that edited the band instead of resetting; the
+      compare pane's buried cursor double-click and its still-live zoom pump;
+      Auto Tone / footer Reset / two modified-dots comparing against bare
+      defaults instead of the photo's startingRecipe (the JPEG double-tone-map
+      that survived undo); the eyedropper writing its solve into whichever photo
+      was selected when it returned; the folder-scan window where one click plus
+      one slider destroyed a saved recipe in both stores; the sidecar resolver
+      blind to backward-moving mtimes (Time-Machine restores, synced sidecars —
+      re-pinned in its test with the argument); the mask-raster cache serving
+      photo A's selection for photo B after Paste Settings (file identity now in
+      the key, invalidation wired); the soft-proof table poisoned by a stale
+      draft under the settle's exact key; grain Reset landing on a different
+      number than its own modified-test; the denoise masters' reset stamping the
+      hand-set bit; the embedded preview painting over a completed draft; five
+      smaller lifecycle holes (source-state save at quit, matte kind swallowed
+      mid-pass, stale library facets, RawTruth under empty selection, WB Auto's
+      hover-only explanation); and the honesty batch (BUILDING.md's "no one has
+      run this on a Mac", README's session count, two disclosure notes restored
+      to prominent, the mask-source "precisely this" comment now stating the
+      measured divergence).
+- [ ] **Audit fix queue** (verified findings deferred with reasons — full agent
+      reports in the session log; items carry their sites):
+      1. CatalogStore.saveRecipe UPDATEs the working row in place — an older
+         build editing a photo whose newer-version recipe failed decode destroys
+         it in both stores; preserve the undecodable row (INSERT a version row)
+         (CatalogStore.swift:1678-1698).
+      2. flushSidecars drops a failed/refused write permanently (batch removed
+         before writing; catalog-ahead never re-flushed) and treats a non-UTF-8
+         sidecar as absent → wholesale replace of a foreign XMP
+         (CatalogService.swift:910-961).
+      3. History coalescing keys carry no photo identity — a step can span a
+         photo switch inside 1.2 s and undo then reverts the off-screen photo
+         (HistoryStack.swift:69-86).
+      4. sliderGestureActive latches shut when SwiftUI drops .onEnded; every
+         later edit defers persistence until the next completed gesture or quit
+         (folder switch now flushes; add selection-change/timeout unlatch)
+         (AppState.swift:2296-2322).
+      5. On-image drags (mask canvas, crop, straighten, histogram zones, curve,
+         wheels pivots, ring arcs) bypass the slider-gesture deferral — per-event
+         SQLite + fingerprints + scope-debounce restarts (wrap them in
+         sliderGestureChanged; UI agent finding 7 lists every site).
+      6. recipe.develop.raw.decoderVersion is recorded, fingerprinted, and never
+         honored by decode() — renders shift under macOS updates against D50's
+         whole purpose (AppleRawSource.swift:71-78).
+      7. A settle superseded by a sibling pane gives up while stale tables are on
+         screen; hasPendingBake exists for exactly this and has no callers
+         (LoupeView.swift:493-496).
+      8. HDR shoulder-power floor breaks the slope-at-pivot contract with a C¹
+         kink at mid-grey at EDR peaks (DisplayTransform.swift:211-212; needs a
+         design decision, engine agent finding 3 has the numbers).
+      9. FilmLab's density-domain grain hook (applyWithGrain) is dormant while
+         both shipping paths grain post-formation — stale contract, docs/14
+         wording included; referenceColor also hardcodes rec2020 luminance where
+         exactColor uses its space parameter (RenderPlan.swift:343 vs 379).
+      10. Doc staleness batch: BUILDING.md thumbnails/PhotoQuery/grain bullets,
+          docs/04+15 old zone-pivot constants, docs/05 uniformity/variance
+          as-built note, docs/06 clarity as-built note, docs/24 colorBalance gap
+          list, docs/04+12 panel-order amendments, Keymap repeat comment (owner
+          call), 9pt text floor batch incl. LumenBadge.
+      11. Superseded folder scan still runs the abandoned folder's full metadata
+          backfill ahead of the new one (AppState.swift:1766).
+      12. Uniformity's honest cure: wire measureBandMeanHues into RenderPlan so
+          convergence targets the image's own hues (engine's written plan;
+          docs/27 §2 carries the measured limitation).
 - [ ] Dossier-driven fix queue (full detail in docs/24; ranked by daily impact):
       0. ~~Path-to-white DEFECT~~ FIXED (owner: "+1.80 EV does not seem like an
          exposed picture. It seems fake"): the display transform's ratio branch

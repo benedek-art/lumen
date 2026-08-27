@@ -504,10 +504,17 @@ struct LookPanel: View {
             || render.huePreservation != nil || render.blackTarget != nil
 
         return VStack(alignment: .leading, spacing: 2) {
+            // The baseline is the PHOTO's, not the type's: a rendered file starts on
+            // the Linear preset, so comparing against RenderParams() marked every
+            // untouched JPEG modified — and Reset re-applied the default sigmoid on
+            // top of the camera's own curve.
             LumenSectionHeader(title: "Display Transform",
                                isExpanded: $transformExpanded,
-                               isModified: render != RenderParams(),
-                               onReset: { state.updateRecipe { $0.look.render = RenderParams() } })
+                               isModified: render != state.currentStartingRecipe.look.render,
+                               onReset: { state.updateRecipe { photo, recipe in
+                                   recipe.look.render = AppState.startingRecipe(
+                                       for: photo.id, iso: photo.iso).look.render
+                               } })
 
             if transformExpanded {
                 if transformIsInert {

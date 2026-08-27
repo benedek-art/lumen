@@ -655,6 +655,17 @@ final class AppState: ObservableObject {
             let pass = await self.renderCoordinator.ensureMattes(url: url, recipe: recipe)
             self.pendingMattes.remove(url)
             self.applyMattePass(pass, for: url)
+            // A kind added WHILE the pass ran was swallowed by the pendingMattes
+            // guard above — a People mask added during a Subject segmentation
+            // rasterized empty under a WORKING spinner until the next edit happened
+            // to call back in. One re-entry closes the gap: it no-ops unless the
+            // recipe wants a kind the pass did not attempt.
+            if self.primarySelection?.id == url,
+               let current = self.primarySelection.map(self.recipe(for:)),
+               !VisionMattes.kinds(in: current)
+                   .allSatisfy({ pass.attempted.contains($0.rawValue) }) {
+                self.ensureMaskMattes()
+            }
         }
     }
 
@@ -1321,6 +1332,11 @@ final class AppState: ObservableObject {
             let cameras = await catalog.facets(.camera, folderPath: folder.path)
             let lenses = await catalog.facets(.lens, folderPath: folder.path)
             guard let self else { return }
+            // The folder guard its siblings all carry: two overlapping refreshes
+            // (folder A then B) can resume out of order, and A's chips must not
+            // replace B's. Membership changes re-call this, so a dropped stale
+            // answer costs nothing.
+            guard self.folderURL == folder else { return }
             self.collections = albums
             self.keywordVocabulary = keywords.map {
                 LibraryFacet(name: $0.value, count: $0.count)
@@ -1730,16 +1746,14 @@ final class AppState: ObservableObject {
         isScanning = true
         statusMessage = "Scanning…"
 
-        // The undo stack belongs to the folder that produced it. `HistoryStack.clear`
-        // existed and had no callers, and `recipes` was never reset, so opening folder
-        // A, editing a frame, opening folder B and pressing ⌘Z wrote a recipe for a URL
-        // that is no longer in `allPhotos`: no catalog row was found, so the catalog
-        // write was skipped — but the sidecar write was still enqueued, silently
-        // reverting an .xmp next to a photo in a folder that is not open, with nothing
-        // on screen changing to show it.
-        history.clear()
-        recipes = [:]
-
+        // The recipes/history wipe happens in `applyScan`, at the moment the roll
+        // actually changes — NOT here. It used to happen here, seconds before the new
+        // roll arrived, while the OLD roll stayed fully visible and clickable: a
+        // click plus one slider move during the scan window edited a photo whose
+        // saved recipe had just been wiped, so the edit started from defaults and
+        // persisted default-plus-delta over the real recipe in the catalog AND the
+        // sidecar. The wipe and the roll swap are one atomic step or they are a
+        // data-loss window.
         let extensions = Self.browsableExtensions
         scanGeneration &+= 1
         let generation = scanGeneration
@@ -1794,6 +1808,18 @@ final class AppState: ObservableObject {
     }
 
     private func applyScan(_ urls: [URL], stored: [URL: CatalogService.StoredState]) {
+        // The old roll's last deferred writes land BEFORE its state is wiped — a
+        // gesture whose release never arrived must not lose its edit to a folder
+        // switch (the same promise `prepareToQuit` makes at the other exit).
+        sliderGestureActive = false
+        flushSliderGesture()
+        // The undo stack and the in-memory recipes belong to the roll that produced
+        // them; they die at the exact moment `allPhotos` is replaced, never earlier.
+        // (⌘Z across a folder switch used to revert an .xmp in a folder that is not
+        // open; wiping early opened the scan-window loss above. Both ends of the
+        // history live here now.)
+        history.clear()
+        recipes = [:]
         var items = urls.map { PhotoItem(id: $0) }
         for i in items.indices {
             if let row = stored[items[i].id] {
@@ -2107,6 +2133,15 @@ final class AppState: ObservableObject {
         primarySelection.map(recipe(for:)) ?? Recipe()
     }
 
+    /// What "unedited" means for the CURRENT photo — the baseline every modified-dot
+    /// and reset affordance must compare against. Comparing against bare `Recipe()`
+    /// instead is how an untouched JPEG wore a modified dot (its baseline is the
+    /// Linear preset) and how Reset applied a second tone map to it.
+    var currentStartingRecipe: Recipe {
+        guard let photo = primarySelection else { return Recipe() }
+        return AppState.startingRecipe(for: photo.id, iso: photo.iso)
+    }
+
 
     /// The grey a colour-driven mask component is born with, so it is a valid
     /// component before anything has been picked. Named because two places have to
@@ -2145,12 +2180,27 @@ final class AppState: ObservableObject {
         guard let target = pickTarget else { return }
         let current = recipe(for: photo)
         let url = photo.id                      // PhotoItem.id IS the URL
+        // Disarmed BEFORE the hop, not after: cleared on the far side of the await, a
+        // second click while the first solve was in flight spawned a second task and a
+        // colour mask collected its sample twice.
+        pickTarget = nil
         Task {
+            // Every branch below awaits an actor whose queue can hold a cold decode,
+            // then writes through `updateRecipe` — which reads the CURRENT selection.
+            // Without this re-check, arrowing to the next photo mid-solve landed
+            // DSC_1's neutral in DSC_2's recipe, persisted, with a status line saying
+            // it worked. The sibling refreshes all carry this guard; the one path
+            // that WRITES was the one that lacked it.
+            func selectionStillOnPickedPhoto() -> Bool {
+                if primarySelection?.id == url { return true }
+                statusMessage = "Pick discarded — the selection moved before it resolved."
+                return false
+            }
             switch target {
             case .neutral:
                 let solved = await renderCoordinator.solveNeutral(
                     url: url, recipe: current, sourceX: sourceX, sourceY: sourceY)
-                pickTarget = nil
+                guard selectionStillOnPickedPhoto() else { return }
                 guard let solved else {
                     statusMessage = "Too dark there to read a neutral — try a lit grey."
                     return
@@ -2180,7 +2230,7 @@ final class AppState: ObservableObject {
                     sample = await renderCoordinator.sampleWorking(
                         url: url, recipe: current, sourceX: sourceX, sourceY: sourceY)
                 }
-                pickTarget = nil
+                guard selectionStillOnPickedPhoto() else { return }
                 guard let sample else {
                     statusMessage = "Could not read a colour there."
                     return
@@ -2236,6 +2286,20 @@ final class AppState: ObservableObject {
 
     func updateRecipe(coalescingKey: String? = nil, label: String? = nil,
                       _ mutate: (inout Recipe) -> Void) {
+        updateRecipe(coalescingKey: coalescingKey, label: label) { _, recipe in
+            mutate(&recipe)
+        }
+    }
+
+    /// The photo-aware overload, for edits whose result depends on WHICH photo —
+    /// a reset must land on `startingRecipe(for:)`, which is not the same for every
+    /// file (Linear preset for rendered files, ISO-resolved denoise for RAW), and a
+    /// closure that cannot see the photo can only reset everyone to the same wrong
+    /// baseline. Session findings: Reset flipped a JPEG's Linear preset to the
+    /// default sigmoid — a second tone map, persisted, and undo recorded the same
+    /// wrong baseline so it could not come back.
+    func updateRecipe(coalescingKey: String? = nil, label: String? = nil,
+                      _ mutate: (PhotoItem, inout Recipe) -> Void) {
         let targets = editTargets
         guard !targets.isEmpty else { return }
         var before: [URL: HistoryStack.PhotoEdit] = [:]
@@ -2245,7 +2309,7 @@ final class AppState: ObservableObject {
         for photo in targets {
             let old = recipe(for: photo)
             var updated = old
-            mutate(&updated)
+            mutate(photo, &updated)
             guard updated != old else { continue }
             if !updated.rendersSameAs(old) { touchedPixels = true }
             before[photo.id] = HistoryStack.PhotoEdit(recipe: old)
@@ -2344,6 +2408,11 @@ final class AppState: ObservableObject {
     func prepareToQuit() {
         // A gesture whose release never arrived must not cost the edit.
         flushSliderGesture()
+        // The thumbnail-size debounce (800 ms) has the same quit window the sidecar
+        // flush once had: resize the grid and ⌘Q inside it, and the size reverted
+        // next launch. The final event lands here.
+        sourceStateSaveTask?.cancel()
+        saveSourceState()
         // Eviction before the database closes, because the eviction runs through it.
         // docs/10 §10.10: the photographer never hears about this — no menu item, no
         // confirmation, no "Optimize Catalog" ritual.
@@ -2509,8 +2578,13 @@ final class AppState: ObservableObject {
     }
 
     func resetSettings() {
-        updateRecipe { recipe in
-            recipe = Recipe(pipelineVersion: recipe.pipelineVersion)
+        // Reset lands on the photo's own STARTING recipe, not on bare defaults:
+        // a JPEG's baseline carries the Linear preset (a bare Recipe() would apply
+        // a second tone map), a RAW's carries its ISO-resolved denoise.
+        updateRecipe { photo, recipe in
+            var base = AppState.startingRecipe(for: photo.id, iso: photo.iso)
+            base.pipelineVersion = recipe.pipelineVersion
+            recipe = base
         }
     }
 

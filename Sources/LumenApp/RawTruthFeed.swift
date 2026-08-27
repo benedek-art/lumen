@@ -38,6 +38,10 @@ extension AppState {
     func scheduleRawTruthRefresh() {
         guard showRawTruth else { return }
         guard let photo = primarySelection else {
+            // The bump matters on THIS branch too: without it, a measurement already
+            // in flight for the previous photo still passed the generation check and
+            // repopulated the panel under an empty selection.
+            rawTruthGeneration &+= 1
             rawTruth = nil
             rawTruthPlan = nil
             rawTruthMeasuring = false

@@ -249,11 +249,14 @@ and the renderer says so in the viewer rather than rendering something wrong.
 
 These are tracked, not hidden.
 
-- **No one has run this app on a real Mac yet.** CI compiles it and runs the suites;
-  the first launch on real camera files is still ahead. Expect layout surprises and
-  `CIRAWFilter` behaviour on specific bodies to need attention. That is the honest
-  state, and it is why the first session on a Mac should be `swift run LumenApp` with a
-  folder of your own frames.
+- **The owner has run it on a real Mac four times** (twice 2026-08-23, sessions A and
+  B on 2026-08-26, recorded in docs/19, docs/audit and docs/sessions/): it launches,
+  decodes, culls, edits and exports his own RAW folders, and each session's findings
+  became fix batches with their own records. This bullet claimed "no one has run this
+  app on a real Mac yet" for four sessions after it stopped being true — in the file
+  that calls itself the honest ledger, which is exactly the failure mode its own
+  stale-bullet confession at the bottom predicted. Specific bodies' `CIRAWFilter`
+  behaviour still gets attention as new cameras appear.
 - **The loupe is a SwiftUI image view, not the Metal/EDR layer.** The render plumbing —
   draft decode, coordinator actor, one graph for preview and export — is the real
   architecture; only the view swaps when the EDR viewport lands. HDR *export* maths is

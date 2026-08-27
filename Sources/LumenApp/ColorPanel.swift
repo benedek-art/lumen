@@ -678,6 +678,9 @@ struct MixerHueRing: View {
     /// every event let a fast drag hand the pointer to a neighbouring handle halfway
     /// through, which reads as the arc snapping inside out.
     @State private var grabbed: MixerArcHandle? = nil
+    /// The press turned out to be a double-click reset; swallow the rest of the
+    /// gesture so the reset is not immediately re-edited by the same press.
+    @State private var pressWasReset = false
 
     var body: some View {
         let arcList = arcs
@@ -765,6 +768,20 @@ struct MixerHueRing: View {
                 DragGesture(minimumDistance: 0)
                     .onChanged { drag in
                         guard showHandles else { return }
+                        // Double-click reset, read the way the slider and the wheel
+                        // read it (LumenControls): a minimumDistance-0 drag claims
+                        // every press, so an onTapGesture(count: 2) behind it never
+                        // fires — and here each click of the attempt also MOVED the
+                        // nearest handle to the clicked angle, so following the
+                        // ring's own help text silently reshaped the band twice.
+                        if !pressWasReset,
+                           let event = NSApp.currentEvent, event.clickCount >= 2 {
+                            pressWasReset = true
+                            grabbed = nil
+                            onResetArc()
+                            return
+                        }
+                        if pressWasReset { return }
                         let box = MixerHueRing.diameter + 12
                         let dx = Double(drag.location.x - box / 2)
                         let dy = Double(drag.location.y - box / 2)
@@ -775,9 +792,11 @@ struct MixerHueRing: View {
                         if grabbed == nil { grabbed = handle }
                         onHandleMoved(handle, degrees)
                     }
-                    .onEnded { _ in grabbed = nil }
+                    .onEnded { _ in
+                        grabbed = nil
+                        pressWasReset = false
+                    }
             )
-            .onTapGesture(count: 2) { onResetArc() }
 
             if allBands {
                 Text("All bands")

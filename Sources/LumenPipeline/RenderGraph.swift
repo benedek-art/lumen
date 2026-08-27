@@ -74,9 +74,18 @@ public struct RenderGraph {
     ///
     /// Factored out because the mask rasterizer needs exactly this image: a luma-range
     /// or colour-range component samples the LOCAL STAGE INPUT, which is what makes its
-    /// handles EV-denominated and stable (docs/08 §8.2), and the CPU reference passes
-    /// precisely this (`ReferenceRenderer.applyMasks(source: image)`). Calling it rather
-    /// than repeating the sequence keeps the two from drifting apart.
+    /// handles EV-denominated and stable (docs/08 §8.2).
+    ///
+    /// The CPU reference does NOT pass precisely this — this comment used to claim it
+    /// did, and the audit measured the gap. `ReferenceRenderer.applyMasks` rasterizes
+    /// from an image that has been through S3 (applied upstream of its render) and S8
+    /// (`DetailEngine.apply` runs before the masks), while this path skips both under
+    /// `options.maskSource`. For local contrast the difference is placement-invisible
+    /// by design, but Dehaze moves LEVELS, so on a hazy frame a band sits at
+    /// different values on the two paths and a golden comparing masked renders
+    /// measures that gap. The eyedropper tap (`sampleMaskStageInput`) sides with this
+    /// GPU convention. Reconciling the reference is queued in docs/23; until then the
+    /// divergence is stated rather than papered over.
     public func localStageInput(_ input: CIImage, plan: RenderPlan,
                                 options: Options) -> CIImage {
         var image = input

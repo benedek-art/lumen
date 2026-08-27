@@ -47,7 +47,14 @@ extension AppState {
                 var after: [URL: HistoryStack.PhotoEdit] = [:]
                 var applied: [URL: Recipe] = [:]
                 for (url, tone) in suggestions {
-                    let old = self.recipes[url] ?? Recipe()
+                    // The photo's real baseline, not bare defaults: Auto measured
+                    // through recipe(for:) — starting from Recipe() here installed a
+                    // recipe it never measured, stripping a JPEG's Linear preset
+                    // (second tone map) or a RAW's ISO denoise, unrecoverably (undo
+                    // recorded the same wrong `before`).
+                    let iso = self.allPhotos.first(where: { $0.id == url })?.iso
+                    let old = self.recipes[url]
+                        ?? AppState.startingRecipe(for: url, iso: iso)
                     var updated = old
                     updated.develop.tone = tone
                     before[url] = HistoryStack.PhotoEdit(recipe: old)

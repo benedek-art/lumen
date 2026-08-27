@@ -41,13 +41,15 @@ What is built, by phase:
 | 7 — Film Lab, output, HDR | Six stocks with real characteristic curves, halation and density-domain grain; multi-recipe export; ISO 21496-1 gain-map maths. The HDR *viewport* is not built. |
 | 8 — Dailies | Scopes, histogram with draggable zones, compare and survey. Heal and AI culling assists are not built. |
 
-The owner has run it on a Mac twice (2026-08-23) against his own RAW folders, and the
-sessions are recorded in `docs/audit/first-mac-session.md` and docs/19: the app launches,
-decodes, culls, edits and exports — and the sliders were slow, the temperature scale was
-wrong, and the tint slider inverted the picture, all since fixed in code and none yet
-re-verified by a human. `docs/23-master-plan.md` is the plan that closes that gap;
-[BUILDING.md](BUILDING.md) is the honest ledger: how to run it, how it was verified, and
-every known gap.
+The owner has run it on a Mac four times (2026-08-23 ×2, and sessions A and B on
+2026-08-26) against his own RAW folders, recorded in `docs/audit/`, docs/19 and
+`docs/sessions/`: the app launches, decodes, culls, edits and exports. The first
+sessions' defects (slow sliders, the temperature scale, the inverted tint) were fixed
+and session A re-verified the tone controls by hand (MAC-04 closed); session B's
+findings — the pastel overexposure and the notchy drags — were root-caused and fixed
+with independent-implementation proof (docs/26). `docs/23-master-plan.md` is the
+living plan; [BUILDING.md](BUILDING.md) is the honest ledger: how to run it, how it
+was verified, and every known gap.
 
 ## What "better, for me" means — measurably
 

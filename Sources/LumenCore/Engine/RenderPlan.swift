@@ -286,10 +286,24 @@ public struct RenderPlan: Sendable {
             let proofKey = baseKey.flatMap { base in
                 PlanTableCache.key([base, "proof"], [proof.settings])
             }
-            self.finishLUT = proofKey.map {
-                PlanTableCache.table(.finishProofed, key: $0, size: lutSize,
-                                     build: mapProof)
-            } ?? mapProof()
+            // A draft plan may be holding a STALE `plain` (that is what
+            // `tableAllowingStale` is for) — and `mapProof` closes over it. Storing
+            // that map under the exact `proofKey` poisoned the slot: the settle
+            // rebuilt the plan with the exact `plain`, hit the poisoned entry, and
+            // the soft-proofed picture at rest stayed one mouse event behind
+            // forever, with the gamut flag (computed from the exact before-proof
+            // table) disagreeing with the proofed pixels under it. On the draft
+            // path the map is built fresh and NOT cached — a few milliseconds of
+            // matrix-and-clamp per drag plan — and only the blocking path, whose
+            // `plain` is exact by construction, may populate the cache.
+            if allowStaleTables {
+                self.finishLUT = mapProof()
+            } else {
+                self.finishLUT = proofKey.map {
+                    PlanTableCache.table(.finishProofed, key: $0, size: lutSize,
+                                         build: mapProof)
+                } ?? mapProof()
+            }
             // Kept only when there is a flag to draw; the flag needs the value from
             // before the map and nothing else does.
             self.finishLUTBeforeProof = proof.settings.showGamutWarning ? plain : nil

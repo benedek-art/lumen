@@ -207,11 +207,19 @@ final class SidecarAndIngestTests: XCTestCase {
                        "the sidecar overwrote an edit")
         XCTAssertNil(unchanged.unpreservedSidecar)
 
-        // An OLDER file than our stamp is not "newer than our last write" either — a
-        // clock that went backwards, or a restore of a file we had already superseded.
+        // An OLDER stamp than ours IS evidence the file moved — restores travel
+        // backwards in time. This assertion used to pin `.catalogWins` here, under a
+        // comment calling an older file "a restore we had already superseded" — while
+        // the resolver's own header credits this rule with making restore-from-
+        // Time-Machine work, which a forward-only comparison makes impossible (a
+        // restored file arrives wearing its ORIGINAL mtime, and rsync/Syncthing
+        // deliveries wear the other machine's). The two claims contradicted each
+        // other and the audit chose: a deliberate restore is a user action, and the
+        // catalog yields to it exactly when it holds nothing unflushed — the
+        // unflushed-edits guard above is still what protects live work.
         XCTAssertEqual(SidecarMerge.resolve(catalog: catalog, sidecar: sidecar,
                                             sidecarMTime: 1_799_999_000).decision,
-                       .catalogWins)
+                       .sidecarWins)
 
         // And with NO recorded stamp there is no evidence the file moved at all. Acting
         // on no evidence is the mirror image of the bug: a stale sidecar would then

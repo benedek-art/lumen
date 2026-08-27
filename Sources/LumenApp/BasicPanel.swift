@@ -159,10 +159,12 @@ struct BasicPanel: View {
         HStack(spacing: 6) {
             Menu {
                 Button("As Shot") { applyAsShot() }
-                Button("Auto") {}
+                // The reason is IN the label. A bare greyed "Auto" with the reason in
+                // a .help — which macOS does not dependably show for menu items —
+                // reads as broken white balance: the Density lesson (a correct gate
+                // that looks like a dead control), reintroduced one panel up.
+                Button("Auto — needs scene statistics, not wired yet") {}
                     .disabled(true)
-                    .help("Auto white balance needs the scene statistics the render "
-                          + "coordinator will publish (docs/04 §2.2).")
                 Divider()
                 ForEach(wbIlluminants) { illuminant in
                     Button(illuminant.name) {

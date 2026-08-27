@@ -50,16 +50,25 @@ struct ViewerRenderKey: Equatable {
     /// Which AI mattes the renderer holds for this file right now. Same shape as
     /// `strokeRefs`, same trap.
     let matteKinds: Set<String>
+    /// The crop tool's "show me the whole frame" mode — a render input the loupe
+    /// passes to every render call and, for one release, did not put in its key: R
+    /// toggled the overlay while the picture kept its old cropping, so the rectangle
+    /// was drawn against a frame it is not expressed in — the exact compounding-crop
+    /// class the comments around the crop overlay warn about. Compare panes have no
+    /// crop tool and default it false.
+    let showingUncropped: Bool
 
     /// The current key for a surface showing `url` with `recipe` at `longEdge`.
     /// Reads the three beside-the-recipe inputs from the one place they live.
     @MainActor
     static func current(url: URL, recipe: Recipe, longEdge: Int,
-                        state: AppState) -> ViewerRenderKey {
+                        state: AppState,
+                        showingUncropped: Bool = false) -> ViewerRenderKey {
         ViewerRenderKey(url: url, recipe: recipe, longEdge: longEdge,
                         strokeRefs: Set(state.strokeSets(for: recipe).keys),
                         softProof: state.activeSoftProof,
-                        matteKinds: state.maskMatteKinds(for: url))
+                        matteKinds: state.maskMatteKinds(for: url),
+                        showingUncropped: showingUncropped)
     }
 }
 

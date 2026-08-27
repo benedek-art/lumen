@@ -182,7 +182,14 @@ public enum SidecarMerge {
             guard let last = catalog.sidecarMTime, let now = sidecarMTime else {
                 return false
             }
-            return now > last
+            // "Moved" means the file is not the one we last recorded — in EITHER
+            // direction. `now > last` blinded rule 2 to every write that arrives
+            // with an older or equal stamp: a Time-Machine restore keeps the file's
+            // ORIGINAL mtime (the very case the header credits this rule with
+            // handling), an rsync/Syncthing delivery carries the other machine's,
+            // and a same-second write from another app truncates equal. All were
+            // read as "nothing happened" and overwritten at the next flush.
+            return now != last
         }()
 
         if moved, recipeDiffers(catalog: catalog, incoming: incoming, sidecar: sidecar) {

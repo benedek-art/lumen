@@ -132,11 +132,10 @@ struct CompareView: View {
                             sync: sync,
                             isPrimary: photo.id == state.primarySelection?.id)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    // Through the cursor verb, not by assigning the cursor: the
-                    // scopes, the histogram and the mask selection follow the
-                    // frame being judged. Assigning `primarySelection` moves the
-                    // highlight and leaves them describing the previous photo.
-                    .onTapGesture(count: 2) { state.moveCursor(to: photo) }
+                    // The cursor verb's double-click lives INSIDE the pane's own
+                    // drag gesture (clickCount, the LumenControls way) — a tap
+                    // gesture attached here sat behind the pane's
+                    // minimumDistance-0 drag and never fired.
             }
             if pair.count == 1 {
                 VStack(spacing: 6) {
@@ -203,6 +202,9 @@ private struct ComparePane: View {
     @StateObject private var model: PhotoRenderModel = PhotoRenderModel()
     @Environment(\.displayScale) private var displayScale: CGFloat
     @State private var dragStartCenter: CGPoint?
+    /// The press turned out to be the cursor verb's double-click; swallow the rest
+    /// of the gesture so it neither pans nor toggles zoom on release.
+    @State private var pressWasCursorMove = false
 
     var body: some View {
         GeometryReader { geometry in
@@ -275,7 +277,18 @@ private struct ComparePane: View {
     // MARK: Geometry
 
     private func ratio(for cg: CGImage, container: CGSize) -> Double {
-        if sync.zoom > 0 { return sync.zoom }
+        if sync.zoom > 0 {
+            // Normalized for proxy resolution, exactly as the loupe (MAC-07): a bare
+            // `sync.zoom` drew a 2048-px draft at half the size of its 4096-px settle
+            // and doubled it back per event — the zoom pump, fixed in the loupe and
+            // still alive here through the DRAW ratio (the request size above was
+            // fixed first and the fix stopped one line short).
+            return LoupeGeometry.zoomedRatio(
+                zoomLevel: sync.zoom,
+                fullLongEdge: model.displayFullLongEdge
+                    ?? Swift.max(cg.width, cg.height),
+                renderedLongEdge: Swift.max(cg.width, cg.height))
+        }
         return LoupeGeometry.fitRatio(imageWidth: cg.width, imageHeight: cg.height,
                                       container: container, displayScale: displayScale)
     }
@@ -309,6 +322,17 @@ private struct ComparePane: View {
     private func dragGesture(container: CGSize) -> some Gesture {
         DragGesture(minimumDistance: 0)
             .onChanged { value in
+                // The cursor verb's double-click, read the way every control behind a
+                // minimumDistance-0 drag has to read it (LumenControls): the outer
+                // onTapGesture(count: 2) never fired behind this drag, and the press
+                // fell through to onEnded's sub-3-pt branch — so double-clicking a
+                // pane to move the cursor toggled 1:1 instead, twice.
+                if dragStartCenter == nil, !pressWasCursorMove,
+                   let event = NSApp.currentEvent, event.clickCount >= 2 {
+                    pressWasCursorMove = true
+                    return
+                }
+                if pressWasCursorMove { return }
                 guard let cg = model.image else { return }
                 let r = ratio(for: cg, container: container)
                 let drawn = LoupeGeometry.drawnSize(imageWidth: cg.width,
@@ -327,6 +351,11 @@ private struct ComparePane: View {
                                       y: 0.5 - clamped.height / drawn.height)
             }
             .onEnded { value in
+                if pressWasCursorMove {
+                    pressWasCursorMove = false
+                    state.moveCursor(to: photo)
+                    return
+                }
                 dragStartCenter = nil
                 let travel = abs(value.translation.width) + abs(value.translation.height)
                 guard travel < 3 else { return }

@@ -174,6 +174,13 @@ public final class PipelineRenderer {
     public func forgetMattes(for url: URL) {
         mattes.removeValue(forKey: url)
         matteOrder.removeAll { $0 == url }
+        // The mask rasters were computed from this file's pixels and mattes, so
+        // they go with them. The raster key now carries the url, so a re-imported
+        // file at the same path with NEW pixels is the case this clears — the key
+        // alone cannot see a content change under an unchanged path. Coarse
+        // (clears every photo's rasters), and correct: an invalidate is rare and
+        // a raster rebake is a background stale-while-bake, not a stall.
+        maskRasters.clear()
     }
 
     /// The picture the segmenter sees: a NEUTRAL rendition of the file, at matte
@@ -767,8 +774,19 @@ public final class PipelineRenderer {
             // the recipe subtrees `localStageInput` reads (S6–S10; S3/S8 are skipped
             // for a mask source), OVER-keyed on whole subtrees deliberately: an extra
             // rebake costs a background raster, an under-key shows last week's mask.
-            let sourceKey: String? = source == nil ? "-"
-                : Self.maskSourceFingerprint(recipe: plan.recipe)
+            // FILE identity comes first in the key: the raster's pixels come from
+            // THIS photo's decode and THIS photo's Vision mattes, and mask ids
+            // travel verbatim across photos via Paste Settings — so without the url,
+            // pasting a Luma-Range or Subject mask onto a same-sized frame served
+            // photo A's rasterized selection for photo B, in the loupe and in the
+            // exported file, until an edit happened to move the fingerprint.
+            let sourceKey: String?
+            if let source {
+                sourceKey = Self.maskSourceFingerprint(recipe: plan.recipe)
+                    .map { source.url.absoluteString + "|" + $0 }
+            } else {
+                sourceKey = "-"
+            }
 
             for mask in plan.masks {
                 let bake = {

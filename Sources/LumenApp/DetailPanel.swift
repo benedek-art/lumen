@@ -198,11 +198,16 @@ struct DetailPanel: View {
                 // view in this application — 1:1 included — that shows a 45 MP export's
                 // sharpening. Saying so is not a fix; it is the least the panel owes a
                 // user judging an export by a preview.
+                // Honesty work stays prominent (DevelopNote's own rule): this is a
+                // disclosure that the export differs from every preview, for the
+                // person judging an export by one — behind the hover-ⓘ they see
+                // nothing at the moment it matters.
                 DevelopNote("Sharpening is measured in pixels, not in fractions of the "
                             + "frame, so a full-size export is less sharpened than the "
                             + "preview it was judged on. Previews also render at up to "
                             + "4096 px, which means no view here — 1:1 included — shows "
-                            + "an export's sharpening on a high-resolution file.")
+                            + "an export's sharpening on a high-resolution file.",
+                            prominent: true)
             }
         }
     }
@@ -346,7 +351,18 @@ struct DetailPanel: View {
                                 }),
                             range: 0...100, hardRange: nil,
                             defaultValue: isoDefault.classic.luma,
-                            step: 1, decimals: 0, bipolar: false)
+                            step: 1, decimals: 0, bipolar: false,
+                            // Reset CLEARS the user-set bit along with the value. A
+                            // plain defaultValue write went through the binding
+                            // above, which stamps the bit — so double-clicking a
+                            // master at its default changed no number and still
+                            // flipped Auto to Manual, and a later switch to AI kept
+                            // the master instead of zeroing it.
+                            onReset: { binder.edit("denoise.classic.luma") { recipe in
+                                recipe.develop.denoise.classic.luma =
+                                    isoDefault.classic.luma
+                                recipe.develop.denoise.classic.lumaUserSet = false
+                            } })
                 LumenSlider(title: "Luminance Detail",
                             value: binder.value(\.develop.denoise.classic.lumaDetail,
                                                 "denoise.classic.lumaDetail"),
@@ -369,7 +385,13 @@ struct DetailPanel: View {
                                 }),
                             range: 0...100, hardRange: nil,
                             defaultValue: isoDefault.classic.chroma,
-                            step: 1, decimals: 0, bipolar: true)
+                            step: 1, decimals: 0, bipolar: true,
+                            // Same clearing reset as Luminance above, same reason.
+                            onReset: { binder.edit("denoise.classic.chroma") { recipe in
+                                recipe.develop.denoise.classic.chroma =
+                                    isoDefault.classic.chroma
+                                recipe.develop.denoise.classic.chromaUserSet = false
+                            } })
                 LumenSlider(title: "Colour Detail",
                             value: binder.value(\.develop.denoise.classic.colorDetail,
                                                 "denoise.classic.colorDetail"),

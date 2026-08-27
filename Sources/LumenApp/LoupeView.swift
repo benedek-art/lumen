@@ -396,6 +396,13 @@ final class PhotoRenderModel: ObservableObject {
                    url: url, maxPixel: ThumbnailLadder.loupeInstantPixels),
                let cg = preview.cgImage(forProposedRect: nil, context: nil, hints: nil) {
                 guard !Task.isCancelled else { return }
+                // Only into the void this task itself cleared. A superseded sibling's
+                // COMPLETED draft may legally land while the thumbnail loads (that is
+                // FrameDelivery's whole point), and the camera JPEG must not paint
+                // over a real render — an EMBEDDED PREVIEW badge over a frame that
+                // had a genuine draft, for one draft-interval, on every fast
+                // photo-bounce.
+                guard imageURL == nil else { return }
                 image = cg
                 imageURL = url
                 usedEmbeddedPreview = true
@@ -615,7 +622,9 @@ struct LoupeView: View {
             // `.task`'s action is `@Sendable`, so it touches no main-actor state
             // directly: everything goes through the `@MainActor` methods below.
             .task(id: ViewerRenderKey.current(url: photo.id, recipe: recipe,
-                                              longEdge: longEdge, state: state)) {
+                                              longEdge: longEdge, state: state,
+                                              showingUncropped: viewport.showCrop
+                                                  && state.activeSection == .effects)) {
                 await renderCurrent(longEdge: longEdge)
             }
             .task(id: BeforeKey(url: photo.id, recipe: beforeRecipe,
