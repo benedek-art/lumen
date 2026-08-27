@@ -1,15 +1,15 @@
 {
-  "authority" : 37.75648277010886,
+  "authority" : 163.97180761406563,
   "deadSteps" : 0,
   "frame" : "neutralRamp",
-  "frontLoading" : 0.2717140538364997,
+  "frontLoading" : 0.32519801089294675,
   "givenBack" : 0,
   "id" : "zones.shadow.ev",
   "isMonotone" : true,
-  "meanSeparation" : 8.876370268820379,
+  "meanSeparation" : 31.674033482397277,
   "panel" : "Zones",
   "shippingReader" : "Sources\/LumenPipeline\/RenderGraph.swift:486",
-  "smallestLiveStep" : 0.7097681012470272,
+  "smallestLiveStep" : 3.256003941103522,
   "travelHigh" : 3,
   "travelLow" : -3
 }

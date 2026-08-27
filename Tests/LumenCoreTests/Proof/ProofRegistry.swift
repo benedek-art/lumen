@@ -789,22 +789,24 @@ enum ProofRegistry {
     static let zones: [ControlSpec] = {
         // A floor each, at 70% of that zone's own measurement, because the six numbers
         // are an order of magnitude apart and a single floor set by the weakest would
-        // let Global lose 97% of its authority without anything going red. Measured:
-        // dark 4.74, shadow 37.76, mid 177.01, light 201.71, bright 58.17, global 215.25.
+        // let Global lose 97% of its authority without anything going red. Measured at
+        // the EV-derived default pivots (proof #6's own sweep): dark 75.52,
+        // shadow 163.97, mid 194.19, light 129.34, bright 43.23, global 215.25.
         //
-        // **Dark's floor is 3, and it is a floor under a control that is already below
-        // the visible threshold.** That is not a mistake and it is not this probe's
-        // fault: the Dark zone's pivot sits at 0.08 on the normalized axis, which is
-        // −7.88 EV, and an 8-bit display has a couple of code values left down there.
-        // Its whole ±3 EV travel moves the picture by 4.74 of 255 — a fifth of what
-        // Blacks did when docs/19 called Blacks a control the photographer cannot see.
-        // Recorded as PROOF-04 rather than fixed, and the floor is set where docs/20
-        // says to set it, at 70% of what was measured, so the number stays visible in a
-        // diff instead of being rounded into an aspiration.
+        // **PROOF-04 is closed by measurement.** Dark's floor used to be 3, under a
+        // control that moved 4.74 of 255 code values — below the visible threshold,
+        // because the old pivot put the Dark zone at −7.88 EV where an 8-bit display
+        // has a couple of code values left. The EV-derived pivots put Dark at −4 EV
+        // and its measured authority went 4.74 → 75.52, a 16× recovery and the single
+        // largest product effect of the pivot fix. The cost lands where the shoulder
+        // is: Light (+2 EV) and Bright (+4 EV) now live in display compression and
+        // measure lower than the old placements did — that is the transform being
+        // honest about highlights, not the controls going dead, and their floors are
+        // re-anchored at 70% of the new measurements like everyone else's.
         let bands: [(String, String, WritableKeyPath<Zones, ZoneAdjust>, Double)] = [
-            ("dark", "Dark", \.dark, 3), ("shadow", "Shadow", \.shadow, 26),
-            ("mid", "Mid", \.mid, 123), ("light", "Light", \.light, 141),
-            ("bright", "Bright", \.bright, 40), ("global", "Global", \.global, 150),
+            ("dark", "Dark", \.dark, 52), ("shadow", "Shadow", \.shadow, 114),
+            ("mid", "Mid", \.mid, 135), ("light", "Light", \.light, 90),
+            ("bright", "Bright", \.bright, 30), ("global", "Global", \.global, 150),
         ]
         var out: [ControlSpec] = bands.map { id, name, path, floor in
             ControlSpec(
@@ -830,13 +832,16 @@ enum ProofRegistry {
         }
         // Each pivot's travel, clamped against its neighbours by `ZonesPanel.movePivot`
         // with a minimum gap of 0.02 — the same reasoning as the grading pivots above.
-        // Floors at 70% of each pivot's own measurement: 10.47, 95.05, 161.94, 86.71,
-        // 114.93. The dark pivot is weak for the same reason the dark ZONE is — it is
-        // the boundary of a region an 8-bit display renders almost entirely black.
+        // Floors at 70% of each pivot's own measurement at the EV-derived defaults
+        // (proof #6): 12.61, 94.45, 155.59, 37.18, 44.30. The upper two dropped hard —
+        // their boundaries moved up into the display shoulder, where a seam between
+        // two zones is compressed like everything else — and the dark pivot RECOVERED
+        // for the same reason the dark zone did: its boundary now lives where the
+        // display still has code values to move.
         let travels: [(Int, String, Double, Double, Double)] = [
-            (0, "Dark", 0, 0.23, 7), (1, "Shadow", 0.10, 0.48, 66),
-            (2, "Mid", 0.27, 0.73, 113), (3, "Light", 0.52, 0.90, 60),
-            (4, "Bright", 0.77, 1.0, 80),
+            (0, "Dark", 0, 0.23, 8), (1, "Shadow", 0.10, 0.48, 66),
+            (2, "Mid", 0.27, 0.73, 108), (3, "Light", 0.52, 0.90, 26),
+            (4, "Bright", 0.77, 1.0, 31),
         ]
         for (index, name, lo, hi, floor) in travels {
             out.append(ControlSpec(
@@ -849,8 +854,10 @@ enum ProofRegistry {
                 // A pivot moves WHERE its zone acts, so sweeping one walks that zone
                 // across the tonal axis and eventually past the region being measured,
                 // after which the picture returns toward neutral. Only the Light pivot
-                // travels far enough on this ramp for that to register.
-                declaredReversal: index == 3 ? 16.250 : nil,
+                // travels far enough on this ramp for that to register. Re-pinned at
+                // proof #6's measurement (was 16.250 at the old defaults): the reversal
+                // SHRANK with the EV-derived pivots, which is the fix direction.
+                declaredReversal: index == 3 ? 5.158 : nil,
                 apply: { r, v in
                     alternatingZones(&r)
                     var pivots = Zones.defaultPivots
