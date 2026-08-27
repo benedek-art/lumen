@@ -1,16 +1,16 @@
 {
-  "authority" : 134.71001936076732,
+  "authority" : 138.01449812183483,
   "deadSteps" : 0,
   "frame" : "colourChart",
-  "frontLoading" : 0.6876444534605409,
+  "frontLoading" : 0.6814037840716506,
   "givenBack" : 0,
-  "hueRotation" : 3.170606643184442,
+  "hueRotation" : 1.802594952732477,
   "id" : "mixer.blue.lum",
   "isMonotone" : true,
-  "meanSeparation" : 15.337539025186734,
+  "meanSeparation" : 15.95487739339687,
   "panel" : "Colour Mixer",
   "shippingReader" : "Sources\/LumenPipeline\/RenderGraph.swift:98",
-  "smallestLiveStep" : 3.737243694657849,
+  "smallestLiveStep" : 4.2819156561498914,
   "travelHigh" : 100,
   "travelLow" : -100
 }
