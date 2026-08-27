@@ -2191,7 +2191,9 @@ final class AppState: ObservableObject {
             // DSC_1's neutral in DSC_2's recipe, persisted, with a status line saying
             // it worked. The sibling refreshes all carry this guard; the one path
             // that WRITES was the one that lacked it.
-            func selectionStillOnPickedPhoto() -> Bool {
+            // (@MainActor because a local func does NOT inherit the Task closure's
+            // actor isolation the way its surrounding statements do.)
+            @MainActor func selectionStillOnPickedPhoto() -> Bool {
                 if primarySelection?.id == url { return true }
                 statusMessage = "Pick discarded — the selection moved before it resolved."
                 return false
