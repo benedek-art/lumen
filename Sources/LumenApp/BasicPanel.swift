@@ -384,6 +384,17 @@ struct BasicPanel: View {
                           ? "How much of a Saturation push is subtractive."
                           : "Density acts on a Saturation push. Raise Saturation above "
                               + "zero and this comes live.")
+                // Visible, not a tooltip. Session A reported this row as "doesn't
+                // seem to be able to be moved": the row was disabled BY DESIGN and
+                // the only explanation sat behind a hover delay, so a correct gate
+                // read as a broken control. A disabled control owes the reason to
+                // the same glance that finds it disabled.
+                if !densityIsLive {
+                    Text("Needs a Saturation push — raise Saturation above 0.")
+                        .font(.system(size: 10))
+                        .foregroundStyle(Lumen.tertiaryText)
+                        .padding(.leading, Lumen.labelWidth + 6)
+                }
                 LumenSlider(title: "Protect Skin",
                             value: binder.value(\.develop.color.protectSkin,
                                                 "color.protectSkin"),

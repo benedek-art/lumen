@@ -267,6 +267,35 @@ enum ProofRegistry {
             shippingReader: "Sources/LumenPipeline/RenderGraph.swift:98",
             authorityFloor: 20,
             apply: { r, v in r.develop.color.vibrance = v }),
+        // The slider the owner's first session reported as immovable. It is gated —
+        // `ColorAdjust.densityIsLive` is false at Saturation ≤ 0, the panel disables
+        // the row — and it had NO record, so nothing measured what it does where it is
+        // live. The companion puts it where it is live, same reasoning as the contrast
+        // pivot's companion: measuring it at saturation 0 would report a dead control
+        // and be the probe's fault.
+        ControlSpec(
+            id: "color.density", panel: "Colour", displayName: "Density",
+            low: 0, high: 100, neutral: 50,
+            frameName: "colourChart", frame: { ProofFrames.colourChart() },
+            shippingReader: "Sources/LumenPipeline/RenderGraph.swift:98",
+            authorityFloor: 3,
+            apply: { r, v in
+                r.develop.color.saturation = 60
+                r.develop.color.density = v
+            }),
+        // Attenuates Vibrance (both signs) and Saturation's push inside the skin band;
+        // the companion gives it a push to attenuate. The chart's orange patches are
+        // the skin territory it acts on.
+        ControlSpec(
+            id: "color.protectSkin", panel: "Colour", displayName: "Protect Skin",
+            low: 0, high: 100, neutral: 70,
+            frameName: "colourChart", frame: { ProofFrames.colourChart() },
+            shippingReader: "Sources/LumenPipeline/RenderGraph.swift:98",
+            authorityFloor: 3,
+            apply: { r, v in
+                r.develop.color.vibrance = 80
+                r.develop.color.protectSkin = v
+            }),
         ControlSpec(
             // Swept over the PHOTOGRAPHIC range, not the control's full 2000…50000 K.
             // Sweeping the declared range would report a control delivering ~97% of its
@@ -413,6 +442,20 @@ enum ProofRegistry {
                 r.develop.detail.sharpen.amount = 100
                 r.develop.detail.sharpen.masking = v
             }),
+        // Suppression measures on the same hard edge Amount rims, with Amount pushed
+        // so there is a halo to suppress — its whole visible effect is taking the
+        // overshoot back down, which is small by nature and still a control.
+        ControlSpec(
+            id: "sharpen.haloSuppression", panel: "Detail",
+            displayName: "Halo suppression",
+            low: 0, high: 100,
+            frameName: "stepEdge", frame: { ProofFrames.stepEdge() },
+            shippingReader: "Sources/LumenPipeline/RenderGraph.swift:700",
+            authorityFloor: 2, mayLeaveRange: false,
+            apply: { r, v in
+                r.develop.detail.sharpen.amount = 120
+                r.develop.detail.sharpen.haloSuppression = v
+            }),
     ]
 
     /// The colour mixer: eight bands, three controls each, on the chart.
@@ -442,6 +485,16 @@ enum ProofRegistry {
                     apply: { r, v in r.develop.mixer.bands[index][keyPath: path] = v }))
             }
         }
+        // Uniformity (D13, hue convergence): pulls every hue toward its band centre.
+        // The panel's twenty-fifth mixer slider, found recordless by the coverage
+        // audit (docs/27). No companion — convergence acts on the chart's own spread.
+        out.append(ControlSpec(
+            id: "mixer.uniformity", panel: "Colour Mixer", displayName: "Uniformity",
+            low: 0, high: 100,
+            frameName: "colourChart", frame: { ProofFrames.colourChart() },
+            shippingReader: "Sources/LumenPipeline/RenderGraph.swift:98",
+            authorityFloor: 3,
+            apply: { r, v in r.develop.mixer.uniformity = v }))
         return out
     }()
 
@@ -1112,11 +1165,149 @@ enum ProofRegistry {
                 r.develop.denoise.mode = .classic
                 r.develop.denoise.classic.chroma = v
             }),
+        // The five disclosure sliders, found recordless by the coverage audit
+        // (docs/27). Each rides its master as a companion — a threshold multiplier
+        // measured with the master at zero would be the contrast-pivot mistake again.
+        // The luma pair works against the master's own frame; the colour pair against
+        // the chroma edge for the reason the header gives; Hot Pixels against the
+        // frame that actually contains its subject.
+        ControlSpec(
+            id: "denoise.lumaDetail", panel: "Detail", displayName: "Luminance detail",
+            low: 0, high: 100, neutral: 50,
+            frameName: "noisyISO6400", frame: { ProofFrames.noisyISO6400() },
+            shippingReader: "Sources/LumenPipeline/RenderGraph.swift:265",
+            authorityFloor: 2, mayLeaveRange: false,
+            captureISO: 6400, denoisedFirst: true,
+            apply: { r, v in
+                r.develop.denoise.mode = .classic
+                r.develop.denoise.classic.luma = 60
+                r.develop.denoise.classic.lumaDetail = v
+            }),
+        ControlSpec(
+            id: "denoise.lumaContrast", panel: "Detail",
+            displayName: "Luminance contrast",
+            low: 0, high: 100,
+            frameName: "noisyISO6400", frame: { ProofFrames.noisyISO6400() },
+            shippingReader: "Sources/LumenPipeline/RenderGraph.swift:265",
+            authorityFloor: 2, mayLeaveRange: false,
+            captureISO: 6400, denoisedFirst: true,
+            apply: { r, v in
+                r.develop.denoise.mode = .classic
+                r.develop.denoise.classic.luma = 60
+                r.develop.denoise.classic.lumaContrast = v
+            }),
+        ControlSpec(
+            id: "denoise.colorDetail", panel: "Detail", displayName: "Colour detail",
+            low: 0, high: 100, neutral: 50,
+            frameName: "noisyChromaEdge", frame: { ProofFrames.noisyChromaEdge() },
+            shippingReader: "Sources/LumenPipeline/RenderGraph.swift:265",
+            authorityFloor: 2, mayLeaveRange: false,
+            captureISO: 6400, denoisedFirst: true,
+            apply: { r, v in
+                r.develop.denoise.mode = .classic
+                r.develop.denoise.classic.chroma = 60
+                r.develop.denoise.classic.colorDetail = v
+            }),
+        ControlSpec(
+            id: "denoise.colorSmoothness", panel: "Detail",
+            displayName: "Colour smoothness",
+            low: 0, high: 100, neutral: 50,
+            frameName: "noisyChromaEdge", frame: { ProofFrames.noisyChromaEdge() },
+            shippingReader: "Sources/LumenPipeline/RenderGraph.swift:265",
+            authorityFloor: 2, mayLeaveRange: false,
+            captureISO: 6400, denoisedFirst: true,
+            apply: { r, v in
+                r.develop.denoise.mode = .classic
+                r.develop.denoise.classic.chroma = 60
+                r.develop.denoise.classic.colorSmoothness = v
+            }),
+        ControlSpec(
+            id: "denoise.hotPixels", panel: "Detail", displayName: "Hot pixels",
+            low: 0, high: 100,
+            frameName: "hotPixels", frame: { ProofFrames.hotPixels() },
+            shippingReader: "Sources/LumenPipeline/RenderGraph.swift:265",
+            authorityFloor: 2, mayLeaveRange: false,
+            captureISO: 6400, denoisedFirst: true,
+            apply: { r, v in
+                r.develop.denoise.mode = .classic
+                r.develop.denoise.classic.hotPixels = v
+            }),
+    ]
+
+    /// The Colour Balance grid (docs/05's headline claim over Lightroom): two master
+    /// moves plus chroma / saturation / brilliance across (global, shadows, mid, high).
+    /// Fourteen draggable sliders that shipped with no record — found by the
+    /// every-slider coverage audit (docs/27), the same class of gap as Density's.
+    ///
+    /// On the wedge, like the wheels, because the grid grades the same three zones the
+    /// wheels do and a chart with no tonal spread would starve the zone fields of the
+    /// pixels they act on. Hue shift is circular: −180° and +180° are the same setting,
+    /// so authority reads at the antipode per docs/20 P4.
+    static let colourBalance: [ControlSpec] = {
+        var out: [ControlSpec] = [
+            ControlSpec(
+                id: "cb.hueShift", panel: "Colour Balance", displayName: "Hue shift",
+                low: -180, high: 180,
+                frameName: "tonalColourWedge", frame: { ProofFrames.tonalColourWedge() },
+                shippingReader: "Sources/LumenPipeline/RenderGraph.swift:101",
+                authorityFloor: 10, isCircular: true,
+                apply: { r, v in r.look.wheels.colorBalance.hueShift = v }),
+            ControlSpec(
+                id: "cb.vibrance", panel: "Colour Balance", displayName: "CB vibrance",
+                low: -100, high: 100,
+                frameName: "tonalColourWedge", frame: { ProofFrames.tonalColourWedge() },
+                shippingReader: "Sources/LumenPipeline/RenderGraph.swift:101",
+                authorityFloor: 10,
+                apply: { r, v in r.look.wheels.colorBalance.vibrance = v }),
+        ]
+        let axes: [(String, String, WritableKeyPath<ColorBalanceParams, ColorBalanceAxis>)] = [
+            ("chroma", "Chroma", \.chroma),
+            ("saturation", "Saturation", \.saturation),
+            ("brilliance", "Brilliance", \.brilliance),
+        ]
+        let zones: [(String, String, WritableKeyPath<ColorBalanceAxis, Double>)] = [
+            ("global", "Global", \.global),
+            ("shadows", "Shadows", \.shadows),
+            ("mid", "Midtones", \.mid),
+            ("high", "Highlights", \.high),
+        ]
+        for (axisId, axisName, axisPath) in axes {
+            for (zoneId, zoneName, zonePath) in zones {
+                out.append(ControlSpec(
+                    id: "cb.\(axisId).\(zoneId)", panel: "Colour Balance",
+                    displayName: "\(axisName) \(zoneName)",
+                    low: -100, high: 100,
+                    frameName: "tonalColourWedge",
+                    frame: { ProofFrames.tonalColourWedge() },
+                    shippingReader: "Sources/LumenPipeline/RenderGraph.swift:101",
+                    // Deliberately-low estimates per the note at the top of this file;
+                    // tightened to 70% of the sweep's measurement in the same commit
+                    // that lands the records. Shadow-zone fields measure small for the
+                    // reason every shadow control does.
+                    authorityFloor: 3,
+                    apply: { r, v in
+                        r.look.wheels.colorBalance[keyPath: axisPath][keyPath: zonePath] = v
+                    }))
+            }
+        }
+        return out
+    }()
+
+    /// The Effects panel's vignette: EV at the corner, applied on scene-linear data
+    /// before the display transform (the panel's own caption), ellipse from the crop.
+    static let effects: [ControlSpec] = [
+        ControlSpec(
+            id: "look.vignette", panel: "Effects", displayName: "Vignette",
+            low: -3.0, high: 1.0,
+            frameName: "neutralRamp", frame: { ProofFrames.neutralRamp() },
+            shippingReader: "Sources/LumenPipeline/RenderGraph.swift:136",
+            authorityFloor: 20,
+            apply: { r, v in r.look.vignette = v }),
     ]
 
     static var all: [ControlSpec] {
         tone + colour + curve + presence + sharpen + mixer
             + grade + gradeGeometry + printerLights + primaries + pointColour
-            + zones + blackAndWhite + film + denoise
+            + zones + blackAndWhite + film + denoise + colourBalance + effects
     }
 }

@@ -301,6 +301,29 @@ and against Lightroom via owner-exported references.
       gaps. Headlines: Exposure, Contrast+Pivot, Printer Lights (best-in-field),
       B&W, the Curve's domain/monotonicity, WB's core math, the denoise framework,
       grain and halation mechanisms all CORRECT against the cited consensus.
+- [x] **Every-slider verification campaign** (owner, session B: "verify every
+      slider … rigorous testing … actual output that is measurable and accurate"):
+      docs/27 is the audit that makes "every" checkable. Coverage: 25 draggable,
+      image-affecting sliders had NO proof record — Density (the "immovable"
+      slider: gated by design at Saturation ≤ 0, now with a visible inline hint
+      instead of a hover-only tooltip), Protect Skin, the entire 14-slider Colour
+      Balance grid, mixer Uniformity, Halo Suppression, vignette, and five classic
+      denoise sliders — all now registered (136 controls) and recorded.
+      Calibration: SliderContractTests pins the per-control promises (−100
+      Saturation reaches true B&W at every protection setting; Density densifies
+      monotonically and cannot move a neutral; Vibrance's low-chroma weighting;
+      protectSkin bites skin >40% and leaks <15% to blue; vignette −2 EV = corner
+      at exactly 2^−2 on the Linear preset; curve points pass through themselves;
+      grain exact-zero at 0 and variance-monotone; Hot Pixels at 100 halves the
+      worst impulse). The campaign's biggest catch: the contract probe convicted
+      Uniformity's convergence field — per-band full-deviation pulls cancelled at
+      seams into BACKWARDS moves, wheel-wide convergence at 100 measured +0.1° on
+      54° of pair spread; fixed (blended circular-mean target, monotone field, no
+      anti-pockets) before the first record could pin the defect, with the
+      remaining mid-band weakness recorded in docs/27 rather than asserted away.
+      Dispositions with reasons for everything not Linux-measurable (capture
+      sharpening, AI denoise amount, masks, geometry, export sliders) in docs/27
+      §3.
 - [ ] Dossier-driven fix queue (full detail in docs/24; ranked by daily impact):
       0. ~~Path-to-white DEFECT~~ FIXED (owner: "+1.80 EV does not seem like an
          exposed picture. It seems fake"): the display transform's ratio branch

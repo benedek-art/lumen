@@ -874,8 +874,20 @@ public struct ColorEngine: Sendable {
         var hueSum: Double = 0
         var satSum: Double = 0
         var lumSum: Double = 0
-        var converge: Double = 0
         let q = -uniformity / 100
+        // Uniformity converges on ONE blended target — the weighted circular mean of
+        // the member bands' targets — not on a sum of per-band pulls. The summed form
+        // shipped first and `SliderContractTests`' probe convicted its field: each
+        // band scaled the FULL deviation to its own centre, so at a seam two large
+        // opposing pulls nearly cancelled and slightly overshot — hues 20° from a
+        // centre moved backwards, and the wheel-wide aggregate convergence of
+        // uniformity 100 measured +0.1° on 54°. The blended target makes the field a
+        // smooth monotone staircase: flat near each centre (strong convergence),
+        // steep only at seams (a boundary hue belongs to both sides and stays), no
+        // anti-convergent pockets. Hue is a circle, so the blend is a vector sum —
+        // averaging 350° and 10° arithmetically is the opposite colour.
+        var targetX: Double = 0
+        var targetY: Double = 0
         for i in 0..<Self.bandCount {
             let weight = w[i] * gate
             if weight == 0 { continue }
@@ -884,13 +896,20 @@ public struct ColorEngine: Sendable {
             satSum += weight * (Num.clamp(band.sat, -100, 100) / 100)
             lumSum += weight * (Num.clamp(band.lum, -100, 100) / 100)
             if q != 0 {
-                // Uniformity is evaluated against the STAGE INPUT hue (invariant #4:
-                // a selection never sees the move it is driving).
-                let moved = Self.varianceCompress(value: lch.h, localMean: meanHue,
-                                                  target: bandTargetHue(i),
-                                                  q: q, beta: 1, weight: weight, axis: .hue)
-                converge += Num.hueDelta(lch.h, moved)
+                let radians = bandTargetHue(i) * .pi / 180
+                targetX += weight * cos(radians)
+                targetY += weight * sin(radians)
             }
+        }
+        var converge: Double = 0
+        if q != 0, targetX * targetX + targetY * targetY > 1e-12 {
+            let blendedTarget = atan2(targetY, targetX) * 180 / .pi
+            // Still evaluated against the STAGE INPUT hue (invariant #4: a selection
+            // never sees the move it is driving), through the same shared kernel.
+            let moved = Self.varianceCompress(value: lch.h, localMean: meanHue,
+                                              target: blendedTarget,
+                                              q: q, beta: 1, weight: gate, axis: .hue)
+            converge = Num.hueDelta(lch.h, moved)
         }
 
         let gC = Swift.max(0, 1 + satSum)
