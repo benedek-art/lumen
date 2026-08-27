@@ -1,0 +1,16 @@
+{
+  "authority" : 130.28060773774297,
+  "deadSteps" : 0,
+  "frame" : "tonalColourWedge",
+  "frontLoading" : 0.3796960988456571,
+  "givenBack" : 0,
+  "hueRotation" : 0.64548015949606,
+  "id" : "cb.brilliance.shadows",
+  "isMonotone" : true,
+  "meanSeparation" : 8.630155510581586,
+  "panel" : "Colour Balance",
+  "shippingReader" : "Sources\/LumenPipeline\/RenderGraph.swift:101",
+  "smallestLiveStep" : 3.240992918583828,
+  "travelHigh" : 100,
+  "travelLow" : -100
+}

@@ -1,0 +1,19 @@
+{
+  "authority" : 0.7506339019879533,
+  "deadSteps" : 0,
+  "frame" : "noisyISO6400",
+  "frontLoading" : 0.5513719475225104,
+  "givenBack" : 0,
+  "hueRotation" : 0.22974005412515908,
+  "id" : "denoise.lumaContrast",
+  "isMonotone" : true,
+  "meanSeparation" : 0.21674140155198074,
+  "overshoot" : 0.5239957433364282,
+  "overshootAbove" : 0.03178644834153488,
+  "overshootBelow" : 0.5239957433364282,
+  "panel" : "Detail",
+  "shippingReader" : "Sources\/LumenPipeline\/RenderGraph.swift:265",
+  "smallestLiveStep" : 0.037545282707938554,
+  "travelHigh" : 100,
+  "travelLow" : 0
+}

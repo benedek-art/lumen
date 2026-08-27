@@ -278,7 +278,7 @@ enum ProofRegistry {
             low: 0, high: 100, neutral: 50,
             frameName: "colourChart", frame: { ProofFrames.colourChart() },
             shippingReader: "Sources/LumenPipeline/RenderGraph.swift:98",
-            authorityFloor: 3,
+            authorityFloor: 24,
             apply: { r, v in
                 r.develop.color.saturation = 60
                 r.develop.color.density = v
@@ -291,7 +291,7 @@ enum ProofRegistry {
             low: 0, high: 100, neutral: 70,
             frameName: "colourChart", frame: { ProofFrames.colourChart() },
             shippingReader: "Sources/LumenPipeline/RenderGraph.swift:98",
-            authorityFloor: 3,
+            authorityFloor: 9,
             apply: { r, v in
                 r.develop.color.vibrance = 80
                 r.develop.color.protectSkin = v
@@ -451,7 +451,7 @@ enum ProofRegistry {
             low: 0, high: 100,
             frameName: "stepEdge", frame: { ProofFrames.stepEdge() },
             shippingReader: "Sources/LumenPipeline/RenderGraph.swift:700",
-            authorityFloor: 2, mayLeaveRange: false,
+            authorityFloor: 25, mayLeaveRange: false,
             apply: { r, v in
                 r.develop.detail.sharpen.amount = 120
                 r.develop.detail.sharpen.haloSuppression = v
@@ -467,10 +467,13 @@ enum ProofRegistry {
     static let mixer: [ControlSpec] = {
         let bands = ["red", "orange", "yellow", "green", "aqua", "blue", "purple", "magenta"]
         let axes: [(String, WritableKeyPath<MixerBand, Double>, Double)] = [
-            // 70% of the weakest band on each axis: aqua hue 46.05, green sat
-            // 66.34, orange lum 88.90. Per-axis rather than per-band, because what this
-            // catches is a band falling to the level of the current weakest.
-            ("hue", \.hue, 32), ("sat", \.sat, 46), ("lum", \.lum, 62),
+            // 70% of the weakest band on each axis, re-measured on the corrected
+            // inset (the reversed matrix had been INFLATING saturated-band numbers):
+            // blue hue 24.50, green sat 51.39, green lum 101.96. Blue hue fell from
+            // aqua's old 46.05 and was the one existing control the re-measurement
+            // put under its own floor. Per-axis rather than per-band, because what
+            // this catches is a band falling to the level of the current weakest.
+            ("hue", \.hue, 17), ("sat", \.sat, 35), ("lum", \.lum, 71),
         ]
         var out = [ControlSpec]()
         for (index, band) in bands.enumerated() {
@@ -493,7 +496,7 @@ enum ProofRegistry {
             low: 0, high: 100,
             frameName: "colourChart", frame: { ProofFrames.colourChart() },
             shippingReader: "Sources/LumenPipeline/RenderGraph.swift:98",
-            authorityFloor: 3,
+            authorityFloor: 7,
             apply: { r, v in r.develop.mixer.uniformity = v }))
         return out
     }()
@@ -544,7 +547,7 @@ enum ProofRegistry {
                 low: 0, high: 1,
                 frameName: "tonalColourWedge", frame: { ProofFrames.tonalColourWedge() },
                 shippingReader: "Sources/LumenPipeline/RenderGraph.swift:101",
-                authorityFloor: 14,
+                authorityFloor: 11,
                 apply: { r, v in r.look.wheels[keyPath: path].sat = v }))
             out.append(ControlSpec(
                 // Per-wheel Luminance: −1…+1, which `GradeEngine.lumRangeStops` makes
@@ -553,14 +556,14 @@ enum ProofRegistry {
                 low: -1, high: 1,
                 frameName: "tonalColourWedge", frame: { ProofFrames.tonalColourWedge() },
                 shippingReader: "Sources/LumenPipeline/RenderGraph.swift:101",
-                authorityFloor: 38,
+                authorityFloor: 37,
                 apply: { r, v in r.look.wheels[keyPath: path].lum = v }))
             out.append(ControlSpec(
                 id: "grade.\(id).hue", panel: "Grade", displayName: "\(name) hue",
                 low: 0, high: 360,
                 frameName: "tonalColourWedge", frame: { ProofFrames.tonalColourWedge() },
                 shippingReader: "Sources/LumenPipeline/RenderGraph.swift:101",
-                authorityFloor: 14, isCircular: true,
+                authorityFloor: 11, isCircular: true,
                 apply: { r, v in
                     // A hue with no saturation behind it is not a colour: `WheelTint`
                     // makes `sat == 0` a bit-exact no-op, so a hue swept at the default
@@ -1158,8 +1161,8 @@ enum ProofRegistry {
             low: 0, high: 100,
             frameName: "noisyChromaEdge", frame: { ProofFrames.noisyChromaEdge() },
             shippingReader: "Sources/LumenPipeline/RenderGraph.swift:265",
-            // Measured 22.02.
-            authorityFloor: 15, mayLeaveRange: false,
+            // Measured 22.02 before the inset orientation fix; 16.16 after it.
+            authorityFloor: 11, mayLeaveRange: false,
             captureISO: 6400, denoisedFirst: true,
             apply: { r, v in
                 r.develop.denoise.mode = .classic
@@ -1176,7 +1179,7 @@ enum ProofRegistry {
             low: 0, high: 100, neutral: 50,
             frameName: "noisyISO6400", frame: { ProofFrames.noisyISO6400() },
             shippingReader: "Sources/LumenPipeline/RenderGraph.swift:265",
-            authorityFloor: 2, mayLeaveRange: false,
+            authorityFloor: 4, mayLeaveRange: false,
             captureISO: 6400, denoisedFirst: true,
             apply: { r, v in
                 r.develop.denoise.mode = .classic
@@ -1189,7 +1192,13 @@ enum ProofRegistry {
             low: 0, high: 100,
             frameName: "noisyISO6400", frame: { ProofFrames.noisyISO6400() },
             shippingReader: "Sources/LumenPipeline/RenderGraph.swift:265",
-            authorityFloor: 2, mayLeaveRange: false,
+            // Measured 0.75 of 255 — at the threshold of visibility on this frame,
+            // the weakest live control in the registry. Recorded rather than hidden
+            // (the Blacks-at-2.9 shape): either the shrinkage bias needs a stronger
+            // mapping or this probe needs a frame with coarser luma structure for
+            // the bias to preserve. Queued in docs/23's audit fix queue; the floor
+            // is 70% of what is, not of what is wished.
+            authorityFloor: 0.5, mayLeaveRange: false,
             captureISO: 6400, denoisedFirst: true,
             apply: { r, v in
                 r.develop.denoise.mode = .classic
@@ -1201,7 +1210,7 @@ enum ProofRegistry {
             low: 0, high: 100, neutral: 50,
             frameName: "noisyChromaEdge", frame: { ProofFrames.noisyChromaEdge() },
             shippingReader: "Sources/LumenPipeline/RenderGraph.swift:265",
-            authorityFloor: 2, mayLeaveRange: false,
+            authorityFloor: 8, mayLeaveRange: false,
             captureISO: 6400, denoisedFirst: true,
             apply: { r, v in
                 r.develop.denoise.mode = .classic
@@ -1214,7 +1223,7 @@ enum ProofRegistry {
             low: 0, high: 100, neutral: 50,
             frameName: "noisyChromaEdge", frame: { ProofFrames.noisyChromaEdge() },
             shippingReader: "Sources/LumenPipeline/RenderGraph.swift:265",
-            authorityFloor: 2, mayLeaveRange: false,
+            authorityFloor: 4, mayLeaveRange: false,
             captureISO: 6400, denoisedFirst: true,
             apply: { r, v in
                 r.develop.denoise.mode = .classic
@@ -1226,8 +1235,15 @@ enum ProofRegistry {
             low: 0, high: 100,
             frameName: "hotPixels", frame: { ProofFrames.hotPixels() },
             shippingReader: "Sources/LumenPipeline/RenderGraph.swift:265",
-            authorityFloor: 2, mayLeaveRange: false,
+            // A THRESHOLD control, and the record says so: authority 171 (removing
+            // an impulse moves that pixel a long way) with 19 of 20 steps dead —
+            // the whole job happens at the bottom of the travel and the rest of the
+            // slider holds the result. Declared, per the plateau rule: a plateau
+            // that GROWS to 20 means the control died, one that shrinks means the
+            // response gained a ramp, and either way somebody argues it in a commit.
+            authorityFloor: 119, mayLeaveRange: false,
             captureISO: 6400, denoisedFirst: true,
+            declaredPlateauSteps: 19,
             apply: { r, v in
                 r.develop.denoise.mode = .classic
                 r.develop.denoise.classic.hotPixels = v
@@ -1250,14 +1266,14 @@ enum ProofRegistry {
                 low: -180, high: 180,
                 frameName: "tonalColourWedge", frame: { ProofFrames.tonalColourWedge() },
                 shippingReader: "Sources/LumenPipeline/RenderGraph.swift:101",
-                authorityFloor: 10, isCircular: true,
+                authorityFloor: 133, isCircular: true,
                 apply: { r, v in r.look.wheels.colorBalance.hueShift = v }),
             ControlSpec(
                 id: "cb.vibrance", panel: "Colour Balance", displayName: "CB vibrance",
                 low: -100, high: 100,
                 frameName: "tonalColourWedge", frame: { ProofFrames.tonalColourWedge() },
                 shippingReader: "Sources/LumenPipeline/RenderGraph.swift:101",
-                authorityFloor: 10,
+                authorityFloor: 71,
                 apply: { r, v in r.look.wheels.colorBalance.vibrance = v }),
         ]
         let axes: [(String, String, WritableKeyPath<ColorBalanceParams, ColorBalanceAxis>)] = [
@@ -1271,6 +1287,18 @@ enum ProofRegistry {
             ("mid", "Midtones", \.mid),
             ("high", "Highlights", \.high),
         ]
+        // 70% of each field's own first measurement (the recorder run on the
+        // corrected inset). Shadow zones measure a third of their siblings for the
+        // reason every shadow control does; global and high match on this wedge
+        // because the high zone dominates its bright half.
+        let floors: [String: Double] = [
+            "chroma.global": 111, "chroma.shadows": 38,
+            "chroma.mid": 109, "chroma.high": 111,
+            "saturation.global": 112, "saturation.shadows": 37,
+            "saturation.mid": 108, "saturation.high": 112,
+            "brilliance.global": 178, "brilliance.shadows": 91,
+            "brilliance.mid": 174, "brilliance.high": 178,
+        ]
         for (axisId, axisName, axisPath) in axes {
             for (zoneId, zoneName, zonePath) in zones {
                 out.append(ControlSpec(
@@ -1280,11 +1308,7 @@ enum ProofRegistry {
                     frameName: "tonalColourWedge",
                     frame: { ProofFrames.tonalColourWedge() },
                     shippingReader: "Sources/LumenPipeline/RenderGraph.swift:101",
-                    // Deliberately-low estimates per the note at the top of this file;
-                    // tightened to 70% of the sweep's measurement in the same commit
-                    // that lands the records. Shadow-zone fields measure small for the
-                    // reason every shadow control does.
-                    authorityFloor: 3,
+                    authorityFloor: floors["\(axisId).\(zoneId)"] ?? 3,
                     apply: { r, v in
                         r.look.wheels.colorBalance[keyPath: axisPath][keyPath: zonePath] = v
                     }))
@@ -1301,7 +1325,7 @@ enum ProofRegistry {
             low: -3.0, high: 1.0,
             frameName: "neutralRamp", frame: { ProofFrames.neutralRamp() },
             shippingReader: "Sources/LumenPipeline/RenderGraph.swift:136",
-            authorityFloor: 20,
+            authorityFloor: 84,
             apply: { r, v in r.look.vignette = v }),
     ]
 

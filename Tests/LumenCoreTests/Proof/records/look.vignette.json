@@ -1,0 +1,15 @@
+{
+  "authority" : 121.22888107805639,
+  "deadSteps" : 0,
+  "frame" : "neutralRamp",
+  "frontLoading" : 0.641458388801117,
+  "givenBack" : 0,
+  "id" : "look.vignette",
+  "isMonotone" : true,
+  "meanSeparation" : 15.983803930426369,
+  "panel" : "Effects",
+  "shippingReader" : "Sources\/LumenPipeline\/RenderGraph.swift:136",
+  "smallestLiveStep" : 6.0852997979845185,
+  "travelHigh" : 1,
+  "travelLow" : -3
+}
