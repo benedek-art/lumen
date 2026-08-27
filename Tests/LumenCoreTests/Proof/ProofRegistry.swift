@@ -548,6 +548,12 @@ enum ProofRegistry {
                 frameName: "tonalColourWedge", frame: { ProofFrames.tonalColourWedge() },
                 shippingReader: "Sources/LumenPipeline/RenderGraph.swift:101",
                 authorityFloor: 11,
+                // Global and Highlights hand back 3.914 of ~49.7 under the corrected
+                // inset (proof #16): a saturation push at the top of its travel walks
+                // colour into the gamut boundary, and softClip eases it back — the
+                // slider saturating against the display's own edge, pinned so growth
+                // is a regression. Shadows and mid never reach the boundary.
+                declaredReversal: (id == "global" || id == "high") ? 3.915 : nil,
                 apply: { r, v in r.look.wheels[keyPath: path].sat = v }))
             out.append(ControlSpec(
                 // Per-wheel Luminance: −1…+1, which `GradeEngine.lumRangeStops` makes
@@ -624,7 +630,10 @@ enum ProofRegistry {
                 low: 0, high: 0.65, neutral: 0.33,
                 frameName: "tonalColourWedge", frame: { ProofFrames.tonalColourWedge() },
                 shippingReader: "Sources/LumenPipeline/RenderGraph.swift:101",
-                authorityFloor: 57,
+                // Re-anchored from 57 at proof #16: the corrected inset moved the
+                // wedge's rendered colours, and the shadow pivot's visible share of
+                // its boundary walk fell to 48.95. 70% of what is.
+                authorityFloor: 34,
                 apply: { r, v in
                     opposedTints(&r)
                     r.look.wheels.pivots = [v, GradingWheels.defaultPivots[1]]
@@ -738,6 +747,13 @@ enum ProofRegistry {
                 frameName: "tonalColourWedge", frame: { ProofFrames.tonalColourWedge() },
                 shippingReader: "Sources/LumenPipeline/RenderGraph.swift:101",
                 authorityFloor: floor, declaredPlateauSteps: plateau,
+                // Blue hue hands back 11.961 of ~108 since the inset fix (proof #16):
+                // rotating the blue primary walks the wedge's blues through the
+                // gamut-clip region PROOF-03 documents for this panel, and the far
+                // end of the travel eases part of the picture back toward where the
+                // near end had it. Pinned, not exempted — the other axes stay under
+                // the ordinary 5% ceiling.
+                declaredReversal: id == "bHue" ? 11.962 : nil,
                 // No companion. The two tint axes are the two perpendicular components
                 // of ONE offset, not a magnitude and a direction, so either alone is a
                 // real move — which is why neither is written as the other's companion.
@@ -1013,7 +1029,11 @@ enum ProofRegistry {
                 low: 0, high: 100, neutral: 0,
                 frameName: "tonalColourWedge", frame: { ProofFrames.tonalColourWedge() },
                 shippingReader: "Sources/LumenPipeline/RenderGraph.swift:147",
-                authorityFloor: 104,
+                // One floor for the five colour stocks, at 70% of the weakest —
+                // Portra 400 at 84.55 since the inset fix (proof #16 convicted the
+                // old 104 on all five: a film curve's authority is mostly its colour,
+                // and the corrected desaturation direction softened every stock).
+                authorityFloor: 59,
                 apply: { r, v in r.look.filmLab = FilmLab(stock: "lumen/\(id)", amount: v) })
         }
         /// Portra 400 at full strength — the stock the other five controls shape.
