@@ -14,11 +14,14 @@
 name: GPU parity
 on:
   push:
+    # All of Sources, not just the pipeline and engine: `swift test` BUILDS the whole
+    # package before it filters, so a compile error anywhere in Sources fails this lane
+    # — runs #13 and #14 both died on LumenApp errors the old filter said couldn't
+    # matter, and the push that fixed them couldn't re-run the lane. A green build-only
+    # run on an app push costs ~2 macOS minutes; an invisible red costs a debugging
+    # session.
     paths:
-      - "Sources/LumenPipeline/**"
-      - "Sources/LumenCore/Engine/**"
-      - "Sources/LumenCore/Image/**"
-      - "Sources/LumenCore/Color/**"
+      - "Sources/**"
       - "Tests/LumenPipelineTests/**"
       - ".github/workflows/gpu-parity.yml"
   workflow_dispatch:
