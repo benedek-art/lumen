@@ -327,6 +327,14 @@ and against Lightroom via owner-exported references.
       Dispositions with reasons for everything not Linux-measurable (capture
       sharpening, AI denoise amount, masks, geometry, export sliders) in docs/27
       §3.
+      CLOSED GREEN: proof sweep #17 ran all 135 controls on CI — drift CLEAN,
+      every floor and declared reversal held — and ci #226 plus GPU-parity #15
+      are green on the same tree, so "every slider brings measurable, accurate
+      output" is now a property CI re-proves on every sweep. Getting there
+      surfaced two masked macOS compile errors (one per blind push: the
+      ImageBuffer with no url, then the pick guard standing outside the actor)
+      and taught the parity lane to watch everything it builds, not just what
+      it tests.
 - [x] **Six-agent audit** (owner, session B: "take a bunch of agents… find any
       issues… make sure everything's accurate"): six specialized agents swept the
       app (UI/UX, concurrency, engine math, pipeline caches, persistence, docs
