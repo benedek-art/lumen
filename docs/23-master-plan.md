@@ -414,6 +414,12 @@ and against Lightroom via owner-exported references.
           (EngineIntegrationTests/RobustnessTests carry the mechanism). The cure
           is gamut-mapping working-space negatives BEFORE the table domain,
           which changes the exact path too — its own batch, with records.
+      14. The histogram normalizes bin heights to the tallest spike, so an
+          extreme distribution erases itself: the owner's +5 EV screenshot read
+          "29.86% white" over a panel drawn almost empty, a third of the pixels
+          in one bin scaling every other bin to invisible (session-2 test,
+          2026-08-27). Clamp the normalization (e.g. to a high percentile of
+          bin heights, the Lightroom approach) so the shape survives a spike.
 - [ ] Dossier-driven fix queue (full detail in docs/24; ranked by daily impact):
       0. ~~Path-to-white DEFECT~~ FIXED (owner: "+1.80 EV does not seem like an
          exposed picture. It seems fake"): the display transform's ratio branch
