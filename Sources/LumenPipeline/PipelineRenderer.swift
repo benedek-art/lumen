@@ -261,6 +261,7 @@ public final class PipelineRenderer {
                               // never shows a stale one.
                               allowStaleTables: draft)
         let graph = makeGraph(plan: plan, decoded: decoded,
+                              sourceURL: source.url,
                               allowStaleRasters: draft,
                               strokeSets: strokeSets,
                               aiMattes: mattes[source.url]?.planes ?? [:])
@@ -346,6 +347,7 @@ public final class PipelineRenderer {
                               captureISO: source.captureMetadata.iso)
 
         let graph = makeGraph(plan: plan, decoded: decoded,
+                              sourceURL: source.url,
                               allowStaleRasters: false,
                               strokeSets: strokeSets,
                               aiMattes: mattes[source.url]?.planes ?? [:],
@@ -540,9 +542,11 @@ public final class PipelineRenderer {
 
         let cached = mattes[source.url]?.planes ?? [:]
         let sdrGraph = makeGraph(plan: sdrPlan, decoded: decoded,
+                                 sourceURL: source.url,
                                  allowStaleRasters: false,
                                  strokeSets: strokeSets, aiMattes: cached)
         let hdrGraph = makeGraph(plan: hdrPlan, decoded: decoded,
+                                 sourceURL: source.url,
                                  allowStaleRasters: false,
                                  strokeSets: strokeSets, aiMattes: cached)
         let sdr = Self.applyGeometry(sdrGraph.build(decoded, plan: sdrPlan, options: options),
@@ -731,6 +735,7 @@ public final class PipelineRenderer {
     /// run on, and because building a full-resolution plate the export will not use is
     /// the waste this is here to avoid.
     private func makeGraph(plan: RenderPlan, decoded: CIImage,
+                           sourceURL: URL,
                            allowStaleRasters: Bool,
                            strokeSets: [String: BrushStrokeSet],
                            aiMattes: [String: Plane],
@@ -781,9 +786,14 @@ public final class PipelineRenderer {
             // photo A's rasterized selection for photo B, in the loupe and in the
             // exported file, until an edit happened to move the fingerprint.
             let sourceKey: String?
-            if let source {
+            if source != nil {
+                // `sourceURL`, the FILE's identity, threaded in from the caller — the
+                // local `source` here is the staged ImageBuffer, which has no url (the
+                // first draft of this fix asked it for one and the macOS compiler
+                // said no). A nil picture source means the raster is pure geometry,
+                // which is legitimately identical across photos, so "-" stays.
                 sourceKey = Self.maskSourceFingerprint(recipe: plan.recipe)
-                    .map { source.url.absoluteString + "|" + $0 }
+                    .map { sourceURL.absoluteString + "|" + $0 }
             } else {
                 sourceKey = "-"
             }

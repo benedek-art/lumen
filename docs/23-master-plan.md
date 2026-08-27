@@ -399,6 +399,13 @@ and against Lightroom via owner-exported references.
       12. Uniformity's honest cure: wire measureBandMeanHues into RenderPlan so
           convergence targets the image's own hues (engine's written plan;
           docs/27 §2 carries the measured limitation).
+      13. Out-of-gamut scene values (a negative working-space channel, reachable
+          only by extreme pushes) cross the corrected inset onto the toe's steep
+          region, a crease the finish tables track loosely — interactive worst
+          0.297, export 0.138, measured and bounded at ci #222's conviction
+          (EngineIntegrationTests/RobustnessTests carry the mechanism). The cure
+          is gamut-mapping working-space negatives BEFORE the table domain,
+          which changes the exact path too — its own batch, with records.
 - [ ] Dossier-driven fix queue (full detail in docs/24; ranked by daily impact):
       0. ~~Path-to-white DEFECT~~ FIXED (owner: "+1.80 EV does not seem like an
          exposed picture. It seems fake"): the display transform's ratio branch
