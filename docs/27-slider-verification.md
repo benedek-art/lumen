@@ -33,7 +33,7 @@ contrast pivot invariance and calibrated slope (plus darktable baseline, docs/26
 baseline, docs/26 §2); WB eyedropper inverse; export-table fidelity bounds;
 200-step travel smoothness; tone-cube knot fidelity.
 
-## 2. Gaps found, closed this audit (25 new records)
+## 2. Gaps found, closed this audit (24 new records)
 
 Every one of these was a DRAGGABLE, IMAGE-AFFECTING slider with no record — no
 assertion anywhere that it does anything at all:

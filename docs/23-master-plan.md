@@ -303,12 +303,15 @@ and against Lightroom via owner-exported references.
       grain and halation mechanisms all CORRECT against the cited consensus.
 - [x] **Every-slider verification campaign** (owner, session B: "verify every
       slider … rigorous testing … actual output that is measurable and accurate"):
-      docs/27 is the audit that makes "every" checkable. Coverage: 25 draggable,
+      docs/27 is the audit that makes "every" checkable. Coverage: 24 draggable,
       image-affecting sliders had NO proof record — Density (the "immovable"
       slider: gated by design at Saturation ≤ 0, now with a visible inline hint
       instead of a hover-only tooltip), Protect Skin, the entire 14-slider Colour
       Balance grid, mixer Uniformity, Halo Suppression, vignette, and five classic
-      denoise sliders — all now registered (136 controls) and recorded.
+      denoise sliders — all now registered (135 controls; the first claim here
+      said 25/136 and recorded-before-the-recorder-finished, and the audit's own
+      docs-honesty agent convicted it — counts corrected, records landed in the
+      commit that carries this line).
       Calibration: SliderContractTests pins the per-control promises (−100
       Saturation reaches true B&W at every protection setting; Density densifies
       monotonically and cannot move a neutral; Vibrance's low-chroma weighting;

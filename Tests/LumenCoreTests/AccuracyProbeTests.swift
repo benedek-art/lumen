@@ -74,9 +74,20 @@ final class AccuracyProbeTests: XCTestCase {
     /// several hue-preservation settings, so the default is chosen by number and
     /// the bleach can never silently vanish again.
     func testOverexposureBleachesTowardWhite() {
-        // Sun-lit sand, saturated but plausible.
-        let patch = RGB(1.0, 0.72, 0.42)
-        func residualChroma(exposureEV: Double, huePreservation: Double) -> Double {
+        // Two patches with different lessons. Sun-lit sand is saturated but
+        // plausible — it sits INSIDE the inset gamut, so it bleaches under either
+        // orientation of the AgX matrices, and it is the patch that let the reversed
+        // inset ship: this test and the darktable/RawTherapee baselines both went
+        // green on it while a genuinely saturated colour never whitened at all. The
+        // saturated red is the audit's conviction patch: with the inset applied in
+        // the expanding direction its low channels went NEGATIVE, tone()'s x > 0
+        // guard pinned them at the black floor, and no exposure could ever bleach
+        // it (residual chroma 0.99 at +7 EV). A path-to-white test that only walks
+        // colours the inset cannot push negative is not testing the path.
+        let sand = RGB(1.0, 0.72, 0.42)
+        let saturatedRed = RGB(0.36, 0.011, 0.011)
+        func residualChroma(_ patch: RGB, exposureEV: Double,
+                            huePreservation: Double) -> Double {
             var recipe = Recipe()
             recipe.develop.tone.exposure = exposureEV
             recipe.look.render.huePreservation = huePreservation
@@ -87,25 +98,60 @@ final class AccuracyProbeTests: XCTestCase {
             guard mx > 1e-6 else { return 0 }
             return (mx - Swift.min(out.r, Swift.min(out.g, out.b))) / mx
         }
-        for hp in [100.0, 65.0, 0.0] {
-            var line = String(format: "PATHTOWHITE hp %3.0f:", hp)
-            for ev in [0.0, 2.0, 3.0, 4.0, 5.0] {
-                line += String(format: "  +%.0fEV %.3f", ev,
-                               residualChroma(exposureEV: ev, huePreservation: hp))
+        for (name, patch) in [("sand", sand), ("red ", saturatedRed)] {
+            for hp in [100.0, 65.0, 0.0] {
+                var line = String(format: "PATHTOWHITE %@ hp %3.0f:", name, hp)
+                for ev in [0.0, 2.0, 3.0, 4.0, 5.0, 7.0] {
+                    line += String(format: "  +%.0fEV %.3f", ev,
+                                   residualChroma(patch, exposureEV: ev,
+                                                  huePreservation: hp))
+                }
+                print(line)
             }
-            print(line)
         }
-        // The contract, pinned at the DEFAULT preset: a saturated patch pushed
-        // +5 EV must have lost most of its colour on the way to white. At full
-        // hue preservation it keeps ~all of it, which is the measured defect.
-        let atDefault = residualChroma(exposureEV: 5, huePreservation:
-            DisplayTransformParams().huePreservation)
-        let atZero = residualChroma(exposureEV: 0, huePreservation:
-            DisplayTransformParams().huePreservation)
-        XCTAssertLessThan(atDefault, atZero * 0.45,
-                          "at +5 EV the default rendering keeps \(atDefault) of its "
-                              + "chroma vs \(atZero) at 0 EV — overexposure must "
-                              + "bleach, not turn pastel")
+        // The contract, pinned at the DEFAULT preset, for BOTH patches: pushed
+        // +5 EV (sand) / +7 EV (the deeper red starts darker) the colour must have
+        // lost most of itself on the way to white.
+        let hp = DisplayTransformParams().huePreservation
+        let sandAt5 = residualChroma(sand, exposureEV: 5, huePreservation: hp)
+        let sandAt0 = residualChroma(sand, exposureEV: 0, huePreservation: hp)
+        XCTAssertLessThan(sandAt5, sandAt0 * 0.45,
+                          "at +5 EV the default rendering keeps \(sandAt5) of the "
+                              + "sand patch's chroma vs \(sandAt0) at 0 EV — "
+                              + "overexposure must bleach, not turn pastel")
+        let redAt7 = residualChroma(saturatedRed, exposureEV: 7, huePreservation: hp)
+        let redAt0 = residualChroma(saturatedRed, exposureEV: 0, huePreservation: hp)
+        XCTAssertLessThan(redAt7, redAt0 * 0.45,
+                          "at +7 EV the default rendering keeps \(redAt7) of a "
+                              + "saturated red's chroma vs \(redAt0) at 0 EV — a "
+                              + "colour the inset pushes hardest must still reach "
+                              + "white, or the inset is running backwards")
+    }
+
+    /// The baked cube and `toneGainScale` are two halves of one number: the graph
+    /// multiplies them back together (RenderGraph.applyTone), so they must divide by
+    /// the SAME peak. They did not: the cube divided by the true sample maximum
+    /// (floored at 1e-9) while the scale floored at 1.0 — so for any tone curve whose
+    /// gain is everywhere below 1 (global zones at −1 EV: every sample exactly 0.5)
+    /// the cube stored 1.0, the scale returned 1.0, and the GPU applied NO gain while
+    /// the reference darkened a full stop. The product is the contract, asserted on
+    /// exactly such a curve.
+    func testBakedToneCubeTimesScaleEqualsTheGainTable() {
+        var recipe = Recipe()
+        recipe.develop.zones.global.ev = -1
+        let plan = RenderPlan(recipe: recipe)
+        guard let cube = plan.toneGainCubeBaked else {
+            return XCTFail("a −1 EV global zone move must produce a live tone stage")
+        }
+        let scale = plan.toneGainScale
+        for encoded in stride(from: 0.05, through: 0.95, by: 0.15) {
+            let applied = cube.sample(RGB(gray: encoded)).r * scale
+            let reference = plan.toneGainLUT.evaluate(encoded)
+            XCTAssertEqual(applied, reference, accuracy: 0.02,
+                "at encoded \(encoded) the GPU applies gain \(applied) while the "
+                    + "reference table says \(reference) — the cube and the scale "
+                    + "normalize by different peaks")
+        }
     }
 
     // MARK: Smoothness — does the shipping cube track the reference table?

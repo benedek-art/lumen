@@ -211,15 +211,36 @@ public struct DisplayTransform: Sendable {
         self.toePower = Swift.max(aToe - toeLambda * shape, 0.05)
         self.shoulderPower = Swift.max(aShoulder - shoulderLambda * shape, 0.05)
 
-        // Primaries inset/outset (the AgX mechanism).
+        // Primaries inset/outset (the AgX mechanism) — orientation matters and it
+        // shipped BACKWARDS for the project's whole life until the six-agent audit's
+        // numeric recompute caught it. The two candidate matrices:
+        //   · inset.matrix(to: space) reinterprets the image's numbers as amounts of
+        //     the LESS saturated inset primaries — all-positive entries, rows summing
+        //     to 1: it moves every colour TOWARD the neutral axis. This is the AgX
+        //     pre-curve purity reduction, the direction whose per-channel curve can
+        //     then bleach anything to white.
+        //   · space.matrix(to: inset) converts coordinates INTO the inset basis —
+        //     diagonal > 1, negative off-diagonals: it pushes saturated colours
+        //     AWAY from neutral, and a rec2020 red's green/blue channels go negative,
+        //     where tone()'s x > 0 guard pins them at the black floor forever. A
+        //     colour in that state cannot bleach at ANY exposure or hue-preservation
+        //     setting — measured 0.935 residual chroma at +7 EV, all settings — and
+        //     purityRestore's meaning inverts with it.
+        // The defect hid because every probe patch (sun-lit sand here, the same
+        // orange in the darktable/RawTherapee baselines) stays inside the inset
+        // gamut, where both orientations bleach; the saturated-red prong of
+        // testOverexposureBleachesTowardWhite is the tripwire that keeps this
+        // direction from ever flipping again.
         let inset = DisplayTransform.insetSpace(space, attenuation: p.attenuation,
                                                 rotation: p.rotation)
-        let toInset = space.matrix(to: inset)
-        self.insetMatrix = toInset
-        let back = inset.matrix(to: space)
+        let compress = inset.matrix(to: space)
+        self.insetMatrix = compress
+        let expand = space.matrix(to: inset)
         let restore = Num.clamp(p.purityRestore, 0, 1)
-        // Purity restore blends between "stay inset" (identity) and "fully undo".
-        self.outsetMatrix = DisplayTransform.blend(Mat3.identity, back, restore)
+        // Purity restore blends between "stay compressed" (identity) and "fully undo
+        // the compression" (the expanding inverse) — so 1.0 RECOVERS purity, which
+        // is what the parameter has always claimed to mean.
+        self.outsetMatrix = DisplayTransform.blend(Mat3.identity, expand, restore)
     }
 
     private static func blend(_ a: Mat3, _ b: Mat3, _ t: Double) -> Mat3 {

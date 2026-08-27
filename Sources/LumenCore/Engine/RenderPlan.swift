@@ -319,7 +319,14 @@ public struct RenderPlan: Sendable {
         if toneEngine.isIdentity {
             self.toneGainCubeBaked = nil
         } else {
-            var peak = 1e-9
+            // The SAME floor as `toneGainScale`, because the graph multiplies the
+            // two back together and they are meaningless except as a pair. This
+            // floored at 1e-9 while the scale floored at 1.0 — so a tone curve whose
+            // gain is everywhere below 1 (global zones at −1 EV: every sample 0.5)
+            // baked a cube of 1.0s, the scale returned 1.0, and the GPU applied no
+            // gain while the reference darkened a stop.
+            // `testBakedToneCubeTimesScaleEqualsTheGainTable` holds the pair.
+            var peak = 1.0
             for v in self.toneGainLUT.samples { peak = Swift.max(peak, v) }
             let lut = self.toneGainLUT
             let cubeSize = lutSize >= LUT3D.exportSize ? LUT3D.exportSize : 32
