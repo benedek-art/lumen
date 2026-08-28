@@ -43,6 +43,10 @@ final class DragProbeTests: XCTestCase {
     /// mean something, short enough to keep the whole probe inside the lane's budget.
     private static let events: Int = 48
 
+    /// How many SETTLE frames to price. A settle happens once per gesture, so what is
+    /// wanted from it is an order of magnitude, not a tail.
+    private static let settleEvents: Int = 12
+
     /// Which slider the hand is on. Each case moves ONE control across a realistic
     /// travel, because what a frame costs depends on which tables the move invalidates
     /// — the difference between hitting `PlanTableCache` and cold-baking a 33³ LUT.
@@ -168,8 +172,14 @@ final class DragProbeTests: XCTestCase {
                       context: CIContext, readback: Bool,
                       allowStaleTables: Bool = true) -> Distribution {
         let height = longEdge * 2 / 3
+        // A drag is many frames and wants a p95; a settle is ONE frame per gesture and
+        // needs only enough samples to be a number. Sampling both at 48 would spend
+        // most of this probe's runtime re-measuring the bake it already knows about —
+        // a Whites settle is ~385 ms on the runner, so 47 of them is eighteen seconds
+        // of lane time for a distribution nobody reads the tail of.
+        let events = allowStaleTables ? Self.events : Self.settleEvents
         var samples: [Double] = []
-        samples.reserveCapacity(Self.events)
+        samples.reserveCapacity(events)
         PlanTableCache.resetStats()
 
         // IOSurface-backed, so the frame can be produced without ever crossing back to
@@ -184,10 +194,10 @@ final class DragProbeTests: XCTestCase {
                                 &destination)
         }
 
-        for event in 0..<Self.events {
+        for event in 0..<events {
             // A hand does not land on round numbers, and a value that repeats would let
             // a cache answer a question the drag never asks.
-            let t = (Double(event) + 0.5) / Double(Self.events)
+            let t = (Double(event) + 0.5) / Double(events)
             let recipe = control.recipe(at: t)
 
             let t0 = DispatchTime.now().uptimeNanoseconds
