@@ -70,3 +70,51 @@ public enum DraftResolution {
         return Double(proxyLongEdge) * zoomRatio / scale
     }
 }
+
+// MARK: - How a proxy should be RESAMPLED when it is drawn
+
+/// Whether the frame on screen should be drawn as discrete pixels rather than
+/// resampled, and what filtering it wants when it is resampled.
+///
+/// THE RULE THIS REPLACES DISCRIMINATED ON THE WRONG THING. The viewer drew with
+/// nearest-neighbour whenever the drawn RATIO was ≥ 1 — "so a 1:1 inspection shows the
+/// pixels that exist rather than a smoothed guess at them". That reasoning is right
+/// about a 1:1 inspection and wrong about everything else, because at FIT the ratio is
+/// also ≥ 1 whenever the proxy is smaller than the viewport, which is every draft
+/// frame there is. On a 16-inch MacBook Pro's centre pane (1180 pt, 2360 device px) a
+/// 1280 px draft is magnified 1.84× with nearest-neighbour, and a draft at the ladder's
+/// cheaper rungs is magnified 3.07× at 768 px and 4.10× at 576.
+///
+/// So every frame of every drag was drawn blocky, with hard aliased edges that shimmer
+/// from frame to frame as the picture changes — and the ladder fix, by earning the
+/// right to send smaller drafts, made it several times worse. A smaller draft is meant
+/// to cost SHARPNESS, which reads as the picture resolving; drawn like this it costs
+/// hard edges instead, which reads as the picture flickering.
+///
+/// The discriminator is not the drawn ratio. It is whether the pixels on screen are
+/// really the photograph's: the user has zoomed to 1:1 or beyond AND the frame up is
+/// the full-resolution one. A magnified PROXY has no source pixels to show — showing
+/// its own, unsmoothed, is a claim about the photograph that is not true.
+public enum ProxyResampling: Sendable, Equatable {
+    /// Draw the samples as they are — a genuine pixel-level inspection.
+    case none
+    /// Linear. Magnifying a proxy: cheap, and smooth is the honest rendering of
+    /// "there is no more detail here". Deliberately not the highest quality: this sits
+    /// on the per-frame display path, and a 4× high-quality upscale per frame would be
+    /// spending the budget that made the smaller draft worth sending.
+    case linear
+    /// Minification, where nearest-neighbour is simply aliasing.
+    case filtered
+
+    /// `zoomRatio` is `AppState.zoomLevel` (0 = fit). `renderedLongEdge` is the extent
+    /// of the frame actually on screen; `fullLongEdge` is what a settle would deliver,
+    /// or nil when that is not yet known — in which case the frame is assumed to be a
+    /// proxy, because assuming the opposite draws a draft blocky.
+    public static func mode(zoomRatio: Double, drawnRatio: Double,
+                            renderedLongEdge: Int, fullLongEdge: Int?) -> ProxyResampling {
+        let atOrAboveOneToOne = zoomRatio >= 1
+        let isFullResolution = fullLongEdge.map { renderedLongEdge >= $0 } ?? false
+        if atOrAboveOneToOne && isFullResolution { return .none }
+        return drawnRatio < 1 ? .filtered : .linear
+    }
+}

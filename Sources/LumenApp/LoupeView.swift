@@ -639,6 +639,18 @@ final class PhotoRenderModel: ObservableObject {
 
 // MARK: - Loupe
 
+extension ProxyResampling {
+    /// The SwiftUI spelling. Kept here rather than in LumenCore so the rule itself
+    /// stays free of SwiftUI and can be tested on the free lane.
+    var swiftUIInterpolation: Image.Interpolation {
+        switch self {
+        case .none: return .none
+        case .linear: return .low
+        case .filtered: return .high
+        }
+    }
+}
+
 struct LoupeView: View {
 
     @EnvironmentObject var state: AppState
@@ -1066,18 +1078,28 @@ struct LoupeView: View {
         }
     }
 
-    /// One drawn plate. Interpolation is off at ratios ≥ 1 so a 1:1 inspection shows
-    /// the pixels that exist rather than a smoothed guess at them; below 1 the
-    /// downscale is filtered, because nearest-neighbour minification is aliasing.
+    /// One drawn plate.
+    ///
+    /// How it is resampled is `ProxyResampling.mode` in LumenCore, where it is tested.
+    /// It used to be `ratio >= 1 ? .none : .high` inline — which drew every draft at
+    /// fit with nearest-neighbour, because a proxy smaller than the viewport has a
+    /// drawn ratio above 1 just as a 1:1 inspection does. See that type for the
+    /// arithmetic; the short version is that a 1280 px draft in this pane was magnified
+    /// 1.84× unsmoothed, and the ladder's cheaper rungs magnify 3.07× and 4.10×.
     private func plate(_ cg: CGImage, ratio: Double, drawn: CGSize) -> some View {
+        let resampling = ProxyResampling.mode(
+            zoomRatio: state.zoomLevel,
+            drawnRatio: ratio,
+            renderedLongEdge: Swift.max(cg.width, cg.height),
+            fullLongEdge: model.displayFullLongEdge)
         // `[` / `]` are a display gain over the frame already on screen (docs/10 §10.5)
         // — held, never applied. With no hold down this returns `cg` unchanged, so the
         // normal path costs one nil check.
-        Image(decorative: InspectionGain.displayed(cg, hold: state.inspectionHold),
-              scale: 1, orientation: .up)
+        return Image(decorative: InspectionGain.displayed(cg, hold: state.inspectionHold),
+                     scale: 1, orientation: .up)
             .resizable()
-            .interpolation(ratio >= 1 ? .none : .high)
-            .antialiased(ratio < 1)
+            .interpolation(resampling.swiftUIInterpolation)
+            .antialiased(resampling != .none)
             .frame(width: drawn.width, height: drawn.height)
     }
 

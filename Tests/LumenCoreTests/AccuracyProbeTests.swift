@@ -215,6 +215,65 @@ final class AccuracyProbeTests: XCTestCase {
         }
     }
 
+    /// THE SAME PAIR, ON THE PATH A DRAG ACTUALLY TAKES — which the test above never
+    /// touches, because it builds its plan with the default `allowStaleTables: false`.
+    ///
+    /// The cube stores `gain / peak` and the graph multiplies `plan.toneGainScale`
+    /// back, and the comment where it is baked says it outright: the two "are
+    /// meaningless except as a pair". A draft frame gets the cube from
+    /// `PlanTableCache.tableAllowingStale`, which by design returns the NEWEST table in
+    /// the slot when this event's key misses — a cube normalized by a PREVIOUS event's
+    /// peak. `toneGainScale` is not cached at all: it is recomputed from this event's
+    /// `toneGainLUT`. So on every draft frame of a tone drag the GPU computes
+    ///
+    ///     oldGain(v) / oldPeak × newPeak
+    ///
+    /// instead of `newGain(v)` — the whole picture wrong by a global factor of
+    /// `newPeak / oldPeak`, snapping back to correct whenever a background bake lands.
+    /// That is a brightness pulse, and it appears on exactly the controls that move the
+    /// peak gain: Contrast and Blacks above all, then Whites, Shadows, Highlights and
+    /// the zones. It is what the owner reported as flicker once the notching was gone.
+    ///
+    /// The fix is that the tone cube does not take the stale path. It is the cheapest
+    /// of the cached tables by a wide margin — 32³ samples of a 1-D lookup, measured at
+    /// or below the noise floor of `PlanCostProbeTests` in a release build, against the
+    /// 33³ finish and colour-grade tables at 15–18 ms — so it can simply be exact.
+    /// Dragging a NON-tone control still hits the cache and pays nothing.
+    func testTheToneCubeAndItsScaleStayAPairOnTheDRAFTPath() {
+        PlanTableCache.clear()
+
+        func plan(blacks: Double, stale: Bool) -> RenderPlan {
+            var recipe = Recipe()
+            recipe.develop.tone.contrast = 25
+            recipe.develop.tone.blacks = blacks
+            return RenderPlan(recipe: recipe, allowStaleTables: stale)
+        }
+
+        // Populate the slot, the way the first frame of a drag does.
+        _ = plan(blacks: 0, stale: true)
+
+        // Now the events that follow it, each with a key the cache has never seen —
+        // which is every event of a real drag.
+        for blacks in stride(from: 10.0, through: 80.0, by: 10.0) {
+            let drafted = plan(blacks: blacks, stale: true)
+            guard let cube = drafted.toneGainCubeBaked else {
+                return XCTFail("a blacks move must produce a live tone stage")
+            }
+            let scale = drafted.toneGainScale
+            for encoded in stride(from: 0.05, through: 0.95, by: 0.15) {
+                let applied = cube.sample(RGB(gray: encoded)).r * scale
+                let reference = drafted.toneGainLUT.evaluate(encoded)
+                XCTAssertEqual(
+                    applied, reference, accuracy: 0.02,
+                    "blacks \(Int(blacks)), encoded \(encoded): the draft applies gain "
+                        + "\(applied) where the table says \(reference). A cube "
+                        + "normalized by one event's peak is being scaled by another "
+                        + "event's — the picture is wrong by that ratio and snaps back "
+                        + "when the background bake lands, which is the flicker.")
+            }
+        }
+    }
+
     // MARK: Smoothness — does the shipping cube track the reference table?
 
     /// The GPU evaluates tone through a 32-knot cube resampled from the 1024-sample

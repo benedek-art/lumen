@@ -92,6 +92,22 @@ is not receiving your hand, which is a different fault from a picture that lags.
 
 ---
 
+## 2b. The draft should be SOFT now, never blocky
+
+While dragging, look at a hard edge in the photograph — a horizon, a window frame, a
+branch against sky.
+
+**Look at:** while your hand is moving the picture may be softer than at rest; that is
+the intended trade and it is what buys the frame rate. What it must NOT be is BLOCKY —
+visible square pixels, or hard stair-stepped edges that crawl and shimmer from frame to
+frame. Every draft was drawn that way until this round (magnified between 1.8× and 4×
+with no smoothing at all), so if you still see stair-steps, say so: it means the fix
+did not reach the path you are looking at.
+
+**What I saw:** ……
+
+---
+
 ## 3. Letting go should now be quicker
 
 Drag any tone slider, let go, and watch the moment it sharpens.

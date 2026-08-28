@@ -376,12 +376,38 @@ public struct RenderPlan: Sendable {
             // alone, and `peak` is derived from the table they produce.
             let toneKey = PlanTableCache.key(["tonecube", "\(cubeSize)"],
                                              [develop.tone, develop.zones])
+            // CACHED, BUT NEVER SERVED STALE — unlike every other table here, and for
+            // a reason the comment above already states without following through:
+            // the cube and `toneGainScale` "are meaningless except as a pair".
+            //
+            // The cube stores `gain / peak` and the graph multiplies `toneGainScale`
+            // back. `toneGainScale` is not cached; it is recomputed from THIS event's
+            // `toneGainLUT`. `tableAllowingStale` returns, by design, the newest table
+            // in the slot when this event's key misses — a cube normalized by a
+            // PREVIOUS event's peak. So every draft frame of a tone drag computed
+            //
+            //     oldGain(v) / oldPeak × newPeak
+            //
+            // instead of `newGain(v)`: the whole picture wrong by `newPeak / oldPeak`,
+            // snapping back the moment a background bake landed. Measured on a Blacks
+            // drag, the shadows were applying a gain of 0.94 where the table said 1.48.
+            // That is the flicker the owner reported once the notching was gone, and it
+            // is worst on Contrast and Blacks because those move the peak gain most.
+            //
+            // Made exact rather than paired-and-cached because it is the cheapest table
+            // here by a wide margin — 32³ samples of a 1-D lookup, at or below the
+            // noise floor of `PlanCostProbeTests` in a release build, against 15–18 ms
+            // for the 33³ finish and colour-grade tables. It still goes through the
+            // cache, so dragging a control that is NOT tone hits and pays nothing; only
+            // a tone drag pays the bake, and it is a fraction of a millisecond.
+            //
+            // `testTheToneCubeAndItsScaleStayAPairOnTheDRAFTPath` holds this. Its
+            // sibling did not: it built its plan with the default
+            // `allowStaleTables: false`, so it only ever exercised the path a drag does
+            // not take — the same shape of blind spot as the draft ladder's.
             self.toneGainCubeBaked = toneKey.map {
-                allowStaleTables
-                    ? PlanTableCache.tableAllowingStale(.toneGain, key: $0,
-                                                        size: cubeSize, build: bakeCube)
-                    : PlanTableCache.table(.toneGain, key: $0, size: cubeSize,
-                                           build: bakeCube)
+                PlanTableCache.table(.toneGain, key: $0, size: cubeSize,
+                                     build: bakeCube)
             } ?? bakeCube()
         }
     }

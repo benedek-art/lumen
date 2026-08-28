@@ -813,7 +813,25 @@ side-by-side exports. **Exit gate: owner prefers or ties Lumen on ≥4 of 5.**
          20.0 ms at 1024 where the drag probe measured a 1280 px Exposure frame at 51.2
          and a Whites settle at 385.3. Kept — it is a useful graph-cost table — but it
          is no longer read as what a drag costs.
-      6. **The release stopped paying for a frame nobody waits for.** A release bumps
+      6. **Every draft frame at fit was drawn BLOCKY, and the ladder fix made it
+         several times worse.** Found by tracing the display path rather than by a
+         probe. `plate` chose `ratio >= 1 ? .none : .high` — nearest-neighbour whenever
+         the drawn ratio was at or above 1, "so a 1:1 inspection shows the pixels that
+         exist". That is right about a 1:1 inspection and wrong about everything else,
+         because at fit the ratio is ALSO above 1 whenever the proxy is smaller than
+         the viewport, which is every draft there is. In a 16-inch MacBook Pro's centre
+         pane (1180 pt, 2360 device px) a 1280 px draft is magnified 1.84× unsmoothed —
+         and the new cheap rungs magnify 3.07× at 768 and 4.10× at 576. A smaller draft
+         is supposed to cost SHARPNESS, which reads as the picture resolving; drawn
+         like this it costs hard aliased edges that shimmer frame to frame, which reads
+         as the picture flickering. `ProxyResampling.mode` (LumenCore, six tests,
+         watched failing at all four magnifications) discriminates on what it should
+         have all along: whether the pixels on screen are really the photograph's —
+         zoomed to 1:1 or beyond AND showing the full-resolution frame — rather than on
+         the drawn ratio. Magnifying a proxy is `.low`, not `.high`, deliberately: this
+         sits on the per-frame display path and a 4× high-quality upscale per frame
+         would spend the budget the smaller draft was sent to save.
+      7. **The release stopped paying for a frame nobody waits for.** A release bumps
          `settleTick` and moves nothing else — `onEnded` commits the value the last
          motion event already committed — so the viewer rendered a draft that produced
          the picture already on screen, waited out the 40 ms debounce, and only then
@@ -823,11 +841,52 @@ side-by-side exports. **Exit gate: owner prefers or ties Lumen on ≥4 of 5.**
          brush blob loading, ⇧S and a window resize all leave the recipe untouched
          while changing the picture, and each must still get its fast draft. Five tests,
          including that guard.
-      7. **The HUD gained the pair that ends the argument**: input events SEEN per
+      8. **The HUD gained the pair that ends the argument**: input events SEEN per
          second beside frames DELIVERED per second (`EventRate`, LumenCore, tested).
          Latency alone cannot tell a render that cannot keep up (in 90/s, out 8/s)
          from input being dropped before the app ever sees it (in 10/s, out 10/s), and
          the two want opposite fixes. Three rounds have been argued without it.
+- [x] **Round 3 — the flicker, and it was round 1's own fix.** Owner on the round-2
+      build: "the knotching is gone which is great" — the ladder and the broadcast
+      fixes landed — "but there was some flickering when I was moving stuff like
+      contrast and blacks plus some others."
+      That set is the diagnosis. `RenderPlan` bakes the tone gain cube as
+      `gain / peak` and `RenderGraph.applyTone` multiplies `plan.toneGainScale` back;
+      the comment where it is baked says the two "are meaningless except as a pair".
+      Round 1 put the cube through `PlanTableCache.tableAllowingStale` to get it off
+      the per-frame path — and `tableAllowingStale` returns, by design, the NEWEST
+      table in the slot when this event's key misses, which every event of a tone drag
+      does. `toneGainScale` is not cached; it is recomputed from this event's
+      `toneGainLUT`. So every draft frame computed `oldGain(v)/oldPeak × newPeak`
+      instead of `newGain(v)` — the whole picture wrong by `newPeak/oldPeak`, snapping
+      back whenever a background bake landed. Measured on a Blacks drag: the shadows
+      applied a gain of 0.94 where the table said 1.48, a 58% error, and the applied
+      value was IDENTICAL across blacks 10/20/30 because the same stale cube was served
+      each time. Worst on Contrast and Blacks because those move the peak gain most;
+      present on Whites, Shadows, Highlights and the zones — "plus some others".
+      Fixed by taking the tone cube off the stale path. It is the cheapest table here
+      by a wide margin, and the cost is now measured rather than assumed: a tone draft
+      goes from ~1.0 ms to 1.3–1.5 ms (`PlanCostProbeTests`, release), while a Whites
+      draft stays at 1.48 ms rather than the settle's 17.69, because the expensive
+      finish table keeps its stale-serve. Round 1 had cached it against a DEBUG-scale
+      cost (~14 ms) that is ~0.4 ms in the build that ships.
+      `testTheToneCubeAndItsScaleStayAPairOnTheDRAFTPath` holds it, watched failing at
+      every step of a Blacks sweep. Its sibling did not catch this because it built its
+      plan with the default `allowStaleTables: false` — only ever exercising the path a
+      drag does not take, the same blind spot as the draft ladder's tests.
+- [ ] **The same class, one table over, not yet closed.** `finishLUT` is also paired
+      with a fresh scalar (`finishScale`, = `transform.white`) and IS still
+      stale-served. It is safe during a tone drag: `applyAnchors` writes only the two
+      anchor EVs, so `white` comes from the render preset and does not move. It is NOT
+      safe if a control that changes `look.render.whiteTarget` or the display-white
+      override is dragged — same mismatch, same flicker, on those sliders only. The
+      general rule, worth stating once: a table whose value is meaningless without a
+      companion computed fresh must not be served stale. The narrow fix is a
+      `staleGroup` on `tableAllowingStale` so entries are only interchangeable when
+      their companion agrees; the finish table is too expensive (15–18 ms) to simply
+      make exact the way the cube was. Left for the next round deliberately — the tone
+      register is what the owner reported, and shipping one change at a time is what
+      made this one findable.
 - [ ] **Deliberately NOT done in round 2: anything else to the render or display path.**
       The display path above is the leading suspect and a `CALayer`-contents or
       Metal-layer plate is the obvious next move — and shipping it now, unverified,
