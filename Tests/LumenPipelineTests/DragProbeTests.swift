@@ -27,6 +27,24 @@
 // not the owner's Mac, and a threshold tuned to one would fail spuriously on the other;
 // the numbers are read from the log and from the in-app HUD. What the file guarantees
 // is that the numbers exist and describe a drag.
+//
+// HOW TO READ THE OUTPUT, because two conclusions have already been drawn from it
+// wrongly. This runner's noise floor is large: in one run the SAME measurement —
+// Exposure, draft path, 1280 px — appears three times, in the per-control table, the
+// per-rung table and the structural table, at 64.4, 47.9 and 50.5 ms. That is a 34%
+// spread on an identical configuration, so
+//
+//   · a MONOTONE SWEEP is trustworthy. The rung ladder fell 1728 → 576 in both runs
+//     that have taken it, by 2.32× and 1.72×; five points moving together in one
+//     direction is not noise, and that is the finding that fewer pixels still buy
+//     frames.
+//   · a ROW-VS-ROW difference under about 40% is NOT. "Materializing the decode is
+//     worth ~10%" was recorded from one run and reversed in the next (lazy+iosurface
+//     44.1 against materialized+iosurface 47.0). "Exposure is the expensive control"
+//     survived a warm-up pass and is still just its own 34% spread.
+//
+// So: to test one change, sweep it, or run it enough times to beat the floor. Do not
+// read two adjacent rows and conclude.
 #if os(macOS)
 import XCTest
 import CoreImage

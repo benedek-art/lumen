@@ -744,14 +744,18 @@ side-by-side exports. **Exit gate: owner prefers or ties Lumen on ≥4 of 5.**
          the instruments. `DragProbeTests` (macOS lane) prices a 48-event drag with a
          fresh plan per frame; `PlanCostProbeTests` (free Linux lane) prices the CPU
          half. Findings, all at 1280 px:
-         · **Materializing the decode: a small measured win, not the lever.** First read
-           as "no difference" (48.2 vs 49.2 ms) — but that reading came from the
-           probe's settle path, where a 33³ bake dominates and masks everything under
-           it. On the DRAFT path it is 46.9 vs 50.7 ms with the readback and 45.4 vs
-           51.6 without: ~10%, consistent in both, against a variance that makes it
-           suggestive rather than settled. `cacheIntermediates` is already on, which is
-           why it is only 10% — and the probe's source is a two-filter chain, not a
-           45 MP demosaic, so this is a FLOOR on what a real decode is worth.
+         · **Materializing the decode and removing the readback: NOT RESOLVABLE on this
+           runner, and neither is the lever.** Called "no difference" from the settle
+           path, then "a ~10% win" from one draft-path run, and the next run reversed
+           the ordering (lazy+iosurface 44.1 against materialized+iosurface 47.0). The
+           reason is the runner's noise floor, which the probe now states in its own
+           header: the SAME measurement — Exposure, draft, 1280 px — appears three
+           times in one run's output at 64.4, 47.9 and 50.5 ms, a 34% spread on an
+           identical configuration. Every row-vs-row difference claimed above was
+           inside that. `cacheIntermediates` is already on, and the probe's source is a
+           two-filter chain rather than a 45 MP demosaic, so a real decode may still be
+           worth something — but nothing here measures it, and the claim that it did
+           was mine to withdraw.
          · **The GPU→CPU readback: no measurable difference** (`createCGImage` 48.2 vs
            IOSurface 47.6 ms). The Metal-layer viewport is a milestone, not this fix.
          · **Plan construction on the DRAFT path is ~1 ms, flat across every control**
@@ -766,25 +770,31 @@ side-by-side exports. **Exit gate: owner prefers or ties Lumen on ≥4 of 5.**
            the main actor, and the graph at 1280 px is ~20-30 ms on a CI VM — enough
            for 30-60 fps, not for "tick by tick".
          · **Pixels keep buying frames all the way down — the opposite of what this
-           entry said on its first draft.** The flat-below-1024 curve (1728 → 65.5,
-           1280 → 37.6, 1024 → 32.4, 768 → 31.8, 576 → 28.7) was the SETTLE path, where
-           a table bake sits under every frame as a fixed floor. On the draft path,
-           which is what a drag actually runs: 1728 → 80.7, 1280 → 61.9, 1024 → 52.6,
-           768 → 37.3, 576 → 34.8. So 1280 → 768 is a 40% cut and the new cheap rungs
-           earn their place. Corrected here rather than quietly edited, because
-           "measure, don't reason" is the whole point of this round and the first
-           reading of these numbers was still the wrong pass.
+           entry said on its first draft, and the ONE row-comparison that survives the
+           noise, because it is a monotone sweep rather than two adjacent rows.** The
+           flat-below-1024 curve (1728 → 65.5, 1280 → 37.6, 1024 → 32.4, 768 → 31.8,
+           576 → 28.7) was the SETTLE path, where a table bake sits under every frame
+           as a fixed floor. On the draft path, which is what a drag runs, two
+           independent runs both fall monotonically across all five rungs: 80.7 → 61.9
+           → 52.6 → 37.3 → 34.8, and 64.2 → 47.9 → 45.2 → 38.7 → 37.4. Total 1728 → 576
+           of 2.32× and 1.72×. Five points moving together twice is not the runner's
+           noise; the cheap rungs earn their place. Corrected here rather than quietly
+           edited, because "measure, don't reason" is this round's whole claim and the
+           first reading of these numbers was still the wrong render pass.
       4. **The probe's own first row was wrong, twice, and both times it was read
          before it was doubted.** Core Image compiles each kernel on first evaluation,
          so the graph's whole compile cost lands once per PROCESS, on whichever row is
          measured first — dropping the first event of each drag does not touch it.
          Exposure read 63.3 ms p50 against Whites' 27.9, Saturation's 25.0 and
          Sharpen's 22.5, which says "Exposure is the expensive control" and is exactly
-         backwards: it re-keys the fewest tables of the five and was simply first in
-         `Control.allCases`. The per-rung table had the same tell, its 1728 row alone
-         off the curve. `warmUp` now runs four throwaway frames per size before
-         anything is timed. A probe whose first row is always wrong is worse than no
-         probe, because the first row is the one a reader anchors on.
+         backwards: it re-keys the fewest tables of the five. `warmUp` now runs
+         throwaway frames per size before anything is timed — and it did NOT fix the
+         row, which is the more useful finding: Exposure still read 64.4 with warm-up
+         in place, and the same measurement elsewhere in the same run read 47.9 and
+         50.5. The per-control table simply does not resolve on this runner. The
+         warm-up stays (a first row paying the process's kernel compilation is still
+         wrong), and the header now says which comparisons the output can support: a
+         monotone sweep, yes; two adjacent rows under ~40%, no.
       5. **The instrument that should have caught all of this measures the opposite.**
          `PerfProbeTests` takes the BEST of four renders of the SAME plan over the SAME
          source with no decode. On the same runner and the same commit it reported
