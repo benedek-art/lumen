@@ -365,10 +365,12 @@ and against Lightroom via owner-exported references.
       measured divergence).
 - [ ] **Audit fix queue** (verified findings deferred with reasons — full agent
       reports in the session log; items carry their sites):
-      1. CatalogStore.saveRecipe UPDATEs the working row in place — an older
-         build editing a photo whose newer-version recipe failed decode destroys
-         it in both stores; preserve the undecodable row (INSERT a version row)
-         (CatalogStore.swift:1678-1698).
+      1. ~~CatalogStore.saveRecipe UPDATEs the working row in place~~ FIXED: a
+         working row whose pipeline_version is newer than the recipe being saved
+         is demoted to a named `version` row (byte-identical, visible in the
+         edits list) and the save INSERTs a fresh working row; same-or-older
+         rows still update in place. Both directions pinned in CatalogTests;
+         watched failing with the guard disabled.
       2. flushSidecars drops a failed/refused write permanently (batch removed
          before writing; catalog-ahead never re-flushed) and treats a non-UTF-8
          sidecar as absent → wholesale replace of a foreign XMP

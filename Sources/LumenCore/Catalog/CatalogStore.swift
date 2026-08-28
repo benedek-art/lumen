@@ -1681,6 +1681,28 @@ public final class CatalogStore {
                     + "ORDER BY id LIMIT 1;", [.integer(photoID)])
             }
 
+            // A working row from a FUTURE pipeline version is not this build's row to
+            // overwrite. The scenario is real and destructive: a newer build wrote an
+            // edit this build's decoder cannot (fully) read, the viewer fell back to a
+            // default recipe, and the photographer touched one slider — the in-place
+            // UPDATE below would then replace the newer recipe with the fallback, in
+            // the catalog now and in the sidecar at the next flush. The newer edit is
+            // the photographer's most recent work on the photo; it must survive the
+            // older build. So it is demoted to a named `version` row — visible in the
+            // edits list, restorable by the build that wrote it — and this save
+            // INSERTs a fresh working row of its own.
+            if let id = editID,
+               let rowVersion = try self.db.scalarInt(
+                   "SELECT pipeline_version FROM edit WHERE id = ?;", [.integer(id)]),
+               rowVersion > Int64(recipe.pipelineVersion) {
+                try self.db.run("""
+                UPDATE edit SET kind = 'version', is_current = 0,
+                  name = COALESCE(name, ?) WHERE id = ?;
+                """, [.text("Preserved from a newer build (pipeline v\(rowVersion))"),
+                      .integer(id)])
+                editID = nil
+            }
+
             if let id = editID {
                 try self.db.run("""
                 UPDATE edit SET name = ?, is_current = ?, pipeline_version = ?,

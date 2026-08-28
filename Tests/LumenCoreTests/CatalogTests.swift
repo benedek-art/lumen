@@ -113,6 +113,69 @@ final class CatalogTests: XCTestCase {
         store.close()
     }
 
+    // A working row written by a NEWER build survives an older build's save.
+    //
+    // The destructive path (docs/23 audit queue item 1): the newer build wrote an edit
+    // this build cannot decode, the viewer fell back to a default recipe, the
+    // photographer touched one slider — and the in-place UPDATE replaced the newer
+    // recipe in the catalog, from where the sidecar flush replaced it on disk too.
+    // The contract now: that row is demoted to a named `version` row, byte-identical,
+    // and the older build's save lands in a fresh working row.
+    func testAnOlderBuildsSavePreservesANewerVersionsWorkingRow() throws {
+        let store = try makeStore()
+        let (_, ids) = try seed(store, count: 1)
+        guard let photo = ids.first else { return XCTFail("no photo") }
+
+        var newer = Recipe(pipelineVersion: currentPipelineVersion + 1)
+        newer.develop.tone.exposure = 2.0
+        try store.saveRecipe(newer, photoID: photo, isCurrent: true)
+        let newerFP = try RecipeFingerprint.fingerprint(newer)
+
+        var older = Recipe()
+        older.develop.tone.contrast = 10
+        try store.saveRecipe(older, photoID: photo, isCurrent: true)
+
+        let edits = try store.edits(photoID: photo)
+        XCTAssertEqual(edits.count, 2,
+                       "the newer build's edit was overwritten instead of preserved")
+
+        guard let preserved = edits.first(where: { $0.kind == .version }) else {
+            return XCTFail("no preserved version row: \(edits.map(\.kind))")
+        }
+        XCTAssertEqual(preserved.pipelineVersion, currentPipelineVersion + 1)
+        XCTAssertEqual(preserved.recipeFP, newerFP,
+                       "the preserved row's recipe is not the newer build's bytes")
+        XCTAssertFalse(preserved.isCurrent)
+        XCTAssertNotNil(preserved.name, "the preserved row needs a visible name")
+
+        guard let working = edits.first(where: { $0.kind == .working }) else {
+            return XCTFail("no fresh working row")
+        }
+        XCTAssertTrue(working.isCurrent)
+        XCTAssertEqual(try store.currentRecipe(photoID: photo), older)
+        store.close()
+    }
+
+    // And the ordinary direction is untouched: a save at the SAME or a newer version
+    // updates the working row in place — no version-row litter from normal editing.
+    func testASameVersionSaveStillUpdatesTheWorkingRowInPlace() throws {
+        let store = try makeStore()
+        let (_, ids) = try seed(store, count: 1)
+        guard let photo = ids.first else { return XCTFail("no photo") }
+
+        var first = Recipe()
+        first.develop.tone.exposure = 0.5
+        try store.saveRecipe(first, photoID: photo, isCurrent: true)
+        var second = Recipe()
+        second.develop.tone.exposure = 1.5
+        try store.saveRecipe(second, photoID: photo, isCurrent: true)
+
+        let edits = try store.edits(photoID: photo)
+        XCTAssertEqual(edits.map(\.kind), [.working])
+        XCTAssertEqual(try store.currentRecipe(photoID: photo), second)
+        store.close()
+    }
+
     // MARK: - Scanning
 
     func testRescanningIsStableAndMarksRemovalsMissingRatherThanDeleting() throws {
