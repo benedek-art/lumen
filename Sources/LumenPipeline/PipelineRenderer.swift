@@ -93,6 +93,26 @@ public final class PipelineRenderer {
     private var matteOrder: [URL] = []
     private static let matteCacheLimit = 12
 
+    /// Measured mixer-band mean hues per file — Uniformity's convergence target
+    /// (docs/05; `ColorEngine.measureBandMeanHues`). Cached like the mattes and for
+    /// the same reason: the measurement is a statement about the PHOTOGRAPH, made
+    /// once, off the drag path.
+    ///
+    /// The basis is a small NEUTRAL decode — camera white balance, no edit — so the
+    /// target holds still while the photographer works instead of chasing every
+    /// slider through a feedback loop (Uniformity moves hues; hues re-measured
+    /// per-edit would move the target Uniformity converges on). The known cost,
+    /// recorded in docs/27 §2: a strong user WB change shifts the picture's hues off
+    /// the measured basis, and the target lags by that shift — still the image's own
+    /// blues, no longer exactly its current ones. `nil` is stored too ("this file
+    /// measured as grey"), so a monochrome frame is not re-measured every frame.
+    private var bandHues: [URL: [Double]?] = [:]
+    private var bandHueOrder: [URL] = []
+    private static let bandHueCacheLimit = 64
+    /// Long edge of the measurement decode. Hue statistics are means over ~40k
+    /// samples; 512 px is thousands of times that.
+    private static let bandHueMeasureLongEdge = 512.0
+
     /// Rasters kept across frames so a draft can run S11 without paying
     /// `MaskRaster.combine` per mouse event. See the type's header for the contract.
     private let maskRasters = MaskRasterCache()
@@ -181,6 +201,41 @@ public final class PipelineRenderer {
         // (clears every photo's rasters), and correct: an invalidate is rare and
         // a raster rebake is a background stale-while-bake, not a stall.
         maskRasters.clear()
+        // The band-hue measurement is a statement about the same pixels.
+        bandHues.removeValue(forKey: url)
+        bandHueOrder.removeAll { $0 == url }
+    }
+
+    // MARK: - Band hue statistics
+
+    /// The measured mean hue per mixer band for this file, measured once and cached —
+    /// Uniformity's convergence target (docs/05; docs/23 audit queue item 12). See
+    /// `bandHues` for the basis and its recorded limitation.
+    func measuredBandMeanHues(source: any ImageSource) -> [Double]? {
+        let url = source.url
+        if let held = bandHues[url] { return held }
+
+        var means: [Double]? = nil
+        let native = source.nativeLongEdge
+        let scale = native > 0
+            ? Swift.min(1.0, Self.bandHueMeasureLongEdge / native) : 1.0
+        // Neutral recipe, draft decode: the camera's own rendition of the photograph,
+        // cheap, and independent of everything the photographer will do to it.
+        if let decoded = source.decode(recipe: Recipe(), draft: true,
+                                       scaleFactor: scale),
+           let buffer = Self.buffer(from: decoded, context: context) {
+            means = ColorEngine.measureBandMeanHues(buffer)
+        }
+
+        bandHues[url] = means
+        bandHueOrder.removeAll { $0 == url }
+        bandHueOrder.append(url)
+        while bandHueOrder.count > Self.bandHueCacheLimit,
+              let oldest = bandHueOrder.first {
+            bandHueOrder.removeFirst()
+            bandHues.removeValue(forKey: oldest)
+        }
+        return means
     }
 
     /// The picture the segmenter sees: a NEUTRAL rendition of the file, at matte
@@ -259,7 +314,8 @@ public final class PipelineRenderer {
                               // The settle render comes through here with draft: false
                               // and blocks on the exact tables, so the picture at rest
                               // never shows a stale one.
-                              allowStaleTables: draft)
+                              allowStaleTables: draft,
+                              bandMeanHues: measuredBandMeanHues(source: source))
         let graph = makeGraph(plan: plan, decoded: decoded,
                               sourceURL: source.url,
                               allowStaleRasters: draft,
@@ -344,7 +400,8 @@ public final class PipelineRenderer {
                               // diffuse white. See `ExportRecipe.hdrIsWritable`.
                               displayWhiteTarget: exportRecipe.renderWhiteTargetPercent,
                               lutSize: LUT3D.exportSize,
-                              captureISO: source.captureMetadata.iso)
+                              captureISO: source.captureMetadata.iso,
+                              bandMeanHues: measuredBandMeanHues(source: source))
 
         let graph = makeGraph(plan: plan, decoded: decoded,
                               sourceURL: source.url,
@@ -530,15 +587,18 @@ public final class PipelineRenderer {
         let options = RenderGraph.Options(longEdge: longEdge,
                                           lutSize: LUT3D.exportSize)
 
+        let hues = measuredBandMeanHues(source: source)
         let sdrPlan = RenderPlan(recipe: recipe, asShotKelvin: source.asShotTemperature,
                                  asShotTint: source.asShotTint,
                                  displayWhiteTarget: 100, lutSize: LUT3D.exportSize,
-                                 captureISO: source.captureMetadata.iso)
+                                 captureISO: source.captureMetadata.iso,
+                                 bandMeanHues: hues)
         let hdrPlan = RenderPlan(recipe: recipe, asShotKelvin: source.asShotTemperature,
                                  asShotTint: source.asShotTint,
                                  displayWhiteTarget: settings.whiteTargetPercent,
                                  lutSize: LUT3D.exportSize,
-                                 captureISO: source.captureMetadata.iso)
+                                 captureISO: source.captureMetadata.iso,
+                                 bandMeanHues: hues)
 
         let cached = mattes[source.url]?.planes ?? [:]
         let sdrGraph = makeGraph(plan: sdrPlan, decoded: decoded,
@@ -860,7 +920,11 @@ public final class PipelineRenderer {
                                 strokeSets: [String: BrushStrokeSet] = [:]) -> Plane? {
         let plan = RenderPlan(recipe: recipe,
                               asShotKelvin: source.asShotTemperature,
-                              asShotTint: source.asShotTint)
+                              asShotTint: source.asShotTint,
+                              // The overlay's stage input must be the render's: a
+                              // Uniformity-moved hue is part of what a colour-range
+                              // mask samples.
+                              bandMeanHues: measuredBandMeanHues(source: source))
         guard let mask = plan.masks.first(where: { $0.id == maskID }) else { return nil }
 
         let native = source.nativeLongEdge
@@ -1230,7 +1294,8 @@ public final class PipelineRenderer {
         else { return nil }
         let plan = RenderPlan(recipe: recipe,
                               asShotKelvin: source.asShotTemperature,
-                              asShotTint: source.asShotTint)
+                              asShotTint: source.asShotTint,
+                              bandMeanHues: measuredBandMeanHues(source: source))
         let longEdge = Int(Swift.max(decoded.extent.width, decoded.extent.height))
         let staged = RenderGraph().localStageInput(
             decoded, plan: plan,
@@ -1561,7 +1626,8 @@ public final class PipelineRenderer {
         let plan = RenderPlan(recipe: recipe, asShotKelvin: source.asShotTemperature,
                               asShotTint: source.asShotTint,
                               captureISO: source.captureMetadata.iso,
-                              softProof: softProof)
+                              softProof: softProof,
+                              bandMeanHues: measuredBandMeanHues(source: source))
         // S3 runs here rather than inside `ReferenceRenderer.render`, which starts at
         // S6 and is what several dozen goldens compare against. The stage belongs on
         // this path — a fallback that skips the denoise the GPU path applies is a

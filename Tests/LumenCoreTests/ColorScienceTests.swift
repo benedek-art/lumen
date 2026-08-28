@@ -631,6 +631,43 @@ final class ColorScienceTests: XCTestCase {
             1e-3, "the baked table ignores the grid")
     }
 
+    /// `referenceColor` and `exactColor` are twins, and both take the space the plan
+    /// was built with. referenceColor hardcoded rec2020 for the tone stage's
+    /// luminance while its twin used the parameter (docs/23 audit queue item 9), so
+    /// on a plan built for another working space the two disagreed about how bright
+    /// a saturated colour is BEFORE either table was sampled — a real divergence
+    /// silently charged to "interpolation error" in every golden comparing them.
+    ///
+    /// Exact, not tolerance-bounded: with an identity colour/grade stack,
+    /// referenceColor IS finishedColor over the tone-gained linear value, so the
+    /// expectation reproduces its own code path and the only degree of freedom is
+    /// which space weighed the luminance.
+    func testReferenceColorWeighsLuminanceInTheSpaceItIsAskedAbout() {
+        var recipe = Recipe()
+        recipe.develop.tone.shadows = 80
+        let plan = RenderPlan(recipe: recipe, space: .displayP3)
+        // Blue: the weight rec2020 and P3 disagree on most (0.0593 vs 0.0793 —
+        // 0.42 EV apart on a pure-blue pixel), deep in the shadows where +80
+        // Shadows makes the gain steep.
+        let scene = RGB(0.01, 0.01, 0.5)
+
+        let c = plan.linear.apply(scene)
+        let lum = Swift.max(RGBColorSpace.displayP3.luminance(c), 0)
+        let expected = plan.finishedColor(encoded: LumenLog.encode(
+            c * plan.tone.gain(at: Num.safeLog2(lum / 0.18))))
+
+        let got = plan.referenceColor(scene, space: .displayP3)
+        XCTAssertEqual(got.maxAbsDifference(expected), 0, accuracy: 1e-12,
+                       "the tone stage weighed luminance in a different space "
+                           + "than the one it was asked about")
+
+        // And the default stays the default: no space argument means rec2020,
+        // bit-for-bit, so every existing golden keeps measuring what it measured.
+        XCTAssertEqual(plan.referenceColor(scene)
+                        .maxAbsDifference(plan.referenceColor(scene, space: .rec2020)),
+                       0)
+    }
+
     /// The grid grades ZONES, and the zones are the ones the strip above the wheels
     /// draws. A shadow-only push must leave a highlight alone.
     func testGridAxesAreZoneSelective() {
@@ -825,6 +862,47 @@ final class ColorScienceTests: XCTestCase {
         let moved = Num.hueDelta(centre, hue(of: engine.apply(colour)))
         XCTAssertEqual(moved, 17.5, accuracy: 1.5,
                        "Uniformity ignored the band's own core arc")
+    }
+
+    /// The wiring docs/23 audit queue item 12 asked for, at the plan level: a
+    /// measurement handed to `RenderPlan(bandMeanHues:)` must reach the colour-grade
+    /// TABLE — the thing every shipping pixel goes through — and must be part of that
+    /// table's cache key. The key half is the sharp edge: build the measured plan
+    /// first and the unmeasured one second, and a key without the hues part would
+    /// hand the second plan the first plan's cached table — photo B rendered with
+    /// photo A's convergence field, the Paste-Settings poisoning class one cache over.
+    func testRenderPlanThreadsMeasuredHuesIntoTheTableAndItsKey() {
+        PlanTableCache.clear()
+        defer { PlanTableCache.clear() }
+
+        var recipe = Recipe()
+        recipe.develop.mixer.uniformity = 100
+        let centre = ColorEngine.bandHueCentres[5]
+        var means = ColorEngine.bandHueCentres
+        means[5] = Num.wrapHue(centre + 20)
+
+        // Measured FIRST, so a hues-blind cache key would poison the nil plan below.
+        let measured = RenderPlan(recipe: recipe, bandMeanHues: means)
+        let unmeasured = RenderPlan(recipe: recipe)
+
+        let colour = swatch(hue: centre)
+        let encoded = LumenLog.encode(colour)
+        let measuredHue = hue(of: LumenLog.decode(measured.colorGradeLUT.sample(encoded)))
+        let unmeasuredHue = hue(of: LumenLog.decode(unmeasured.colorGradeLUT.sample(encoded)))
+
+        XCTAssertEqual(Num.hueDelta(centre, unmeasuredHue), 0, accuracy: 1.0,
+                       "with no measurement, a pixel on the band centre should rest")
+        // Most of the 20° arrives; the shortfall is the 33³ table interpolating a
+        // hue rotation (measured 14.2° on this swatch — the engine-direct test above
+        // this one shows the full 20° when the table is not in the way). What this
+        // asserts is the THREADING: the measurement moved the shipping table's
+        // pixels, in the right direction, by most of the asked-for amount.
+        XCTAssertGreaterThan(Num.hueDelta(centre, measuredHue), 10,
+                             "the measured mean never reached the shipping table")
+
+        // And the cache serves the measured plan its own table on a rebuild.
+        let again = RenderPlan(recipe: recipe, bandMeanHues: means)
+        XCTAssertEqual(again.colorGradeLUT, measured.colorGradeLUT)
     }
 
     /// The writer `bandMeanHues` never had. Before this the field was read at

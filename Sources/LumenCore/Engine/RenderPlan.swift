@@ -25,6 +25,11 @@ public struct RenderPlan: Sendable {
 
     public let recipe: Recipe
 
+    /// Renderer-measured chroma-weighted mean hue per mixer band — Uniformity's
+    /// convergence target when present (docs/05; docs/23 audit queue item 12). Stored
+    /// so `exactColor`'s engine is built from exactly what the table's engine was.
+    public let bandMeanHues: [Double]?
+
     // MARK: Stage S6 — the fused linear matrix
     public let linear: LinearStage
 
@@ -103,6 +108,11 @@ public struct RenderPlan: Sendable {
     /// one mouse event of slider travel stale, gone the moment the hand pauses.
     /// Settle and export plans must leave it false; their tables are exact by
     /// construction, which is what makes the staleness bounded instead of sticky.
+    /// `bandMeanHues` is the renderer-measured chroma-weighted mean hue per mixer
+    /// band (`ColorEngine.measureBandMeanHues`) — the convergence target docs/05
+    /// specifies for Uniformity. The plan cannot measure it itself: a plan owns no
+    /// image. nil is honest and self-consistent — Uniformity then converges on each
+    /// band's own core-arc midpoint, the user-writable fallback.
     public init(recipe: Recipe,
                 asShotKelvin: Double = 5500,
                 asShotTint: Double = 0,
@@ -111,8 +121,10 @@ public struct RenderPlan: Sendable {
                 captureISO: Double? = nil,
                 space: RGBColorSpace = .rec2020,
                 softProof: SoftProof? = nil,
-                allowStaleTables: Bool = false) {
+                allowStaleTables: Bool = false,
+                bandMeanHues: [Double]? = nil) {
         self.recipe = recipe
+        self.bandMeanHues = bandMeanHues
         let develop = recipe.develop
         let look = recipe.look
 
@@ -138,7 +150,7 @@ public struct RenderPlan: Sendable {
         // ---- S9 + S10 --------------------------------------------------------
         let color = ColorEngine(mixer: develop.mixer, pointColors: develop.pointColors,
                                 color: develop.color, primaries: look.primaries,
-                                bw: look.bw)
+                                bw: look.bw, bandMeanHues: bandMeanHues)
         let colorIdentity = color.isIdentity && grade.isIdentity
         self.colorGradeIsIdentity = colorIdentity
         if colorIdentity {
@@ -154,8 +166,15 @@ public struct RenderPlan: Sendable {
                     return LumenLog.encode(out)
                 }
             }
+            // The measured hues are a table input like any other: two photos with
+            // different skies bake different Uniformity fields, and a key without
+            // this part would hand photo B the table converged on photo A's blues —
+            // the Paste-Settings poisoning class, one cache over.
+            let huesPart = bandMeanHues.map {
+                $0.map(CanonicalJSON.canonicalNumber).joined(separator: ",")
+            } ?? "-"
             let key = PlanTableCache.key(
-                ["cg", "\(lutSize)", "\(space)",
+                ["cg", "\(lutSize)", "\(space)", huesPart,
                  CanonicalJSON.canonicalNumber(toneEngine.whiteAnchorEV),
                  CanonicalJSON.canonicalNumber(toneEngine.blackAnchorEV)],
                 [develop.mixer, develop.pointColors, develop.color,
@@ -358,10 +377,19 @@ public struct RenderPlan: Sendable {
 
     /// The composed per-pixel colour function, for stages that have no spatial
     /// component. This is what the LUTs approximate — goldens compare the two.
-    public func referenceColor(_ sceneLinear: RGB) -> RGB {
+    ///
+    /// `space` must be the space the plan was built with, exactly as it must for
+    /// `exactColor` — the two are twins and take the parameter the same way. This one
+    /// hardcoded rec2020 for the tone stage's luminance while its twin used the
+    /// parameter, so on any plan built for another working space the two disagreed
+    /// about how bright a saturated colour is before either table was sampled — a
+    /// disagreement charged to "interpolation error" in every golden that compares
+    /// them.
+    public func referenceColor(_ sceneLinear: RGB,
+                               space: RGBColorSpace = .rec2020) -> RGB {
         var c = linear.apply(sceneLinear)
         if !toneIsIdentity {
-            let lum = Swift.max(RGBColorSpace.rec2020.luminance(c), 0)
+            let lum = Swift.max(space.luminance(c), 0)
             c = c * tone.gain(at: Num.safeLog2(lum / 0.18))
         }
         if !colorGradeIsIdentity {
@@ -401,7 +429,8 @@ public struct RenderPlan: Sendable {
             c = c * tone.gain(at: Num.safeLog2(lum / 0.18))
         }
         let color = ColorEngine(mixer: develop.mixer, pointColors: develop.pointColors,
-                                color: develop.color, primaries: look.primaries, bw: look.bw)
+                                color: develop.color, primaries: look.primaries,
+                                bw: look.bw, bandMeanHues: bandMeanHues)
         let grade = GradeEngine(wheels: look.wheels, printerLights: look.printerLights,
                                 whiteAnchorEV: tone.whiteAnchorEV,
                                 blackAnchorEV: tone.blackAnchorEV)

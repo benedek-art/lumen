@@ -12,11 +12,11 @@
 //     value the engine applies to all eight — so selecting Blue and dragging it also
 //     pulled skin toward Orange, and the panel said otherwise. Making it per-band is a
 //     wire-format change (`Mixer.uniformity` would become eight fields, and every
-//     sidecar and the canonical fixture would move with it) built on a convergence
-//     TARGET that is itself not yet what docs/05 specifies — `measureBandMeanHues` has
-//     no shipping caller, so today it converges on the core-arc midpoint. Per-band
-//     uniformity aimed at the wrong target is a bigger control that is wrong in more
-//     places. The caption is what was false, so the caption is what changed.
+//     sidecar and the canonical fixture would move with it). The convergence target is
+//     docs/05's now: `measuredBandMeanHues` reaches every rendering plan through
+//     `RenderPlan(bandMeanHues:)`, so Uniformity converges on the image's own measured
+//     hues, falling back to the core-arc midpoint only when the frame measures as
+//     grey. The caption is what was false, so the caption is what changed.
 //   · Switching to B&W and back loses nothing, and "nothing" now means per photo and
 //     across a quit. The Mixer lives in `develop.mixer` and the B&W mix in `look.bw`;
 //     the treatment toggle never writes across that line, and it writes `bw.enabled`

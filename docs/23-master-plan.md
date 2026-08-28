@@ -405,10 +405,14 @@ and against Lightroom via owner-exported references.
       8. HDR shoulder-power floor breaks the slope-at-pivot contract with a C¹
          kink at mid-grey at EDR peaks (DisplayTransform.swift:211-212; needs a
          design decision, engine agent finding 3 has the numbers).
-      9. FilmLab's density-domain grain hook (applyWithGrain) is dormant while
-         both shipping paths grain post-formation — stale contract, docs/14
-         wording included; referenceColor also hardcodes rec2020 luminance where
-         exactColor uses its space parameter (RenderPlan.swift:343 vs 379).
+      9. ~~FilmLab's dormant grain hook; referenceColor's hardcoded rec2020
+         luminance~~ FIXED: `applyWithGrain`/`negativeDensity` (zero callers,
+         contrary contract) removed and docs/14 §5.7 now describes the shipped
+         tap point — grain composites at the end of formation, in the FORMED
+         picture's density domain; `referenceColor` takes the same `space`
+         parameter as its twin `exactColor` and weighs the tone stage's
+         luminance in it (exact-equality test in ColorScienceTests, watched
+         failing with the rec2020 hardcode restored).
       10. Doc staleness batch: BUILDING.md thumbnails/PhotoQuery/grain bullets,
           docs/04+15 old zone-pivot constants, docs/05 uniformity/variance
           as-built note, docs/06 clarity as-built note, docs/24 colorBalance gap
@@ -416,9 +420,14 @@ and against Lightroom via owner-exported references.
           call), 9pt text floor batch incl. LumenBadge.
       11. Superseded folder scan still runs the abandoned folder's full metadata
           backfill ahead of the new one (AppState.swift:1766).
-      12. Uniformity's honest cure: wire measureBandMeanHues into RenderPlan so
-          convergence targets the image's own hues (engine's written plan;
-          docs/27 §2 carries the measured limitation).
+      12. ~~Uniformity's honest cure~~ DONE: `PipelineRenderer.measuredBandMeanHues`
+          (once per file, ~512 px neutral decode, cached and invalidated with the
+          mattes) → `RenderPlan(bandMeanHues:)` → the engine AND the colour-grade
+          table's cache key, on every rendering path including the reference
+          fallback and both mask-stage taps. The key part is load-bearing: without
+          it photo B would render with photo A's cached convergence field.
+          Plan-level test in ColorScienceTests (measured-first build order convicts
+          a hues-blind key); basis + limitation recorded in docs/27 §2.
       13. Out-of-gamut scene values (a negative working-space channel, reachable
           only by extreme pushes) cross the corrected inset onto the toe's steep
           region, a crease the finish tables track loosely — interactive worst

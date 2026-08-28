@@ -57,17 +57,16 @@ public struct ColorEngine: Sendable {
     /// (docs/06 brief §1.6). `nil` falls back to the user's own core arc — see
     /// `bandTargetHue(_:)`.
     ///
-    /// A `let` fed by an init parameter, and a `var` assigned `nil` in `init` before
-    /// that. It had a reader at `bandTargetHue` and NO writer anywhere in Sources or
-    /// Tests, so Uniformity could only ever converge on the eight fixed band centres —
-    /// which is not what docs/05 specifies ("computes the chroma-weighted mean hue of
-    /// the band's members") and is visibly the wrong answer on the photograph the
-    /// feature exists for: a sky whose blues all sit at 250° got dragged toward 254.2°
-    /// as a body rather than converging on itself.
-    ///
-    /// `measureBandMeanHues` is the producer. Wiring it into the shipping path needs a
-    /// change in `RenderPlan`, which does not own an image — see this file's note on
-    /// `varianceCompress` for what else that same wiring has to carry.
+    /// WIRED, at last (docs/23 audit queue item 12; it spent two audits as a let with
+    /// a reader and no writer): `PipelineRenderer.measuredBandMeanHues` measures each
+    /// file once off a small neutral decode and threads the result through
+    /// `RenderPlan(bandMeanHues:)` into both this engine and the colour-grade table's
+    /// cache key, on every path that renders pixels — preview, export, HDR pair, the
+    /// reference fallback, and both mask-stage taps. So Uniformity converges on the
+    /// sky's own 250° blues instead of dragging them toward the 254.2° band centre as
+    /// a body. The basis (a NEUTRAL decode, so the target holds still while editing)
+    /// and its limitation (a strong user WB change shifts hues off the measured
+    /// basis) are recorded at the producer and in docs/27 §2.
     public let bandMeanHues: [Double]?
 
     // MARK: - Derived state

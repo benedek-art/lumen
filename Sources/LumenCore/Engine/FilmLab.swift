@@ -1044,32 +1044,16 @@ public struct FilmChain: Sendable {
         return base.mix(film, strength)
     }
 
-    /// The chain with a grain plate sample injected in the density domain — the entry
-    /// point the image module uses, one plate value per channel, unit variance.
-    /// Grain is *never* applied in display RGB (docs/14 §5.7).
-    public func applyWithGrain(_ c: RGB, densityNoise: RGB) -> RGB {
-        // Same boundary as `apply`. Without it the two disagreed on any out-of-gamut
-        // colour, and at strength 0 — where both are supposed to be identity — they
-        // returned different pixels.
-        let base: RGB = neutral.apply(c, gamut: Gamut.sharedBoundary)
-        guard let s = solved else { return base }
-        let scene: RGB = c * pow(2.0, filmExposure)
-        let film: RGB = FilmChain.render(scene, s, white: displayWhite, grain: densityNoise)
-        return base.mix(film, strength)
-    }
-
-    /// The negative's density at a scene-linear value — what the grain amplitude and
-    /// any density-domain diagnostic read.
-    public func negativeDensity(_ c: RGB) -> RGB {
-        guard let s = solved else { return RGB.zero }
-        var e: RGB = RGB(Swift.max(c.r, 0), Swift.max(c.g, 0), Swift.max(c.b, 0)) * pow(2.0, filmExposure)
-        if s.monochrome {
-            let y: Double = filmLumaWeights.r * e.r + filmLumaWeights.g * e.g + filmLumaWeights.b * e.b
-            e = RGB(gray: Swift.max(y, 0))
-        }
-        e = e * s.filmGain
-        return s.coupling.apply(s.negative.response(e).density)
-    }
+    // `applyWithGrain(_:densityNoise:)` and `negativeDensity(_:)` are deliberately
+    // GONE. Both described grain injected inside the negative+print chain — the
+    // original docs/14 §5.7 design — and neither had a caller on any path: what
+    // ships (ReferenceRenderer.applyGrain and the lumenGrain kernel, in lockstep)
+    // grains the FORMED picture in its own density domain, D = −log₁₀(v), with the
+    // same √(p(1−p)) envelope. A public entry point whose doc-comment promises a
+    // wiring that does not exist is exactly the FAKE class the audits keep
+    // convicting, and this one had already gone stale once — its comment called
+    // itself "the entry point the image module uses" while the image module used
+    // nothing of the kind. docs/14 §5.7 now describes the shipped tap point.
 
     /// Halation parameters for this recipe at a given render size, or nil without a
     /// stock. Size and Redness are the format additions docs/05 §8.1 flags as missing
