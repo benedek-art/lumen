@@ -57,6 +57,10 @@ struct LumenApp: App {
         }
         .commands {
             CommandGroup(after: .appInfo) {
+                // A plain Text renders as a disabled menu line: the build's number,
+                // commit and date, so "am I on the newest build?" is one click, no
+                // network. The updater's alert names the same stamp.
+                Text(BuildStamp.current)
                 Button("Check for Updates…") {
                     Task { await AppUpdater.shared.check(interactive: true) }
                 }

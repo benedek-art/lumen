@@ -60,6 +60,43 @@ enum UpdateDecision: Equatable {
     }
 }
 
+// MARK: - The visible identity
+
+/// The build stamp the Lumen menu shows (owner request, session C): the CI run
+/// number is the human-readable "version", the commit is the identity the updater
+/// actually compares, and the date answers "is this today's build?" at a glance.
+/// Pure so LumenAppTests can pin the format; `current` reads the same Info.plist
+/// keys `scripts/build-app.sh` seals (plus `LumenBuildNumber`, CI's run number).
+enum BuildStamp {
+    static func label(number: Int?, commit: String?, date: Date?,
+                      timeZone: TimeZone = .current) -> String {
+        guard let commit, commit.count >= 7 else {
+            return "Development build — no update stamp"
+        }
+        var parts: [String] = []
+        if let number { parts.append("\(number)") }
+        parts.append(String(commit.prefix(7)))
+        if let date {
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.timeZone = timeZone
+            formatter.dateFormat = "MMM d, yyyy, HH:mm"
+            parts.append(formatter.string(from: date))
+        }
+        return "Build " + parts.joined(separator: " · ")
+    }
+
+    static var current: String {
+        let info = Bundle.main
+        return label(
+            number: (info.object(forInfoDictionaryKey: "LumenBuildNumber") as? NSNumber)?
+                .intValue,
+            commit: info.object(forInfoDictionaryKey: "LumenBuildCommit") as? String,
+            date: (info.object(forInfoDictionaryKey: "LumenBuildDate") as? NSNumber)
+                .map { Date(timeIntervalSince1970: $0.doubleValue) })
+    }
+}
+
 // MARK: - The plumbing
 
 @MainActor
@@ -136,7 +173,10 @@ final class AppUpdater {
                                              remotePublishedAt: publishedAt)
         switch decision {
         case .upToDate:
-            if interactive { inform("Lumen is up to date", "You're on the newest build.") }
+            if interactive {
+                inform("Lumen is up to date",
+                       "You're on the newest build — \(BuildStamp.current).")
+            }
         case .ownIsNewer:
             if interactive {
                 inform("This build is newer than the release",

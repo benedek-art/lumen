@@ -48,6 +48,16 @@ NOW="$(date -u +%s)"
 /usr/libexec/PlistBuddy -c "Add :LumenBuildCommit string ${SHA}" "$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :LumenBuildDate integer ${NOW}" "$APP/Contents/Info.plist"
 
+# On CI, the run number is the human-readable "version": the Lumen menu shows it
+# (BuildStamp), and CFBundleVersion carries it so the standard About panel agrees.
+# Local script builds have no number and show commit + date instead.
+if [ -n "${GITHUB_RUN_NUMBER:-}" ]; then
+    /usr/libexec/PlistBuddy -c "Add :LumenBuildNumber integer ${GITHUB_RUN_NUMBER}" \
+        "$APP/Contents/Info.plist"
+    /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${GITHUB_RUN_NUMBER}" \
+        "$APP/Contents/Info.plist"
+fi
+
 # Ad-hoc signature. NOT optional and NOT allowed to fail quietly: on Apple Silicon an
 # unsigned binary does not launch at all, so `|| true` here would hand back a bundle
 # that cannot start, with the failure hidden and nothing to read. If signing breaks,
