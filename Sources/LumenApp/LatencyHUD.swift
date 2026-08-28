@@ -42,6 +42,11 @@ final class LatencyHUD: ObservableObject {
     @Published private(set) var draftLongEdge: Int?
     @Published private(set) var settleMs: Double?
     @Published private(set) var settleLongEdge: Int?
+    /// Set when the last draft came back SMALLER than it was asked for — the frame on
+    /// screen is not the frame the ladder thinks it sized. Nil when they agree, so the
+    /// line stays quiet in the normal case and speaks only when there is something to
+    /// say.
+    @Published private(set) var draftShortfall: Int?
 
     /// THE PAIR THAT ENDS THE ARGUMENT.
     ///
@@ -72,10 +77,22 @@ final class LatencyHUD: ObservableObject {
         inputsPerSecond = inputRate.perSecond(now: Double(now) / 1e9)
     }
 
-    func noteDraft(milliseconds: Double, longEdge: Int) {
+    /// `longEdge` is what was DELIVERED; `requestedLongEdge` is what was asked for.
+    /// Printing only the request is how a blurry picture reported "@2560" for three
+    /// rounds: the number could not disagree with the code that chose it, so it
+    /// confirmed the viewer's intention and said nothing about the frame. Measured
+    /// against the delivered extent it becomes evidence — a shortfall means the render
+    /// path returned less than the ladder thinks it sized, which is a lead on any
+    /// uncropped photograph.
+    func noteDraft(milliseconds: Double, longEdge: Int, requestedLongEdge: Int? = nil) {
         guard enabled else { return }
         draftMs = milliseconds
         draftLongEdge = longEdge
+        if let requestedLongEdge, requestedLongEdge > longEdge {
+            draftShortfall = requestedLongEdge
+        } else {
+            draftShortfall = nil
+        }
         let now = nowSeconds()
         frameRate.record(at: now)
         framesPerSecond = frameRate.perSecond(now: now)
@@ -133,7 +150,8 @@ struct LatencyHUDView: View {
         return VStack(alignment: .leading, spacing: 2) {
             Text(rateLine(in: hud.inputsPerSecond, out: hud.framesPerSecond))
             Text(line("input→draft", hud.inputToDraftMs, nil))
-            Text(line("draft      ", hud.draftMs, hud.draftLongEdge))
+            Text(line("draft      ", hud.draftMs, hud.draftLongEdge)
+                    + (hud.draftShortfall.map { " (asked \($0))" } ?? ""))
             Text(line("settle     ", hud.settleMs, hud.settleLongEdge))
             Text(cacheLine("tables     ", hits: tables.hits, bakes: tables.bakes,
                            stale: tables.staleServes))

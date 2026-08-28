@@ -108,6 +108,53 @@ did not reach the path you are looking at.
 
 ---
 
+## 2c. The blur under the hand — the one you reported twice
+
+Two separate things made a drag softer than a rest, and only one of them was ever
+deliberate. Both are dealt with in this build, and the HUD now tells you which one is
+left if any is.
+
+**The one that was never chosen:** every frame under your hand decoded the RAW with
+Apple's *draft* decode — a cheaper, lower-quality demosaic — and every frame at rest did
+not. The demosaic is the stage that decides how much fine detail exists at all, so that
+alone is a softer picture while you drag and a sharp one when you let go, at the same
+size, with nothing measuring it and nothing choosing it. It is off now: the frames you
+look at decode the same way whether your hand is moving or not.
+
+**The one that IS deliberate:** resolution. When the machine cannot keep up, the ladder
+lowers the draft's resolution to buy frame rate, and a lower-resolution frame magnified
+to your window is genuinely softer. That trade is the point — but it is now the ONLY
+thing that softens a drag, and you can read it directly.
+
+**Do this:** with the HUD on, drag Blacks, then Whites, then Shadows, and read the
+`draft` line:
+
+    draft    31.4 ms @2560
+
+- The `@size` is the frame's real long edge, measured on the picture that reached the
+  screen — not what the app asked for, which is what this line used to print.
+- If a `(asked N)` appears beside it, the render came back smaller than requested; write
+  down both numbers. On a **cropped** photo that is expected (the crop really is smaller
+  than the frame); on an uncropped one it is a lead.
+- If `@size` sits well below your window's size while you drag and jumps up when you
+  release, the ladder is stepping down and the remaining softness is the deliberate
+  trade — say so and say how far down it went.
+
+| slider | draft ms | @size while dragging | asked (if shown) | still softer than at rest? |
+|---|---|---|---|---|
+| Blacks | …… | …… | …… | …… |
+| Whites | …… | …… | …… | …… |
+| Shadows | …… | …… | …… | …… |
+
+**One caveat worth knowing before you test.** The decode fix only applies to RAW files —
+a JPEG or TIFF is already demosaiced and that flag never did anything to it. So test on
+the RAW files you actually work with. If a RAW drag is sharp now and a JPEG drag is not,
+that is not a contradiction, it is the ladder, and the `@size` column will show it.
+
+**What I saw:** ……
+
+---
+
 ## 3. Letting go should now be quicker
 
 Drag any tone slider, let go, and watch the moment it sharpens.

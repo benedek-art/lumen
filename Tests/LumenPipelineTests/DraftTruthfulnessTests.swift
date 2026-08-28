@@ -101,10 +101,23 @@ final class DraftTruthfulnessTests: XCTestCase {
         // Draft first, on a cold renderer: the mask raster and both colour tables hit
         // their first-request-bakes-synchronously rules, so this draft is EXACT — the
         // stale machinery only ever serves a follow-up frame of a drag.
+        //
+        // `coarseDecode: false` on BOTH, which is what the viewer now asks for on both
+        // and is the claim this test locks: a draft differs from a settle in what it
+        // may serve stale, and in nothing else.
+        //
+        // The decode quality used to ride along with `draft`, and this test could not
+        // have caught it — the stub ignores the flag by construction (see `decode`
+        // above), so the two frames agreed here at 2/255 while the app's real drafts
+        // were visibly softer than its settles. Worth stating plainly: the same
+        // property that makes this file a clean test of the GRAPH makes it blind to
+        // the decode, and the decode is where the last three rounds of blur lived.
         let draft = try renderer.renderPreview(source: stub, recipe: recipe,
-                                               maxLongEdge: 384, draft: true)
+                                               maxLongEdge: 384, draft: true,
+                                               coarseDecode: false)
         let settle = try renderer.renderPreview(source: stub, recipe: recipe,
-                                                maxLongEdge: 384, draft: false)
+                                                maxLongEdge: 384, draft: false,
+                                                coarseDecode: false)
 
         guard let d = bytes(draft), let s = bytes(settle), d.count == s.count else {
             return XCTFail("draft and settle rendered different formats "
@@ -123,7 +136,8 @@ final class DraftTruthfulnessTests: XCTestCase {
         var neutral = Recipe()
         neutral.develop.denoise.mode = .off
         let plain = try renderer.renderPreview(source: stub, recipe: neutral,
-                                               maxLongEdge: 384, draft: true)
+                                               maxLongEdge: 384, draft: true,
+                                               coarseDecode: false)
         guard let p = bytes(plain), p.count == d.count else {
             return XCTFail("neutral render failed")
         }

@@ -411,6 +411,10 @@ final class PhotoRenderModel: ObservableObject {
         // is the ask for the quality pass the drag deferred, and nothing else.
         let isSettleAsk = lastSettleTick != nil && lastSettleTick != settleTick
         lastSettleTick = settleTick
+        // The hand came up: let the ladder spend any headroom the gesture banked. It
+        // is held during the drag because a rung earned back under a moving hand is a
+        // visible change of sharpness; here it is one change, at rest, invisible.
+        if isSettleAsk { draftLadder.gestureEnded() }
 
         // New photo: drop the previous photo's pixels rather than showing them under a
         // new filename, and give this one the instant embedded-preview path (Law 11).
@@ -561,8 +565,24 @@ final class PhotoRenderModel: ObservableObject {
                                    // earned back mid-drag is a visible change of
                                    // sharpness, and at a rung boundary it oscillates.
                                    allowStepUp: !gestureInFlight())
-                LatencyHUD.shared.noteDraft(milliseconds: draftMs,
-                                            longEdge: Swift.max(draftTarget, 64))
+                // THE SIZE DELIVERED, not the size asked for.
+                //
+                // This line used to report `draftTarget` — the request — so the HUD
+                // could only ever confirm the viewer's own intention. Three rounds of
+                // "the picture is blurry while I drag" were investigated against a
+                // number that was incapable of disagreeing with the code that set it.
+                // The render path has several places where a frame can come back
+                // shorter than asked (`applyGeometry` clamps to `min(1, wanted)` and
+                // never upscales, so a crop or a decoder that declines a scale factor
+                // both land here), and none of them were visible from inside.
+                //
+                // So: measure the pixels, print the ask beside them. A shortfall on a
+                // cropped photograph is honest rather than a fault — the crop really
+                // is smaller than the frame — but on an uncropped one it is a lead.
+                LatencyHUD.shared.noteDraft(
+                    milliseconds: draftMs,
+                    longEdge: Swift.max(draft.image.width, draft.image.height),
+                    requestedLongEdge: Swift.max(draftTarget, 64))
                 if FrameDelivery.shouldShow(frameFor: url,
                                             currentRequest: currentRequestURL,
                                             generation: draft.generation,

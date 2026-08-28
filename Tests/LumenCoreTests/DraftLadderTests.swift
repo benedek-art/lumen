@@ -168,6 +168,64 @@ final class DraftLadderTests: XCTestCase {
                               + "headroom should be spent")
     }
 
+    /// THE HOLD MUST NOT BECOME A RATCHET.
+    ///
+    /// Holding the rung during a gesture is right — a rung earned back mid-drag is a
+    /// visible change of sharpness under a moving hand. But drags are very nearly the
+    /// ONLY time this ladder sees a frame: drafts come from slider edits, and otherwise
+    /// only from a photo switch, a zoom or a matte landing. So gating the step-up on
+    /// "not mid-gesture" and RESETTING the streak while gated means a comfortable drag
+    /// can never bank anything, and one hard drag on one heavy photograph drops the rung
+    /// for the rest of the session. Every later drag is then needlessly soft, on a
+    /// machine that could afford better — which is the complaint this whole round is
+    /// about, arriving by a different door.
+    ///
+    /// So the streak is BANKED while the hand is down and spent when it comes up, where
+    /// a single change of sharpness is invisible.
+    func testAComfortableGestureEarnsItsRungBackWhenTheHandComesUp() {
+        var ladder = DraftLadder()
+        let requested = 4096
+        ladder.record(draftMilliseconds: 200,
+                      renderedLongEdge: ladder.longEdge(requested: requested),
+                      requested: requested, allowStepUp: false)
+        let afterHeat = ladder.rung
+        XCTAssertGreaterThan(afterHeat, 0)
+
+        // A comfortable drag at the new rung: cheap frames, all of them mid-gesture.
+        for _ in 0..<DraftLadder.stepUpAfter {
+            ladder.record(draftMilliseconds: 1,
+                          renderedLongEdge: ladder.longEdge(requested: requested),
+                          requested: requested, allowStepUp: false)
+        }
+        XCTAssertEqual(ladder.rung, afterHeat,
+                       "sharpness may not change under a moving hand")
+
+        ladder.gestureEnded()
+        XCTAssertLessThan(ladder.rung, afterHeat,
+                          "a whole gesture of comfortable frames is exactly the "
+                              + "evidence a step up needs; spending it at rest costs "
+                              + "one invisible change of sharpness")
+    }
+
+    /// And a gesture that ran hot must NOT earn anything back when it ends — heat
+    /// breaks the streak wherever it happens.
+    func testAHotGestureEarnsNothingBack() {
+        var ladder = DraftLadder()
+        let requested = 4096
+        for _ in 0..<DraftLadder.stepUpAfter {
+            ladder.record(draftMilliseconds: 1,
+                          renderedLongEdge: ladder.longEdge(requested: requested),
+                          requested: requested, allowStepUp: false)
+        }
+        ladder.record(draftMilliseconds: 200,
+                      renderedLongEdge: ladder.longEdge(requested: requested),
+                      requested: requested, allowStepUp: false)
+        let afterHeat = ladder.rung
+        ladder.gestureEnded()
+        XCTAssertEqual(ladder.rung, afterHeat,
+                       "the gesture ended hot; there is nothing to spend")
+    }
+
     /// The top rung must cap nothing: a machine with headroom drafts at the resolution
     /// the settle will deliver, which is what makes a drag sharp rather than soft.
     func testTheTopRungIsWhateverTheViewerAsksFor() {

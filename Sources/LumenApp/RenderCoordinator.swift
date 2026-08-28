@@ -84,7 +84,16 @@ actor RenderCoordinator {
         // Drop work that is already stale before paying for a decode.
         guard generation >= latestGeneration else { return nil }
         return await produce(url: url, recipe: recipe, maxLongEdge: maxLongEdge,
-                             draft: draft, generation: generation, coalesced: true,
+                             draft: draft,
+                             // A FRAME SOMEBODY IS LOOKING AT DECODES AT FULL DETAIL.
+                             // Apple's draft decode is a lower-quality demosaic — a
+                             // second quality knob beside the resolution one
+                             // `DraftLadder` holds, hard-coded where nothing measured
+                             // it, and the one the eye notices. The ladder trades
+                             // quality for speed by resolution; that is the only lever
+                             // here, and it is the only lever that is measured.
+                             coarseDecode: false,
+                             generation: generation, coalesced: true,
                              strokeSets: strokeSets,
                              showingUncropped: showingUncropped,
                              softProof: softProof)
@@ -101,11 +110,26 @@ actor RenderCoordinator {
     func renderOneShot(url: URL, recipe: Recipe, maxLongEdge: Int, draft: Bool,
                        strokeSets: [String: BrushStrokeSet] = [:]) async -> RenderResult? {
         await produce(url: url, recipe: recipe, maxLongEdge: maxLongEdge,
-                      draft: draft, generation: 0, coalesced: false,
+                      draft: draft,
+                      // A one-shot is an instrument input — a 512 px scope proxy or the
+                      // auto-tone probe — read as statistics rather than looked at, so
+                      // a cheap demosaic would cost nothing anyone can see. Tied to
+                      // `draft` because that is the honest rule for this path.
+                      //
+                      // Worth saying plainly: BOTH current callers pass `draft: false`,
+                      // and their own comments say why (an instrument must not read a
+                      // stale table, or it disagrees with the settle by exactly the
+                      // amount the user is asking it about). So no path in the app takes
+                      // the coarse decode today. It survives as the meaning of the flag,
+                      // not as a live shortcut — and if that stays true, the flag should
+                      // eventually go rather than sit here looking load-bearing.
+                      coarseDecode: draft,
+                      generation: 0, coalesced: false,
                       strokeSets: strokeSets)
     }
 
     private func produce(url: URL, recipe: Recipe, maxLongEdge: Int, draft: Bool,
+                         coarseDecode: Bool,
                          generation: UInt64, coalesced: Bool,
                          strokeSets: [String: BrushStrokeSet],
                          showingUncropped: Bool = false,
@@ -154,6 +178,7 @@ actor RenderCoordinator {
             if KernelLibrary.coreAvailable {
                 image = try renderer.renderPreview(source: source, recipe: recipe,
                                                    maxLongEdge: maxLongEdge, draft: draft,
+                                                   coarseDecode: coarseDecode,
                                                    showingUncropped: showingUncropped,
                                                    strokeSets: strokeSets,
                                                    softProof: softProof)
@@ -218,7 +243,8 @@ actor RenderCoordinator {
         generateMattesNow(source: source, recipe: recipe)
         return try renderer.renderPreview(source: source, recipe: recipe,
                                           maxLongEdge: Int(source.nativeLongEdge),
-                                          draft: false, strokeSets: strokeSets)
+                                          draft: false, coarseDecode: false,
+                                          strokeSets: strokeSets)
     }
 
     /// Returns the names of the kernels that were unavailable, so the caller can report

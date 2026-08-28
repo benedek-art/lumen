@@ -180,15 +180,37 @@ public struct DraftLadder: Sendable, Equatable {
         // below the rung: it is not evidence FOR the rung, and letting it merely be
         // neutral would let a run of tiny frames sit inside a streak that a hot one
         // should have broken.
-        guard allowStepUp, renderedLongEdge == Self.rungs[rung],
-              ms < Self.stepUpUnder else {
+        guard renderedLongEdge == Self.rungs[rung], ms < Self.stepUpUnder else {
             cheapStreak = 0
             return
         }
         cheapStreak += 1
+        // BANKED while the hand is down, not discarded. Gating the step-up on "not
+        // mid-gesture" is right — a rung earned back under a moving hand is a visible
+        // change of sharpness. Throwing the evidence away with it is not, because
+        // drags are very nearly the only time this ladder sees a frame at all: drafts
+        // come from slider edits, and otherwise only from a photo switch, a zoom or a
+        // matte landing. Discarding it made the ladder a one-way ratchet — one hard
+        // drag on one heavy photograph dropped the rung for the rest of the session
+        // and left every later drag needlessly soft on a machine that could afford
+        // better. `gestureEnded` spends it.
+        guard allowStepUp else { return }
         if cheapStreak >= Self.stepUpAfter, rung > 0 {
             rung -= 1
             cheapStreak = 0
         }
+    }
+
+    /// The hand came up. Spend a streak banked during the gesture, where a single
+    /// change of sharpness costs nothing to look at.
+    ///
+    /// Heat during the gesture will already have cleared the streak, so a drag that ran
+    /// hot earns nothing here — which is the whole point: the evidence is a WHOLE
+    /// gesture of comfortable frames, not a hopeful reset.
+    public mutating func gestureEnded() {
+        if cheapStreak >= Self.stepUpAfter, rung > 0 {
+            rung -= 1
+        }
+        cheapStreak = 0
     }
 }

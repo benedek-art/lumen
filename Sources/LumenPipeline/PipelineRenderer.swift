@@ -258,7 +258,8 @@ public final class PipelineRenderer {
                                  maxLongEdge: Int = PipelineRenderer.maskRasterLongEdge)
     -> CGImage? {
         try? renderPreview(source: source, recipe: Recipe(),
-                           maxLongEdge: maxLongEdge, draft: false)
+                           maxLongEdge: maxLongEdge, draft: false,
+                           coarseDecode: false)
     }
 
     public var unavailableKernels: [String] { availability.unavailable }
@@ -271,8 +272,46 @@ public final class PipelineRenderer {
     /// `softProof` is a VIEWING mode, not an edit (docs/11), which is why it arrives
     /// here as an argument rather than through the recipe: two viewers of the same photo
     /// may proof to different destinations, and neither is changing the picture.
+    /// `coarseDecode` asks the RAW stage for Apple's draft decode
+    /// (`isDraftModeEnabled`): a faster, LOWER-QUALITY demosaic, which Core Image
+    /// honours only when `scaleFactor` is 0.5 or less. It is SEPARATE from `draft`,
+    /// which governs whether the colour tables and mask rasters may be served stale,
+    /// and separating them is the whole point of this parameter.
+    ///
+    /// An interactive frame used to carry both on one flag, so it had TWO quality
+    /// knobs: its resolution, which `DraftLadder` measures and controls, and this one,
+    /// which was hard-coded, invisible and unmeasured. The second is the one the eye
+    /// notices. It is a softer picture at the same size — the demosaic is the stage
+    /// that decides what fine detail exists at all — and it applied to every frame
+    /// under a moving hand and to none at rest, which is exactly the shape the owner
+    /// reported three rounds running: blurry while dragging, sharp on release.
+    ///
+    /// Worse than its cost is that nothing chose it. Because the flag is honoured only
+    /// below half scale, the sharpness of a drag frame depended on where the ladder
+    /// happened to sit relative to that threshold — a quality cliff at an unrelated
+    /// constant, moving under a control whose job is to trade quality for speed
+    /// deliberately.
+    ///
+    /// So the viewer's frames decode at full detail and the ladder holds the only
+    /// quality knob there is — one lever, owned by the thing that measures. The coarse
+    /// decode remains available to the one-shot instrument path (`renderOneShot`, where
+    /// a 512 px scope proxy could not show a demosaic if it tried), but note that both
+    /// of its callers pass `draft: false` today for reasons of their own, so nothing in
+    /// the app currently asks for it at all.
+    ///
+    /// AND IT SHOULD NOT BE PAID PER FRAME, which is what makes the trade easy.
+    /// `AppleRawSource` caches the decode under a key of everything the decoder reads —
+    /// draft, scale, capture sharpening, the two NR amounts, lens profile, decoder
+    /// version — and not one of those fields moves while a tone or colour slider is
+    /// dragged, so every frame of the gesture is handed the same lazy `CIImage`. This
+    /// context runs with `cacheIntermediates: true`, which is what lets Core Image reuse
+    /// the demosaic behind it rather than re-running it per frame. Stated as the
+    /// intent it is: that cache is bounded and heuristic, and a ladder step DOES change
+    /// the scale factor and so the key. The `draft` line on the HUD is what says whether
+    /// it is actually holding.
     public func renderPreview(source: any ImageSource, recipe: Recipe,
                               maxLongEdge: Int, draft: Bool,
+                              coarseDecode: Bool,
                               showingUncropped: Bool = false,
                               strokeSets: [String: BrushStrokeSet] = [:],
                               softProof: SoftProof? = nil) throws -> CGImage {
@@ -281,7 +320,7 @@ public final class PipelineRenderer {
         let native = source.nativeLongEdge
         let scale = native > 0 ? Swift.min(1.0, Double(maxLongEdge) / native) : 1.0
         let decodeInterval = Self.signposter.beginInterval("decode")
-        guard let decoded = source.decode(recipe: recipe, draft: draft,
+        guard let decoded = source.decode(recipe: recipe, draft: coarseDecode,
                                           scaleFactor: scale) else {
             Self.signposter.endInterval("decode", decodeInterval)
             throw RenderError.decodeFailed
