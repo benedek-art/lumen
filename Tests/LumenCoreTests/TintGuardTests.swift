@@ -190,4 +190,58 @@ final class TintGuardTests: XCTestCase {
                           "one unit of tint moved the neutral by \(worst) at "
                               + "\(worstAt.kelvin) K / tint \(worstAt.tint)")
     }
+
+    // MARK: - Tint honesty (docs/23 M2: tintLimit surfaced; eyedropper cheap again)
+
+    /// The memo is not allowed to change an answer, only how often one is derived.
+    func testTheTintLimitCacheServesTheBisectionsAnswer() {
+        // Kelvins nothing else in the suite is likely to have asked about, so the
+        // first pass genuinely computes.
+        let kelvins = [2111.0, 3222.0, 4333.0, 5444.0, 12345.0]
+        let first = kelvins.map { ColorTemperature.tintLimit(kelvin: $0) }
+        let computed = ColorTemperature.tintLimitComputationCount
+        let second = kelvins.map { ColorTemperature.tintLimit(kelvin: $0) }
+        XCTAssertEqual(first, second, "the cache changed a limit")
+        XCTAssertEqual(ColorTemperature.tintLimitComputationCount, computed,
+                       "a repeated kelvin re-ran the bisection")
+    }
+
+    /// The reason the memo exists: `neutralizing` probes a few thousand
+    /// (kelvin, tint) candidates and each used to pay a 40-step bisection. The
+    /// kelvins repeat across tints, so a click's bisection count must be on the
+    /// order of the DISTINCT kelvins (~140), never the candidates (~3000).
+    func testTheEyedropperDoesNotPayABisectionPerCandidate() {
+        let current = WhiteBalanceEngine(asShotKelvin: 5500, asShotTint: 0,
+                                         targetKelvin: nil, targetTint: nil)
+        let before = ColorTemperature.tintLimitComputationCount
+        _ = WhiteBalanceEngine.neutralizing(sample: RGB(0.45, 0.5, 0.62),
+                                            asShotKelvin: 5500, asShotTint: 0,
+                                            current: current)
+        let cost = ColorTemperature.tintLimitComputationCount - before
+        XCTAssertLessThan(cost, 300,
+                          "one eyedropper click ran \(cost) bisections — the kelvin "
+                              + "memo is not being hit")
+    }
+
+    /// `effectiveTint`, surfaced like `effectiveHighlights`: the engine has bounded
+    /// magenta correctly since the guard landed and told nobody, so on a warm frame
+    /// the slider's last stretch moved a number and no pixel with nothing on screen
+    /// to say why. The panel badges when this diverges from the slider's value.
+    func testEffectiveTintReportsTheBoundedMagentaAndOnlyThat() {
+        let warm = WhiteBalanceEngine(asShotKelvin: 5500, asShotTint: 0,
+                                      targetKelvin: 2000, targetTint: 150)
+        XCTAssertLessThan(warm.effectiveTint, 150,
+                          "a +150 magenta at 2000 K is past the physical bound and "
+                              + "must report as less")
+        XCTAssertEqual(warm.effectiveTint,
+                       ColorTemperature.clampedTint(kelvin: 2000, tint: 150))
+
+        let daylight = WhiteBalanceEngine(asShotKelvin: 5500, asShotTint: 0,
+                                          targetKelvin: 5500, targetTint: 40)
+        XCTAssertEqual(daylight.effectiveTint, 40, "ordinary daylight work is untouched")
+
+        let green = WhiteBalanceEngine(asShotKelvin: 5500, asShotTint: 0,
+                                       targetKelvin: 2000, targetTint: -150)
+        XCTAssertEqual(green.effectiveTint, -150, "green is never clamped")
+    }
 }

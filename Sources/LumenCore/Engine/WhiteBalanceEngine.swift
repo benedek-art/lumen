@@ -57,6 +57,18 @@ public struct WhiteBalanceEngine: Sendable {
         asShot.kelvin == target.kelvin && asShot.tint == target.tint
     }
 
+    /// The tint the render actually uses at the current target: `target.tint` with
+    /// its magenta half bounded by `ColorTemperature.tintLimit(kelvin:)`.
+    ///
+    /// Surfaced for the same reason `ToneEngine.effectiveHighlights` is: the engine
+    /// has clamped this correctly since the tint guard landed and told nobody, so on
+    /// a warm frame the slider's last stretch moved a number on screen and no pixel —
+    /// which reads as a broken control unless the UI can say "bounded by physics
+    /// here". The panel reads this and badges when it diverges from the slider.
+    public var effectiveTint: Double {
+        ColorTemperature.clampedTint(kelvin: target.kelvin, tint: target.tint)
+    }
+
     // MARK: - What the Temp/Tint rows show while the recipe says "as shot"
 
     /// The neutral a file was actually shot at — `CIRAWFilter.neutralTemperature` for a

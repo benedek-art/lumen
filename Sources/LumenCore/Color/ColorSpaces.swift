@@ -371,9 +371,49 @@ public enum ColorTemperature {
     /// across the whole range and is left alone.
     ///
     /// Monotone by construction — the S response falls strictly as tint rises — so a
-    /// bisection finds the boundary exactly rather than approximately. Called twice
-    /// when a render plan is built, never per pixel.
+    /// bisection finds the boundary exactly rather than approximately.
+    ///
+    /// MEMOIZED, because "called twice when a render plan is built" stopped being the
+    /// whole story the day the WB eyedropper landed: `neutralizing` sweeps a few
+    /// thousand (kelvin, tint) candidates and each one comes through
+    /// `chromaticity(kelvin:tint:)` → `clampedTint` → here — a 40-step bisection with
+    /// two cone evaluations per step, per candidate. The kelvin values repeat heavily
+    /// (each kelvin is probed at dozens of tints), so a cache by exact kelvin turns
+    /// ~6 000 bisections per eyedropper click into ~140. The function is pure, so the
+    /// cache cannot change an answer, only how often it is derived —
+    /// `testTheTintLimitCacheServesTheBisectionsAnswer` holds the pair together.
     public static func tintLimit(kelvin: Double) -> Double {
+        tintLimitLock.lock()
+        if let held = tintLimitCache[kelvin] {
+            tintLimitLock.unlock()
+            return held
+        }
+        tintLimitLock.unlock()
+
+        let limit = computeTintLimit(kelvin: kelvin)
+
+        tintLimitLock.lock()
+        // Whole-cache reset rather than LRU: entries are 16 bytes, the working set is
+        // one eyedropper sweep, and an occasional cold refill is 140 bisections.
+        if tintLimitCache.count >= 4096 { tintLimitCache.removeAll() }
+        tintLimitCache[kelvin] = limit
+        tintLimitComputations += 1
+        tintLimitLock.unlock()
+        return limit
+    }
+
+    private static let tintLimitLock = NSLock()
+    private static var tintLimitCache: [Double: Double] = [:]
+    /// How many times the bisection has actually run — the observable the cache's
+    /// whole reason to exist is measured by. Test-only reader; guarded by the lock.
+    static var tintLimitComputationCount: Int {
+        tintLimitLock.lock()
+        defer { tintLimitLock.unlock() }
+        return tintLimitComputations
+    }
+    private static var tintLimitComputations = 0
+
+    private static func computeTintLimit(kelvin: Double) -> Double {
         let base = unguardedConeResponse(kelvin: kelvin, tint: 0)
         guard base.r > 0, base.g > 0, base.b > 0 else { return maxTint }
 
