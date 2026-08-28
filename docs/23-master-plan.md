@@ -744,9 +744,14 @@ side-by-side exports. **Exit gate: owner prefers or ties Lumen on ≥4 of 5.**
          the instruments. `DragProbeTests` (macOS lane) prices a 48-event drag with a
          fresh plan per frame; `PlanCostProbeTests` (free Linux lane) prices the CPU
          half. Findings, all at 1280 px:
-         · **Materializing the decode: no measurable difference** (48.2 vs 49.2 ms).
-           `cacheIntermediates` is already on. Floor, not an estimate — the probe's
-           source is a two-filter chain, not a 45 MP demosaic — but not the lever.
+         · **Materializing the decode: a small measured win, not the lever.** First read
+           as "no difference" (48.2 vs 49.2 ms) — but that reading came from the
+           probe's settle path, where a 33³ bake dominates and masks everything under
+           it. On the DRAFT path it is 46.9 vs 50.7 ms with the readback and 45.4 vs
+           51.6 without: ~10%, consistent in both, against a variance that makes it
+           suggestive rather than settled. `cacheIntermediates` is already on, which is
+           why it is only 10% — and the probe's source is a two-filter chain, not a
+           45 MP demosaic, so this is a FLOOR on what a real decode is worth.
          · **The GPU→CPU readback: no measurable difference** (`createCGImage` 48.2 vs
            IOSurface 47.6 ms). The Metal-layer viewport is a milestone, not this fix.
          · **Plan construction on the DRAFT path is ~1 ms, flat across every control**
@@ -760,17 +765,33 @@ side-by-side exports. **Exit gate: owner prefers or ties Lumen on ≥4 of 5.**
            a drag frame is therefore not the problem, which leaves the GPU graph and
            the main actor, and the graph at 1280 px is ~20-30 ms on a CI VM — enough
            for 30-60 fps, not for "tick by tick".
-         · Cost stops falling with pixels below ~1024 (settle path, exposure: 1728 →
-           65.5, 1280 → 37.6, 1024 → 32.4, 768 → 31.8, 576 → 28.7 ms). So the ladder's
-           new 768/576 rungs buy little; what the fix bought is the step from 1728 to
-           1024–1280, which is ~2×.
-      4. **The instrument that should have caught all of this measures the opposite.**
+         · **Pixels keep buying frames all the way down — the opposite of what this
+           entry said on its first draft.** The flat-below-1024 curve (1728 → 65.5,
+           1280 → 37.6, 1024 → 32.4, 768 → 31.8, 576 → 28.7) was the SETTLE path, where
+           a table bake sits under every frame as a fixed floor. On the draft path,
+           which is what a drag actually runs: 1728 → 80.7, 1280 → 61.9, 1024 → 52.6,
+           768 → 37.3, 576 → 34.8. So 1280 → 768 is a 40% cut and the new cheap rungs
+           earn their place. Corrected here rather than quietly edited, because
+           "measure, don't reason" is the whole point of this round and the first
+           reading of these numbers was still the wrong pass.
+      4. **The probe's own first row was wrong, twice, and both times it was read
+         before it was doubted.** Core Image compiles each kernel on first evaluation,
+         so the graph's whole compile cost lands once per PROCESS, on whichever row is
+         measured first — dropping the first event of each drag does not touch it.
+         Exposure read 63.3 ms p50 against Whites' 27.9, Saturation's 25.0 and
+         Sharpen's 22.5, which says "Exposure is the expensive control" and is exactly
+         backwards: it re-keys the fewest tables of the five and was simply first in
+         `Control.allCases`. The per-rung table had the same tell, its 1728 row alone
+         off the curve. `warmUp` now runs four throwaway frames per size before
+         anything is timed. A probe whose first row is always wrong is worse than no
+         probe, because the first row is the one a reader anchors on.
+      5. **The instrument that should have caught all of this measures the opposite.**
          `PerfProbeTests` takes the BEST of four renders of the SAME plan over the SAME
          source with no decode. On the same runner and the same commit it reported
          20.0 ms at 1024 where the drag probe measured a 1280 px Exposure frame at 51.2
          and a Whites settle at 385.3. Kept — it is a useful graph-cost table — but it
          is no longer read as what a drag costs.
-      5. **The release stopped paying for a frame nobody waits for.** A release bumps
+      6. **The release stopped paying for a frame nobody waits for.** A release bumps
          `settleTick` and moves nothing else — `onEnded` commits the value the last
          motion event already committed — so the viewer rendered a draft that produced
          the picture already on screen, waited out the 40 ms debounce, and only then
@@ -780,7 +801,7 @@ side-by-side exports. **Exit gate: owner prefers or ties Lumen on ≥4 of 5.**
          brush blob loading, ⇧S and a window resize all leave the recipe untouched
          while changing the picture, and each must still get its fast draft. Five tests,
          including that guard.
-      6. **The HUD gained the pair that ends the argument**: input events SEEN per
+      7. **The HUD gained the pair that ends the argument**: input events SEEN per
          second beside frames DELIVERED per second (`EventRate`, LumenCore, tested).
          Latency alone cannot tell a render that cannot keep up (in 90/s, out 8/s)
          from input being dropped before the app ever sees it (in 10/s, out 10/s), and
@@ -789,8 +810,10 @@ side-by-side exports. **Exit gate: owner prefers or ties Lumen on ≥4 of 5.**
       Scripted as `docs/sessions/03-checklist.md` — seven steps, ~15 minutes, of which
       step 1 is the whole point. Run the build with the HUD on (⌘⌥L) and drag any
       slider. Read `in/out`:
-      · in high, out low → the render is the bottleneck; next lever is the graph, and
-        the per-rung numbers above say pixels are not it below 1024.
+      · in high, out low → the render is the bottleneck, and the per-rung numbers say
+        pixels still help: the ladder should be walking down on its own now, so read
+        the HUD's `draft ms @size` to see which rung it settled on before reaching for
+        the graph itself.
       · in and out both low and equal → input is still being dropped on the main
         actor; next lever is `AppState` → `@Observable` for per-property tracking, of
         which round 2's two small observables are the first step, not a substitute.

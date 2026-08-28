@@ -230,6 +230,36 @@ final class DragProbeTests: XCTestCase {
         CIContext(options: [.workingFormat: CIFormat.RGBAh])
     }
 
+    /// Run some frames and throw them away, before anything is timed.
+    ///
+    /// NOT the same as dropping the first event of each drag, which this file already
+    /// did and which is not enough. Core Image compiles a kernel the first time it is
+    /// evaluated, and the graph holds a dozen of them, so the cost is paid once PER
+    /// PROCESS — and it lands entirely on whichever row happens to be measured first.
+    /// The run that exposed this reported Exposure at a 63.3 ms p50 against Whites at
+    /// 27.9, Saturation at 25.0 and Sharpen at 22.5, which reads as "Exposure is the
+    /// expensive control" and is the exact opposite of the truth: Exposure re-keys the
+    /// fewest tables of the five. It was simply first in `Control.allCases`. The
+    /// per-rung table had the same tell — its first row, 1728, was the only one out of
+    /// line with the curve below it.
+    ///
+    /// A probe whose first row is always wrong is worse than no probe, because the
+    /// first row is the one a reader anchors on.
+    private func warmUp(context: CIContext, longEdge: Int) {
+        let source = materializedFrame(longEdge: longEdge, context: context)
+        for i in 0..<4 {
+            let recipe = Control.exposure.recipe(at: Double(i) / 4)
+            let plan = RenderPlan(recipe: recipe, lutSize: LUT3D.interactiveSize,
+                                  allowStaleTables: false)
+            let out = RenderGraph().build(
+                source, plan: plan,
+                options: RenderGraph.Options(longEdge: longEdge,
+                                             lutSize: LUT3D.interactiveSize))
+            _ = context.createCGImage(out, from: out.extent, format: .RGBA8,
+                                      colorSpace: CGColorSpace(name: CGColorSpace.sRGB))
+        }
+    }
+
     /// SAY WHICH BUILD THESE NUMBERS CAME FROM, every time.
     ///
     /// `swift test` builds debug, and the two halves of a frame respond to that very
@@ -268,6 +298,7 @@ final class DragProbeTests: XCTestCase {
         // ≈ a 16-inch MacBook Pro's loupe at fit: a 1180 pt centre pane at 2× buckets
         // to 2560, and `PhotoRenderModel.load` asks for half of it.
         let longEdge = 1280
+        warmUp(context: ctx, longEdge: longEdge)
         let source = materializedFrame(longEdge: longEdge, context: ctx)
 
         printBuildMode()
@@ -300,6 +331,7 @@ final class DragProbeTests: XCTestCase {
     func testWhatEachRungCostsUnderADrag() throws {
         let ctx = context()
         printBuildMode()
+        for longEdge in [1728, 1280, 1024, 768, 576] { warmUp(context: ctx, longEdge: longEdge) }
         print("DRAGPROBE ── per rung, Exposure (draft path), budget "
                 + "\(DraftLadder.budgetMilliseconds) ms ──")
         for longEdge in [1728, 1280, 1024, 768, 576] {
@@ -328,6 +360,7 @@ final class DragProbeTests: XCTestCase {
     func testWhatTheLazySourceAndTheReadbackCost() throws {
         let ctx = context()
         let longEdge = 1280
+        warmUp(context: ctx, longEdge: longEdge)
         let lazyInput = lazyFrame(longEdge: longEdge)
         let materialized = materializedFrame(longEdge: longEdge, context: ctx)
 

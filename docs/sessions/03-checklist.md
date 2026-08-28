@@ -173,7 +173,11 @@ obvious consequence rather than becoming another round of guessing.
   lever: `AppState` → `@Observable`, so a view is invalidated only for the properties
   it actually reads. This round's two small observables are the first step of that, not
   a substitute for it.
-- **`in` high, `out` low** → the render is the ceiling. Measured: the frame stops
-  getting cheaper below about 1024 px, so the answer is not fewer pixels — it is fewer
-  or cheaper passes, which is a pipeline change and a real piece of work.
+- **`in` high, `out` low** → the render is the ceiling. The draft-resolution ladder,
+  which had never once run before this round, should now be walking itself down under
+  the load — so read `draft ms @size` on the HUD and write down the size it settled on.
+  Measured on the runner, a draft frame costs 80.7 ms at 1728 px, 61.9 at 1280, 52.6 at
+  1024, 37.3 at 768 and 34.8 at 576, so pixels genuinely still buy frames; if the size
+  is NOT coming down while the frames are slow, the ladder is still not working and
+  that is the next thing to fix rather than the pipeline.
 - **Both high and it feels smooth** → it is fixed, and the number says why.
