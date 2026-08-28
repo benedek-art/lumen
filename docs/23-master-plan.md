@@ -413,11 +413,19 @@ and against Lightroom via owner-exported references.
          parameter as its twin `exactColor` and weighs the tone stage's
          luminance in it (exact-equality test in ColorScienceTests, watched
          failing with the rec2020 hardcode restored).
-      10. Doc staleness batch: BUILDING.md thumbnails/PhotoQuery/grain bullets,
-          docs/04+15 old zone-pivot constants, docs/05 uniformity/variance
-          as-built note, docs/06 clarity as-built note, docs/24 colorBalance gap
-          list, docs/04+12 panel-order amendments, Keymap repeat comment (owner
-          call), 9pt text floor batch incl. LumenBadge.
+      10. Doc staleness batch — the prose half DONE: BUILDING.md's schema bullet
+          re-audited against the code (PhotoQuery/keywords/stacks are wired now,
+          the unwired list shrunk and corrected; `.version` rows exist since
+          queue item 1); docs/04+15 pivot constants replaced with the derived
+          values and docs/24-tone's #1 defect marked fixed; docs/05 gained the
+          uniformity/variance as-built note (flat-neighbourhood kernel + the
+          measured-mean wiring and its basis); docs/06 gained the clarity
+          as-built note (single-band guided vs the reference local Laplacian,
+          with the measured rim numbers); docs/24-color's colorBalance/proof-
+          registry gaps closed against docs/27; docs/04+12 carry the owner's
+          panel-order amendment. Still open, deliberately: Keymap repeat comment
+          (owner call) and the 9pt text floor batch incl. LumenBadge (app code,
+          rides the app batch).
       11. Superseded folder scan still runs the abandoned folder's full metadata
           backfill ahead of the new one (AppState.swift:1766).
       12. ~~Uniformity's honest cure~~ DONE: `PipelineRenderer.measuredBandMeanHues`

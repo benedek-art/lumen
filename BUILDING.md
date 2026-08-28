@@ -389,17 +389,22 @@ These are tracked, not hidden.
   they move the tone engine's anchors, and a mask has no display transform for those
   anchors to feed, so they only reshape where Highlights and Shadows act. The panel
   says so.
-- **A lot of the catalog schema has no app behind it yet.** The tables, indices and
-  `CatalogStore` API exist and are tested, and nothing in the app calls them: the
-  preview/artifact cache (so thumbnails re-decode from the embedded JPEG on every
-  launch rather than being served warm), stacks, keywords, collections, jobs, the
-  export log, per-source view state, and virtual copies — `saveRecipe` only ever
-  writes `kind = .working`, so `.version` and `.snapshot` rows are never created and
-  the queries that filter on them can never match. The SQL filter and sort engine is
-  in the same position: `PhotoQuery`, the FTS index and the fourteen chip indices are
-  built and unused, because `FilterBar` filters in memory. None of this is broken, and
-  all of it is unfinished — the schema went in ahead of the features, which is the
-  right order, but it means a schema tour overstates what the app does.
+- **Part of the catalog schema still has no app behind it.** The tables, indices and
+  `CatalogStore` API exist and are tested; what the app actually calls has grown
+  since this bullet was written and the list is shorter than it was. Wired now:
+  `PhotoQuery` (AppState builds one per sort/filter change and
+  `CatalogService.photos(matching:)` runs it — the old "FilterBar filters in
+  memory" sentence is dead), keywords (vocabulary, per-photo reads, the keyword
+  chips), stacks (create, membership, the stack filter), and `.version` rows,
+  which `saveRecipe` creates when preserving a working row written by a newer
+  build. Still unwired: the preview/artifact cache (thumbnails re-decode from the
+  embedded JPEG on every launch rather than being served warm — the M4
+  rendered-preview item), collections, jobs, the export log, per-source view
+  state, virtual copies, and `.snapshot` rows (snapshots live in `HistoryStack`,
+  in memory). None of this is
+  broken, and the unwired part is unfinished — the schema went in ahead of the
+  features, which is the right order, but it means a schema tour overstates what
+  the app does.
 - **The catalog's integrity check runs now, and restores.** `quickCheck()` and
   `integrityCheck()` used to be documented as running on every open and had no callers,
   so a corrupt catalog was discovered when a query threw — and a thrown query degrades

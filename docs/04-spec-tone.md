@@ -41,6 +41,11 @@ The tone panel stack, top to bottom (UI order — pipeline order is `docs/14-pip
 └──────────────────────────────────────────┘
 ```
 
+> **Amendment (owner, 2026-08-26).** As shipped, the Basic panel's row order is
+> **Tone → Presence → WB → Colour** — tone first, white balance demoted to a
+> correction row. The sketch above predates that decision; docs/12's panel-order
+> section carries the amendment.
+
 Render sits at the top of the stack the way LrC's Profile does, because the display transform *is*
 the base look — everything else is judged through it. The Develop/Look split (`docs/00-vision.md`,
 D4) places this whole panel in Develop; the Zones panel and Curve are also mountable inside Look
@@ -195,7 +200,9 @@ falloff are visible and draggable on the histogram.
 | Global | same Exposure/wheel/Saturation | neutral | Unwindowed; composes with everything |
 
 Wire note (docs/15 §15.4): pivots are STORED as normalized positions on the tonal
-axis [0,1] (defaults 0.08/0.25/0.5/0.75/0.92); the EV values above are the UI
+axis [0,1]; the defaults are DERIVED from the EV row above through the axis
+(−4/−2/0/+2/+4 EV over −9…+5 ⇒ ≈0.357/0.5/0.643/0.786/0.929 — `Zones.defaultPivots`
+computes them, so the numbers and this table cannot drift apart); the EV values above are the UI
 denomination, mapped through the pipeline's log-luminance→axis function
 (docs/14-pipeline.md owns the mapping). Per-zone Saturation stores UI% − 100
 (so the sparse default is 0); per-zone Falloff stores 0…1 directly.

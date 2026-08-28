@@ -377,7 +377,8 @@ and the Develop/Look stage split (D4):
                  "temp": 5200, "tint": 8 },
     "tone":    { "exposure": 0.35, "contrast": 12, "highlights": -40,
                  "shadows": 25, "whites": 0, "blacks": -10 },
-    "zones":   { "pivots": [0.08, 0.25, 0.5, 0.75, 0.92],       // D7, draggable
+    "zones":   { "pivots": [0.357, 0.5, 0.643, 0.786, 0.929],   // D7, draggable —
+                 // derived from the documented -4/-2/0/+2/+4 EV (Zones.defaultPivots)
                  "dark":  { "ev": 0.3, "wheel": [0.02, -0.01], "sat": 0 },
                  "shadow": {}, "mid": {}, "light": {}, "bright": {},
                  "global": { "ev": 0.0 } },
