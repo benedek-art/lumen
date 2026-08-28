@@ -47,6 +47,67 @@ final class AccuracyProbeTests: XCTestCase {
         }
     }
 
+    /// Temp writes the Kelvin it shows — anchored to the CIE standard, not to the
+    /// code's own locus (M2 calibration contract). The daylight branch of the locus
+    /// must land on the PUBLISHED D-illuminant chromaticities: D65 at (0.3127,
+    /// 0.3290) and D50 at (0.3457, 0.3585). The Kelvin values carry the 1968 c₂
+    /// revision (D65 ≈ 6504 K, D50 ≈ 5003 K) because that is what the published xy
+    /// pairs are defined at; a slider showing "6504" must mean the illuminant the
+    /// standard calls that. Tolerance 0.0015 in xy — the CIE polynomials are quoted
+    /// to four figures and the locus blends analytically, so anything past a
+    /// milli-xy is a real disagreement with the standard, not rounding.
+    func testTheKelvinSliderLandsOnThePublishedDIlluminants() {
+        let d65 = ColorTemperature.chromaticity(kelvin: 6504, tint: 0)
+        XCTAssertEqual(d65.x, 0.3127, accuracy: 0.0015,
+                       "6504 K renders x=\(d65.x) against D65's published 0.3127")
+        XCTAssertEqual(d65.y, 0.3290, accuracy: 0.0015,
+                       "6504 K renders y=\(d65.y) against D65's published 0.3290")
+
+        let d50 = ColorTemperature.chromaticity(kelvin: 5003, tint: 0)
+        XCTAssertEqual(d50.x, 0.3457, accuracy: 0.0015,
+                       "5003 K renders x=\(d50.x) against D50's published 0.3457")
+        XCTAssertEqual(d50.y, 0.3585, accuracy: 0.0015,
+                       "5003 K renders y=\(d50.y) against D50's published 0.3585")
+    }
+
+    /// The four range sliders' endpoint targets, asserted through the full gain
+    /// stage against the engine's own DOCUMENTED constants (M2 calibration
+    /// contract): Highlights and Shadows own ±2.0 EV of range compression at full
+    /// deflection, Whites +100 lifts its shelf 1.3 EV, Blacks −100 drops its shelf
+    /// 2.2 EV. Measured as the peak stop shift over the whole tonal axis, so a
+    /// weight curve that stopped reaching 1, a solver that started scaling a
+    /// single-control move, or an edited constant all fail here by name.
+    func testTheToneEndpointsDeliverTheirDocumentedEV() {
+        func peakShift(_ mutate: (inout Tone) -> Void) -> Double {
+            var tone = Tone()
+            mutate(&tone)
+            let engine = ToneEngine(tone: tone, zones: Zones())
+            var peak = 0.0
+            var t = -14.0
+            while t <= 9.0 {
+                peak = Swift.max(peak, abs(Num.safeLog2(engine.gain(at: t))))
+                t += 0.05
+            }
+            return peak
+        }
+        XCTAssertEqual(peakShift { $0.highlights = -100 },
+                       ToneEngine.highlightShadowRangeEV, accuracy: 0.05,
+                       "Highlights −100 must compress its zone by the documented "
+                           + "\(ToneEngine.highlightShadowRangeEV) EV")
+        XCTAssertEqual(peakShift { $0.shadows = 100 },
+                       ToneEngine.highlightShadowRangeEV, accuracy: 0.05,
+                       "Shadows +100 must lift its zone by the documented "
+                           + "\(ToneEngine.highlightShadowRangeEV) EV")
+        XCTAssertEqual(peakShift { $0.whites = 100 },
+                       ToneEngine.whiteToneEV, accuracy: 0.05,
+                       "Whites +100 must lift its shelf by the documented "
+                           + "\(ToneEngine.whiteToneEV) EV")
+        XCTAssertEqual(peakShift { $0.blacks = -100 },
+                       ToneEngine.blackToneEV, accuracy: 0.05,
+                       "Blacks −100 must drop its shelf by the documented "
+                           + "\(ToneEngine.blackToneEV) EV")
+    }
+
     /// The Zones panel's contract (docs/04): the five default pivots sit at
     /// −4 / −2 / 0 / +2 / +4 EV around mid-grey. The shipped constants put "Mids"
     /// at scene −2 EV and "Darks" at −7.9 EV, where the display toe shows almost
