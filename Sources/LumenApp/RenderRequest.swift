@@ -58,8 +58,16 @@ struct ViewerRenderKey: Equatable {
     /// crop tool and default it false.
     let showingUncropped: Bool
 
+    /// Bumped once when a slider gesture ends (`AppState.settleTick`). Not a render
+    /// input — a request for the quality pass the drag deferred. It is in the KEY
+    /// rather than in a callback because `onEnded` usually commits the value the last
+    /// motion event already committed: the recipe is identical, so nothing else in
+    /// this key moves, and without the tick the picture would rest on its final draft
+    /// forever.
+    let settleTick: Int
+
     /// The current key for a surface showing `url` with `recipe` at `longEdge`.
-    /// Reads the three beside-the-recipe inputs from the one place they live.
+    /// Reads the beside-the-recipe inputs from the one place they live.
     @MainActor
     static func current(url: URL, recipe: Recipe, longEdge: Int,
                         state: AppState,
@@ -68,7 +76,8 @@ struct ViewerRenderKey: Equatable {
                         strokeRefs: Set(state.strokeSets(for: recipe).keys),
                         softProof: state.activeSoftProof,
                         matteKinds: state.maskMatteKinds(for: url),
-                        showingUncropped: showingUncropped)
+                        showingUncropped: showingUncropped,
+                        settleTick: state.settleTick)
     }
 }
 

@@ -363,9 +363,26 @@ public struct RenderPlan: Sendable {
             for v in self.toneGainLUT.samples { peak = Swift.max(peak, v) }
             let lut = self.toneGainLUT
             let cubeSize = lutSize >= LUT3D.exportSize ? LUT3D.exportSize : 32
-            self.toneGainCubeBaked = LUT3D(size: cubeSize) { encoded in
-                RGB(gray: lut.evaluate(encoded.r) / peak)
+            let bakeCube = {
+                LUT3D(size: cubeSize) { encoded in
+                    RGB(gray: lut.evaluate(encoded.r) / peak)
+                }
             }
+            // Through the cache, like every other expensive table. This was the one
+            // that was not: 32 768 samples rebuilt at plan init — during a drag, on
+            // every mouse event — and invalidated by exactly the six tone sliders and
+            // the zones, which is to say by the controls that are dragged most. The
+            // key is complete because `toneEngine` is built from these two subtrees
+            // alone, and `peak` is derived from the table they produce.
+            let toneKey = PlanTableCache.key(["tonecube", "\(cubeSize)"],
+                                             [develop.tone, develop.zones])
+            self.toneGainCubeBaked = toneKey.map {
+                allowStaleTables
+                    ? PlanTableCache.tableAllowingStale(.toneGain, key: $0,
+                                                        size: cubeSize, build: bakeCube)
+                    : PlanTableCache.table(.toneGain, key: $0, size: cubeSize,
+                                           build: bakeCube)
+            } ?? bakeCube()
         }
     }
 

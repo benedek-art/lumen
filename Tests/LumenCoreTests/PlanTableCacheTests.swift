@@ -201,6 +201,70 @@ final class PlanTableCacheTests: XCTestCase {
                        "one draft miss with a table to be stale from")
     }
 
+    // MARK: - The tone gain cube (session C: the last uncached bake)
+
+    /// A tone drag re-plans on every mouse event, and the tone gain cube — 32³ =
+    /// 32 768 samples — was the one expensive table not routed through this cache, so
+    /// it was rebuilt on every one of them. Every basic tone slider and every zone
+    /// invalidates it, which is to say the controls a photographer reaches for first.
+    func testATonePlanBakesItsGainCubeOnceAcrossAWholeDrag() {
+        PlanTableCache.clear()
+        var recipe = Recipe()
+        // Contrast, not Exposure: exposure is a pure gain carried by the linear stage,
+        // so a tone engine holding only an exposure is still IDENTITY and bakes no
+        // cube at all. The controls that build this table are the ones that shape the
+        // curve.
+        recipe.develop.tone.contrast = 45
+        recipe.develop.tone.highlights = -30
+
+        // Per-SLOT traffic, deliberately: the aggregate counters cannot tell a cube
+        // that was cached from a cube that never came through the cache at all, so a
+        // test written against the totals stays green for the defect it exists to
+        // catch. Asked of the tone slot, the numbers have to be about the cube.
+        // Deltas: the counters are cumulative for the life of the process, and other
+        // cases in this file plan tone recipes too.
+        let before = PlanTableCache.traffic(.toneGain)
+        _ = RenderPlan(recipe: recipe)
+        let afterFirst = PlanTableCache.traffic(.toneGain)
+        XCTAssertEqual(afterFirst.bakes - before.bakes, 1,
+                       "the cold plan's tone cube must be baked THROUGH the cache")
+
+        // The rest of the drag: the same tone, re-planned the way every mouse event
+        // re-plans it. Not one further bake — the whole point.
+        for _ in 0..<20 { _ = RenderPlan(recipe: recipe) }
+        let afterDrag = PlanTableCache.traffic(.toneGain)
+        XCTAssertEqual(afterDrag.bakes, afterFirst.bakes,
+                       "re-planning an unchanged tone must not bake the cube again")
+        XCTAssertEqual(afterDrag.hits - afterFirst.hits, 20,
+                       "every re-plan must be a hit")
+    }
+
+    /// The key has to be complete in the other direction too: moving a tone control
+    /// must produce a DIFFERENT cube, not a cached one from the previous value.
+    func testTheToneCubeKeyTracksToneAndZones() {
+        PlanTableCache.clear()
+        var a = Recipe()
+        a.develop.tone.contrast = 40
+        var b = Recipe()
+        b.develop.tone.contrast = 80
+        var c = Recipe()
+        c.develop.tone.contrast = 40
+        c.develop.zones.mid.ev = 0.4
+
+        guard let cubeA = RenderPlan(recipe: a).toneGainCubeBaked,
+              let cubeB = RenderPlan(recipe: b).toneGainCubeBaked,
+              let cubeC = RenderPlan(recipe: c).toneGainCubeBaked else {
+            return XCTFail("a moved tone control must bake a cube")
+        }
+        XCTAssertNotEqual(cubeA.data, cubeB.data,
+                          "a moved Contrast must not be served A's cube")
+        XCTAssertNotEqual(cubeA.data, cubeC.data,
+                          "a zone move must not be served A's cube")
+        XCTAssertEqual(RenderPlan(recipe: a).toneGainCubeBaked?.data, cubeA.data,
+                       "the same tone must be served the same cube")
+        XCTAssertEqual(cubeB.data.count, cubeA.data.count)
+    }
+
     // MARK: - Stale-while-bake (docs/23 M1a)
     //
     // The contract: a DRAFT frame may show the previous event's table while the exact

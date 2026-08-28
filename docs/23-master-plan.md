@@ -654,15 +654,56 @@ side-by-side exports. **Exit gate: owner prefers or ties Lumen on ≥4 of 5.**
       Residual, accepted and documented at `trueFitZoom`: on a CROPPED frame the
       settle delivers fewer pixels than the source extent predicts, so the drawn
       size corrects by that shortfall when the first zoomed settle lands.
-- [ ] **Slider smoothness — the owner's "very, very big thing", now its own
-      objective.** "Every single slider is still going and updating little by
-      little, so it's not a smooth update … that is for every slider in the app."
-      Under investigation as a dedicated pass over the shared drag path (control →
-      `updateRecipe` → republish → `.task(id:)` → coordinator → frame), NOT per
-      slider. Prior art that must be checked as actually engaged before anything new
-      is written: `FrameDelivery` (deliver completed frames despite cancellation),
-      `DraftLadder`, `RefineBudget`, `PlanTableCache`/`MaskRasterCache`
-      stale-while-bake, and the `sliderGestureChanged` plumbing.
+- [x] **Slider smoothness round 1 — the owner's "very, very big thing".** "Every
+      single slider is still going and updating little by little … that is for every
+      slider in the app." Traced end to end over the SHARED drag path, not per
+      slider. Two mechanisms found and fixed, one instrument added:
+      1. **THE MID-DRAG SETTLE, the primary cause.** `PhotoRenderModel.load` had no
+         idea a gesture was in flight — `sliderGestureActive` existed and had zero
+         readers outside `AppState`. So 40 ms after every draft, on every micro-pause
+         a human's drag is full of, the viewer started a FULL-RESOLUTION pass: a
+         fresh decode at a different scale factor plus EXACT table bakes (a settle
+         must never serve stale), on a serial render actor whose passes have no
+         cancellation points. Every event behind it waited 100–300 ms for a lane that
+         could not be given back, and the picture then jumped to wherever the hand
+         had reached. Now: no settle while the hand is down, and `AppState.settleTick`
+         — bumped in `flushSliderGesture`, so it inherits the release, the photo
+         switch AND the 8 s watchdog — asks for it once, at rest. Held as arithmetic
+         in `FrameDeliveryTests.testAMidDragSettleIsWhatMakesADragStep`: a deliberate
+         10-event drag delivers 6 frames with mid-drag settles and 10 gated.
+      2. **The tone gain cube was the one expensive bake outside `PlanTableCache`** —
+         32³ = 32 768 samples rebuilt at plan init (every mouse event), invalidated
+         by exactly the six tone sliders and the zones. Now cached like every other
+         table, `anyBakePending` extended to cover it so the rest-must-be-exact
+         contract still holds. `PlanTableCache.traffic(_:)` is new and load-bearing:
+         the aggregate counters CANNOT see a table that never came through the cache,
+         so the first version of this test passed against the defect.
+      3. Two main-thread wins on the way: `maskOverlayAlpha` published nil-over-nil on
+         every pixel-touching edit (now guarded), and `\.sliderGestureChanged` was a
+         freshly allocated closure per body pass — a new environment identity that
+         invalidated every slider, canvas and wheel in the tree (now stored on state).
+      Prior art verified as genuinely engaged, not assumed: `FrameDelivery`,
+      `DraftLadder`, `RefineBudget`, both stale-while-bake caches, and the
+      `sliderGestureChanged` plumbing (which reaches every develop control via
+      `LumenSlider`/`LumenColorWheel` themselves — confirmed by grep, one native
+      `Slider` remains and it is the grid's thumbnail size).
+- [ ] **Slider smoothness round 2 — what round 1 deliberately did not do.** Ranked,
+      with the measurement each needs:
+      1. `AppState` → `@Observable` (the 56-`@Published` re-body named in this
+         document's diagnosis, still unfixed). Per event it publishes THREE times and
+         re-bodies every view holding the environment object — plus `LumenApp`'s
+         Scene body and the entire menu-command tree, because the `App` holds state as
+         a `@StateObject`. Interim, independent, cheap: move the menu's reads behind
+         their own small observable; delete the `historyObserver` forward once it is.
+      2. The serial render actor's own ceiling: one frame per draft render, ~28 fps at
+         the `DraftLadder` budget. Honest, and visible as steps under a moving hand.
+         Past it is the Metal-layer viewport `LoupeView`'s header already claims
+         exists and does not — a milestone, not a fix.
+      3. `PipelineRenderer.maskSource` is uncached and rebuilds a 1024-px staging
+         render per frame whenever any mask reads the picture; `requestedLongEdge`
+         asks for a flat 4096 when zoomed rather than what is visible.
+      4. `updateRecipe` builds two full `renderIdentity` projections per photo per
+         event, on top of a deep compare it already did.
 
 ## M3 — The shipping path becomes the specced path
 

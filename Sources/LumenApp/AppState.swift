@@ -554,7 +554,11 @@ final class AppState: ObservableObject {
         let generation = maskOverlayGeneration
         maskOverlayTask?.cancel()
         guard let maskID = soloMaskOverlay, let photo = primarySelection else {
-            maskOverlayAlpha = nil
+            // Guarded, not written blind. `@Published` does no equality check, so the
+            // bare assignment published on EVERY pixel-touching edit — every mouse
+            // event of every drag — to set nil to nil, re-bodying the window for a
+            // change that had not happened.
+            if maskOverlayAlpha != nil { maskOverlayAlpha = nil }
             return
         }
         let recipe = recipe(for: photo)
@@ -2379,7 +2383,25 @@ final class AppState: ObservableObject {
     /// MOUSE EVENT on the lane every thumbnail decode shares — and the scope
     /// re-binning, whose 180 ms debounce a drag restarted every event and so never
     /// fired anyway. Both land once, at release.
+    /// True from the first movement of any slider or wheel gesture to its release.
+    ///
+    /// Read OUTSIDE this type by the loupe, which must not start a full-resolution
+    /// settle while a hand is moving — see `settleTick`. Not `@Published`: the render
+    /// key changes on the tick, not on the latch, so publishing this would re-body the
+    /// window twice per gesture for nothing.
     private(set) var sliderGestureActive = false
+
+    /// Bumped once per completed gesture, and read by `ViewerRenderKey`.
+    ///
+    /// The settle is deferred while a gesture runs, so something has to ask for it
+    /// when the hand stops — and the release alone cannot, because `onEnded` commits
+    /// a value that is usually EQUAL to the last motion sample, leaving the render key
+    /// unchanged and the picture on its last draft. This tick is that ask. It is
+    /// bumped in `flushSliderGesture`, which the release, the photo switch and the
+    /// 8-second watchdog all already call, so the deferred settle inherits all three
+    /// safety nets rather than needing its own.
+    @Published private(set) var settleTick: Int = 0
+
     private var pendingGesturePersist: [URL: Recipe] = [:]
     private var pendingGestureTouchedPixels = false
 
@@ -2395,6 +2417,12 @@ final class AppState: ObservableObject {
     static let gestureSilenceTimeout: TimeInterval = 8
     private var lastGestureEventAt = Date.distantPast
     private var gestureWatchdog: Task<Void, Never>?
+
+    /// The gesture hook, allocated ONCE and handed to the environment as a stable
+    /// value — see the injection site in `ContentView`. `lazy` so `self` is available.
+    lazy var sliderGestureSink: (Bool) -> Void = { [weak self] active in
+        self?.sliderGesture(active: active)
+    }
 
     func sliderGesture(active: Bool) {
         if active {
@@ -2448,6 +2476,11 @@ final class AppState: ObservableObject {
             scheduleScopeRefresh()
             ensureMaskMattes()
         }
+        // The hand has stopped: ask every viewer for the quality pass its drag
+        // deferred. Unconditional — a gesture that changed nothing costs one settle
+        // whose every table and decode is already cached, and a gesture that landed on
+        // its last drafted value would otherwise never settle at all.
+        settleTick &+= 1
     }
 
     private func persist(_ changes: [URL: Recipe]) {

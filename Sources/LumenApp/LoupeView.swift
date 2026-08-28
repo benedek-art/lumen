@@ -385,7 +385,8 @@ final class PhotoRenderModel: ObservableObject {
               fullLongEdge: Int,
               strokeSets: [String: BrushStrokeSet] = [:],
               showingUncropped: Bool = false,
-              softProof: SoftProof? = nil) async {
+              softProof: SoftProof? = nil,
+              gestureInFlight: () -> Bool = { false }) async {
 
         currentRequestURL = url
 
@@ -500,6 +501,25 @@ final class PhotoRenderModel: ObservableObject {
             try? await Task.sleep(nanoseconds: PhotoRenderModel.settleNanoseconds)
         }
         guard !Task.isCancelled, latestGeneration == draftGeneration else { return }
+
+        // THE HAND IS STILL MOVING — the drag owns the render lane, so stop here.
+        //
+        // This is the notch the owner has been describing since the first session:
+        // "every single slider is … updating little by little". The debounce below the
+        // draft is 40 ms and a draft costs ~35, so on any drag with a human's micro-
+        // pauses in it the settle was routinely reachable MID-GESTURE — and a settle is
+        // the most expensive thing the app does: full resolution, a fresh decode at a
+        // different scale factor, and EXACT table bakes (its whole point is that it
+        // does not serve stale). The render coordinator is a serial actor whose passes
+        // have no cancellation points, so once one started every event behind it waited
+        // 100–300 ms for a lane that could not be given back. The picture then jumped
+        // to wherever the hand had got to. That is the notch: not the draft cadence,
+        // which is honest, but a quality pass repeatedly cutting in front of it.
+        //
+        // `AppState.settleTick` is the other half: it bumps when the gesture ends,
+        // changes this surface's render key, and the settle happens then — once, at
+        // rest, which is exactly what `RefineBudget` describes.
+        guard !gestureInFlight() else { return }
 
         // The quality pass, with a bounded retry. The coordinator supersedes by
         // generation across *every* viewer sharing it, so a compare pane can lose the
@@ -780,7 +800,11 @@ struct LoupeView: View {
                          // before rendition below deliberately does not get it, because
                          // a before/after of "proofed vs not" is not the comparison the
                          // key is for.
-                         softProof: state.activeSoftProof)
+                         softProof: state.activeSoftProof,
+                         // Asked at the moment the settle would start rather than at
+                         // load time, so a release landing mid-draft settles at once
+                         // instead of waiting for the tick's fresh task.
+                         gestureInFlight: { state.sliderGestureActive })
     }
 
     /// The before rendition, evaluated through the same pipeline as the edit so the

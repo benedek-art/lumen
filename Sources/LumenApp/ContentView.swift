@@ -54,9 +54,13 @@ struct ContentView: View {
         // Every slider and wheel in the tree reports its gesture through this one
         // hook (RenderRequest.swift), so a drag defers per-event catalog writes and
         // scope re-bins to its release without ninety call sites knowing about it.
-        .environment(\.sliderGestureChanged, { [weak state] active in
-            state?.sliderGesture(active: active)
-        })
+        // The closure is STORED on the state, not built here. An environment value is
+        // compared by identity, and a closure allocated inside `body` is a new
+        // identity on every body pass — so every descendant reading this key (every
+        // slider, both canvases, the wheels, the curve, the zones) was invalidated
+        // unconditionally on each pass. Today the global re-body hides that; the
+        // moment AppState moves to `@Observable` it would BECOME the bug.
+        .environment(\.sliderGestureChanged, state.sliderGestureSink)
         // One presenter, not three: chained `.sheet` modifiers on a single view are
         // not reliably independent, and "Export silently does nothing because the
         // keyboard sheet flag is also set" is not a failure anybody would diagnose.

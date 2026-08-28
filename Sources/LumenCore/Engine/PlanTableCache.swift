@@ -39,6 +39,12 @@ public enum PlanTableCache {
         /// than a variant of `finish`, because the flag overlay needs both at once.
         case finishProofed
         case colorGrade
+        /// The tone stage's gain cube. The last expensive bake that was not in this
+        /// cache: 32³ = 32 768 samples rebuilt at plan init, i.e. on every mouse event
+        /// of a drag, and invalidated by precisely the six sliders a photographer
+        /// reaches for first. Its inputs are `develop.tone` and `develop.zones` and
+        /// nothing else — `ToneEngine` is constructed from exactly those two.
+        case toneGain
     }
 
     /// Eight entries per slot. A drag revisits one key over and over, so even one would
@@ -75,6 +81,20 @@ public enum PlanTableCache {
     }
     private static var stats = Stats()
 
+    /// Per-slot traffic, for tests that need to prove a PARTICULAR table went through
+    /// this cache rather than being baked beside it. The aggregate counters above
+    /// cannot: a table that never calls in is simply absent from them, so a test
+    /// written against the totals passes just as happily when the bake has escaped the
+    /// cache entirely — which is exactly how the tone cube stayed uncached while the
+    /// suite was green.
+    private static var slotTraffic: [Slot: Stats] = [:]
+
+    static func traffic(_ slot: Slot) -> Stats {
+        lock.lock()
+        defer { lock.unlock() }
+        return slotTraffic[slot] ?? Stats()
+    }
+
     public static var currentStats: Stats {
         lock.lock()
         defer { lock.unlock() }
@@ -99,7 +119,13 @@ public enum PlanTableCache {
 
         lock.lock()
         let hit = entries[slot]?.first { $0.key == key }?.table
-        if hit != nil { stats.hits += 1 } else { stats.bakes += 1 }
+        if hit != nil {
+            stats.hits += 1
+            slotTraffic[slot, default: Stats()].hits += 1
+        } else {
+            stats.bakes += 1
+            slotTraffic[slot, default: Stats()].bakes += 1
+        }
         lock.unlock()
         if let hit { return hit }
 
@@ -138,6 +164,7 @@ public enum PlanTableCache {
         let slotEntries = entries[slot] ?? []
         if let hit = slotEntries.first(where: { $0.key == key })?.table {
             stats.hits += 1
+            slotTraffic[slot, default: Stats()].hits += 1
             lock.unlock()
             return hit
         }
@@ -146,6 +173,7 @@ public enum PlanTableCache {
             return table(slot, key: key, size: size, build: build)
         }
         stats.staleServes += 1
+        slotTraffic[slot, default: Stats()].staleServes += 1
         // Replace, never append: only the newest deferred bake can ever be shown.
         pending[slot] = (key: key, bakeExact: build)
         let mustStart = !inFlight.contains(slot)
@@ -198,7 +226,7 @@ public enum PlanTableCache {
     /// riding a stale table still baking in the background.
     public static var anyBakePending: Bool {
         hasPendingBake(.finish) || hasPendingBake(.finishProofed)
-            || hasPendingBake(.colorGrade)
+            || hasPendingBake(.colorGrade) || hasPendingBake(.toneGain)
     }
 
     /// Drop everything. For tests that want to measure a cold bake, and for a caller
