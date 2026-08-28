@@ -542,9 +542,13 @@ and against Lightroom via owner-exported references.
          units unverifiable without RAW fixtures
       9. Capture sharpening: wire the dormant Richardson–Lucy or remove the dead
          Radius control (M3 decision, already listed)
-      10. Texture one-band spectrum vs reference band-pass unmeasured post-fix;
-          proof-registry holes (color.density, protectSkin, mixer.uniformity,
-          colorBalance.*); H-K and tuning constants unpinned
+      10. Texture one-band spectrum vs reference band-pass: now measured
+          (TextureSpectrumProbeTests, TEXSPEC in gpu-parity runs; first data
+          run #20 — feared finest-scale over-boost refuted, real divergence is
+          a 24–26% under-delivery notched at 3/6 px, parity by 16 px; verdict
+          recorded in docs/24-detail gap 2). Still open: proof-registry holes
+          (color.density, protectSkin, mixer.uniformity, colorBalance.*);
+          H-K and tuning constants unpinned
 - [x] Owner decisions on the dossier's deliberate divergences (2026-08-26, in
       chat): KEEP the compressed saturation push ("we want something subtle very
       often, a saturation that doesn't really look like it's been edited" — the
