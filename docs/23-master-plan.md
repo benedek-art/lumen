@@ -629,6 +629,40 @@ side-by-side exports. **Exit gate: owner prefers or ties Lumen on ≥4 of 5.**
       `refreshLibrarySections()` now runs at the same moment. (If a camera still
       fails to appear after this, the next suspect is the file itself — capture one
       problem RAW as a fixture.)
+- [x] Zoom round two, from the owner trying it ("it does work … but a lot of times
+      it jumps, especially the first zoom in"; "when I zoom in, I can't zoom out";
+      "bad quality for a few seconds and then the good quality version loads … and
+      when I zoom out, same thing again"):
+      1. THE FIRST-PINCH JUMP, root-caused and pinned. The viewer requests the
+         VIEWPORT's pixels at fit and the CAP's (4096) when zoomed, so the
+         denominator of `zoomLevel` changes the instant a gesture leaves fit — the
+         starting ratio was computed against the fit-mode denominator and then
+         multiplied under the zoomed one, drawing 4096 device px into a 1920 px
+         viewport. Measured on the substituted defect: a 5% pinch grew the picture
+         2.24×, and every pinch after it was continuous because by then both sides
+         were the cap. `ContinuousZoom.fitZoom` / `.zoomedFullLongEdge` now express
+         the fit zoom in the ZOOMED denomination from the start
+         (`testTheFirstPinchDoesNotJump`, watched failing at 2.24).
+      2. THE QUALITY CHURN on every zoom in AND out: crossing the fit boundary
+         changes the render key, and the draft pass then REPLACED the settled frame
+         with the ladder's coarse one. `PhotoRenderModel` now skips the draft (and
+         its debounce) when only the RESOLUTION changed — same photo, same recipe,
+         a settled frame already up — so a zoom only ever gains sharpness.
+      3. Double-click returns to fit: the scrub only zooms while held and only from
+         fit, so a gesture that ended zoomed had no pointer verb back. Inert at fit,
+         deliberately, so it cannot become the click-to-zoom just removed.
+      Residual, accepted and documented at `trueFitZoom`: on a CROPPED frame the
+      settle delivers fewer pixels than the source extent predicts, so the drawn
+      size corrects by that shortfall when the first zoomed settle lands.
+- [ ] **Slider smoothness — the owner's "very, very big thing", now its own
+      objective.** "Every single slider is still going and updating little by
+      little, so it's not a smooth update … that is for every slider in the app."
+      Under investigation as a dedicated pass over the shared drag path (control →
+      `updateRecipe` → republish → `.task(id:)` → coordinator → frame), NOT per
+      slider. Prior art that must be checked as actually engaged before anything new
+      is written: `FrameDelivery` (deliver completed frames despite cancellation),
+      `DraftLadder`, `RefineBudget`, `PlanTableCache`/`MaskRasterCache`
+      stale-while-bake, and the `sliderGestureChanged` plumbing.
 
 ## M3 — The shipping path becomes the specced path
 

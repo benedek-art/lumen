@@ -87,4 +87,63 @@ final class ContinuousZoomTests: XCTestCase {
                                               magnification: 2.0),
                        2.0, accuracy: 1e-12)
     }
+
+    // MARK: The fit zoom's denomination (the first-pinch jump)
+
+    /// The viewer draws `zoomLevel × fullLongEdge` device pixels, so the fit zoom is
+    /// the level whose product is the fitted extent. This is the arithmetic the whole
+    /// continuity of the first gesture rests on.
+    func testTheFitZoomDrawsExactlyTheFittedExtent() {
+        // A 1920-device-pixel viewport showing a proxy rendered to fill it, against a
+        // 4096 zoomed render cap.
+        let fit = ContinuousZoom.fitZoom(proxyFitRatio: 1.0, proxyLongEdge: 1920,
+                                         zoomedFullLongEdge: 4096)
+        XCTAssertEqual(fit * 4096, 1920, accuracy: 1e-9)
+    }
+
+    /// THE REGRESSION (owner, session C): "a lot of times it jumps, especially the
+    /// first zoom in. Anything after that is fine, except for the first big jump."
+    ///
+    /// The viewer asks for the VIEWPORT's pixels at fit and the CAP's when zoomed, so
+    /// the denominator changes the instant a gesture leaves fit. Computing the start
+    /// against the fit-mode denominator — 1920/1920, i.e. 1.0 — and then multiplying
+    /// it under the zoomed one drew 4096 device pixels for a 1920 viewport: a 2.13×
+    /// jump on the first pinch, and every pinch after it continuous, because by then
+    /// both sides were already the cap. Expressed as the thing that must stay true:
+    /// one unit of magnification must leave the picture the size it already was.
+    func testTheFirstPinchDoesNotJump() {
+        let viewport = 1920.0
+        let cap = 4096
+        let fit = ContinuousZoom.fitZoom(proxyFitRatio: 1.0, proxyLongEdge: 1920,
+                                         zoomedFullLongEdge: cap)
+        let barelyMoved = ContinuousZoom.pinched(startZoom: ZoomLadder.fit,
+                                                 fitRatio: fit,
+                                                 magnification: 1.05)
+        let drawnDevicePixels = barelyMoved * Double(cap)
+        XCTAssertEqual(drawnDevicePixels / viewport, 1.05, accuracy: 0.001,
+                       "a 5% pinch must grow the picture by 5%, not by the ratio "
+                           + "between the two render request sizes")
+    }
+
+    func testTheZoomedBasisIsTheCapOrTheFramesOwnPixels() {
+        // Any modern camera is larger than the cap: the cap is what a zoomed render
+        // delivers.
+        XCTAssertEqual(ContinuousZoom.zoomedFullLongEdge(nativeLongEdge: 7008,
+                                                         renderCap: 4096), 4096)
+        // A small frame delivers all of itself and no more.
+        XCTAssertEqual(ContinuousZoom.zoomedFullLongEdge(nativeLongEdge: 3000,
+                                                         renderCap: 4096), 3000)
+        // Not yet known, or nonsense: assume the cap, which the first settle corrects.
+        XCTAssertEqual(ContinuousZoom.zoomedFullLongEdge(nativeLongEdge: nil,
+                                                         renderCap: 4096), 4096)
+        XCTAssertEqual(ContinuousZoom.zoomedFullLongEdge(nativeLongEdge: 0,
+                                                         renderCap: 4096), 4096)
+    }
+
+    func testAFitZoomWithNothingUsableFallsBackToTheProxyRatio() {
+        XCTAssertEqual(ContinuousZoom.fitZoom(proxyFitRatio: 0.5, proxyLongEdge: 0,
+                                              zoomedFullLongEdge: 4096), 0.5)
+        XCTAssertEqual(ContinuousZoom.fitZoom(proxyFitRatio: 0.5, proxyLongEdge: 1920,
+                                              zoomedFullLongEdge: 0), 0.5)
+    }
 }

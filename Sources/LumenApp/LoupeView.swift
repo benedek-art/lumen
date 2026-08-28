@@ -363,6 +363,11 @@ final class PhotoRenderModel: ObservableObject {
     /// state its task is in. `FrameDelivery.shouldShow`'s identity input: a completed
     /// frame for any other photograph must never be applied, however fresh.
     private var currentRequestURL: URL?
+
+    /// The recipe the frame ON SCREEN was settled with, or nil when what is showing is
+    /// a draft, an embedded preview, or nothing. Compared against the incoming recipe
+    /// to tell a RESOLUTION change from an EDIT — see `load`.
+    private var settledRecipe: Recipe?
     /// Generation of the newest frame actually applied — `shouldShow`'s order input,
     /// so a slow old render can never overwrite a newer picture.
     private var appliedGeneration: UInt64 = 0
@@ -394,6 +399,7 @@ final class PhotoRenderModel: ObservableObject {
             isUnreadable = false
             note = nil
             settledActualLongEdge = nil
+            settledRecipe = nil
             revision &+= 1
             if let thumbnails,
                let preview = await thumbnails.load(
@@ -422,58 +428,77 @@ final class PhotoRenderModel: ObservableObject {
             settledActualLongEdge = nil
         }
 
+        // A RESOLUTION change, not an edit: the photograph and the recipe are the ones
+        // already settled on screen, and only the number of pixels asked for moved —
+        // which is what every zoom across the fit boundary does, in both directions.
+        //
+        // The draft pass exists to put an honest picture up within a frame while a
+        // settle renders. Here there already IS one: the settled frame being shown,
+        // which the geometry rescales the instant the zoom changes. Rendering a draft
+        // over it REPLACES those pixels with the ladder's coarse ones — the owner's
+        // "when I'm zooming in, it's bad quality for a few seconds and then the good
+        // quality version loads. And then when I zoom out, same thing again". Keeping
+        // the settled frame means what changes on a zoom is sharpness arriving, never
+        // sharpness leaving. The debounce goes with it: it buys a draft time it is no
+        // longer taking, and nothing is being coalesced — a zoom crosses this boundary
+        // at most twice per gesture.
+        let keepShowingSettled = image != nil && !isDraft && !usedEmbeddedPreview
+            && imageURL == url && settledRecipe == recipe
+
         let draftGeneration: UInt64 = PhotoRenderModel.nextGeneration()
         latestGeneration = draftGeneration
-        // Half the settled request, floored at the old fixed size: enough that the
-        // draft reads as the same photograph at fit, cheap enough to stay ahead of the
-        // cursor. The colour is now identical to the settle by construction, so what
-        // remains between draft and settle is sharpness alone — which reads as the
-        // picture resolving rather than as the picture changing.
-        // Half the settled request, floored at the zoom-aware draft size — then capped
-        // by the ladder's current rung, which is the one lever left now that a draft
-        // runs the full pipeline: a machine whose drafts run hot steps down within one
-        // frame, one with headroom earns the top rung back over a streak.
-        let draftRequested = Swift.max(draftLongEdge, fullLongEdge / 2)
-        let draftTarget = draftLadder.longEdge(requested: draftRequested)
-        let draftStarted = DispatchTime.now().uptimeNanoseconds
-        let draft = await coordinator.render(url: url, recipe: recipe,
-                                             maxLongEdge: Swift.max(draftTarget, 64),
-                                             draft: true, generation: draftGeneration,
-                                             strokeSets: strokeSets,
-                                             showingUncropped: showingUncropped,
-                                             softProof: softProof)
-        // Delivery BEFORE the cancellation check, deliberately — FrameDelivery in
-        // LumenCore is the law and holds the arithmetic. During a drag every event
-        // cancels this task and starts the next one, so "apply only if still current"
-        // meant every completed draft of the gesture was rendered and then discarded,
-        // and the picture moved only at pauses in the hand — the owner's "goes by
-        // notches ... changes in one frame instead of a slope". A finished frame is
-        // the freshest completed picture of the user's intent that exists; the only
-        // questions are identity and order, and `shouldShow` asks exactly those.
-        if let draft {
-            // Wall time around the await, actor queueing included — queueing is what
-            // a hand feels. The ladder learns from the same number the HUD shows,
-            // and it learns from every completed draft, delivered or not: the cost
-            // was real either way.
-            let draftMs = Double(DispatchTime.now().uptimeNanoseconds - draftStarted) / 1e6
-            draftLadder.record(draftMilliseconds: draftMs,
-                               renderedLongEdge: Swift.max(draftTarget, 64),
-                               requested: draftRequested)
-            LatencyHUD.shared.noteDraft(milliseconds: draftMs,
-                                        longEdge: Swift.max(draftTarget, 64))
-            if FrameDelivery.shouldShow(frameFor: url,
-                                        currentRequest: currentRequestURL,
-                                        generation: draft.generation,
-                                        newestShown: appliedGeneration) {
-                apply(draft, url: url)
+        if !keepShowingSettled {
+            // Half the settled request, floored at the old fixed size: enough that the
+            // draft reads as the same photograph at fit, cheap enough to stay ahead of
+            // the cursor. The colour is now identical to the settle by construction, so
+            // what remains between draft and settle is sharpness alone — which reads as
+            // the picture resolving rather than as the picture changing.
+            // Half the settled request, floored at the zoom-aware draft size — then
+            // capped by the ladder's current rung, which is the one lever left now that
+            // a draft runs the full pipeline: a machine whose drafts run hot steps down
+            // within one frame, one with headroom earns the top rung back over a streak.
+            let draftRequested = Swift.max(draftLongEdge, fullLongEdge / 2)
+            let draftTarget = draftLadder.longEdge(requested: draftRequested)
+            let draftStarted = DispatchTime.now().uptimeNanoseconds
+            let draft = await coordinator.render(url: url, recipe: recipe,
+                                                 maxLongEdge: Swift.max(draftTarget, 64),
+                                                 draft: true, generation: draftGeneration,
+                                                 strokeSets: strokeSets,
+                                                 showingUncropped: showingUncropped,
+                                                 softProof: softProof)
+            // Delivery BEFORE the cancellation check, deliberately — FrameDelivery in
+            // LumenCore is the law and holds the arithmetic. During a drag every event
+            // cancels this task and starts the next one, so "apply only if still
+            // current" meant every completed draft of the gesture was rendered and then
+            // discarded, and the picture moved only at pauses in the hand — the owner's
+            // "goes by notches ... changes in one frame instead of a slope". A finished
+            // frame is the freshest completed picture of the user's intent that exists;
+            // the only questions are identity and order, and `shouldShow` asks those.
+            if let draft {
+                // Wall time around the await, actor queueing included — queueing is
+                // what a hand feels. The ladder learns from the same number the HUD
+                // shows, and it learns from every completed draft, delivered or not:
+                // the cost was real either way.
+                let draftMs = Double(DispatchTime.now().uptimeNanoseconds - draftStarted) / 1e6
+                draftLadder.record(draftMilliseconds: draftMs,
+                                   renderedLongEdge: Swift.max(draftTarget, 64),
+                                   requested: draftRequested)
+                LatencyHUD.shared.noteDraft(milliseconds: draftMs,
+                                            longEdge: Swift.max(draftTarget, 64))
+                if FrameDelivery.shouldShow(frameFor: url,
+                                            currentRequest: currentRequestURL,
+                                            generation: draft.generation,
+                                            newestShown: appliedGeneration) {
+                    apply(draft, url: url, recipe: recipe)
+                }
             }
-        }
-        guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else { return }
 
-        // The debounce, and nothing but the debounce: everything after this point still
-        // has to happen inside the deadline, so the wait is the part of the budget that
-        // buys the least and is kept the smallest.
-        try? await Task.sleep(nanoseconds: PhotoRenderModel.settleNanoseconds)
+            // The debounce, and nothing but the debounce: everything after this point
+            // still has to happen inside the deadline, so the wait is the part of the
+            // budget that buys the least and is kept the smallest.
+            try? await Task.sleep(nanoseconds: PhotoRenderModel.settleNanoseconds)
+        }
         guard !Task.isCancelled, latestGeneration == draftGeneration else { return }
 
         // The quality pass, with a bounded retry. The coordinator supersedes by
@@ -494,7 +519,7 @@ final class PhotoRenderModel: ObservableObject {
                                                   softProof: softProof)
             guard !Task.isCancelled else { return }
             if let result, result.generation == generation, latestGeneration == generation {
-                apply(result, url: url)
+                apply(result, url: url, recipe: recipe)
                 LatencyHUD.shared.noteSettle(
                     milliseconds: Double(DispatchTime.now().uptimeNanoseconds - settleStarted) / 1e6,
                     longEdge: Swift.max(fullLongEdge, 64))
@@ -526,7 +551,7 @@ final class PhotoRenderModel: ObservableObject {
     }
 
     @MainActor
-    private func apply(_ result: RenderResult, url: URL) {
+    private func apply(_ result: RenderResult, url: URL, recipe: Recipe) {
         appliedGeneration = Swift.max(appliedGeneration, result.generation)
         image = result.image
         imageURL = url
@@ -534,8 +559,13 @@ final class PhotoRenderModel: ObservableObject {
         usedEmbeddedPreview = result.usedEmbeddedPreview
         note = result.note
         isUnreadable = false
-        if !result.isDraft {
+        if result.isDraft {
+            // What is on screen is no longer a settled frame, so the next request may
+            // not skip its draft on the strength of it.
+            settledRecipe = nil
+        } else {
             settledActualLongEdge = Swift.max(result.image.width, result.image.height)
+            settledRecipe = recipe
         }
         revision &+= 1
     }
@@ -617,6 +647,16 @@ struct LoupeView: View {
             .contentShape(Rectangle())
             .gesture(dragGesture(container: container))
             .simultaneousGesture(magnifyGesture(container: container))
+            // The way BACK. The scrub only zooms while the press is held and only
+            // from fit, so once a gesture ends zoomed there was no pointer verb that
+            // returned — "when I zoom in, I can't zoom out". Double-click is the
+            // inherited grammar for exactly that and costs nothing at fit, where it
+            // is deliberately inert (a stray double-click on a fitted frame must not
+            // become the click-to-zoom that was just removed).
+            .simultaneousGesture(TapGesture(count: 2).onEnded {
+                guard !ZoomLadder.isFit(state.zoomLevel) else { return }
+                viewport.fit(in: state)
+            })
             .onContinuousHover(coordinateSpace: .local) { phase in
                 switch phase {
                 case .active(let point):
@@ -1062,21 +1102,34 @@ struct LoupeView: View {
         viewport.anchorNextZoomAtCursor = true
     }
 
-    /// The zoom ratio at which the FULL image exactly fits the container — the floor
-    /// the continuous gestures snap to. `zoomLevel` is denominated in full-resolution
-    /// pixels, but what is on screen is a proxy, so the proxy's fit ratio is converted
-    /// by proxy/full — the same normalization `LoupeGeometry.zoomedRatio` applies in
-    /// the other direction.
+    /// What a zoomed render will actually deliver — the basis `zoomLevel` is
+    /// denominated against once a gesture has left fit. Read from the SOURCE frame
+    /// rather than from the current request, which is what makes the fit zoom below
+    /// continuous across the boundary instead of jumping by the ratio between the two
+    /// request sizes.
+    private var zoomedFullBasis: Int {
+        ContinuousZoom.zoomedFullLongEdge(
+            nativeLongEdge: state.primaryFrameSize.map {
+                Int(Swift.max($0.width, $0.height))
+            },
+            renderCap: LoupeView.maxRenderLongEdge)
+    }
+
+    /// The zoom level at which the picture exactly fills the viewport — the floor the
+    /// continuous gestures snap to, expressed in the zoomed denomination.
+    ///
+    /// Residual, deliberately accepted: on a CROPPED frame the settle delivers fewer
+    /// pixels than `zoomedFullBasis` predicts from the source extent, so the drawn
+    /// size corrects by that shortfall when the first zoomed settle lands. The
+    /// uncropped case — every photograph until someone crops it — is exact.
     private func trueFitZoom(image cg: CGImage, container: CGSize) -> Double {
-        let proxyFit = LoupeGeometry.fitRatio(imageWidth: cg.width,
-                                              imageHeight: cg.height,
-                                              container: container,
-                                              displayScale: displayScale)
-        let proxyLong = Double(Swift.max(cg.width, cg.height))
-        let fullLong = Double(model.displayFullLongEdge
-            ?? Swift.max(cg.width, cg.height))
-        guard fullLong > 0, proxyLong > 0 else { return proxyFit }
-        return proxyFit * proxyLong / fullLong
+        ContinuousZoom.fitZoom(
+            proxyFitRatio: LoupeGeometry.fitRatio(imageWidth: cg.width,
+                                                  imageHeight: cg.height,
+                                                  container: container,
+                                                  displayScale: displayScale),
+            proxyLongEdge: Swift.max(cg.width, cg.height),
+            zoomedFullLongEdge: zoomedFullBasis)
     }
 
     /// One drag gesture, two jobs decided by where it BEGAN: begun at fit it is the

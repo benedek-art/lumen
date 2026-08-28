@@ -69,4 +69,36 @@ public enum ContinuousZoom {
         }
         return ZoomLadder.clamp(candidate)
     }
+
+    // MARK: - The fit zoom, in the denomination the gesture will land in
+
+    /// What the viewer draws is `zoomLevel × fullLongEdge` device pixels, where
+    /// `fullLongEdge` is the resolution the zoom is denominated against — so the fit
+    /// zoom is the level at which that product equals the fitted extent.
+    ///
+    /// The subtlety this exists for, and the owner's "especially the first zoom in …
+    /// one big jump": the viewer asks for a DIFFERENT render size at fit (the
+    /// viewport, in 256-px buckets) than it does zoomed (the render cap), so the
+    /// denominator CHANGES the instant a gesture leaves fit. Computing the starting
+    /// ratio against the fit-mode denominator and then multiplying it under the
+    /// zoomed-mode one multiplies the picture by the ratio between them — on a 1920-px
+    /// viewport against a 4096 cap, a 2.1× jump on the first pinch and nothing wrong
+    /// with any pinch after it. So the fit zoom is expressed in the ZOOMED
+    /// denomination from the start, and the gesture is continuous across the boundary.
+    public static func fitZoom(proxyFitRatio: Double, proxyLongEdge: Int,
+                               zoomedFullLongEdge: Int) -> Double {
+        guard proxyFitRatio.isFinite, proxyFitRatio > 0,
+              proxyLongEdge > 0, zoomedFullLongEdge > 0 else { return proxyFitRatio }
+        let zoom = proxyFitRatio * Double(proxyLongEdge) / Double(zoomedFullLongEdge)
+        return zoom.isFinite && zoom > 0 ? zoom : proxyFitRatio
+    }
+
+    /// The resolution a zoomed render will actually deliver: the cap, or the frame's
+    /// own pixels when the photograph is smaller than the cap. Nil native (not yet
+    /// known) assumes the cap — the common case for any modern camera, and the first
+    /// settle corrects the rest.
+    public static func zoomedFullLongEdge(nativeLongEdge: Int?, renderCap: Int) -> Int {
+        guard let nativeLongEdge, nativeLongEdge > 0 else { return renderCap }
+        return Swift.min(renderCap, nativeLongEdge)
+    }
 }
