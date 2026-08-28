@@ -66,9 +66,20 @@ final class HistoryStack: ObservableObject {
         let now = Date()
         defer { lastEditTime = now }
 
-        if let key = coalescingKey, canUndo,
-           steps[position - 1].coalescingKey == key,
-           now.timeIntervalSince(lastEditTime) < Self.coalescingWindow {
+        // The rule lives in LumenCore (HistoryCoalescing) where it is tested. The
+        // third input — the photo sets must MATCH — is what keeps a drag that spans a
+        // photo switch from folding photo B's edit into photo A's open step, where
+        // undo would revert the off-screen photo and B's pre-drag state would never
+        // have been recorded at all.
+        if canUndo,
+           HistoryCoalescing.shouldCoalesce(
+               openKey: steps[position - 1].coalescingKey,
+               openURLs: Set(steps[position - 1].after.keys),
+               key: coalescingKey,
+               urls: Set(after.keys),
+               sinceLastEdit: now.timeIntervalSince(lastEditTime),
+               window: Self.coalescingWindow),
+           let key = coalescingKey {
             // Extend the open step: keep its original `before`, take the new `after`.
             // Field-wise, so folding a recipe edit into an open step cannot erase a
             // culling change already recorded in it for the same photo.

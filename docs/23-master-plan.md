@@ -381,9 +381,13 @@ and against Lightroom via owner-exported references.
          collapsed back to absent. Refused merges (splicer returns nil) remain a
          deliberate permanent skip: the catalog holds the truth and the foreign
          file is preserved.
-      3. History coalescing keys carry no photo identity — a step can span a
-         photo switch inside 1.2 s and undo then reverts the off-screen photo
-         (HistoryStack.swift:69-86).
+      3. ~~History coalescing keys carry no photo identity~~ FIXED: the folding
+         rule moved to LumenCore as `HistoryCoalescing.shouldCoalesce` — same
+         control AND the same photo set AND inside the window; equality on the
+         photo set, so a step's `before` stays complete for everything it can
+         restore. Six Linux tests; watched failing with the key+recency-only
+         rule substituted back (photo-switch and selection-change cases both
+         convict).
       4. sliderGestureActive latches shut when SwiftUI drops .onEnded; every
          later edit defers persistence until the next completed gesture or quit
          (folder switch now flushes; add selection-change/timeout unlatch)
