@@ -404,9 +404,15 @@ and against Lightroom via owner-exported references.
          ring arcs all fire sliderGestureChanged. Straighten already wrote once
          at release and the before/after split writes no recipe — both left
          alone on purpose.
-      6. recipe.develop.raw.decoderVersion is recorded, fingerprinted, and never
-         honored by decode() — renders shift under macOS updates against D50's
-         whole purpose (AppleRawSource.swift:71-78).
+      6. ~~recipe.develop.raw.decoderVersion recorded, fingerprinted, never
+         honored~~ FIXED: decode() resolves the recipe's recorded version against
+         `supportedDecoderVersions` and honours it when this OS still ships it,
+         falling back to the pinned-newest when it does not (a working newer
+         decoder beats a dead recorded one — the same trade init's probe makes,
+         now with a per-decode nil-output fallback too). The resolved version
+         joins DecodeKey, so a v11 recipe and a v12 recipe can never share cached
+         pixels in one session. Needs a RAW on a Mac to exercise; rides the
+         fixtures ask.
       7. ~~A settle superseded by a sibling pane gives up while stale tables are
          on screen~~ FIXED: `PlanTableCache.anyBakePending` (the one public
          member; the working surface stays internal) and the settle loop's

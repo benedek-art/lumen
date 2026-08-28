@@ -32,6 +32,9 @@ public final class AppleRawSource: ImageSource {
 
     /// The decoder version actually pinned — persist into recipe.develop.raw.decoderVersion.
     public let pinnedDecoderVersion: Int?
+    /// The same pin as the typed value the filter takes, kept so `decode` can restore
+    /// it after honouring (or failing to honour) a recipe's own recorded version.
+    private let pinnedVersion: CIRAWDecoderVersion
 
     /// The as-shot neutral, which is what Lumen's own CAT16 white balance adapts FROM.
     public let asShotTemperature: Double
@@ -76,6 +79,7 @@ public final class AppleRawSource: ImageSource {
             }
         }
         self.pinnedDecoderVersion = Int(filter.decoderVersion.rawValue.filter(\.isNumber))
+        self.pinnedVersion = filter.decoderVersion
 
         self.asShotTemperature = Double(filter.neutralTemperature)
         self.asShotTint = Double(filter.neutralTint)
@@ -111,6 +115,10 @@ public final class AppleRawSource: ImageSource {
         let luminanceNR: Double
         let colorNR: Double
         let lensProfile: Bool
+        /// The decoder version this decode resolved to — two decoders are two
+        /// different demosaics, and a cache that cannot tell them apart would hand a
+        /// v11 recipe v12 pixels the moment both were asked for in one session.
+        let decoderVersion: String
     }
 
     /// A handful of entries, not one. The viewer settles at one scale, the draft at
@@ -127,13 +135,33 @@ public final class AppleRawSource: ImageSource {
     public func decode(recipe: Recipe, draft: Bool, scaleFactor: Double = 1.0) -> CIImage? {
         let dev = recipe.develop
 
+        // D50's honouring half (docs/23 audit queue item 6). The recipe records the
+        // decoder version it was built on, the fingerprint hashes it — and decode()
+        // never read it, so every render used the newest decoder this macOS offers
+        // and a system update silently shifted three years of renders, which is the
+        // exact drift the pin exists to prevent. A recorded version that this OS
+        // still supports is honoured; one it no longer supports falls back to the
+        // pin, because a working newer decoder beats a dead recorded one — the same
+        // trade the pinning probe in `init` already makes.
+        let resolvedVersion: CIRAWDecoderVersion
+        if let requested = dev.raw.decoderVersion,
+           requested != pinnedDecoderVersion,
+           let match = filter.supportedDecoderVersions.first(where: {
+               Int($0.rawValue.filter(\.isNumber)) == requested
+           }) {
+            resolvedVersion = match
+        } else {
+            resolvedVersion = pinnedVersion
+        }
+
         let standIn = dev.denoise.appleStandIn
         let key = DecodeKey(draft: draft,
                             scaleFactor: Num.clamp(scaleFactor, 0.01, 1.0),
                             captureStrength: dev.detail.capture.strengthFraction,
                             luminanceNR: standIn.luma,
                             colorNR: standIn.chroma,
-                            lensProfile: dev.geometry.lens.profile)
+                            lensProfile: dev.geometry.lens.profile,
+                            decoderVersion: resolvedVersion.rawValue)
         // Core Image is lazy, so the cached value is a recipe rather than pixels — but
         // it is a recipe bound to the filter's settings AT DECODE TIME, which is why a
         // hit must match every field the filter reads. The source lives inside an
@@ -143,6 +171,7 @@ public final class AppleRawSource: ImageSource {
             return hit
         }
 
+        filter.decoderVersion = resolvedVersion
         filter.isDraftModeEnabled = draft
         filter.scaleFactor = Float(Num.clamp(scaleFactor, 0.01, 1.0))
 
@@ -200,7 +229,14 @@ public final class AppleRawSource: ImageSource {
 
         filter.isLensCorrectionEnabled = dev.geometry.lens.profile
 
-        let image = filter.outputImage
+        var image = filter.outputImage
+        if image == nil, resolvedVersion.rawValue != pinnedVersion.rawValue {
+            // The recorded decoder claims support and still cannot form an image on
+            // this file. Fall back to the pin rather than failing the render — the
+            // same posture as the probe in `init`.
+            filter.decoderVersion = pinnedVersion
+            image = filter.outputImage
+        }
         if let image {
             decodeCache.removeAll { $0.key == key }
             decodeCache.insert((key: key, image: image), at: 0)

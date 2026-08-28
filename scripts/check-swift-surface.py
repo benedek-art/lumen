@@ -212,7 +212,7 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     "CGImageDestinationFinalize",
     "ImageIO", "CFString", "CFDictionary", "CFData", "CFURL",
     "CoreImage", "CIImage", "CIContext", "CIFilter", "CIFilterBuiltins", "CIColor",
-    "CIVector", "CIRAWFilter", "CIKernel", "CIColorKernel", "CIWarpKernel",
+    "CIVector", "CIRAWFilter", "CIRAWDecoderVersion", "CIKernel", "CIColorKernel", "CIWarpKernel",
     "CIBlendKernel", "CISampler", "CIFormat", "CIRenderDestination", "CIColorCube",
     "CIImageRepresentationOption", "CIContextOption",
     "RGBAf", "RGBAh", "RGBA8", "RGBA16",
