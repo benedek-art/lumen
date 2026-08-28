@@ -299,6 +299,25 @@ extension GradingWheels {
         copy.colorBalance = colorBalance.scaled(by: scale)
         return copy
     }
+
+    /// This grade with ITS colour moves inside the GLOBAL wheels' tonal windows —
+    /// pivots, blending and balance taken from `global`, everything else kept.
+    ///
+    /// This is the contract docs/08 §8.4 states and `ZoneWindows.init(wheels:)`
+    /// documents — "a mask gets no tonal-zone definition of its own" — and for the
+    /// wheels' whole life both render paths quietly violated it: a masked grade was
+    /// built from the MASK's own wheels value, whose window fields no mask control
+    /// can write, so the photographer who dragged the global pivots onto their
+    /// picture's real shadow boundary got a masked grade zoned by the factory
+    /// defaults instead (COLOR-16). The rule is stated once, here, so the two paths
+    /// cannot re-diverge about it.
+    public func adoptingWindows(from global: GradingWheels) -> GradingWheels {
+        var copy = self
+        copy.pivots = global.pivots
+        copy.blending = global.blending
+        copy.balance = global.balance
+        return copy
+    }
 }
 
 /// Printer lights (D16): master exposure + per-channel trims in log space,

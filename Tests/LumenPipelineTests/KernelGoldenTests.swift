@@ -359,7 +359,9 @@ final class KernelGoldenTests: XCTestCase {
         for size in [LUT3D.interactiveSize, LUT3D.exportSize] {
             let local = LocalPlan(adjust: adjust, scale: 1,
                                   whiteAnchorEV: anchors.whiteAnchorEV,
-                                  blackAnchorEV: anchors.blackAnchorEV, size: size)
+                                  blackAnchorEV: anchors.blackAnchorEV, size: size,
+                                  globalColor: ColorAdjust(),
+                                  globalWheels: GradingWheels())
             XCTAssertFalse(local.isIdentity,
                            "a mask with contrast, temp, saturation and vibrance "
                                + "declared itself identity, so this test measures "

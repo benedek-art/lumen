@@ -234,6 +234,25 @@ public struct ColorAdjust: Codable, Equatable, Sendable {
     /// the engine's own guard.
     public var densityIsLive: Bool { saturation > 0 }
 
+    /// The colour stage a MASK's sub-recipe runs: the mask's own Sat/Vibrance, with
+    /// density and protectSkin INHERITED from the global colour panel.
+    ///
+    /// Those two used to come from this type's defaults — 50 and 70 — which no mask
+    /// control can see or move, so a masked Sat −100 on a face was 70%-skin-protected
+    /// by an invisible constant with no way to turn it off (COLOR-27). Inheriting the
+    /// global values turns the constant into the photographer's own setting: the mask
+    /// panel still offers no override (that is a wire-format change, recorded in the
+    /// dossier), but the global Protect Skin and Density sliders now govern masked
+    /// saturation the way they govern global saturation, which is what "a mask's
+    /// sub-recipe is a delta over the global parameters" has meant everywhere else.
+    /// On a recipe whose global colour panel is untouched, nothing renders
+    /// differently: the inherited values ARE 50 and 70.
+    public static func local(vibrance: Double, saturation: Double,
+                             inheriting global: ColorAdjust) -> ColorAdjust {
+        ColorAdjust(vibrance: vibrance, saturation: saturation,
+                    density: global.density, protectSkin: global.protectSkin)
+    }
+
     private enum CodingKeys: String, CodingKey {
         case vibrance, saturation, density, protectSkin
     }

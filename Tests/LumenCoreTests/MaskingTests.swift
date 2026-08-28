@@ -340,6 +340,95 @@ final class MaskingTests: XCTestCase {
         CurveSet(point: [[0, 0], [0.5, 0.72], [1, 1]])
     }
 
+    // MARK: - The local stage inherits the global panels it has no controls for
+    //         (docs/23 dossier queue item 4: COLOR-16 + COLOR-27)
+
+    /// COLOR-16. docs/08 §8.4 and `ZoneWindows.init(wheels:)` both state that a mask
+    /// gets no tonal-zone definition of its own — a masked grade works inside the
+    /// GLOBAL wheels' windows. Both paths built the masked grade from the mask's own
+    /// wheels value, whose window fields no mask control can write, so dragging the
+    /// global pivots did nothing to any masked grade. The conviction is structural:
+    /// with the fix, moving ONLY the global pivots changes what a masked grade does
+    /// to a pixel near a zone boundary; without it, the two renders are identical.
+    func testAMaskedGradeWorksInsideTheGlobalWheelsWindows() {
+        var adjust = LocalAdjust()
+        var wheels = GradingWheels()
+        wheels.shadows = Wheel(hue: 210, sat: 60, lum: 0)
+        adjust.wheels = wheels
+        let mask = Mask(name: "grade", components: [hardRadial()], adjust: adjust)
+
+        // A pixel above the DEFAULT shadow pivot (0.33 of the −9…+5 EV axis ≈
+        // −4.4 EV) but below a RAISED one: at default windows the shadows wheel
+        // barely touches it; with the global shadow pivot dragged up it is fully
+        // inside the shadow zone.
+        let pixel = ImageBuffer(width: 4, height: 1) { _, _ in
+            RGB(gray: 0.18 * pow(2, -2.5))
+        }
+
+        let defaultWindows = RenderPlan(recipe: Recipe())
+        var recipe = Recipe()
+        recipe.look.wheels.pivots = [0.65, 0.85]
+        let raisedWindows = RenderPlan(recipe: recipe)
+
+        let atDefault = ReferenceRenderer.applyLocalAdjust(pixel, mask: mask,
+                                                           plan: defaultWindows,
+                                                           space: .rec2020)
+        let atRaised = ReferenceRenderer.applyLocalAdjust(pixel, mask: mask,
+                                                          plan: raisedWindows,
+                                                          space: .rec2020)
+        XCTAssertGreaterThan(atDefault[0, 0].maxAbsDifference(atRaised[0, 0]), 1e-4,
+                             "the global pivots moved and the masked grade did not — "
+                                 + "the mask is still zoned by factory defaults")
+
+        // Direction: under the raised pivot the pixel is deep in the shadow zone, so
+        // the blue shadow push should move it MORE than at default windows.
+        let context = OKLabTransform.working
+        let shiftDefault = context.toLCh(atDefault[0, 0]).C
+        let shiftRaised = context.toLCh(atRaised[0, 0]).C
+        XCTAssertGreaterThan(shiftRaised, shiftDefault,
+                             "raising the shadow pivot over the pixel should give the "
+                                 + "shadows wheel MORE of it, not less")
+    }
+
+    /// COLOR-27. A masked desaturation of a face was skin-protected by ColorAdjust's
+    /// invisible default-70, with no control anywhere that could turn it off. The
+    /// local colour stage now inherits density and protectSkin from the GLOBAL colour
+    /// panel, so the protection strength is the photographer's own slider.
+    ///
+    /// Measured on Vibrance, because that is where the protection is documented to
+    /// bite ("attenuates Vibrance at both signs" — and Sat −100 reaches true B&W at
+    /// EVERY protection setting by its own contract, which is why the first draft of
+    /// this test, written against Sat −100, measured nothing).
+    func testMaskedVibranceInheritsTheGlobalSkinProtection() {
+        var adjust = LocalAdjust()
+        adjust.vibrance = -80
+        let mask = Mask(name: "mute", components: [hardRadial()], adjust: adjust)
+        let skin = ProofFrames.chartPatchColour(2)
+        let frame = ImageBuffer(width: 4, height: 1) { _, _ in skin }
+
+        var unprotected = Recipe()
+        unprotected.develop.color.protectSkin = 0
+        let offPlan = RenderPlan(recipe: unprotected)
+        let defaultPlan = RenderPlan(recipe: Recipe())   // protectSkin 70
+
+        let context = OKLabTransform.working
+        let baseChroma = context.toLCh(skin).C
+        let withDefault = context.toLCh(
+            ReferenceRenderer.applyLocalAdjust(frame, mask: mask, plan: defaultPlan,
+                                               space: .rec2020)[0, 0]).C
+        let withOff = context.toLCh(
+            ReferenceRenderer.applyLocalAdjust(frame, mask: mask, plan: offPlan,
+                                               space: .rec2020)[0, 0]).C
+
+        XCTAssertLessThan(withOff, withDefault * 0.85,
+                          "global Protect Skin 0 muted the skin to \(withOff) chroma "
+                              + "against \(withDefault) at the default 70 — the global "
+                              + "setting is not reaching the masked stage")
+        XCTAssertLessThan(withDefault, baseChroma,
+                          "the protected push did not move the patch at all")
+        _ = baseChroma
+    }
+
     func testLocalCurveIsIdentityUntilThereIsOneToApply() {
         let c = RGB(0.2, 0.3, 0.45)
         XCTAssertTrue(LocalCurve(curve: nil).isIdentity)

@@ -267,8 +267,13 @@ public enum ReferenceRenderer {
                                          blacks: a.blacks * scale))
         let color = ColorEngine(mixer: Mixer(),
                                 pointColors: a.pointColors.map { $0.scalingShift(by: scale) },
-                                color: ColorAdjust(vibrance: a.vibrance * scale,
-                                                   saturation: a.sat * scale),
+                                // Density and protectSkin inherited from the global
+                                // colour panel — see `ColorAdjust.local` for why an
+                                // invisible default-70 protection was the wrong thing
+                                // to hand a masked Sat −100 (COLOR-27).
+                                color: .local(vibrance: a.vibrance * scale,
+                                              saturation: a.sat * scale,
+                                              inheriting: plan.recipe.develop.color),
                                 primaries: Primaries(), bw: nil)
         let exposureGain = tone.exposureGain
         let hueShift = a.hue * scale
@@ -284,7 +289,11 @@ public enum ReferenceRenderer {
         // difference between two implementations rather than one implementation's error.
         let localGrade = (a.wheels?.isNeutral ?? true)
             ? nil
-            : GradeEngine(wheels: a.wheels!.scalingShift(by: scale),
+            // `adoptingWindows`: the mask's colour moves inside the GLOBAL wheels'
+            // tonal windows, which is the docs/08 §8.4 contract both paths violated
+            // for the wheels' whole life (COLOR-16).
+            : GradeEngine(wheels: a.wheels!.scalingShift(by: scale)
+                              .adoptingWindows(from: plan.recipe.look.wheels),
                           printerLights: PrinterLights(),
                           whiteAnchorEV: plan.tone.whiteAnchorEV,
                           blackAnchorEV: plan.tone.blackAnchorEV)

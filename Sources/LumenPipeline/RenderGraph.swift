@@ -875,7 +875,9 @@ public struct RenderGraph {
         let localPlan = LocalPlan(adjust: a, scale: scale,
                                   whiteAnchorEV: plan.tone.whiteAnchorEV,
                                   blackAnchorEV: plan.tone.blackAnchorEV,
-                                  size: lutSize)
+                                  size: lutSize,
+                                  globalColor: plan.recipe.develop.color,
+                                  globalWheels: plan.recipe.look.wheels)
         if !localPlan.isIdentity {
             out = throughShaper(out) { encoded in
                 ColorCube.filter(localPlan.lut, image: encoded)
@@ -1506,8 +1508,13 @@ struct LocalPlan {
     /// anything above the interactive size on purpose — so the size is not part of any
     /// cache key; it is baked once per mask per render, which at export is 274 625
     /// samples per mask instead of 35 937.
+    /// `globalColor` and `globalWheels` are the GLOBAL panels' values, and they have
+    /// no defaults for the same reason `size` has none: a call site that forgets them
+    /// silently reverts COLOR-16/COLOR-27 — the masked grade re-zoned by factory
+    /// pivots, the masked Sat re-protected by an invisible 70.
     init(adjust: LocalAdjust, scale: Double, whiteAnchorEV: Double,
-         blackAnchorEV: Double, size: Int) {
+         blackAnchorEV: Double, size: Int,
+         globalColor: ColorAdjust, globalWheels: GradingWheels) {
         // `pointColors` belongs in this list. Leaving it out meant a mask whose ONLY
         // edit was a sampled swatch declared itself identity, got a 2-point identity
         // table, and returned its input — the Point Colour control did nothing at all
@@ -1532,8 +1539,12 @@ struct LocalPlan {
                                          shadows: adjust.shadows * scale,
                                          whites: adjust.whites * scale,
                                          blacks: adjust.blacks * scale))
-        let color = ColorAdjust(vibrance: adjust.vibrance * scale,
-                                saturation: adjust.sat * scale)
+        // Density and protectSkin inherited from the global colour panel — see
+        // `ColorAdjust.local` (COLOR-27). Kept in lockstep with
+        // `ReferenceRenderer.applyLocalAdjust`.
+        let color = ColorAdjust.local(vibrance: adjust.vibrance * scale,
+                                      saturation: adjust.sat * scale,
+                                      inheriting: globalColor)
         let colorEngine = ColorEngine(
             mixer: Mixer(),
             pointColors: adjust.pointColors.map { $0.scalingShift(by: scale) },
@@ -1558,7 +1569,10 @@ struct LocalPlan {
         // are the parts that make a grade look like a grade rather than a tint.
         let localGrade = (adjust.wheels?.isNeutral ?? true)
             ? nil
-            : GradeEngine(wheels: adjust.wheels!.scalingShift(by: scale),
+            // `adoptingWindows`: the mask's colour moves inside the GLOBAL wheels'
+            // tonal windows — the docs/08 §8.4 contract (COLOR-16).
+            : GradeEngine(wheels: adjust.wheels!.scalingShift(by: scale)
+                              .adoptingWindows(from: globalWheels),
                           printerLights: PrinterLights(),
                           whiteAnchorEV: whiteAnchorEV, blackAnchorEV: blackAnchorEV)
 
