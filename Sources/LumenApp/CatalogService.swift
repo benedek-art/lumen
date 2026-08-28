@@ -64,6 +64,10 @@ final class CatalogService: @unchecked Sendable {
 
     /// Sidecar writes coalesce over this window.
     private static let sidecarDebounce: TimeInterval = 2.0
+    /// A failed sidecar write retries after this long — deliberately much longer than
+    /// the debounce, so a full disk or an offline volume is probed a few times a
+    /// minute rather than hammered.
+    private static let sidecarRetryDelay: TimeInterval = 15.0
     /// Queued sidecar state, with the photo row it belongs to. The id rides along
     /// because the flush is what learns the sidecar's new mtime, and `photo.sidecar_mtime`
     /// is the clock docs/15 §15.5's conflict rules are evaluated against — a stamp taken
@@ -913,6 +917,13 @@ final class CatalogService: @unchecked Sendable {
         sidecarFlushScheduled = false
         sidecarLock.unlock()
 
+        // Entries whose WRITE failed, kept for a retry. The batch was already removed
+        // from the queue above, and it used to stay removed on failure — a full disk
+        // or a briefly-offline volume silently left the catalog ahead of the sidecar
+        // forever, which quietly falsifies "losing the catalog costs speed, never
+        // work" for exactly the frames edited during the outage.
+        var failed: [(url: URL, entry: (photoID: Int64?, content: SidecarContent))] = []
+
         for (url, entry) in batch {
             let content = entry.content
             let path = Self.sidecarURL(for: url)
@@ -925,12 +936,21 @@ final class CatalogService: @unchecked Sendable {
             // happened on the first rating keystroke, to photos Lumen had never
             // rendered, with no backup and no undo.
             //
-            // So: splice into what is there. If the document cannot be edited safely,
-            // leave it completely alone. The rating is still in the catalog; the
-            // user's work in that file is not recoverable from anywhere.
+            // So: splice into what is there. If the document cannot be edited safely —
+            // a merge the splicer refuses, or bytes that are not UTF-8 text at all —
+            // leave it completely alone. `classify` is what keeps "unreadable" from
+            // masquerading as "absent": a UTF-16 sidecar used to fail the UTF-8 read,
+            // fall into the no-sidecar branch, and be replaced wholesale. The rating
+            // is still in the catalog; the user's work in that file is not
+            // recoverable from anywhere.
             let text: String
-            if let existing = try? String(contentsOf: path, encoding: .utf8),
-               !existing.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            switch XMPSidecar.classify(try? Data(contentsOf: path)) {
+            case .unreadable:
+                NSLog("Lumen: left %@ untouched — its bytes are not UTF-8 text, and "
+                      + "editing a document this version cannot decode would damage it",
+                      path.lastPathComponent)
+                continue
+            case .document(let existing):
                 guard let merged = XMPSidecar.update(existing, with: content) else {
                     NSLog("Lumen: left %@ untouched — it is not a sidecar this "
                           + "version knows how to edit without losing its contents",
@@ -938,7 +958,7 @@ final class CatalogService: @unchecked Sendable {
                     continue
                 }
                 text = merged
-            } else {
+            case .absent:
                 text = XMPSidecar.serialize(content)
             }
 
@@ -956,8 +976,26 @@ final class CatalogService: @unchecked Sendable {
                     }
                 }
             } catch {
-                NSLog("Lumen: sidecar write failed for %@ — %@", path.lastPathComponent,
-                      String(describing: error))
+                NSLog("Lumen: sidecar write failed for %@ — will retry — %@",
+                      path.lastPathComponent, String(describing: error))
+                failed.append((url, entry))
+            }
+        }
+
+        guard !failed.isEmpty else { return }
+        sidecarLock.lock()
+        // Re-queue only where no NEWER entry arrived during the flush: an entry
+        // enqueued meanwhile was built on a fresh read and its own edits, and
+        // clobbering it with the failed one would resurrect the older state.
+        for (url, entry) in failed where pendingSidecars[url] == nil {
+            pendingSidecars[url] = entry
+        }
+        let shouldSchedule = !sidecarFlushScheduled && !pendingSidecars.isEmpty
+        if shouldSchedule { sidecarFlushScheduled = true }
+        sidecarLock.unlock()
+        if shouldSchedule {
+            queue.asyncAfter(deadline: .now() + Self.sidecarRetryDelay) {
+                self.flushSidecars()
             }
         }
     }

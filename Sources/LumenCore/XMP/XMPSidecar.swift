@@ -275,6 +275,48 @@ public enum XMPSidecar {
 
     public static let lumenNamespace = "http://lumenapp.dev/xmp/1.0/"
 
+    // MARK: - What is on disk
+
+    /// What the writer may do with the bytes at a sidecar's path.
+    ///
+    /// The distinction this type exists to keep is `absent` versus `unreadable`, and
+    /// it used to be collapsed: the flush read the file with
+    /// `String(contentsOf:encoding:.utf8)`, whose failure looks exactly like no file
+    /// at all — so a UTF-16 sidecar written by another tool fell into the "no sidecar
+    /// yet" branch and was REPLACED WHOLESALE by a fresh Lumen document. Every
+    /// develop setting and keyword in it, gone on the first rating keystroke, which
+    /// is precisely the .lrcat-era failure the merge path was built to end.
+    public enum SidecarDocument: Equatable, Sendable {
+        /// No file, or nothing but whitespace — authoring a fresh document is safe.
+        case absent
+        /// A UTF-8 text document; the writer may attempt a field splice into it.
+        case document(String)
+        /// Bytes exist and are not UTF-8 text. The writer must leave the file
+        /// completely alone: Lumen cannot round-trip an encoding it cannot decode,
+        /// and the file is someone's work. (A UTF-16 sidecar lands here on purpose —
+        /// re-serializing it as UTF-8 under its original declaration would be a
+        /// different way of damaging it.)
+        case unreadable
+    }
+
+    /// Classify the raw bytes at a sidecar path. `nil` data means the read itself
+    /// found no file.
+    ///
+    /// The NUL check is not paranoia: BOM-less UTF-16 of an ASCII document is,
+    /// byte-for-byte, VALID UTF-8 — every second byte is a NUL, and NUL is a legal
+    /// UTF-8 scalar. Without the check such a file decodes into a NUL-riddled string,
+    /// passes for a document, and goes to the splicer; with it, the file is what it
+    /// actually is here — an encoding this build cannot edit without damage.
+    public static func classify(_ data: Data?) -> SidecarDocument {
+        guard let data, !data.isEmpty else { return .absent }
+        guard let text = String(data: data, encoding: .utf8),
+              !text.contains("\0") else { return .unreadable }
+        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return .absent
+        }
+        return .document(text)
+    }
+
     // MARK: - Write
 
     /// Update an existing sidecar's Lumen-owned fields and leave every other byte of

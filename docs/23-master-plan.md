@@ -371,10 +371,16 @@ and against Lightroom via owner-exported references.
          edits list) and the save INSERTs a fresh working row; same-or-older
          rows still update in place. Both directions pinned in CatalogTests;
          watched failing with the guard disabled.
-      2. flushSidecars drops a failed/refused write permanently (batch removed
-         before writing; catalog-ahead never re-flushed) and treats a non-UTF-8
-         sidecar as absent → wholesale replace of a foreign XMP
-         (CatalogService.swift:910-961).
+      2. ~~flushSidecars drops a failed/refused write permanently, and treats a
+         non-UTF-8 sidecar as absent → wholesale replace~~ FIXED: failed writes
+         re-queue (newest entry wins) and retry on a 15 s cadence;
+         `XMPSidecar.classify` keeps `absent` and `unreadable` apart — including
+         BOM-less UTF-16, which is byte-valid UTF-8 and needed an explicit NUL
+         check — so an undecodable sidecar is left byte-untouched. Classification
+         pinned in SidecarAndIngestTests, watched failing with unreadable
+         collapsed back to absent. Refused merges (splicer returns nil) remain a
+         deliberate permanent skip: the catalog holds the truth and the foreign
+         file is preserved.
       3. History coalescing keys carry no photo identity — a step can span a
          photo switch inside 1.2 s and undo then reverts the off-screen photo
          (HistoryStack.swift:69-86).

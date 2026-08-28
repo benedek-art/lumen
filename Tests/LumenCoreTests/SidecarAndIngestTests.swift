@@ -402,6 +402,43 @@ final class SidecarAndIngestTests: XCTestCase {
         }
     }
 
+    // The writer's read-side classification (docs/23 audit queue item 2). The case
+    // that convicts the old behaviour is the UTF-16 document: a UTF-8 read fails on
+    // it exactly the way it fails on a missing file, so the flush authored a fresh
+    // Lumen document over somebody's real sidecar. `classify` keeps the two apart —
+    // "absent" invites a fresh document, "unreadable" forbids touching the file.
+    func testSidecarClassificationKeepsAbsentAndUnreadableApart() {
+        XCTAssertEqual(XMPSidecar.classify(nil), .absent)
+        XCTAssertEqual(XMPSidecar.classify(Data()), .absent)
+        XCTAssertEqual(XMPSidecar.classify(Data("  \n\t".utf8)), .absent)
+
+        let document = XMPSidecar.serialize(SidecarContent(rating: 3))
+        XCTAssertEqual(XMPSidecar.classify(Data(document.utf8)), .document(document))
+
+        // UTF-16 bytes built by hand so BOM presence is explicit. The BOM-less
+        // little-endian form is the treacherous one: ASCII interleaved with NULs is
+        // byte-for-byte VALID UTF-8, so only the NUL check catches it.
+        var littleEndian = Data()
+        var bigEndian = Data()
+        for unit in document.utf16 {
+            littleEndian.append(UInt8(unit & 0xFF))
+            littleEndian.append(UInt8(unit >> 8))
+            bigEndian.append(UInt8(unit >> 8))
+            bigEndian.append(UInt8(unit & 0xFF))
+        }
+        let cases: [(String, Data)] = [
+            ("UTF-16LE (no BOM)", littleEndian),
+            ("UTF-16BE (no BOM)", bigEndian),
+            ("UTF-16LE with BOM", Data([0xFF, 0xFE]) + littleEndian),
+            ("UTF-16BE with BOM", Data([0xFE, 0xFF]) + bigEndian),
+        ]
+        for (label, bytes) in cases {
+            XCTAssertEqual(XMPSidecar.classify(bytes), .unreadable,
+                           "a \(label) sidecar must be left alone, not treated "
+                               + "as absent and replaced wholesale")
+        }
+    }
+
     func testXMPParseRejectsGarbage() {
         XCTAssertNil(XMPSidecar.parse("this is not xml"))
         XCTAssertNil(XMPSidecar.parse("<unrelated><xml/></unrelated>"))
