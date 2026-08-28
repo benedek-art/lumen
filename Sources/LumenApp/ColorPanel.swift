@@ -36,6 +36,9 @@ import SwiftUI
 
 struct ColorPanel: View {
     @EnvironmentObject var state: AppState
+    /// This surface shows the edit, so it observes the edit signal —
+    /// `AppState.recipes` is deliberately not published (see `EditRevision`).
+    @EnvironmentObject var edits: EditRevision
 
     @State private var selectedBand: Int = 0
     @State private var allBands: Bool = false

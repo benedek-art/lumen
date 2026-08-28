@@ -60,6 +60,9 @@ private let assumedFrameAspect: Double = 3.0 / 2.0
 
 struct EffectsPanel: View {
     @EnvironmentObject var state: AppState
+    /// This surface shows the edit, so it observes the edit signal —
+    /// `AppState.recipes` is deliberately not published (see `EditRevision`).
+    @EnvironmentObject var edits: EditRevision
 
     /// Width ÷ height of the decoded frame, when the caller knows it. Overrides the
     /// live value from `state` — nothing passes it today, and it exists so the ratio

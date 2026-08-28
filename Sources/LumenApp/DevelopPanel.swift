@@ -203,6 +203,13 @@ struct DevelopNote: View {
 
 struct DevelopPanel: View {
     @EnvironmentObject var state: AppState
+    /// This surface shows the edit, so it observes the edit signal —
+    /// `AppState.recipes` is deliberately not published (see `EditRevision`).
+    @EnvironmentObject var edits: EditRevision
+    /// The undo/redo pair's labels and enablement. Its own object so that keeping them
+    /// current does not require `AppState` to publish when history moves — see
+    /// `CommandState`.
+    @EnvironmentObject var commands: CommandState
 
     /// The photo whose name the header shows. Values come from
     /// `state.primarySelection` and edits land on `state.editTargets`, so this is a
@@ -376,16 +383,20 @@ struct DevelopPanel: View {
                                     help: "Return every setting to its default",
                                     action: { state.resetSettings() })
                     .disabled(!isRecipeModified)
+                // Through `commands`, not `state.history`. Reading the stack directly
+                // is what needed a `history.objectWillChange` → `AppState` forward to
+                // stay current, and that forward re-bodied the whole window on every
+                // mouse event of every drag (see `CommandState`).
                 DevelopFooterButton(title: "Undo", systemImage: "arrow.uturn.left",
-                                    help: state.history.undoLabel.map { "Undo \($0)" }
+                                    help: commands.undoLabel.map { "Undo \($0)" }
                                         ?? "Nothing to undo",
                                     action: { state.undo() })
-                    .disabled(!state.history.canUndo)
+                    .disabled(!commands.canUndo)
                 DevelopFooterButton(title: "Redo", systemImage: "arrow.uturn.right",
-                                    help: state.history.redoLabel.map { "Redo \($0)" }
+                                    help: commands.redoLabel.map { "Redo \($0)" }
                                         ?? "Nothing to redo",
                                     action: { state.redo() })
-                    .disabled(!state.history.canRedo)
+                    .disabled(!commands.canRedo)
             }
             HStack(spacing: 4) {
                 DevelopFooterButton(title: "Copy", systemImage: "doc.on.doc",

@@ -73,6 +73,9 @@ final class CompareSync: ObservableObject {
 struct CompareView: View {
 
     @EnvironmentObject var state: AppState
+    /// This surface shows the edit, so it observes the edit signal —
+    /// `AppState.recipes` is deliberately not published (see `EditRevision`).
+    @EnvironmentObject var edits: EditRevision
     /// Pass a layout to pin one; leave it nil and the view follows `AppState.viewMode`,
     /// so `C` and `N` reach the same view without the shell having to know which.
     var layout: CompareLayout?
@@ -195,6 +198,7 @@ struct CompareView: View {
 private struct ComparePane: View {
 
     @EnvironmentObject var state: AppState
+    @EnvironmentObject var edits: EditRevision
     let photo: PhotoItem
     @ObservedObject var sync: CompareSync
     let isPrimary: Bool
@@ -392,6 +396,7 @@ private struct ComparePane: View {
 private struct SurveyCell: View {
 
     @EnvironmentObject var state: AppState
+    @EnvironmentObject var edits: EditRevision
     let photo: PhotoItem
     let isPrimary: Bool
 

@@ -59,6 +59,9 @@ private let wbIlluminants: [WBIlluminant] = [
 
 struct BasicPanel: View {
     @EnvironmentObject var state: AppState
+    /// This surface shows the edit, so it observes the edit signal —
+    /// `AppState.recipes` is deliberately not published (see `EditRevision`).
+    @EnvironmentObject var edits: EditRevision
 
     @State private var showPivot: Bool = false
     @State private var showSaturationAdvanced: Bool = false

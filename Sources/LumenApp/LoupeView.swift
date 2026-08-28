@@ -596,6 +596,9 @@ final class PhotoRenderModel: ObservableObject {
 struct LoupeView: View {
 
     @EnvironmentObject var state: AppState
+    /// This surface shows the edit, so it observes the edit signal —
+    /// `AppState.recipes` is deliberately not published (see `EditRevision`).
+    @EnvironmentObject var edits: EditRevision
     let photo: PhotoItem
 
     // The render key is `ViewerRenderKey` in RenderRequest.swift — shared with the

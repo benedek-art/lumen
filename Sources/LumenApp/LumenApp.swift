@@ -36,6 +36,16 @@ struct LumenApp: App {
         WindowGroup("Lumen") {
             ContentView()
                 .environmentObject(state)
+                // The develop footer's undo/redo pair reads the same four facts the
+                // Edit menu does, and for the same reason must observe something that
+                // does not move on every mouse event of a drag.
+                .environmentObject(state.commands)
+                // The other half of that trade: `AppState.recipes` no longer publishes,
+                // so the surfaces that DO show an edit observe this instead — and the
+                // filmstrip, the grid, the sidebar and the menu bar stop being rebuilt
+                // between two mouse events. `EditRevision`'s header has the rule for
+                // any view added later that reads a recipe.
+                .environmentObject(state.edits)
                 // Neutral dark chrome, always: the surround must not bias a colour
                 // judgement about the photograph (docs/00 Law 7).
                 .preferredColorScheme(.dark)
@@ -56,6 +66,32 @@ struct LumenApp: App {
                 }
         }
         .commands {
+            LumenCommands(state: state, commands: state.commands)
+        }
+    }
+}
+
+/// The menu bar.
+///
+/// Split out of `LumenApp.body` and given its own observed object deliberately. The
+/// menus display five facts — two undo labels, whether there is a catalog, whether
+/// there is a selection, and whether the latency HUD is on — and every one of them is
+/// on `CommandState`, which changes a handful of times per session. Reading them off
+/// `AppState` instead meant this whole tree was rebuilt whenever ANY of that object's
+/// sixty published properties moved, which during a slider drag is every mouse event:
+/// seven menus and twenty-five items reconstructed on the main actor, per event, so
+/// that a menu nobody had opened could hold a label that does not change during a drag.
+///
+/// `state` is held as a plain reference, not observed: the buttons need it to ACT, and
+/// a menu that rebuilds because an action's receiver changed is the bug this type
+/// exists to remove.
+private struct LumenCommands: Commands {
+
+    let state: AppState
+    @ObservedObject var commands: CommandState
+
+    var body: some Commands {
+        Group {
             CommandGroup(after: .appInfo) {
                 // A plain Text renders as a disabled menu line: the build's number,
                 // commit and date, so "am I on the newest build?" is one click, no
@@ -76,30 +112,31 @@ struct LumenApp: App {
                 // the one maintenance action a photographer actually wants was
                 // unreachable from inside the app.
                 Button("Back Up Catalog") { state.backUpCatalog() }
-                    .disabled(state.catalog == nil)
+                    .disabled(!commands.hasCatalog)
             }
 
             // Instruments for a test session, not features: everything here exists
             // so an owner session produces numbers instead of impressions.
             CommandMenu("Debug") {
-                Button(state.showLatencyHUD ? "Hide Latency HUD" : "Show Latency HUD") {
+                Button(commands.showLatencyHUD
+                       ? "Hide Latency HUD" : "Show Latency HUD") {
                     state.showLatencyHUD.toggle()
                 }
                 .keyboardShortcut("l", modifiers: [.command, .option])
             }
 
             CommandGroup(replacing: .undoRedo) {
-                Button(state.history.undoLabel.map { "Undo \($0)" } ?? "Undo") {
+                Button(commands.undoLabel.map { "Undo \($0)" } ?? "Undo") {
                     state.undo()
                 }
                 .keyboardShortcut("z", modifiers: [.command])
-                .disabled(!state.history.canUndo)
+                .disabled(!commands.canUndo)
 
-                Button(state.history.redoLabel.map { "Redo \($0)" } ?? "Redo") {
+                Button(commands.redoLabel.map { "Redo \($0)" } ?? "Redo") {
                     state.redo()
                 }
                 .keyboardShortcut("z", modifiers: [.command, .shift])
-                .disabled(!state.history.canRedo)
+                .disabled(!commands.canRedo)
             }
 
             CommandGroup(replacing: .pasteboard) {
@@ -143,7 +180,7 @@ struct LumenApp: App {
             CommandMenu("Export") {
                 Button("Export…") { state.showExportSheet = true }
                     .keyboardShortcut("e", modifiers: [.command])
-                    .disabled(state.primarySelection == nil)
+                    .disabled(!commands.hasSelection)
             }
 
             CommandGroup(replacing: .help) {

@@ -50,8 +50,23 @@ final class HistoryStack: ObservableObject {
     /// nudge again" gives you two steps to walk back through.
     static let coalescingWindow: TimeInterval = 1.2
 
-    @Published private(set) var steps: [Step] = []
-    @Published private(set) var position = 0     // index of the next step to redo
+    @Published private(set) var steps: [Step] = [] { didSet { onChange?() } }
+    @Published private(set) var position = 0 { didSet { onChange?() } }
+
+    /// Called after any mutation, so `AppState` can bring `CommandState` up to date
+    /// without observing this object.
+    ///
+    /// It replaces a blanket `objectWillChange` forward from here into `AppState` —
+    /// which meant that folding one mouse event of a drag into the open undo step
+    /// invalidated the entire window and the entire menu bar, so that the Edit menu
+    /// could keep a label reading "Edit". See `CommandState` for the whole story.
+    ///
+    /// Hung off `didSet` on both stored properties rather than called at the end of
+    /// each mutating method: there are five of those and a sixth is one refactor away,
+    /// and a notification you have to remember to send is one you eventually do not.
+    /// It fires more often than strictly needed (`record`'s append path moves both
+    /// properties), which is why the receiving end is equality-guarded.
+    var onChange: (@MainActor () -> Void)?
 
     private var lastEditTime = Date.distantPast
 

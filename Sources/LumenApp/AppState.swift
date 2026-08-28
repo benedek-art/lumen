@@ -13,7 +13,6 @@
 #if os(macOS)
 
 import AppKit
-import Combine
 import Foundation
 import LumenCore
 import LumenPipeline
@@ -495,6 +494,8 @@ final class AppState: ObservableObject {
             // before the first frame is worth looking at; the call is a no-op for the
             // overwhelming majority of photographs, which have no AI component at all.
             ensureMaskMattes()
+            // Export's menu item is enabled by there being a photograph.
+            refreshCommandState()
         }
     }
 
@@ -829,7 +830,25 @@ final class AppState: ObservableObject {
 
     // MARK: Editor
 
-    @Published var recipes: [URL: Recipe] = [:]
+    /// Every photograph's edit, keyed by file.
+    ///
+    /// DELIBERATELY NOT `@Published`. It is written once per mouse event for the whole
+    /// length of a slider drag, and publishing it here fired `objectWillChange` on an
+    /// object that the menu bar, the filmstrip, the grid, the sidebar, the filter bar
+    /// and the status bar all observe — none of which show an edit. `EditRevision` is
+    /// the signal now, and its header has the whole argument, including the rule for
+    /// any view added later that reads a recipe.
+    var recipes: [URL: Recipe] = [:] {
+        didSet { edits.bump() }
+    }
+
+    /// The invalidation the twelve edit-facing views subscribe to. Hung off `recipes`'
+    /// `didSet` rather than called at each of the five mutation sites: a notification
+    /// you have to remember to send is one that eventually is not sent, and the failure
+    /// mode — a panel that renders once and then silently stops following the
+    /// photograph — is not one a test in this repository would catch.
+    let edits = EditRevision()
+
     @Published var activeSection: PanelSection = .basic
     @Published var showBefore = false
     /// What the next click on the image is FOR, if anything. The picker overlay only
@@ -874,7 +893,10 @@ final class AppState: ObservableObject {
     /// The latency instrument (docs/23 M1b): draft/settle wall times and input→draft
     /// in the loupe's corner. Debug menu; off by default and free when off.
     @Published var showLatencyHUD = false {
-        didSet { LatencyHUD.shared.enabled = showLatencyHUD }
+        didSet {
+            LatencyHUD.shared.enabled = showLatencyHUD
+            refreshCommandState()
+        }
     }
     /// The histogram and scopes for the current photo, binned from a small proxy of
     /// the actual composite off the main actor.
@@ -912,7 +934,9 @@ final class AppState: ObservableObject {
 
     let thumbnails = ThumbnailLoader()
     let history = HistoryStack()
-    private(set) var catalog: CatalogService?
+    private(set) var catalog: CatalogService? {
+        didSet { refreshCommandState() }
+    }
     /// The disk preview cache. Lives beside the catalog because it is bookkeeping in
     /// `cache.preview` plus payloads under `~/Library/Caches/Lumen`, and nil when the
     /// catalog could not be opened — a session without one browses out of memory, which
@@ -966,18 +990,37 @@ final class AppState: ObservableObject {
     @Published var isExporting = false
     @Published var exportProgress: Double = 0
 
-    /// `HistoryStack` is its own observable object, and SwiftUI only re-renders a
-    /// view for the object it observes. The Edit menu reads `state.history`, so
-    /// without this the undo item's enablement only refreshed when a recipe happened
-    /// to change on the same tick — correct by accident, and wrong the first time
-    /// history moves on its own.
-    private var historyObserver: AnyCancellable?
+    /// What the menu bar and the develop footer DISPLAY about history, the catalog and
+    /// the selection — kept here so those two surfaces can observe something small
+    /// instead of observing this object.
+    ///
+    /// This replaces a `history.objectWillChange` → `self.objectWillChange` forward.
+    /// The forward answered a real question (the Edit menu's undo item only refreshed
+    /// when a recipe happened to change on the same tick) at a price nobody had priced:
+    /// `updateRecipe` records a step on every mouse event of every drag, coalescing
+    /// REPLACES `steps[position - 1]`, and the forward turned that into a full
+    /// invalidation of the window and of `LumenApp`'s `Scene` — all seven `.commands`
+    /// menus rebuilt per mouse event. `CommandState`'s header has the rest of it.
+    let commands = CommandState()
 
     init() {
         openCatalog()
-        historyObserver = history.objectWillChange.sink { [weak self] _ in
-            self?.objectWillChange.send()
-        }
+        // Every history mutation, and nothing else. `refresh` is equality-guarded, so
+        // a drag — one coalesced step, label "Edit" from first event to last — reaches
+        // it on every event and publishes on none of them.
+        history.onChange = { [weak self] in self?.refreshCommandState() }
+        refreshCommandState()
+    }
+
+    /// Bring `commands` up to date. Cheap and idempotent by construction, so it is
+    /// called from anywhere one of its five facts might have moved rather than from a
+    /// carefully-maintained list of places.
+    func refreshCommandState() {
+        commands.refresh(undoLabel: history.undoLabel,
+                         redoLabel: history.redoLabel,
+                         hasCatalog: catalog != nil,
+                         hasSelection: primarySelection != nil,
+                         showLatencyHUD: showLatencyHUD)
     }
 
     // MARK: Derived
@@ -1841,8 +1884,11 @@ final class AppState: ObservableObject {
         // open; wiping early opened the scan-window loss above. Both ends of the
         // history live here now.)
         history.clear()
-        recipes = [:]
         var items = urls.map { PhotoItem(id: $0) }
+        // Built locally and assigned once. `recipes` signals every write, and a folder
+        // of five thousand photographs would otherwise signal five thousand times
+        // before the first frame is drawn.
+        var loaded: [URL: Recipe] = [:]
         for i in items.indices {
             if let row = stored[items[i].id] {
                 items[i].catalogID = row.catalogID
@@ -1850,9 +1896,10 @@ final class AppState: ObservableObject {
                 items[i].rating = row.rating
                 items[i].label = row.label
                 items[i].iso = row.iso
-                if let recipe = row.recipe { recipes[items[i].id] = recipe }
+                if let recipe = row.recipe { loaded[items[i].id] = recipe }
             }
         }
+        recipes = loaded
         allPhotos = items
         // The preview cache is keyed on `photo_id` and the loader is keyed on URL; this
         // dictionary is the join, and it has been coming back from `registerAndLoad`
