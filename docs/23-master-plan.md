@@ -542,8 +542,14 @@ and against Lightroom via owner-exported references.
       as an artifact for a later call; steps 1-2 (elevation ladder + type scale)
       landed at df57ab9, checkpoint 1 (the brighter chrome, one full session before
       judging) rides the next build; remaining A steps 3-9 in progress
-- [ ] First shipping-path golden that MOVES the six tone sliders through RenderGraph,
-      preview + export scale
+- [x] First shipping-path golden that MOVES the six tone sliders through RenderGraph,
+      preview + export scale: `ToneShippingGoldenTests` drives each slider
+      individually through `RenderGraph.build` at both table sizes, asserting
+      aliveness against the default render AND parity against the reference on the
+      same plan. Parity bounds are declared smoke bounds on first landing
+      (0.12 interactive / 0.06 export — the two known architectural error sources
+      are stated in the file); per-slider worsts print as TONEGOLD lines in the
+      gpu-parity log, to be tightened to measurements on the next pass.
 - [x] Tint honesty, the engine half: `WhiteBalanceEngine.effectiveTint` surfaces the
       physics-bounded magenta exactly like `effectiveHighlights`; and the WB
       eyedropper is cheap again — `tintLimit(kelvin:)` is memoized by exact kelvin,
