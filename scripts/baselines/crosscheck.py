@@ -53,14 +53,15 @@ docs/26-tone-baselines.md):
 
 Usage:  python3 scripts/baselines/crosscheck.py   (runs everything, prints the
         tables; exits non-zero if a tool is missing or a sanity check fails)
-        Subsequent additions (2026-08-28): shrecovery (RT Shadows&Highlights at
-        full deflection, per-patch EV shift — the field's answer to Lumen's
-        hard-partitioned ±2.0 EV zones) and dehaze (RT Haze Removal and
-        darktable hazeremoval on a synthetic veiled scene with known airlight —
-        far-ground contrast recovery and veil drop). The Lumen columns for both
-        print from AccuracyProbeTests (TONEBASE) and EngineIntegrationTests
-        (HAZEBASE) on the Linux lane, so every number in docs/26 §4–5 is
-        re-measurable on both sides.
+        Subsequent additions (2026-08-28): rt_sh_recovery (RT Shadows&Highlights
+        at full deflection, per-patch EV shift — the field's answer to Lumen's
+        hard-partitioned ±2.0 EV zones), rt_dehaze/dt_dehaze (RT Haze Removal
+        and darktable hazeremoval on a synthetic veiled scene with known
+        airlight — far-ground contrast recovery and veil drop), and rt_sharpen
+        (RL deconvolution and USM on a known-sigma blurred edge — rise recovery
+        against halo cost). The Lumen columns for all three print from
+        FieldBaselineProbeTests (TONEBASE / HAZEBASE / SHARPBASE) on the Linux
+        lane, so every number in docs/26 §4–6 is re-measurable on both sides.
 Deps:   apt install rawtherapee darktable; pip install numpy tifffile
 """
 import os
@@ -297,6 +298,85 @@ def dt_dehaze(work):
     return rows
 
 
+def blurred_edge_scene(sigma=1.5):
+    """A vertical dark->bright edge (0.06 -> 0.35 linear), capture-blurred by a
+    KNOWN Gaussian PSF — the recoverable-blur scenario RL deconvolution exists
+    for. The blur is applied here, exactly, so 'how much of a sigma-1.5 blur
+    does each sharpener undo' has a ground truth."""
+    h, w = 64, 128
+    edge = np.full((h, w), 0.06)
+    edge[:, w // 2:] = 0.35
+    r = int(6 * sigma)
+    xs = np.arange(-r, r + 1)
+    k = np.exp(-0.5 * (xs / sigma) ** 2)
+    k /= k.sum()
+    padded = np.pad(edge, ((0, 0), (r, r)), mode='edge')
+    blurred = np.array([np.convolve(row, k, 'valid') for row in padded])
+    return np.repeat(blurred[:, :, None], 3, axis=2)
+
+
+def edge_profile(img):
+    """(rise, overshoot, undershoot) of the mean edge-spread function:
+    rise = 25%->75% crossing distance in px (robust to overshoot, unlike
+    10-90); over/undershoot as fractions of the edge step — the halo
+    measurements."""
+    esf = img @ np.array([0.2627, 0.6780, 0.0593])
+    esf = esf.mean(axis=0)
+    dark, bright = esf[:8].mean(), esf[-8:].mean()
+    step = bright - dark
+
+    def crossing(level):
+        idx = int(np.argmax(esf >= level))
+        if idx == 0:
+            return 0.0
+        a, b = esf[idx - 1], esf[idx]
+        return idx - 1 + (level - a) / max(b - a, 1e-12)
+
+    rise = crossing(dark + 0.75 * step) - crossing(dark + 0.25 * step)
+    overshoot = float((esf.max() - bright) / step)
+    undershoot = float((dark - esf.min()) / step)
+    return rise, overshoot, undershoot
+
+
+def rt_sharpen(work):
+    """RT 5.10 sharpening on the known-blur edge: RL deconvolution (the method
+    docs/06 names as capture sharpening's field twin) and USM at defaults.
+
+    Same SHAPE questions as Lumen's SHARPBASE print: how much of the known
+    rise does each method recover, and how much halo does it pay for it."""
+    scene = blurred_edge_scene()
+    inp = os.path.join(work, 'edge.tif')
+    write_scene_srgb16(inp, scene)
+    base = edge_profile(scene)
+    rows = {}
+    for label, body in (
+        ('RT RL radius 1.5', '[Sharpening]\nEnabled=true\nMethod=rld\n'
+         'DeconvRadius=1.5\nDeconvAmount=100\nDeconvDamping=0\n'
+         'DeconvIterations=30\n'),
+        ('RT USM radius 1.5', '[Sharpening]\nEnabled=true\nMethod=usm\n'
+         'Radius=1.5\nAmount=250\n'),
+    ):
+        pp3 = os.path.join(work, f'{label}.pp3'.replace(' ', '_'))
+        open(pp3, 'w').write(body)
+        out = os.path.join(work, f'rt_{label}.tif'.replace(' ', '_'))
+        run(['rawtherapee-cli', '-t', '-b16', '-Y', '-o', out, '-p', pp3,
+             '-c', inp])
+        rows[label] = edge_profile(read_scene_linear(out))
+    # Tripwire: a sharpening section RT no longer reads renders the edge
+    # untouched, and every 'recovery' below would silently read 1.0.
+    if rows['RT RL radius 1.5'][0] > base[0] * 0.98:
+        sys.exit('RT RL sharpening changed nothing — the pp3 keys no longer '
+                 'match this RawTherapee; fix rt_sharpen before citing numbers.')
+
+    print('Sharpening on a sigma-1.5-blurred edge (25-75% rise in px; '
+          'recovery = blurred rise / sharpened rise):')
+    print(f'  blurred input      rise {base[0]:.2f} px')
+    for label, (rise, over, under) in rows.items():
+        print(f'  {label:18s} rise {rise:.2f} px  recovery x{base[0] / rise:.2f}'
+              f'   overshoot {over * 100:4.1f}%   undershoot {under * 100:4.1f}%')
+    return base, rows
+
+
 # ------------------------------------------------------------------ darktable
 
 DT_XMP = '''<?xml version="1.0" encoding="UTF-8"?>
@@ -405,6 +485,8 @@ def main():
         for label, (gain, veil) in haze.items():
             print(f'  {label:18s} ground contrast x{gain:.2f}   '
                   f'far-veil luminance x{veil:.2f}')
+        print()
+        rt_sharpen(work)
         print()
         print('Residual chroma of RGB(1.0, 0.72, 0.42) pushed +0..+5 EV')
         print('(Lumen probe PATHTOWHITE prints the same experiment):')

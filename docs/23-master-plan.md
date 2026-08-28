@@ -481,6 +481,15 @@ and against Lightroom via owner-exported references.
           keep exact proportions); spikes saturate at the panel top, the
           Lightroom behaviour. HistogramDisplayTests pins spike, sparse and
           empty.
+      15. haloSuppression misses the rim it exists to damp (found 2026-08-28 by
+          the P6 sharpening measurement, pinned failing-forward in
+          `testHaloSuppressionCurrentlyMissesTheRimItExistsToDamp`; full record
+          docs/24-detail gap 3, docs/26 §6). Both paths gate the damp on the
+          LOCAL usm magnitude, but a real edge's rim sits 2–3 px onto the bright
+          plateau where usm has decayed below the 0.15 EV floor — full deflection
+          dulls the mid-edge slope and reduces the rim by exactly nothing. Cure:
+          damp against the local plateau (local-range clamp) in BOTH paths, with
+          constants measured, then promote the pinned test to the contract claim.
 - [ ] Dossier-driven fix queue (full detail in docs/24; ranked by daily impact):
       0. ~~Path-to-white DEFECT~~ FIXED (owner: "+1.80 EV does not seem like an
          exposed picture. It seems fake"): the display transform's ratio branch
@@ -590,12 +599,14 @@ and against Lightroom via owner-exported references.
 - [ ] Proof records at full panel travel for every Basic-list control; the 13 missing
       sliders recorded; P1 REACHES made mechanical (test fails when shippingReader
       file:line drifts)
-- [ ] P6 baselines vs darktable/RawTherapee for tone, S/H recovery, dehaze, sharpening
+- [x] P6 baselines vs darktable/RawTherapee for tone, S/H recovery, dehaze, sharpening
       — first recorded competitive evidence, per docs/20 tier rules
-      *(tone was already recorded in docs/26 §1–3; S/H recovery and dehaze recorded
-      docs/26 §4–5 with `crosscheck.py` extensions + `FieldBaselineProbeTests`
-      printing Lumen's TONEBASE/HAZEBASE columns every lane run; SHARPENING is the
-      one leg still open — RT RL-deconvolution on a slanted edge, docs/26 §7)*
+      *(2026-08-28: all four legs recorded in docs/26 — tone §1–3, S/H recovery §4,
+      dehaze §5, sharpening §6 — via `crosscheck.py` extensions plus
+      `FieldBaselineProbeTests` printing Lumen's TONEBASE/HAZEBASE/SHARPBASE columns
+      on every Linux lane run so both sides stay re-measurable. The sharpening
+      measurement also caught the haloSuppression rim-miss defect, queued below.
+      Still owner-blocked: the Lightroom reference rows.)*
 
 **Owner session B:** re-edit 5 previously-Lightroom-edited photos, basics only,
 side-by-side exports. **Exit gate: owner prefers or ties Lumen on ≥4 of 5.**

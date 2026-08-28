@@ -145,7 +145,49 @@ shape agree. Two guarantees the probe asserts that neither field tool documents:
 zero pixels pushed negative at any strength (the He-et-al per-channel normalisation
 defect class, closed and pinned), and far-veil neutrality within 1%.
 
-## 6. Method caveats, so nobody over-reads the table
+## 6. Sharpening: recovery per halo, on a known blur — measured
+
+The experiment (`crosscheck.py` `rt_sharpen`; Lumen prints SHARPBASE): a vertical
+dark→bright linear edge, capture-blurred by an EXACT Gaussian of σ 1.5 px, so
+"how much of the blur does each sharpener undo" has a ground truth. Measured on
+the mean edge-spread function: 25→75% rise distance (robust to overshoot),
+recovery = blurred rise / sharpened rise, and the over/undershoot as fractions of
+the edge step — the halo cost.
+
+| implementation | rise (px) | recovery | overshoot | undershoot |
+|---|---|---|---|---|
+| blurred input | 2.10 | — | — | — |
+| RT 5.10 RL deconvolution (radius 1.5, amount 100) | 1.16 | ×1.80 | 10.9% | 2.9% |
+| RT 5.10 USM (radius 1.5, amount 250) | 1.17 | ×1.79 | 17.1% | 5.2% |
+| Lumen manual S12 (amount 100, radius 1.5) | 1.54 | ×1.36 | 6.0% | 1.7% |
+| Lumen capture RL (true PSF 1.5, amount 100) | 1.37 | ×1.53 | 9.5% | 3.5% |
+
+What the table settles:
+
+1. **RL beats USM on halo at equal recovery, in both codebases.** RT's two
+   methods land the same rise (×1.80 vs ×1.79) but USM pays 17.1% overshoot to
+   RL's 10.9 — the textbook argument for deconvolution, now recorded. Lumen's
+   pair shows the same shape.
+2. **Dial positions are not unit-comparable — this is a SHAPE table.** Each row
+   is that tool's own "amount 100-ish"; what is comparable is halo paid per
+   recovery earned, and every implementation lands in the same regime.
+3. **Lumen's shipping sharpener is the gentlest row** — least recovery at these
+   dials, but also least halo, with 50 more amount in reserve (0…150). And the
+   **capture RL row is the argument for wiring it**: it exists, it out-recovers
+   the manual stage at lower dial effort against a known PSF — and no shipping
+   build calls it (docs/24-detail gap: dead Radius control).
+
+One defect this measurement caught (pinned in
+`testHaloSuppressionCurrentlyMissesTheRimItExistsToDamp`, queued in docs/23):
+`haloSuppression` gates its damp on the local USM magnitude, but on a real edge
+the visible rim sits 2–3 px onto the bright plateau where USM has already decayed
+below the 0.15 EV floor — so at full deflection the slider dulls the mid-edge
+slope and delivers zero rim reduction, in both paths identically. The fix (damp
+against the local plateau, not USM magnitude) is a designed cross-path change;
+until it lands, the honest reading is that Lumen's LOW overshoot comes from the
+sharpener's own restraint, not from that slider.
+
+## 7. Method caveats, so nobody over-reads the table
 
 - Chroma is measured in each tool's own output RGB after decoding the shared
   sRGB transfer; working primaries differ, so the comparison is of SHAPE, not
@@ -158,11 +200,11 @@ defect class, closed and pinned), and far-veil neutrality within 1%.
 - RawTherapee "neutral" is a straight linear clip — included as the floor every
   tool must beat, not as a rendering anyone ships.
 
-## 7. What this unlocks next
+## 8. What this unlocks next
 
-- Sharpening is the last P6 leg without a field row (deconvolution radius/amount
-  vs RT's RL-deconvolution on a slanted-edge target — same harness shape); WB
-  joins once the RAW fixtures arrive.
+- All four P6 legs (tone §1–3, recovery §4, dehaze §5, sharpening §6) now carry
+  field rows. WB joins once the RAW fixtures arrive; the halo-suppression fix
+  (§6) re-measures against this same table when it lands.
 - The owner's Lightroom reference exports drop into the bleach table as one
   more row, into the exposure table as the second independent confirmation, and
   into §4's recovery table as the reference Lumen's partition is closest to in
