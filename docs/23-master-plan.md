@@ -874,6 +874,36 @@ side-by-side exports. **Exit gate: owner prefers or ties Lumen on ≥4 of 5.**
       every step of a Blacks sweep. Its sibling did not catch this because it built its
       plan with the default `allowStaleTables: false` — only ever exercising the path a
       drag does not take, the same blind spot as the draft ladder's tests.
+- [x] **Round 3b — the blur under the hand, which was a guess from before the ladder
+      worked.** Owner: "when I press and hold any of the sliders I get a blurry picture
+      while I'm sliding it, and only when I let it go it turns clear."
+      That is the two-tier refine behaving as designed, and the design was making a
+      decision it no longer needs to make. `PhotoRenderModel.load` asked for
+      `max(draftLongEdge, fullLongEdge / 2)` — the draft capped at HALF the settle's
+      resolution, on every machine, forever, whatever it could afford. Reasonable when
+      nothing measured a frame; not reasonable once `DraftLadder` measures every one
+      and steps down within a single hot frame. The halving is gone: the draft asks for
+      the settle's own resolution and the ladder takes back exactly what this machine
+      needs — none of it on one with headroom, so the drag is simply sharp.
+      Two changes go with it, both necessary rather than incidental:
+      · The ladder's top rung is 4096 (`LoupeView.maxRenderLongEdge`), so the top caps
+        nothing. A ladder whose top rung is below the request can never answer "as good
+        as what you asked for", which is what the top of a ladder should mean. The
+        rungs in between are closer together so one hot frame gives back a sensible
+        amount rather than half the picture.
+      · The ladder is MONOTONE DOWNWARD while a hand is down (`allowStepUp`). Giving
+        resolution back mid-drag is the machine keeping up; earning it back mid-drag
+        spends frame rate on detail a moving eye cannot resolve, and at a rung boundary
+        it oscillates — the picture's sharpness changing several times a second under
+        the hand, which is a flicker of exactly the kind round 3 just removed. It
+        matters more now precisely because a fast machine sits at the top with real
+        headroom, which is the state that banks a step-up streak.
+      Note what round 3's resampling fix contributed to the REPORT: nearest-neighbour
+      upscaling looks crisper than it is. Replacing it with honest smoothing removed a
+      fake sharpness that had been masking the halving, so the blur was always there
+      and became visible when it stopped being blocky. The answer is not to go back to
+      blocky; it is to stop magnifying at all, which is what asking for the settle's
+      resolution does.
 - [ ] **The same class, one table over, not yet closed.** `finishLUT` is also paired
       with a fresh scalar (`finishScale`, = `transform.white`) and IS still
       stale-served. It is safe during a tone drag: `applyAnchors` writes only the two

@@ -3,8 +3,9 @@
 // the zoom state does not move at all.
 //
 // The defect this pins: above fit the viewer draws a frame at `proxyPixels × ratio ÷
-// displayScale`, and the refine driver deliberately renders the draft at half the
-// settle's long edge. `renderPreview` scales the decode by `maxLongEdge ÷ native`
+// displayScale`, and the refine driver USED TO render the draft at half the settle's
+// long edge (round 3 removed the halving everywhere — see
+// `testAtFitTheDraftAsksForTheSettlesOwnResolutionAndLetsTheLadderDecide`). `renderPreview` scales the decode by `maxLongEdge ÷ native`
 // identically for both passes, so half the long edge is half the extent is half the
 // drawn size. The photograph therefore shrank to half and grew back on every render —
 // and during a slider drag a render is every mouse event, so it pumped under the cursor
@@ -18,14 +19,35 @@ final class DraftResolutionTests: XCTestCase {
 
     func testAtFitTheProxysResolutionIsInvisibleInTheGeometry() {
         // The fit ratio is derived from the same extent it is then multiplied by, so
-        // the two cancel and a proxy of any size draws at the container. That is why a
-        // coarse draft is free here — and it is the reason the defect never showed at
-        // the rung most editing happens on.
+        // the two cancel and a proxy of any size draws at the container. A coarse draft
+        // costs SHARPNESS here and nothing else, which is why the size defect this file
+        // is about never showed at the rung most editing happens on.
         XCTAssertFalse(DraftResolution.sizeFollowsProxyPixels(zoomRatio: ZoomLadder.fit))
+    }
+
+    /// WHAT COSTS SHARPNESS IS FREE IS NOT THE SAME AS WHAT SHOULD BE SPENT.
+    ///
+    /// This rule used to return the bare floor at fit, and the viewer then took
+    /// `max(floor, settle / 2)` — so a drag was capped at half the settle's resolution
+    /// on every machine forever, whatever it could afford. The owner's report on the
+    /// round-3 build is exactly that: "when I press and hold any of the sliders I get a
+    /// blurry picture while I'm sliding it, and only when I let it go it turns clear."
+    ///
+    /// The halving was a fair guess when nothing measured a frame. `DraftLadder` now
+    /// measures every one and steps down within a single hot frame, so the honest
+    /// request is the settle's own resolution and the ladder gives back exactly what
+    /// this machine turns out to need — none of it, on one with headroom.
+    func testAtFitTheDraftAsksForTheSettlesOwnResolutionAndLetsTheLadderDecide() {
         XCTAssertEqual(DraftResolution.draftLongEdge(settledLongEdge: 4096,
                                                      fitLongEdge: 1024,
                                                      zoomRatio: ZoomLadder.fit),
-                       1024)
+                       4096,
+                       "a drag capped at half the settle is soft under the hand on a "
+                           + "machine that could have drawn it sharp")
+        XCTAssertEqual(DraftResolution.draftLongEdge(settledLongEdge: 2560,
+                                                     fitLongEdge: 1024,
+                                                     zoomRatio: ZoomLadder.fit),
+                       2560)
     }
 
     func testAboveFitTheProxysResolutionIsTheFramesSizeOnScreen() {
@@ -110,9 +132,11 @@ final class DraftResolutionTests: XCTestCase {
         // NaN propagate into the geometry; the draft rule reads the same ladder, so it
         // has to agree.
         XCTAssertFalse(DraftResolution.sizeFollowsProxyPixels(zoomRatio: .nan))
+        // And the draft request is the settle's own resolution there as everywhere —
+        // a NaN must not decide how many pixels a frame gets.
         XCTAssertEqual(DraftResolution.draftLongEdge(settledLongEdge: 4096,
                                                      fitLongEdge: 1024,
                                                      zoomRatio: .nan),
-                       1024)
+                       4096)
     }
 }

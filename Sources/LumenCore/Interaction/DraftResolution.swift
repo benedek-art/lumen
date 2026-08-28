@@ -44,16 +44,29 @@ public enum DraftResolution {
         !ZoomLadder.isFit(zoomRatio)
     }
 
-    /// The long edge the draft pass may be asked for.
+    /// The long edge the draft pass may be asked for, BEFORE the ladder caps it.
     ///
-    /// `fitLongEdge` is the viewer's own lower bound for a draft — the value it uses
-    /// at fit, where a coarse draft costs sharpness for a few tens of milliseconds and
-    /// nothing else. Zoomed, the answer is the settle's own long edge, because any
-    /// smaller number is a visible change of size rather than of sharpness.
+    /// The answer is the settle's own long edge in both cases, for two different
+    /// reasons, and `fitLongEdge` is a floor rather than the answer.
+    ///
+    ///   · Zoomed, any smaller number is a visible change of SIZE rather than of
+    ///     sharpness — the whole subject of this file's header.
+    ///   · At fit it is a question of who decides. This used to return the bare floor,
+    ///     and the viewer then took `max(floor, settledLongEdge / 2)` — so a drag was
+    ///     capped at HALF the settle's resolution on every machine, forever, whatever
+    ///     it could actually afford. That is why the picture went soft under the hand
+    ///     and sharpened on release, which is the owner's report on the round-3 build.
+    ///     The halving was a reasonable guess when nothing measured the cost; it is not
+    ///     one now. `DraftLadder` measures every frame and steps down within one hot
+    ///     frame, so the honest request is "the same picture as the settle" and the
+    ///     ladder takes back exactly as much as this machine turns out to need — none
+    ///     of it on a machine with headroom.
+    ///
+    /// The floor still matters: it keeps a tiny window from asking for a draft so small
+    /// that the ladder has nothing to give back.
     public static func draftLongEdge(settledLongEdge: Int, fitLongEdge: Int,
                                      zoomRatio: Double) -> Int {
-        guard sizeFollowsProxyPixels(zoomRatio: zoomRatio) else { return fitLongEdge }
-        return Swift.max(fitLongEdge, settledLongEdge)
+        Swift.max(fitLongEdge, settledLongEdge)
     }
 
     /// The on-screen long edge, in points, of a proxy drawn at `zoomRatio`.

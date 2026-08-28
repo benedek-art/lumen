@@ -74,10 +74,14 @@ final class DraftLadderTests: XCTestCase {
     /// THE LADDER WAS DEAF ON EVERY WINDOW THE APP ACTUALLY RUNS IN.
     ///
     /// `record` refused any frame whose long edge was not exactly `rungs[rung]`, and
-    /// at fit the loupe never asks for `rungs[0]`. `PhotoRenderModel.load` requests
+    /// at fit the loupe never asked for `rungs[0]`. `PhotoRenderModel.load` then took
     /// `max(1024, fullLongEdge / 2)`, and `fullLongEdge` is the viewport in device
     /// pixels bucketed to 256 — so a 16-inch MacBook Pro's loupe (≈1180 pt centre pane
-    /// at 2×, bucket 2560) asks for 1280. 1280 ≠ 2048, the guard fired, and the ladder
+    /// at 2×, bucket 2560) asked for 1280. (Round 3 removed that halving; the request
+    /// is the settle's own resolution now, and the top rung is 4096, so the guard would
+    /// no longer fire for this reason either. The one-directional rule below is what
+    /// makes it correct rather than accidentally satisfied.)
+    /// 1280 ≠ 2048, the guard fired, and the ladder
     /// sat frozen at rung 0 for the life of the process. The one mechanism whose job is
     /// to keep a drag inside the 35 ms budget could not observe a single frame of it,
     /// however long those frames took.
@@ -120,6 +124,59 @@ final class DraftLadderTests: XCTestCase {
         XCTAssertEqual(ladder.longEdge(requested: requested), DraftLadder.rungs.last,
                        "ten hot frames in a row is a hand being told to wait; the "
                            + "ladder owes it the floor")
+    }
+
+    /// WHILE THE HAND IS DOWN THE LADDER ONLY GIVES BACK.
+    ///
+    /// Stepping down mid-drag is a machine admitting what it cannot afford, and the
+    /// hand feels it as the picture keeping up. Stepping UP mid-drag spends frame rate
+    /// on sharpness the eye cannot resolve in a moving picture — and at the boundary
+    /// between two rungs it oscillates, so the picture's sharpness changes several
+    /// times a second under the hand. That is a flicker, and this project has just
+    /// spent a round removing one.
+    ///
+    /// It matters now in a way it did not before: raising the top rung to 4096 means a
+    /// fast machine sits at the top with real headroom, which is exactly the state that
+    /// banks a step-up streak.
+    func testTheLadderNeverClimbsWhileAGestureIsInFlight() {
+        var ladder = DraftLadder()
+        let requested = 4096
+        // One hot frame to get off the top, so there is a rung to climb back to.
+        ladder.record(draftMilliseconds: 200,
+                      renderedLongEdge: ladder.longEdge(requested: requested),
+                      requested: requested, allowStepUp: false)
+        let afterHeat = ladder.rung
+        XCTAssertGreaterThan(afterHeat, 0, "heat must still be heard mid-gesture")
+
+        // Now a long run of comfortably cheap frames — many times the streak length.
+        for _ in 0..<(DraftLadder.stepUpAfter * 4) {
+            ladder.record(draftMilliseconds: 1,
+                          renderedLongEdge: ladder.longEdge(requested: requested),
+                          requested: requested, allowStepUp: false)
+        }
+        XCTAssertEqual(ladder.rung, afterHeat,
+                       "the picture's sharpness may not change under a moving hand")
+
+        // Between gestures the same headroom earns the rung back.
+        for _ in 0..<DraftLadder.stepUpAfter {
+            ladder.record(draftMilliseconds: 1,
+                          renderedLongEdge: ladder.longEdge(requested: requested),
+                          requested: requested, allowStepUp: true)
+        }
+        XCTAssertLessThan(ladder.rung, afterHeat,
+                          "at rest a single change of sharpness is invisible, so the "
+                              + "headroom should be spent")
+    }
+
+    /// The top rung must cap nothing: a machine with headroom drafts at the resolution
+    /// the settle will deliver, which is what makes a drag sharp rather than soft.
+    func testTheTopRungIsWhateverTheViewerAsksFor() {
+        let ladder = DraftLadder()
+        for requested in [4096, 3456, 2560, 2048, 1280] {
+            XCTAssertEqual(ladder.longEdge(requested: requested), requested,
+                           "an untroubled machine must draft at the settle's own "
+                               + "resolution, not at a fraction of it")
+        }
     }
 
     /// Heat may not buy a step up by the back door: stepping down is allowed from any

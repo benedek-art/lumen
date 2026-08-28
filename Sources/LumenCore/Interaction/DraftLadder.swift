@@ -24,31 +24,34 @@ import Foundation
 /// `min(rung, requested)`.
 public struct DraftLadder: Sendable, Equatable {
 
-    /// Top to bottom. 2048 is where a draft at fit is indistinguishable from the settle
-    /// on a 5K display; 576 is where a frame IN MOTION still reads as the photograph.
+    /// Top to bottom, in image pixels.
     ///
-    /// 1024 used to be the floor, under the reasoning that "below it the answer is the
-    /// budget failing, not a smaller picture". That is true of a frame at REST and
-    /// false of the only frames this ladder sizes. A draft exists for the duration of a
-    /// hand's movement, and a moving image cannot show detail — the eye cannot resolve
-    /// it, which is why every editor in this class drops preview resolution during a
-    /// drag and restores it on release. Lumen already restores it: the settle runs at
-    /// the full request the moment the gesture ends. So the floor was refusing the one
-    /// trade that buys smoothness, on a machine that had already proved it could not
-    /// afford 1024 — and the alternative it insisted on was not a sharper picture but a
-    /// slower one, which is the picture arriving in steps.
+    /// 4096 is `LoupeView.maxRenderLongEdge`, the largest long edge the app ever asks
+    /// for, so the TOP rung caps nothing: a machine with headroom drafts at exactly the
+    /// resolution the settle will deliver and a drag is simply sharp. That is what the
+    /// top of a ladder should mean — "as good as what you asked for", not "some
+    /// fraction of it". The viewer used to take `max(floor, settle / 2)` before this
+    /// ladder ever saw the number, so a drag was capped at half the settle's resolution
+    /// on every machine forever; that is what made the picture go soft under the hand
+    /// and sharpen on release, and it was a guess from before anything measured a frame.
     ///
-    /// The ladder still only descends on MEASURED heat, so a machine with headroom
-    /// never sees these rungs at all.
+    /// 576 is the floor. 1024 used to be, under the reasoning that "below it the answer
+    /// is the budget failing, not a smaller picture" — true of a frame at REST and false
+    /// of the only frames this ladder sizes. A draft exists for the duration of a hand's
+    /// movement, and a moving image cannot show detail; the settle restores everything
+    /// the moment the hand stops. Refusing to go below 1024 on a machine that had proved
+    /// it could not afford 1024 bought not a sharper picture but a slower one.
     ///
-    /// MEASURED, and worth less than the argument above suggests: on the CI runner a
-    /// frame costs 65.5 ms at 1728, 37.6 at 1280, 32.4 at 1024, 31.8 at 768 and 28.7 at
-    /// 576 (`DragProbeTests`, per-rung). The curve has a knee at about 1024 — below it
-    /// the frame is no longer pixel-bound and the two cheap rungs buy almost nothing.
-    /// They stay because they cost nothing to offer and a slower machine than the
-    /// runner may find its floor there, but the value of fixing this ladder is the step
-    /// from 1728 to 1024–1280, which is roughly 2×, and not the bottom of it.
-    public static let rungs: [Int] = [2048, 1600, 1280, 1024, 768, 576]
+    /// The steps between are close enough that one hot frame gives back a sensible
+    /// amount rather than half the picture, since `record` steps to the first rung
+    /// strictly below the size it just measured.
+    ///
+    /// MEASURED (`DragProbeTests`, per-rung, draft path, CI runner): 80.7 ms at 1728,
+    /// 61.9 at 1280, 52.6 at 1024, 37.3 at 768, 34.8 at 576 — and 64.2 / 47.9 / 45.2 /
+    /// 38.7 / 37.4 on a second run. Two monotone sweeps, so pixels genuinely buy frames
+    /// all the way down. The ladder only descends on measured heat, so a machine with
+    /// headroom never sees the low rungs at all.
+    public static let rungs: [Int] = [4096, 3072, 2560, 2048, 1600, 1280, 1024, 768, 576]
 
     /// The drag budget a draft must fit inside (docs/12 §12.2's slider loop, less a
     /// couple of milliseconds for delivery and compositing).
@@ -98,8 +101,19 @@ public struct DraftLadder: Sendable, Equatable {
     ///
     /// Both directions still require the frame to have been this ladder's OWN answer —
     /// a caller that rendered some other size measured something else.
+    ///
+    /// `allowStepUp` is false while a hand is on a control. Stepping DOWN mid-drag is a
+    /// machine giving back what it cannot afford, and the hand feels it as the picture
+    /// keeping up. Stepping UP mid-drag is the opposite trade — it spends frame rate on
+    /// sharpness the eye cannot resolve in a moving picture — and it does something
+    /// worse than that: at the boundary between two rungs it oscillates, and every
+    /// crossing is a visible change in the picture's sharpness, several times a second,
+    /// under the hand. That is a flicker of exactly the kind this project has just
+    /// finished removing for a different reason. So within a gesture the ladder is
+    /// monotone downward, and it earns rungs back between gestures, where a single
+    /// change of sharpness is invisible.
     public mutating func record(draftMilliseconds ms: Double, renderedLongEdge: Int,
-                                requested: Int) {
+                                requested: Int, allowStepUp: Bool = true) {
         guard ms.isFinite, ms > 0 else { return }
         guard renderedLongEdge == longEdge(requested: requested) else { return }
 
@@ -126,7 +140,8 @@ public struct DraftLadder: Sendable, Equatable {
         // below the rung: it is not evidence FOR the rung, and letting it merely be
         // neutral would let a run of tiny frames sit inside a streak that a hot one
         // should have broken.
-        guard renderedLongEdge == Self.rungs[rung], ms < Self.stepUpUnder else {
+        guard allowStepUp, renderedLongEdge == Self.rungs[rung],
+              ms < Self.stepUpUnder else {
             cheapStreak = 0
             return
         }

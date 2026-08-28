@@ -499,11 +499,17 @@ final class PhotoRenderModel: ObservableObject {
             // the cursor. The colour is now identical to the settle by construction, so
             // what remains between draft and settle is sharpness alone — which reads as
             // the picture resolving rather than as the picture changing.
-            // Half the settled request, floored at the zoom-aware draft size — then
-            // capped by the ladder's current rung, which is the one lever left now that
-            // a draft runs the full pipeline: a machine whose drafts run hot steps down
-            // within one frame, one with headroom earns the top rung back over a streak.
-            let draftRequested = Swift.max(draftLongEdge, fullLongEdge / 2)
+            // ASK FOR THE SETTLE'S OWN RESOLUTION, and let the ladder take back what
+            // this machine cannot afford.
+            //
+            // This used to be `max(draftLongEdge, fullLongEdge / 2)` — a draft capped
+            // at half the settle on every machine, forever. That is a guess from before
+            // anything measured a frame, and it is what put a soft picture under the
+            // hand and a sharp one on release however fast the Mac was. `DraftLadder`
+            // measures every frame and steps down within one hot frame now, so the
+            // honest request is the whole thing; a machine with headroom keeps it and
+            // the drag is simply sharp.
+            let draftRequested = draftLongEdge
             let draftTarget = draftLadder.longEdge(requested: draftRequested)
             let draftStarted = DispatchTime.now().uptimeNanoseconds
             let draft = await coordinator.render(url: url, recipe: recipe,
@@ -528,7 +534,11 @@ final class PhotoRenderModel: ObservableObject {
                 let draftMs = Double(DispatchTime.now().uptimeNanoseconds - draftStarted) / 1e6
                 draftLadder.record(draftMilliseconds: draftMs,
                                    renderedLongEdge: Swift.max(draftTarget, 64),
-                                   requested: draftRequested)
+                                   requested: draftRequested,
+                                   // Monotone downward while the hand is down: a rung
+                                   // earned back mid-drag is a visible change of
+                                   // sharpness, and at a rung boundary it oscillates.
+                                   allowStepUp: !gestureInFlight())
                 LatencyHUD.shared.noteDraft(milliseconds: draftMs,
                                             longEdge: Swift.max(draftTarget, 64))
                 if FrameDelivery.shouldShow(frameFor: url,
