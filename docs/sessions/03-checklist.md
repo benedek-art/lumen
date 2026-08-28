@@ -60,6 +60,14 @@ apart, and three rounds of this work have been argued without the distinction:
 A dash `—` means the app has not seen enough events to compute a rate yet; keep
 dragging.
 
+Two things about `in`, so it is not over-read. It counts slider movements that
+actually CHANGED the value, not raw mouse events — so a very slow drag, where several
+mouse events land on the same value, reads lower than the hand really moved. Drag at
+the speed you would actually work at. And the HUD costs a little main-thread work
+itself, which is the very thing being measured; it is one small overlay against a
+window of panels, so it will not change which of the two answers you get, but do not
+read the last digit.
+
 **What I saw:** ……
 
 ---
