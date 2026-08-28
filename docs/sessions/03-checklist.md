@@ -47,10 +47,16 @@ different parts of the machine.
 **Why both numbers and not one.** Latency alone cannot tell two opposite problems
 apart, and three rounds of this work have been argued without the distinction:
 
-- **`in` high (60–120), `out` low (under ~20)** — the app sees every bit of your hand
-  and cannot draw fast enough. The fix is in the rendering, and the measurements say
-  making the picture smaller will NOT help much below a certain size, so it would mean
-  changing the pipeline.
+- **`in` high (60–120), `out` low (under ~20), and `draft` also HIGH (say 40 ms+)** —
+  the app sees your hand and the render genuinely cannot keep up. Check what size the
+  ladder settled on (`draft … @size`); it should be walking down on its own now.
+- **`in` high, `out` low, but `draft` is LOW (say 10–20 ms)** — this is the interesting
+  one, and it is why both numbers on that line matter. The frame is cheap to MAKE and
+  something after it is expensive: the finished picture is handed to SwiftUI as a fresh
+  ~4 MB image every frame, which becomes a texture upload on the main thread. Nothing
+  in the repository has ever measured that path — the probe stops one step earlier —
+  so if you see this, write it down plainly, because it points at the one suspect this
+  round deliberately did not touch.
 - **`in` and `out` both low and roughly EQUAL (say 12 and 12)** — the app never saw
   most of your hand. macOS threw the movements away before Lumen got them, because the
   main thread was busy. Nothing about rendering touches this. This is what the two
@@ -173,11 +179,16 @@ obvious consequence rather than becoming another round of guessing.
   lever: `AppState` → `@Observable`, so a view is invalidated only for the properties
   it actually reads. This round's two small observables are the first step of that, not
   a substitute for it.
-- **`in` high, `out` low** → the render is the ceiling. The draft-resolution ladder,
+- **`in` high, `out` low, `draft` high** → the render is the ceiling. The draft-resolution ladder,
   which had never once run before this round, should now be walking itself down under
   the load — so read `draft ms @size` on the HUD and write down the size it settled on.
   Measured on the runner, a draft frame costs 80.7 ms at 1728 px, 61.9 at 1280, 52.6 at
   1024, 37.3 at 768 and 34.8 at 576, so pixels genuinely still buy frames; if the size
   is NOT coming down while the frames are slow, the ladder is still not working and
   that is the next thing to fix rather than the pipeline.
+- **`in` high, `out` low, `draft` low** → the render is fine and the DISPLAY of it is
+  not: CGImage → SwiftUI `Image` → texture upload, per frame, on the main thread. That
+  is what a Metal-layer viewport actually replaces — as opposed to the readback inside
+  the render, which was measured this round and is worth nothing. This branch was left
+  deliberately untouched so that your reading of this build means one thing.
 - **Both high and it feels smooth** → it is fixed, and the number says why.

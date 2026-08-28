@@ -23,6 +23,15 @@
 //   4. LAZY vs MATERIALIZED input, and WITH vs WITHOUT the CPU readback — the two
 //      structural costs the drag loop pays per frame and could stop paying.
 //
+// WHERE THIS PROBE STOPS, stated because a conclusion was once drawn past it. The last
+// thing timed is `createCGImage` (or the render into an IOSurface). What happens NEXT
+// in the app is not measured here at all: the finished CGImage is handed to SwiftUI as
+// a fresh `Image(decorative:)` every frame, which becomes layer contents and a texture
+// upload on the main actor — about 4.4 MB at 1280×853 RGBA8. So the readback rows below
+// answer "is the GPU→CPU copy inside the RENDER expensive" (no) and say nothing about
+// whether DISPLAYING the result is. A Metal-layer viewport replaces the second of those,
+// not the first, and this file is not evidence against it.
+//
 // Everything here PRINTS and asserts only a sanity ceiling. A shared CI runner's GPU is
 // not the owner's Mac, and a threshold tuned to one would fail spuriously on the other;
 // the numbers are read from the log and from the in-app HUD. What the file guarantees

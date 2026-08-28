@@ -756,8 +756,20 @@ side-by-side exports. **Exit gate: owner prefers or ties Lumen on ≥4 of 5.**
            two-filter chain rather than a 45 MP demosaic, so a real decode may still be
            worth something — but nothing here measures it, and the claim that it did
            was mine to withdraw.
-         · **The GPU→CPU readback: no measurable difference** (`createCGImage` 48.2 vs
-           IOSurface 47.6 ms). The Metal-layer viewport is a milestone, not this fix.
+         · **The GPU→CPU readback inside the RENDER: no measurable difference**
+           (`createCGImage` 48.2 vs IOSurface 47.6 ms). But this ruled out less than it
+           was written to claim, and the scope error is worth naming because it nearly
+           retired the strongest remaining candidate. `DragProbeTests` stops at
+           `createCGImage`. It never touches what happens NEXT: the ~4.4 MB CGImage
+           (1280×853 RGBA8) is handed to SwiftUI as a fresh `Image(decorative:)` on
+           every frame, which becomes layer contents and a texture upload, on the main
+           actor, and SwiftUI's `Image` is not a thin wrapper over `layer.contents`.
+           NOTHING in this repository has measured the display path. So what is
+           actually ruled out is "the readback inside the render is expensive"; the
+           Metal-layer viewport — which replaces the display path, not the readback —
+           remains untested and is now the leading unmeasured suspect if the owner's
+           reading says the render is not the ceiling. The rung fix helps here too and
+           for free: a 768 px draft is 1.5 MB to upload rather than 4.4.
          · **Plan construction on the DRAFT path is ~1 ms, flat across every control**
            — release Linux, `PlanCostProbeTests`: exposure 1.05, whites 1.75,
            saturation 1.13, texture 1.14 ms p50. Stale-while-bake is doing its job.
@@ -816,6 +828,15 @@ side-by-side exports. **Exit gate: owner prefers or ties Lumen on ≥4 of 5.**
          Latency alone cannot tell a render that cannot keep up (in 90/s, out 8/s)
          from input being dropped before the app ever sees it (in 10/s, out 10/s), and
          the two want opposite fixes. Three rounds have been argued without it.
+- [ ] **Deliberately NOT done in round 2: anything else to the render or display path.**
+      The display path above is the leading suspect and a `CALayer`-contents or
+      Metal-layer plate is the obvious next move — and shipping it now, unverified,
+      would confound the one test that decides whether round 2's two fixes worked. If
+      the owner drags a slider on this build and it is still not smooth, that has to
+      mean "the fixes were not enough", not "something new was added at the same time".
+      Three rounds have failed by stacking speculative fixes; this one stops and reads
+      the instrument first. The HUD can now tell the display path apart from the render
+      on its own — see the third case in the checklist's decision tree.
 - [ ] **Owner verification of round 2, and the next lever if it is still not smooth.**
       Scripted as `docs/sessions/03-checklist.md` — seven steps, ~15 minutes, of which
       step 1 is the whole point. Run the build with the HUD on (⌘⌥L) and drag any
