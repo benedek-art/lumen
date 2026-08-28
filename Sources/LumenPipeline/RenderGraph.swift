@@ -88,6 +88,26 @@ public struct RenderGraph {
     /// divergence is stated rather than papered over.
     public func localStageInput(_ input: CIImage, plan: RenderPlan,
                                 options: Options) -> CIImage {
+        var image = colorStageInput(input, plan: plan, options: options)
+
+        // S9 + S10 — colour and grade, as one table on the log axis.
+        if !plan.colorGradeIsIdentity {
+            image = Self.throughShaper(image) { encoded in
+                ColorCube.filter(plan.colorGradeLUT, image: encoded)
+            } ?? image
+        }
+        return image
+    }
+
+    /// S3 through S8 — the image the COLOUR stage receives, which is therefore the
+    /// value `ColorEngine.apply` compares a global Point Colour swatch against.
+    /// Factored out of `localStageInput` (never copied from it) so the Point Colour
+    /// eyedropper's tap and the render cannot drift: the eyedropper used to store the
+    /// post-S6 value while the engine compared here, so a swatch picked with any tone
+    /// move on the photograph selected the wrong colour, and the failure grew with
+    /// the edit (docs/23 dossier queue item 5).
+    public func colorStageInput(_ input: CIImage, plan: RenderPlan,
+                                options: Options) -> CIImage {
         var image = input
 
         // S3 — profiled classical noise reduction, upstream of everything, because a
@@ -114,13 +134,6 @@ public struct RenderGraph {
         // for the same reason as S3: local contrast does not move a band's levels.
         if !options.maskSource {
             image = applyPresence(image, plan: plan, options: options)
-        }
-
-        // S9 + S10 — colour and grade, as one table on the log axis.
-        if !plan.colorGradeIsIdentity {
-            image = Self.throughShaper(image) { encoded in
-                ColorCube.filter(plan.colorGradeLUT, image: encoded)
-            } ?? image
         }
         return image
     }

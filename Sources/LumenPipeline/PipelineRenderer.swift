@@ -1308,6 +1308,33 @@ public final class PipelineRenderer {
                           sourceX: sourceX, sourceY: sourceY, radius: radius)
     }
 
+    /// One sample of the image the COLOUR stage receives — S3 through S8, the value
+    /// `ColorEngine.apply` compares a global Point Colour swatch against (docs/23
+    /// dossier queue item 5).
+    ///
+    /// The fourth tap, and like the third it is not a luxury. The global Point Colour
+    /// eyedropper stored `sampleSceneLinear` through the linear matrix — post-S6 —
+    /// while the engine compares after tone and presence, so a swatch picked on a
+    /// photograph carrying any real tone move selected the wrong colour, and the
+    /// error grew with the edit. Through `RenderGraph.colorStageInput`, the same
+    /// expression the render uses, never a re-derivation.
+    public func sampleColorStageInput(source: any ImageSource, recipe: Recipe,
+                                      sourceX: Double, sourceY: Double,
+                                      radius: Int = 2) -> RGB? {
+        guard let decoded = source.decode(recipe: recipe, draft: false, scaleFactor: 1.0)
+        else { return nil }
+        let plan = RenderPlan(recipe: recipe,
+                              asShotKelvin: source.asShotTemperature,
+                              asShotTint: source.asShotTint,
+                              bandMeanHues: measuredBandMeanHues(source: source))
+        let longEdge = Int(Swift.max(decoded.extent.width, decoded.extent.height))
+        let staged = RenderGraph().colorStageInput(
+            decoded, plan: plan,
+            options: RenderGraph.Options(longEdge: longEdge, maskSource: true))
+        return sampleMean(staged.cropped(to: decoded.extent),
+                          sourceX: sourceX, sourceY: sourceY, radius: radius)
+    }
+
     /// The mean of a small window about a normalized source coordinate, read back in
     /// the working space.
     private func sampleMean(_ image: CIImage, sourceX: Double, sourceY: Double,

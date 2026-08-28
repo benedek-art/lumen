@@ -2230,17 +2230,18 @@ final class AppState: ObservableObject {
                 // A mask's samples are compared by `colorRangePlane` and
                 // `similarityPlane` against `localStageInput` — after tone, after the
                 // colour and grade table — and a mask's own Point Colour is evaluated
-                // inside `LocalPlan`, whose input is that same image. `sampleWorking`
-                // stops after the linear matrix, so storing it here meant the clicked
-                // colour and the compared colour diverged by every global edit the
-                // photograph carried, and the mask could miss the pixel that was
-                // clicked.
+                // inside `LocalPlan`, whose input is that same image. A GLOBAL Point
+                // Colour is compared inside S9, whose input is the colour stage's —
+                // after tone and presence, before the colour+grade table. It used to
+                // store `sampleWorking` (post-S6 only), so a swatch picked on a
+                // photograph carrying any tone move selected the wrong colour, and
+                // the error grew with the edit (docs/23 dossier queue item 5).
                 let sample: RGB?
                 if target.samplesTheMaskStage {
                     sample = await renderCoordinator.sampleMaskReference(
                         url: url, recipe: current, sourceX: sourceX, sourceY: sourceY)
                 } else {
-                    sample = await renderCoordinator.sampleWorking(
+                    sample = await renderCoordinator.samplePointColorReference(
                         url: url, recipe: current, sourceX: sourceX, sourceY: sourceY)
                 }
                 guard selectionStillOnPickedPhoto() else { return }

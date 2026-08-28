@@ -367,28 +367,12 @@ actor RenderCoordinator {
         return renderer.clippingStatistics(source: source, recipe: recipe)
     }
 
-    /// One sample in the WORKING space — after white balance, exposure and printer
-    /// lights, which is where the colour stage sees its input.
-    ///
-    /// A different tap from `solveNeutral`'s on purpose. The neutral solver wants the
-    /// value BEFORE white balance, because it is computing that white balance. Every
-    /// colour tool wants the value the colour stage will actually compare against, or a
-    /// swatch picked off a warm frame would stop matching the moment Temp moved.
-    ///
-    /// The linear stage is a 3x3, so this is the matrix rather than a second render.
-    func sampleWorking(url: URL, recipe: Recipe,
-                       sourceX: Double, sourceY: Double) -> RGB? {
-        guard let source = try? self.source(for: url),
-              let sample = renderer.sampleSceneLinear(source: source, recipe: recipe,
-                                                     sourceX: sourceX, sourceY: sourceY),
-              sample.isFinite
-        else { return nil }
-        let plan = RenderPlan(recipe: recipe,
-                              asShotKelvin: source.asShotTemperature,
-                              asShotTint: source.asShotTint)
-        let working = plan.linear.apply(sample)
-        return working.isFinite ? working : nil
-    }
+    // `sampleWorking` — the post-S6 tap — is deliberately GONE. Its doc-comment
+    // claimed it sampled "the value the colour stage will actually compare against",
+    // and it did not: the colour stage compares after tone and presence
+    // (`colorStageInput`), and its one caller, the global Point Colour eyedropper,
+    // now goes through `samplePointColorReference` below. A zero-caller tap whose
+    // contract is false is the FAKE class with an API instead of a tooltip.
 
     /// One sample in the space a MASK compares against — `localStageInput`, S6 through
     /// S10, the same image the mask rasterizer is handed.
@@ -410,6 +394,22 @@ actor RenderCoordinator {
               let sample = renderer.sampleMaskStageInput(source: source, recipe: recipe,
                                                         sourceX: sourceX,
                                                         sourceY: sourceY),
+              sample.isFinite
+        else { return nil }
+        return sample
+    }
+
+    /// The fourth tap: the COLOUR stage's input, S3 through S8 — what
+    /// `ColorEngine.apply` compares a global Point Colour swatch against. The global
+    /// eyedropper stored `sampleWorking` (post-S6) while the engine compared here,
+    /// so a swatch picked with tone moves selected the wrong colour (docs/23 dossier
+    /// queue item 5).
+    func samplePointColorReference(url: URL, recipe: Recipe,
+                                   sourceX: Double, sourceY: Double) -> RGB? {
+        guard let source = try? self.source(for: url),
+              let sample = renderer.sampleColorStageInput(source: source, recipe: recipe,
+                                                          sourceX: sourceX,
+                                                          sourceY: sourceY),
               sample.isFinite
         else { return nil }
         return sample

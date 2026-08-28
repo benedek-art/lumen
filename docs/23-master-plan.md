@@ -508,8 +508,13 @@ and against Lightroom via owner-exported references.
          convictions in MaskingTests (global pivots must reach a masked grade;
          global Protect Skin 0 must let a masked Sat −100 reach skin). Untouched
          global panels render identically by construction.
-      5. Point Color's eyedropper samples post-S6 while the engine compares at its
-         stage input — a swatch picked with tone moves selects the wrong colour
+      5. ~~Point Color's eyedropper samples post-S6~~ FIXED: `RenderGraph` split
+         into `colorStageInput` (S3–S8) + `localStageInput` composing it — one
+         implementation, so the tap and the render cannot drift — and the global
+         Point Colour eyedropper stores `sampleColorStageInput`, the value
+         `ColorEngine.apply` actually compares against. The post-S6 tap
+         (`sampleWorking`) had exactly one caller and a false contract; it is
+         removed rather than left as an attractive wrong answer.
       6. Dehaze GPU: sky guard missing on + branch, skyness on − branch (skies get
          more correction than the reference defines)
       7. ~~Denoise luminanceAnchors double-count~~ MEASURED, ACQUITTED: the sweep
