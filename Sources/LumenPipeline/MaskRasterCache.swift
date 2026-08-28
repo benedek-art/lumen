@@ -27,7 +27,9 @@
 import Foundation
 import LumenCore
 
-final class MaskRasterCache {
+/// Public for its `Stats` surface alone (the HUD's counters); the raster machinery
+/// stays internal to the pipeline for the same reason PlanTableCache's does.
+public final class MaskRasterCache {
 
     /// A handful of photographs' worth of masks. A raster at the 1024 px proxy is a
     /// single-channel Float plane, ~2.8 MB; sixteen is under 45 MB and old photos'
@@ -37,6 +39,30 @@ final class MaskRasterCache {
     private struct Entry {
         var key: String
         var plane: Plane
+    }
+
+    // MARK: Counters (docs/23 M1b: cache-hit counters on the HUD)
+
+    /// Static on purpose: the app owns one renderer and the HUD wants one number,
+    /// not a per-instance ledger it would have to plumb through three actors.
+    public struct Stats: Equatable, Sendable {
+        public var hits = 0
+        public var bakes = 0
+        public var staleServes = 0
+    }
+    private static let statsLock = NSLock()
+    private static var stats = Stats()
+
+    public static var currentStats: Stats {
+        statsLock.lock()
+        defer { statsLock.unlock() }
+        return stats
+    }
+
+    private static func count(_ mutate: (inout Stats) -> Void) {
+        statsLock.lock()
+        mutate(&stats)
+        statsLock.unlock()
     }
 
     private let lock = NSLock()
@@ -55,15 +81,18 @@ final class MaskRasterCache {
         if let held = entries.first(where: { $0.maskID == maskID })?.entry,
            held.key == key {
             lock.unlock()
+            Self.count { $0.hits += 1 }
             return held.plane
         }
         let previous = entries.first(where: { $0.maskID == maskID })?.entry.plane
         guard allowStale, let previous else {
             lock.unlock()
+            Self.count { $0.bakes += 1 }
             let built = bakeExact()
             store(maskID: maskID, key: key, plane: built)
             return built
         }
+        Self.count { $0.staleServes += 1 }
         // Replace, never append: only the newest deferred raster can ever be shown.
         pending[maskID] = (key: key, bakeExact: bakeExact)
         let mustStart = !inFlight.contains(maskID)

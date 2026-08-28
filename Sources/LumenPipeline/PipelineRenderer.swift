@@ -12,6 +12,7 @@
 
 import CoreGraphics
 import CoreImage
+import os.signpost
 import CoreImage.CIFilterBuiltins
 import CoreText
 import Foundation
@@ -58,6 +59,13 @@ public struct KernelAvailability: Sendable {
 }
 
 public final class PipelineRenderer {
+
+    /// os_signpost intervals around the four phases of an interactive frame
+    /// (docs/23 M1b), so an Instruments trace of a laggy drag says WHICH phase ate
+    /// the budget instead of leaving it to be guessed from wall time. Free when no
+    /// instrument is attached; the categories mirror the HUD's vocabulary.
+    private static let signposter = OSSignposter(subsystem: "dev.lumenapp",
+                                                 category: "render")
 
     private let context: CIContext
 
@@ -272,12 +280,16 @@ public final class PipelineRenderer {
         // 7000 px raw decodes roughly seven times less data.
         let native = source.nativeLongEdge
         let scale = native > 0 ? Swift.min(1.0, Double(maxLongEdge) / native) : 1.0
+        let decodeInterval = Self.signposter.beginInterval("decode")
         guard let decoded = source.decode(recipe: recipe, draft: draft,
                                           scaleFactor: scale) else {
+            Self.signposter.endInterval("decode", decodeInterval)
             throw RenderError.decodeFailed
         }
+        Self.signposter.endInterval("decode", decodeInterval)
 
         let longEdge = Int(Swift.max(decoded.extent.width, decoded.extent.height))
+        let planInterval = Self.signposter.beginInterval("plan")
         let plan = RenderPlan(recipe: recipe,
                               asShotKelvin: source.asShotTemperature,
                               asShotTint: source.asShotTint,
@@ -316,11 +328,14 @@ public final class PipelineRenderer {
                               // never shows a stale one.
                               allowStaleTables: draft,
                               bandMeanHues: measuredBandMeanHues(source: source))
+        Self.signposter.endInterval("plan", planInterval)
+        let rasterInterval = Self.signposter.beginInterval("rasterize")
         let graph = makeGraph(plan: plan, decoded: decoded,
                               sourceURL: source.url,
                               allowStaleRasters: draft,
                               strokeSets: strokeSets,
                               aiMattes: mattes[source.url]?.planes ?? [:])
+        Self.signposter.endInterval("rasterize", rasterInterval)
         // Preview decodes are downsampled, and downsampling averages the noise down
         // with them, so the profile the denoise stage works against follows the same
         // factor — squared, because it is a variance.
@@ -337,9 +352,13 @@ public final class PipelineRenderer {
         // same amplitude table, same everything as the export's.
         image = Self.applyDither(image, colorSpace: .srgb, bitDepth: 8)
 
-        guard let cgImage = context.createCGImage(
+        // The graph is lazy, so THIS is where the GPU actually evaluates it.
+        let renderInterval = Self.signposter.beginInterval("render")
+        let cgImage = context.createCGImage(
             image, from: image.extent, format: .RGBA8,
-            colorSpace: CGColorSpace(name: CGColorSpace.sRGB)) else {
+            colorSpace: CGColorSpace(name: CGColorSpace.sRGB))
+        Self.signposter.endInterval("render", renderInterval)
+        guard let cgImage else {
             throw RenderError.renderFailed
         }
         return cgImage

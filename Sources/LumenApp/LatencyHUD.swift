@@ -15,6 +15,8 @@
 #if os(macOS)
 
 import Foundation
+import LumenCore
+import LumenPipeline
 import SwiftUI
 
 @MainActor
@@ -68,11 +70,27 @@ struct LatencyHUDView: View {
         return String(format: "%@ %6.1f ms%@", label, ms, size)
     }
 
+    /// hits / bakes / stale-serves since launch. Read live at render — the view
+    /// re-renders on every draft and settle note, which is exactly when the numbers
+    /// have moved. The tables line is the fraud detector M1a promised: a drag whose
+    /// hit+stale share is not ~100% after its first frame means a cache key is being
+    /// defeated, and no eye can see that without the counter.
+    private func cacheLine(_ label: String, hits: Int, bakes: Int,
+                           stale: Int) -> String {
+        "\(label) \(hits)h \(bakes)b \(stale)s"
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        let tables = PlanTableCache.currentStats
+        let rasters = MaskRasterCache.currentStats
+        return VStack(alignment: .leading, spacing: 2) {
             Text(line("input→draft", hud.inputToDraftMs, nil))
             Text(line("draft      ", hud.draftMs, hud.draftLongEdge))
             Text(line("settle     ", hud.settleMs, hud.settleLongEdge))
+            Text(cacheLine("tables     ", hits: tables.hits, bakes: tables.bakes,
+                           stale: tables.staleServes))
+            Text(cacheLine("rasters    ", hits: rasters.hits, bakes: rasters.bakes,
+                           stale: rasters.staleServes))
         }
         .font(.system(size: 10, design: .monospaced))
         .foregroundStyle(Lumen.primaryText)

@@ -212,8 +212,15 @@ App-layer waste, low-risk first:
       exported file renders clean (checklist step 10 puts it in front of the owner)
 - [x] Latency HUD behind a debug key (⌥⌘L): input→draft ms, draft ms @size,
       settle ms @size — the draft line's @size is the ladder's chosen rung
-- [ ] Still owed from that bullet: os_signpost around decode/plan/rasterize/render,
-      and cache-hit counters on the HUD
+- [x] The rest of that bullet: os_signpost intervals around decode / plan /
+      rasterize / render in `PipelineRenderer.renderPreview` (subsystem
+      dev.lumenapp, category render — an Instruments trace of a laggy drag now
+      says WHICH phase ate the budget), and the HUD grew two counter lines —
+      `tables` and `rasters`, each hits/bakes/stale-serves since launch, read
+      from `PlanTableCache.currentStats` and `MaskRasterCache.currentStats`.
+      The tables line is M1a's fraud detector: a drag whose hit+stale share is
+      not ~100% after its first frame is a cache key being defeated. Counter
+      semantics pinned by a Linux test.
 - [x] Last folder remembered across launches (security-scoped bookmark in
       UserDefaults, plain-bookmark fallback both directions, existence-checked;
       checklist step 1 verifies it on a real Mac)

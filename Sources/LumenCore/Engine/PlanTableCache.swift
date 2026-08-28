@@ -62,6 +62,31 @@ public enum PlanTableCache {
     private static let bakeQueue = DispatchQueue(label: "lumen.plantable.bake",
                                                  qos: .userInitiated)
 
+    // MARK: Counters (docs/23 M1b: cache-hit counters on the HUD)
+
+    /// What the cache did, counted since launch (or the last `resetStats`). The HUD's
+    /// job is to turn "the sliders feel fast" into numbers; a drag whose hit rate is
+    /// not ~100% after its first frame is the cache being defeated by a key bug, and
+    /// nothing but a counter can see that on a live machine.
+    public struct Stats: Equatable, Sendable {
+        public var hits = 0
+        public var bakes = 0
+        public var staleServes = 0
+    }
+    private static var stats = Stats()
+
+    public static var currentStats: Stats {
+        lock.lock()
+        defer { lock.unlock() }
+        return stats
+    }
+
+    public static func resetStats() {
+        lock.lock()
+        stats = Stats()
+        lock.unlock()
+    }
+
     /// The table for `key`, building it only if it is not already held.
     ///
     /// `build` runs OUTSIDE the lock. Two threads racing on the same cold key will both
@@ -74,6 +99,7 @@ public enum PlanTableCache {
 
         lock.lock()
         let hit = entries[slot]?.first { $0.key == key }?.table
+        if hit != nil { stats.hits += 1 } else { stats.bakes += 1 }
         lock.unlock()
         if let hit { return hit }
 
@@ -111,6 +137,7 @@ public enum PlanTableCache {
         lock.lock()
         let slotEntries = entries[slot] ?? []
         if let hit = slotEntries.first(where: { $0.key == key })?.table {
+            stats.hits += 1
             lock.unlock()
             return hit
         }
@@ -118,6 +145,7 @@ public enum PlanTableCache {
             lock.unlock()
             return table(slot, key: key, size: size, build: build)
         }
+        stats.staleServes += 1
         // Replace, never append: only the newest deferred bake can ever be shown.
         pending[slot] = (key: key, bakeExact: build)
         let mustStart = !inFlight.contains(slot)

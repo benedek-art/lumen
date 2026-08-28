@@ -177,6 +177,30 @@ final class PlanTableCacheTests: XCTestCase {
         XCTAssertEqual(interactive.colorGradeLUT.size, LUT3D.interactiveSize)
     }
 
+    /// The HUD's counters (docs/23 M1b) count what actually happened: a cold key is
+    /// a bake, a repeat is a hit, a draft-miss with something to be stale from is a
+    /// stale serve. Deltas from a snapshot, so the test owes nothing to suite order.
+    func testTheStatsCountersCountWhatActuallyHappened() {
+        PlanTableCache.clear()
+        let before = PlanTableCache.currentStats
+
+        _ = PlanTableCache.table(.finish, key: "stats-A", size: 5) {
+            LUT3D(size: 5) { $0 }
+        }
+        _ = PlanTableCache.table(.finish, key: "stats-A", size: 5) {
+            LUT3D(size: 5) { $0 }
+        }
+        _ = PlanTableCache.tableAllowingStale(.finish, key: "stats-B", size: 5) {
+            LUT3D(size: 5) { $0 }
+        }
+
+        let after = PlanTableCache.currentStats
+        XCTAssertEqual(after.bakes - before.bakes, 1, "one cold key, one bake")
+        XCTAssertEqual(after.hits - before.hits, 1, "one repeat, one hit")
+        XCTAssertEqual(after.staleServes - before.staleServes, 1,
+                       "one draft miss with a table to be stale from")
+    }
+
     // MARK: - Stale-while-bake (docs/23 M1a)
     //
     // The contract: a DRAFT frame may show the previous event's table while the exact
