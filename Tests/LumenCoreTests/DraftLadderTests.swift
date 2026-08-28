@@ -179,6 +179,79 @@ final class DraftLadderTests: XCTestCase {
         }
     }
 
+    // MARK: What a frame cost the hand, not what the renderer reported
+
+    /// THE LADDER WAS BLIND TO EVERYTHING AFTER THE RENDER. A frame's wall time is
+    /// measured around the render call and stops there — the SwiftUI handoff, the body
+    /// pass, the texture upload and compositing all happen after it and none of them
+    /// are free. Removing the half-resolution cap quadrupled the bytes involved, so a
+    /// ladder that could not see them would sit at the top rung reporting cheap frames
+    /// while the picture ticked.
+    func testASaturatedLoopIsCostedByTheFrameIntervalNotTheRenderTime() {
+        // A render that reports 12 ms while frames actually land 40 ms apart: the
+        // missing 28 ms is real and the hand is feeling it.
+        XCTAssertEqual(DraftLadder.costSample(renderMilliseconds: 12,
+                                              sincePreviousFrameMilliseconds: 40,
+                                              handWasWaiting: true),
+                       40,
+                       "the cost of a frame is when the NEXT one can start, not when "
+                           + "the renderer stopped counting")
+    }
+
+    /// And the false positive that makes the interval unusable on its own: a slow hand
+    /// produces long gaps because the app was IDLE, and costing those would step the
+    /// ladder down for being asked to do less.
+    func testASlowHandIsNotAnExpensiveFrame() {
+        XCTAssertEqual(DraftLadder.costSample(renderMilliseconds: 12,
+                                              sincePreviousFrameMilliseconds: 400,
+                                              handWasWaiting: false),
+                       12,
+                       "nothing was queued behind this frame; the gap is the hand's, "
+                           + "not the machine's")
+    }
+
+    /// A gap longer than any gesture's frame period is a pause, whatever the
+    /// saturation signal said — the two can disagree across a stall.
+    func testAPauseIsNeverCostedAsAFrame() {
+        XCTAssertEqual(
+            DraftLadder.costSample(
+                renderMilliseconds: 12,
+                sincePreviousFrameMilliseconds:
+                    DraftLadder.continuityCeilingMilliseconds + 1,
+                handWasWaiting: true),
+            12)
+    }
+
+    /// The first frame of a photograph has no predecessor, and a clock that misbehaves
+    /// must not decide a resolution.
+    func testTheFirstFrameAndABadClockFallBackToTheRenderTime() {
+        for period in [nil, Double.nan, -5, 0] as [Double?] {
+            XCTAssertEqual(DraftLadder.costSample(renderMilliseconds: 12,
+                                                  sincePreviousFrameMilliseconds: period,
+                                                  handWasWaiting: true),
+                           12, "period \(String(describing: period))")
+        }
+    }
+
+    /// End to end: a loop whose RENDER is comfortably inside budget but whose delivered
+    /// frames are not must still walk the ladder down. This is the case the old input
+    /// could not express at all.
+    func testAFastRenderWithSlowDeliveryStillStepsDown() {
+        var ladder = DraftLadder()
+        let requested = 4096
+        for _ in 0..<3 {
+            let rendered = ladder.longEdge(requested: requested)
+            let sample = DraftLadder.costSample(renderMilliseconds: 15,
+                                                sincePreviousFrameMilliseconds: 90,
+                                                handWasWaiting: true)
+            ladder.record(draftMilliseconds: sample, renderedLongEdge: rendered,
+                          requested: requested, allowStepUp: false)
+        }
+        XCTAssertLessThan(ladder.longEdge(requested: requested), requested,
+                          "15 ms of render inside a 90 ms frame is a picture that "
+                              + "ticks, and the ladder is the thing that answers it")
+    }
+
     /// Heat may not buy a step up by the back door: stepping down is allowed from any
     /// size, stepping back up still needs frames rendered AT the rung.
     func testCheapFramesBelowTheRungStillEarnNothingAfterTheDownwardFix() {

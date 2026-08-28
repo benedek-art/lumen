@@ -65,6 +65,46 @@ public struct DraftLadder: Sendable, Equatable {
     public static let stepUpUnder: Double = budgetMilliseconds * 0.5
     public static let stepUpAfter: Int = 12
 
+    /// A gap between two delivered frames longer than this is not a drag — the hand
+    /// paused, or the app was idle waiting for input. Half a second is far outside any
+    /// continuous gesture's frame period and far inside a human pause.
+    public static let continuityCeilingMilliseconds: Double = 500
+
+    /// WHAT A FRAME ACTUALLY COST THE HAND, which is not what the renderer reports.
+    ///
+    /// `record` is fed a wall time measured around the render call. That covers actor
+    /// queueing, the render and the readback — and nothing after it: handing the
+    /// CGImage to SwiftUI, the body pass, the texture upload, compositing. None of
+    /// that is small, and none of it is visible to a ladder that only times the render.
+    /// The hole matters more the more pixels a draft carries, and removing the
+    /// half-resolution cap quadrupled them: a fit draft went from about 4 MB per frame
+    /// to 17, a zoomed one from 11 to 45. A ladder blind to that would sit at the top
+    /// rung reporting cheap frames while the picture ticked.
+    ///
+    /// The interval BETWEEN two delivered frames does see all of it, because the next
+    /// render cannot start until the main actor has finished with the last one. But it
+    /// is only a measure of cost when the loop is saturated: a slow hand produces long
+    /// gaps because the app was idle, and reading those as expense would step the
+    /// ladder down for the crime of being asked for less.
+    ///
+    /// `handWasWaiting` is what separates the two, and the viewer already has the
+    /// signal: `.task(id:)` cancels the render task the moment a newer event reaches
+    /// the view, so a task that finds itself cancelled when its frame lands is one that
+    /// had work queued behind it the whole time. That is saturation, exactly.
+    public static func costSample(renderMilliseconds: Double,
+                                  sincePreviousFrameMilliseconds: Double?,
+                                  handWasWaiting: Bool) -> Double {
+        guard handWasWaiting,
+              let period = sincePreviousFrameMilliseconds,
+              period.isFinite, period > 0,
+              period <= continuityCeilingMilliseconds
+        else { return renderMilliseconds }
+        // The period should already include the render; `max` is the guard against a
+        // clock or a pipeline that says otherwise, so the sample is never LESS than
+        // work known to have happened.
+        return Swift.max(renderMilliseconds, period)
+    }
+
     /// Index into `rungs`. Starts at the top: the first frames on a fast machine
     /// should not look worse because a slow machine exists.
     public private(set) var rung: Int = 0

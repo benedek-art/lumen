@@ -904,6 +904,26 @@ side-by-side exports. **Exit gate: owner prefers or ties Lumen on ≥4 of 5.**
       and became visible when it stopped being blocky. The answer is not to go back to
       blocky; it is to stop magnifying at all, which is what asking for the settle's
       resolution does.
+- [x] **Round 3c — the hole 3b opened, closed before it could be reported.** Removing
+      the half-resolution cap quadrupled the bytes a frame hands to the display path:
+      a fit draft went from ~4 MB to ~17, a zoomed one from ~11 to ~45. And the ladder
+      could not see any of it. `draftMs` is wall time measured around
+      `await coordinator.render` — actor queueing, render, readback — and stops there;
+      the SwiftUI handoff, the body pass, the texture upload and compositing all happen
+      after it. A ladder blind to the cost that 3b quadrupled would sit at the top rung
+      reporting cheap frames while the picture ticked, which is the exact failure this
+      whole campaign started from.
+      `DraftLadder.costSample` closes it: when the loop is SATURATED the ladder is
+      costed by the interval between delivered frames, which necessarily includes
+      everything after the render because the next one cannot start until the main
+      actor is done with the last. Saturation is not guessed — `.task(id:)` cancels the
+      render task the moment a newer event reaches the view, so a task that finds
+      itself cancelled when its frame lands had work queued behind it the whole way.
+      A slow hand leaves that false and its long gaps are correctly read as the hand's
+      rather than the machine's, which is the false positive that makes the raw
+      interval unusable on its own. Five tests, including a fast render (15 ms) inside
+      a slow frame (90 ms) that must still walk the ladder down — the case the old
+      input could not express at all.
 - [ ] **The same class, one table over, not yet closed.** `finishLUT` is also paired
       with a fresh scalar (`finishScale`, = `transform.white`) and IS still
       stale-served. It is safe during a tone drag: `applyAnchors` writes only the two

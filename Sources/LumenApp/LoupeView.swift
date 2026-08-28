@@ -378,6 +378,12 @@ final class PhotoRenderModel: ObservableObject {
     /// the ONLY thing that moved was the tick — which happens exactly once, when a hand
     /// comes off a slider. See `load`.
     private var lastSettleTick: Int?
+
+    /// When the previous draft landed, so the ladder can be costed by the interval
+    /// between delivered frames rather than by the render's own wall time — see
+    /// `DraftLadder.costSample`. Cleared on a photo change: a new photograph's first
+    /// frame continues nothing.
+    private var lastDraftAt: UInt64?
     /// Generation of the newest frame actually applied — `shouldShow`'s order input,
     /// so a slow old render can never overwrite a newer picture.
     private var appliedGeneration: UInt64 = 0
@@ -418,6 +424,7 @@ final class PhotoRenderModel: ObservableObject {
             settledActualLongEdge = nil
             settledRecipe = nil
             shownRecipe = nil
+            lastDraftAt = nil
             revision &+= 1
             if let thumbnails,
                let preview = await thumbnails.load(
@@ -531,8 +538,23 @@ final class PhotoRenderModel: ObservableObject {
                 // what a hand feels. The ladder learns from the same number the HUD
                 // shows, and it learns from every completed draft, delivered or not:
                 // the cost was real either way.
-                let draftMs = Double(DispatchTime.now().uptimeNanoseconds - draftStarted) / 1e6
-                draftLadder.record(draftMilliseconds: draftMs,
+                let landedAt = DispatchTime.now().uptimeNanoseconds
+                let draftMs = Double(landedAt - draftStarted) / 1e6
+                // But the render's own wall time stops before the SwiftUI handoff, the
+                // body pass and the texture upload, and none of those are free — so the
+                // ladder is costed by the INTERVAL between delivered frames whenever
+                // the loop is saturated. `Task.isCancelled` is the saturation signal
+                // and it is already here: `.task(id:)` cancels this task the moment a
+                // newer event reaches the view, so a task cancelled by the time its
+                // frame lands had work queued behind it the whole way. A slow hand
+                // leaves it false and the gap is correctly read as the hand's, not the
+                // machine's. `DraftLadder.costSample` holds the rule and the argument.
+                let period = lastDraftAt.map { Double(landedAt - $0) / 1e6 }
+                let cost = DraftLadder.costSample(renderMilliseconds: draftMs,
+                                                  sincePreviousFrameMilliseconds: period,
+                                                  handWasWaiting: Task.isCancelled)
+                lastDraftAt = landedAt
+                draftLadder.record(draftMilliseconds: cost,
                                    renderedLongEdge: Swift.max(draftTarget, 64),
                                    requested: draftRequested,
                                    // Monotone downward while the hand is down: a rung
