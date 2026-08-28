@@ -219,6 +219,10 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     "RGBAf", "RGBAh", "RGBA8", "RGBA16",
     "CoreText", "CTFontCreateWithName",
     "CVPixelBuffer", "IOSurface", "OSStatus",
+    # Compilation conditions, not identifiers: SwiftPM defines DEBUG in the debug
+    # configuration, and `#if DEBUG` is how a probe says which build its numbers
+    # came from.
+    "DEBUG", "SWIFT_PACKAGE",
     # Vision + CoreVideo: the subject / person mattes (docs/08 §8.8). Listed
     # individually rather than by prefix, so a typo in a request's name is still a
     # failure here; the prefixes below are what make the IMPORT check work.

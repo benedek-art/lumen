@@ -241,4 +241,54 @@ final class FrameDeliveryTests: XCTestCase {
         XCTAssertTrue(FrameDelivery.shouldStart(taskCancelled: false,
                                                 generation: 7, newestRequested: 7))
     }
+
+    // MARK: Which passes a request runs
+
+    /// The ordinary case: an edit moved, nothing of it is on screen, draft first.
+    func testAnEditAlwaysGetsItsDraft() {
+        XCTAssertTrue(FrameDelivery.needsDraft(showingSettledOfThisRecipe: false,
+                                               showingAnyFrameOfThisRecipe: false,
+                                               requestIsOnlyTheSettleAsk: false))
+    }
+
+    /// The zoom case: a settled frame of this very recipe is up and only the pixel
+    /// count asked for moved. A draft here REPLACES good pixels with coarse ones, which
+    /// is sharpness LEAVING on a zoom — the owner's "bad quality for a few seconds and
+    /// then the good quality version loads", in both directions.
+    func testAZoomOverASettledFrameRendersNoDraft() {
+        XCTAssertFalse(FrameDelivery.needsDraft(showingSettledOfThisRecipe: true,
+                                                showingAnyFrameOfThisRecipe: true,
+                                                requestIsOnlyTheSettleAsk: false))
+    }
+
+    /// The release case: the tick moved and nothing else, and the draft on screen is
+    /// already this exact edit. Re-rendering it and then waiting out the debounce is
+    /// about seventy milliseconds of a two-hundred millisecond budget, spent at the one
+    /// moment the photographer is waiting for sharpness.
+    func testTheSettleAskOverItsOwnDraftRendersNoDraft() {
+        XCTAssertFalse(FrameDelivery.needsDraft(showingSettledOfThisRecipe: false,
+                                                showingAnyFrameOfThisRecipe: true,
+                                                requestIsOnlyTheSettleAsk: true))
+    }
+
+    /// THE GUARD THAT MAKES THE ABOVE SAFE. A matte landing, a brush blob loading, ⇧S
+    /// toggling the proof and a window resize all leave the recipe untouched while
+    /// genuinely changing the picture — and every one of them moves the render key
+    /// WITHOUT moving the tick, which only a gesture's end advances. Each must still
+    /// get its fast draft rather than waiting out a full-resolution pass.
+    func testAnUnchangedRecipeIsNotOnItsOwnAReasonToSkipTheDraft() {
+        XCTAssertTrue(FrameDelivery.needsDraft(showingSettledOfThisRecipe: false,
+                                               showingAnyFrameOfThisRecipe: true,
+                                               requestIsOnlyTheSettleAsk: false),
+                      "the recipe being unchanged is exactly the state a matte, a "
+                          + "stroke blob and a soft-proof toggle all arrive in")
+    }
+
+    /// And a settle ask that arrives before its own draft landed still needs one:
+    /// there is nothing on screen for this edit to keep.
+    func testASettleAskWithNothingOfThisEditUpStillDrafts() {
+        XCTAssertTrue(FrameDelivery.needsDraft(showingSettledOfThisRecipe: false,
+                                               showingAnyFrameOfThisRecipe: false,
+                                               requestIsOnlyTheSettleAsk: true))
+    }
 }

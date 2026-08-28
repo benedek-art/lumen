@@ -124,8 +124,14 @@ final class DragProbeTests: XCTestCase {
         let max: Double
         let over: Int          // frames past the drag budget
         let count: Int
+        /// What the table cache did across the drag. On the draft path a frame that
+        /// served STALE is a frame whose colour is as old as the outstanding bake — so
+        /// "47 stale of 47" plus a slow bake is a picture stepping at the bake's rate
+        /// even though every frame here timed fast.
+        let traffic: PlanTableCache.Stats?
 
-        init(_ samples: [Double]) {
+        init(_ samples: [Double], traffic: PlanTableCache.Stats? = nil) {
+            self.traffic = traffic
             let sorted = samples.sorted()
             func at(_ q: Double) -> Double {
                 guard !sorted.isEmpty else { return 0 }
@@ -141,8 +147,12 @@ final class DragProbeTests: XCTestCase {
         }
 
         var line: String {
-            String(format: "p50 %6.1f  p95 %6.1f  max %6.1f  over-budget %2d/%2d",
-                   p50, p95, max, over, count)
+            let head = String(
+                format: "p50 %6.1f  p95 %6.1f  max %6.1f  over-budget %2d/%2d",
+                p50, p95, max, over, count)
+            guard let traffic else { return head }
+            return head + String(format: "  tables %dh/%db/%ds",
+                                 traffic.hits, traffic.bakes, traffic.staleServes)
         }
     }
 
@@ -155,10 +165,12 @@ final class DragProbeTests: XCTestCase {
     /// an IOSurface and never leaves the GPU, which is what a Metal-layer viewport
     /// would do. The difference between the two is the cost of the round trip.
     private func drag(control: Control, longEdge: Int, source: CIImage,
-                      context: CIContext, readback: Bool) -> Distribution {
+                      context: CIContext, readback: Bool,
+                      allowStaleTables: Bool = true) -> Distribution {
         let height = longEdge * 2 / 3
         var samples: [Double] = []
         samples.reserveCapacity(Self.events)
+        PlanTableCache.resetStats()
 
         // IOSurface-backed, so the frame can be produced without ever crossing back to
         // the CPU — the comparison the readback line below is for.
@@ -179,7 +191,12 @@ final class DragProbeTests: XCTestCase {
             let recipe = control.recipe(at: t)
 
             let t0 = DispatchTime.now().uptimeNanoseconds
-            let plan = RenderPlan(recipe: recipe, lutSize: LUT3D.interactiveSize)
+            // `allowStaleTables` is the whole difference between a DRAFT and a SETTLE,
+            // and getting it wrong makes this probe measure the wrong pass entirely:
+            // with it false, every frame blocks on an exact 33³ bake, which is what a
+            // settle does once per gesture and what a drag must never do.
+            let plan = RenderPlan(recipe: recipe, lutSize: LUT3D.interactiveSize,
+                                  allowStaleTables: allowStaleTables)
             let options = RenderGraph.Options(longEdge: longEdge,
                                               lutSize: LUT3D.interactiveSize)
             let out = RenderGraph().build(source, plan: plan, options: options)
@@ -196,11 +213,31 @@ final class DragProbeTests: XCTestCase {
             // and it is not what "the slider ticks" describes.
             if event > 0 { samples.append(ms) }
         }
-        return Distribution(samples)
+        return Distribution(samples, traffic: PlanTableCache.currentStats)
     }
 
     private func context() -> CIContext {
         CIContext(options: [.workingFormat: CIFormat.RGBAh])
+    }
+
+    /// SAY WHICH BUILD THESE NUMBERS CAME FROM, every time.
+    ///
+    /// `swift test` builds debug, and the two halves of a frame respond to that very
+    /// differently: the GPU time is the GPU's and barely moves, while everything on the
+    /// CPU — `RenderPlan`'s construction, and above all a 33³ table bake, which is
+    /// ~36 000 evaluations of a transform containing three cube roots, an `atan2`, a
+    /// sine and a cosine — is inflated by roughly an order of magnitude with the
+    /// optimiser off. A debug bake read as a shipping cost is a fictional emergency;
+    /// a release bake read as a debug artefact is a real one dismissed. The line is
+    /// printed rather than left to be remembered.
+    private func printBuildMode() {
+        #if DEBUG
+        print("DRAGPROBE build: DEBUG — CPU-side costs (plan construction, table "
+                + "bakes) are inflated roughly 10× against the shipping build. GPU "
+                + "time is not. Compare rows, not absolutes.")
+        #else
+        print("DRAGPROBE build: RELEASE")
+        #endif
     }
 
     /// Left-aligned to a fixed width, so the printed table reads as columns. Done here
@@ -223,15 +260,24 @@ final class DragProbeTests: XCTestCase {
         let longEdge = 1280
         let source = materializedFrame(longEdge: longEdge, context: ctx)
 
+        printBuildMode()
         print("DRAGPROBE ── per control, \(longEdge) px, budget "
                 + "\(DraftLadder.budgetMilliseconds) ms ──")
+        // DRAFT is what every frame of a drag pays; SETTLE is what the one frame after
+        // the hand stops pays. They differ by `allowStaleTables`, and the gap between
+        // them is the whole value of stale-while-bake — printed rather than assumed,
+        // because the first version of this probe passed `false` for both and reported
+        // a settle's cost as a drag's, which is a 10× error in the direction of panic.
         for control in Control.allCases {
-            let d = drag(control: control, longEdge: longEdge, source: source,
-                         context: ctx, readback: true)
-            print("DRAGPROBE \(pad(control.rawValue, 11)) \(d.line)")
-            XCTAssertLessThan(d.max, 10_000,
-                              "a \(control.rawValue) drag frame took over ten seconds — "
-                                  + "something is broken, not merely slow")
+            for stale in [true, false] {
+                let d = drag(control: control, longEdge: longEdge, source: source,
+                             context: ctx, readback: true, allowStaleTables: stale)
+                print("DRAGPROBE \(stale ? "draft " : "settle") "
+                        + "\(pad(control.rawValue, 11)) \(d.line)")
+                XCTAssertLessThan(d.max, 10_000,
+                                  "a \(control.rawValue) frame took over ten seconds — "
+                                      + "something is broken, not merely slow")
+            }
         }
     }
 
@@ -243,7 +289,8 @@ final class DragProbeTests: XCTestCase {
     /// the rung never moved however long the frames took.
     func testWhatEachRungCostsUnderADrag() throws {
         let ctx = context()
-        print("DRAGPROBE ── per rung, Exposure, budget "
+        printBuildMode()
+        print("DRAGPROBE ── per rung, Exposure (draft path), budget "
                 + "\(DraftLadder.budgetMilliseconds) ms ──")
         for longEdge in [1728, 1280, 1024, 768, 576] {
             let source = materializedFrame(longEdge: longEdge, context: ctx)
@@ -274,7 +321,8 @@ final class DragProbeTests: XCTestCase {
         let lazyInput = lazyFrame(longEdge: longEdge)
         let materialized = materializedFrame(longEdge: longEdge, context: ctx)
 
-        print("DRAGPROBE ── structural costs, Exposure, \(longEdge) px ──")
+        printBuildMode()
+        print("DRAGPROBE ── structural costs, Exposure (draft path), \(longEdge) px ──")
         let pairs: [(String, CIImage, Bool)] = [
             ("lazy   + readback", lazyInput, true),
             ("materialized + readback", materialized, true),

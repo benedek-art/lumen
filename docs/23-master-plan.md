@@ -33,8 +33,15 @@ Why the sliders feel broken — the mechanisms, found and ranked:
    graph in draft). The picture jumps on release. (DETAIL-20.)
 2. **The wrong sliders are expensive.** Whites/Blacks/curve/mixer/wheels cold-bake one
    or two 33³ LUTs (23.7+ ms) per drag frame on the render actor; Exposure hits cache.
-3. **Main-thread waste per mouse event**: one ObservableObject with 56 @Published
-   re-bodies every view per event; FilterBar does 14 full `allPhotos` scans per body
+   — **No longer true, measured (M2 round 2).** `PlanTableCache.tableAllowingStale`
+   closed this: on the DRAFT path plan construction is flat at ~3.5 ms across every
+   control, including the ones that re-key a table on every event. Only the settle
+   pays a bake, once per gesture, which is what makes the picture at rest exact.
+   `PlanCostProbeTests` prints both paths on the free lane and fails if the gap ever
+   closes.
+3. **Main-thread waste per mouse event** — the one that survived three rounds and, on
+   the evidence of M2 round 2, is the likeliest cause of "every slider ticks": one
+   ObservableObject with 56 @Published re-bodies every view per event; FilterBar does 14 full `allPhotos` scans per body
    pass; ScopesView rasterizes up to ~197k px in `body`; a single-entry decode cache is
    thrashed by six consumers; `onEditingChanged` is consumed by nobody, so SQLite
    writes + fingerprints are per-event; export runs on the viewer's render actor.
@@ -687,23 +694,109 @@ side-by-side exports. **Exit gate: owner prefers or ties Lumen on ≥4 of 5.**
       `sliderGestureChanged` plumbing (which reaches every develop control via
       `LumenSlider`/`LumenColorWheel` themselves — confirmed by grep, one native
       `Slider` remains and it is the grid's thumbnail size).
-- [ ] **Slider smoothness round 2 — what round 1 deliberately did not do.** Ranked,
-      with the measurement each needs:
-      1. `AppState` → `@Observable` (the 56-`@Published` re-body named in this
-         document's diagnosis, still unfixed). Per event it publishes THREE times and
-         re-bodies every view holding the environment object — plus `LumenApp`'s
-         Scene body and the entire menu-command tree, because the `App` holds state as
-         a `@StateObject`. Interim, independent, cheap: move the menu's reads behind
-         their own small observable; delete the `historyObserver` forward once it is.
-      2. The serial render actor's own ceiling: one frame per draft render, ~28 fps at
-         the `DraftLadder` budget. Honest, and visible as steps under a moving hand.
-         Past it is the Metal-layer viewport `LoupeView`'s header already claims
-         exists and does not — a milestone, not a fix.
-      3. `PipelineRenderer.maskSource` is uncached and rebuilds a 1024-px staging
-         render per frame whenever any mask reads the picture; `requestedLongEdge`
-         asks for a flat 4096 when zoomed rather than what is visible.
-      4. `updateRecipe` builds two full `renderIdentity` projections per photo per
-         event, on top of a deep compare it already did.
+- [x] **Slider smoothness round 2 — measured this time.** Owner, third report on the
+      same thing: "it's still not smooth … one by one, like tick by tick." Round 1 and
+      the rounds before it fixed real defects that were not the cause. What is
+      different here is that the guessing stopped: the instruments were built first,
+      and they both convicted and acquitted.
+      1. **THE DRAFT LADDER HAD NEVER SIZED A SINGLE FRAME.** `DraftLadder.record`
+         refused any frame whose long edge was not exactly `rungs[rung]` (2048), and
+         at fit the loupe never asks for 2048: `PhotoRenderModel.load` requests
+         `max(1024, fullLongEdge/2)`, and `fullLongEdge` is the viewport in device
+         pixels bucketed to 256 — ≈1280 on a 16-inch MacBook Pro, ≈1728 on a 5K panel.
+         The guard fired on every frame of every drag at fit; the rung never moved for
+         the life of the process. Frames could cost 300 ms and the one mechanism whose
+         job is the 35 ms budget would not notice. It looked right because every test
+         fed `requested: 4096` — the size the app asks for only when ZOOMED, which is
+         the one place a drag does not happen. Fixed: heat steps down from ANY size
+         (cost is monotone in pixels), targeting the first rung strictly BELOW the
+         size just measured — stepping one index does nothing when the request is the
+         binding constraint. Cheapness still requires a frame rendered at the rung.
+      2. **THE WINDOW AND THE MENU BAR WERE REBUILT TWICE PER MOUSE EVENT.**
+         `updateRecipe` published the recipe write AND, through a
+         `history.objectWillChange` → `AppState` forward, the coalescing write into
+         the open undo step. `AppState` is a `@StateObject` on `LumenApp`, so each
+         publish rebuilt the `Scene` — all seven `.commands` menus — plus the
+         filmstrip's `ForEach` over the whole folder, the grid, the sidebar, the
+         filter bar and the status bar, none of which show an edit. The consequence is
+         worse than waste: once a whole-window pass no longer fits between two
+         mouse-moved events, AppKit COALESCES the undelivered ones and the app stops
+         SEEING positions — so the thumb, the number and the picture step together, on
+         every slider at once, which is exactly the shape of the report. Fixed:
+         `CommandState` (the five facts the menu bar and develop footer display,
+         equality-guarded) and `EditRevision` (the invalidation the twelve edit-facing
+         views need); `AppState.recipes` is no longer `@Published`. A drag event now
+         publishes on `EditRevision` alone. `DragBroadcastTests` counts the publishes —
+         and earned its keep immediately: the first version of the replacement hung
+         both signals off `didSet`, which fires BETWEEN the two halves of a mutation.
+         `steps` and `position` are one value in two properties (`canUndo` is
+         `position > 0`; `undoLabel` subscripts `steps[position - 1]`), so the Edit menu
+         flickered a Redo item that never existed at three publishes per drag instead
+         of one — the count the test caught — and `clear()`, which empties `steps`
+         before zeroing `position`, subscripted an empty array: an out-of-range CRASH
+         on the first folder switch after any edit. `HistoryStack.atomically` fixes
+         both and a second test reads the labels from inside the callback, where an
+         inconsistent stack traps rather than merely lying. The old
+         `objectWillChange` forward never met either failure because SwiftUI coalesces
+         invalidations to the end of the runloop turn; a direct callback does not, so
+         the atomicity has to be real.
+      3. **THREE EXPENSIVE FIXES RULED OUT BY MEASUREMENT** — the point of building
+         the instruments. `DragProbeTests` (macOS lane) prices a 48-event drag with a
+         fresh plan per frame; `PlanCostProbeTests` (free Linux lane) prices the CPU
+         half. Findings, all at 1280 px:
+         · **Materializing the decode: no measurable difference** (48.2 vs 49.2 ms).
+           `cacheIntermediates` is already on. Floor, not an estimate — the probe's
+           source is a two-filter chain, not a 45 MP demosaic — but not the lever.
+         · **The GPU→CPU readback: no measurable difference** (`createCGImage` 48.2 vs
+           IOSurface 47.6 ms). The Metal-layer viewport is a milestone, not this fix.
+         · **Plan construction on the DRAFT path is ~1 ms, flat across every control**
+           — release Linux, `PlanCostProbeTests`: exposure 1.05, whites 1.75,
+           saturation 1.13, texture 1.14 ms p50. Stale-while-bake is doing its job.
+           Only the SETTLE pays a bake — whites 17.2, saturation 16.9 ms, against
+           texture's 1.1 — once per gesture, which is what makes the picture at rest
+           exact. (Debug is ≈10× throughout: 3.5 draft, 400 settle. The probe now
+           prints its build mode, because the first reading of these numbers was a
+           debug settle mistaken for a shipping draft — a 300× error.) The CPU half of
+           a drag frame is therefore not the problem, which leaves the GPU graph and
+           the main actor, and the graph at 1280 px is ~20-30 ms on a CI VM — enough
+           for 30-60 fps, not for "tick by tick".
+         · Cost stops falling with pixels below ~1024 (settle path, exposure: 1728 →
+           65.5, 1280 → 37.6, 1024 → 32.4, 768 → 31.8, 576 → 28.7 ms). So the ladder's
+           new 768/576 rungs buy little; what the fix bought is the step from 1728 to
+           1024–1280, which is ~2×.
+      4. **The instrument that should have caught all of this measures the opposite.**
+         `PerfProbeTests` takes the BEST of four renders of the SAME plan over the SAME
+         source with no decode. On the same runner and the same commit it reported
+         20.0 ms at 1024 where the drag probe measured a 1280 px Exposure frame at 51.2
+         and a Whites settle at 385.3. Kept — it is a useful graph-cost table — but it
+         is no longer read as what a drag costs.
+      5. **The release stopped paying for a frame nobody waits for.** A release bumps
+         `settleTick` and moves nothing else — `onEnded` commits the value the last
+         motion event already committed — so the viewer rendered a draft that produced
+         the picture already on screen, waited out the 40 ms debounce, and only then
+         began the settle: ~70 ms of a 200 ms budget, at the one moment the
+         photographer IS waiting for sharpness. `FrameDelivery.needsDraft` now skips
+         both. Gated on the TICK, not on "the recipe is unchanged": a matte landing, a
+         brush blob loading, ⇧S and a window resize all leave the recipe untouched
+         while changing the picture, and each must still get its fast draft. Five tests,
+         including that guard.
+      6. **The HUD gained the pair that ends the argument**: input events SEEN per
+         second beside frames DELIVERED per second (`EventRate`, LumenCore, tested).
+         Latency alone cannot tell a render that cannot keep up (in 90/s, out 8/s)
+         from input being dropped before the app ever sees it (in 10/s, out 10/s), and
+         the two want opposite fixes. Three rounds have been argued without it.
+- [ ] **Owner verification of round 2, and the next lever if it is still not smooth.**
+      Run the build with the HUD on (⌘⌥L) and drag any slider. Read `in/out`:
+      · in high, out low → the render is the bottleneck; next lever is the graph, and
+        the per-rung numbers above say pixels are not it below 1024.
+      · in and out both low and equal → input is still being dropped on the main
+        actor; next lever is `AppState` → `@Observable` for per-property tracking, of
+        which round 2's two small observables are the first step, not a substitute.
+      Also still open, unchanged and now ranked BELOW the above by measurement:
+      `PipelineRenderer.maskSource` is uncached and rebuilds a 1024-px staging render
+      per frame whenever any mask reads the picture; `requestedLongEdge` asks for a
+      flat 4096 when zoomed rather than what is visible; `updateRecipe` builds two full
+      `renderIdentity` projections per photo per event.
 
 ## M3 — The shipping path becomes the specced path
 

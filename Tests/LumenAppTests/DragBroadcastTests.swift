@@ -148,6 +148,49 @@ final class DragBroadcastTests: XCTestCase {
         XCTAssertGreaterThan(signals, 0, "clearing on a folder switch must signal")
     }
 
+    /// THE OBSERVER MUST NEVER SEE HALF A MUTATION, and this is not a tidiness point.
+    ///
+    /// `steps` and `position` are two halves of one value, and every derived member
+    /// reads both — `canUndo` is `position > 0` while `undoLabel` subscripts
+    /// `steps[position - 1]`. A callback hung off each property's `didSet` fires
+    /// between them, where the pair is inconsistent, and it is wrong in two ways at
+    /// once. `record`'s append grows `steps` before advancing `position`, so `canRedo`
+    /// goes spuriously true and the Edit menu flickers a Redo item that never existed.
+    /// `clear()` empties `steps` before zeroing `position`, so `undoLabel` subscripts
+    /// an empty array — an out-of-range CRASH on the first folder switch after any
+    /// edit, which is what this test found.
+    ///
+    /// Reading both labels inside the callback is the assertion: an inconsistent stack
+    /// traps rather than returning something merely wrong.
+    func testTheObserverNeverSeesHalfAMutation() {
+        let history = HistoryStack()
+        var seen: [(undo: String?, redo: String?)] = []
+        history.onChange = { [weak history] in
+            guard let history else { return }
+            seen.append((history.undoLabel, history.redoLabel))
+        }
+
+        for i in 0..<3 {
+            history.record(before: step(0), after: step(Double(i)), coalescingKey: nil)
+        }
+        XCTAssertFalse(seen.contains { $0.redo != nil },
+                       "recording a step leaves nothing to redo; a signal reporting "
+                           + "one was fired between the two halves of the mutation")
+
+        seen.removeAll()
+        _ = history.undo()
+        XCTAssertTrue(seen.allSatisfy { $0.redo != nil },
+                      "after an undo there is always something to redo")
+
+        seen.removeAll()
+        _ = history.redo()
+        // The crash, if it is back: `clear` empties the array with `position` still
+        // pointing into it.
+        history.clear()
+        XCTAssertEqual(seen.last?.undo ?? "not nil", nil)
+        XCTAssertEqual(seen.last?.redo ?? "not nil", nil)
+    }
+
     /// And the labels the menu draws are right at the moment the signal arrives — a
     /// callback that fires BEFORE the mutation would leave the Edit menu one step
     /// behind, which is the same defect wearing different clothes.

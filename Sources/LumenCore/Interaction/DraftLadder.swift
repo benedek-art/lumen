@@ -40,6 +40,14 @@ public struct DraftLadder: Sendable, Equatable {
     ///
     /// The ladder still only descends on MEASURED heat, so a machine with headroom
     /// never sees these rungs at all.
+    ///
+    /// MEASURED, and worth less than the argument above suggests: on the CI runner a
+    /// frame costs 65.5 ms at 1728, 37.6 at 1280, 32.4 at 1024, 31.8 at 768 and 28.7 at
+    /// 576 (`DragProbeTests`, per-rung). The curve has a knee at about 1024 — below it
+    /// the frame is no longer pixel-bound and the two cheap rungs buy almost nothing.
+    /// They stay because they cost nothing to offer and a slower machine than the
+    /// runner may find its floor there, but the value of fixing this ladder is the step
+    /// from 1728 to 1024–1280, which is roughly 2×, and not the bottom of it.
     public static let rungs: [Int] = [2048, 1600, 1280, 1024, 768, 576]
 
     /// The drag budget a draft must fit inside (docs/12 §12.2's slider loop, less a

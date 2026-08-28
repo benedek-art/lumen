@@ -368,6 +368,16 @@ final class PhotoRenderModel: ObservableObject {
     /// a draft, an embedded preview, or nothing. Compared against the incoming recipe
     /// to tell a RESOLUTION change from an EDIT — see `load`.
     private var settledRecipe: Recipe?
+
+    /// The recipe of whatever is on screen right now — draft OR settle. Distinct from
+    /// `settledRecipe`, which is nil while a draft is showing; this one answers "is the
+    /// picture up there already this edit, at whatever quality".
+    private var shownRecipe: Recipe?
+
+    /// The `AppState.settleTick` the last request carried, so a request can tell that
+    /// the ONLY thing that moved was the tick — which happens exactly once, when a hand
+    /// comes off a slider. See `load`.
+    private var lastSettleTick: Int?
     /// Generation of the newest frame actually applied — `shouldShow`'s order input,
     /// so a slow old render can never overwrite a newer picture.
     private var appliedGeneration: UInt64 = 0
@@ -386,9 +396,15 @@ final class PhotoRenderModel: ObservableObject {
               strokeSets: [String: BrushStrokeSet] = [:],
               showingUncropped: Bool = false,
               softProof: SoftProof? = nil,
+              settleTick: Int = 0,
               gestureInFlight: () -> Bool = { false }) async {
 
         currentRequestURL = url
+        // The tick moves only in `AppState.flushSliderGesture` — a release, a photo
+        // switch or the watchdog — so a request whose tick differs from the last one's
+        // is the ask for the quality pass the drag deferred, and nothing else.
+        let isSettleAsk = lastSettleTick != nil && lastSettleTick != settleTick
+        lastSettleTick = settleTick
 
         // New photo: drop the previous photo's pixels rather than showing them under a
         // new filename, and give this one the instant embedded-preview path (Law 11).
@@ -401,6 +417,7 @@ final class PhotoRenderModel: ObservableObject {
             note = nil
             settledActualLongEdge = nil
             settledRecipe = nil
+            shownRecipe = nil
             revision &+= 1
             if let thumbnails,
                let preview = await thumbnails.load(
@@ -446,9 +463,37 @@ final class PhotoRenderModel: ObservableObject {
         let keepShowingSettled = image != nil && !isDraft && !usedEmbeddedPreview
             && imageURL == url && settledRecipe == recipe
 
+        // THE HAND JUST CAME OFF, AND THE PICTURE IS ALREADY THIS EDIT.
+        //
+        // A release bumps `settleTick` and changes nothing else: `onEnded` commits the
+        // value the last motion event already committed, so the recipe is identical to
+        // the one whose draft is on screen. This pass would therefore render a draft
+        // that produces the picture already showing, wait 40 ms, and only then start
+        // the settle — about seventy milliseconds of the deadline spent re-deriving a
+        // frame nobody is waiting for, at the one moment the photographer IS waiting
+        // for sharpness.
+        //
+        // Both halves are skipped, and both are safe because of how narrow the
+        // condition is. The draft exists to put an honest picture up within a frame,
+        // and there is one up. The debounce exists to let a burst of events coalesce
+        // before something expensive; a burst would have moved the recipe, and the
+        // recipe has not moved. Deliberately gated on the TICK rather than on "the
+        // recipe is unchanged" alone: a matte landing, a brush blob loading or ⇧S
+        // toggling the proof also leaves the recipe unchanged, and those must still
+        // get their fast draft rather than waiting out a full-resolution pass.
+        let alreadyShowingThisEdit = image != nil && !usedEmbeddedPreview
+            && imageURL == url && shownRecipe == recipe
+        // The rule itself is `FrameDelivery.needsDraft` in LumenCore, where it is
+        // tested and where its narrowness is argued — a rule about which passes run
+        // that lives only in a view is the shape this file's own header warns about.
+        let needsDraft = FrameDelivery.needsDraft(
+            showingSettledOfThisRecipe: keepShowingSettled,
+            showingAnyFrameOfThisRecipe: alreadyShowingThisEdit,
+            requestIsOnlyTheSettleAsk: isSettleAsk)
+
         let draftGeneration: UInt64 = PhotoRenderModel.nextGeneration()
         latestGeneration = draftGeneration
-        if !keepShowingSettled {
+        if needsDraft {
             // Half the settled request, floored at the old fixed size: enough that the
             // draft reads as the same photograph at fit, cheap enough to stay ahead of
             // the cursor. The colour is now identical to the settle by construction, so
@@ -579,6 +624,7 @@ final class PhotoRenderModel: ObservableObject {
         usedEmbeddedPreview = result.usedEmbeddedPreview
         note = result.note
         isUnreadable = false
+        shownRecipe = recipe
         if result.isDraft {
             // What is on screen is no longer a settled frame, so the next request may
             // not skip its draft on the strength of it.
@@ -804,6 +850,10 @@ struct LoupeView: View {
                          // a before/after of "proofed vs not" is not the comparison the
                          // key is for.
                          softProof: state.activeSoftProof,
+                         // Lets the model recognise the one request that is purely the
+                         // deferred settle being asked for, so it can skip the draft
+                         // and the debounce it does not need.
+                         settleTick: state.settleTick,
                          // Asked at the moment the settle would start rather than at
                          // load time, so a release landing mid-draft settles at once
                          // instead of waiting for the tick's fresh task.

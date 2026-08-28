@@ -50,8 +50,8 @@ final class HistoryStack: ObservableObject {
     /// nudge again" gives you two steps to walk back through.
     static let coalescingWindow: TimeInterval = 1.2
 
-    @Published private(set) var steps: [Step] = [] { didSet { onChange?() } }
-    @Published private(set) var position = 0 { didSet { onChange?() } }
+    @Published private(set) var steps: [Step] = [] { didSet { signalChange() } }
+    @Published private(set) var position = 0 { didSet { signalChange() } }
 
     /// Called after any mutation, so `AppState` can bring `CommandState` up to date
     /// without observing this object.
@@ -63,10 +63,45 @@ final class HistoryStack: ObservableObject {
     ///
     /// Hung off `didSet` on both stored properties rather than called at the end of
     /// each mutating method: there are five of those and a sixth is one refactor away,
-    /// and a notification you have to remember to send is one you eventually do not.
-    /// It fires more often than strictly needed (`record`'s append path moves both
-    /// properties), which is why the receiving end is equality-guarded.
+    /// and a notification you have to remember to send is one that eventually is not.
     var onChange: (@MainActor () -> Void)?
+
+    /// Suppresses the callback while a mutation is only half done. See `atomically`.
+    private var suppressedSignals = 0
+
+    private func signalChange() {
+        guard suppressedSignals == 0 else { return }
+        onChange?()
+    }
+
+    /// Run a mutation that moves BOTH stored properties, so an observer sees it once
+    /// and only once it is complete.
+    ///
+    /// This is not a tidiness measure. `steps` and `position` are two halves of one
+    /// value, and every derived member reads both: `canUndo` is `position > 0` while
+    /// `undoLabel` subscripts `steps[position - 1]`. Between the two assignments the
+    /// pair is inconsistent, and firing the callback there is not merely noisy —
+    /// it is wrong, and in two places it is fatal.
+    ///
+    ///   · `record`'s append path grows `steps` before advancing `position`, so for
+    ///     one call `position < steps.count` holds spuriously: `canRedo` goes true and
+    ///     the Edit menu flickers a Redo item that never existed, at three publishes
+    ///     per drag instead of one. `DragBroadcastTests` counted exactly that, which
+    ///     is how this was found.
+    ///   · `clear()` empties `steps` before zeroing `position`, so `canUndo` is still
+    ///     true against an empty array and `undoLabel` subscripts `steps[position - 1]`
+    ///     — an out-of-range crash on the first folder switch after any edit. The
+    ///     trim past `limit` in `record` is the same shape, 400 steps later.
+    ///
+    /// The old `objectWillChange` forward never met either, because SwiftUI coalesces
+    /// invalidations to the end of the runloop turn and nothing read the stack DURING
+    /// the mutation. A direct callback does, so the atomicity has to be real.
+    private func atomically(_ body: () -> Void) {
+        suppressedSignals += 1
+        body()
+        suppressedSignals -= 1
+        signalChange()
+    }
 
     private var lastEditTime = Date.distantPast
 
@@ -111,17 +146,22 @@ final class HistoryStack: ObservableObject {
             return
         }
 
-        if position < steps.count {
-            steps.removeSubrange(position...)
+        // `steps` and `position` are two halves of one value and three statements
+        // apart here; an observer that saw the middle would see a Redo item that never
+        // existed, and past `limit` an out-of-range subscript. See `atomically`.
+        atomically {
+            if position < steps.count {
+                steps.removeSubrange(position...)
+            }
+            // A coalescing key is an identity for merging, not prose: falling back to
+            // it put "Undo mask.c.amount.9F3B-…" in the Edit menu.
+            steps.append(Step(before: before, after: after,
+                              coalescingKey: coalescingKey, label: label ?? "Edit"))
+            if steps.count > Self.limit {
+                steps.removeFirst(steps.count - Self.limit)
+            }
+            position = steps.count
         }
-        // A coalescing key is an identity for merging, not prose: falling back to it
-        // put "Undo mask.c.amount.9F3B-…" in the Edit menu.
-        steps.append(Step(before: before, after: after, coalescingKey: coalescingKey,
-                          label: label ?? "Edit"))
-        if steps.count > Self.limit {
-            steps.removeFirst(steps.count - Self.limit)
-        }
-        position = steps.count
     }
 
     func undo() -> [URL: PhotoEdit]? {
@@ -140,8 +180,13 @@ final class HistoryStack: ObservableObject {
     }
 
     func clear() {
-        steps = []
-        position = 0
+        // Emptying `steps` while `position` still points into it leaves `canUndo` true
+        // against an empty array, and `undoLabel` subscripts `steps[position - 1]`.
+        // Unwrapped, this crashed on the first folder switch after any edit.
+        atomically {
+            steps = []
+            position = 0
+        }
         lastEditTime = .distantPast
     }
 

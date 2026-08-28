@@ -62,4 +62,40 @@ public enum FrameDelivery {
                                   newestShown: UInt64) -> Bool {
         url == currentRequest && generation > newestShown
     }
+
+    /// Whether a request needs to run the DRAFT pass at all before its settle.
+    ///
+    /// The draft exists to put an honest picture up within a frame while the expensive
+    /// pass runs. Two requests do not need one, and both of them arrive at moments when
+    /// the cost is felt rather than hidden.
+    ///
+    ///   · `showingSettledOfThisRecipe` — the ZOOM case. Same photograph, same recipe,
+    ///     only the number of pixels asked for moved, and a settled frame is already up
+    ///     which the geometry rescales instantly. Rendering a draft over it REPLACES
+    ///     those pixels with coarser ones: the owner's "when I'm zooming in, it's bad
+    ///     quality for a few seconds and then the good quality version loads".
+    ///
+    ///   · `requestIsOnlyTheSettleAsk` with a frame of this recipe up — the RELEASE
+    ///     case. A release bumps the settle tick and moves nothing else, because
+    ///     `onEnded` commits the value the last motion event already committed. So the
+    ///     draft this request would render is the picture already on screen, and the
+    ///     debounce that follows it is waiting for a burst that cannot exist: a burst
+    ///     would have moved the recipe. Together they are about seventy milliseconds of
+    ///     a two-hundred millisecond budget, spent at the one moment the photographer
+    ///     is actually waiting for sharpness.
+    ///
+    /// THE NARROWNESS OF THE SECOND CONDITION IS THE POINT, and it is why the tick is
+    /// an input rather than "the recipe has not changed". A Vision matte landing, a
+    /// brush blob loading from the store, ⇧S toggling the soft proof and a window
+    /// resize all leave the recipe untouched while genuinely changing the picture. Each
+    /// must still get its fast draft instead of waiting out a full-resolution pass —
+    /// and each of them moves the render key WITHOUT moving the tick, which only
+    /// `AppState.flushSliderGesture` advances.
+    public static func needsDraft(showingSettledOfThisRecipe: Bool,
+                                  showingAnyFrameOfThisRecipe: Bool,
+                                  requestIsOnlyTheSettleAsk: Bool) -> Bool {
+        if showingSettledOfThisRecipe { return false }
+        if requestIsOnlyTheSettleAsk && showingAnyFrameOfThisRecipe { return false }
+        return true
+    }
 }

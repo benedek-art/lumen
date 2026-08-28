@@ -11,6 +11,15 @@
 //
 // Off by default and free when off: the writes are gated on `enabled`, so no
 // @Published fires per frame for a HUD nobody is looking at.
+//
+// THE OBSERVER EFFECT, stated rather than hidden. With the HUD ON, every input event
+// publishes and re-bodies this one small view, and its body takes both cache locks to
+// read their counters. That is main-actor work per mouse event added by the instrument
+// whose headline number is how much main-actor work per mouse event there is. It is
+// one view with six text lines against a window's worth of panels, so it does not
+// change which explanation the `in/out` pair points at — but if the two rates are
+// marginal rather than decisive, read them again with the HUD off by watching the
+// picture instead, rather than trusting the fourth significant figure.
 
 #if os(macOS)
 
@@ -34,18 +43,45 @@ final class LatencyHUD: ObservableObject {
     @Published private(set) var settleMs: Double?
     @Published private(set) var settleLongEdge: Int?
 
+    /// THE PAIR THAT ENDS THE ARGUMENT.
+    ///
+    /// Latency alone cannot tell the two explanations for a stepping slider apart, and
+    /// they want opposite fixes. Input at 60–120/s with frames at 8/s is a render that
+    /// cannot keep up with a hand it can see. Input at 10/s with frames at 10/s is a
+    /// render loop keeping up perfectly with a gesture it is only seeing a tenth of —
+    /// the main actor missing its window between two mouse-moved events and AppKit
+    /// coalescing the rest, which no render optimisation touches. `EventRate` in
+    /// LumenCore holds the arithmetic and the argument in full.
+    @Published private(set) var inputsPerSecond: Double?
+    @Published private(set) var framesPerSecond: Double?
+
     private var lastInputAt: UInt64?
+    private var inputRate = EventRate()
+    private var frameRate = EventRate()
+
+    private func nowSeconds() -> Double {
+        Double(DispatchTime.now().uptimeNanoseconds) / 1e9
+    }
 
     /// A pixel-touching edit happened. The next draft that lands closes the loop.
     func noteInput() {
         guard enabled else { return }
-        lastInputAt = DispatchTime.now().uptimeNanoseconds
+        let now = DispatchTime.now().uptimeNanoseconds
+        lastInputAt = now
+        inputRate.record(at: Double(now) / 1e9)
+        inputsPerSecond = inputRate.perSecond(now: Double(now) / 1e9)
     }
 
     func noteDraft(milliseconds: Double, longEdge: Int) {
         guard enabled else { return }
         draftMs = milliseconds
         draftLongEdge = longEdge
+        let now = nowSeconds()
+        frameRate.record(at: now)
+        framesPerSecond = frameRate.perSecond(now: now)
+        // A drag that has stopped must stop claiming a rate, or the last number of the
+        // last gesture is read as the current one.
+        if inputRate.isIdle(now: now) { inputsPerSecond = nil }
         if let input = lastInputAt {
             inputToDraftMs = Double(DispatchTime.now().uptimeNanoseconds - input) / 1e6
             lastInputAt = nil  // one edit, one closure of the loop
@@ -80,10 +116,22 @@ struct LatencyHUDView: View {
         "\(label) \(hits)h \(bakes)b \(stale)s"
     }
 
+    /// Events the app SAW per second against frames it delivered per second, on one
+    /// line because neither number means anything alone. Read it during a drag: the two
+    /// being close and low is dropped input; `in` high and `out` low is the render.
+    private func rateLine(in inputs: Double?, out frames: Double?) -> String {
+        func number(_ value: Double?) -> String {
+            guard let value, value.isFinite else { return "  — " }
+            return String(format: "%4.0f", value)
+        }
+        return "in/out    \(number(inputs))/s \(number(frames))fps"
+    }
+
     var body: some View {
         let tables = PlanTableCache.currentStats
         let rasters = MaskRasterCache.currentStats
         return VStack(alignment: .leading, spacing: 2) {
+            Text(rateLine(in: hud.inputsPerSecond, out: hud.framesPerSecond))
             Text(line("input→draft", hud.inputToDraftMs, nil))
             Text(line("draft      ", hud.draftMs, hud.draftLongEdge))
             Text(line("settle     ", hud.settleMs, hud.settleLongEdge))
