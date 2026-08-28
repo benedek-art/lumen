@@ -786,12 +786,21 @@ side-by-side exports. **Exit gate: owner prefers or ties Lumen on ≥4 of 5.**
          from input being dropped before the app ever sees it (in 10/s, out 10/s), and
          the two want opposite fixes. Three rounds have been argued without it.
 - [ ] **Owner verification of round 2, and the next lever if it is still not smooth.**
-      Run the build with the HUD on (⌘⌥L) and drag any slider. Read `in/out`:
+      Scripted as `docs/sessions/03-checklist.md` — seven steps, ~15 minutes, of which
+      step 1 is the whole point. Run the build with the HUD on (⌘⌥L) and drag any
+      slider. Read `in/out`:
       · in high, out low → the render is the bottleneck; next lever is the graph, and
         the per-rung numbers above say pixels are not it below 1024.
       · in and out both low and equal → input is still being dropped on the main
         actor; next lever is `AppState` → `@Observable` for per-property tracking, of
         which round 2's two small observables are the first step, not a substitute.
+        Second candidate on that branch, cheap and untried: `LumenSlider`'s track is a
+        `GeometryReader`, so the active panel nests ~15 layout containers per body
+        pass purely to learn a width that is constant — the develop column is a fixed
+        `Lumen.panelWidth`. Measuring it once into `@State` would remove all of them.
+        Not done in round 2 deliberately: it is a change to the one slider every panel
+        uses, made before the measurement says the main actor is still the problem,
+        which is the shape of the three rounds that failed.
       Also still open, unchanged and now ranked BELOW the above by measurement:
       `PipelineRenderer.maskSource` is uncached and rebuilds a 1024-px staging render
       per frame whenever any mask reads the picture; `requestedLongEdge` asks for a
