@@ -53,6 +53,14 @@ docs/26-tone-baselines.md):
 
 Usage:  python3 scripts/baselines/crosscheck.py   (runs everything, prints the
         tables; exits non-zero if a tool is missing or a sanity check fails)
+        Subsequent additions (2026-08-28): shrecovery (RT Shadows&Highlights at
+        full deflection, per-patch EV shift — the field's answer to Lumen's
+        hard-partitioned ±2.0 EV zones) and dehaze (RT Haze Removal and
+        darktable hazeremoval on a synthetic veiled scene with known airlight —
+        far-ground contrast recovery and veil drop). The Lumen columns for both
+        print from AccuracyProbeTests (TONEBASE) and EngineIntegrationTests
+        (HAZEBASE) on the Linux lane, so every number in docs/26 §4–5 is
+        re-measurable on both sides.
 Deps:   apt install rawtherapee darktable; pip install numpy tifffile
 """
 import os
@@ -158,6 +166,137 @@ def rt_bleach(work):
     return rows
 
 
+
+def rt_sh_recovery(work):
+    """RT 5.10 Shadows/Highlights at full deflection: per-patch EV shift.
+
+    Comparable SHAPE questions, not slider-unit equality (RT's S&H is a
+    display-referred tool with its own tonal widths): how many EV does full
+    Highlights pull the top patches down, full Shadows lift the bottom ones,
+    and does mid-grey hold still. Lumen's answers (TONEBASE print, and the
+    endpoint contract test): highlights/shadows own +-2.0 EV zones, hard-
+    partitioned at mid-grey, mid-grey exactly unmoved.
+    """
+    evs = [-5.0, -3.0, -1.0, 0.0, 1.0, 2.0, 2.32]
+    patches = [np.full(3, 0.18 * (2.0 ** e)) for e in evs]
+    inp = os.path.join(work, 'shsteps.tif')
+    write_srgb16(inp, patches)
+
+    rows = {}
+    for label, hi, sh in (('Highlights 100', 100, 0), ('Shadows 100', 0, 100)):
+        pp3 = os.path.join(work, f'sh_{hi}_{sh}.pp3')
+        open(pp3, 'w').write(
+            '[Shadows & Highlights]\nEnabled=true\n'
+            f'Highlights={hi}\nShadows={sh}\n')
+        out = os.path.join(work, f'rt_sh_{hi}_{sh}.tif')
+        run(['rawtherapee-cli', '-t', '-b16', '-Y', '-o', out, '-p', pp3,
+             '-c', inp])
+        outs = read_patches_linear(out, len(evs))
+        shifts = [float(np.log2(max(o.mean(), 1e-6) / p.mean()))
+                  for o, p in zip(outs, patches)]
+        rows[label] = shifts
+
+    print('RawTherapee 5.10 Shadows&Highlights, full deflection: EV shift per '
+          'scene patch')
+    print('  scene EV        ' + '  '.join(f'{e:+5.2f}' for e in evs))
+    for label, shifts in rows.items():
+        print(f'  {label:15s} ' + '  '.join(f'{v:+5.2f}' for v in shifts))
+    mid = rows['Highlights 100'][3]
+    if abs(mid) > 0.5:
+        sys.exit(f'RT Highlights moved mid-grey by {mid:+.2f} EV — re-check '
+                 'the pp3 keys before citing this table.')
+    return rows
+
+
+def hazy_scene():
+    """A veiled scene with known ground truth, the shape of Lumen's own
+    ProofFrames.hazySky: textured dark ground under a sky gradient, veiled by
+    airlight (0.55, 0.62, 0.78) with transmission falling toward the top."""
+    h = w = 128
+    img = np.zeros((h, w, 3), dtype=np.float64)
+    air = np.array([0.55, 0.62, 0.78])
+    for y in range(h):
+        v = y / (h - 1.0)
+        for x in range(w):
+            if v < 0.6:
+                clear = np.array([0.10 + 0.05 * v, 0.16 + 0.08 * v,
+                                  0.34 + 0.10 * v])
+            else:
+                t = 1.0 + 0.25 * np.sin(2 * np.pi * x / 5.0)
+                clear = np.array([0.13 * t, 0.11 * t, 0.08 * t])
+            trans = 0.25 + 0.65 * v
+            img[y, x] = clear * trans + air * (1.0 - trans)
+    return img
+
+
+def ground_contrast(img):
+    """RMS contrast of the textured ground band (the region dehaze must
+    recover), on the luminance plane."""
+    band = img[int(img.shape[0] * 0.8):, :, :]
+    lum = band @ np.array([0.2627, 0.6780, 0.0593])
+    return float(lum.std() / max(lum.mean(), 1e-9))
+
+
+def write_scene_srgb16(path, img):
+    tifffile.imwrite(path, np.round(srgb_encode(img) * 65535.0).astype(np.uint16))
+
+
+def read_scene_linear(path):
+    img = tifffile.imread(path).astype(np.float64) / 65535.0
+    return srgb_decode(img[..., :3])
+
+
+def rt_dehaze(work):
+    inp = os.path.join(work, 'hazy.tif')
+    scene = hazy_scene()
+    write_scene_srgb16(inp, scene)
+    base = ground_contrast(scene)
+    rows = {}
+    for strength in (50, 100):
+        pp3 = os.path.join(work, f'dehaze{strength}.pp3')
+        open(pp3, 'w').write(f'[Dehaze]\nEnabled=true\nStrength={strength}\n')
+        out = os.path.join(work, f'rt_dehaze{strength}.tif')
+        run(['rawtherapee-cli', '-t', '-b16', '-Y', '-o', out, '-p', pp3,
+             '-c', inp])
+        recovered = read_scene_linear(out)
+        rows[f'RT Strength {strength}'] = (
+            ground_contrast(recovered) / base,
+            float(recovered[:8, :, :].mean() / scene[:8, :, :].mean()))
+    return base, rows
+
+
+def dt_dehaze(work):
+    # DT_XMP is defined in the darktable section below; swap the operation in.
+    haze_xmp = DT_XMP.replace('darktable:operation="sigmoid"',
+                              'darktable:operation="hazeremoval"')
+    inp = os.path.join(work, 'hazy.pfm')
+    scene = hazy_scene()
+    img = scene.astype(np.float32)
+    with open(inp, 'wb') as f:
+        f.write(b'PF\n%d %d\n-1.0\n' % (img.shape[1], img.shape[0]))
+        f.write(img[::-1].tobytes())
+    base = ground_contrast(scene)
+    rows = {}
+    for strength in (0.5, 1.0):
+        params = struct.pack('<ff', strength, 0.75).hex()
+        xmp = os.path.join(work, f'haze{strength}.xmp')
+        open(xmp, 'w').write(haze_xmp.format(params=params))
+        out = os.path.join(work, f'dt_haze{strength}.tif')
+        run(['darktable-cli', inp, xmp, out, '--core',
+             '--conf', 'plugins/imageio/format/tiff/bpp=16',
+             '--configdir', os.path.join(work, f'dtcfg-haze{strength}')])
+        recovered = read_scene_linear(out)
+        gain = ground_contrast(recovered) / base
+        rows[f'dt strength {strength}'] = (
+            gain, float(recovered[:8, :, :].mean() / scene[:8, :, :].mean()))
+    # Struct tripwire: a dropped module renders the veil untouched.
+    if abs(rows['dt strength 1.0'][0] - 1.0) < 0.02:
+        sys.exit('darktable hazeremoval changed nothing at strength 1.0 — the '
+                 'param struct no longer matches this darktable; fix dt_dehaze '
+                 'before citing numbers.')
+    return rows
+
+
 # ------------------------------------------------------------------ darktable
 
 DT_XMP = '''<?xml version="1.0" encoding="UTF-8"?>
@@ -255,6 +394,17 @@ def main():
             sys.exit(f'{tool} not on PATH — apt install it first')
     with tempfile.TemporaryDirectory() as work:
         rt_exposure_gain(work)
+        print()
+        rt_sh_recovery(work)
+        print()
+        base, haze = rt_dehaze(work)
+        haze.update(dt_dehaze(work))
+        print('Dehaze on the synthetic veiled scene (known airlight '
+              '0.55/0.62/0.78; ground-truth clear ground contrast recovery):')
+        print(f'  hazy input ground contrast {base:.3f} (clear scene: ~0.19)')
+        for label, (gain, veil) in haze.items():
+            print(f'  {label:18s} ground contrast x{gain:.2f}   '
+                  f'far-veil luminance x{veil:.2f}')
         print()
         print('Residual chroma of RGB(1.0, 0.72, 0.42) pushed +0..+5 EV')
         print('(Lumen probe PATHTOWHITE prints the same experiment):')

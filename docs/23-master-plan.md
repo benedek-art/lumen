@@ -588,6 +588,10 @@ and against Lightroom via owner-exported references.
       file:line drifts)
 - [ ] P6 baselines vs darktable/RawTherapee for tone, S/H recovery, dehaze, sharpening
       — first recorded competitive evidence, per docs/20 tier rules
+      *(tone was already recorded in docs/26 §1–3; S/H recovery and dehaze recorded
+      docs/26 §4–5 with `crosscheck.py` extensions + `FieldBaselineProbeTests`
+      printing Lumen's TONEBASE/HAZEBASE columns every lane run; SHARPENING is the
+      one leg still open — RT RL-deconvolution on a slanted edge, docs/26 §7)*
 
 **Owner session B:** re-edit 5 previously-Lightroom-edited photos, basics only,
 side-by-side exports. **Exit gate: owner prefers or ties Lumen on ≥4 of 5.**

@@ -92,7 +92,60 @@ LR reference exports should measure LR's realized slope the same way before
 anyone touches Lumen's default — "1.5 means 1.5" is the defensible contract,
 and matching a competitor means measuring the competitor first.
 
-## 4. Method caveats, so nobody over-reads the table
+## 4. Shadow/highlight recovery: RT bends everything, Lumen partitions — measured
+
+The experiment (`crosscheck.py` `rt_sh_recovery`; Lumen's twin prints TONEBASE in
+`FieldBaselineProbeTests`): grey patches at scene −5, −3, −1, 0, +1, +2 and +2.32 EV
+around mid-grey, one control at full deflection, EV shift of each patch measured in
+linear. RawTherapee 5.10's Shadows & Highlights at Highlights 100 / Shadows 100:
+
+| scene EV | −5 | −3 | −1 | 0 | +1 | +2 | +2.32 |
+|---|---|---|---|---|---|---|---|
+| RT Highlights 100 | −0.00 | −0.01 | −0.07 | **−0.26** | −0.80 | −0.73 | −0.25 |
+| RT Shadows 100 | +3.40 | +3.07 | +1.08 | **+0.24** | +0.04 | +0.00 | +0.00 |
+| Lumen Highlights −100 | 0 | 0 | 0 | **0** | −0.21 | −0.70 | −0.89 |
+| Lumen Shadows +100 | +2.00 | +1.48 | +0.25 | **0** | 0 | 0 | 0 |
+
+(Lumen's zeros are exact — asserted at 1e-9, not rounded.) What the table settles:
+
+1. **The mid-grey column is the design difference.** RT's Highlights control drags
+   mid-grey down a quarter stop and its Shadows control pushes it up a quarter stop
+   at full deflection — the two controls fight each other and re-expose the picture.
+   Lumen's are a hard partition: each control owns its half of the axis and mid-grey
+   CANNOT move. That is a calibration contract RT does not have, and it is why
+   Lumen's Exposure still means 2^EV after a recovery move.
+2. **Reach:** RT Shadows lifts −5 EV by +3.40; Lumen by its documented +2.00
+   (`ToneEngine.highlightShadowRangeEV`, saturated from −5 down). RT buys the extra
+   stop-and-a-half by also moving everything up to and including mid-grey.
+3. **Placement:** RT's highlight bite peaks at scene +1 (−0.80) and lets go by
+   +2.32 (−0.25) — it works on tone-curve output, which has already compressed the
+   top. Lumen's deepens monotonically through the window (−0.89 at +2.32) and peaks
+   at its full −2.00 near scene +5, still in scene-linear — it targets actual
+   highlights, not the curve's rendering of them.
+
+## 5. Dehaze: recovery without the failure modes — measured
+
+The experiment (`crosscheck.py` `rt_dehaze`/`dt_dehaze`; Lumen prints HAZEBASE):
+a synthetic veiled scene with known airlight (0.55, 0.62, 0.78) over textured dark
+ground, transmission 0.25→0.90 bottom-to-top. Measured: RMS ground-band contrast
+recovery, and far-veil luminance (the top rows, nearly pure airlight — a proxy for
+sky-darkening overreach).
+
+| implementation | half strength | full strength | far-veil at full |
+|---|---|---|---|
+| RawTherapee 5.10 dehaze | ×1.25 | ×2.42 | ×1.00 |
+| darktable 4.6 haze removal | ×1.30 | ×2.29 | ×0.98 |
+| Lumen | ×1.17 | ×1.62 | ×0.99 |
+
+All three recover monotonically with strength and none crushes the far veil. Lumen
+at full strength recovers noticeably less than the field's ~×2.3–2.4 — a deliberate
+range choice pending real hazy RAWs (the control composes with Contrast and Blacks,
+which RT/dt's dehaze modules partially bake in), not a defect; the direction and
+shape agree. Two guarantees the probe asserts that neither field tool documents:
+zero pixels pushed negative at any strength (the He-et-al per-channel normalisation
+defect class, closed and pinned), and far-veil neutrality within 1%.
+
+## 6. Method caveats, so nobody over-reads the table
 
 - Chroma is measured in each tool's own output RGB after decoding the shared
   sRGB transfer; working primaries differ, so the comparison is of SHAPE, not
@@ -105,10 +158,12 @@ and matching a competitor means measuring the competitor first.
 - RawTherapee "neutral" is a straight linear clip — included as the floor every
   tool must beat, not as a rendering anyone ships.
 
-## 5. What this unlocks next
+## 7. What this unlocks next
 
-- The same harness extends to Highlights/Shadows range compression, and WB once
-  the RAW fixtures arrive — each is one more measurement over the same
-  patch/measure machinery (Contrast landed in §3 the same day the harness did).
+- Sharpening is the last P6 leg without a field row (deconvolution radius/amount
+  vs RT's RL-deconvolution on a slanted-edge target — same harness shape); WB
+  joins once the RAW fixtures arrive.
 - The owner's Lightroom reference exports drop into the bleach table as one
-  more row, and into the exposure table as the second independent confirmation.
+  more row, into the exposure table as the second independent confirmation, and
+  into §4's recovery table as the reference Lumen's partition is closest to in
+  spirit (LR's Highlights/Shadows also pin their exposure).
