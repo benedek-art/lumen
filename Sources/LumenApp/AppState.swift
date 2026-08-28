@@ -1798,6 +1798,13 @@ final class AppState: ObservableObject {
                 Task { @MainActor [weak self] in
                     guard let self, self.folderURL == url else { return }
                     self.refreshLibraryQuery()
+                    // The facet lists read the very rows this pass just filled, and
+                    // nothing else re-asks until membership changes — so without this
+                    // the camera and lens menus said "No camera has been read yet"
+                    // until the NEXT launch, on a folder whose EXIF had been sitting
+                    // in the catalog since seconds after it opened (session C, the
+                    // owner's Sony a7 IV / Lumix GX85 report).
+                    self.refreshLibrarySections()
                 }
             }
         }

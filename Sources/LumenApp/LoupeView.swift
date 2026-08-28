@@ -1,7 +1,11 @@
 // LoupeView.swift
 // The loupe: Lumen's main image viewer. It draws the CGImage the render coordinator
-// returns, at an explicit zoom ratio (fit / 1:1 / 2:1 / click-to-zoom-at-point) with
-// drag-to-pan when the drawn image is larger than the viewport.
+// returns, at an explicit zoom ratio — fit, the 1:1/2:1 rungs, or any continuous
+// ratio from the pinch and scrubby-drag gestures — with drag-to-pan when the drawn
+// image is larger than the viewport. Click-to-zoom is deliberately GONE (session C,
+// owner: "this strange zoom … I'd like to honestly remove it"); a click does nothing,
+// Space and Z still toggle from the keymap, and the continuous gestures are the
+// pointer's way in.
 //
 // Three behaviours this file exists to keep honest:
 //   · Two-tier progressive refine (docs/12 §B2): a draft pass lands within a frame,
@@ -566,9 +570,14 @@ struct LoupeView: View {
     @State private var containerSize: CGSize = .zero
     @State private var cursor: CGPoint?
     @State private var panStart: CGSize?
-    /// When the current press began, so its release can tell a click from a hold. Nil
-    /// between gestures.
-    @State private var pressBegan: Date?
+    /// Whether the current drag began at fit — decided once at the first event and
+    /// held for the whole gesture, so a scrub that has already zoomed keeps scrubbing
+    /// instead of turning into a pan mid-hold. Nil between gestures.
+    @State private var scrubFromFit: Bool?
+    /// The zoom the current pinch began at, so the gesture's total magnification
+    /// multiplies one start value instead of compounding per event. Nil between
+    /// gestures.
+    @State private var pinchStartZoom: Double?
     @State private var sampler: PixelSampler?
 
     @Environment(\.displayScale) private var displayScale: CGFloat
@@ -607,6 +616,7 @@ struct LoupeView: View {
             .clipped()
             .contentShape(Rectangle())
             .gesture(dragGesture(container: container))
+            .simultaneousGesture(magnifyGesture(container: container))
             .onContinuousHover(coordinateSpace: .local) { phase in
                 switch phase {
                 case .active(let point):
@@ -1052,17 +1062,47 @@ struct LoupeView: View {
         viewport.anchorNextZoomAtCursor = true
     }
 
-    /// One gesture covers both jobs: a drag pans when the image overflows the viewport,
-    /// and a press that never really moved is a click-to-zoom at that point.
+    /// The zoom ratio at which the FULL image exactly fits the container — the floor
+    /// the continuous gestures snap to. `zoomLevel` is denominated in full-resolution
+    /// pixels, but what is on screen is a proxy, so the proxy's fit ratio is converted
+    /// by proxy/full — the same normalization `LoupeGeometry.zoomedRatio` applies in
+    /// the other direction.
+    private func trueFitZoom(image cg: CGImage, container: CGSize) -> Double {
+        let proxyFit = LoupeGeometry.fitRatio(imageWidth: cg.width,
+                                              imageHeight: cg.height,
+                                              container: container,
+                                              displayScale: displayScale)
+        let proxyLong = Double(Swift.max(cg.width, cg.height))
+        let fullLong = Double(model.displayFullLongEdge
+            ?? Swift.max(cg.width, cg.height))
+        guard fullLong > 0, proxyLong > 0 else { return proxyFit }
+        return proxyFit * proxyLong / fullLong
+    }
+
+    /// One drag gesture, two jobs decided by where it BEGAN: begun at fit it is the
+    /// scrubby zoom (press and drag right to zoom in, left to come back — the
+    /// Lightroom grammar the owner asked for), begun zoomed it pans. A click — no
+    /// travel — does nothing at all: click-to-zoom is deliberately gone, and Space/Z
+    /// still toggle from the keymap.
     private func dragGesture(container: CGSize) -> some Gesture {
         DragGesture(minimumDistance: 0)
             .onChanged { value in
-                // When the button went down, so the release can tell a click from a
-                // hold. `minimumDistance: 0` means this fires on the press itself.
-                if pressBegan == nil { pressBegan = Date() }
                 viewport.lastCursor = value.location
                 if viewport.showReadout { cursor = value.location }
                 guard let cg = model.image else { return }
+                if scrubFromFit == nil {
+                    scrubFromFit = ZoomLadder.isFit(state.zoomLevel)
+                }
+                if scrubFromFit == true {
+                    // Anchored at the PRESS point, not the moving cursor: the place
+                    // the owner aimed at is the place the zoom grows around.
+                    let target = ContinuousZoom.scrubbed(
+                        startZoom: ZoomLadder.fit,
+                        fitRatio: trueFitZoom(image: cg, container: container),
+                        horizontalTravel: Double(value.translation.width))
+                    viewport.setZoom(target, at: value.startLocation, in: state)
+                    return
+                }
                 let ratio = effectiveRatio(image: cg, container: container)
                 let drawn = LoupeGeometry.drawnSize(imageWidth: cg.width,
                                                     imageHeight: cg.height,
@@ -1077,57 +1117,29 @@ struct LoupeView: View {
                                    height: base.height + value.translation.height)
                 viewport.pan = LoupeGeometry.clampPan(moved, container: container, drawn: drawn)
             }
-            .onEnded { value in
-                // A press is a click-to-zoom only if it was AIMED at the photograph and
-                // was actually a click. This used to ask one question — did the pointer
-                // move less than three points? — and toggle the zoom whenever the
-                // answer was yes. The gesture covers the whole canvas and the pan
-                // branch above returns immediately at fit, so at fit this gesture was a
-                // zoom toggle and nothing else: a press on the grey surround beside a
-                // fitted frame, a click to bring the window forward, a press held while
-                // deciding, a modifier-click — every one of them jumped to 1:1, and the
-                // next one dropped back to fit. That is the "lots of zoom in, zoom out
-                // things" of the owner's first session, and looking at `zoomLevel`'s
-                // single writer could never have found it, because this IS the writer.
-                //
-                // The verb itself stays: click-to-zoom is the inherited grammar
-                // (docs/12's muscle-memory argument) and this file's header promises
-                // it. The rule is `ViewportClick`, in LumenCore, with tests.
-                let began = pressBegan
-                pressBegan = nil
+            .onEnded { _ in
+                scrubFromFit = nil
                 panStart = nil
-                let travel = abs(value.translation.width) + abs(value.translation.height)
-                let press = ViewportPress(
-                    travel: Double(travel),
-                    duration: began.map { Date().timeIntervalSince($0) } ?? 0,
-                    landedOnImage: pressLandedOnImage(value.location,
-                                                      container: container),
-                    hadModifier: modifierHeld)
-                if ViewportClick.togglesZoom(press) {
-                    viewport.toggleZoom(at: value.location, in: state)
-                }
             }
     }
 
-    /// Whether a point in the viewport landed on the drawn photograph rather than on
-    /// the surround. A fitted frame letterboxes on one axis, and that grey is not the
-    /// picture — pressing it is not aiming at anything.
-    private func pressLandedOnImage(_ point: CGPoint, container: CGSize) -> Bool {
-        guard let cg = model.image else { return false }
-        let ratio = effectiveRatio(image: cg, container: container)
-        let drawn = LoupeGeometry.drawnSize(imageWidth: cg.width, imageHeight: cg.height,
-                                            ratio: ratio, displayScale: displayScale)
-        let pan = LoupeGeometry.clampPan(viewport.pan, container: container, drawn: drawn)
-        return LoupeGeometry.imageUnitPoint(point, container: container, drawn: drawn,
-                                            pan: pan) != nil
-    }
-
-    /// True while any of ⌘ ⌥ ⇧ ⌃ is down. Modifier-clicks on an image mean other things
-    /// throughout this application and none of them mean zoom.
-    private var modifierHeld: Bool {
-        let flags = NSEvent.modifierFlags
-        return flags.contains(.command) || flags.contains(.option)
-            || flags.contains(.shift) || flags.contains(.control)
+    /// The trackpad pinch: continuous zoom about the gesture's start point, through
+    /// the same `setZoom` verb as every other zoom source. `ContinuousZoom` (LumenCore,
+    /// tested) holds the arithmetic — including the snap back to fit, so pinching out
+    /// always lands ON fit rather than a hair above it.
+    private func magnifyGesture(container: CGSize) -> some Gesture {
+        MagnifyGesture()
+            .onChanged { value in
+                guard let cg = model.image else { return }
+                let start = pinchStartZoom ?? state.zoomLevel
+                if pinchStartZoom == nil { pinchStartZoom = start }
+                let target = ContinuousZoom.pinched(
+                    startZoom: start,
+                    fitRatio: trueFitZoom(image: cg, container: container),
+                    magnification: Double(value.magnification))
+                viewport.setZoom(target, at: value.startLocation, in: state)
+            }
+            .onEnded { _ in pinchStartZoom = nil }
     }
 
     /// Arrows page the selection at fit, and pan when zoomed in — the key means the

@@ -258,6 +258,7 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     "Alignment", "HorizontalAlignment", "VerticalAlignment", "Edge", "EdgeInsets",
     "Angle", "UnitPoint", "Font", "LinearGradient", "RadialGradient",
     "AngularGradient", "Gradient", "DragGesture", "TapGesture", "Gesture",
+    "MagnifyGesture",
     "MagnificationGesture", "RotationGesture", "LongPressGesture", "AnyView",
     "EmptyView", "ToolbarItem", "ToolbarItemGroup", "KeyboardShortcut",
     "KeyEquivalent", "EventModifiers", "ContentMode", "ColorScheme", "Axis",

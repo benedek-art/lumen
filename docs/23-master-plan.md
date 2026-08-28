@@ -611,6 +611,25 @@ and against Lightroom via owner-exported references.
 **Owner session B:** re-edit 5 previously-Lightroom-edited photos, basics only,
 side-by-side exports. **Exit gate: owner prefers or ties Lumen on ≥4 of 5.**
 
+### Session C requests (2026-08-28, owner live, same-day)
+
+- [x] Build identity visible in-app: the Lumen menu carries "Build N · commit ·
+      date" above Check for Updates (BuildStamp, pinned by BuildStampTests;
+      `build-app.sh` stamps CI's run number, mirrored into CFBundleVersion).
+- [x] Click-to-zoom REMOVED at the owner's request ("this strange zoom … I'd like
+      to honestly remove it") — `ViewportClick` and its tests deleted with it; Space
+      and Z still toggle via the keymap. Replaced by two continuous gestures through
+      the same `setZoom` verb: trackpad pinch (MagnifyGesture) and the LR-style
+      scrubby drag (press at fit, drag right = in, left = back). Arithmetic is
+      `ContinuousZoom` in LumenCore — exponential travel, snap-to-fit, ladder clamp —
+      with Linux-run tests; the drag decides pan-vs-scrub ONCE at its first event.
+- [x] Camera/lens filter menus said "No camera has been read yet" forever on a
+      freshly opened folder (owner's Sony a7 IV / Lumix GX85 report): the metadata
+      backfill's completion refreshed the grid's ORDER but never the facet lists —
+      `refreshLibrarySections()` now runs at the same moment. (If a camera still
+      fails to appear after this, the next suspect is the file itself — capture one
+      problem RAW as a fixture.)
+
 ## M3 — The shipping path becomes the specced path
 
 - [ ] Clarity: local Laplacian on the GPU; P5 parity at preview + export scale
