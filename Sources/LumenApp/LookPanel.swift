@@ -895,6 +895,8 @@ struct ZoneWeightStrip: View {
     /// Where the handle was when the drag began. Dragging by translation rather than by
     /// absolute location keeps the handle under the pointer without a coordinate space.
     @State private var dragOrigin: Double? = nil
+    /// The gesture-in-flight signal every slider fires (docs/23 audit queue item 5).
+    @Environment(\.sliderGestureChanged) private var sliderGestureChanged
 
     var body: some View {
         let pivotPair = pivots
@@ -964,12 +966,16 @@ struct ZoneWeightStrip: View {
             DragGesture(minimumDistance: 0)
                 .onChanged { drag in
                     guard width > 0 else { return }
+                    sliderGestureChanged(true)
                     let start = dragOrigin ?? position
                     if dragOrigin == nil { dragOrigin = start }
                     let moved = start + Double(drag.translation.width / width)
                     onPivotChanged(index, Num.saturate(moved))
                 }
-                .onEnded { _ in dragOrigin = nil }
+                .onEnded { _ in
+                    dragOrigin = nil
+                    sliderGestureChanged(false)
+                }
         )
         .help(index == 0 ? "Shadow / midtone pivot" : "Midtone / highlight pivot")
     }

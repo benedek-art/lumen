@@ -114,12 +114,13 @@ struct ColorPanel: View {
                             range: 0...100, defaultValue: 0, step: 1, decimals: 0,
                             bipolar: false)
 
-                caption("Uniformity converges EVERY band's hues toward the middle of "
-                        + "that band's core arc — not just the selected one. Drag the "
-                        + "inner handles onto the colours you actually have and it "
-                        + "converges on those. Texture-preserving convergence needs a "
-                        + "spatial pass the shipping graph does not run yet; today it "
-                        + "moves the whole pixel.")
+                caption("Uniformity converges EVERY band's hues toward that band's "
+                        + "measured mean hue in this photo — not just the selected "
+                        + "band. A frame too grey to measure falls back to the middle "
+                        + "of each band's core arc, so the inner handles still steer "
+                        + "it. Texture-preserving convergence needs a spatial pass the "
+                        + "shipping graph does not run yet; today it moves the whole "
+                        + "pixel.")
             }
         }
     }
@@ -681,6 +682,8 @@ struct MixerHueRing: View {
     /// The press turned out to be a double-click reset; swallow the rest of the
     /// gesture so the reset is not immediately re-edited by the same press.
     @State private var pressWasReset = false
+    /// The gesture-in-flight signal every slider fires (docs/23 audit queue item 5).
+    @Environment(\.sliderGestureChanged) private var sliderGestureChanged
 
     var body: some View {
         let arcList = arcs
@@ -782,6 +785,7 @@ struct MixerHueRing: View {
                             return
                         }
                         if pressWasReset { return }
+                        sliderGestureChanged(true)
                         let box = MixerHueRing.diameter + 12
                         let dx = Double(drag.location.x - box / 2)
                         let dy = Double(drag.location.y - box / 2)
@@ -795,6 +799,7 @@ struct MixerHueRing: View {
                     .onEnded { _ in
                         grabbed = nil
                         pressWasReset = false
+                        sliderGestureChanged(false)
                     }
             )
 

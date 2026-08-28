@@ -76,6 +76,21 @@ final class CatalogService: @unchecked Sendable {
     private var sidecarFlushScheduled = false
     private let sidecarLock = NSLock()
 
+    /// Which backfill call is the CURRENT one. A folder switch starts a new pass and
+    /// the old one — thousands of file opens on the serial maintenance lane, ahead of
+    /// the folder actually on screen — must stop at its next chunk boundary rather
+    /// than run to completion (docs/23 audit queue item 11). Its own lock because the
+    /// running pass reads it from the maintenance queue while the superseding call
+    /// bumps it from wherever the folder switch happened.
+    private let backfillLock = NSLock()
+    private var backfillGeneration = 0
+
+    private func isCurrentBackfill(_ mine: Int) -> Bool {
+        backfillLock.lock()
+        defer { backfillLock.unlock() }
+        return backfillGeneration == mine
+    }
+
     /// What the open-time integrity check found. Nil-notice means healthy; the caller
     /// reads it once, after construction, and tells the user what already happened.
     let recovery: CatalogRecovery
@@ -311,6 +326,13 @@ final class CatalogService: @unchecked Sendable {
     /// the catalog's.
     func backfillMetadata(folder: URL,
                           onProgress: ((_ done: Int, _ finished: Bool) -> Void)? = nil) {
+        // Claim the pass SYNCHRONOUSLY, so a pass already running on the maintenance
+        // queue sees itself superseded at its next chunk even though this call's own
+        // work is still queued behind it.
+        backfillLock.lock()
+        backfillGeneration += 1
+        let mine = backfillGeneration
+        backfillLock.unlock()
         maintenance.async { [store, weak self] in
             // The lane, captured once. A service that has gone away between the ask and
             // this line has nothing to enrich.
@@ -350,6 +372,7 @@ final class CatalogService: @unchecked Sendable {
                     }
                 }
                 guard !broke else { return }
+                guard self?.isCurrentBackfill(mine) != false else { return }
                 guard let last = chunk.last else { break }
                 cursor = last.id
                 // OFF the catalog queue: this is a file open and an EXIF parse per
@@ -387,6 +410,7 @@ final class CatalogService: @unchecked Sendable {
                     }
                 }
                 guard !broke else { return }
+                guard self?.isCurrentBackfill(mine) != false else { return }
                 guard let last = chunk.last else { break }
                 signatureCursor = last.id
                 // A megabyte read and a hash per photograph, likewise off the lane.

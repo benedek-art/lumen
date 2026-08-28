@@ -482,6 +482,10 @@ final class AppState: ObservableObject {
     @Published var primarySelection: PhotoItem? {
         didSet {
             guard primarySelection?.id != oldValue?.id else { return }
+            // A gesture cannot span photos: if a drag's release was dropped, the
+            // switch is the moment its deferred writes land (audit queue item 4 —
+            // the second unlatch beside the watchdog).
+            sliderGesture(active: false)
             primaryFrameSize = nil
             primaryAsShotNeutral = nil
             refreshPrimaryFrameSize()
@@ -1765,12 +1769,19 @@ final class AppState: ObservableObject {
             // main-actor hop, which stopped the run loop for the whole of a 5,000
             // frame card.
             let stored = catalog?.registerAndLoad(folder: url, files: found) ?? [:]
-            await MainActor.run {
+            // Whether the roll this scan built is still the one the user wants —
+            // decided on the main actor, and the BACKFILL LAUNCH depends on it too:
+            // a superseded folder's scan used to fire its full EXIF pass anyway,
+            // thousands of file opens on the catalog's serial maintenance queue,
+            // AHEAD of the folder actually on screen (audit queue item 11).
+            let stillCurrent = await MainActor.run { () -> Bool in
                 // Open folder A, then B before A finishes, and A's scan can land
                 // second. The newest folder the user asked for is the one on screen.
-                guard let self, self.scanGeneration == generation else { return }
+                guard let self, self.scanGeneration == generation else { return false }
                 self.applyScan(found, stored: stored)
+                return true
             }
+            guard stillCurrent else { return }
             // AFTER the grid, never before it. Reading EXIF is a file open per photo,
             // and capture time, body, lens and exposure are what ten of the twelve sort
             // orders and every metadata filter read — until now nothing wrote them, so
@@ -1811,8 +1822,8 @@ final class AppState: ObservableObject {
         // The old roll's last deferred writes land BEFORE its state is wiped — a
         // gesture whose release never arrived must not lose its edit to a folder
         // switch (the same promise `prepareToQuit` makes at the other exit).
-        sliderGestureActive = false
-        flushSliderGesture()
+        // Through `sliderGesture(active: false)` so the watchdog is retired with it.
+        sliderGesture(active: false)
         // The undo stack and the in-memory recipes belong to the roll that produced
         // them; they die at the exact moment `allPhotos` is replaced, never earlier.
         // (⌘Z across a folder switch used to revert an .xmp in a folder that is not
@@ -2326,6 +2337,7 @@ final class AppState: ObservableObject {
             // Mid-gesture: the in-memory recipe is current (the render reads that),
             // the catalog write and the scope re-bin land once at release. The overlay
             // stays live below — it is the picture OF the drag.
+            noteGestureActivity()
             for (url, recipe) in changed { pendingGesturePersist[url] = recipe }
             if touchedPixels { pendingGestureTouchedPixels = true }
         } else {
@@ -2363,14 +2375,57 @@ final class AppState: ObservableObject {
     private var pendingGesturePersist: [URL: Recipe] = [:]
     private var pendingGestureTouchedPixels = false
 
+    /// The two unlatches for a release SwiftUI dropped (docs/23 audit queue item 4).
+    ///
+    /// `.onEnded` is not a promise: a drag cancelled by a window teardown or a view
+    /// rebuild never delivers it, and the latch used to stay shut — every LATER edit,
+    /// gesture or not, deferred its catalog write until the next completed gesture,
+    /// a folder switch, or quit. A real drag's events are milliseconds apart, so
+    /// silence this long means the release is not coming; the watchdog closes the
+    /// gesture and lands the deferred writes. The photo switch in
+    /// `primarySelection.didSet` is the second unlatch: a gesture cannot span photos.
+    static let gestureSilenceTimeout: TimeInterval = 8
+    private var lastGestureEventAt = Date.distantPast
+    private var gestureWatchdog: Task<Void, Never>?
+
     func sliderGesture(active: Bool) {
         if active {
-            sliderGestureActive = true
+            lastGestureEventAt = Date()
+            if !sliderGestureActive {
+                sliderGestureActive = true
+                armGestureWatchdog()
+            }
             return
         }
         guard sliderGestureActive else { return }
         sliderGestureActive = false
+        gestureWatchdog?.cancel()
+        gestureWatchdog = nil
         flushSliderGesture()
+    }
+
+    /// Note a mid-gesture edit, so the watchdog measures silence rather than duration:
+    /// a long careful drag is not a dropped one.
+    func noteGestureActivity() {
+        lastGestureEventAt = Date()
+    }
+
+    private func armGestureWatchdog() {
+        gestureWatchdog?.cancel()
+        gestureWatchdog = Task { @MainActor [weak self] in
+            while let self, self.sliderGestureActive {
+                let silence = Date().timeIntervalSince(self.lastGestureEventAt)
+                let remaining = Self.gestureSilenceTimeout - silence
+                if remaining <= 0 {
+                    self.sliderGestureActive = false
+                    self.gestureWatchdog = nil
+                    self.flushSliderGesture()
+                    return
+                }
+                try? await Task.sleep(nanoseconds: UInt64(remaining * 1e9))
+                if Task.isCancelled { return }
+            }
+        }
     }
 
     /// Also called from `prepareToQuit`: a gesture whose release the app never saw

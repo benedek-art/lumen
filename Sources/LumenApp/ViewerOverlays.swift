@@ -142,7 +142,7 @@ struct BeforeAfterSplit<Before: View, After: View>: View {
             .frame(width: 12, height: 34)
             .overlay {
                 Image(systemName: "arrow.left.and.right")
-                    .font(.system(size: 8, weight: .semibold))
+                    .font(.system(size: 9, weight: .semibold))
                     .foregroundStyle(Lumen.primaryText)
             }
     }
@@ -662,6 +662,9 @@ struct MaskOverlayView: View {
 struct CropOverlayView: View {
 
     @Binding var crop: Crop
+    /// The gesture-in-flight signal every slider fires (docs/23 audit queue item 5):
+    /// a crop drag writes the recipe through `cropBinding` per event.
+    @Environment(\.sliderGestureChanged) private var sliderGestureChanged
     var showsThirds: Bool = true
     var isInteractive: Bool = true
     /// Width ÷ height in PIXELS the drag must hold, or nil for a free crop. What the
@@ -800,13 +803,17 @@ struct CropOverlayView: View {
         DragGesture(minimumDistance: 1)
             .onChanged { value in
                 guard size.width > 0, size.height > 0 else { return }
+                sliderGestureChanged(true)
                 let origin = dragOrigin ?? crop
                 if dragOrigin == nil { dragOrigin = origin }
                 crop = CropGeometry.move(origin,
                                          dx: Double(value.translation.width / size.width),
                                          dy: Double(value.translation.height / size.height))
             }
-            .onEnded { _ in dragOrigin = nil }
+            .onEnded { _ in
+                dragOrigin = nil
+                sliderGestureChanged(false)
+            }
     }
 
     /// Every resize goes through `CropGeometry.resize`, which is in LumenCore and tested.
@@ -821,6 +828,7 @@ struct CropOverlayView: View {
         DragGesture(minimumDistance: 1)
             .onChanged { value in
                 guard size.width > 0, size.height > 0 else { return }
+                sliderGestureChanged(true)
                 let origin = dragOrigin ?? crop
                 if dragOrigin == nil { dragOrigin = origin }
                 crop = CropGeometry.resize(
@@ -829,7 +837,10 @@ struct CropOverlayView: View {
                     dy: Double(value.translation.height / size.height),
                     lockedAspect: lockedAspect, frameAspect: frameAspect)
             }
-            .onEnded { _ in dragOrigin = nil }
+            .onEnded { _ in
+                dragOrigin = nil
+                sliderGestureChanged(false)
+            }
     }
 
     private func clamp01(_ v: Double) -> Double {

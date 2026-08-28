@@ -499,8 +499,16 @@ final class PhotoRenderModel: ObservableObject {
             // Something newer of ours is already in flight: that request owns the frame.
             guard latestGeneration == generation else { return }
             // A draft of this very recipe is already up. It is the edit, just coarser —
-            // keep it rather than churning the queue.
-            if image != nil, !usedEmbeddedPreview { return }
+            // keep it rather than churning the queue. UNLESS a table bake is still
+            // outstanding: a draft may legally ride the previous event's finish or
+            // colour-grade table (stale-while-bake), and giving up here would leave
+            // that stale picture on screen AT REST — the one place the staleness
+            // contract forbids it. `anyBakePending` is the caller `hasPendingBake`
+            // was written for and never had (docs/23 audit queue item 7); while it
+            // answers true, this loop keeps re-settling.
+            if image != nil, !usedEmbeddedPreview, !PlanTableCache.anyBakePending {
+                return
+            }
             attempt += 1
             try? await Task.sleep(nanoseconds: UInt64(attempt) * 60_000_000)
             guard !Task.isCancelled else { return }

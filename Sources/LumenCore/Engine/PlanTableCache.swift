@@ -26,7 +26,11 @@
 import Foundation
 
 /// Baked colour tables, reused across frames when their inputs have not moved.
-enum PlanTableCache {
+/// Public for exactly one member — `anyBakePending`, the viewer's question. The
+/// working surface (slots, keys, the table calls) stays internal: the cache's
+/// correctness argument lives in this file and no caller outside it gets to
+/// participate.
+public enum PlanTableCache {
 
     /// Which table, so the two never collide on a key.
     enum Slot: String {
@@ -157,6 +161,16 @@ enum PlanTableCache {
         lock.lock()
         defer { lock.unlock() }
         return inFlight.contains(slot) || pending[slot] != nil
+    }
+
+    /// Any slot at all — the app-facing form of the question above, public because
+    /// the viewer's settle loop is the caller `hasPendingBake` was written for and
+    /// never had (docs/23 audit queue item 7): a settle that gives up "because a
+    /// draft of this very recipe is already up" must first know that draft is not
+    /// riding a stale table still baking in the background.
+    public static var anyBakePending: Bool {
+        hasPendingBake(.finish) || hasPendingBake(.finishProofed)
+            || hasPendingBake(.colorGrade)
     }
 
     /// Drop everything. For tests that want to measure a cold bake, and for a caller

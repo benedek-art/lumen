@@ -53,6 +53,9 @@ struct HistogramView: View {
 
     @State private var hoverAxis: Double? = nil
     @State private var dragZone: Histogram.ZoneSlider? = nil
+    /// The gesture-in-flight signal every slider fires (docs/23 audit queue item 5):
+    /// scrubbing a histogram zone is a tone drag and paid per-event persistence.
+    @Environment(\.sliderGestureChanged) private var sliderGestureChanged
     @State private var dragStartValue: Double = 0
     /// The end whose overlay this view switched on while the pointer hovered its
     /// triangle, so leaving the triangle can put the overlay back the way it was.
@@ -239,11 +242,13 @@ struct HistogramView: View {
                     dragStartValue = HistogramView.toneValue(zone.slider, in: state.currentRecipe)
                 }
                 guard let slider = dragZone else { return }
+                sliderGestureChanged(true)
                 let travel: Double = Double(value.translation.width / width)
                 setTone(slider, dragStartValue + travel * HistogramView.scrubSpan(slider))
             }
             .onEnded { _ in
                 dragZone = nil
+                sliderGestureChanged(false)
             }
     }
 

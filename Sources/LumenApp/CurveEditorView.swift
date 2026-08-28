@@ -108,6 +108,9 @@ struct CurveEditorView: View {
     @State private var dragPointIndex: Int? = nil
     @State private var dragSplitIndex: Int? = nil
     @State private var dragBegan: Bool = false
+    /// The gesture-in-flight signal every slider fires (docs/23 audit queue item 5):
+    /// a curve-point drag writes the recipe per event and paid per-event persistence.
+    @Environment(\.sliderGestureChanged) private var sliderGestureChanged
     /// Set when the press was an ⌥-click delete: the rest of that drag does nothing.
     @State private var dragConsumed: Bool = false
     @State private var hoverLocation: CGPoint? = nil
@@ -437,6 +440,7 @@ struct CurveEditorView: View {
     private func plotGesture(size: CGSize) -> some Gesture {
         DragGesture(minimumDistance: 0)
             .onChanged { value in
+                sliderGestureChanged(true)
                 if !dragBegan {
                     dragBegan = true
                     beginDrag(at: value.startLocation, size: size)
@@ -450,6 +454,7 @@ struct CurveEditorView: View {
                 dragConsumed = false
                 dragPointIndex = nil
                 dragSplitIndex = nil
+                sliderGestureChanged(false)
             }
     }
 

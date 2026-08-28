@@ -305,7 +305,7 @@ private struct Sidebar: View {
                             state.removeKeyword(word)
                         } label: {
                             Image(systemName: "xmark")
-                                .font(.system(size: 8))
+                                .font(.system(size: 9))
                         }
                         .buttonStyle(.plain)
                         .foregroundStyle(Lumen.secondaryText)
@@ -415,7 +415,7 @@ private struct Sidebar: View {
             HStack(spacing: 4) {
                 if isTarget {
                     Image(systemName: "target")
-                        .font(.system(size: 8))
+                        .font(.system(size: 9))
                         .foregroundStyle(Lumen.secondaryText)
                 }
                 Text(title)

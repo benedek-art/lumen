@@ -134,10 +134,37 @@ struct BasicPanel: View {
                             defaultValue: display.tint,
                             step: 1, decimals: 0,
                             onReset: { applyAsShot() })
+                // Tint honesty (docs/23 M2): the engine bounds the magenta half so
+                // the adaptation cannot invert the picture, and on a warm frame the
+                // slider's last stretch is deliberately inert past that bound. The
+                // engine has said so through `effectiveTint` since the guard landed;
+                // this is the first place the PHOTOGRAPHER hears it — without it the
+                // stretch reads as a broken control (the Density lesson: a correct
+                // gate that looks like a dead slider).
+                if let bounded = boundedTintCaption(display: display) {
+                    Text(bounded)
+                        .font(.system(size: 10))
+                        .foregroundStyle(Lumen.secondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             .disabled(unknown)
             .help(asShotHelp(unknown: unknown))
         }
+    }
+
+    /// The inline line under Tint when the shown magenta exceeds what the current
+    /// temperature can physically mean. Nil while the slider and the render agree,
+    /// so daylight editing never grows a caption.
+    private func boundedTintCaption(
+        display: WhiteBalanceEngine.AsShotDisplay) -> String? {
+        let shown = display.tint
+        guard shown > 0 else { return nil }
+        let effective = ColorTemperature.clampedTint(kelvin: display.temperature,
+                                                     tint: shown)
+        guard effective < shown - 0.5 else { return nil }
+        return "Magenta is bounded by physics at +\(Int(effective.rounded())) for "
+            + "\(Int(display.temperature.rounded())) K — the render uses that value."
     }
 
     /// Says which neutral the render is adapting from, because "Temp 5500" means

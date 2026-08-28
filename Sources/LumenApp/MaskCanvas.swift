@@ -102,6 +102,12 @@ struct MaskCanvas: View {
 
     @ObservedObject private var brush: MaskBrushStore = MaskBrushStore.shared
 
+    /// The same gesture-in-flight signal every slider fires (docs/23 audit queue
+    /// item 5): an on-image drag is a gesture like any other, and without this every
+    /// event of a gradient or brush drag paid a SQLite write plus fingerprint
+    /// codings while the sliders had stopped paying them.
+    @Environment(\.sliderGestureChanged) private var sliderGestureChanged
+
     @State private var mode: DragMode = .idle
     @State private var originLine: [Double] = []
     @State private var originCenter: [Double] = []
@@ -199,6 +205,7 @@ struct MaskCanvas: View {
         DragGesture(minimumDistance: 0)
             .onChanged { value in
                 guard let component = component else { return }
+                sliderGestureChanged(true)
                 switch component.kind {
                 case .linear, .similarityLine:
                     dragLine(value, component, ended: false)
@@ -211,6 +218,7 @@ struct MaskCanvas: View {
                 }
             }
             .onEnded { value in
+                defer { sliderGestureChanged(false) }
                 guard let component = component else { return }
                 switch component.kind {
                 case .linear, .similarityLine:

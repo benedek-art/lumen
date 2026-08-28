@@ -287,9 +287,14 @@ and against Lightroom via owner-exported references.
       overlapping zones that the LR references will quantify
 - [x] First calibration contract asserted: Exposure scales scene-linear light by
       exactly 2^slider (1e-9 relative, ±4 EV) — `testExposureIsCalibratedInStops`
-- [ ] Remaining calibration contracts: Contrast pivot invariance as an assert (the
-      probe shows it holds), Temp writes the Kelvin it shows, endpoint targets per
-      control, Highlights/Shadows range-compression targets
+- [x] Remaining calibration contracts DONE (AccuracyProbeTests): Contrast pivot
+      invariance was already asserted through the full tabled pipeline; NEW — the
+      Kelvin slider is anchored to the CIE STANDARD (6504 K lands on D65's published
+      (0.3127, 0.3290), 5003 K on D50's, ±0.0015 xy; watched failing with a 2%
+      kelvin mis-scale substituted), and the four range sliders' endpoints are
+      asserted against the engine's documented constants through the full gain
+      stage (H/S ±2.0 EV, Whites +1.3, Blacks −2.2; watched failing with Whites
+      mis-wired to the H/S constant).
 - [ ] Owner-exported Lightroom references (same RAW, one slider moved, exported
       TIFF/JPEG) for Exposure ±1/±2, Highlights/Shadows ±50/±100, Contrast ±50 —
       the direct answer to "is Lightroom more accurate"; blocked on the owner, rides
@@ -388,20 +393,25 @@ and against Lightroom via owner-exported references.
          restore. Six Linux tests; watched failing with the key+recency-only
          rule substituted back (photo-switch and selection-change cases both
          convict).
-      4. sliderGestureActive latches shut when SwiftUI drops .onEnded; every
-         later edit defers persistence until the next completed gesture or quit
-         (folder switch now flushes; add selection-change/timeout unlatch)
-         (AppState.swift:2296-2322).
-      5. On-image drags (mask canvas, crop, straighten, histogram zones, curve,
-         wheels pivots, ring arcs) bypass the slider-gesture deferral — per-event
-         SQLite + fingerprints + scope-debounce restarts (wrap them in
-         sliderGestureChanged; UI agent finding 7 lists every site).
+      4. ~~sliderGestureActive latches shut when SwiftUI drops .onEnded~~ FIXED:
+         two unlatches — an 8 s silence watchdog (armed per gesture, measures
+         silence not duration, retired on normal release) and the photo switch
+         in primarySelection.didSet; the folder-switch flush now also retires
+         the watchdog.
+      5. ~~On-image drags bypass the slider-gesture deferral~~ FIXED: mask
+         canvas (line/radial/brush), crop move + resize, histogram zones, curve
+         points/splits, zones-panel pivots, wheels pivot strip and the mixer
+         ring arcs all fire sliderGestureChanged. Straighten already wrote once
+         at release and the before/after split writes no recipe — both left
+         alone on purpose.
       6. recipe.develop.raw.decoderVersion is recorded, fingerprinted, and never
          honored by decode() — renders shift under macOS updates against D50's
          whole purpose (AppleRawSource.swift:71-78).
-      7. A settle superseded by a sibling pane gives up while stale tables are on
-         screen; hasPendingBake exists for exactly this and has no callers
-         (LoupeView.swift:493-496).
+      7. ~~A settle superseded by a sibling pane gives up while stale tables are
+         on screen~~ FIXED: `PlanTableCache.anyBakePending` (the one public
+         member; the working surface stays internal) and the settle loop's
+         keep-the-draft early-out now refuses to stop while any table bake is
+         outstanding.
       8. HDR shoulder-power floor breaks the slope-at-pivot contract with a C¹
          kink at mid-grey at EDR peaks (DisplayTransform.swift:211-212; needs a
          design decision, engine agent finding 3 has the numbers).
@@ -423,11 +433,17 @@ and against Lightroom via owner-exported references.
           as-built note (single-band guided vs the reference local Laplacian,
           with the measured rim numbers); docs/24-color's colorBalance/proof-
           registry gaps closed against docs/27; docs/04+12 carry the owner's
-          panel-order amendment. Still open, deliberately: Keymap repeat comment
-          (owner call) and the 9pt text floor batch incl. LumenBadge (app code,
-          rides the app batch).
-      11. Superseded folder scan still runs the abandoned folder's full metadata
-          backfill ahead of the new one (AppState.swift:1766).
+          panel-order amendment. The 9pt floor batch landed with the app batch
+          (LumenBadge was already at the floor; the three sub-9pt glyph
+          stragglers in ContentView and ViewerOverlays are at 9 now). Still
+          open, deliberately: the Keymap repeat comment (owner call).
+      11. ~~Superseded folder scan still runs the abandoned folder's backfill~~
+          FIXED at both ends: the launch is gated on the scan still being
+          current (decided in the same MainActor hop as applyScan), and an
+          in-flight pass checks a generation counter at every chunk boundary —
+          claimed synchronously by the superseding call, so a pass already on
+          the maintenance queue stops even though the new call's work is queued
+          behind it.
       12. ~~Uniformity's honest cure~~ DONE: `PipelineRenderer.measuredBandMeanHues`
           (once per file, ~512 px neutral decode, cached and invalidated with the
           mattes) → `RenderPlan(bandMeanHues:)` → the engine AND the colour-grade
@@ -533,8 +549,10 @@ and against Lightroom via owner-exported references.
       eyedropper is cheap again — `tintLimit(kelvin:)` is memoized by exact kelvin,
       so a `neutralizing` sweep runs ~140 bisections instead of ~3 000 (counter
       asserted in TintGuardTests, plus a cache-equals-bisection identity test).
-      Still owed, riding the app batch: the panel badge that reads `effectiveTint`
-      and says "bounded by physics here" when it diverges from the slider.
+      And the panel half landed with the app batch: an inline caption under Tint
+      (the Density lesson's visible-hint form, never hover-only) appears exactly
+      when the shown magenta exceeds `clampedTint` for the shown Kelvin, naming
+      the bound and the value the render uses.
 - [ ] Re-verify-then-fix at HEAD (the audit ledger is stale — verify first): TONE-01
       as-shot Kelvin · TONE-34 Auto highlight branch · COLOR-25 Protect Skin at
       Sat −100 · denoise Colour dead zone + ISO defaults incl. the unmeasured
