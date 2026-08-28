@@ -66,7 +66,7 @@ dragging.
 
 ## 2. Does it feel different from last time?
 
-Plain words, no numbers. Drag every slider in Basic, then Detail, then Colour.
+Plain words, no numbers. Drag every slider in Basic, then Detail, then Color.
 
 **Look at:** whether the picture follows your hand as a slope, or advances in visible
 steps. If it steps, roughly how many steps per second — two? ten? — and whether the
@@ -98,13 +98,16 @@ This round stopped a slider edit from re-drawing the whole window, which is the 
 but it means each panel that shows an edit now has to subscribe to edits explicitly. If
 one was missed, that panel will draw once and then silently stop following.
 
-Open each develop section in turn — **Basic, Zones, Detail, Effects, Colour, Look,
-Masks, Curve** — and in each, drag one slider.
+Open each develop section in turn — the app's own eight tabs, **Basic · Zones ·
+Curve · Color · Detail · Effects · Masks · Look** — and in each, move one control.
+Sliders where there are sliders; in Curve drag a point; in Masks add a gradient and
+move its Exposure.
 
-**Look at:** the slider's own number changes as you drag, and the picture follows. Then
-press **⌘Z** and confirm the panel's numbers go back with the picture. Anything that
-shows a stale value, or a number that does not move while the picture does, is a
-missed subscription — name the panel and the control.
+**Look at:** the control's own number (or the curve's own shape) changes as you drag,
+and the picture follows. Then press **⌘Z** and confirm the panel goes back with the
+picture. Anything that shows a stale value, or a number that does not move while the
+picture does, is a missed subscription — name the panel and the control. This is the
+most likely way this round broke something, so it is worth the five minutes.
 
 **What I saw:** ……
 
