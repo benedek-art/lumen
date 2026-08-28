@@ -924,19 +924,108 @@ side-by-side exports. **Exit gate: owner prefers or ties Lumen on ≥4 of 5.**
       interval unusable on its own. Five tests, including a fast render (15 ms) inside
       a slow frame (90 ms) that must still walk the ladder down — the case the old
       input could not express at all.
-- [ ] **The same class, one table over, not yet closed.** `finishLUT` is also paired
-      with a fresh scalar (`finishScale`, = `transform.white`) and IS still
-      stale-served. It is safe during a tone drag: `applyAnchors` writes only the two
-      anchor EVs, so `white` comes from the render preset and does not move. It is NOT
-      safe if a control that changes `look.render.whiteTarget` or the display-white
-      override is dragged — same mismatch, same flicker, on those sliders only. The
-      general rule, worth stating once: a table whose value is meaningless without a
-      companion computed fresh must not be served stale. The narrow fix is a
-      `staleGroup` on `tableAllowingStale` so entries are only interchangeable when
-      their companion agrees; the finish table is too expensive (15–18 ms) to simply
-      make exact the way the cube was. Left for the next round deliberately — the tone
-      register is what the owner reported, and shipping one change at a time is what
-      made this one findable.
+- [x] **Round 3d — the hold from 3b was a one-way ratchet.** Holding the rung during a
+      gesture is right: a rung earned back under a moving hand is a visible change of
+      sharpness, and at a rung boundary it oscillates. But `allowStepUp: false` also
+      RESET the cheap-frame streak, and drags are very nearly the only time this ladder
+      sees a frame at all — drafts come from slider edits and otherwise only from a
+      photo switch, a zoom or a matte landing. So a comfortable drag could never bank
+      anything, and one hard drag on one heavy photograph dropped the rung for the rest
+      of the session, leaving every later drag needlessly soft on a machine that could
+      afford better. That is this round's own complaint arriving by a different door,
+      and it would have been reported as "sometimes it's blurry again".
+      The streak is banked while the hand is down and spent by `gestureEnded()` when it
+      comes up — one change of sharpness, at rest, invisible. Heat during the gesture
+      still clears it, so a drag that ran hot earns nothing: the evidence for a step up
+      is a WHOLE gesture of comfortable frames, not a hopeful reset. Two tests, one for
+      each half.
+- [x] **Round 4 — the blur was never the render size. It was a SECOND quality knob
+      nothing could see.** Owner, after 3b and 3d: "when I use the blacks slider I get a
+      very blurry image until I let go … honestly all of the sliders are very blurry
+      when I move them."
+      Removing the half-resolution cap changed what the viewer ASKED for and nothing
+      else, because `AppleRawSource.decode` sets `filter.isDraftModeEnabled = draft`.
+      That flag is a faster, LOWER-QUALITY demosaic, honoured by Core Image only when
+      `scaleFactor` is 0.5 or less. The demosaic is the stage that decides what fine
+      detail exists at all, so it is a softer picture at the same size — applied to
+      every frame under a moving hand and to none at rest, which is precisely the shape
+      the owner reported: blurry while dragging, sharp on release.
+      An interactive frame therefore had TWO quality knobs — its resolution, which
+      `DraftLadder` measures and controls, and this one, which was hard-coded, invisible
+      and unmeasured. The eye notices the second one. And nothing CHOSE it: because the
+      flag is honoured only below half scale, a drag frame's sharpness depended on where
+      the ladder happened to sit relative to that threshold — a quality cliff at an
+      unrelated constant, moving under the control whose whole job is to trade quality
+      for speed deliberately. Concretely, on a 45 MP file (long edge ~8200) every rung
+      asks for a scale under 0.5 and the coarse decode always applied; on a 24 MP file
+      (~6000) the top rung's 4096 is a scale of 0.68 and it did NOT, so the same drag on
+      the same machine was sharp until the ladder stepped down and then softer. Nobody
+      designed that.
+      Fixed by separating them: `renderPreview` takes `coarseDecode` distinctly from
+      `draft` (which still governs stale tables and rasters), the viewer's coalesced
+      path always decodes at full detail, and the coarse decode stays reachable only
+      from the one-shot instrument path. One lever, held by the thing that measures.
+      (Checked rather than assumed: both `renderOneShot` callers — the scope proxy and
+      the auto-tone probe — pass `draft: false` already, because an instrument must not
+      read a stale table. So after this change NOTHING in the app takes the coarse
+      decode. Said out loud because the first draft of this entry claimed those two
+      probes were the reason to keep it, and they are not.)
+      **The better decode should not be paid per frame**, which is what makes the trade
+      easy to accept: `AppleRawSource` caches the decode under a key of everything the
+      decoder reads, no tone or colour slider moves any field of that key, so every
+      frame of a gesture is handed the same lazy `CIImage` — and the context runs with
+      `cacheIntermediates: true`, which is what lets Core Image reuse the demosaic
+      behind it. Stated as intent rather than measurement: that cache is bounded and
+      heuristic, and a ladder step does change the scale factor and so the key. The
+      HUD's `draft` line is what says whether it holds on the owner's machine. A second side effect worth having: at the top rung the
+      draft and the settle now request the same size AND the same decode, so they share
+      a `DecodeKey` and each warms the other, where before every gesture end paid a
+      fresh full decode.
+      **The instrument that should have caught this was reporting the wrong number.**
+      `LatencyHUD.noteDraft` was passed `draftTarget` — the REQUEST — so the HUD's size
+      could not disagree with the code that chose it. It confirmed the viewer's
+      intention on every frame and said nothing whatever about the frame. It now reports
+      the delivered extent and prints "(asked N)" when the two differ. Three rounds of
+      looking at the number that was supposed to answer this question, and the number
+      was of the wrong thing.
+      *Correction, made in the open:* the first version of this entry claimed the draft
+      decode halves the picture's DIMENSIONS, citing docs/14's demosaic row ("bilinear
+      for draft LOD"). That row describes Lumen's own planned demosaic, not Apple's
+      decoder, and Apple's flag does not change the output size. The fix is unchanged —
+      it was always "stop putting an unmeasured quality knob on the interactive path" —
+      but the mechanism was mis-stated, and the delivered-vs-asked HUD line is better
+      read as the instrument that would SETTLE such a claim than as a report of one.
+- [x] **Round 4b — the same class, one table over, closed structurally.** `finishLUT` is
+      also paired with a fresh scalar (`finishScale`, = `transform.white`) and WAS still
+      stale-served, so a draft frame could show `oldTable × newWhite / oldWhite` — not a
+      stale picture but one that never existed at any setting.
+      **Latent, and worth being exact about why**, because the first version of this
+      entry guessed otherwise: `transform.white` is `max(whiteTarget, 1) / 100` and
+      depends on nothing else, while `ToneEngine.applyAnchors` writes only
+      `whiteAnchorEV` and `blackAnchorEV`. So Whites and Blacks change the finish
+      table's KEY without changing its scale, and a stale serve there is correctly one
+      event behind. Nothing in the app writes `look.render.whiteTarget` today — the
+      recipe field exists with no UI on it — so the defect needs a control that does not
+      yet ship. It is not the owner's blur and was never going to be.
+      Fixed anyway, and by shape rather than by symptom: `pairedTableAllowingStale`
+      stores the scalar each table was baked with and returns it, so `finishScale` is
+      whatever pairs with the table actually served. The general rule this project has
+      now paid for twice, stated once: **a table whose value is meaningless without a
+      companion computed fresh must never be served stale without its companion.** The
+      cube was made exact because it is cheap (32³ of a 1-D lookup); the finish table at
+      15–18 ms cannot be, so it stays stale AND stays paired — which is what the stale
+      path was always documented as doing. `AccuracyProbeTests` covers it by driving
+      `look.render.whiteTarget` directly, since no slider can reach it; watched failing
+      first, with the draft frame showing the 100-target table scaled by up to 3.2×.
+      **The fix created the same defect one stage over, which is worth recording.**
+      `applyLocalCurves` — in `RenderGraph` and again in `ReferenceRenderer` — asked for
+      `plan.displayWhite` while operating on pixels whose white is `plan.finishScale`.
+      Those were the same number until a draft frame could carry a stale finish table,
+      and then they were not: a local point curve would have been denominated in a white
+      its pixels did not have. Both now read `finishScale`, which is what the comment
+      above the GPU one already claimed. Separating two values that used to be equal
+      means auditing everything that read either — the danger of a fix like this is not
+      the line it changes, it is the lines that were silently relying on an equality.
 - [ ] **Deliberately NOT done in round 2: anything else to the render or display path.**
       The display path above is the leading suspect and a `CALayer`-contents or
       Metal-layer plate is the obvious next move — and shipping it now, unverified,

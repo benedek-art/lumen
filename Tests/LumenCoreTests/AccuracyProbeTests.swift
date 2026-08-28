@@ -274,6 +274,82 @@ final class AccuracyProbeTests: XCTestCase {
         }
     }
 
+    /// THE SAME SHAPE AGAIN, ONE TABLE OVER — and this time found by looking for it
+    /// rather than by the owner reporting it.
+    ///
+    /// `finishLUT` holds the display transform divided by display white and
+    /// `RenderGraph` multiplies `finishScale` back, exactly as the tone cube pairs with
+    /// `toneGainScale`. The stale path returns a table baked under a PREVIOUS key while
+    /// the caller computes its scalar fresh from this event, so a draft frame could
+    /// show `oldTable × newWhite / oldWhite` — a picture that never existed at any
+    /// setting, rather than the previous one.
+    ///
+    /// STATED PLAINLY: this is LATENT in the shipping app, not a symptom anyone has
+    /// seen. `transform.white` is `max(whiteTarget, 1) / 100` and depends on nothing
+    /// else; `ToneEngine.applyAnchors` writes only `whiteAnchorEV` and `blackAnchorEV`.
+    /// So dragging Whites or Blacks changes the finish table's KEY without changing its
+    /// scale, and a stale serve there is correctly one event behind. No control in the
+    /// app writes `look.render.whiteTarget` today — the field exists with no UI on it —
+    /// which is why this test has to reach for it directly to make the defect appear at
+    /// all.
+    ///
+    /// It is fixed anyway, and structurally: `pairedTableAllowingStale` returns the
+    /// scalar its table was baked with, so the two cannot be separated by any future
+    /// caller. Twice now this project has shipped a normalized table scaled by somebody
+    /// else's scalar, and both times the fix was made where the bug was found rather
+    /// than where the shape was.
+    func testTheFinishTableAndItsScaleStayAPairOnTheDRAFTPath() {
+        let targets = [100.0, 150.0, 200.0, 260.0, 320.0]
+
+        func plan(whiteTarget: Double, stale: Bool) -> RenderPlan {
+            var recipe = Recipe()
+            recipe.look.render.whiteTarget = whiteTarget
+            return RenderPlan(recipe: recipe, allowStaleTables: stale)
+        }
+
+        // Every pair that legitimately exists, built exactly. A drafted plan must be
+        // one of these, whole — never one's table beside another's scale.
+        PlanTableCache.clear()
+        let honest = targets.map { target -> (target: Double, data: [Float], scale: Double) in
+            let exact = plan(whiteTarget: target, stale: false)
+            return (target, exact.finishLUT.data, exact.finishScale)
+        }
+        XCTAssertEqual(Set(honest.map(\.scale)).count, targets.count,
+                       "the fixture must move `finishScale`, or this test proves "
+                           + "nothing about pairing")
+
+        // Now the drag. The first event has nothing to be stale from and bakes exactly;
+        // every one after it misses on a key the cache has never seen.
+        //
+        // `clear()` deliberately does not cancel an in-flight background bake, so one
+        // left running by an earlier test would land in this slot AFTER the clear and
+        // put a table there that this fixture never baked — an unmatched table and a
+        // confusing failure, in a test whose whole subject is which table is being
+        // served. Wait for the slot to go quiet first.
+        let deadline = Date().addingTimeInterval(5)
+        while PlanTableCache.hasPendingBake(.finish), Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.002)
+        }
+        PlanTableCache.clear()
+        for target in targets {
+            let drafted = plan(whiteTarget: target, stale: true)
+            guard let match = honest.first(where: { $0.data == drafted.finishLUT.data })
+            else {
+                return XCTFail("white target \(target): the drafted table matches no "
+                                   + "table this fixture ever baked")
+            }
+            // Whether the background bake has landed decides WHICH pair this is, and
+            // that race is fine — either is a real picture. What may never happen is
+            // the table of one and the scale of another.
+            XCTAssertEqual(
+                drafted.finishScale, match.scale, accuracy: 1e-12,
+                "white target \(target): the draft is showing the table baked for "
+                    + "\(match.target) scaled by \(drafted.finishScale) instead of "
+                    + "\(match.scale) — the picture is wrong by "
+                    + "\(drafted.finishScale / match.scale)× and belongs to no setting")
+        }
+    }
+
     // MARK: Smoothness — does the shipping cube track the reference table?
 
     /// The GPU evaluates tone through a 32-knot cube resampled from the 1024-sample

@@ -938,8 +938,15 @@ public struct RenderGraph {
     func applyLocalCurves(_ image: CIImage, plan: RenderPlan, options: Options) -> CIImage {
         var out = image
         for mask in plan.masks {
+            // `finishScale`, not `displayWhite`: the white of the PIXELS ARRIVING, which
+            // is what the comment above already says and what the two names meant
+            // interchangeably until a draft frame could be served a stale finish table
+            // (`PlanTableCache.pairedTableAllowingStale`). `displayWhite` is this
+            // recipe's white; `finishScale` is the white of the picture in hand. Taking
+            // the former here would denominate a local curve in a white the pixels do
+            // not have — the same defect that pairing exists to end, one stage over.
             let curve = LocalCurve(curve: mask.adjust.curve, amount: mask.amount,
-                                   white: plan.displayWhite)
+                                   white: plan.finishScale)
             guard !curve.isIdentity, let alpha = maskImages[mask.id] else { continue }
             let table = LocalCurvePlan(curve: curve, size: options.lutSize).lut
             guard let curved = Self.throughShaper(out, { encoded in

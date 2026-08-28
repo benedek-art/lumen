@@ -49,6 +49,13 @@ public struct RenderPlan: Sendable {
     /// filter's domain is the unit cube, and an HDR rendition legitimately reaches
     /// several times display white; keeping the table normalized and multiplying by a
     /// scalar afterwards means no highlight can be silently clipped by the table.
+    ///
+    /// THE TWO ARE ONE VALUE. `finishScale` is the white the table beside it was baked
+    /// under — NOT necessarily this event's white, because a draft frame may be served
+    /// a stale table (see `PlanTableCache.pairedTableAllowingStale`). Reading either
+    /// alone, or recomputing the scalar while accepting a cached table, produces a
+    /// picture that belongs to no setting. Use `displayWhite` when what is wanted is
+    /// this recipe's white; that one is always current.
     public let finishLUT: LUT3D
     public let finishScale: Double
 
@@ -213,7 +220,10 @@ public struct RenderPlan: Sendable {
         let boundary = RenderPlan.sharedGamutBoundary
         let white = transform.white
         let scale = Swift.max(white, 1e-6)
-        self.finishScale = scale
+        // `finishScale` is NOT assigned here, deliberately: it has to be the scalar of
+        // whichever table is actually served below, and on a draft frame that may be a
+        // stale one baked under a different white. Assigning this event's value here is
+        // precisely the defect — see `pairedTableAllowingStale`.
         let proof = softProof?.transform(working: space)
         self.softProof = proof
         // One closure, used for both tables, so the proofed and unproofed versions
@@ -268,12 +278,39 @@ public struct RenderPlan: Sendable {
         let bakePlain = { LUT3D(size: lutSize, transform: display) }
         // The proofed variant below stays on the blocking path either way: it is a
         // cheap map over `plain`, and mapping a stale `plain` keeps the two consistent.
-        let plain = baseKey.map {
-            allowStaleTables
-                ? PlanTableCache.tableAllowingStale(.finish, key: $0, size: lutSize,
-                                                    build: bakePlain)
-                : PlanTableCache.table(.finish, key: $0, size: lutSize, build: bakePlain)
-        } ?? bakePlain()
+        //
+        // SERVED AS A PAIR. `bakePlain` normalizes by `scale` (the division at the end
+        // of `display`) and `RenderGraph` multiplies `finishScale` back, so the table
+        // and the scalar are two halves of one picture — and the stale path hands back
+        // a table baked under a DIFFERENT key. Taking this event's `scale` for a
+        // previous event's table yields `oldPicture × newWhite / oldWhite`: not a stale
+        // picture but one that existed at no setting. That is the tone cube's flicker
+        // exactly (see the `toneKey` comment below), one table over, and it survived
+        // that fix because the fix was made where the bug was FOUND rather than where
+        // the shape was.
+        //
+        // Latent as the app ships, and precisely so: `transform.white` is
+        // `max(whiteTarget, 1) / 100` and `applyAnchors` writes only the anchor EVs, so
+        // Whites and Blacks change this key without changing this scale — a stale serve
+        // there is correctly one event behind. It takes a control over
+        // `look.render.whiteTarget`, which has no UI yet, to make the two disagree. The
+        // fix is structural anyway: the cache returns the scalar it baked with, so
+        // `finishScale` is whatever pairs with the table actually served, and no future
+        // caller has to know any of the above.
+        let served: (table: LUT3D, pairedValue: Double)
+        if let baseKey {
+            served = allowStaleTables
+                ? PlanTableCache.pairedTableAllowingStale(.finish, key: baseKey,
+                                                          size: lutSize,
+                                                          pairedWith: scale,
+                                                          build: bakePlain)
+                : (PlanTableCache.table(.finish, key: baseKey, size: lutSize,
+                                        pairedWith: scale, build: bakePlain), scale)
+        } else {
+            served = (bakePlain(), scale)
+        }
+        let plain = served.table
+        self.finishScale = served.pairedValue
 
         // Baked ONCE and then mapped, not baked twice.
         //
@@ -320,6 +357,7 @@ public struct RenderPlan: Sendable {
             } else {
                 self.finishLUT = proofKey.map {
                     PlanTableCache.table(.finishProofed, key: $0, size: lutSize,
+                                         pairedWith: served.pairedValue,
                                          build: mapProof)
                 } ?? mapProof()
             }

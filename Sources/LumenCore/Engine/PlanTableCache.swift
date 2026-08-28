@@ -55,7 +55,21 @@ public enum PlanTableCache {
     private static let capacity = 8
 
     private static let lock = NSLock()
-    private static var entries: [Slot: [(key: String, table: LUT3D)]] = [:]
+
+    /// `pairedValue` is the scalar the table was BAKED WITH, carried beside it.
+    ///
+    /// A normalized table is not a picture on its own: `finishLUT` holds the display
+    /// transform divided by display white and the graph multiplies `finishScale` back,
+    /// so the two are meaningful only together. A stale serve hands out a table baked
+    /// under a DIFFERENT key while the caller computes its scalar fresh from this
+    /// event, and if that key covered the scalar the frame is then neither picture: it
+    /// is `oldTable × newScale`. Storing the pair lets the stale path hand back both
+    /// halves of the frame it is actually serving, which is what "one mouse event
+    /// behind" was always supposed to mean.
+    ///
+    /// Slots whose tables have no companion scalar (`colorGrade`) store 1 and ignore it.
+    private static var entries: [Slot: [(key: String, table: LUT3D,
+                                         pairedValue: Double)]] = [:]
 
     /// One background bake at a time per slot, newest request wins.
     ///
@@ -64,7 +78,8 @@ public enum PlanTableCache {
     /// just replay the drag in the background at 23.7 ms a step, seconds behind the
     /// hand. Only the newest can ever be shown, so only the newest is kept.
     private static var inFlight: Set<Slot> = []
-    private static var pending: [Slot: (key: String, bakeExact: () -> LUT3D)] = [:]
+    private static var pending: [Slot: (key: String, pairedValue: Double,
+                                        bakeExact: () -> LUT3D)] = [:]
     private static let bakeQueue = DispatchQueue(label: "lumen.plantable.bake",
                                                  qos: .userInitiated)
 
@@ -113,7 +128,12 @@ public enum PlanTableCache {
     /// bake, which wastes one bake and is still cheaper than serialising every render
     /// behind a mutex — and because the key determines the table, the loser's result is
     /// indistinguishable from the winner's.
-    static func table(_ slot: Slot, key: String, size: Int,
+    ///
+    /// `pairedWith` is the scalar this table is meaningless without, stored beside it
+    /// so that a later STALE serve of this entry can hand back the matching half. The
+    /// exact path never needs it for itself — the table it returns was baked for this
+    /// very key, so the caller's own scalar already pairs with it.
+    static func table(_ slot: Slot, key: String, size: Int, pairedWith value: Double = 1,
                       build: () -> LUT3D) -> LUT3D {
         guard size <= LUT3D.interactiveSize else { return build() }
 
@@ -134,7 +154,7 @@ public enum PlanTableCache {
         lock.lock()
         var slotEntries = entries[slot] ?? []
         slotEntries.removeAll { $0.key == key }
-        slotEntries.insert((key: key, table: built), at: 0)
+        slotEntries.insert((key: key, table: built, pairedValue: value), at: 0)
         if slotEntries.count > capacity { slotEntries.removeLast(slotEntries.count - capacity) }
         entries[slot] = slotEntries
         lock.unlock()
@@ -158,30 +178,66 @@ public enum PlanTableCache {
     /// synchronously — a cold app pays one exact bake, not a blank frame.
     static func tableAllowingStale(_ slot: Slot, key: String, size: Int,
                                    build: @escaping () -> LUT3D) -> LUT3D {
-        guard size <= LUT3D.interactiveSize else { return build() }
+        pairedTableAllowingStale(slot, key: key, size: size, pairedWith: 1,
+                                 build: build).table
+    }
+
+    /// The same thing for a table that is only half a picture: it returns the scalar
+    /// the table it hands back was BAKED WITH, so the caller can pair them.
+    ///
+    /// THE BUG THIS EXISTS TO END, which this project has now shipped twice. A
+    /// normalized table plus a freshly-computed scalar is not a stale picture, it is a
+    /// picture that never existed: `finishLUT` holds the display transform divided by
+    /// display white, `RenderGraph` multiplies `finishScale` back, and pairing an OLD
+    /// table with a NEW white gives the previous event's picture multiplied by
+    /// `newWhite / oldWhite`. The tone gain cube had the identical defect against
+    /// `toneGainScale` — that one was live, and it was the flicker the owner reported
+    /// on Contrast and Blacks. It was fixed by taking the cube off the stale path
+    /// entirely, which is affordable only because it is the cheapest table here (32³ of
+    /// a 1-D lookup, against 15–18 ms for the 33³ finish table). This is the fix for
+    /// the ones that cannot pay: keep them stale, keep them PAIRED.
+    ///
+    /// For the finish table the defect is currently LATENT — `transform.white` moves
+    /// only with `whiteTarget`, which no control writes — so this is the rare case of
+    /// closing a hole before anyone falls in it. The reason to bother is that the shape
+    /// is what recurs, not the instance.
+    ///
+    /// A frame served from here is then genuinely one mouse event behind — the whole
+    /// previous picture, consistently — which is the error the stale path was always
+    /// documented as making and, until now, was not the error it made.
+    static func pairedTableAllowingStale(_ slot: Slot, key: String, size: Int,
+                                         pairedWith value: Double,
+                                         build: @escaping () -> LUT3D)
+    -> (table: LUT3D, pairedValue: Double) {
+        guard size <= LUT3D.interactiveSize else { return (build(), value) }
 
         lock.lock()
         let slotEntries = entries[slot] ?? []
-        if let hit = slotEntries.first(where: { $0.key == key })?.table {
+        if let hit = slotEntries.first(where: { $0.key == key }) {
             stats.hits += 1
             slotTraffic[slot, default: Stats()].hits += 1
             lock.unlock()
-            return hit
+            // The STORED scalar, not the caller's, even on an exact hit. They agree
+            // whenever the key covers the scalar, which is the invariant this cache
+            // already requires of every key — and if some future key ever fails to,
+            // the pair stays a pair rather than silently becoming a hybrid again.
+            return (hit.table, hit.pairedValue)
         }
-        guard let newest = slotEntries.first?.table else {
+        guard let newest = slotEntries.first else {
             lock.unlock()
-            return table(slot, key: key, size: size, build: build)
+            return (table(slot, key: key, size: size, pairedWith: value, build: build),
+                    value)
         }
         stats.staleServes += 1
         slotTraffic[slot, default: Stats()].staleServes += 1
         // Replace, never append: only the newest deferred bake can ever be shown.
-        pending[slot] = (key: key, bakeExact: build)
+        pending[slot] = (key: key, pairedValue: value, bakeExact: build)
         let mustStart = !inFlight.contains(slot)
         if mustStart { inFlight.insert(slot) }
         lock.unlock()
 
         if mustStart { bakeQueue.async { drainPending(slot) } }
-        return newest
+        return (newest.table, newest.pairedValue)
     }
 
     /// Bake the latest pending key for `slot`, and keep going if another arrived while
@@ -201,7 +257,8 @@ public enum PlanTableCache {
             lock.lock()
             var slotEntries = entries[slot] ?? []
             slotEntries.removeAll { $0.key == next.key }
-            slotEntries.insert((key: next.key, table: built), at: 0)
+            slotEntries.insert((key: next.key, table: built,
+                                pairedValue: next.pairedValue), at: 0)
             if slotEntries.count > capacity {
                 slotEntries.removeLast(slotEntries.count - capacity)
             }

@@ -220,8 +220,12 @@ public enum ReferenceRenderer {
                                  space: RGBColorSpace) -> ImageBuffer {
         var out = image
         for (mask, alpha) in alphas {
+            // `finishScale` — the white of the pixels in hand — matching `RenderGraph`,
+            // where the distinction can actually bite (a reference plan is never built
+            // with stale tables). The two renderers state the same rule or the parity
+            // contract is only true by luck.
             let curve = LocalCurve(curve: mask.adjust.curve, amount: mask.amount,
-                                   white: plan.displayWhite, space: space)
+                                   white: plan.finishScale, space: space)
             guard !curve.isIdentity else { continue }
             for y in 0..<out.height {
                 for x in 0..<out.width {
