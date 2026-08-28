@@ -14,14 +14,15 @@
 //     default render by more than table noise;
 //   · PARITY — the graph's pixels track `ReferenceRenderer.render` on the same plan.
 //
-// The parity bounds are generous smoke bounds on first landing, for the same reason
-// the spatial golden's was: this lane runs on CI's GPU, not here, and a guessed-tight
-// bound costs a red cycle. The per-slider worst is PRINTED (TONEGOLD lines) so the
-// bounds can be tightened to measurements on the next pass. Two architectural error
-// sources are known and expected: trilinear-vs-tetrahedral table sampling out of fp16
-// (0.028 measured on the colour path at export size), and the interactive tone cube's
-// 32 knots against the reference's 1024-sample table (docs/23 M2's own measurement:
-// up to 0.026 EV localized at export, 0.080 EV at 32 knots).
+// The parity bounds are TIGHTENED TO MEASUREMENT (gpu-parity #18's own prints:
+// worst 0.0213 interactive / 0.0107 export across all six sliders), with the same
+// order of headroom the colour-path golden carries for runner variance. The
+// per-slider worst still PRINTS (TONEGOLD lines) so drift is visible before it is
+// red. Two architectural error sources are known and inside the bounds:
+// trilinear-vs-tetrahedral table sampling out of fp16, and the interactive tone
+// cube's 32 knots against the reference's 1024-sample table. Run #18 also convicted
+// the first draft's aliveness metric — absolute display-linear difference
+// under-weighs the shadow controls — so aliveness is measured in stops.
 
 #if os(macOS)
 
@@ -87,6 +88,27 @@ final class ToneShippingGoldenTests: XCTestCase {
         return worst
     }
 
+    /// Movement in STOPS, floored at a quarter-code of display white — the metric
+    /// that is fair to the shadow controls. Run #18 convicted the first draft of this
+    /// test, not the pipeline: Blacks −70 genuinely moved the graph (0.0069
+    /// display-linear) but an ABSOLUTE bar of 0.02 under-weighs deep shadows by
+    /// construction — a 2 EV drop of a 0.003 display value is 0.002 absolute, while
+    /// the same drop at the top of the range is 0.5. In stops both read the same.
+    private func worstStopShift(_ a: ImageBuffer, _ b: ImageBuffer) -> Double {
+        let floor = 1e-4
+        var worst = 0.0
+        for y in 0..<a.height {
+            for x in 0..<a.width {
+                for channel in 0..<3 {
+                    let va = Swift.max(Double(a[x, y][channel]), floor)
+                    let vb = Swift.max(Double(b[x, y][channel]), floor)
+                    worst = Swift.max(worst, abs(log2(va / vb)))
+                }
+            }
+        }
+        return worst
+    }
+
     func testEachToneSliderMovesTheShippingGraphAndTracksTheReference() throws {
         try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
 
@@ -103,8 +125,10 @@ final class ToneShippingGoldenTests: XCTestCase {
         ]
 
         for lutSize in [LUT3D.interactiveSize, LUT3D.exportSize] {
-            // Smoke bounds on first landing; tighten to the TONEGOLD prints.
-            let parityBound = lutSize >= LUT3D.exportSize ? 0.06 : 0.12
+            // Tightened from run #18's own prints (worst 0.0213 interactive /
+            // 0.0107 export across all six sliders), with headroom for runner
+            // variance in the same proportion the colour-path golden carries.
+            let parityBound = lutSize >= LUT3D.exportSize ? 0.018 : 0.035
             var defaults = Recipe()
             defaults.develop.denoise.mode = .off
             let defaultPlan = RenderPlan(recipe: defaults, lutSize: lutSize)
@@ -130,19 +154,20 @@ final class ToneShippingGoldenTests: XCTestCase {
                     return XCTFail("\(move.name) render failed at size \(lutSize)")
                 }
 
-                // ALIVE through the graph that ships: the move is visible against the
-                // default render by far more than any table could err.
-                let moved = worstDifference(gpu, defaultGPU)
-                XCTAssertGreaterThan(moved, 0.02,
+                // ALIVE through the graph that ships: the move is visible against
+                // the default render by far more than any table could err — measured
+                // in stops, so Blacks' deep-shadow work counts the same as Whites'.
+                let moved = worstStopShift(gpu, defaultGPU)
+                XCTAssertGreaterThan(moved, 0.2,
                                      "\(move.name) moved the shipping graph by only "
-                                         + "\(moved) at table size \(lutSize)")
+                                         + "\(moved) stops at table size \(lutSize)")
 
                 // PARITY with the reference on the same plan.
                 let reference = ReferenceRenderer.render(source, plan: plan)
                 let worst = worstDifference(gpu, reference)
                 print("TONEGOLD size \(lutSize) \(move.name): parity worst "
                       + String(format: "%.5f", worst)
-                      + "  aliveness " + String(format: "%.4f", moved))
+                      + "  aliveness " + String(format: "%.3f", moved) + " stops")
                 XCTAssertLessThan(worst, parityBound,
                                   "\(move.name) diverged from the reference by "
                                       + "\(worst) at table size \(lutSize)")
