@@ -164,31 +164,47 @@ final class DragBroadcastTests: XCTestCase {
     /// traps rather than returning something merely wrong.
     func testTheObserverNeverSeesHalfAMutation() {
         let history = HistoryStack()
-        var seen: [(undo: String?, redo: String?)] = []
-        history.onChange = { [weak history] in
-            guard let history else { return }
-            seen.append((history.undoLabel, history.redoLabel))
+        // Plain strings, not optionals: `seen.last?.undo` on a tuple whose member is
+        // itself `String?` is a DOUBLE optional, and `?? "not nil"` against it reads as
+        // a nil check while actually testing whether the array is empty. The first
+        // version of this test did exactly that and reported the wrong thing.
+        // `—` stands in for nil, the way the menu would render it.
+        var seen: [(undo: String, redo: String)] = []
+        // Captured strongly, and released at the end. A `[weak]` capture here is the
+        // only structural difference from `testEveryHistoryMutationSignals`, which
+        // passes, and a test that disagrees with its neighbour about whether a callback
+        // fired should not be the one holding the weak reference.
+        history.onChange = {
+            seen.append((history.undoLabel ?? "—", history.redoLabel ?? "—"))
         }
+        defer { history.onChange = nil }
 
         for i in 0..<3 {
             history.record(before: step(0), after: step(Double(i)), coalescingKey: nil)
         }
-        XCTAssertFalse(seen.contains { $0.redo != nil },
+        XCTAssertEqual(history.steps.count, 3, "the fixture must be three steps")
+        XCTAssertEqual(seen.count, 3, "one signal per recorded step, not two")
+        XCTAssertFalse(seen.contains { $0.redo != "—" },
                        "recording a step leaves nothing to redo; a signal reporting "
                            + "one was fired between the two halves of the mutation")
 
         seen.removeAll()
         _ = history.undo()
-        XCTAssertTrue(seen.allSatisfy { $0.redo != nil },
-                      "after an undo there is always something to redo")
+        XCTAssertEqual(seen.count, 1)
+        XCTAssertEqual(seen.last?.redo, "Edit",
+                       "after an undo there is always something to redo")
 
         seen.removeAll()
         _ = history.redo()
-        // The crash, if it is back: `clear` empties the array with `position` still
-        // pointing into it.
+        XCTAssertEqual(seen.count, 1)
+
+        // The crash, if it is back: `clear` empties the array while `position` still
+        // points into it, and `undoLabel` subscripts `steps[position - 1]`.
+        seen.removeAll()
         history.clear()
-        XCTAssertEqual(seen.last?.undo ?? "not nil", nil)
-        XCTAssertEqual(seen.last?.redo ?? "not nil", nil)
+        XCTAssertEqual(seen.count, 1, "clearing is one mutation, so one signal")
+        XCTAssertEqual(seen.last?.undo, "—")
+        XCTAssertEqual(seen.last?.redo, "—")
     }
 
     /// And the labels the menu draws are right at the moment the signal arrives — a
