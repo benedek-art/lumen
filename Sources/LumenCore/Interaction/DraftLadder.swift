@@ -105,6 +105,35 @@ public struct DraftLadder: Sendable, Equatable {
         return Swift.max(renderMilliseconds, period)
     }
 
+    /// WHETHER A FRAME'S COST DESCRIBES THE STEADY STATE AT ITS SIZE.
+    ///
+    /// The ladder's lever is the decode scale. `PipelineRenderer.renderPreview` derives
+    /// `scaleFactor` from the size it is asked for, runs the WHOLE graph at the decoded
+    /// resolution, and only applies geometry afterwards — which is what makes a smaller
+    /// rung genuinely cheaper. But `AppleRawSource` keys its decode cache on that scale
+    /// factor, so the first frame at a NEW size pays a fresh RAW decode that no later
+    /// frame at that size will pay. On a 45 MP file that decode is the largest single
+    /// cost in the interaction.
+    ///
+    /// Feeding it to the ladder is a cascade. A hot frame steps down; the first frame at
+    /// the new rung pays a decode and is therefore also slow; the ladder reads that as
+    /// "the step did not help" and steps again; that pays another decode. It walks to
+    /// the floor on a machine that could have held two rungs higher, and what the
+    /// photographer sees is a drag that gets BLURRIER the longer it lasts — the
+    /// complaint this round is about, arriving through the mechanism meant to prevent
+    /// it.
+    ///
+    /// So a sample counts only when the previous frame was rendered at the same size.
+    /// The first frame of a session, of a gesture after a zoom, and of every rung
+    /// change is skipped. The cost of skipping is that a rung which cannot be afforded
+    /// is caught on the second frame rather than the first; the cost of not skipping is
+    /// a ladder that mistakes its own transition for the destination.
+    public static func isRepresentative(renderedLongEdge: Int,
+                                        previousRenderedLongEdge: Int?) -> Bool {
+        guard let previous = previousRenderedLongEdge else { return false }
+        return renderedLongEdge == previous
+    }
+
     /// Index into `rungs`. Starts at the top: the first frames on a fast machine
     /// should not look worse because a slow machine exists.
     public private(set) var rung: Int = 0

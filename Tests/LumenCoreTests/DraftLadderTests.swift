@@ -226,6 +226,96 @@ final class DraftLadderTests: XCTestCase {
                        "the gesture ended hot; there is nothing to spend")
     }
 
+    /// THE LADDER MUST NOT MISTAKE ITS OWN TRANSITION FOR THE DESTINATION.
+    ///
+    /// The lever is the decode scale: `renderPreview` derives `scaleFactor` from the
+    /// size it is asked for and runs the whole graph at the decoded resolution. So
+    /// asking for a smaller rung means a decode key the cache has never seen, and the
+    /// first frame at every new rung pays a fresh RAW decode — the largest single cost
+    /// in the interaction on a big file, and one no later frame at that size pays.
+    ///
+    /// This is what that costs if the ladder believes it. Each step down is followed by
+    /// one expensive frame, the ladder reads it as "still too slow", and it steps again
+    /// — all the way to the floor, on a machine whose steady-state cost at the SECOND
+    /// rung was comfortable. The photographer sees a drag that starts sharp and gets
+    /// blurrier the longer they hold the slider.
+    func testAFreshDecodeAfterAStepDownDoesNotWalkTheLadderToTheFloor() {
+        let requested = 4096
+        let expensiveFirstFrameAtANewSize = DraftLadder.stepDownOver * 3
+        let comfortableSteadyState = DraftLadder.stepUpUnder
+
+        // Believing every frame: the ladder never sees a cheap one, because it changes
+        // size before any size gets a second frame.
+        var naive = DraftLadder()
+        var previous: Int?
+        for _ in 0..<12 {
+            let size = naive.longEdge(requested: requested)
+            let ms = size == previous ? comfortableSteadyState
+                                      : expensiveFirstFrameAtANewSize
+            naive.record(draftMilliseconds: ms, renderedLongEdge: size,
+                         requested: requested)
+            previous = size
+        }
+        XCTAssertEqual(naive.longEdge(requested: requested), DraftLadder.rungs.last,
+                       "the fixture must actually produce the cascade, or the rule "
+                           + "below is being credited with fixing nothing")
+
+        // Skipping the transition frame: the same machine, the same frame times, and
+        // the ladder settles one rung down instead of eight.
+        var guarded = DraftLadder()
+        previous = nil
+        for _ in 0..<12 {
+            let size = guarded.longEdge(requested: requested)
+            let ms = size == previous ? comfortableSteadyState
+                                      : expensiveFirstFrameAtANewSize
+            if DraftLadder.isRepresentative(renderedLongEdge: size,
+                                            previousRenderedLongEdge: previous) {
+                guarded.record(draftMilliseconds: ms, renderedLongEdge: size,
+                               requested: requested)
+            }
+            previous = size
+        }
+        XCTAssertEqual(guarded.rung, 0,
+                       "every frame this ladder was allowed to see was comfortable, so "
+                           + "it should still be at the top rung — it fell to "
+                           + "\(guarded.longEdge(requested: requested)) px")
+    }
+
+    /// The rule's own edges, stated separately from the scenario above.
+    func testOnlyAFrameWhoseSizeMatchesThePreviousOneIsRepresentative() {
+        XCTAssertFalse(DraftLadder.isRepresentative(renderedLongEdge: 2048,
+                                                    previousRenderedLongEdge: nil),
+                       "the first frame of a session pays a cold decode too")
+        XCTAssertFalse(DraftLadder.isRepresentative(renderedLongEdge: 1600,
+                                                    previousRenderedLongEdge: 2048),
+                       "a step down is a new decode key")
+        XCTAssertFalse(DraftLadder.isRepresentative(renderedLongEdge: 2048,
+                                                    previousRenderedLongEdge: 1600),
+                       "and so is a step up")
+        XCTAssertTrue(DraftLadder.isRepresentative(renderedLongEdge: 2048,
+                                                   previousRenderedLongEdge: 2048),
+                      "two frames at one size is the steady state the budget is about")
+    }
+
+    /// Skipping the transition must not make the ladder deaf to a rung it cannot
+    /// afford — it should cost one frame of delay, not the step.
+    func testARungThatCannotBeAffordedIsStillCaughtOnItsSecondFrame() {
+        var ladder = DraftLadder()
+        let requested = 4096
+        let size = ladder.longEdge(requested: requested)
+        // First frame at this size: skipped by the rule, whatever it cost.
+        XCTAssertFalse(DraftLadder.isRepresentative(renderedLongEdge: size,
+                                                    previousRenderedLongEdge: nil))
+        XCTAssertEqual(ladder.rung, 0)
+        // Second frame, same size, still hot: this one counts.
+        XCTAssertTrue(DraftLadder.isRepresentative(renderedLongEdge: size,
+                                                   previousRenderedLongEdge: size))
+        ladder.record(draftMilliseconds: DraftLadder.stepDownOver * 2,
+                      renderedLongEdge: size, requested: requested)
+        XCTAssertGreaterThan(ladder.rung, 0,
+                            "one frame of delay is the price; deafness is not")
+    }
+
     /// The top rung must cap nothing: a machine with headroom drafts at the resolution
     /// the settle will deliver, which is what makes a drag sharp rather than soft.
     func testTheTopRungIsWhateverTheViewerAsksFor() {

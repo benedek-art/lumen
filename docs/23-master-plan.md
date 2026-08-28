@@ -1026,6 +1026,35 @@ side-by-side exports. **Exit gate: owner prefers or ties Lumen on ≥4 of 5.**
       above the GPU one already claimed. Separating two values that used to be equal
       means auditing everything that read either — the danger of a fix like this is not
       the line it changes, it is the lines that were silently relying on an equality.
+- [x] **Round 4c — the ladder was about to mistake its own transition for its
+      destination, and round 4 made that worse.** Found by asking what round 4's own
+      change costs rather than by waiting for it to be reported.
+      The ladder's lever is the DECODE SCALE: `renderPreview` derives `scaleFactor` from
+      the size it is asked for, `graph.build` runs the whole graph at the decoded
+      resolution, and `applyGeometry` scales only afterwards. That is what makes a lower
+      rung genuinely cheaper — and it also means asking for a new rung is asking for a
+      decode key `AppleRawSource` has never seen. The first frame at every new size pays
+      a fresh RAW decode that no later frame at that size pays, and on a 45 MP file that
+      decode is the largest single cost in the interaction. Round 4 made it a
+      full-quality demosaic instead of a cheap one.
+      Believed, it cascades: a hot frame steps down, the first frame at the new rung
+      pays a decode and is therefore also slow, the ladder reads "the step did not
+      help" and steps again, which pays another decode. `DraftLadderTests` runs that
+      fixture and it walks all eight rungs to the 576 px floor on a machine whose
+      steady-state cost at the second rung was comfortable. What the photographer would
+      see is a drag that starts sharp and gets BLURRIER the longer they hold the
+      slider — this round's own complaint, arriving through the mechanism meant to
+      prevent it.
+      `DraftLadder.isRepresentative` is the rule: a sample counts only when the previous
+      frame was rendered at the same size, so the first frame of a session, of a zoom
+      and of every rung change is skipped. The price is that an unaffordable rung is
+      caught on its second frame rather than its first, which is a test of its own. The
+      same fixture with the rule applied stays at the top rung.
+      *Also checked and ruled out, so it is not investigated again:* the sliders' own
+      value quantization. `LumenSlider` snaps to `step`, and the tone controls are
+      ±100 at step 1 over a track of about 150 pt — roughly 1.5 device pixels per
+      distinct value. No hand can move slowly enough to see that, so the ticking was
+      never the control; it was always frame delivery.
 - [ ] **Deliberately NOT done in round 2: anything else to the render or display path.**
       The display path above is the leading suspect and a `CALayer`-contents or
       Metal-layer plate is the obvious next move — and shipping it now, unverified,

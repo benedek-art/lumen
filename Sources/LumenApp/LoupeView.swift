@@ -384,6 +384,11 @@ final class PhotoRenderModel: ObservableObject {
     /// `DraftLadder.costSample`. Cleared on a photo change: a new photograph's first
     /// frame continues nothing.
     private var lastDraftAt: UInt64?
+    /// The size the previous draft was RENDERED at, so the ladder can tell a
+    /// steady-state frame from the one that paid for a fresh decode at a new size —
+    /// see `DraftLadder.isRepresentative`. Cleared with `lastDraftAt` and for the same
+    /// reason.
+    private var lastDraftLongEdge: Int?
     /// Generation of the newest frame actually applied — `shouldShow`'s order input,
     /// so a slow old render can never overwrite a newer picture.
     private var appliedGeneration: UInt64 = 0
@@ -429,6 +434,7 @@ final class PhotoRenderModel: ObservableObject {
             settledRecipe = nil
             shownRecipe = nil
             lastDraftAt = nil
+            lastDraftLongEdge = nil
             revision &+= 1
             if let thumbnails,
                let preview = await thumbnails.load(
@@ -558,13 +564,29 @@ final class PhotoRenderModel: ObservableObject {
                                                   sincePreviousFrameMilliseconds: period,
                                                   handWasWaiting: Task.isCancelled)
                 lastDraftAt = landedAt
-                draftLadder.record(draftMilliseconds: cost,
-                                   renderedLongEdge: Swift.max(draftTarget, 64),
-                                   requested: draftRequested,
-                                   // Monotone downward while the hand is down: a rung
-                                   // earned back mid-drag is a visible change of
-                                   // sharpness, and at a rung boundary it oscillates.
-                                   allowStepUp: !gestureInFlight())
+                // ONLY A FRAME THAT MEASURES THE STEADY STATE TEACHES THE LADDER.
+                //
+                // The decode is keyed by the scale factor this size implies, so the
+                // first frame at any new size pays a fresh RAW decode no later frame at
+                // that size pays. Believing it makes every step down look like it did
+                // not help, and the ladder walks itself to the floor — a drag that gets
+                // blurrier the longer it is held. `DraftLadder.isRepresentative` holds
+                // the rule and the argument; `DraftLadderTests` shows the cascade it
+                // prevents, eight rungs of it.
+                let renderedLongEdge = Swift.max(draftTarget, 64)
+                if DraftLadder.isRepresentative(
+                    renderedLongEdge: renderedLongEdge,
+                    previousRenderedLongEdge: lastDraftLongEdge) {
+                    draftLadder.record(draftMilliseconds: cost,
+                                       renderedLongEdge: renderedLongEdge,
+                                       requested: draftRequested,
+                                       // Monotone downward while the hand is down: a
+                                       // rung earned back mid-drag is a visible change
+                                       // of sharpness, and at a rung boundary it
+                                       // oscillates.
+                                       allowStepUp: !gestureInFlight())
+                }
+                lastDraftLongEdge = renderedLongEdge
                 // THE SIZE DELIVERED, not the size asked for.
                 //
                 // This line used to report `draftTarget` — the request — so the HUD
