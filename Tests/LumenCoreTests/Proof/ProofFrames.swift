@@ -441,4 +441,28 @@ enum ProofFrames {
         }
         return image
     }
+
+    /// `cleanISO6400`'s scene under `NoiseProfile.forISO(iso)`'s own model — the
+    /// cross-ISO twin of `noisyChromaEdge(iso:)`, for asking where the LUMINANCE
+    /// travel's optimum sits at each gain. Same reasoning as there: the noise must be
+    /// the shape the engine's thresholds are denominated in, or the sweep measures
+    /// the mismatch instead of the slider.
+    static func noisyLumaFrame(width: Int = 128, height: Int = 128,
+                               seed: UInt64 = 6400, iso: Double = 6400) -> ImageBuffer
+    {
+        var rng = Noise(seed: seed)
+        var image = cleanISO6400(width: width, height: height)
+        let profile = NoiseProfile.forISO(iso)
+        for y in 0..<height {
+            for x in 0..<width {
+                var c = image[x, y]
+                for channel in 0..<3 {
+                    let v = Swift.max(c[channel], 0)
+                    c[channel] = Swift.max(v + rng.normal() * profile.sigma(at: v), 0)
+                }
+                image[x, y] = c
+            }
+        }
+        return image
+    }
 }

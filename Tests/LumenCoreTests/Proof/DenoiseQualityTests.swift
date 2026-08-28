@@ -204,6 +204,49 @@ final class DenoiseQualityTests: XCTestCase {
         }
     }
 
+    /// The Luminance twin of the colour-defaults pin above (docs/23 dossier queue
+    /// item 7): the same σ double-count was measured-and-fixed for chroma and
+    /// UNMEASURED for luma, whose anchors climb 0 → 25 → 40 with ISO on the same
+    /// "noise rises with gain" reasoning the chroma measurement convicted. The sweep
+    /// below is the measurement; the assertion pins whatever the anchors resolve to
+    /// against the best point on that ISO's own travel, so the curve has to be a
+    /// better number at every gain, not just a plausible one.
+    ///
+    /// Printed as a table (PERFPROBE-style) so the lane's log carries the optimum per
+    /// ISO — the number the anchors are answerable to.
+    func testTheISOAdaptiveLuminanceDefaultsLandNearTheirMeasuredOptimum() {
+        let clean = ProofFrames.cleanISO6400()
+        for iso in [400.0, 1600.0, 6400.0, 25600.0] {
+            let noisy = ProofFrames.noisyLumaFrame(iso: iso)
+            let block = ISODefaults.classic(forISO: iso)
+            let isoProfile = NoiseProfile.forISO(iso)
+            func score(_ luma: Double) -> Double {
+                ProofMetrics.rmsAgainst(clean, ClassicalDenoise(
+                    ClassicNR(luma: luma, chroma: 0),
+                    profile: isoProfile).apply(noisy))
+            }
+            var best = Double.infinity
+            var bestAt = 0.0
+            var travel: [String] = []
+            for step in 0...10 {
+                let s = Double(step) * 10
+                let r = score(s)
+                travel.append(String(format: "%.0f:%.4f", s, r))
+                if r < best { best = r; bestAt = s }
+            }
+            let resolved = score(block.luma)
+            print("LUMAPROBE ISO \(Int(iso)): default \(block.luma) scores "
+                  + String(format: "%.4f", resolved) + " best "
+                  + String(format: "%.4f", best) + " at \(Int(bestAt))  travel: "
+                  + travel.joined(separator: " "))
+            XCTAssertLessThan(resolved / best, 1.05,
+                              "ISO \(Int(iso)) resolves to Luminance \(block.luma), "
+                                  + "which scores \(resolved) against \(best) at the "
+                                  + "travel's best point (Luminance \(bestAt)) — the "
+                                  + "adaptive default is \(resolved / best)× the optimum")
+        }
+    }
+
     // MARK: - The texture axis
 
     /// Residual error is an average and can be satisfied by a stage that keeps the ramp

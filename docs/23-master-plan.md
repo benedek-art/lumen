@@ -475,15 +475,27 @@ and against Lightroom via owner-exported references.
       3. Mixer band centres are geometric (29.23°+45°k), not perceptual — orange
          sits ~21° off, foliage lands in Yellow's core: the single largest LR
          muscle-memory break; fix or formally accept
-      4. Masked grade reads default zone pivots, contradicting its own documented
-         contract (COLOR-16); masked Sat/Vibrance inherit invisible
-         density/protectSkin defaults (COLOR-27)
+      4. ~~Masked grade reads default zone pivots (COLOR-16); masked Sat/Vibrance
+         inherit invisible defaults (COLOR-27)~~ BOTH CLOSED: the local stage
+         inherits the global wheels' windows (`adoptingWindows(from:)`) and the
+         global density/protectSkin (`ColorAdjust.local`), stated once in
+         LumenCore and used by both paths — `LocalPlan` takes them as required
+         parameters so a call site cannot silently revert either. Structural
+         convictions in MaskingTests (global pivots must reach a masked grade;
+         global Protect Skin 0 must let a masked Sat −100 reach skin). Untouched
+         global panels render identically by construction.
       5. Point Color's eyedropper samples post-S6 while the engine compares at its
          stage input — a swatch picked with tone moves selects the wrong colour
       6. Dehaze GPU: sky guard missing on + branch, skyness on − branch (skies get
          more correction than the reference defines)
-      7. Denoise luminanceAnchors: the same σ double-count measured-and-fixed for
-         chroma, unmeasured for luma; one ISO-25600 harness run settles it
+      7. ~~Denoise luminanceAnchors double-count~~ MEASURED, ACQUITTED: the sweep
+         (`testTheISOAdaptiveLuminanceDefaultsLandNearTheirMeasuredOptimum`,
+         ProofFrames.noisyLumaFrame at each ISO's own profile) puts the resolved
+         defaults 0.0/0.2/1.1/0.6% off their travels' optima at ISO
+         400/1600/6400/25600 — the optimum genuinely climbs with gain here
+         (0→10→10→30), unlike chroma's flat field, so the anchors stand and the
+         pin now re-proves them on every push. LUMAPROBE table prints in the
+         lane log.
       8. Tint clamp unsurfaced (engine right, UI silent) + as-shot Kelvin/tint
          units unverifiable without RAW fixtures
       9. Capture sharpening: wire the dormant Richardson–Lucy or remove the dead
@@ -508,8 +520,13 @@ and against Lightroom via owner-exported references.
       judging) rides the next build; remaining A steps 3-9 in progress
 - [ ] First shipping-path golden that MOVES the six tone sliders through RenderGraph,
       preview + export scale
-- [ ] Tint honesty: tintLimit surfaced like effectiveHighlights; WB eyedropper cheap
-      again (cache the bisection)
+- [x] Tint honesty, the engine half: `WhiteBalanceEngine.effectiveTint` surfaces the
+      physics-bounded magenta exactly like `effectiveHighlights`; and the WB
+      eyedropper is cheap again — `tintLimit(kelvin:)` is memoized by exact kelvin,
+      so a `neutralizing` sweep runs ~140 bisections instead of ~3 000 (counter
+      asserted in TintGuardTests, plus a cache-equals-bisection identity test).
+      Still owed, riding the app batch: the panel badge that reads `effectiveTint`
+      and says "bounded by physics here" when it diverges from the slider.
 - [ ] Re-verify-then-fix at HEAD (the audit ledger is stale — verify first): TONE-01
       as-shot Kelvin · TONE-34 Auto highlight branch · COLOR-25 Protect Skin at
       Sat −100 · denoise Colour dead zone + ISO defaults incl. the unmeasured
