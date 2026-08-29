@@ -729,6 +729,28 @@ and against Lightroom via owner-exported references.
             keywording moves to `⌘⇧K`). Speed Edit turns out NOT to be blocked: docs/12
             §12.4 shares letters by tap-vs-hold on purpose, so it needs the
             discriminator built, not keys assigned
+      **Phase 6 — speed (items 20-26 all landed or scoped):**
+      - [x] item 24, the ⌘K palette. `ControlIndex` in LumenCore — catalogue plus
+            ranking, 12 tests. Match strength sorts first (exact ▸ prefix ▸
+            word-prefix ▸ substring ▸ subsequence) and the panel's canonical order
+            breaks ties; aliases carry what people type (`temp`, `nr`, `bw`, `wb`).
+            SCOPE STATED: it opens the section, promoting the Simple register via
+            `reveal`; it does NOT yet focus the individual row, which needs every
+            slider to carry a scroll identity — a change to every panel, not to the
+            palette. Each result names its destination, so the palette also teaches
+            the four workspaces
+      - [x] item 30's second half: keywording to ⌘⇧K in all three places — modifier,
+            `KeyGrammar` row, and the caption, which is the half that gets forgotten
+            and the half that becomes a promise of a dead key
+      - [x] item 25's RULES, wiring deliberately held. `SpeedEdit` in LumenCore:
+            docs/12 §12.4's eight letters, the tap/hold discriminator, the drag
+            arithmetic, 14 tests. Wiring changes when eight EXISTING keys fire — `S`
+            is Scopes and `H` is Histogram, and a tap must toggle while a hold edits,
+            so their action moves from key-down to key-up. Get it wrong and eight
+            working keys stop working, and no amount of reading verifies a
+            discriminator. Same split item 12 used
+      - [ ] item 25's wiring — needs a session that can watch a real key behave
+
       **Phase 4 — workspaces and accordions (SHIPPED, items 12-16):**
       - [x] item 12, the `Workspace` model in LumenCore, 48 Linux tests: four
             workspaces, docs/12 §12.1's canonical order carried as `canonicalRank`

@@ -69,6 +69,28 @@ struct ContentView: View {
         // the state for the same reason as the gesture sink — a closure built here would
         // be a new identity on every body pass, invalidating every slider in the tree.
         .environment(\.sliderFocusChanged, state.sliderFocusSink)
+        // AN OVERLAY, NOT A SHEET, and deliberately not routed through the presenter
+        // below. A sheet is modal, animates in, and dims what is behind it — right for
+        // Export, wrong for a thing you open, type four letters into and dismiss. It is
+        // also the reason it does not share `activeSheet`: the palette must be able to
+        // open while a sheet is up without either of them fighting for the presenter.
+        //
+        // The scrim takes a click so that dismissing is the obvious thing anywhere
+        // outside it, which is the grammar every other ⌘K palette has taught.
+        .overlay {
+            if state.showControlPalette {
+                ZStack(alignment: .top) {
+                    Color.black.opacity(0.12)
+                        .ignoresSafeArea()
+                        .contentShape(Rectangle())
+                        .onTapGesture { state.showControlPalette = false }
+                    ControlPalette()
+                        // Below the top rather than centred: a palette that opens over
+                        // the middle of the frame covers the photograph it is about.
+                        .padding(.top, 120)
+                }
+            }
+        }
         // One presenter, not three: chained `.sheet` modifiers on a single view are
         // not reliably independent, and "Export silently does nothing because the
         // keyboard sheet flag is also set" is not a failure anybody would diagnose.
@@ -407,19 +429,25 @@ private struct Sidebar: View {
             .background(Lumen.controlBackground)
             .clipShape(RoundedRectangle(cornerRadius: 4))
 
-            // ⌘K puts the cursor in the field rather than applying anything: the verb a
-            // photographer wants from a keyword shortcut is "let me type one". It also
+            // ⌘⇧K puts the cursor in the field rather than applying anything: the verb
+            // a photographer wants from a keyword shortcut is "let me type one". It also
             // opens the section, so the keywords already on the photo come into view
             // with the cursor.
+            //
+            // It was ⌘K until the control palette took that key (docs/29 §2.2, the
+            // owner's decision). Keywording is a deliberate, low-frequency act performed
+            // with the sidebar already open, so a modifier costs it nothing; the palette
+            // is the opposite, and its whole value is that ⌘K is the key your hands
+            // already know from every other tool.
             Button("Keyword the selection") {
                 keywordsExpanded = true
                 keywordFieldFocused = true
             }
             .buttonStyle(.borderless)
             .font(.system(size: 11))
-            .keyboardShortcut("k", modifiers: [.command])
+            .keyboardShortcut("k", modifiers: [.command, .shift])
             .disabled(state.editTargets.isEmpty)
-            .help("Type a keyword for the selection (⌘K)")
+            .help("Type a keyword for the selection (⌘⇧K)")
         }
     }
 

@@ -136,6 +136,16 @@ private struct LumenCommands: Commands {
             // fails. A computed `KeyEquivalent` is invisible to that scanner, so the
             // elegant loop would silently opt these four keys out of the one mechanism
             // that catches a dead shortcut.
+            CommandGroup(after: .toolbar) {
+                // In the Scene rather than beside the palette itself, for the reason
+                // ⌘1-⌘4 are: a `.keyboardShortcut` on a view that is not in the
+                // hierarchy is never registered, and the palette does not exist until
+                // this opens it. A key that only works once the thing it opens is
+                // already open is no key at all.
+                Button("Go to a Control…") { state.showControlPalette = true }
+                    .keyboardShortcut("k", modifiers: [.command])
+            }
+
             CommandMenu("Workspace") {
                 Button("Cull") { PanelLayout.shared.select(.cull) }
                     .keyboardShortcut("1", modifiers: [.command])

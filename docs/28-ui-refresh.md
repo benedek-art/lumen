@@ -896,8 +896,58 @@ was protecting.
     survives.
 24. **⌘K control palette** — type a slider name, it scrolls to and focuses. Nobody in the
     field has this; on macOS it reads as native.
+
+    **SHIPPED, with its scope stated honestly.** `ControlIndex` in LumenCore is the
+    catalogue and the ranking, with twelve tests — ranking is exactly the kind of rule
+    that is wrong in ways only examples reveal, and "sat" putting Capture Sharpening
+    above Saturation is not something anybody notices by reading code. Match strength
+    (exact ▸ prefix ▸ word-prefix ▸ substring ▸ subsequence) sorts first, the panel's own
+    canonical order breaks ties, and aliases carry the words people actually type: `temp`,
+    `nr`, `bw`, `b&w`, `wb`.
+
+    **What it does NOT do yet: focus the individual row.** It finds the control and opens
+    the section it lives in, promoting the Simple register through `PanelLayout.reveal`
+    if that section is hidden. Scrolling to and focusing the row itself needs every
+    slider to carry an identity the column can scroll to — a change to every panel rather
+    than to the palette — and typing "dehaze" and landing on an open Presence is the
+    large majority of the value with none of that risk. Written down here rather than
+    quietly omitted.
+
+    Each result names its destination ("Develop · Presence"), because a palette that
+    jumps somewhere unnamed is one a photographer stops trusting after the first
+    surprise — and it doubles as how they learn the four workspaces without being taught.
+
+    ⌘K is registered in the `Scene`'s commands, not beside the palette: a shortcut on a
+    view that is not in the hierarchy is never registered, and the palette does not exist
+    until the key opens it. Keywording moved to ⌘⇧K per the owner's decision, in all
+    three places — the modifier, the `KeyGrammar` row, AND the caption, which is the half
+    that gets forgotten and the half that turns into a promise of a dead key.
 25. **Speed Edit (D44)** — hold a key, drag anywhere on the photo. Capture One's
     most-praised feature; no macOS-native editor has it.
+
+    **RULES SHIPPED, WIRING DELIBERATELY NOT** — the same split item 12 used, and for the
+    same reason. `SpeedEdit` in LumenCore holds docs/12 §12.4's eight-letter map, the
+    tap/hold discriminator and the drag arithmetic, with fourteen tests. Wiring it means
+    changing when eight EXISTING keys fire: `S` is Scopes and `H` is Histogram today, and
+    under this grammar a tap toggles while a hold edits, so their action has to move from
+    key-down to key-up. Get the discriminator wrong and eight working keys stop working,
+    and none of that can be verified by reading — it needs a session that can watch a
+    real key behave.
+
+    Two rules worth naming because they are where this goes wrong:
+
+    - **Movement wins over time.** A photographer who presses and immediately drags has
+      committed inside 20 ms; making them wait out 150 ms first would put a visible hitch
+      at the start of every speed edit, which is the one place it has to feel instant.
+      Time is only the tie-breaker for a press that never moved.
+    - **A slow press of a non-editing key still does its job.** Holding `G` for half a
+      second because a hand is slow must still show the grid. Refusing would mean a
+      photographer cannot tell a slow press from a broken app, which is the worst failure
+      mode a discriminator has.
+
+    One window-width of drag is one full range for every parameter, so the hand learns
+    one distance rather than eight; ⇧ is a tenth, matching the slider's own fine drag
+    rather than inventing a second ratio for the same idea.
 26. **⌥-scroll** last of the six: wheel events have no end phase, so the gesture sink
     needs a timeout or every tick is a SQLite write and a scope re-bin.
 

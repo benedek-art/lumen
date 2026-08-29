@@ -874,6 +874,12 @@ final class AppState: ObservableObject {
     /// Which modal is up. Three independent booleans let two of them be true at once,
     /// which a single presenter cannot honour; these stay as the vocabulary every call
     /// site already speaks, and all three agree on one source of truth.
+    /// ⌘K's palette. Not a `SheetKind`: a sheet is modal and animates in, and this is a
+    /// thing you open, type four letters into and dismiss — closer to a menu than to the
+    /// export dialog. Published because the chord that opens it lives in a `Scene`'s
+    /// commands and the view that draws it does not.
+    @Published var showControlPalette = false
+
     @Published var activeSheet: SheetKind?
 
     var showKeyReference: Bool {
