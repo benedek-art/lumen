@@ -242,21 +242,32 @@ struct MaskPanel: View {
                 .foregroundStyle(showing ? Lumen.primaryText : Lumen.secondaryText)
                 .help("O shows the overlay for this mask")
 
-                Menu(state.maskOverlayMode.label) {
+                // NO GLYPHS ON EITHER OF THESE, and the tint menu is why the rule
+                // exists. The four colours are the one list in this panel whose meaning
+                // IS a colour, and `LumenMenuItem` draws its glyph in `secondaryText`
+                // like every other piece of chrome in the app — four identical grey
+                // circles labelled Red, Green, White and Black would be a worse row
+                // than no circle at all. The modes have no honest shape either: "Image
+                // on Black" is a compositing rule, not an object.
+                LumenMenu(title: state.maskOverlayMode.label,
+                          help: "⌥O cycles the six modes") {
                     ForEach(MaskOverlay.Mode.allCases, id: \.self) { m in
-                        Button(m.label) { state.maskOverlayMode = m }
+                        LumenMenuItem(title: m.label,
+                                      isSelected: state.maskOverlayMode == m) {
+                            state.maskOverlayMode = m
+                        }
                     }
                 }
-                .fixedSize()
-                .help("⌥O cycles the six modes")
 
-                Menu(state.maskOverlayTint.label) {
+                LumenMenu(title: state.maskOverlayTint.label,
+                          help: "⇧O cycles red, green, white and black") {
                     ForEach(MaskOverlay.Tint.allCases, id: \.self) { t in
-                        Button(t.label) { state.maskOverlayTint = t }
+                        LumenMenuItem(title: t.label,
+                                      isSelected: state.maskOverlayTint == t) {
+                            state.maskOverlayTint = t
+                        }
                     }
                 }
-                .fixedSize()
-                .help("⇧O cycles red, green, white and black")
                 Spacer(minLength: 0)
             }
             .frame(height: Lumen.rowHeight)
@@ -1141,35 +1152,32 @@ struct MaskPanel: View {
     /// worth pressing rather than as a corner of a header.
     private func kindMenu(label: String, prominent: Bool = false,
                           action: @escaping (MaskKind) -> Void) -> some View {
-        Menu {
-            Section("Drawn") {
-                ForEach(MaskPanel.drawnKinds, id: \.self) { k in
-                    Button(MaskPanel.kindName(k)) { action(k) }
-                }
+        // `prominent` used to mean a bigger glyph, a bigger word and four points of
+        // extra padding — a second size of the same control, hand-tuned here. It means
+        // WIDTH now, because the type and the height belong to `LumenMenu` and a
+        // control that is one size everywhere is most of what makes a panel look drawn
+        // rather than assembled. The empty state is still the only thing on its row,
+        // and a 170-point target there is unmissable without being a second design.
+        LumenMenu(title: label, symbol: "plus",
+                  minWidth: prominent ? 170 : nil,
+                  help: "Subject, Background and People are computed on this Mac by "
+                      + "Vision, with no download") {
+            LumenMenuHeader(title: "Drawn")
+            ForEach(MaskPanel.drawnKinds, id: \.self) { k in
+                LumenMenuItem(title: MaskPanel.kindName(k),
+                              symbol: MaskPanel.kindSymbol(k)) { action(k) }
             }
-            Section("Range") {
-                ForEach(MaskPanel.rangeKinds, id: \.self) { k in
-                    Button(MaskPanel.kindName(k)) { action(k) }
-                }
+            LumenMenuHeader(title: "Range")
+            ForEach(MaskPanel.rangeKinds, id: \.self) { k in
+                LumenMenuItem(title: MaskPanel.kindName(k),
+                              symbol: MaskPanel.kindSymbol(k)) { action(k) }
             }
-            Section("AI — on this Mac") {
-                ForEach(MaskPanel.visionKinds, id: \.self) { k in
-                    Button(MaskPanel.kindName(k)) { action(k) }
-                }
+            LumenMenuHeader(title: "AI — on this Mac")
+            ForEach(MaskPanel.visionKinds, id: \.self) { k in
+                LumenMenuItem(title: MaskPanel.kindName(k),
+                              symbol: MaskPanel.kindSymbol(k)) { action(k) }
             }
-        } label: {
-            HStack(spacing: prominent ? 5 : 3) {
-                Image(systemName: "plus")
-                    .font(.system(size: prominent ? 11 : 9, weight: .semibold))
-                Text(label)
-                    .font(.system(size: prominent ? 12 : 10,
-                                  weight: prominent ? .medium : .regular))
-            }
-            .padding(.vertical, prominent ? 4 : 0)
         }
-        .fixedSize()
-        .help("Subject, Background and People are computed on this Mac by Vision, with "
-              + "no download")
     }
 
     /// Two chevrons, for a list whose ORDER changes the picture.
@@ -1320,6 +1328,35 @@ struct MaskPanel: View {
         case .aiPerson: return "People"
         case .aiLandscape: return "Landscape"
         case .depthRange: return "Depth Range"
+        }
+    }
+
+    /// One glyph per kind, and every one of them draws what the kind DOES: the brush is
+    /// a brush, the linear gradient is a square lit from one side, the radial is a
+    /// circle inside a circle, the two Colour Pick kinds carry the eyedropper they are
+    /// operated with. The whole roster is covered rather than the three lists the menu
+    /// currently offers, so a kind that comes back — Depth Range, the model kinds —
+    /// cannot arrive glyphless and leave a hole in a column of icons.
+    ///
+    /// This is the owner's "add visuals a little bit more" where it pays best: an add
+    /// menu is opened knowing roughly what you want, and a shape is recognised before a
+    /// word is read.
+    static func kindSymbol(_ kind: MaskKind) -> String {
+        switch kind {
+        case .brush: return "paintbrush"
+        case .linear: return "square.lefthalf.filled"
+        case .radial: return "circle.circle"
+        case .lumaRange: return "circle.lefthalf.filled"
+        case .colorRange: return "paintpalette"
+        case .similarity: return "eyedropper"
+        case .similarityLine: return "eyedropper.halffull"
+        case .aiSubject: return "viewfinder"
+        case .aiSky: return "cloud.sun"
+        case .aiBackground: return "photo"
+        case .aiObject: return "cube"
+        case .aiPerson: return "person.2"
+        case .aiLandscape: return "mountain.2"
+        case .depthRange: return "cube.transparent"
         }
     }
 

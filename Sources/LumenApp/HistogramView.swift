@@ -167,6 +167,16 @@ struct HistogramView: View {
         // THE SPACE PICKER, demoted. An inline `Picker` in a context menu draws the
         // checkmark itself, so the current space stays visible where it is chosen without
         // this view printing it a third time.
+        //
+        // AND IT IS THE ONE PICKER IN THE APP THAT STAYED A SYSTEM ONE, when every
+        // pull-down the owner could see became a `LumenMenu`. A right-click menu has no
+        // content view SwiftUI can style — it is an `NSMenu`, summoned by a gesture, and
+        // `.pickerStyle(.inline)` inside one draws rows rather than the bezelled popup
+        // that was the complaint. Nothing here is a control anybody looks at: the
+        // visible way to change the readout space is the readout label below, which
+        // cycles on click and says so in its tooltip. So this stays a context menu, and
+        // the choice keeps the visible control it already had rather than gaining a
+        // second one twenty points away.
         .contextMenu {
             Picker("Readout space", selection: $state.readoutSpace) {
                 ForEach(ReadoutSpace.allCases, id: \.self) { space in

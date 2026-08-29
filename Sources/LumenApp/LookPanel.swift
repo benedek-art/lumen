@@ -686,13 +686,18 @@ struct LookPanel: View {
     @ViewBuilder
     private func transformControls(base: DisplayTransformParams) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            pickerRow("Preset") {
-                Picker("", selection: presetBinding) {
-                    ForEach(DisplayTransformParams.presetNames, id: \.self) { name in
-                        Text(name).tag(name)
-                    }
-                }
-            }
+            // The five presets, drawn by this app and each one carrying the number it
+            // is actually made of: `contrast` is the log-log slope at mid-grey, which
+            // is the single value that separates Soft from Punchy, and it is read off
+            // `DisplayTransformParams.preset(named:)` rather than typed here so the
+            // annotation cannot drift from the preset it describes.
+            //
+            // No glyphs: a tone curve has no shape a 10-point icon can carry, and five
+            // invented ones would be worse than none.
+            LumenMenuPicker(title: "Preset",
+                            options: transformPresetOptions,
+                            selection: presetBinding,
+                            help: "The tone curve every override below departs from")
 
             // ONE FOLD, NOT TWO. Opening Display Transform used to reveal this picker
             // and a second chevron, "Transform detail", over the four rows below it. A
@@ -810,14 +815,18 @@ struct LookPanel: View {
         let film = state.currentRecipe.look.filmLab
         let stock = film.flatMap { FilmStock.named($0.stock) }
 
-        pickerRow("Stock") {
-            Picker("", selection: stockBinding) {
-                Text("None").tag("")
-                ForEach(FilmStock.all, id: \.id) { candidate in
-                    Text(candidate.name).tag(candidate.id)
-                }
-            }
-        }
+        // "None" IS THE FIRST OPTION, exactly as it was, and it is the empty string
+        // rather than a nil selection — `stockBinding` reads "" for "no film block" and
+        // writes `look.filmLab = nil` when it is chosen, so the sentinel has to survive
+        // the change of control or picking None would stop unloading the stock.
+        //
+        // Each stock says what kind of emulsion it is in the annotation column, which
+        // is the one thing the names do not: a reversal stock clips where a negative
+        // rolls off, and that is the difference a photographer is choosing between.
+        LumenMenuPicker(title: "Stock",
+                        options: filmStockOptions,
+                        selection: stockBinding,
+                        help: "Loading a stock replaces the Display Transform")
 
         if let film {
             LumenSlider(title: "Strength",
@@ -922,20 +931,40 @@ struct LookPanel: View {
 
     // MARK: - Shared bindings and helpers
 
-    /// A label plus a menu, on the same grid as a slider row.
-    private func pickerRow<Content: View>(_ title: String,
-                                          @ViewBuilder _ content: () -> Content) -> some View {
-        HStack(spacing: 6) {
-            Text(title)
-                .font(.system(size: 11))
-                .foregroundStyle(Lumen.secondaryText)
-                .frame(width: Lumen.labelWidth, alignment: .leading)
-            content()
-                .labelsHidden()
-                .pickerStyle(.menu)
-                .controlSize(.small)
+    // `pickerRow` used to live here, and it is gone with the two `Picker`s it wrapped.
+    // Its whole job was to stand a label at `Lumen.labelWidth` beside a control AppKit
+    // would otherwise have labelled at whatever width the word happened to be;
+    // `LumenMenuPicker` does that itself, off the same constant, so keeping the wrapper
+    // would have left two definitions of one rule for the next person to choose
+    // between.
+
+    /// The five display-transform presets as menu rows.
+    private var transformPresetOptions: [LumenMenuOption<String>] {
+        DisplayTransformParams.presetNames.map { name in
+            LumenMenuOption(name, name, detail: transformPresetDetail(name))
         }
-        .frame(height: Lumen.rowHeight)
+    }
+
+    /// What a preset is, in one number. Linear is the exception and says so: it is the
+    /// escape hatch — straight scene→display scaling, clipped at display white — so
+    /// printing a contrast for it would name a curve it does not run.
+    private func transformPresetDetail(_ name: String) -> String {
+        let params = DisplayTransformParams.preset(named: name)
+        if params.linear { return "no tone curve" }
+        return "contrast " + String(format: "%.1f", params.contrast)
+    }
+
+    /// None, then the six stocks, each annotated with what it is.
+    private var filmStockOptions: [LumenMenuOption<String>] {
+        [LumenMenuOption("", "None")]
+            + FilmStock.all.map { stock in
+                LumenMenuOption(stock.id, stock.name, detail: filmStockDetail(stock))
+            }
+    }
+
+    private func filmStockDetail(_ stock: FilmStock) -> String {
+        let base = stock.kind == .reversal ? "Reversal" : "Negative"
+        return stock.monochrome ? "B&W " + base.lowercased() : base
     }
 
     /// The −100…+100, default-0 row this panel is mostly made of.

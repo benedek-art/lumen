@@ -72,6 +72,23 @@ struct LumenMenu<Content: View>: View {
     var symbol: String?
     /// Draw the trigger as a glyph alone, for strips where a word would not fit.
     var iconOnly: Bool = false
+    /// OPEN IN PLACE INSTEAD OF IN A POPOVER, for the one menu that lives inside another
+    /// popover.
+    ///
+    /// macOS will not nest them. A SwiftUI `.popover` is an `NSPopover`, an `NSPopover` is
+    /// transient by default, and a transient popover closes when it loses key — which is
+    /// exactly what presenting a second one does. So the Filter popover's metadata menu,
+    /// left as a popover, would have dismissed its own parent on the click that opened it
+    /// and both would have vanished. `NSMenu` does not have this problem, because it runs
+    /// its own modal tracking loop rather than taking key, which is why nobody noticed
+    /// while these were all `Menu`s.
+    ///
+    /// Rather than leave that one site on the AppKit control the owner asked to be rid
+    /// of, it expands downward inside its parent. It is arguably the better shape there
+    /// anyway: a list that pushes the popover open reads as part of the filter you are
+    /// building, where a second floating panel over the first reads as a stack of
+    /// windows.
+    var inline: Bool = false
     /// Widen the trigger so a row of them lines up, or let it hug its title.
     var minWidth: CGFloat?
     var help: String?
@@ -89,7 +106,73 @@ struct LumenMenu<Content: View>: View {
         return Lumen.controlSurface
     }
 
+    @ViewBuilder
     var body: some View {
+        if inline {
+            VStack(alignment: .leading, spacing: 3) {
+                trigger
+                if isOpen {
+                    VStack(alignment: .leading, spacing: 1) {
+                        content()
+                    }
+                    .padding(4)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    // A WELL, not a card: the list is opening INSIDE something rather
+                    // than over it, so it should read as a recess in the surface it
+                    // pushed apart. `windowBase` is one step below `panel`, which is the
+                    // same relationship the trough between two section cards has.
+                    .background(Lumen.windowBase)
+                    .lumenWell(radius: Lumen.radiusControl)
+                    .environment(\.lumenMenuDismiss, { isOpen = false })
+                    // The same unfold every other disclosure in this app uses. A list
+                    // that appears instantly inside a popover reads as the popover
+                    // having been replaced rather than having grown.
+                    .transition(.opacity.combined(
+                        with: .scale(scale: 0.97, anchor: .top)))
+                }
+            }
+            // On the stack rather than on the trigger: what moves when this opens is the
+            // list arriving and everything below it being pushed down, and neither of
+            // those is inside the button.
+            .animation(.spring(response: 0.26, dampingFraction: 1), value: isOpen)
+        } else {
+            trigger
+                .popover(isPresented: $isOpen, arrowEdge: .bottom) {
+                    VStack(alignment: .leading, spacing: 1) {
+                        content()
+                    }
+                    .padding(5)
+                    .frame(minWidth: max(minWidth ?? 0, 168), alignment: .leading)
+                    // `.fixedSize` vertically only: the popover should be exactly as tall
+                    // as its rows and at least as wide as the trigger that opened it,
+                    // which is the proportion a pull-down is supposed to have and the one
+                    // AppKit gets right.
+                    .fixedSize(horizontal: false, vertical: true)
+                    .background(Lumen.panel)
+                    // THE SYSTEM'S OWN GROUND, REPLACED. A macOS popover paints a vibrancy
+                    // material behind whatever you put in it — the frosted, faintly
+                    // blue-shifted panel every stock menu in the OS sits on — and a
+                    // `.background` inside the content cannot reach it: the material is
+                    // under the content view, not behind the rows. Left alone, this
+                    // control would have swapped an AppKit popup for a hand-drawn list on
+                    // the same AppKit ground, which is most of the way to the same
+                    // complaint. `presentationBackground` is the one modifier that reaches
+                    // the presentation itself. `Lumen.panel` is the flat 0.20 grey the
+                    // develop column is painted in, so an open menu reads as an extension
+                    // of the panel that opened it rather than as a window from a
+                    // different application.
+                    //
+                    // Vibrancy is also a Law 7 problem, not only a stylistic one: a
+                    // translucent surface takes its tint from whatever is behind it, and
+                    // what is behind this is a photograph somebody is judging the colour
+                    // of.
+                    .presentationBackground(Lumen.panel)
+                    .environment(\.lumenMenuDismiss, { isOpen = false })
+                }
+        }
+    }
+
+    private var trigger: some View {
         Button {
             isOpen.toggle()
         } label: {
@@ -132,34 +215,6 @@ struct LumenMenu<Content: View>: View {
         .animation(.easeOut(duration: 0.12), value: hovering)
         .animation(.spring(response: 0.26, dampingFraction: 1), value: isOpen)
         .help(help ?? title)
-        .popover(isPresented: $isOpen, arrowEdge: .bottom) {
-            VStack(alignment: .leading, spacing: 1) {
-                content()
-            }
-            .padding(5)
-            .frame(minWidth: max(minWidth ?? 0, 168), alignment: .leading)
-            // `.fixedSize` vertically only: the popover should be exactly as tall as its
-            // rows and at least as wide as the trigger that opened it, which is the
-            // proportion a pull-down is supposed to have and the one AppKit gets right.
-            .fixedSize(horizontal: false, vertical: true)
-            .background(Lumen.panel)
-            // THE SYSTEM'S OWN GROUND, REPLACED. A macOS popover paints a vibrancy
-            // material behind whatever you put in it — the frosted, faintly blue-shifted
-            // panel every stock menu in the OS sits on — and a `.background` inside the
-            // content cannot reach it: the material is under the content view, not behind
-            // the rows. Left alone, this control would have swapped an AppKit popup for a
-            // hand-drawn list on the same AppKit ground, which is most of the way to the
-            // same complaint. `presentationBackground` is the one modifier that reaches
-            // the presentation itself. `Lumen.panel` is the flat 0.20 grey the develop
-            // column is painted in, so an open menu reads as an extension of the panel
-            // that opened it rather than as a window from a different application.
-            //
-            // Vibrancy is also a Law 7 problem, not only a stylistic one: a translucent
-            // surface takes its tint from whatever is behind it, and what is behind this
-            // is a photograph somebody is judging the colour of.
-            .presentationBackground(Lumen.panel)
-            .environment(\.lumenMenuDismiss, { isOpen = false })
-        }
     }
 }
 

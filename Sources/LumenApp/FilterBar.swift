@@ -274,93 +274,122 @@ struct FilterBar: View {
     /// bar by docs/10 §10.8, and they do not fit in it as five more visible groups — a
     /// strip that wraps is a strip that stops being readable at a glance.
     private var metadataMenu: some View {
-        Menu {
-            Section("Camera") {
-                if state.cameraChoices.isEmpty {
-                    Text("No camera has been read yet")
-                }
-                ForEach(state.cameraChoices) { camera in
-                    Button {
-                        toggle(&state.filter.cameras, camera.name)
-                    } label: {
-                        if state.filter.cameras.contains(camera.name) {
-                            Label("\(camera.name)  (\(camera.count))", systemImage: "checkmark")
-                        } else {
-                            Text("\(camera.name)  (\(camera.count))")
+        // `inline: true`, and it is a correctness fix rather than a style choice.
+        //
+        // macOS will not nest popovers: an `NSPopover` is transient by default and a
+        // transient popover closes when it loses key, which is exactly what presenting a
+        // second one does. As a popover, this menu would have dismissed the Filter
+        // popover it lives in on the very click that opened it, taking itself with it —
+        // and nobody would have seen the bug until the macOS lane, because none of this
+        // type-checks anywhere else. `Menu` never had the problem, because `NSMenu` runs
+        // its own tracking loop instead of taking key, which is why it went unnoticed for
+        // as long as this was one.
+        //
+        // See `LumenMenu.inline`. The list expands downward inside the Filter popover,
+        // which is also the better shape here: it reads as part of the filter being
+        // built rather than as a second window over the first.
+        LumenMenu(title: metadataTitle, symbol: "camera.aperture", inline: true,
+                  help: "Camera, lens, ISO, keyword and stack state") {
+            // THE COUNTS MOVE TO THE ANNOTATION COLUMN. They used to be glued into the
+            // label — "Canon EOS R5  (214)" — as one string, which is how you get a
+            // column of names whose right edge lands wherever each name happened to
+            // end. `detail:` is drawn dim and trailing, so the eye reads a column of
+            // bodies and a column of numbers rather than a stack of ragged sentences.
+            //
+            // NO GLYPHS IN THIS ONE, and that is a rule rather than an omission: the
+            // only honest glyph for a camera row is a camera, and one camera repeated
+            // down the whole left margin is texture, not information. The headers
+            // already say which kind of thing each group holds.
+            //
+            // This is also the only menu in the app that opens from INSIDE another
+            // popover — the Filter popover is its parent — which is worth knowing
+            // before anything here is moved.
+            //
+            // Each section is a `Group` because `ViewBuilder` stops at ten children:
+            // five headers, five lists and three empty-state rows is thirteen, and the
+            // failure mode is a compiler error about `buildExpression` that never
+            // mentions arity at all.
+            ScrollView {
+                VStack(alignment: .leading, spacing: 1) {
+                    Group {
+                        LumenMenuHeader(title: "Camera")
+                        if state.cameraChoices.isEmpty {
+                            LumenMenuItem(title: "No camera has been read yet",
+                                          isEnabled: false) {}
+                        }
+                        ForEach(state.cameraChoices) { camera in
+                            LumenMenuItem(title: camera.name,
+                                          detail: "\(camera.count)",
+                                          isSelected: state.filter.cameras
+                                              .contains(camera.name)) {
+                                toggle(&state.filter.cameras, camera.name)
+                            }
+                        }
+                    }
+                    Group {
+                        LumenMenuHeader(title: "Lens")
+                        if state.lensChoices.isEmpty {
+                            LumenMenuItem(title: "No lens has been read yet",
+                                          isEnabled: false) {}
+                        }
+                        ForEach(state.lensChoices) { lens in
+                            LumenMenuItem(title: lens.name,
+                                          detail: "\(lens.count)",
+                                          isSelected: state.filter.lenses
+                                              .contains(lens.name)) {
+                                toggle(&state.filter.lenses, lens.name)
+                            }
+                        }
+                    }
+                    Group {
+                        LumenMenuHeader(title: "ISO")
+                        ForEach(ISOBand.allCases) { band in
+                            LumenMenuItem(title: band.rawValue,
+                                          isSelected: state.filter.isoBands
+                                              .contains(band)) {
+                                toggle(&state.filter.isoBands, band)
+                            }
+                        }
+                    }
+                    Group {
+                        LumenMenuHeader(title: "Keyword")
+                        if state.keywordVocabulary.isEmpty {
+                            LumenMenuItem(title: "No keywords yet",
+                                          isEnabled: false) {}
+                        }
+                        ForEach(state.keywordVocabulary) { keyword in
+                            LumenMenuItem(title: keyword.name,
+                                          detail: "\(keyword.count)",
+                                          isSelected: state.filter.keywords
+                                              .contains(keyword.name)) {
+                                toggle(&state.filter.keywords, keyword.name)
+                            }
+                        }
+                    }
+                    Group {
+                        LumenMenuHeader(title: "Stacks")
+                        ForEach(StackFilter.allCases) { option in
+                            LumenMenuItem(title: option.rawValue,
+                                          isSelected: state.filter.stackState == option) {
+                                state.filter.stackState = option
+                            }
                         }
                     }
                 }
             }
-            Section("Lens") {
-                if state.lensChoices.isEmpty {
-                    Text("No lens has been read yet")
-                }
-                ForEach(state.lensChoices) { lens in
-                    Button {
-                        toggle(&state.filter.lenses, lens.name)
-                    } label: {
-                        if state.filter.lenses.contains(lens.name) {
-                            Label("\(lens.name)  (\(lens.count))", systemImage: "checkmark")
-                        } else {
-                            Text("\(lens.name)  (\(lens.count))")
-                        }
-                    }
-                }
-            }
-            Section("ISO") {
-                ForEach(ISOBand.allCases) { band in
-                    Button {
-                        toggle(&state.filter.isoBands, band)
-                    } label: {
-                        if state.filter.isoBands.contains(band) {
-                            Label(band.rawValue, systemImage: "checkmark")
-                        } else {
-                            Text(band.rawValue)
-                        }
-                    }
-                }
-            }
-            Section("Keyword") {
-                if state.keywordVocabulary.isEmpty {
-                    Text("No keywords yet")
-                }
-                ForEach(state.keywordVocabulary) { keyword in
-                    Button {
-                        toggle(&state.filter.keywords, keyword.name)
-                    } label: {
-                        if state.filter.keywords.contains(keyword.name) {
-                            Label("\(keyword.name)  (\(keyword.count))",
-                                  systemImage: "checkmark")
-                        } else {
-                            Text("\(keyword.name)  (\(keyword.count))")
-                        }
-                    }
-                }
-            }
-            Section("Stacks") {
-                ForEach(StackFilter.allCases) { option in
-                    Button {
-                        state.filter.stackState = option
-                    } label: {
-                        if state.filter.stackState == option {
-                            Label(option.rawValue, systemImage: "checkmark")
-                        } else {
-                            Text(option.rawValue)
-                        }
-                    }
-                }
-            }
-        } label: {
-            HStack(spacing: 3) {
-                Image(systemName: "camera.aperture")
-                    .font(.system(size: 9))
-                Text(metadataTitle)
-                    .font(.system(size: 10))
-                    .lineLimit(1)
-            }
+            // The one menu in the app whose length is the LIBRARY's rather than the
+            // design's: a roll shot on four bodies with sixty keywords fills this list
+            // sixty rows deep, and `LumenMenu` sizes itself to its content. AppKit
+            // scrolled its own menus; ours has to be told to.
+            //
+            // 240 rather than 320, because opening in place makes this height ADDITIVE:
+            // the Filter popover already holds five groups, and a list that expands
+            // inside it pushes the whole popover taller rather than floating over it. Ten
+            // rows is still more than a normal shoot ever needs, and it leaves the parent
+            // room to stay on screen on a laptop display.
+            .frame(maxHeight: 240)
+            .scrollIndicators(.never)
         }
-        .fixedSize()
-        .help("Camera, lens, ISO, keyword and stack state")
     }
 
     private var metadataTitle: String {
@@ -418,37 +447,59 @@ struct FilterBar: View {
     // MARK: View controls
 
     private var sortMenu: some View {
-        Menu {
+        LumenMenu(title: state.sortOrder.rawValue, symbol: "arrow.up.arrow.down",
+                  help: "Sort order") {
             ForEach(SortOrder.allCases) { order in
-                Button {
+                LumenMenuItem(title: order.rawValue,
+                              symbol: sortSymbol(order),
+                              detail: unavailableNote(order),
+                              isSelected: order == state.sortOrder,
+                              isEnabled: unavailableReason(order) == nil) {
                     state.sortOrder = order
-                } label: {
-                    if order == state.sortOrder {
-                        Label(sortTitle(order), systemImage: "checkmark")
-                    } else {
-                        Text(sortTitle(order))
-                    }
                 }
-                .disabled(unavailableReason(order) != nil)
-            }
-        } label: {
-            HStack(spacing: 3) {
-                Image(systemName: "arrow.up.arrow.down")
-                    .font(.system(size: 9))
-                Text(state.sortOrder.rawValue)
-                    .font(.system(size: 10))
-                    .lineLimit(1)
+                // The FULL sentence, on the row it is about. The short form in the
+                // annotation column is what keeps the popover the width of a sort key
+                // instead of the width of an explanation — twelve keys against a
+                // sixty-character clause would have set this list nearly five hundred
+                // points wide — and the tooltip is where the clause goes on living. A
+                // disabled key still has to say what it is waiting for.
+                .help(unavailableReason(order)
+                      ?? "Order the roll by \(order.rawValue.lowercased())")
             }
         }
-        .fixedSize()
-        .help("Sort order")
+    }
+
+    /// Twelve keys, twelve glyphs, and every one of them is the thing the key sorts by
+    /// rather than a decoration on it — a star for the stars, a flag for the flags, a
+    /// clock for the time. The list earns its icon column: this is the one menu in the
+    /// bar you open knowing what you want, and a glyph is found faster than a word.
+    private func sortSymbol(_ order: SortOrder) -> String {
+        switch order {
+        case .captureTime: return "clock"
+        case .addedOrder: return "tray.and.arrow.down"
+        case .editTime: return "pencil"
+        case .rating: return "star"
+        case .flag: return "flag"
+        case .label: return "tag"
+        case .filename: return "textformat"
+        case .fileType: return "doc"
+        case .aspectRatio: return "aspectratio"
+        case .userOrder: return "rectangle.stack"
+        case .sharpness: return "magnifyingglass"
+        case .aesthetic: return "sparkles"
+        }
     }
 
     /// A disabled key says what it is waiting for. An ordering that silently does
     /// nothing is the failure mode this whole file is written against.
-    private func sortTitle(_ order: SortOrder) -> String {
-        guard let reason = unavailableReason(order) else { return order.rawValue }
-        return "\(order.rawValue) — \(reason)"
+    ///
+    /// Two lengths of the same fact: this is the annotation column's version, three
+    /// words wide, and `unavailableReason` is the sentence the row's tooltip carries.
+    /// `scoreSortsPending` is written as prose because that is what a tooltip wants;
+    /// prose in a trailing annotation sets the width of the entire list.
+    private func unavailableNote(_ order: SortOrder) -> String? {
+        guard let reason = unavailableReason(order) else { return nil }
+        return reason == SortOrder.scoreSortsPending ? "not built yet" : reason
     }
 
     private func unavailableReason(_ order: SortOrder) -> String? {

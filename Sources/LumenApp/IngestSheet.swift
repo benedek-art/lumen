@@ -180,24 +180,43 @@ struct IngestSheet: View {
         VStack(alignment: .leading, spacing: 2) {
             LumenSectionHeader(title: "Source")
             IngestFieldRow("Volume") {
-                Menu {
+                // THE NAME, NOT THE PATH. The old trigger printed the whole POSIX path
+                // head-truncated — "…/Volumes/EOS_R5/DCIM" — because an `NSPopUpButton`
+                // will happily print a hundred characters and let the truncation sort
+                // it out. What a photographer identifies a card by is its name, so the
+                // trigger says that and the tooltip carries the path in full, which is
+                // the only place the path was ever actually read.
+                LumenMenu(title: sourceURL?.lastPathComponent
+                              ?? "Choose a card or folder",
+                          symbol: sourceSymbol,
+                          minWidth: 220,
+                          help: sourceURL?.path
+                              ?? "The card or folder these frames are copied from") {
                     ForEach(volumes, id: \.self) { volume in
-                        Button(ingestVolumeLabel(volume)) { chooseSource(volume) }
+                        // "(DCIM)" was inside the name; it is an annotation about the
+                        // volume rather than part of what it is called, so it sits in
+                        // the annotation column where the eye can skip it — and the
+                        // card gets the card glyph, which is faster than either.
+                        LumenMenuItem(title: ingestVolumeName(volume),
+                                      symbol: ingestLooksLikeCard(volume)
+                                          ? "sdcard" : "externaldrive",
+                                      detail: ingestLooksLikeCard(volume)
+                                          ? "DCIM" : nil,
+                                      isSelected: volume == sourceURL) {
+                            chooseSource(volume)
+                        }
                     }
                     if volumes.isEmpty {
-                        Text("No mounted volumes found")
+                        LumenMenuItem(title: "No mounted volumes found",
+                                      symbol: "exclamationmark.triangle",
+                                      isEnabled: false) {}
                     }
-                    Divider()
-                    Button("Rescan volumes") { refreshVolumes() }
-                    Button("Choose Folder…") { browseForSource() }
-                } label: {
-                    Text(sourceURL.map { $0.path } ?? "Choose a card or folder")
-                        .font(.system(size: 11))
-                        .lineLimit(1)
-                        .truncationMode(.head)
+                    LumenMenuDivider()
+                    LumenMenuItem(title: "Rescan volumes",
+                                  symbol: "arrow.clockwise") { refreshVolumes() }
+                    LumenMenuItem(title: "Choose Folder…",
+                                  symbol: "folder") { browseForSource() }
                 }
-                .controlSize(.small)
-                .frame(maxWidth: 380)
             }
 
             HStack(spacing: 6) {
@@ -518,6 +537,15 @@ struct IngestSheet: View {
 
     // MARK: Source scanning
 
+    /// The trigger's glyph: what the chosen source IS, or the shape of the thing you
+    /// are being asked to choose while there is nothing chosen. A card and a folder are
+    /// different objects to a photographer standing at a reader, and the DCIM
+    /// heuristic already knows which one this is.
+    private var sourceSymbol: String {
+        guard let url = sourceURL else { return "externaldrive" }
+        return ingestLooksLikeCard(url) ? "sdcard" : "folder"
+    }
+
     private func refreshVolumes() {
         volumes = ingestMountedVolumes()
         if sourceURL == nil, let card = volumes.first(where: { ingestLooksLikeCard($0) }) {
@@ -588,10 +616,12 @@ private func ingestMountedVolumes() -> [URL] {
     return mounted
 }
 
-private func ingestVolumeLabel(_ url: URL) -> String {
+/// What the volume calls itself. The DCIM mark used to be glued on the end of this
+/// string; the menu draws it in its own annotation column now, so the name comes back
+/// as a name.
+private func ingestVolumeName(_ url: URL) -> String {
     let values = try? url.resourceValues(forKeys: [.volumeNameKey])
-    let name = values?.volumeName ?? url.lastPathComponent
-    return ingestLooksLikeCard(url) ? name + "  (DCIM)" : name
+    return values?.volumeName ?? url.lastPathComponent
 }
 
 /// The DCIM heuristic: a directory named DCIM at the volume root means "camera card".

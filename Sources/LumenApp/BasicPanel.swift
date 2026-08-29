@@ -38,17 +38,27 @@ private struct WBIlluminant: Identifiable {
     let name: String
     let kelvin: Double
     let tint: Double
+    /// The glyph the preset menu draws beside the name.
+    ///
+    /// Light sources were the first list in this app to earn one, and they earn it
+    /// honestly: a photographer choosing a white balance is remembering what was
+    /// lighting the room, and a sun, a cloud, a bulb and a flash say that in one
+    /// saccade where six words in a column do not. The owner asked for exactly this —
+    /// "I'd also love it if we could add visuals a little bit more" — and `LumenMenu`'s
+    /// rule is that a list is glyphed all the way or not at all, so every row here has
+    /// one and none of them is invented.
+    let symbol: String
 
     var id: String { name }
 }
 
 private let wbIlluminants: [WBIlluminant] = [
-    WBIlluminant(name: "Daylight", kelvin: 5500, tint: 10),
-    WBIlluminant(name: "Cloudy", kelvin: 6500, tint: 10),
-    WBIlluminant(name: "Shade", kelvin: 7500, tint: 10),
-    WBIlluminant(name: "Tungsten", kelvin: 2850, tint: 0),
-    WBIlluminant(name: "Fluorescent", kelvin: 3800, tint: 21),
-    WBIlluminant(name: "Flash", kelvin: 5500, tint: 0),
+    WBIlluminant(name: "Daylight", kelvin: 5500, tint: 10, symbol: "sun.max"),
+    WBIlluminant(name: "Cloudy", kelvin: 6500, tint: 10, symbol: "cloud"),
+    WBIlluminant(name: "Shade", kelvin: 7500, tint: 10, symbol: "cloud.sun"),
+    WBIlluminant(name: "Tungsten", kelvin: 2850, tint: 0, symbol: "lightbulb"),
+    WBIlluminant(name: "Fluorescent", kelvin: 3800, tint: 21, symbol: "light.panel"),
+    WBIlluminant(name: "Flash", kelvin: 5500, tint: 0, symbol: "bolt"),
 ]
 
 // What the Temp and Tint rows show while the recipe says "as shot" is
@@ -276,25 +286,34 @@ struct BasicPanel: View {
 
     private var presetRow: some View {
         HStack(spacing: 6) {
-            Menu {
-                Button("As Shot") { applyAsShot() }
+            // `LumenMenu`, not `Menu`: this row sits four inches from the photograph
+            // and an `NSPopUpButton` put a blue-tinted chevron well there, which is a
+            // Law 7 violation AppKit was committing on our behalf. The list is ours
+            // now, and it says two things the old one could not — a glyph for the light
+            // that was in the room, and in the annotation column the Kelvin the row
+            // will actually write. "Tungsten" tells a photographer nothing about where
+            // Temp lands; "2850 K" beside it tells them exactly.
+            LumenMenu(title: presetName,
+                      help: "White balance preset — any manual move reads as Custom") {
+                LumenMenuItem(title: "As Shot", symbol: "camera",
+                              detail: asShotDetail,
+                              isSelected: presetName == "As Shot") { applyAsShot() }
                 // There is no Auto entry, and its absence is the whole design. It was
                 // here, disabled, with the reason written into its own label — a menu
                 // item whose only job was to announce that it does not work. A menu
                 // missing an entry teaches nothing; a menu apologising teaches that the
                 // app is unfinished. It comes back when scene statistics do.
-                Divider()
+                LumenMenuDivider()
                 ForEach(wbIlluminants) { illuminant in
-                    Button(illuminant.name) {
+                    LumenMenuItem(title: illuminant.name,
+                                  symbol: illuminant.symbol,
+                                  detail: "\(Int(illuminant.kelvin.rounded())) K",
+                                  isSelected: presetName == illuminant.name) {
                         applyIlluminant(illuminant)
                     }
                 }
-            } label: {
-                Text(presetName)
-                    .font(.system(size: 10))
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .help("White balance preset — any manual move reads as Custom")
 
             Button {
                 // Pressing it again disarms rather than stacking a second pick.
@@ -324,6 +343,18 @@ struct BasicPanel: View {
                   : "Click something grey in the picture and Temp/Tint solve for it.")
         }
         .frame(height: Lumen.rowHeight)
+    }
+
+    /// What the As Shot row shows in the annotation column: the neutral the file was
+    /// made with, when the decode has answered with one.
+    ///
+    /// Nil rather than a guess while `asShotNeutral` is nil, for the same reason the
+    /// Temp and Tint rows stand down until it is known — this row used to be the place
+    /// a 5500 came from, and a number in a menu is read as a promise about what the
+    /// row will write.
+    private var asShotDetail: String? {
+        guard let neutral = asShotNeutral else { return nil }
+        return "\(Int(neutral.kelvin.rounded())) K"
     }
 
     /// "Custom" is what any manual move means — matching Lightroom's grammar, where the

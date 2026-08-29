@@ -259,21 +259,23 @@ struct EffectsPanel: View {
                                + "changes little beyond the gamut warning and the paper "
                                + "simulation.")
             if state.softProof.enabled {
-                HStack(spacing: 6) {
-                    Text("Destination")
-                        .font(.system(size: 11))
-                        .foregroundStyle(Lumen.secondaryText)
-                        .frame(width: Lumen.labelWidth, alignment: .leading)
-                    Picker("", selection: $state.softProof.space) {
-                        ForEach(ExportColorSpace.allCases, id: \.self) { space in
-                            Text(space.displayName).tag(space)
-                        }
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                    .controlSize(.small)
-                }
-                .frame(height: Lumen.rowHeight)
+                // THE POPUP THAT SAT FOUR INCHES FROM THE PHOTOGRAPH. This is the one
+                // the owner's complaint names most sharply without naming it:
+                // `NSPopUpButton` draws its chevron well in the system accent, so a
+                // blue lozenge sat beside a picture whose colour you are here to judge
+                // — a Law 7 violation that survived four design passes only because
+                // AppKit was the one painting it. `LumenMenuPicker` draws the row in
+                // this app's greys, and puts its label on the same 86-point column as
+                // the Intent row beneath it and every slider in the panel.
+                //
+                // No glyphs on the destinations, for the reason `LumenMenu` gives: a
+                // colour space has no shape, and five invented ones beside a
+                // photograph would be exactly the decoration this panel must not add.
+                LumenMenuPicker(title: "Destination",
+                                options: proofSpaceOptions,
+                                selection: $state.softProof.space,
+                                help: "The space the picture is rendered through while "
+                                    + "the proof is on")
 
                 HStack(spacing: 6) {
                     Text("Intent")
@@ -302,6 +304,13 @@ struct EffectsPanel: View {
     private var intentOptions: [(value: RenderingIntent, label: String)] {
         [(value: .perceptual, label: "Perceptual"),
          (value: .relativeColorimetric, label: "Relative")]
+    }
+
+    /// Every space the exporter can write, in the enum's own order, so proofing and
+    /// delivering offer the same list in the same sequence — the proof is worthless if
+    /// it is not against a destination you can actually export to.
+    private var proofSpaceOptions: [LumenMenuOption<ExportColorSpace>] {
+        ExportColorSpace.allCases.map { LumenMenuOption($0, $0.displayName) }
     }
 }
 

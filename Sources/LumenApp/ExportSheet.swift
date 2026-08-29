@@ -383,6 +383,23 @@ private struct ExportRecipeEditor: View {
         .scrollIndicators(.never)
     }
 
+    // MARK: Menu option tables
+
+    // The two lists that stayed lists. Format, bit depth, sharpening and watermark
+    // position are four or five short words each and belong in a `LumenSegmented`,
+    // where every option is visible without a click; these two are five and six
+    // entries of full names, which is where a segmented strip stops fitting and a menu
+    // starts being the right control. Same values, same order as the `Picker`s they
+    // replace — drawn by this app.
+
+    private var colorSpaceOptions: [LumenMenuOption<ExportColorSpace>] {
+        ExportColorSpace.allCases.map { LumenMenuOption($0, $0.displayName) }
+    }
+
+    private var resizeOptions: [LumenMenuOption<ResizeMode>] {
+        ResizeMode.allCases.map { LumenMenuOption($0, $0.displayName) }
+    }
+
     // MARK: Format
 
     private var formatSection: some View {
@@ -407,17 +424,22 @@ private struct ExportRecipeEditor: View {
                         .foregroundStyle(Lumen.secondaryText)
                 }
             }
-            ExportFieldRow("Colour") {
-                Picker("", selection: $recipe.colorSpace) {
-                    ForEach(ExportColorSpace.allCases, id: \.self) { space in
-                        Text(space.displayName).tag(space)
-                    }
-                }
-                .labelsHidden()
-                .pickerStyle(.menu)
-                .controlSize(.small)
-                .frame(maxWidth: 200)
-            }
+            // NO GLYPHS HERE, deliberately, and `LumenMenu` says why in its own file:
+            // a colour space has no shape. sRGB is not rounder than ProPhoto, and a
+            // column of five identical swatches would be decoration standing where
+            // information goes. The names are the whole of what there is to know.
+            //
+            // `LumenMenuPicker` rather than `ExportFieldRow` around a menu, because it
+            // draws the label at `Lumen.labelWidth` — the same 86 points every
+            // `LumenSlider` in this sheet uses. Quality, Resolution and this row now
+            // start their controls on one line, which is the alignment `Picker` could
+            // never hold: AppKit sizes a picker's label to its own text, so "Colour"
+            // and "Resize" put their popups at two different left edges.
+            LumenMenuPicker(title: "Colour",
+                            options: colorSpaceOptions,
+                            selection: $recipe.colorSpace,
+                            help: "The space the file is written in — ⇧S in develop "
+                                + "proofs against it")
             // The first half of this used to say there was no dithering, which was true
             // until the ordered dither landed; the second half is still true and still
             // worth saying, because the space picker does not move where the gamut clip
@@ -448,17 +470,11 @@ private struct ExportRecipeEditor: View {
     private var sizeSection: some View {
         VStack(alignment: .leading, spacing: 2) {
             LumenSectionHeader(title: "Size")
-            ExportFieldRow("Resize") {
-                Picker("", selection: $recipe.resizeMode) {
-                    ForEach(ResizeMode.allCases, id: \.self) { mode in
-                        Text(mode.displayName).tag(mode)
-                    }
-                }
-                .labelsHidden()
-                .pickerStyle(.menu)
-                .controlSize(.small)
-                .frame(maxWidth: 200)
-            }
+            LumenMenuPicker(title: "Resize",
+                            options: resizeOptions,
+                            selection: $recipe.resizeMode,
+                            help: "Which measurement of the picture the number below "
+                                + "sets")
             if recipe.resizeMode == .megapixels {
                 LumenSlider(title: "Megapixels", value: $recipe.resizeValue,
                             range: 0.5...100, hardRange: 0.1...500, defaultValue: 24,
@@ -762,10 +778,20 @@ private struct ExportFieldRow<Content: View>: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             Text(label)
-                .font(.system(size: 11))
+                // `.lumenBody`, not a bare 11. Two rows in this sheet are
+                // `LumenMenuPicker`s now, which draw their own label through the type
+                // scale at 12 — so Format and Bit depth were sitting one point smaller
+                // than Colour space and Resize, in the same column, three rows apart.
+                // That is precisely the 9/10/11 jitter `LumenType.swift` was written to
+                // end, showing up at the seam between the migrated and the unmigrated.
+                .font(.lumenBody)
                 .foregroundStyle(Lumen.secondaryText)
                 .frame(width: Lumen.labelWidth, alignment: .leading)
                 .lineLimit(1)
+                // The same shrink-rather-than-truncate `LumenSlider`'s label takes, and
+                // for the same reason: the 86-point column was measured against 11 point
+                // labels, and this sheet's longest ("Output sharpening") is over at 12.
+                .minimumScaleFactor(0.86)
             content
             Spacer(minLength: 0)
         }
