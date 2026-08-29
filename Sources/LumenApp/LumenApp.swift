@@ -136,7 +136,19 @@ private struct LumenCommands: Commands {
             // fails. A computed `KeyEquivalent` is invisible to that scanner, so the
             // elegant loop would silently opt these four keys out of the one mechanism
             // that catches a dead shortcut.
-            CommandGroup(after: .toolbar) {
+            // ONE MENU FOR GOING PLACES — the palette and the four workspaces
+            // together, because they are the same verb: the palette is "go to a control
+            // I can name" and the workspaces are "go to a part of the app", and a
+            // photographer looking for either looks in the same place.
+            //
+            // It is also what keeps this builder legal. `Commands` builders take at most
+            // ten children, the group below was at exactly ten, and adding an eleventh
+            // fails as `'buildExpression' is unavailable` on the ELEVENTH line rather
+            // than saying anything about arity — an error that reads as "this expression
+            // does not conform to Commands" about an expression that plainly does.
+            // Nesting a second `Group` would have satisfied the compiler and left two
+            // menus that should always have been one.
+            CommandMenu("Go") {
                 // In the Scene rather than beside the palette itself, for the reason
                 // ⌘1-⌘4 are: a `.keyboardShortcut` on a view that is not in the
                 // hierarchy is never registered, and the palette does not exist until
@@ -144,9 +156,7 @@ private struct LumenCommands: Commands {
                 // already open is no key at all.
                 Button("Go to a Control…") { state.showControlPalette = true }
                     .keyboardShortcut("k", modifiers: [.command])
-            }
-
-            CommandMenu("Workspace") {
+                Divider()
                 Button("Cull") { PanelLayout.shared.select(.cull) }
                     .keyboardShortcut("1", modifiers: [.command])
                 Button("Develop") { PanelLayout.shared.select(.develop) }

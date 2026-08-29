@@ -381,3 +381,42 @@ final class KeyGrammarTests: XCTestCase {
         XCTAssertEqual(KeyBinding("/", command: true).display, "⌘/")
     }
 }
+
+extension KeyGrammarTests {
+
+    /// A SWIFTUI BUILDER TAKES TEN CHILDREN, AND SAYS SO IN A LANGUAGE NOBODY READS.
+    ///
+    /// `LumenCommands.body` is one `Group` of `CommandGroup`s and `CommandMenu`s. Adding
+    /// an eleventh does not produce "too many children". It produces
+    ///
+    ///     error: 'buildExpression' is unavailable: this expression does not conform
+    ///            to 'Commands'
+    ///
+    /// on the ELEVENTH line, followed by one "does not conform to 'View'" per child, and
+    /// says nothing about arity at all. It reads as a type error about an expression that
+    /// plainly IS a `Commands`. It cannot be reproduced here — `LumenApp` compiles only
+    /// on macOS — and `swiftc -parse` is blind to it, because it is a type-check failure
+    /// rather than a syntax one. It broke three CI lanes and cost a round trip.
+    ///
+    /// So the limit is asserted where it is cheap, in the file that already reads these
+    /// sources as text. Counting braces would be writing a parser; counting the children
+    /// at one known indentation inside one known `Group` fails before CI does, which is
+    /// all this needs to do.
+    func testTheCommandsBuilderStaysUnderItsTenChildLimit() throws {
+        let file = Self.repositoryRoot
+            .appendingPathComponent("Sources/LumenApp/LumenApp.swift")
+        let text = try String(contentsOf: file, encoding: .utf8)
+        let children = text
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { $0.hasPrefix("            CommandGroup(")
+                        || $0.hasPrefix("            CommandMenu(") }
+        XCTAssertGreaterThan(children.count, 5,
+                             "the scanner found almost nothing, so it is not scanning")
+        XCTAssertLessThanOrEqual(children.count, 10,
+                                 "a Commands builder takes ten children and this Group "
+                                     + "has \(children.count). Nest a second Group — or "
+                                     + "better, merge two menus that should have been "
+                                     + "one. The compiler will only tell you that some "
+                                     + "expression does not conform to Commands.")
+    }
+}
