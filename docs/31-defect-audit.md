@@ -311,3 +311,39 @@ guard on ten of the defects in this document.
     decision is made against differs from the file by about 2.5 codes.
 18. `CurveStack.bakeChannelLUTs` has zero callers and would drop `preserveLuminance` and
     the luma curve if wired — the house defect, in the curve stage.
+
+
+---
+
+## Postscript: the guard that should have caught the guard
+
+The compile error that took CI down for three pushes — `help:` passed before `step:` in a
+`LumenSlider` call — is worth a paragraph of its own, because two separate mechanisms that
+exist to catch exactly it both let it through.
+
+`swiftc -parse` cannot: argument order is a type-checking rule and the call is
+syntactically valid. That is the known blind spot — `Sources/LumenApp` needs AppKit and
+`Sources/LumenPipeline` needs CoreImage, so both type-check on the macOS lanes and nowhere
+else. Fine, expected, and the reason the macOS lanes exist.
+
+**`scripts/check-swift-surface.py` also cannot, and that is not expected.** Its `inits`
+pass walks a declaration's labels in order and requires every call label to be consumed,
+which is precisely the rule that rejects out-of-order arguments. Verified by hand: with the
+arguments in the wrong order the pass still reports *"2797 call sites match a declared
+initializer, 0 unparseable"*. It is not reporting the site as unparseable and skipping it —
+it is passing it.
+
+The call site has a multi-line ternary argument (`help: cond ? "…" + "…" : nil`) spanning
+five lines. Something in `split_top` or `LABEL.match` swallows the site without counting it
+as a skip. That is a silent hole in the middle of the one guard this repository has against
+wrong arguments, and a silent hole is worse than an absent guard, because the pass reports
+a confident count either way.
+
+This is the same shape as `ProofRegistry.shippingReader` above: a mechanism that reads as a
+guard, is cited as a guard, and is not one. Section A20 of the test audit already records
+that the checker has no fixture suite — twenty lines of known-good and known-bad snippets.
+This is the second false negative it has shipped today, after the two false POSITIVES fixed
+earlier in the session, and it is the more dangerous direction.
+
+**Next action:** a fixture suite for `check-swift-surface.py` whose known-bad set includes
+an out-of-order argument on a call with a multi-line ternary, then fix whatever it exposes.
