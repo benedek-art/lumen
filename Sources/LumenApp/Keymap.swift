@@ -64,6 +64,24 @@ final class KeyDispatcher {
     private func handle(_ event: NSEvent) -> Bool {
         guard let state else { return false }
 
+        // A KEY-UP IS ANSWERED BEFORE ANY GUARD, and the ordering is the whole fix.
+        //
+        // It used to sit below the three guards, so a release could be discarded even
+        // though the press had been claimed. Hold `[` to check the shadows, reach for ⌘
+        // while it is down — any chord, or a thumb resting on it — and release: the
+        // key-up hit `flags.contains(.command)` and vanished. `holdActive` stayed `"["`,
+        // so the frame stayed lifted three stops with a badge over it and nothing holding
+        // it, AND `InspectionHolds.resolve` refuses to begin any new hold while
+        // `holdActive != nil` — so both brackets and the Space peek were dead for the
+        // rest of the session. The same trap caught Space in the grid.
+        //
+        // Hoisting is safe because `handleKeyUp` claims nothing it did not start: a
+        // release that matches no hold key and no active hold returns false and falls
+        // through to whoever else wants it.
+        if event.type == .keyUp {
+            return handleKeyUp(event, state: state)
+        }
+
         // A focused text field owns every key. Nothing below runs while the user is
         // typing a value into a slider or a filter box.
         if let responder = NSApp.keyWindow?.firstResponder,
@@ -76,13 +94,25 @@ final class KeyDispatcher {
         // the photo behind it — silently, because the sheet is covering the badge.
         if state.isPresentingSheet { return false }
 
+        // A POPOVER OWNS THEM TOO, for exactly the reason a sheet does. The Filter
+        // popover and every `LumenMenu` dropdown are popovers, and until this line an `x`
+        // pressed while reading the filter list rejected the photograph behind it —
+        // silently, because the popover was covering the badge. A popover is a window of
+        // its own on this platform, so "the key window is not the main window" is the
+        // test, and it costs nothing when none is up.
+        if let key = NSApp.keyWindow, key !== NSApp.mainWindow, !key.isSheet {
+            return false
+        }
+
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         // Command-modified keys are menu territory; leave them alone.
         if flags.contains(.command) { return false }
-
-        if event.type == .keyUp {
-            return handleKeyUp(event, state: state)
-        }
+        // CONTROL TOO, and it was never checked. ⌃N, ⌃P, ⌃A, ⌃E and ⌃H are the standard
+        // macOS text-navigation bindings that work in every control on the system; here
+        // they fell straight through to the bare-key switch and toggled Survey, picked
+        // the photograph, flipped auto-advance, opened the loupe and toggled the
+        // histogram. Nothing in this app's grammar uses ⌃ at all.
+        if flags.contains(.control) { return false }
 
         // Arrows and the like arrive as special key codes rather than characters.
         if let special = specialKey(event, state: state, flags: flags) {
@@ -94,8 +124,16 @@ final class KeyDispatcher {
 
         // Ignore auto-repeat for the toggles where repeat would be nonsense, but keep
         // it for navigation, which is exactly where key repeat earns its keep.
+        //
+        // AND THE FLAG AND LABEL KEYS ARE ONLY NAVIGATION WHILE AUTO-ADVANCE IS ON. P, X,
+        // U and the ten digits all INVERT when the value already matches — `setFlag` and
+        // `setRating` and `setLabel` are toggles — so with auto-advance off, holding P
+        // flips pick/unpick at the key-repeat rate and what you end up with is the parity
+        // of however long you held it. With auto-advance on the same repeat is the thing
+        // it was allowed for: flag, move to the next frame, flag again. The comment above
+        // was describing the second case and the code was permitting both.
         if event.isARepeat && !"[]".contains(key) {
-            if !"pxu0123456789".contains(key) { return false }
+            guard "pxu0123456789".contains(key), state.autoAdvance else { return false }
         }
 
         switch key {
@@ -180,8 +218,31 @@ final class KeyDispatcher {
             // underneath is remembered, so pressing M twice puts a photographer back
             // exactly where they were — which is the property that lets a mask be a
             // detour rather than a destination.
-            PanelLayout.shared.setMasking(!PanelLayout.shared.layout.isMasking)
-            state.showLoupe()
+            let enteringMasking = !PanelLayout.shared.layout.isMasking
+            PanelLayout.shared.setMasking(enteringMasking)
+            // ONLY ON THE WAY IN. `showLoupe()` ran on both edges, which broke the round
+            // trip the comment above promises: press M while culling in the grid and M
+            // again to come back, and you landed in the loupe looking at one photograph
+            // — Cull has no sections, so the column vanished too and there was nothing on
+            // screen to press. Escape's exit (below) never had this, so the two ways out
+            // disagreed.
+            if enteringMasking {
+                state.showLoupe()
+                // AND THE CROP TOOL GOES AWAY. `setMasking` moves the flag and nothing
+                // else — `AppState.enter` disarms crop when it leaves the workspace, and
+                // masking is on the same axis but does not go through it. Without this,
+                // pressing M while framing left the crop rectangle and its eight handles
+                // drawn under `MaskCanvas`: unreachable, because the canvas is above them
+                // and takes the drags, and the renderer still showing the UNCROPPED frame
+                // because that is what `showCrop` asks it for. You would be brushing a
+                // mask onto a frame the panel says you are not looking at.
+                let viewport = LoupeViewport.shared
+                if viewport.showCrop {
+                    viewport.showCrop = false
+                    viewport.showStraighten = false
+                    CropTool.shared.forgetArming()
+                }
+            }
 
         // ---- Mask overlays (docs/08 §8.6) --------------------------------------
         //
@@ -256,11 +317,26 @@ final class KeyDispatcher {
         // snapping back to Fit, because `zoomOut`'s "below 0.35 means fit" rule lived
         // in the verb nobody called. Click-to-zoom already went through these, so the
         // mouse and the keyboard were following different ladders.
+        // THE LOUPE'S ZOOM IS THE LOUPE'S. `LoupeViewport` writes `state.zoomLevel`, which
+        // only `LoupeView` draws — Compare and Survey run their own `CompareSync.zoom`
+        // and the grid has no zoom at all. Unguarded, these three keys did nothing
+        // visible in the other three surfaces AND still returned true, so the press was
+        // swallowed; worse, pressing Z in the grid left `zoomLevel` at 1 with nothing on
+        // screen to say so, and the next E opened the loupe at 1:1 with the arrow keys
+        // panning the picture instead of paging the roll.
+        //
+        // Each guards its own surface rather than sharing one `where` clause, because a
+        // `where` on a multi-pattern case binds to the LAST pattern only — `case "z",
+        // "-", "=", "+" where cond:` guards `+` and nothing else, which compiles and is
+        // wrong. `-` outside the loupe is already the purple label, above.
         case "z":
+            guard state.viewMode == .loupe else { return false }
             LoupeViewport.shared.toggleZoom(in: state)
         case "-":
+            guard state.viewMode == .loupe else { return false }
             LoupeViewport.shared.zoomOut(in: state)
         case "=", "+":
+            guard state.viewMode == .loupe else { return false }
             LoupeViewport.shared.zoomIn(in: state)
 
         // ---- Thumbnail size, and the two momentary inspections ------------------
@@ -310,7 +386,20 @@ final class KeyDispatcher {
     }
 
     private func handleKeyUp(_ event: NSEvent, state: AppState) -> Bool {
-        guard let key = event.charactersIgnoringModifiers?.first else { return false }
+        // SHIFT IS FOLDED OUT, because `charactersIgnoringModifiers` ignores every
+        // modifier EXCEPT shift. Press Shift at any point while `[` is held and the
+        // release arrives as `"{"`, which matches neither `InspectionHolds.keys` nor
+        // `holdActive` — so the hold sticks, exactly as it did when the whole key-up was
+        // being eaten by the ⌘ guard above. Only the two bracket keys need it; a letter
+        // is handled by `lowercased()`.
+        guard let raw = event.charactersIgnoringModifiers?.lowercased().first
+        else { return false }
+        let key: Character
+        switch raw {
+        case "{": key = "["
+        case "}": key = "]"
+        default: key = raw
+        }
 
         // The inspection holds answer their own key-up, through the same rule that
         // answered the key-down. Asking the rule rather than testing `holdActive` here

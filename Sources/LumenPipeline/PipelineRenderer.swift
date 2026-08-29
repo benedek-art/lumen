@@ -1669,6 +1669,27 @@ public final class PipelineRenderer {
         let rendered = raster.transformed(
             by: CGAffineTransform(scaleX: inverse, y: inverse))
 
+        // IT HAS TO FIT, and until now nothing checked. `sizePercent` is a fraction of the
+        // LONG edge, so on a portrait frame it is a fraction of the height — a 27-character
+        // notice at Size 5% on a 1365 × 2048 delivery rasterizes about 1600 points wide
+        // against 1365 points of picture. The placement arithmetic below then produced a
+        // negative x, and `composited(over:)` takes the UNION of the two extents, so the
+        // file written was 1645 × 2048 with 280 points of transparent black down the left
+        // edge — wrong dimensions on disk, and a black band in any format without alpha.
+        // Every neighbouring stage bounds itself (`applyOutputSharpen` clamps and crops,
+        // the grain and the dither are handed an explicit extent); this one did not.
+        //
+        // Scaled to fit rather than clipped, because a mark cropped in half is worse than
+        // a mark a little smaller than asked for, and the slider's own top setting (20%)
+        // overflows a landscape frame with a short name.
+        var rendered = rendered
+        let available = Swift.max(extent.width - inset * 2, 1)
+        if rendered.extent.width > available {
+            let shrink = available / rendered.extent.width
+            rendered = rendered.transformed(
+                by: CGAffineTransform(scaleX: shrink, y: shrink))
+        }
+
         let size = rendered.extent
         var x = extent.maxX - size.width - inset
         var y = extent.minY + inset
@@ -1686,8 +1707,16 @@ public final class PipelineRenderer {
             x = extent.midX - size.width / 2
             y = extent.midY - size.height / 2
         }
+        // PINNED INSIDE, then cropped back. The clamp covers the cases the shrink above
+        // cannot — a mark taller than the frame, or a `.centre` placement on a frame
+        // narrower than the inset allows — and the crop is the guarantee: whatever the
+        // placement arithmetic produces, the file is the size the Size section promised.
+        x = Swift.min(Swift.max(x, extent.minX), Swift.max(extent.maxX - size.width,
+                                                           extent.minX))
+        y = Swift.min(Swift.max(y, extent.minY), Swift.max(extent.maxY - size.height,
+                                                           extent.minY))
         let placed = rendered.transformed(by: CGAffineTransform(translationX: x, y: y))
-        return placed.composited(over: image)
+        return placed.composited(over: image).cropped(to: extent)
     }
 
     // MARK: - CPU reference
