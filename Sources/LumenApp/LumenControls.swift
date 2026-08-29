@@ -21,19 +21,26 @@
 //   · a control that is not at its default shows it, so "what did I change?" is
 //     answerable at a glance rather than by memory
 //   · a haptic tick when the value CROSSES its default, on trackpads that have one
+//   · click the row to focus it, then ←/→ nudge by one step and ⇧←/⇧→ by ten;
+//     Escape drops the focus
 //
-// WHY THERE IS STILL NO KEYBOARD NUDGE, rather than a promise of one. Arrow keys already
-// mean "previous / next photo", claimed by `KeyDispatcher`'s NSEvent monitor, which sits
-// in FRONT of the responder chain — so a focused slider would never see an arrow at all.
-// Making the nudge work needs three decisions, none of which is this file's to make
-// alone: the slider has to become focusable, so there must be a visible focus ring in a
-// chrome that is deliberately zero-chroma and near-featureless; the dispatcher has to
-// learn to hand the arrows back when a slider holds focus, the way it already does for
-// a focused text field and for the zoomed loupe's pan; and there has to be a way to put
-// focus on a slider and take it off again, or the arrows stop paging photographs and
-// the photographer cannot tell why. That is docs/28 Phase 7, in one deliberate pass.
-// Until it exists, the honest thing is that the nudge is not offered. Also still absent
-// rather than advertised: ⌥-scroll, ⌘-double-click to auto, ⇧⌥-drag to the hard limit.
+// THE NUDGE NEEDED THREE THINGS, and it is worth saying which, because the reason it
+// was absent for so long was never the arithmetic. Arrow keys already mean "previous /
+// next photo", claimed by `KeyDispatcher`'s NSEvent monitor, which sits in FRONT of the
+// responder chain — so a focused slider would never have seen one.
+//
+//   1. The row is focusable, with the system ring turned off and the app's own drawn
+//      instead (`LumenFocus.swift`): macOS's blue halo is sized for standard AppKit
+//      controls and reads as a bug on a 4-point groove in a zero-chroma panel.
+//   2. The dispatcher stands down while a slider holds focus, by exactly the mechanism
+//      it already uses for the zoomed loupe's pan — returning nil hands the key to the
+//      responder chain. Without it `onKeyPress` below is unreachable code.
+//   3. Focus is releasable, and Escape has to reach the slider to release it, which is
+//      a second yield in the same dispatcher. Press Escape again with nothing focused
+//      and it still means the grid.
+//
+// Still absent rather than advertised: ⌥-scroll, ⌘-double-click to auto, ⇧⌥-drag to the
+// hard limit, and hold-to-sweep on the arrows (see `nudge`).
 //
 // The arithmetic behind the drag, the typing and the detent all lives in LumenCore —
 // `SliderTrack`, `FineDrag`, `SliderEntry`, `SliderDrag.crossesDetent` — because
@@ -236,6 +243,10 @@ struct LumenSlider: View {
     /// was in flight (a SQLite write plus a canonical-JSON fingerprint per photo per
     /// mouse event, a scope timer restarted per event) were being paid everywhere.
     @Environment(\.sliderGestureChanged) private var sliderGestureChanged
+    /// Reported so `KeyDispatcher` hands the arrows back while this row holds focus.
+    /// Same shape and the same reason as the gesture hook above: this control does not
+    /// observe `AppState`, and it must not start.
+    @Environment(\.sliderFocusChanged) private var sliderFocusChanged
 
     /// What double-clicking the label should do, when writing `defaultValue` is not it.
     ///
@@ -266,6 +277,10 @@ struct LumenSlider: View {
     @State private var isEditingText = false
     @State private var textValue = ""
     @FocusState private var textFocused: Bool
+    /// Keyboard focus on the ROW, which is what the arrows nudge. Distinct from
+    /// `textFocused`, which is the readout's text field — while that one holds focus the
+    /// dispatcher already stands down for every key, because a text field owns them all.
+    @FocusState private var rowFocused: Bool
 
     private var effectiveHardRange: ClosedRange<Double> { hardRange ?? range }
     private var isModified: Bool { abs(value - defaultValue) > step / 1000 }
@@ -353,6 +368,77 @@ struct LumenSlider: View {
             }
         }
         .frame(height: Lumen.rowHeight)
+        // KEYBOARD NUDGE (docs/28 Phase 7), and the three things it needed.
+        //
+        // One: the row is focusable, with the system's own ring turned off. macOS draws
+        // a blue halo sized for standard AppKit controls, and on a 4-point groove in a
+        // zero-chroma panel that reads as a bug rather than as state; `lumenFocusRing`
+        // draws the audit's version instead (docs/25 step 8).
+        //
+        // Two: the dispatcher has to stand down. Its NSEvent monitor sits in FRONT of
+        // the responder chain, so without `sliderFocusChanged` telling it a slider holds
+        // focus, `onKeyPress` below would never be reached — the arrow would page to the
+        // next photograph and the focused control would sit there looking broken. The
+        // report goes through the environment rather than through `AppState`, because
+        // this control does not observe `AppState` and must not start.
+        //
+        // Three: focus has to be releasable. Escape drops it, and so does clicking
+        // anything else; the ring is what makes the state visible in the meantime.
+        .focusable()
+        .focusEffectDisabled()
+        .focused($rowFocused)
+        .lumenFocusRing(rowFocused)
+        .onChange(of: rowFocused) { _, focused in
+            sliderFocusChanged(focused)
+        }
+        .onDisappear {
+            // A panel switch removes the row without the focus ever changing, so the
+            // count would never come back down and the arrows would stop paging
+            // photographs for the rest of the session. `noteSliderFocus` floors at zero,
+            // so reporting a blur that already happened is harmless.
+            if rowFocused { sliderFocusChanged(false) }
+        }
+        .onKeyPress(.leftArrow) { nudge(-1) }
+        .onKeyPress(.rightArrow) { nudge(1) }
+        .onKeyPress(.escape) {
+            rowFocused = false
+            return .handled
+        }
+    }
+
+    /// One arrow press, ten under ⇧.
+    ///
+    /// The arithmetic is `SliderTrack.nudged` in LumenCore, where it is tested: one step
+    /// per press, clamped to the SOFT range like a drag and unlike typing, and always
+    /// landing on the step. ⇧ multiplies the COUNT rather than switching to another
+    /// quantum, so ten presses and one shifted press are the same number.
+    ///
+    /// KEY REPEAT IS NOT CLAIMED, and that is deliberate for now: `onKeyPress` defaults
+    /// to the `.down` phase, so holding an arrow nudges once. It makes the gesture
+    /// bracket below correct and prompt — one press is one undo step and the deferred
+    /// per-photo write lands on release, like a drag's. Adding `phases: [.down, .repeat]`
+    /// would give hold-to-sweep and would have to stop bracketing per press, leaning on
+    /// `AppState`'s 8-second silence watchdog to land the write instead; that is a real
+    /// trade (a longer window in which a crash loses the edit) and belongs with an owner
+    /// who has said he wants to hold the key.
+    ///
+    /// Returns `.handled` even when the value did not move, because it did not move for
+    /// a reason — the control is at the end of its range — and letting the key fall
+    /// through would page to the next photograph out from under a focused slider.
+    private func nudge(_ direction: Int) -> KeyPress.Result {
+        let steps = direction * (Self.shiftIsDown ? 10 : 1)
+        // `scrubTrack` for its BOUNDS, STEP and SCALE. A nudge is denominated in steps
+        // and never divides by width, so which width that track carries is irrelevant
+        // here; building a third `SliderTrack` to say so would be one more place for the
+        // range and the step to drift apart.
+        let next = scrubTrack.nudged(value, steps: steps)
+        guard next != value, next.isFinite else { return .handled }
+        onEditingChanged?(true)
+        sliderGestureChanged(true)
+        commit(next)
+        onEditingChanged?(false)
+        sliderGestureChanged(false)
+        return .handled
     }
 
     // How close to the thumb counts as grabbing it rather than pressing the track is

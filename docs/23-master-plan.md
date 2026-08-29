@@ -694,7 +694,31 @@ and against Lightroom via owner-exported references.
             Detent is `defaultValue`, so on Temp/Tint it marks the PHOTO's as-shot
             neutral. Silent on a mouse: only Force Touch trackpads perform
       - [ ] items 25, 26: Speed Edit (D44), ⌥-scroll
-      **Phases 4, 7:**
+      **Phase 7 — focus and the keyboard nudge (items 27-29; 30 is yours):**
+      - [x] focus ring drawn rather than the system's: macOS's blue halo is sized for
+            standard AppKit controls and reads as a bug on a 4 pt groove.
+            `LumenFocus.swift` is a LEAF on purpose — `.focusable`,
+            `.focusEffectDisabled` and `KeyPress` are all new here and this machine
+            cannot compile LumenApp. The surface checker caught `KeyPress`
+            unregistered, its second catch this phase
+      - [x] `sliderHoldsFocus` on AppState: NOT `@Published` (nothing renders from it;
+            only the dispatcher reads it at key-down) and a COUNT rather than a flag,
+            because SwiftUI does not order focus changes and moving between two rows
+            can deliver the new `true` before the old `false`
+      - [x] ←/→ nudge one step, ⇧ ten. `SliderTrack.nudged` in LumenCore, 11 Linux
+            tests: clamps to the SOFT range like a drag, always lands on the step, and
+            on Temp moves 10 K at both ends because a press is denominated in steps
+      - [x] found while writing it: the dispatcher's Escape branch would have eaten the
+            key before the slider saw it, making `onKeyPress(.escape)` unreachable and
+            "focus is releasable" false. Both yields reuse the zoomed-loupe mechanism
+      - [x] key repeat deliberately NOT claimed — `onKeyPress` defaults to `.down`, so
+            holding an arrow nudges once. Keeps the gesture bracket prompt.
+            Hold-to-sweep needs `phases: [.down, .repeat]` AND dropping the bracket for
+            the 8 s watchdog, which is a longer crash window — an owner call
+      - [ ] ⚑ item 30, THE KEYMAP RECONCILIATION — a decision, not work: `L`, `⌘B`, `F`,
+            `M` have drifted from docs/12's canonical map, and Phase 6's ⌘K collision
+            waits on the same single pass
+      **Phase 4:**
       four workspaces and accordions ⚑ · one home for colour ⚑ · speed (arithmetic
       entry, scrubby readout, ⌘K palette, Speed Edit D44) · focus + the owed keymap
       reconciliation. **Phase 4 is gated on the slider-smoothness verification** — it

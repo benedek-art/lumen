@@ -171,6 +171,26 @@ public struct SliderTrack: Sendable, Equatable {
     /// Clamp then snap, in that order — the order the control applies them in.
     public func resolve(_ value: Double) -> Double { snapped(clamped(value)) }
 
+    /// One arrow press, or ten of them under ⇧.
+    ///
+    /// Denominated in STEPS rather than in points, because that is what a key press
+    /// means and it is the one input to a slider that has no pointer behind it. A step
+    /// is also the smallest distinguishable move — the drag snaps to it — so a nudge
+    /// finer than one step would be a key that appears to do nothing.
+    ///
+    /// Clamps to the SOFT range, like a drag and unlike typing. The asymmetry is the
+    /// existing contract: the hard range is where you go deliberately, by saying a
+    /// number, not where you can arrive by leaning on an arrow key.
+    ///
+    /// A non-finite input holds the value rather than propagating: a NaN in a recipe is
+    /// data loss, because the canonical JSON refuses non-conforming floats and collapses
+    /// to "{}" on its way to the sidecar.
+    public func nudged(_ value: Double, steps: Int) -> Double {
+        guard value.isFinite else { return value }
+        guard isUsable, steps != 0 else { return resolve(value) }
+        return resolve(value + Double(steps) * step)
+    }
+
     /// Where along the track a value is drawn, 0…1. The view's thumb offset and fill
     /// width come from here rather than from arithmetic inlined into a layout closure,
     /// so the picture and the drag cannot disagree about where a value sits.

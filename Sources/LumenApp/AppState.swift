@@ -2596,6 +2596,37 @@ final class AppState: ObservableObject {
         self?.sliderGesture(active: active)
     }
 
+    /// Slider keyboard focus, and DELIBERATELY NOT `@Published`.
+    ///
+    /// Only `KeyDispatcher` reads it, imperatively, at key-down time — no view renders
+    /// anything from it — so publishing would re-body the window every time focus moved
+    /// between two sliders for no one's benefit. `EditRevision`'s header states the rule
+    /// this is the other side of: a view reading state must observe it, and state no
+    /// view reads must not be observable.
+    ///
+    /// A COUNT rather than a flag, because SwiftUI does not order focus changes: moving
+    /// from one slider to the next can deliver the new row's `true` before the old row's
+    /// `false`, and a flag would end up clear while a slider plainly had focus — arrows
+    /// paging photographs out from under a control the photographer is using, which is
+    /// the exact failure this whole mechanism exists to prevent.
+    private var sliderFocusCount = 0
+
+    var sliderHoldsFocus: Bool { sliderFocusCount > 0 }
+
+    /// The focus hook, allocated ONCE and handed to the environment as a stable value —
+    /// same pattern as `sliderGestureSink`, and for the same reason.
+    lazy var sliderFocusSink: (Bool) -> Void = { [weak self] focused in
+        self?.noteSliderFocus(focused)
+    }
+
+    func noteSliderFocus(_ focused: Bool) {
+        // Floored rather than allowed to go negative: a slider that disappears while
+        // focused reports its blur from `onDisappear` as well, and a double-decrement
+        // that went to −1 would leave the count unable to reach zero again.
+        sliderFocusCount = focused ? sliderFocusCount + 1
+                                   : Swift.max(0, sliderFocusCount - 1)
+    }
+
     /// The grid's hover-rating hook, on the same pattern and for the same reason.
     ///
     /// `PhotoCell` is value-typed by contract — "it never reads AppState, so a rating

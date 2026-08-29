@@ -28,10 +28,26 @@ private struct SliderGestureKey: EnvironmentKey {
     static let defaultValue: (Bool) -> Void = { _ in }
 }
 
+/// Reported when a slider takes or loses keyboard focus, so the key dispatcher can hand
+/// the arrows back (docs/28 Phase 7).
+///
+/// An environment hook rather than an `@EnvironmentObject` for the same reason as the
+/// gesture one above: `LumenSlider` deliberately does not observe `AppState`, and making
+/// ninety sliders observers so three of them could report focus would re-body every panel
+/// on every publish. The default is a no-op so previews and tests need no setup.
+private struct SliderFocusKey: EnvironmentKey {
+    static let defaultValue: (Bool) -> Void = { _ in }
+}
+
 extension EnvironmentValues {
     var sliderGestureChanged: (Bool) -> Void {
         get { self[SliderGestureKey.self] }
         set { self[SliderGestureKey.self] = newValue }
+    }
+
+    var sliderFocusChanged: (Bool) -> Void {
+        get { self[SliderFocusKey.self] }
+        set { self[SliderFocusKey.self] = newValue }
     }
 }
 

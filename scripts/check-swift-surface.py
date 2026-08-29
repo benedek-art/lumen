@@ -260,6 +260,7 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     "PreferenceKey", "ViewModifier", "ViewBuilder", "App", "Scene", "WindowGroup",
     "Settings", "Commands", "CommandGroup", "CommandMenu", "AppStorage",
     "SceneStorage", "FocusState", "Namespace", "Animation", "Transaction",
+    "KeyPress",
     "Alignment", "HorizontalAlignment", "VerticalAlignment", "Edge", "EdgeInsets",
     "Angle", "UnitPoint", "Font", "LinearGradient", "RadialGradient",
     "AngularGradient", "Gradient", "DragGesture", "TapGesture", "Gesture",

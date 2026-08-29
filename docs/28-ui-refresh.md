@@ -893,6 +893,43 @@ that did — it had been listing arithmetic entry, scrubby-drag and haptic deten
 30. **The keymap reconciliation** docs/12 and the code comments both defer: shipped
     grammar vs canonical map, decided in one pass, mirrored into `KeyGrammar.swift`.
 
+**Items 27–29 shipped.** Click a slider row to focus it; ←/→ nudge one step, ⇧←/⇧→ ten;
+Escape drops the focus. The reason this was absent for so long was never the arithmetic —
+it was that the arrows already mean "previous / next photo", claimed by a dispatcher whose
+`NSEvent` monitor sits *in front of* the responder chain.
+
+- **The ring is drawn, not the system's.** macOS's focus halo is sized for standard AppKit
+  controls and reads as a bug on a 4 pt groove in a zero-chroma panel, so
+  `.focusEffectDisabled()` turns it off and `LumenFocus.swift` draws the audit's version
+  (docs/25 step 8: 1.5 pt accent at 60%, marker scale, never area). That file is a **leaf
+  on purpose** — `.focusable`, `.focusEffectDisabled` and `KeyPress` are all new to this
+  codebase and this machine cannot compile `LumenApp`, so novel APIs cluster where a
+  mistake fails in one place. The surface checker duly caught `KeyPress` as unregistered,
+  which is the second time this phase it did the job Part 9 assigned it.
+- **`sliderHoldsFocus` is not `@Published`, and it is a COUNT.** Not published because
+  nothing renders from it — only the dispatcher reads it, imperatively, at key-down — so
+  publishing would re-body the window every time focus moved between two rows. A count
+  rather than a flag because SwiftUI does not order focus changes: moving from one slider
+  to the next can deliver the new row's `true` before the old row's `false`, and a flag
+  would end up clear while a slider plainly had focus, which is precisely the failure the
+  mechanism exists to prevent. `onDisappear` reports a blur too, or a panel switch would
+  strand the count above zero and stop the arrows paging photographs for the session.
+- **Escape needed a second yield.** Found while writing it: the dispatcher's own Escape
+  branch would have eaten the key before the slider saw it, making
+  `onKeyPress(.escape)` unreachable code and the "focus is releasable" claim false. Both
+  yields use the mechanism already there for the zoomed loupe's pan — return nil, hand it
+  to the responder chain — so this is a third instance of an existing rule, not a new one.
+- **Key repeat is deliberately not claimed.** `onKeyPress` defaults to the `.down` phase,
+  so holding an arrow nudges once. That keeps the gesture bracket correct and prompt: one
+  press is one undo step and the deferred write lands immediately, like a drag's release.
+  Hold-to-sweep means `phases: [.down, .repeat]` *and* giving up the bracket in favour of
+  `AppState`'s 8-second silence watchdog — a longer window in which a crash loses the
+  edit. That trade belongs to an owner who has said he wants to hold the key.
+
+**Item 30 is the one thing left in this plan that is a decision rather than work**, and it
+is the owner's: `L`, `⌘B`, `F` and `M` have drifted from docs/12's canonical map, and the
+⌘K collision found in Phase 6 waits on the same pass.
+
 ## Part 7 — Calls I made on the owner's behalf, all overrulable
 
 Stated plainly because the owner was away while this was written, and because each of

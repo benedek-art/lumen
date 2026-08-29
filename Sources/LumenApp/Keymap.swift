@@ -354,6 +354,16 @@ final class KeyDispatcher {
             // this monitor runs first, so claiming the key here made that pan handler
             // unreachable code.
             if state.viewMode == .loupe && state.zoomLevel > 0 { return nil }
+            // A focused slider owns the arrows, for exactly the same reason and by
+            // exactly the same mechanism (docs/28 Phase 7). Without this the nudge is
+            // unreachable code too: `LumenSlider`'s `onKeyPress` lives in the responder
+            // chain, behind this monitor, so the arrow would page to the next photograph
+            // while a control sat focused and apparently broken.
+            //
+            // `sliderHoldsFocus` is deliberately NOT `@Published` — nothing renders from
+            // it, and it is read here imperatively at key-down, so publishing it would
+            // re-body the window every time focus moved between two rows.
+            if state.sliderHoldsFocus { return nil }
             switch Int(first.value) {
             case NSRightArrowFunctionKey: state.selectNext()
             case NSLeftArrowFunctionKey: state.selectPrevious()
@@ -367,6 +377,13 @@ final class KeyDispatcher {
             state.setFlag(.rejected)
             return true
         case 0x1B:      // Escape
+            // A focused slider gets Escape first, to drop its focus. This monitor runs
+            // in front of the responder chain, so without the yield the slider's own
+            // `onKeyPress(.escape)` would be unreachable code and Escape would jump
+            // straight to the grid from under a control the photographer was using.
+            // Press it again with nothing focused and it means the grid, as before —
+            // the ordinary nested-Escape idiom.
+            if state.sliderHoldsFocus { return nil }
             if state.viewMode != .grid {
                 state.showGrid()
                 return true
