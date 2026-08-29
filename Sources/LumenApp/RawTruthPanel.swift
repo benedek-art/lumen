@@ -58,8 +58,9 @@ struct RawTruthPanel: View {
         .padding(10)
         .frame(width: Self.width, alignment: .leading)
         .background(Lumen.panelBackground.opacity(0.94))
-        .clipShape(RoundedRectangle(cornerRadius: 6))
-        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Lumen.separator, lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusCard, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Lumen.radiusCard, style: .continuous)
+            .stroke(Lumen.separator, lineWidth: 1))
         .foregroundStyle(Lumen.primaryText)
     }
 

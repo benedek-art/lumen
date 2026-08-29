@@ -290,3 +290,137 @@ Not "does it look better" — that cannot fail honestly. These can:
 6. **The develop column's track width does not change when a section opens.** Today it
    changes by 10.6%.
 7. **The owner opens the app and does not have to be told where anything is.**
+
+---
+
+## 7. WHAT TESTING CHANGED
+
+This document was written before anybody had used the thing it describes. Three rounds of
+the owner actually using it followed, and they moved more than the plan did. Recorded here
+rather than edited into the sections above, because a plan that quietly rewrites itself to
+match what happened is not a record of anything.
+
+### 7.1 The first review — and the finding that was mine
+
+The rebuild landed and the design system it introduced **had almost no call sites.**
+Measured on the commit that shipped it: `lumenSurface()` and `lumenWell()` — zero.
+`lumenHoverable()` — one, on the slider row. The type scale — six. `LumenSurface.swift` is
+150 lines arguing that nothing in this application has an edge, and then nothing called it.
+
+That is the same defect class this project keeps paying for: SpeedEdit built and unwired,
+snapshots built and unwired, the ⌥-scroll that nearly shipped dead. It was written into
+this plan as a thing to avoid and then committed in the same session that wrote it.
+
+Most of what the owner reported next — that it still looked flat, that only sliders
+answered the pointer, that sections ran back to back — was that one omission wearing three
+faces. "Apply the system" was not polish. It was the largest visual change still owed.
+
+### 7.2 The second review — polish, and two rooms
+
+What he named, and what it became:
+
+| He said | What shipped |
+|---|---|
+| "when I press on something it gets a blue border around it" | The focus ring went. `.focusable()` takes focus on mouse-DOWN, so a 1.5 pt accent border fired on the first event of every drag of every slider. Focus moved onto the row's own surface, one rung up the grey ladder. |
+| "everything is super back to back to back … I get a fatigue when I scroll down" | Each section became a **card** — its own fill, a lit top edge, sitting in a darker trough. A hairline was the obvious reading and the wrong one: `Lumen.separator` measures 1.48:1 against the panel, which the eye does not resolve without being told where to look. |
+| "I don't like the super circular sliders" | Thumb 11 → 9 pt, groove 6 → 5. |
+| "click and drag … the right side pop-up window either out more or in more" | The develop column is draggable, 320–520, and only the track grows. |
+| "the animation for the open and close for the chevrons are not great" | One chevron rotated rather than two glyphs swapped — the enclosing animation had nothing to interpolate before, so the arrow cut while the drawer moved. Both now run a critically damped spring. |
+| "I'd just like to have cull, develop, crop, grade, and deliver" | Crop became the third workspace. |
+| "I would like [masks] to have its own page" | Masking became a takeover of the develop column, not a sixth tab — a sixth tab would not have compiled, since the View menu's `Group` was already at nine children of a ten-child builder. |
+| "why is there grading and then color grading inside the chevron" | The redundant fold went; the wheels sit beside Printer Lights and Primaries. |
+| "I don't really understand the param curve" | The four regions are shaded behind the graph, tinted to their sliders, lit while a slider is hovered, and the three splits got a rail of draggable triangles. The old answer had been a prose row, which was deleted with fifty-eight others and was never the right answer anyway. |
+
+### 7.3 The third review — and the defect that had shipped three times
+
+He tested again, and the loudest item was this:
+
+> "For the crop, when I go into it, I should be automatically taken into the grid view
+> where I can edit the crop. Right now, I don't really know how to edit it by hand."
+
+**Nothing was missing.** The rectangle, the eight handles, the ratio padlock and the
+drag-outside-to-rotate were all built and all correct. Clicking the Crop tab did not turn
+them on.
+
+The cause is worth writing down because it is a pattern, not an incident. A workspace is a
+PLACE — it has an arrangement, a view mode, and in one case a tool state. `PanelLayout.select`
+moves the arrangement and, by design, can reach nothing else. Every caller was left to
+remember the rest, and callers do not remember:
+
+1. ⌘1 selected Cull and left the photographer in the loupe. Fixed **at the menu item**.
+2. ⌘3 selected Crop without arming the tool. Fixed **at the menu item**.
+3. The tab strip called neither pair, because both fixes lived in the menu. Nobody had
+   fixed the route a photographer actually uses.
+
+`AppState.enter` and `AppState.jump` are now the only ways in, and
+`WorkspaceEntryTests` scans the app sources as text and fails if a fourth caller reaches
+past them. That test was checked by reintroducing the defect and watching it fail.
+
+The rest of the third review: the corner radii moved up a step (14 / 9 / 6, plus 12 for the
+workspace tabs he named first); the section card's side gutter went 4 → 10, because
+"Exposure" was starting eight points from the panel wall; and the slider row lost its hover
+fill, which it had gained one review earlier.
+
+Both of those hover requests are right, and the reason they are not a contradiction is
+worth keeping: a button needs hover because nothing about a word in a panel says it can be
+clicked. A slider does not, because there is a groove with a thumb sitting in it. The fill
+bought nothing there and cost something real — these rows are what a pointer sweeps across
+on the way to the picture, and eleven of them lighting up in sequence is motion in the
+peripheral vision of a colour decision.
+
+Two larger items from the same review are recorded in §7.5 and §7.6 because they are
+rebuilds rather than adjustments: every dropdown in the application, and a symbol for every
+section.
+
+### 7.5 Every dropdown in the application
+
+> "These dropdowns are extremely boring, and I don't like the looks of it at all. I don't
+> like any of these dropdown visuals. I feel like they are very basic, and they're very,
+> very old Apple view. And honestly, I would remove most of these or rebuild them to be a
+> little better. **And that is basically every dropdown in the app.**"
+
+`Menu` and `Picker(.menu)` both render an `NSPopUpButton`: a bezelled grey capsule with a
+blue-tinted chevron well, at the system radius, in the system font, with the system's own
+pull-down list and blue selection highlight. `.buttonStyle`, `.tint`, `.controlSize` and
+`.menuStyle` between them reach the bezel and **none of them reach the list**, so this
+app's entire visual argument stopped at the edge of every popup in it. They were the one
+control this codebase never drew, which is why they were the one control that still looked
+like 2008.
+
+It is not only looks. The blue is a Law 7 violation that survived four design passes purely
+because AppKit painted it rather than us, and the soft-proof space popup sits four inches
+from the photograph.
+
+`LumenMenu.swift` draws both halves — a trigger that is a Lumen surface with a Lumen radius
+and a Lumen hover, and a list of Lumen rows with the checkmark column on the left where the
+eye looks for state. One detail is worth recording because it is invisible until you hit
+it: a macOS popover paints a vibrancy material *behind* its content view, so a
+`.background` inside the content cannot reach it. Without `presentationBackground`, this
+would have been hand-drawn rows on the same frosted AppKit ground — most of the way back to
+the same complaint. Vibrancy is also a Law 7 problem in its own right: a translucent surface
+takes its tint from whatever is behind it.
+
+`.contextMenu` is deliberately **not** rebuilt. A right-click menu is an OS surface with no
+SwiftUI-visible content view, it is summoned by a gesture rather than by a control, and
+nobody sees one unless they go looking for it. The complaint is about the buttons you can
+see.
+
+### 7.6 A symbol for every section
+
+> "I'd also love it if we could add visuals a little bit more … stuff like the curves,
+> giving the curves item a curve emoticon, and stuff like that, or overall just livening
+> the app up a little bit more."
+
+This was item 1.6 of Phase D above and was never implemented in the first pass. The mapping
+lives in `DevelopColumn.swift` rather than in `WorkspaceSection`, because `Workspace.swift`'s
+header forbids presentational data — "no symbol names, no widths, no colours" — and an icon
+is presentation. The switch is exhaustive with no `default:`, so a fifteenth section is a
+compile error rather than a blank square.
+
+### 7.4 Still open
+
+- **Cull is a one-way door for the mouse.** Cull has no sections, so it has no develop
+  column, so it has no workspace strip — and the only routes back are ⌘1–⌘5 and the Go
+  menu. The keyboard and the menu bar cover it, which is why it is not a true dead end,
+  but the tab strip vanishing when you use it is the kind of thing that reads as a bug.
+  The fix is a decision about where navigation lives, and that is the owner's to make.

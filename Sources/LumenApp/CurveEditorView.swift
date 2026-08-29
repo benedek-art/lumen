@@ -312,7 +312,13 @@ struct CurveEditorView: View {
             .contextMenu { contextItems }
         }
         .background(Color.black.opacity(0.55))
-        .clipShape(RoundedRectangle(cornerRadius: 4))
+        // THE SMALLEST RADIUS IN THE SCALE, and the only surface in the app that argues
+        // for one. A tone curve's identity line runs corner to corner and its two control
+        // points LIVE at the corners, so every point of radius here clips data rather
+        // than chrome — a card radius of 14 would round the black point and the white
+        // point off the graph. Six is enough to stop it reading as a square hole beside
+        // the section card it sits in, and little enough that the endpoints survive.
+        .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusChip, style: .continuous))
         .aspectRatio(1, contentMode: .fit)
         .frame(maxWidth: .infinity)
         .help(plotHelp)

@@ -143,6 +143,21 @@ struct LumenMenu<Content: View>: View {
             // proportion a pull-down is supposed to have and the one AppKit gets right.
             .fixedSize(horizontal: false, vertical: true)
             .background(Lumen.panel)
+            // THE SYSTEM'S OWN GROUND, REPLACED. A macOS popover paints a vibrancy
+            // material behind whatever you put in it — the frosted, faintly blue-shifted
+            // panel every stock menu in the OS sits on — and a `.background` inside the
+            // content cannot reach it: the material is under the content view, not behind
+            // the rows. Left alone, this control would have swapped an AppKit popup for a
+            // hand-drawn list on the same AppKit ground, which is most of the way to the
+            // same complaint. `presentationBackground` is the one modifier that reaches
+            // the presentation itself. `Lumen.panel` is the flat 0.20 grey the develop
+            // column is painted in, so an open menu reads as an extension of the panel
+            // that opened it rather than as a window from a different application.
+            //
+            // Vibrancy is also a Law 7 problem, not only a stylistic one: a translucent
+            // surface takes its tint from whatever is behind it, and what is behind this
+            // is a photograph somebody is judging the colour of.
+            .presentationBackground(Lumen.panel)
             .environment(\.lumenMenuDismiss, { isOpen = false })
         }
     }

@@ -246,9 +246,9 @@ struct PhotoCell: View {
             if hasBadges || showsStars { badges }
         }
         .onHover { if onRate != nil { hovering = $0 } }
-        .clipShape(RoundedRectangle(cornerRadius: 3))
+        .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusControl, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 3)
+            RoundedRectangle(cornerRadius: Lumen.radiusControl, style: .continuous)
                 .strokeBorder(borderColor, lineWidth: isPrimary ? 2 : 1)
         )
     }

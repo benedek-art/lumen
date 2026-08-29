@@ -288,12 +288,12 @@ struct ColorPanel: View {
                     state.mixerBand = index
                 } label: {
                     ZStack(alignment: .topTrailing) {
-                        RoundedRectangle(cornerRadius: 3)
+                        RoundedRectangle(cornerRadius: Lumen.radiusChip, style: .continuous)
                             .fill(ColorPanel.swatch(index))
                             .frame(height: 16)
                             .opacity(allBands ? 0.55 : 1)
                             .overlay(
-                                RoundedRectangle(cornerRadius: 3)
+                                RoundedRectangle(cornerRadius: Lumen.radiusChip, style: .continuous)
                                     .strokeBorder(isSelected ? Lumen.primaryText : Lumen.separator,
                                                   lineWidth: isSelected ? 1.5 : 0.5)
                             )
@@ -332,11 +332,12 @@ struct ColorPanel: View {
                         Button {
                             selectedSwatch = i
                         } label: {
-                            RoundedRectangle(cornerRadius: 3)
+                            RoundedRectangle(cornerRadius: Lumen.radiusChip, style: .continuous)
                                 .fill(ColorPanel.chipColor(swatches[i]))
                                 .frame(width: 22, height: 16)
                                 .overlay(
-                                    RoundedRectangle(cornerRadius: 3)
+                                    RoundedRectangle(cornerRadius: Lumen.radiusChip,
+                                                     style: .continuous)
                                         .strokeBorder(i == index ? Lumen.primaryText : Lumen.separator,
                                                       lineWidth: i == index ? 1.5 : 0.5)
                                 )
@@ -420,7 +421,7 @@ struct ColorPanel: View {
             .padding(.vertical, 3)
             .foregroundStyle(armed ? Lumen.primaryText : Lumen.secondaryText)
             .background(armed ? Lumen.fillColor.opacity(0.35) : Lumen.controlBackground)
-            .clipShape(RoundedRectangle(cornerRadius: 4))
+            .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusChip, style: .continuous))
         }
         .buttonStyle(.plain)
         .disabled(state.primarySelection == nil)
@@ -1116,7 +1117,7 @@ struct MixerBandRibbon: View {
         }
         .frame(height: 30)
         .background(Lumen.controlBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 3))
+        .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusControl, style: .continuous))
         .help("Band membership across the hue circle — the weights the engine uses.")
     }
 }

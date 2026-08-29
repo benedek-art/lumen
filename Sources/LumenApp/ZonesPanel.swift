@@ -246,7 +246,7 @@ struct ZonePivotStrip: View {
                 }
             }
             .background(Lumen.controlBackground)
-            .clipShape(RoundedRectangle(cornerRadius: 3))
+            .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusControl, style: .continuous))
 
             GeometryReader { geometry in
                 ZStack(alignment: .topLeading) {

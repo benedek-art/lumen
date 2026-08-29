@@ -90,8 +90,16 @@ struct ControlPalette: View {
         }
         .frame(width: 460)
         .background(Lumen.panelBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Lumen.separator))
+        // `radiusCard` and `.continuous`, where this hand-rolled a 10 and a circular
+        // corner. The ten was written when `radiusCard` WAS ten, so the literal was
+        // never a decision — it was the token spelled out, and it stopped agreeing with
+        // the token the moment the ladder moved up on the owner's third review ("I'd
+        // love if we can maybe make the corner radius a little higher"). The palette
+        // floats over the develop column's cards; at 10 against their 14 it would read
+        // as the one surface in the app that missed the memo.
+        .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusCard, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Lumen.radiusCard, style: .continuous)
+            .strokeBorder(Lumen.separator))
         .shadow(radius: 24, y: 8)
         .onAppear { fieldFocused = true }
         // The arrows and Escape are claimed HERE rather than left to the dispatcher.
@@ -109,6 +117,27 @@ struct ControlPalette: View {
 
     private func row(_ control: ControlIndex.Control, isSelected: Bool) -> some View {
         HStack(spacing: 8) {
+            // THE SAME MARK THE COLUMN USES, in the same order — glyph, then name.
+            //
+            // docs/30 item 1.6 asked for one symbol per section precisely "so the header
+            // and the ⌘K palette read the same one", and this is the second half of that
+            // sentence. A palette that invented its own icons would teach a photographer
+            // a vocabulary twice; reading `WorkspaceSection.symbolName` means the mark
+            // beside "Dehaze" here is the same mark PRESENCE wears over there, so a
+            // photographer arrives at a header they have already seen. The destination
+            // text at the other end of the row still says it in words — the glyph is a
+            // second channel for it, not a replacement.
+            //
+            // Eighteen points and fixed, for the reason `LumenSectionHeader` states at
+            // length: SF Symbols vary in width, and a result list whose titles each
+            // start at a different x is harder to scan than one with no icons at all —
+            // and scanning is the only thing this list is for. Wider than the header's
+            // sixteen because the row's type is 13 point rather than 12, and the glyph
+            // is scaled to sit under it.
+            Image(systemName: control.section.symbolName)
+                .font(.system(size: 12))
+                .foregroundStyle(Lumen.secondaryText)
+                .frame(width: 18)
             Text(control.title)
                 .font(.system(size: 13))
                 .foregroundStyle(Lumen.primaryText)

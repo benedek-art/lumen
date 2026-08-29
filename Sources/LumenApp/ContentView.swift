@@ -428,7 +428,7 @@ private struct Sidebar: View {
             HStack(spacing: 4) {
                 TextField("New album", text: $newAlbumName)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 11))
+                    .font(.lumenBody)
                     .onSubmit { createAlbum() }
                 Button {
                     createAlbum()
@@ -440,10 +440,20 @@ private struct Sidebar: View {
                 .foregroundStyle(Lumen.secondaryText)
                 .disabled(newAlbumName.trimmingCharacters(in: .whitespaces).isEmpty)
             }
-            .padding(.horizontal, 5)
-            .padding(.vertical, 3)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 4)
             .background(Lumen.controlBackground)
-            .clipShape(RoundedRectangle(cornerRadius: 4))
+            // A WELL, not a clipped rectangle. `LumenSurface.swift` names text fields as
+            // the case `lumenWell` exists for — the light lands on the far lip, so the
+            // highlight sits along the BOTTOM and a dark inner edge sits along the top,
+            // which is what makes a field read as somewhere you type into rather than as
+            // a grey rectangle that happens to hold a cursor. The modifier had two call
+            // sites in the app and neither was a field.
+            //
+            // And the radius is the token now: this was a hardcoded 4, from before there
+            // were three radii, so it stayed at the Aqua proportion while every surface
+            // around it moved to 9 and 14.
+            .lumenWell(radius: Lumen.radiusControl)
         }
     }
 
@@ -474,7 +484,7 @@ private struct Sidebar: View {
             HStack(spacing: 4) {
                 TextField("Add keyword", text: $newKeyword)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 11))
+                    .font(.lumenBody)
                     .focused($keywordFieldFocused)
                     .onSubmit { addKeyword() }
                 Button {
@@ -487,10 +497,20 @@ private struct Sidebar: View {
                 .foregroundStyle(Lumen.secondaryText)
                 .disabled(newKeyword.trimmingCharacters(in: .whitespaces).isEmpty)
             }
-            .padding(.horizontal, 5)
-            .padding(.vertical, 3)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 4)
             .background(Lumen.controlBackground)
-            .clipShape(RoundedRectangle(cornerRadius: 4))
+            // A WELL, not a clipped rectangle. `LumenSurface.swift` names text fields as
+            // the case `lumenWell` exists for — the light lands on the far lip, so the
+            // highlight sits along the BOTTOM and a dark inner edge sits along the top,
+            // which is what makes a field read as somewhere you type into rather than as
+            // a grey rectangle that happens to hold a cursor. The modifier had two call
+            // sites in the app and neither was a field.
+            //
+            // And the radius is the token now: this was a hardcoded 4, from before there
+            // were three radii, so it stayed at the Aqua proportion while every surface
+            // around it moved to 9 and 14.
+            .lumenWell(radius: Lumen.radiusControl)
 
             // ⌘⇧K puts the cursor in the field rather than applying anything: the verb
             // a photographer wants from a keyword shortcut is "let me type one". It also
@@ -635,14 +655,18 @@ private struct Sidebar: View {
                     .lineLimit(1)
                 Spacer()
                 Text("\(count)")
-                    .font(.system(size: 10).monospacedDigit())
+                    .font(.lumenCaption.monospacedDigit())
                     .foregroundStyle(Lumen.secondaryText)
             }
             .padding(.horizontal, 5)
             .padding(.vertical, 2)
             .foregroundStyle(isSelected ? Lumen.primaryText : Lumen.secondaryText)
             .background(isSelected ? Lumen.fillColor.opacity(0.28) : Color.clear)
-            .clipShape(RoundedRectangle(cornerRadius: 3))
+            // `radiusChip`, not a hardcoded 3. A sidebar row is a chip by every other
+            // measure in this app and it was the last place still drawing the pre-token
+            // radius, so the selected album sat in a squarer rectangle than anything
+            // beside it.
+            .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusChip, style: .continuous))
         }
         .buttonStyle(.plain)
         .help(help ?? "")

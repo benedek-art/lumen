@@ -1109,6 +1109,30 @@ struct LumenSlider: View {
 
 struct LumenSectionHeader: View {
     let title: String
+
+    /// An SF Symbol drawn between the chevron and the title, or nil for a header that
+    /// does not have one.
+    ///
+    /// **The default is nil and has to stay nil.** There are 38 `LumenSectionHeader(…)`
+    /// call sites in eight files today — the export sheet's eight, the mask panel's
+    /// nine, the ingest sheet's four — and almost none of them names a
+    /// `WorkspaceSection`, because most are not sections in that sense at all: "Format",
+    /// "Naming", "Verify", "Watermark". Making this required would have been a
+    /// thirty-eight-site edit to put icons on six headers, and thirty-seven of those
+    /// sites would have had to invent a glyph for a heading that does not want one.
+    ///
+    /// Declared second because that is where it reads — the glyph belongs to the title
+    /// it sits beside. The position is otherwise free: the memberwise initialiser takes
+    /// its arguments in declaration order and every existing site already passes them
+    /// that way, so a defaulted parameter inserted anywhere in this list still compiles
+    /// at all of them.
+    ///
+    /// Only the workspace accordion passes it (`WorkspaceSectionView`), and that is the
+    /// intent rather than a first instalment: a glyph per section is a fact about
+    /// `WorkspaceSection`, which is where the table lives (`DevelopColumn.swift`), and a
+    /// header a sheet composes by hand has no such fact to draw.
+    var symbol: String? = nil
+
     var isExpanded: Binding<Bool>?
     var isModified: Bool = false
     var onReset: (() -> Void)?
@@ -1195,6 +1219,32 @@ struct LumenSectionHeader: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(Lumen.secondaryText)
             }
+            // THE GLYPH, IN A FIXED BOX SO THE TITLES CANNOT WANDER.
+            //
+            // The owner: "giving the curves item a curve emoticon, and stuff like that,
+            // or overall just livening the app up a little bit more." The section names
+            // its own symbol (`WorkspaceSection.symbolName`, in `DevelopColumn.swift`);
+            // this is the half that draws it.
+            //
+            // Sixteen points wide whatever the glyph measures, because SF Symbols are
+            // not a fixed-width family — `crop` is nearly square and the Curve section's
+            // `point.topleft.down.to.point.bottomright.curvepath` is half again as wide
+            // — and six headers stacked down a column with their titles each starting at
+            // a different x is a ragged left edge. The eye reads that as sloppiness long
+            // before it reads it as icons, which would make the decoration cost more
+            // than it bought. No clip, deliberately: a glyph a hair wider than its box
+            // spills into the four points of spacing rather than losing a stroke.
+            //
+            // Eleven point regular in `secondaryText`, one step under the title's twelve
+            // point semibold caps in `primaryText`. A symbol drawn at the heading's own
+            // weight and colour stops annotating the heading and starts reading as its
+            // first character.
+            if let symbol {
+                Image(systemName: symbol)
+                    .font(.system(size: 11))
+                    .foregroundStyle(Lumen.secondaryText)
+                    .frame(width: 16)
+            }
             // The header now outranks the rows it governs (design audit §1.2: the
             // highest-level element in the panel was the smallest text in it).
             // A HEADING, NOT TEXTURE. It was 11pt semibold in `secondaryText` — the
@@ -1245,8 +1295,28 @@ struct LumenSectionHeader: View {
         // Inside the fill, not outside: `topRhythm` is the space BEFORE the section, so
         // including it would draw a pill twenty points taller than the words in it,
         // hanging above the header like a dropped shadow.
+        //
+        // THE FILL STAYS AND ITS CORNER MOVED, both for reasons this pass created.
+        //
+        // It stays because the slider rows gave theirs up on the owner's third review —
+        // "I would remove a bunch of the hover effects, like hovering over the white
+        // balance or the temperature or tint" — which leaves this row as the only thing
+        // inside an open section that lights up under the pointer. That is not an
+        // inconsistency waiting to be tidied away; it is the only thing inside an open
+        // section that is CLICKABLE. A header that collapses its section on click and
+        // answers the pointer with nothing is the affordance gap the whole hover pass
+        // was written to close.
+        //
+        // But being the only fill in the card means the shape has to read as a control
+        // the instant it appears, and `radiusChip` no longer does. That token's own note
+        // sizes it against a chip 16 points tall; this row is 28 wherever it carries a
+        // chevron — a 20-point target with four points of padding above and below —
+        // which is exactly the height `Lumen.radiusTab`'s note gives the workspace tab
+        // sitting at the top of the same column, and that one rounds to 12. Six points
+        // on a 28-point row inside a card whose corner is now 14 reads as a rectangle
+        // that appeared rather than as a button that lit.
         .background(
-            RoundedRectangle(cornerRadius: Lumen.radiusChip, style: .continuous)
+            RoundedRectangle(cornerRadius: Lumen.radiusControl, style: .continuous)
                 .fill(hovering ? Lumen.controlHover : Color.clear))
         // The four points come straight back out. The fill wants to bleed past the words
         // so it reads as a row rather than as a label with a box drawn round it, but the

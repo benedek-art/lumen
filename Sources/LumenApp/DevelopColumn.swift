@@ -68,6 +68,18 @@ struct WorkspaceSwitcher: View {
                 HStack(spacing: 3) {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 10, weight: .semibold))
+                    // THE ONE PLACE A WORKSPACE WEARS ITS GLYPH, because the strip
+                    // above deliberately does not (see `workspaceStrip`).
+                    //
+                    // This button's whole job is to name a destination, and it has the
+                    // column's full width to name it in — nothing else is in the bar but
+                    // a spacer and the word "Masks". So it is the one spot where a
+                    // symbol takes no room away from a word, and it lets the way out be
+                    // drawn from the same table the View menu will want when it comes to
+                    // list these five (`Workspace.symbolName`) rather than from a glyph
+                    // chosen here and nowhere else.
+                    Image(systemName: panel.layout.workspace.symbolName)
+                        .font(.system(size: 11))
                     Text(panel.layout.workspace.title)
                         .font(.lumenBody)
                 }
@@ -96,6 +108,31 @@ struct WorkspaceSwitcher: View {
         .animation(.easeOut(duration: 0.12), value: backHovered)
     }
 
+    /// FIVE WORDS AND NO GLYPHS, and the tape measure is the argument rather than
+    /// taste.
+    ///
+    /// The owner asked for "a little bit more visual stuff" and the section headers
+    /// below now carry a symbol each, so this strip was the obvious next place. It is
+    /// the wrong one, and the column's own arithmetic says so. It opens at
+    /// `Lumen.defaultPanelWidth` — 380 points — of which 8 go to this row's padding,
+    /// about 30 to the mask door, 9 to the divider and its margins, and 12 to the six
+    /// gaps, leaving roughly 321 for five equal tabs: **64 points each**. "Develop" is
+    /// about 52 of those at 12pt medium, so an 11-point glyph and its gap do not fit in
+    /// the dozen that are left, and the first tab to truncate would be the selected one
+    /// — which is the bold one, which is the one the photographer is looking at. The
+    /// column is draggable NARROWER than 380 as well (`ContentView.columnResizer`), so
+    /// the margin only ever gets worse.
+    ///
+    /// And there is a reason older than the measurement, in this file's opening
+    /// paragraph: the strip this replaced was eight `Image(systemName:)`s with the
+    /// words hidden in tooltips, and the owner's verdict on it was "I genuinely don't
+    /// get some of it". Words won that argument. Putting the icons back beside them
+    /// would spend the win on decoration and buy nothing a reader of the word does not
+    /// already have.
+    ///
+    /// The mask door keeps its glyph and is not the counter-example it looks like — it
+    /// is deliberately NOT a workspace, and being the single icon in a row of words is
+    /// how a photographer can see that without being told.
     private var workspaceStrip: some View {
         HStack(spacing: 2) {
             ForEach(Workspace.allCases, id: \.self) { workspace in
@@ -210,6 +247,130 @@ extension Workspace {
     /// stay star ratings and culling keeps its Lightroom muscle memory (docs/29 §2.1).
     var shortcutDigit: String {
         String((Self.allCases.firstIndex(of: self) ?? 0) + 1)
+    }
+
+    /// The workspace's glyph — drawn on the way out of masking, and nowhere else in
+    /// this file on purpose (`workspaceStrip` states the arithmetic that ruled it out
+    /// of the tab strip).
+    ///
+    /// It exists as a table anyway because the switcher is not the only surface that
+    /// names these five: the View menu lists all of them, and a menu and a bar that
+    /// picked their own icons would be two tables to keep in step. One table, read from
+    /// wherever a workspace has to be drawn.
+    var symbolName: String {
+        switch self {
+        // The grid, which is what Cull IS: `sections` is empty for this workspace and
+        // the emptiness is the feature, so the glyph names the centre pane rather than
+        // a column that is not there.
+        case .cull: return "square.grid.2x2"
+        // Sliders, because that is what the column becomes. Not a wand or a dial —
+        // Develop is the normalising half of the split and its work is numeric.
+        case .develop: return "slider.horizontal.3"
+        // `crop.rotate` rather than the plain `crop` that `WorkspaceSection.frame`
+        // wears. The workspace holds Crop AND Lens, so it is geometry entire, and the
+        // two would otherwise be the same glyph one row apart on the same screen.
+        case .crop: return "crop.rotate"
+        // The interpreting half. A brush, deliberately not a palette: `color` and
+        // `looks` already wear the two palettes, and Grade is the act rather than the
+        // swatches.
+        case .grade: return "paintbrush"
+        // Sending, not saving. `square.and.arrow.up` belongs to Export Recipes, which
+        // is one section INSIDE this workspace; using it here as well would say the
+        // workspace and the section were the same thing.
+        case .deliver: return "paperplane"
+        }
+    }
+}
+
+// MARK: - Glyphs
+
+// AN SF SYMBOL PER SECTION, AND WHY THE TABLE LIVES HERE RATHER THAN IN LUMENCORE.
+//
+// The owner asked for it in his own words: "I'd also love it if we could add visuals a
+// little bit more … giving the curves item a curve emoticon, and stuff like that, or
+// overall just livening the app up a little bit more." He means SF Symbols; it is also
+// docs/30 item 1.6, which wanted "an SF Symbol per section — a point-curve glyph for
+// Curve, an aperture for Detail" and, in the same breath, a single home for it "so the
+// header and the ⌘K palette read the same one".
+//
+// This file is that home, and `Workspace.swift` says why it cannot be the enum's: "What
+// is deliberately not here … Anything presentational: no symbol names, no widths, no
+// colours." A symbol name is the one fact about a section that would have to be thrown
+// away if this app were ever drawn by something that is not SwiftUI. `title` is data —
+// the header prints it. A glyph is a drawing instruction, so it sits beside the views
+// that draw it, next to `Workspace.title` and `shortcutDigit`, which are here for
+// exactly this reason.
+//
+// BOTH SWITCHES ARE EXHAUSTIVE AND NEITHER HAS A `default:`, which is the whole reason
+// they are switches rather than dictionaries. A fifteenth section added to LumenCore
+// cannot compile until it has answered this, and that matters more than it usually does
+// because of how the failure looks: `Image(systemName:)` handed a name macOS does not
+// know draws NOTHING AT ALL — no placeholder, no log line, no red. A missing case, a
+// `default:` returning "", or one mistyped character all produce the same silent gap in
+// the column, and the person who added the section would have no reason to look.
+//
+// WHICH NAMES ARE SAFE. Package.swift declares `.macOS(.v15)`, so the floor is SF
+// Symbols 6 and every name below clears it with room. Most have existed since SF
+// Symbols 1; the four that have not — `circle.lefthalf.filled` (3),
+// `thermometer.medium`, `swatchpalette` and the curve (all 4) — arrived with macOS 12
+// and 13. `camera.aperture` is already drawn in `FilterBar`, which is the one name here
+// this codebase has seen render.
+
+extension WorkspaceSection {
+
+    /// The glyph the section header draws, and the same one the ⌘K palette puts beside
+    /// the control it is offering to take you to. One table, two surfaces, so a
+    /// photographer who learns the mark in the column recognises it in the palette.
+    var symbolName: String {
+        switch self {
+        // Colour temperature, which is exactly what Temp and Tint are. The alternative
+        // was a droplet, and a droplet says "water" in a panel that already draws an
+        // eyedropper two rows down for the white-balance PICK — one glyph per idea.
+        case .whiteBalance: return "thermometer.medium"
+        // Light against dark across one shape: the six-slider tone contract in a
+        // circle. It is the closest thing SF Symbols has to a contrast control.
+        case .tone: return "circle.lefthalf.filled"
+        // The section is called Crop and this is called `crop`. Nothing to argue.
+        case .frame: return "crop"
+        // THE ONE THE OWNER ASKED FOR BY NAME — "giving the curves item a curve
+        // emoticon". It is a bezier between two control points, which is not a glyph
+        // that merely suggests a curve; it is a picture of the editor underneath it.
+        case .curve: return "point.topleft.down.to.point.bottomright.curvepath"
+        // Texture, Clarity and Dehaze — the three sliders that make a flat frame read
+        // as present. The standard "enhance" glyph, and the only near-collision in this
+        // table: `LumenSlider`'s per-row auto button is `wand.and.stars`. They differ
+        // in silhouette and never in position — that wand is at the right end of a
+        // slider row, this one at the left end of a header.
+        case .presence: return "wand.and.rays"
+        // Sharpening and denoise, which is work done at the pixel. A dot grid says
+        // "the fine structure" without pretending to be a magnifier; the app's one
+        // `magnifyingglass` belongs to the filter bar's search.
+        case .detail: return "circle.grid.3x3"
+        // An aperture for the lens section, which is docs/30 1.6's own example.
+        case .optics: return "camera.aperture"
+        // A swatch fan: a SET of finished looks to pick from, which is what saved Looks
+        // are. Not `photo.stack` — this app has photo stacks, and they are a different
+        // thing in the library sidebar.
+        case .looks: return "swatchpalette"
+        // The mixer, Point Colour and B&W. A painter's palette is mixing, which is the
+        // verb of this section, against the swatch fan above it which is choosing.
+        case .color: return "paintpalette"
+        // Three overlapping filter circles — the shadows/midtones/highlights wheels
+        // drawn as the thing they are. Reads as colour grading in every tool that has
+        // ever shipped one.
+        case .grading: return "camera.filters"
+        // A filmstrip, for the section that emulates film.
+        case .filmLab: return "film"
+        // Vignette, grain and retouch. The generic "effects" glyph, used generically on
+        // purpose: these are the adjustments that do not belong to any one discipline.
+        case .effects: return "sparkles"
+        // A soft proof is a rehearsal of a print, so the glyph is the printer it is
+        // rehearsing for.
+        case .softProof: return "printer"
+        // The share glyph, because export is the file leaving the app. Its workspace
+        // wears `paperplane` instead so the two are not one mark twice.
+        case .exportRecipes: return "square.and.arrow.up"
+        }
     }
 }
 
@@ -352,6 +513,7 @@ private struct WorkspaceSectionView: View {
             // twenty more points of blank panel on top of it inside the card would only
             // push the title away from the rows it names.
             LumenSectionHeader(title: section.title,
+                               symbol: section.symbolName,
                                isExpanded: .constant(isExpanded),
                                isModified: isModified,
                                onReset: reset,

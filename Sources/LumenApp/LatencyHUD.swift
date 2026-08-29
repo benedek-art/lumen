@@ -288,7 +288,7 @@ struct LatencyHUDView: View {
         .foregroundStyle(Lumen.primaryText)
         .padding(6)
         .background(Color.black.opacity(0.65))
-        .clipShape(RoundedRectangle(cornerRadius: 4))
+        .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusControl, style: .continuous))
         .allowsHitTesting(false)
     }
 }

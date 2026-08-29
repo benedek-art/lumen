@@ -119,7 +119,7 @@ struct ScopesView: View {
             }
             .frame(height: ScopesView.panelHeight)
             .background(Color.black.opacity(0.75))
-            .clipShape(RoundedRectangle(cornerRadius: 4))
+            .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusCard, style: .continuous))
         } else {
             emptyPlate("No parade yet")
         }
@@ -153,7 +153,7 @@ struct ScopesView: View {
             }
             .frame(width: ScopesView.panelHeight, height: ScopesView.panelHeight)
             .background(Color.black.opacity(0.75))
-            .clipShape(RoundedRectangle(cornerRadius: 4))
+            .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusCard, style: .continuous))
             .frame(maxWidth: .infinity)
             .help("OKLab a/b chroma scatter. The line is the skin-tone axis — "
                   + "faces sit along it whatever the skin colour.")
@@ -169,7 +169,7 @@ struct ScopesView: View {
             .frame(maxWidth: .infinity)
             .frame(height: ScopesView.panelHeight)
             .background(Color.black.opacity(0.75))
-            .clipShape(RoundedRectangle(cornerRadius: 4))
+            .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusCard, style: .continuous))
     }
 
     private func emptyPlate(_ message: String) -> some View {
@@ -179,7 +179,7 @@ struct ScopesView: View {
             .frame(maxWidth: .infinity)
             .frame(height: ScopesView.panelHeight)
             .background(Color.black.opacity(0.55))
-            .clipShape(RoundedRectangle(cornerRadius: 4))
+            .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusCard, style: .continuous))
     }
 
     private var caption: String {
