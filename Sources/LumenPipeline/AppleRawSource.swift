@@ -332,11 +332,43 @@ public final class AppleRawSource: ImageSource {
         let stored = materialized(image) ?? image
         decodeCache.removeAll { $0.key == key }
         decodeCache.insert((key: key, image: stored), at: 0)
-        if decodeCache.count > Self.decodeCacheCapacity {
-            decodeCache.removeLast(decodeCache.count - Self.decodeCacheCapacity)
-        }
+        evictDecodes()
         return stored
     }
+
+    /// Bound the cache by BYTES as well as by count.
+    ///
+    /// Eight entries was chosen when an entry was a lazy `CIImage` — a filter
+    /// description, costing kilobytes. Materializing changed what an entry weighs by
+    /// four orders of magnitude without changing the number held: eight decodes at
+    /// 2560 px is about 280 MB, and the ladder walking its rungs is exactly the thing
+    /// that mints new keys. Trading a re-demosaic for memory pressure would be a poor
+    /// bargain and a hard one to attribute, since what a photographer would notice is
+    /// the machine hitching under swap rather than anything this file did.
+    ///
+    /// Newest-first order, so this drops the least recently produced.
+    private func evictDecodes() {
+        while decodeCache.count > Self.decodeCacheCapacity {
+            decodeCache.removeLast()
+        }
+        while decodeCache.count > 1, decodeHeldBytes > Self.decodeCacheByteBudget {
+            decodeCache.removeLast()
+        }
+    }
+
+    /// What the held decodes weigh, counting only the materialized ones — a lazy entry
+    /// is a description and weighs nothing worth counting.
+    private var decodeHeldBytes: Int {
+        decodeCache.reduce(0) { total, entry in
+            let extent = entry.image.extent
+            guard !extent.isInfinite, entry.image.pixelBuffer != nil else { return total }
+            return total + Int(extent.width) * Int(extent.height) * 8
+        }
+    }
+
+    /// Room for the working set that actually repeats — the viewer's settle, the rung
+    /// under the hand, the 512 px probes, the mask raster — and not much more.
+    private static let decodeCacheByteBudget = 320 * 1024 * 1024
 
     /// Metadata the develop panel and the catalog both want.
     public var captureMetadata: CaptureMetadata {
