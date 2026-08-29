@@ -842,4 +842,34 @@ final class DraftLadderTests: XCTestCase {
     func testTheTopRungHasNoStepToFit() {
         XCTAssertFalse(DraftLadder.stepUpFits(renderMilliseconds: 0.1, at: 0))
     }
+
+    // MARK: - The ceiling every interactive render shares
+
+    /// THE CLIFF THAT MADE A SETTLE COST 312 MS.
+    ///
+    /// `DecodeMaterializer` caches a decode's PIXELS below its limit and, above it,
+    /// stores the lazy `CIRAWFilter.outputImage` instead — the intention to decode
+    /// rather than the result — so every "hit" pays a full RAW demosaic again. Its limit
+    /// said 3072 while this ladder's top rung and the viewer's own cap both said 4096,
+    /// so every zoomed settle landed just above the line, and the owner measured
+    /// `settle 312.7 ms @4096` beside a `draft 8.5 ms @2048`.
+    ///
+    /// A ceiling below the top rung is not merely a slow settle: it makes this ladder's
+    /// own goal unaffordable. `record` would see a hot frame at 4096, step down, refill
+    /// the streak over twelve cheap frames and climb straight back into the same cliff —
+    /// a stall roughly once per zoomed gesture, and worst on the fastest machines,
+    /// because only they get there.
+    ///
+    /// The number now lives here and the other two read it. This asserts that it still
+    /// covers what it claims to.
+    func testTheInteractiveCeilingCoversTheTopRung() {
+        XCTAssertEqual(DraftLadder.interactiveLongEdgeCeiling, DraftLadder.rungs[0],
+                       "a decode ceiling below the top rung is a cliff the ladder walks "
+                           + "into once per gesture")
+        for rung in DraftLadder.rungs {
+            XCTAssertLessThanOrEqual(rung, DraftLadder.interactiveLongEdgeCeiling,
+                                     "every rung this ladder can choose must be a size "
+                                         + "whose decode is worth caching")
+        }
+    }
 }

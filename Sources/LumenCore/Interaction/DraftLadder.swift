@@ -61,6 +61,25 @@ public struct DraftLadder: Sendable, Equatable {
     /// headroom never sees the low rungs at all.
     public static let rungs: [Int] = [4096, 3072, 2560, 2048, 1600, 1280, 1024, 768, 576]
 
+    /// THE LARGEST LONG EDGE ANY INTERACTIVE RENDER ASKS FOR, named once.
+    ///
+    /// It was written down three times — here as `rungs[0]`, in the viewer as
+    /// `maxRenderLongEdge`, and in `DecodeMaterializer.longEdgeLimit` as the ceiling
+    /// above which a decode is left lazy — and the third one said 3072 while the other
+    /// two said 4096. That is not a tuning difference, it is a cliff: above the
+    /// materializer's limit `AppleRawSource` caches the lazy `CIRAWFilter.outputImage`,
+    /// which is the INTENTION to decode rather than its pixels, so every "hit" pays a
+    /// full RAW demosaic again. It is the exact defect `DecodeMaterializer` was written
+    /// to fix, left live for every render above 3072 — which at any zoom is every
+    /// settle, and which the owner measured as `settle 312.7 ms @4096` against an 8.5 ms
+    /// draft at 2048.
+    ///
+    /// So the number lives here, where the ladder that chooses sizes lives, and the two
+    /// callers read it. A ceiling below the top rung would make this ladder's own goal
+    /// unaffordable: `record` would see a hot frame at 4096, step down, refill the
+    /// streak and climb back into the same cliff once per gesture.
+    public static var interactiveLongEdgeCeiling: Int { rungs[0] }
+
     /// The drag budget a draft must fit inside (docs/12 §12.2's slider loop, less a
     /// couple of milliseconds for delivery and compositing).
     public static let budgetMilliseconds: Double = 35

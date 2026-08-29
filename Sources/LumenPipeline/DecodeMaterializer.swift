@@ -29,6 +29,7 @@ import CoreGraphics
 import CoreImage
 import CoreVideo
 import Foundation
+import LumenCore
 
 enum DecodeMaterializer {
 
@@ -36,10 +37,25 @@ enum DecodeMaterializer {
     ///
     /// An export decodes at full resolution, uses the result once, and would gain
     /// nothing from being held; at 60 MP the buffer would be half a gigabyte. Every
-    /// INTERACTIVE size is below this — the viewer's settle, every rung of
+    /// INTERACTIVE size is at or below this — the viewer's settle, every rung of
     /// `DraftLadder`, the mask raster, the 512 px probes — which is the whole working
     /// set that repeats.
-    static let longEdgeLimit = 3072
+    ///
+    /// IT SAID 3072 AND THE CLAIM ABOVE WAS FALSE. `DraftLadder.rungs[0]` and
+    /// `LoupeView.maxRenderLongEdge` are both 4096, and at any zoom the viewer asks for
+    /// exactly that — so the settle, the one render that repeats most and matters most,
+    /// sat just above this line. `AppleRawSource` then cached the lazy
+    /// `CIRAWFilter.outputImage` (`let stored = materialized(image) ?? (image, 0)`),
+    /// which is the INTENTION to decode rather than its pixels, and every hit paid a
+    /// full RAW demosaic again. That is verbatim the defect this type exists to fix,
+    /// left live for the sizes it was written for. Measured on the owner's machine:
+    /// `draft 8.5 ms @2048` against `settle 312.7 ms @4096`, and the same file's own
+    /// history records an unmaterialized decode at 457 ms.
+    ///
+    /// Reading the ladder's own ceiling rather than restating it is the fix, not the
+    /// number: two independent constants for one quantity is what produced a cliff
+    /// nobody could see from either side of it.
+    static let longEdgeLimit = DraftLadder.interactiveLongEdgeCeiling
 
     /// The working space every stage of this pipeline agrees on. Extended and linear:
     /// extended so values above display white survive, linear so no transfer function
