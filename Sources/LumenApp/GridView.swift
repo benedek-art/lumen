@@ -22,6 +22,7 @@
 
 import AppKit
 import CoreGraphics
+import LumenCore
 import SwiftUI
 
 struct GridView: View {
@@ -169,7 +170,7 @@ struct PhotoCell: View {
     private var wellHeight: CGFloat { showsCaption ? side * 0.76 : side }
 
     private var hasBadges: Bool {
-        photo.flag != .none || photo.rating > 0 || photo.label != .none
+        photo.flag != .unflagged || photo.rating > 0 || photo.label != nil
     }
 
     private var borderColor: Color {
@@ -206,7 +207,7 @@ struct PhotoCell: View {
                     .resizable()
                     .aspectRatio(contentMode: .fit)
                     // A rejected frame reads as rejected without leaving the sheet.
-                    .opacity(photo.flag == .rejected ? 0.4 : 1)
+                    .opacity(photo.flag == .reject ? 0.4 : 1)
             }
         }
         // 120 ms, first appearance only (docs/10 §10.2): never a white flash.
@@ -224,16 +225,16 @@ struct PhotoCell: View {
 
     private var badges: some View {
         HStack(spacing: 3) {
-            if photo.flag != .none {
+            if photo.flag != .unflagged {
                 Image(systemName: photo.flag.symbolName)
                     .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(photo.flag == .picked ? Color.white : Lumen.secondaryText)
+                    .foregroundStyle(photo.flag == .pick ? Color.white : Lumen.secondaryText)
             }
             if photo.rating > 0 { stars }
             Spacer(minLength: 0)
-            if photo.label != .none {
+            if let label = photo.label {
                 RoundedRectangle(cornerRadius: 2)
-                    .fill(photo.label.color)
+                    .fill(label.color)
                     .frame(width: 12, height: 7)
             }
         }

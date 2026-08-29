@@ -19,7 +19,7 @@ final class HistoryStack: ObservableObject {
     struct Culling: Equatable {
         var flag: PhotoFlag
         var rating: Int
-        var label: ColorLabel
+        var label: ColorLabel?
     }
 
     /// What one step can restore for one photo. Each field is optional because a step

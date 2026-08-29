@@ -51,16 +51,62 @@ public enum CatalogError: Error, CustomStringConvertible {
 // MARK: - Small vocabulary types
 
 /// Pick / reject / unflagged (docs/10 §10.4). Stored as the raw Int in `photo.flag`.
-public enum PhotoFlag: Int, Sendable, CaseIterable {
+///
+/// This is the *only* photo flag. LumenApp used to declare a second one — `rejected`,
+/// `none`, `picked`, over the identical raw values — and `CatalogService.coreFlag`
+/// translated between the two on every read and every write. Two names for one set of
+/// three values is not a boundary, it is a synonym table: nothing was expressible on
+/// one side that was not expressible on the other, so the translation could only ever
+/// be an identity function with somewhere to go wrong. Merged (D39 grammar work); the
+/// SF Symbol the app draws for each case is a LumenApp extension, because a symbol
+/// name is presentation and LumenCore has no SwiftUI.
+public enum PhotoFlag: Int, Codable, Sendable, CaseIterable {
     case reject = -1
     case unflagged = 0
     case pick = 1
+
+    /// The word the filter sentence uses. Plain English, not a symbol — safe here, and
+    /// needed here, because the sentence itself is Linux-tested.
+    public var displayName: String {
+        switch self {
+        case .pick: return "Picked"
+        case .reject: return "Rejected"
+        case .unflagged: return "Unflagged"
+        }
+    }
 }
 
 /// Canonical colour-label keys. `photo.label` stores the key; the *display* name lives
 /// in `meta` under `label_name_1…5` and is user-editable (gap G25).
-public enum ColorLabel: String, Sendable, CaseIterable {
+///
+/// Also the only colour label, and the merge that took more thought than the flag one.
+/// LumenApp declared `enum ColorLabel: Int` with a sixth case, `.none = 0`, meaning
+/// "unlabelled" — which reads like a synonym for this type but is not one: there is no
+/// key here for `.none` because unlabelled is a NULL in `photo.label`, and a NULL is
+/// the *absence* of a label, not a value one can take. That is why `PhotoQuery` has
+/// carried a separate `includeUnlabeled` flag since day one, and why the old
+/// `coreLabel` had to return `ColorLabel?` while `coreFlag` returned a value.
+///
+/// So the five cases are right and the sixth was the app folding an optional into an
+/// enum for the convenience of one chip. Unlabelled is `nil` now, end to end:
+/// `PhotoItem.label` is `ColorLabel?`, `LibraryFilter` carries `includeUnlabeled`
+/// beside its `Set<ColorLabel>`, and the translation function is gone rather than
+/// rewritten. The raw values are unchanged, so XMP sidecars written by either version
+/// read identically — `rawValue` *is* the lowercased name the sidecar stores.
+public enum ColorLabel: String, Codable, Sendable, CaseIterable {
     case red, yellow, green, blue, purple
+
+    /// The built-in name, used by the filter sentence. A label the user has renamed
+    /// shows the name in `meta`; this is what it is called until they do.
+    public var displayName: String {
+        switch self {
+        case .red: return "Red"
+        case .yellow: return "Yellow"
+        case .green: return "Green"
+        case .blue: return "Blue"
+        case .purple: return "Purple"
+        }
+    }
 
     /// 1-based meta slot, matching the `6`–`9` (+ purple) key bindings.
     public var metaSlot: Int {

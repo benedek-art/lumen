@@ -28,6 +28,7 @@
 
 #if os(macOS)
 
+import LumenCore
 import SwiftUI
 
 struct FilterBar: View {
@@ -78,14 +79,14 @@ struct FilterBar: View {
         HStack(spacing: 3) {
             groupLabel("Flag")
             chip(title: "Pick", systemImage: "flag.fill",
-                 count: flagCount(.picked),
-                 isOn: state.filter.flags.contains(.picked)) { toggleFlag(.picked) }
+                 count: flagCount(.pick),
+                 isOn: state.filter.flags.contains(.pick)) { toggleFlag(.pick) }
             chip(title: "Reject", systemImage: "xmark",
-                 count: flagCount(.rejected),
-                 isOn: state.filter.flags.contains(.rejected)) { toggleFlag(.rejected) }
+                 count: flagCount(.reject),
+                 isOn: state.filter.flags.contains(.reject)) { toggleFlag(.reject) }
             chip(title: "Unflagged", systemImage: nil,
-                 count: flagCount(.none),
-                 isOn: state.filter.flags.contains(.none)) { toggleFlag(.none) }
+                 count: flagCount(.unflagged),
+                 isOn: state.filter.flags.contains(.unflagged)) { toggleFlag(.unflagged) }
         }
     }
 
@@ -130,8 +131,10 @@ struct FilterBar: View {
                 .buttonStyle(.plain)
                 .help("\(label.displayName) — \(labelCount(label)) photos")
             }
-            chip(title: "Unlabelled", systemImage: nil, count: labelCount(.none),
-                 isOn: state.filter.labels.contains(.none)) { toggleLabel(.none) }
+            chip(title: "Unlabelled", systemImage: nil, count: unlabelledCount,
+                 isOn: state.filter.includeUnlabeled) {
+                state.filter.includeUnlabeled.toggle()
+            }
         }
     }
 
@@ -416,7 +419,7 @@ struct FilterBar: View {
 
     private var summaryRow: some View {
         HStack(spacing: 8) {
-            Text(state.filter.isActive ? summary : noFilterText)
+            Text(state.filter.sentence(catalogLive: state.isLibraryQueryLive))
                 .font(.system(size: 10))
                 .foregroundStyle(state.filter.isActive ? Lumen.primaryText : Lumen.secondaryText)
                 .lineLimit(1)
@@ -435,62 +438,6 @@ struct FilterBar: View {
                     .help("Clear the filter (⌘\\)")
             }
         }
-    }
-
-    private var noFilterText: String {
-        state.isLibraryQueryLive
-            ? "No filter — showing every photo"
-            : "No filter — filtering in memory, without the catalog"
-    }
-
-    /// The active query written out. "or" inside a criterion, and between criteria
-    /// whatever the Match toggle says — the sentence is the documentation.
-    private var summary: String {
-        var parts: [String] = []
-        if !state.filter.flags.isEmpty {
-            let flags = state.filter.flags
-                .sorted { $0.rawValue > $1.rawValue }
-                .map(Self.flagName)
-            parts.append(flags.joined(separator: " or "))
-        }
-        if state.filter.minRating > 0 {
-            parts.append("★ \(state.filter.minRating) or better")
-        }
-        if !state.filter.labels.isEmpty {
-            let labels = state.filter.labels
-                .sorted { $0.rawValue < $1.rawValue }
-                .map { $0 == ColorLabel.none ? "Unlabelled" : $0.displayName }
-            parts.append(labels.joined(separator: " or "))
-        }
-        if state.filter.rawOnly {
-            parts.append("RAW only")
-        }
-        if let edited = state.filter.edited {
-            parts.append(edited ? "edited" : "untouched")
-        }
-        if !state.filter.cameras.isEmpty {
-            parts.append(state.filter.cameras.sorted().joined(separator: " or "))
-        }
-        if !state.filter.lenses.isEmpty {
-            parts.append(state.filter.lenses.sorted().joined(separator: " or "))
-        }
-        if !state.filter.isoBands.isEmpty {
-            let bands = ISOBand.allCases
-                .filter { state.filter.isoBands.contains($0) }
-                .map { "ISO " + $0.rawValue }
-            parts.append(bands.joined(separator: " or "))
-        }
-        if !state.filter.keywords.isEmpty {
-            parts.append(state.filter.keywords.sorted().joined(separator: " or "))
-        }
-        if state.filter.stackState != .any {
-            parts.append(state.filter.stackState.rawValue.lowercased())
-        }
-        if !state.filter.text.isEmpty {
-            parts.append("matching \"\(state.filter.text)\"")
-        }
-        let glue = state.filter.matchAny ? "  or  " : "  and  "
-        return parts.joined(separator: glue)
     }
 
     /// Read off the grid itself rather than counted separately, so the number and the
@@ -522,12 +469,8 @@ struct FilterBar: View {
         state.allPhotos.reduce(0) { $0 + ($1.label == label ? 1 : 0) }
     }
 
-    private static func flagName(_ flag: PhotoFlag) -> String {
-        switch flag {
-        case .picked: return "Picked"
-        case .rejected: return "Rejected"
-        case .none: return "Unflagged"
-        }
+    private var unlabelledCount: Int {
+        state.allPhotos.reduce(0) { $0 + ($1.label == nil ? 1 : 0) }
     }
 
     // MARK: Mutation

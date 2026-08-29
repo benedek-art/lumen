@@ -165,8 +165,8 @@ private struct Sidebar: View {
     }
 
     private var counts: some View {
-        let picked = state.allPhotos.filter { $0.flag == .picked }.count
-        let rejected = state.allPhotos.filter { $0.flag == .rejected }.count
+        let picked = state.allPhotos.filter { $0.flag == .pick }.count
+        let rejected = state.allPhotos.filter { $0.flag == .reject }.count
         return VStack(alignment: .leading, spacing: 3) {
             row("All photos", state.allPhotos.count)
             row("Picked", picked)

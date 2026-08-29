@@ -26,7 +26,7 @@ final class CatalogService: @unchecked Sendable {
         var catalogID: Int64
         var flag: PhotoFlag
         var rating: Int
-        var label: ColorLabel
+        var label: ColorLabel?
         var recipe: Recipe?
         /// The capture ISO the backfill read, carried through so an unedited photo can
         /// start on the noise-reduction defaults its own gain calls for.
@@ -172,15 +172,15 @@ final class CatalogService: @unchecked Sendable {
         // tested. This function owns only the file read and the enum mapping.
         let merged = SidecarMerge.resolve(
             catalog: SidecarMerge.State(rating: row.rating,
-                                        flag: sidecarFlag(appFlag(row.flag)),
+                                        flag: sidecarFlag(row.flag),
                                         label: row.label,
                                         recipe: recipe),
             sidecar: readSidecar(for: file))
 
         return StoredState(catalogID: row.id,
-                           flag: appFlag(merged.flag),
+                           flag: photoFlag(merged.flag),
                            rating: merged.rating,
-                           label: appLabel(merged.label),
+                           label: Self.label(named: merged.label),
                            recipe: merged.recipe,
                            iso: row.iso)
     }
@@ -198,13 +198,12 @@ final class CatalogService: @unchecked Sendable {
             if state.rating != row.rating {
                 try store.setRating(state.rating, photoID: row.id)
             }
-            let mergedFlag = coreFlag(state.flag)
-            if mergedFlag != row.flag {
-                try store.setFlag(mergedFlag, photoID: row.id)
+            if state.flag != row.flag {
+                try store.setFlag(state.flag, photoID: row.id)
             }
-            let mergedLabel = state.label == .none ? nil : state.label.displayName.lowercased()
+            let mergedLabel = state.label?.rawValue
             if mergedLabel != row.label {
-                try store.setLabel(coreLabel(appLabel(mergedLabel)), photoID: row.id)
+                try store.setLabel(state.label, photoID: row.id)
             }
             if storedRecipe == nil, let recovered = state.recipe {
                 try store.saveRecipe(recovered, photoID: row.id, isCurrent: true)
@@ -228,16 +227,16 @@ final class CatalogService: @unchecked Sendable {
         let url = photo.id
         queue.async {
             do {
-                try self.store.setFlag(Self.coreFlag(flag), photoID: id)
+                try self.store.setFlag(flag, photoID: id)
                 try self.store.setRating(rating, photoID: id)
-                try self.store.setLabel(Self.coreLabel(label), photoID: id)
+                try self.store.setLabel(label, photoID: id)
             } catch {
                 NSLog("Lumen catalog: culling write failed — %@", String(describing: error))
                 self.onFailure?("Could not save the flag or rating — \(error)")
             }
             self.enqueueSidecar(
                 for: url, rating: rating, flag: Self.sidecarFlag(flag),
-                label: .some(label == .none ? nil : label.displayName.lowercased()),
+                label: .some(label?.rawValue),
                 recipe: nil)
         }
     }
@@ -475,57 +474,30 @@ final class CatalogService: @unchecked Sendable {
 
     static func sidecarFlag(_ flag: PhotoFlag) -> SidecarFlag {
         switch flag {
-        case .picked: return .pick
-        case .rejected: return .reject
-        case .none: return .none
-        }
-    }
-
-    static func appFlag(_ flag: SidecarFlag) -> PhotoFlag {
-        switch flag {
-        case .pick: return .picked
-        case .reject: return .rejected
-        case .none: return .none
-        }
-    }
-
-    // The app and the catalog each name these for their own audience. One conversion
-    // in one place beats qualifying every call site.
-
-    static func appFlag(_ flag: LumenCore.PhotoFlag) -> PhotoFlag {
-        switch flag {
-        case .pick: return .picked
-        case .reject: return .rejected
+        case .pick: return .pick
+        case .reject: return .reject
         case .unflagged: return .none
         }
     }
 
-    static func coreFlag(_ flag: PhotoFlag) -> LumenCore.PhotoFlag {
+    static func photoFlag(_ flag: SidecarFlag) -> PhotoFlag {
         switch flag {
-        case .picked: return .pick
-        case .rejected: return .reject
+        case .pick: return .pick
+        case .reject: return .reject
         case .none: return .unflagged
         }
     }
 
-    static func appLabel(_ name: String?) -> ColorLabel {
-        guard let name = name?.lowercased() else { return .none }
-        for candidate in ColorLabel.allCases
-        where candidate.displayName.lowercased() == name {
-            return candidate
-        }
-        return .none
-    }
-
-    static func coreLabel(_ label: ColorLabel) -> LumenCore.ColorLabel? {
-        switch label {
-        case .none: return nil
-        case .red: return .red
-        case .yellow: return .yellow
-        case .green: return .green
-        case .blue: return .blue
-        case .purple: return .purple
-        }
+    /// The catalog column and the XMP sidecar both store the lowercased key, which is
+    /// exactly `ColorLabel.rawValue` — so this one function is the whole of what
+    /// `appLabel` and `coreLabel` used to do between them, and the `PhotoFlag` pair
+    /// they sat beside is gone entirely: with one flag enum instead of two spellings
+    /// of one, `coreFlag` had nothing left to convert.
+    ///
+    /// Lowercasing survives because a sidecar written by another application may
+    /// capitalize; an unrecognised name is unlabelled, exactly as it was before.
+    static func label(named name: String?) -> ColorLabel? {
+        name.flatMap { ColorLabel(rawValue: $0.lowercased()) }
     }
 
     // MARK: - Sidecars
