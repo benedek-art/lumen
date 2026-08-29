@@ -189,3 +189,125 @@ Ranked. Each was confirmed; none was reached before the session ended.
     whenever the bands have any spread, contradicting the caption.
 34. Five `LocalAdjust` fields and eight `Upright` fields still round-trip through the wire
     format meaning nothing. `BUILDING.md` claims two deleted sections still explain them.
+
+
+---
+
+# Round two
+
+Four more investigations, over the areas round one said it did not reach: the render
+graph and its kernels, the colour and tone engines, the catalog's query builder and XMP
+merge rules, and **the test suite itself**. Findings below were largely produced by
+compiling the relevant LumenCore files standalone and RUNNING them — the numbers are
+measured, not reasoned.
+
+## The finding about the tests, which outranks the rest
+
+`ProofRegistry.shippingReader` is the guard against this project's house defect — it names
+the line in the SHIPPING renderer that reads each control, so a proof cannot be filed for
+something the GPU never touches. It is a `String` that **no assertion reads**, and it is
+excluded from the drift check.
+
+All 59 entries name a line in `RenderGraph.swift`, across eleven distinct line numbers.
+**58 of 59 point at a comment, a closing brace or a blank line.** So a control can be
+deleted from the shipping graph entirely and its proof still passes, because the sweeps
+run through `ReferenceRenderer`, which by the registry's own admission renders no user
+pixels. The apparatus proves the mathematics is alive; the one field that connected it to
+the shipping path is inert prose.
+
+Two more of the same shape, both demonstrated rather than argued:
+
+- `WorkspaceModificationTests`' "every section" property tests pass **either way** on the
+  grain fix. I reverted `grainIsModified` and watched them stay green. The fixture lights
+  `.effects` through the vignette, so a section with two independent triggers is only ever
+  exercised through one. Two tests that do fail were added with the fix.
+- `DragBroadcastTests` exists to assert that nothing writes `AppState` per event, and
+  **never observes `AppState`** — it counts publishes on the three objects extracted away
+  from it. That is why `zoomLevel` publishing on every pinch sat there green.
+
+The app layer has six test files, 65 unobserved `@Published` properties, and four text
+scans standing in for behavioural tests — and those four scans are, between them, the only
+guard on ten of the defects in this document.
+
+## Fixed from round two
+
+| What | Where |
+|---|---|
+| **⌘G on a selection containing another stack's pick made that stack's remaining frames vanish from the grid.** `stack_member.photo_id` is UNIQUE and the insert was `OR REPLACE`, so re-stacking deleted the old membership while `pick_photo_id` still pointed at the moved frame — and `collapsedTopsOnly` is then false for every survivor. Reproduced with a probe: B and C on disk, in the catalog, in no view, with nothing in the interface able to bring them back. Membership now moves rather than being replaced, an orphaned stack re-picks or is deleted, and a pick that is not a member is refused (which `setStackPick` already did) | `CatalogStore.createStack` |
+| **"Sort by Label" ordered alphabetically on the stored key** — blue, green, purple, red, yellow — which is neither the swatch row nor the 6/7/8/9 keys, and is the reverse of what the catalog-less path does. One menu item, two orders, neither the one the interface teaches | `CatalogStore.orderClause` |
+| **`OKLabTransform.toRGB` inverted a 3×3 on every call.** `Mat3.inverse` is a computed property that allocates four `[[Double]]`s and re-derives; measured at 2.07 µs per read, which is why OKLab→RGB cost 2.74 µs against RGB→OKLab's 0.82 for the same arithmetic. Every hue-selective tool, both grading engines and `Gamut.softClip` paid it per pixel | `Perceptual.labToLMS` |
+
+## Round two, carried forward — ranked
+
+**Engine, and severe:**
+
+1. **The grading wheels' Luminance inverts the tone response at the shipped defaults.**
+   `scaleBrightness` scales OKLab **L**, whose linear value is `L³`, so the realised
+   response is `1 + 3·scale·slope` while the limiter solves `1 + scale·slope` — 2.85×
+   too permissive, reporting "nothing to limit" on settings that fold the curve. Midtones
+   +1 with Highlights −1, one drag each: 33 code values of reversal across 1.75 stops of
+   midtone. **345 of 810 sampled combinations invert.** `ColorBalanceGrid` has no limiter
+   at all.
+2. **The Film Lab discards the user's display transform**, rebuilding a Neutral one and
+   copying only `whiteTarget`. Because the gate is `amount > 0`, this is a discontinuity:
+   Strength 0 renders through your transform, Strength **1** renders 99% Neutral. On the
+   "Linear" preset — the show-me-the-data control — one point of Strength moves the
+   picture 51 code values, and Black target is dropped outright.
+3. **Every masked export delivers a mask edge resolved to 1/1024 of the frame.** Masks are
+   rasterized at 1024 on every path and bilinearly upsampled; on a 45 MP file that is an
+   8-pixel ramp with the boundary quantised to 8 px. The comment above it says the
+   refinement "runs at full resolution in the graph" — there is no such stage. The CPU
+   reference rasterizes at full resolution, so the two renderers do not agree either.
+4. **The stale-table door hands a new photograph the previous photograph's picture
+   formation.** On a miss it returns the newest entry in the slot from *any* recipe and
+   *any* photograph. Step from a black-and-white edit to a colour frame and the colour
+   frame renders monochrome for a frame. The documented contract is "one mouse event
+   behind"; across a photo change it is a different photograph's look.
+5. **The GPU's log-luminance plane has no floor; the reference clamps at zero first.**
+   Scene-linear luminance goes negative routinely after white balance, and the toe branch
+   is linear and unbounded: −0.01 encodes to −4.83 where the reference gives +0.0024. One
+   such pixel drives the guided filter's `a` from 0.087 to 0.917 across a 103×103 patch,
+   which is the edge-aware tone mask degenerating into the raw luminance.
+6. **The grading zone pivots are guessed fractions, not the documented EVs.** `[0.33,
+   0.67]` puts the shadow pivot at −4.38 EV and the highlight pivot at +0.38 EV against a
+   spec of −2.0/+1.5. At mid-grey the Highlights wheel already carries 30.6% of the
+   weight; at −2 EV the Shadows wheel carries 0%. This is the identical defect
+   `Zones.defaultPivots` was already fixed for.
+7. **Every spatial stage runs on a half-float plane whose quantum exceeds the contrast
+   threshold it is compared against.** The stages work on the log-ENCODED plane, which
+   parks the range in [0.29, 0.71] where one fp16 step is 0.0117 EV; the presence
+   regulariser's √ε is 0.100 EV, below its own numerical noise floor. Simulated, the
+   guided filter's mean `a` is 0.632 exact against 0.414 in fp16. The fix is a change of
+   denomination, not of format, and the denoise engine already uses the trick.
+8. **The soft proof's perceptual intent degrades to a per-channel clip near white** —
+   `softClip` declines above L = 1 and the clamp takes over, which is exactly what the
+   perceptual intent exists to avoid. Mean hue rotation 28° above L = 1, worst 171°.
+9. **The text filter returns nothing, permanently, once `cache.db` has been recreated.**
+   `photo_fts` lives in the disposable database and nothing rebuilds it, while
+   `ftsEnabled` stays true so the builder keeps preferring it. Reachable by the same
+   newer-build path round one fixed for the catalog. Probe: every search returns zero.
+10. **A colour label Lumen cannot name is deleted from the sidecar on the first culling
+    keystroke** — Lightroom's "To Print" and any translated colour name. `XMPMerge`'s own
+    header promises every other byte of somebody else's document survives.
+11. **`xmp:Rating="-1"`, Lightroom's reject marker, is silently rewritten as 0.**
+12. **The grid query materializes every row in the folder with no LIMIT, per keystroke.**
+    Measured: 350 ms for 50,000 rows, on the serial queue that also serves thumbnails,
+    with no debounce on the search field.
+13. **First open of a card is ~1 s of catalog work at 5,000 frames and ~10 s at 50,000**,
+    held inside one `queue.sync` — a per-photo savepoint and a full text re-index each.
+14. The text chip is prefix-only on the FTS path and infix on the fallback: typing "202"
+    finds `IMG_2202` on one branch and nothing on the other.
+15. Texture's GPU gain has no excursion limit where the reference clamps at ±4 EV; the
+    gamut-warning flag sits on opposite sides of grain in the two renderers; the album
+    sidebar counts offline frames the grid excludes and blames the wrong cause; `rebuild`
+    writes bare LFs into a CRLF sidecar; a Lumen-owned element name is stripped wherever
+    it appears, including inside another tool's provenance record.
+16. **A non-finite zone pivot indexes past the end of the pivot array** — a real trap,
+    not reachable through JSON decode today, but reachable in shape: a short pivot array
+    from a foreign writer is padded with the tail of the defaults, producing an unsorted
+    array the engine accepts and the panel sanitizes only for its own drawing.
+17. **An untouched recipe is not a passthrough**: the finish table costs 3.5 code values
+    on midtone grey at preview resolution against 0.9 at export, so the frame an editing
+    decision is made against differs from the file by about 2.5 codes.
+18. `CurveStack.bakeChannelLUTs` has zero callers and would drop `preserveLuminance` and
+    the luma curve if wired — the house defect, in the curve stage.

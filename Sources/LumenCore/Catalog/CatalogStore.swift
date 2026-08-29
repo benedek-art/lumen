@@ -2224,16 +2224,53 @@ public final class CatalogStore {
                    [.bool(collapsed), .integer(stackID)])
     }
 
+    /// RE-STACKING A PHOTOGRAPH USED TO MAKE ITS OLD STACK DISAPPEAR FROM THE GRID.
+    ///
+    /// `stack_member.photo_id` is UNIQUE and this inserted with `OR REPLACE`, so taking a
+    /// frame into a new stack silently deleted its old membership row — while the old
+    /// `stack.pick_photo_id` went on pointing at it. `collapsedTopsOnly` is
+    /// `s.collapsed = 0 OR s.pick_photo_id = photo.id`, and with the pick no longer a
+    /// member that is false for every remaining member; the `NOT EXISTS stack_member`
+    /// branch is false too. The whole stack drops out of the contact sheet.
+    ///
+    /// Reproduced: a burst A/B/C collapsed with A as the pick, then ⌘G on {A, D}. B and C
+    /// are on disk, in the catalog, and in no view — and nothing in the interface can
+    /// bring them back, because the stack they belong to is the thing that vanished.
+    ///
+    /// Three things had to change together, and none of them is the SQL predicate:
+    /// membership is moved rather than replaced, a stack that loses its pick re-picks
+    /// from the survivors (or is deleted when there are none), and a pick that is not one
+    /// of the members is refused — which `setStackPick` already did and this did not.
     @discardableResult
     public func createStack(origin: String, photoIDs: [Int64],
                             pickPhotoID: Int64? = nil) throws -> Int64 {
         try db.transaction {
+            // A pick that is not a member is not a pick. `setStackPick` refuses one;
+            // accepting it here was how a stack could be born already broken.
+            let pick = pickPhotoID.flatMap { photoIDs.contains($0) ? $0 : nil }
+                ?? photoIDs.first
+
+            // WHICH STACKS ARE LOSING MEMBERS, read before the delete so the repair below
+            // knows where to look.
+            var touched: Set<Int64> = []
+            for id in photoIDs {
+                if let old = try self.db.scalarInt(
+                    "SELECT stack_id FROM stack_member WHERE photo_id = ?;",
+                    [.integer(id)]) {
+                    touched.insert(old)
+                }
+            }
+            for id in photoIDs {
+                try self.db.run("DELETE FROM stack_member WHERE photo_id = ?;",
+                                [.integer(id)])
+            }
+
             try self.db.run(
                 "INSERT INTO stack (origin, pick_photo_id, collapsed) VALUES (?, ?, 1);",
-                [.text(origin), .optionalInteger(pickPhotoID ?? photoIDs.first)])
+                [.text(origin), .optionalInteger(pick)])
             let stackID = self.db.lastInsertRowID
             let statement = try self.db.prepare(
-                "INSERT OR REPLACE INTO stack_member (stack_id, photo_id, position) "
+                "INSERT INTO stack_member (stack_id, photo_id, position) "
                 + "VALUES (?, ?, ?);")
             var position = 0
             for id in photoIDs {
@@ -2245,6 +2282,26 @@ public final class CatalogStore {
                 position += 1
             }
             statement.reset()
+
+            // REPAIR WHAT WAS LEFT BEHIND. A stack with no members at all is an orphan
+            // row nothing would ever delete; one whose pick has moved away needs a new
+            // pick, or every one of its frames is invisible while collapsed.
+            for old in touched where old != stackID {
+                guard let survivor = try self.db.scalarInt(
+                    "SELECT photo_id FROM stack_member WHERE stack_id = ? "
+                    + "ORDER BY position ASC LIMIT 1;", [.integer(old)]) else {
+                    try self.db.run("DELETE FROM stack WHERE id = ?;", [.integer(old)])
+                    continue
+                }
+                let stillAMember = try self.db.scalarInt(
+                    "SELECT 1 FROM stack_member m JOIN stack s ON s.id = m.stack_id "
+                    + "WHERE s.id = ? AND m.photo_id = s.pick_photo_id;",
+                    [.integer(old)]) != nil
+                if !stillAMember {
+                    try self.db.run("UPDATE stack SET pick_photo_id = ? WHERE id = ?;",
+                                    [.integer(survivor), .integer(old)])
+                }
+            }
             return stackID
         }
     }
@@ -2978,7 +3035,15 @@ public final class CatalogStore {
             expression = "(SELECT MAX(e.updated_at) FROM edit e WHERE e.photo_id = photo.id)"
         case .rating:      expression = "photo.rating"
         case .flag:        expression = "photo.flag"
-        case .label:       expression = "photo.label"
+        // THE SLOT, NOT THE KEY. `photo.label` stores the canonical name, so ordering on
+        // it was alphabetical — blue, green, purple, red, yellow — which is neither the
+        // swatch row's order nor the 6/7/8/9 keys', and is the REVERSE of what the
+        // catalog-less fallback does (`AppState` sorts by `ColorLabel.rawValue`, which
+        // puts unlabelled first). One menu item, two different orders depending on
+        // whether the catalog is live, and neither the one the interface teaches.
+        case .label:
+            expression = "CASE photo.label WHEN 'red' THEN 1 WHEN 'yellow' THEN 2 "
+                + "WHEN 'green' THEN 3 WHEN 'blue' THEN 4 WHEN 'purple' THEN 5 END"
         case .filename:    expression = "photo.filename"
         case .fileType:    expression = "photo.ext"
         case .aspectRatio: expression = "photo.aspect"
