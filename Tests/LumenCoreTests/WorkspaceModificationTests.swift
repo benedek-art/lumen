@@ -101,6 +101,10 @@ final class WorkspaceModificationTests: XCTestCase {
         everything.develop.detail.texture = 10
         everything.develop.detail.sharpen.amount = 50
         everything.develop.geometry.angle = 2
+        // Lens is its own section now — `geometry.angle` lights Crop and nothing else,
+        // so without this the fixture leaves a section no edit can reach and
+        // `testEverySectionExceptTheTwoNonRecipeOnesCanBeLit` says so.
+        everything.develop.geometry.lens.profile = false
         everything.develop.mixer.uniformity = 40
         everything.develop.heal.count = 1
         everything.look.vignette = -1
@@ -170,6 +174,10 @@ extension WorkspaceModificationTests {
         r.develop.detail.sharpen.amount = 60
         r.develop.denoise.amount = 40
         r.develop.geometry.angle = 2.5
+        // Crop and Lens are two sections now, and `angle` lights only Crop. Without a
+        // lens edit the two property tests below skip Lens silently — which is the
+        // failure mode they exist to prevent, one section over.
+        r.develop.geometry.lens.profile = false
         r.develop.mixer.uniformity = 30
         r.develop.pointColors = []
         r.develop.heal.count = 2

@@ -108,9 +108,9 @@ public struct ControlIndex: Sendable {
                 aliases: ["denoise", "noise", "nr", "grain removal"]),
 
         // Develop — Optics
-        Control(id: "geometry.crop", title: "Crop", section: .optics,
+        Control(id: "geometry.crop", title: "Crop", section: .frame,
                 aliases: ["aspect", "ratio", "trim"]),
-        Control(id: "geometry.angle", title: "Straighten", section: .optics,
+        Control(id: "geometry.angle", title: "Straighten", section: .frame,
                 aliases: ["angle", "rotate", "level", "horizon"]),
         Control(id: "geometry.lens", title: "Lens Corrections", section: .optics,
                 aliases: ["distortion", "vignetting", "chromatic aberration", "ca"]),

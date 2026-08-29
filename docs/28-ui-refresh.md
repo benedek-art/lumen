@@ -436,7 +436,7 @@ specifies**, each holding a short accordion stack in the canonical order of docs
 |---|---|---|---|
 | **Cull** | `1` | filmstrip/grid, badges, filter popover, no develop column | 0 |
 | **Develop** | `2` | White Balance · Tone (Zones inside) · Curve · Presence · Detail (Denoise inside) | 5 |
-| **Crop** | `3` | Lens | 1 |
+| **Crop** | `3` | Crop · Lens | 2 |
 | **Grade** | `4` | Looks · Colour (Mixer, Point Colour, B&W) · Grading (wheels, printer lights, primaries) · Film Lab · Effects | 5 |
 | **Deliver** | `5` | Soft proof · Export recipes | 2 |
 

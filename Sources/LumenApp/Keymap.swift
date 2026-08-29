@@ -173,7 +173,7 @@ final class KeyDispatcher {
             // rows under the photographer's hand without a second click.
             // `reveal`, not `click`: Optics is not in the Simple register the app
             // opens in, so a click would be a silent no-op and R would do nothing.
-            PanelLayout.shared.reveal(.optics)
+            PanelLayout.shared.reveal(.frame)
             state.showLoupe()
             LoupeViewport.shared.showCrop.toggle()
         case "m":

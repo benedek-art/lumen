@@ -434,6 +434,7 @@ private struct WorkspaceSectionBody: View {
         case .presence: BasicPanel(only: .presence)
         case .curve: CurveEditorView(histogram: state.scopes?.histogram)
         case .detail: DetailPanel(only: .detail)
+        case .frame: EffectsPanel(only: .frame)
         case .optics: EffectsPanel(only: .optics)
         case .looks: LookPanel(only: .looks)
         case .color: ColorPanel(only: .color)

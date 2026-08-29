@@ -49,10 +49,9 @@ final class WorkspaceTests: XCTestCase {
     func testTheSectionCountsAreTheOnesDocs28Specifies() {
         XCTAssertEqual(Workspace.cull.sections.count, 0)
         XCTAssertEqual(Workspace.develop.sections.count, 5)
-        // Crop holds one SECTION — Lens. The frame itself is not a section: it is drawn
-        // on the photograph, and a workspace whose main tool lives on the image is
-        // exactly why Crop stopped being a section of Develop.
-        XCTAssertEqual(Workspace.crop.sections.count, 1)
+        // Crop holds two: the frame and the lens. They were one section until the
+        // split, which was a correctness fix — a single Reset cleared both.
+        XCTAssertEqual(Workspace.crop.sections.count, 2)
         XCTAssertEqual(Workspace.grade.sections.count, 5)
         XCTAssertEqual(Workspace.deliver.sections.count, 2)
     }
@@ -60,7 +59,7 @@ final class WorkspaceTests: XCTestCase {
     func testEachWorkspaceHoldsTheSectionsDocs28Names() {
         XCTAssertEqual(Workspace.develop.sections,
                        [.whiteBalance, .tone, .curve, .presence, .detail])
-        XCTAssertEqual(Workspace.crop.sections, [.optics])
+        XCTAssertEqual(Workspace.crop.sections, [.frame, .optics])
         XCTAssertEqual(Workspace.grade.sections,
                        [.looks, .color, .grading, .filmLab, .effects])
         XCTAssertEqual(Workspace.deliver.sections, [.softProof, .exportRecipes])
@@ -113,11 +112,16 @@ final class WorkspaceTests: XCTestCase {
         }
     }
 
-    func testTheGapsInTheRankingAreTheTwoDocs28FoldsAway() {
-        // 3 is Render and 12 is B&W. Pinned so that closing a gap — which would look like
-        // tidying — is a deliberate act with a failing test in front of it.
+    func testTheOneRemainingGapInTheRankingIsStillAGap() {
+        // 3 and 12 were both left vacant — Render and B&W, folded away by docs/28 §5.1 —
+        // and pinned so that closing one would be a deliberate act with a failing test
+        // in front of it. **Rank 3 has now been spent**, deliberately, on Crop's own
+        // Frame section: exactly the "a section that had not been designed yet" case the
+        // gap was reserved for. That is the mechanism working, not being worked around.
+        //
+        // 12 stays vacant, and stays pinned.
         let ranks = Set(WorkspaceSection.allCases.map(\.canonicalRank))
-        XCTAssertFalse(ranks.contains(3), "rank 3 is Render, not a section of §5.1's IA")
+        XCTAssertTrue(ranks.contains(3), "rank 3 is Frame, spent as the reservation intended")
         XCTAssertFalse(ranks.contains(12), "rank 12 is B&W, which folds into Colour")
         XCTAssertEqual(ranks.min(), 1)
         XCTAssertEqual(ranks.max(), 15)

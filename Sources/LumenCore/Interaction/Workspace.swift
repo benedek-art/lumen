@@ -113,6 +113,18 @@ public enum WorkspaceSection: String, CaseIterable, Hashable, Sendable {
     case whiteBalance
     /// Zones lives inside this one.
     case tone
+    /// The frame itself — crop, straighten, flip. Split from `optics` when Crop became
+    /// a workspace, and the split is a correctness fix rather than a tidying: the two
+    /// were one section, so Reset on it cleared the crop AND the lens corrections
+    /// together. Those are unrelated decisions a photographer makes at different times,
+    /// and one Reset that undoes both is the same defect class as a caption promising a
+    /// key that does nothing — it does more than it says.
+    ///
+    /// Declared HERE rather than beside `optics` because declaration order is canonical
+    /// order in this enum and the tests hold it: rank 3 was left vacant for a section
+    /// that had not been designed yet, and this is it.
+    case frame
+
     case curve
     case presence
     /// Denoise lives inside this one.
@@ -154,6 +166,8 @@ public enum WorkspaceSection: String, CaseIterable, Hashable, Sendable {
         case .curve: return 4
         case .presence: return 5
         case .detail: return 6
+        // 3 was left vacant for a section that had not been designed yet. This is it.
+        case .frame: return 3
         case .optics: return 7
         case .looks: return 8
         case .color: return 9
@@ -172,7 +186,7 @@ public enum WorkspaceSection: String, CaseIterable, Hashable, Sendable {
         switch self {
         case .whiteBalance, .tone, .curve, .presence, .detail:
             return .develop
-        case .optics:
+        case .frame, .optics:
             return .crop
         case .looks, .color, .grading, .filmLab, .effects:
             return .grade
@@ -189,6 +203,7 @@ public enum WorkspaceSection: String, CaseIterable, Hashable, Sendable {
         case .curve: return "Curve"
         case .presence: return "Presence"
         case .detail: return "Detail"
+        case .frame: return "Crop"
         case .optics: return "Lens"
         case .looks: return "Looks"
         case .color: return "Colour"
@@ -212,7 +227,8 @@ public enum WorkspaceSection: String, CaseIterable, Hashable, Sendable {
     /// register is not what empties it.
     public var isInSimpleRegister: Bool {
         switch self {
-        case .whiteBalance, .tone, .presence, .looks, .color, .exportRecipes, .optics:
+        case .whiteBalance, .tone, .presence, .looks, .color, .exportRecipes,
+             .frame, .optics:
             return true
         case .curve, .detail, .grading, .filmLab, .effects, .softProof:
             return false

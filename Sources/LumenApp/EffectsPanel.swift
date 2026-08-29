@@ -70,13 +70,12 @@ struct EffectsPanel: View {
                 vignetteSection
                 grainSection
             }
-            if shows(.optics) {
-                // The crop is a tool rather than a row of settings, so it is its own
-                // file and its own session state — see `CropPanel.swift`. Optics is
-                // where the column asks for both halves.
-                CropSection()
-                lensSection
-            }
+            // TWO SECTIONS, not one. They were `optics` together until Crop became a
+            // workspace, and then the column read "Lens" above a sub-section called
+            // "Crop" — a heading naming half its own contents. The split also gives each
+            // its own Reset, which is the half that was a real defect.
+            if shows(.frame) { CropSection() }
+            if shows(.optics) { lensSection }
             if shows(.softProof) {
                 // Deliver's own header prints "Soft Proof", so wrapping these in a
                 // section titled "Soft Proof" would print the name twice. The tab has

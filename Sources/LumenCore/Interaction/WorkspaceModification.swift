@@ -72,8 +72,15 @@ extension WorkspaceSection {
             out.insert(.detail)
         }
 
-        // Crop, straighten, flip, upright and the lens corrections are one section.
-        if develop.geometry != Geometry() { out.insert(.optics) }
+        // SPLIT, because Reset is per-section and these are two decisions. The frame
+        // carries crop, straighten, flip and upright; Lens carries the corrections.
+        // While they shared a section, resetting either cleared both.
+        let geometry = develop.geometry
+        if geometry.crop != Crop() || geometry.angle != 0 || geometry.flipH
+            || geometry.upright != nil {
+            out.insert(.frame)
+        }
+        if geometry.lens != LensCorrections() { out.insert(.optics) }
 
         // The vignette is a look; `develop.heal` is a photograph's healed spots. The
         // Retouch SECTION is gone (docs/30 Phase A — heal and clone are not implemented
@@ -166,8 +173,16 @@ extension WorkspaceSection {
             recipe.develop.detail.sharpen = ManualSharpen()
             recipe.develop.denoise = Denoise()
 
-        case .optics:
+        case .frame:
+            // The frame only. `lens` is deliberately carried across — it is the other
+            // section of this workspace and resetting a crop must not un-tick a lens
+            // profile the photographer set separately.
+            let lens = recipe.develop.geometry.lens
             recipe.develop.geometry = Geometry()
+            recipe.develop.geometry.lens = lens
+
+        case .optics:
+            recipe.develop.geometry.lens = LensCorrections()
 
         case .looks:
             recipe.look.render = RenderParams()
