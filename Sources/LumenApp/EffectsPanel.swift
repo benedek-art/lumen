@@ -162,11 +162,11 @@ struct EffectsPanel: View {
                                 // double-clicking reset it to two different numbers.
                                 range: 0...100, hardRange: nil,
                                 defaultValue: grainDefault,
+                                step: 1, decimals: 0, bipolar: false,
                                 help: film.amount <= 0
                                     ? "Grain rides the film chain, and the chain is only "
                                         + "built while Film Lab's Strength is above zero."
-                                    : nil,
-                                step: 1, decimals: 0, bipolar: false)
+                                    : nil)
                     // Size is the pitch at the gate relative to the stock's own. The
                     // footprint is denominated at the GATE and scales with the render's
                     // pixel count, so it is the same fraction of the picture at every
