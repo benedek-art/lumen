@@ -89,7 +89,14 @@ final class LoupeViewport: ObservableObject {
     /// True while the straighten ruler is armed. It disarms itself when the drag ends,
     /// so it reads as a tool you fire rather than a mode you have to remember to leave.
     @Published var showStraighten: Bool = false
-    @Published var showReadout: Bool = true
+    /// A `let`, for the reason `maskOverlayOpacity` below is one: nothing anywhere sets
+    /// it. Four reads gate the on-image cursor readout and the pixel sampler; there is no
+    /// key, no menu item and no control that writes it, so the `@Published var` was a
+    /// constant wearing a setting's clothes — observable state that could not be observed
+    /// to change. docs/12 specifies the ghost readout as always on, which is what this
+    /// value has always meant. If it becomes a setting it goes back to being published,
+    /// with the control that writes it.
+    let showReadout: Bool = true
     /// Overlay tint strength. A `let`, not a `@Published var`: nothing ever set it, so
     /// it was a constant wearing a setting's clothes — observable state that could not
     /// be observed to change, in a batch whose thesis was reachability. If it becomes
@@ -1099,7 +1106,15 @@ struct LoupeView: View {
     /// selection is stale — a mask deleted from under the canvas must make it inert,
     /// not make it index into nothing.
     private var maskEditTarget: (maskID: String, index: Int, component: MaskComponent?)? {
-        guard let id = state.activeMaskID,
+        // THE SAME FALLBACK THE PANEL USES. `MaskPanel.activeMask` and both keyboard
+        // verbs read `activeMaskID ?? masks.first?.id`; this required it non-nil and
+        // returned nil otherwise, so `MaskCanvas` was never constructed at all. Nothing
+        // sets `activeMaskID` on entering masking and `cursorDidChange` clears it on
+        // every photo change — so a photograph with a gradient mask from a previous
+        // session showed the row highlighted, the sliders bound and Refine live, with no
+        // handles on the picture and dragging doing nothing until you clicked the row.
+        // Three readers of one selection, two of them agreeing and this one not.
+        guard let id = state.activeMaskID ?? recipe.masks.first?.id,
               let mask = recipe.masks.first(where: { $0.id == id }) else { return nil }
         let index = state.activeComponentIndex
         guard mask.components.indices.contains(index) else {

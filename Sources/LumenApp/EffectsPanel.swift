@@ -55,6 +55,12 @@ struct EffectsPanel: View {
     @EnvironmentObject var edits: EditRevision
 
     private var binder: RecipeBinder { RecipeBinder(state: state) }
+
+    /// Whether the selected photograph is one the raw decoder never sees. Two controls in
+    /// this panel write fields whose only reader is `AppleRawSource`.
+    private var isRenderedFile: Bool {
+        state.primarySelection.map { PhotoFormats.isRendered($0.id) } ?? false
+    }
     private var recipe: Recipe { state.currentRecipe }
 
     /// The one section the column wants drawn. nil renders every section this panel
@@ -121,6 +127,30 @@ struct EffectsPanel: View {
                     }
                     .frame(height: Lumen.rowHeight)
 
+                    // THE GRAIN IS GATED ON THE FILM CHAIN EXISTING, and the chain is
+                    // built only when Film Lab's STRENGTH is above zero
+                    // (`RenderPlan`: `if let film = look.filmLab, film.amount > 0`).
+                    // Every render path then reads the grain through that chain — so with
+                    // Strength at 0 these two sliders wrote the recipe and produced
+                    // nothing, with the control that explains it in a different workspace
+                    // section. The trap is a real workflow: pick Portra, decide the
+                    // colour rendering is too strong, pull Strength to 0, come here for
+                    // the texture without the palette.
+                    if film.amount <= 0 {
+                        HStack(spacing: 6) {
+                            Text("Film Lab strength is 0, so no grain is laid down.")
+                                .font(.lumenCaption)
+                                .foregroundStyle(Lumen.secondaryText)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Spacer(minLength: 0)
+                            Button("Film Lab") { state.jump(to: .filmLab) }
+                                .buttonStyle(.plain)
+                                .font(.lumenCaption)
+                                .foregroundStyle(Lumen.accent)
+                        }
+                        .padding(.vertical, 2)
+                    }
+
                     LumenSlider(title: "Amount",
                                 value: binder.custom("look.grain.amount",
                                                      get: { r in r.look.filmLab?.grain.amount ?? 0 },
@@ -132,6 +162,10 @@ struct EffectsPanel: View {
                                 // double-clicking reset it to two different numbers.
                                 range: 0...100, hardRange: nil,
                                 defaultValue: grainDefault,
+                                help: film.amount <= 0
+                                    ? "Grain rides the film chain, and the chain is only "
+                                        + "built while Film Lab's Strength is above zero."
+                                    : nil,
                                 step: 1, decimals: 0, bipolar: false)
                     // Size is the pitch at the gate relative to the stock's own. The
                     // footprint is denominated at the GATE and scales with the render's
@@ -201,13 +235,24 @@ struct EffectsPanel: View {
                            $0.develop.geometry.lens = LensCorrections()
                        } }) {
             VStack(alignment: .leading, spacing: 2) {
+                // DISABLED ON A RENDERED FILE, and it matters more here than for its
+                // neighbours because this one DEFAULTS TO ON. `lens.profile`'s only
+                // reader is `AppleRawSource`; a JPEG goes through `RenderedImageSource`,
+                // which reads nothing from the recipe. So every non-raw file in the
+                // library carried a ticked box that reached nothing — which is exactly
+                // the state the note below says got Remove CA deleted.
                 LumenToggleRow(title: "Built-in profile",
                                isOn: binder.flag(\.develop.geometry.lens.profile,
                                                  "geometry.lens.profile"),
-                               help: "Applies the correction opcodes and manufacturer "
-                                   + "profile embedded in the file, at decode. There is "
-                                   + "no lens database in this build, so a file carrying "
-                                   + "no profile develops uncorrected.")
+                               help: isRenderedFile
+                                   ? "The embedded profile is applied at raw decode, "
+                                       + "which this file does not go through — so this "
+                                       + "changes nothing here."
+                                   : "Applies the correction opcodes and manufacturer "
+                                       + "profile embedded in the file, at decode. There "
+                                       + "is no lens database in this build, so a file "
+                                       + "carrying no profile develops uncorrected.")
+                    .disabled(isRenderedFile)
                 // Not shown: Remove chromatic aberration, and the seven controls under
                 // Defringe. `removeCA` and every field of `Defringe` have a wire format
                 // and no reader — grep across Sources/ finds them only in the `Recipe`

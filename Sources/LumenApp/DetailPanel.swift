@@ -75,6 +75,15 @@ struct DetailPanel: View {
                            $0.develop.detail.capture = CaptureSharpen()
                        } }) {
             VStack(alignment: .leading, spacing: 2) {
+                // DISABLED ON A RENDERED FILE, because it reaches nothing there. Both
+                // this toggle and the Amount row below write fields whose ONLY reader is
+                // `AppleRawSource` — the raw decoder — and a JPEG, HEIC or TIFF goes
+                // through `RenderedImageSource`, whose whole `decode` reads nothing out
+                // of the recipe but the scale factor. So on every non-raw file in the
+                // library these two controls moved, lit the section's modified dot, wrote
+                // the recipe and the sidecar, and changed no pixel. The AI-denoise row
+                // three sections down already branches its help text on exactly this; it
+                // was the only one that did.
                 LumenToggleRow(title: "Capture sharpening",
                                isOn: binder.flag(\.develop.detail.capture.auto,
                                                  "detail.capture.auto"),
@@ -130,8 +139,14 @@ struct DetailPanel: View {
                         range: 0...150, hardRange: nil,
                         defaultValue: captureAmountStandIn,
                         step: 1, decimals: 0, bipolar: false,
+                        help: isRenderedFile
+                            ? "Capture sharpening is part of the raw decode, which this "
+                                + "file does not go through — so this changes nothing "
+                                + "here. Manual sharpening below does run."
+                            : nil,
                         onReset: { clearCaptureOverrides() })
         }
+        .disabled(isRenderedFile)
     }
 
     private var hasCaptureOverride: Bool {

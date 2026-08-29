@@ -67,6 +67,23 @@ reaches nothing. This repository has shipped that defect class at least nine tim
 
 ---
 
+## Fixed in the second pass
+
+Eight more from the list below, chosen for being confirmed and small:
+
+| What | Where |
+|---|---|
+| **"Move the whole gradient" and "move the radial centre" added a DISPLAYED-space delta to SOURCE coordinates.** On a crop of `w=0.5` the mask ran away at twice the pointer's speed, and with a straighten angle it slid diagonally. Every other gesture in the file already routed through the inverse transform; these two did not | `MaskCanvas` |
+| **The on-image mask canvas was dead whenever `activeMaskID` was nil** while the panel showed a mask as selected — three readers of one selection, two using `?? masks.first?.id` and this one requiring non-nil. A photograph with a mask from an earlier session showed the row lit, the sliders bound, and no handles on the picture | `LoupeView.maskEditTarget` |
+| **The first `O` after every photo change did nothing.** `soloMaskOverlay` holds a per-photograph mask id and was not cleared with the rest of the mask selection, so it pointed at the previous photo's mask: the overlay did not draw, and `O` took the "solo is set, clear it" branch | `AppState.cursorDidChange` |
+| **⇧⌘G (Unstack) was dead on a fresh install** — its only key equivalent lived on a button inside a sidebar section that ships closed, and a `.keyboardShortcut` on a view that is not in the hierarchy is never registered. The comment above it asserted the opposite | `ContentView` |
+| **Capture Sharpening and its Amount were live on every non-RAW file and reached nothing.** Their only reader is the raw decoder; a JPEG goes through `RenderedImageSource`, whose `decode` reads nothing from the recipe but the scale factor | `DetailPanel` |
+| **"Built-in profile" was the same, and it defaults to ON** — so every rendered file in the library carried a ticked box that reached nothing, which is precisely the state that got Remove CA deleted | `EffectsPanel` |
+| **Grain did nothing while Film Lab Strength was 0**, with the control that explains it in a different workspace section. A real workflow reaches it: pick a stock, pull Strength to 0, come to Effects for the texture without the palette | `EffectsPanel` |
+| **`showReadout` was a `@Published` with no writer** — a constant wearing a setting's clothes, four reads and nothing that could change it | `LoupeView` |
+
+---
+
 ## Not fixed — carried forward
 
 Ranked. Each was confirmed; none was reached before the session ended.
@@ -105,7 +122,7 @@ Ranked. Each was confirmed; none was reached before the session ended.
    fixed to rotate in long-edge units; `MaskCanvas` still rotates in per-axis normalized
    units. On a 3:2 frame at 45° the canvas draws an axis-aligned ellipse and the renderer
    produces a tilted one, and the handle you drag is 1.5× off in y.
-9. **"Move the whole gradient" and "move the radial centre" add a displayed-space delta to
+9. ~~FIXED (second pass)~~ **"Move the whole gradient" and "move the radial centre" add a displayed-space delta to
    source coordinates.** On a crop of `w=0.5` the mask runs away at twice the pointer's
    speed; with a straighten angle it slides diagonally.
 10. **A ratio lock is silently broken by any change of angle.** 16:9 at 0° becomes 1.83:1
@@ -126,16 +143,16 @@ Ranked. Each was confirmed; none was reached before the session ended.
 15. **The Detail header's Reset gives every selected photograph the primary's ISO denoise
     baseline.** The whole-recipe Reset does this correctly; the section reset was written
     against the wrong overload.
-16. **The mask canvas is dead whenever `activeMaskID` is nil** while the panel shows a mask
+16. ~~FIXED (second pass)~~ **The mask canvas is dead whenever `activeMaskID` is nil** while the panel shows a mask
     as selected — three readers of one selection with two different fallbacks.
-17. **⇧⌘G (Unstack) is dead on a fresh install**, behind a sidebar section that ships
+17. ~~FIXED (second pass)~~ **⇧⌘G (Unstack) is dead on a fresh install**, behind a sidebar section that ships
     closed. The comment above it asserts the opposite.
 18. **⌘K → "Lens Corrections" arms the crop rectangle with no crop panel**, and Escape then
     fails to revert because no session was begun.
-19. **Capture Sharpening and "Built-in profile" are dead on every non-RAW file**, with the
+19. ~~FIXED (second pass)~~ **Capture Sharpening and "Built-in profile" are dead on every non-RAW file**, with the
     profile ticked by default. The neighbouring AI-denoise row already branches its help
     text on exactly this.
-20. **Grain does nothing while Film Lab Strength is 0**, and the two controls live in a
+20. ~~FIXED (second pass)~~ **Grain does nothing while Film Lab Strength is 0**, and the two controls live in a
     different workspace section from the one that gates them.
 
 ### Performance

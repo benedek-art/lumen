@@ -269,10 +269,33 @@ struct MaskCanvas: View {
             updated[2] = Double(n.x)
             updated[3] = Double(n.y)
         case 2:
-            let dx = Double(value.translation.width / Swift.max(imageRect.width, 1))
-            let dy = Double(value.translation.height / Swift.max(imageRect.height, 1))
-            updated = [MaskCanvas.coord(updated[0] + dx), MaskCanvas.coord(updated[1] + dy),
-                       MaskCanvas.coord(updated[2] + dx), MaskCanvas.coord(updated[3] + dy)]
+            // THE DELTA HAS TO BE MEASURED IN SOURCE COORDINATES, and it was measured in
+            // displayed ones. Every other branch in this file routes through
+            // `normalized()` → `PipelineRenderer.sourceNormalized`, which inverts the
+            // crop, the straighten and the flip; these two "translate" branches added a
+            // fraction of the DISPLAYED rect straight onto a SOURCE-normalized value.
+            //
+            // On a crop of `w=0.5`, a 100-point drag across a 750-point preview travels
+            // 0.1333 of the displayed width — 400 source pixels, 0.0667 of the source —
+            // and the old code wrote 0.1333, i.e. 800. The gradient ran away at 1/crop.w
+            // times the pointer's speed, redrawing under the new value so the mismatch
+            // was visible immediately. With a straighten angle it also slid diagonally,
+            // because the delta was applied along the source axes rather than the
+            // rotated ones.
+            //
+            // Two `normalized` calls and a subtraction gets both right at once: the
+            // inverse transform is applied to each endpoint, so whatever it does to the
+            // axes it does to both.
+            let from = normalized(value.startLocation)
+            let to = normalized(current)
+            let dx = Double(to.x - from.x)
+            let dy = Double(to.y - from.y)
+            // `updated` is still the drag's origin here — nothing in this switch has
+            // written to it on this path — which is what makes the delta absolute rather
+            // than accumulating per event.
+            let base = updated
+            updated = [MaskCanvas.coord(base[0] + dx), MaskCanvas.coord(base[1] + dy),
+                       MaskCanvas.coord(base[2] + dx), MaskCanvas.coord(base[3] + dy)]
         default:
             let start = normalized(value.startLocation)
             let end = normalized(constrained(current, anchor: value.startLocation))
@@ -328,10 +351,15 @@ struct MaskCanvas: View {
 
         switch handle {
         case 0:
-            let dx = Double(value.translation.width / Swift.max(imageRect.width, 1))
-            let dy = Double(value.translation.height / Swift.max(imageRect.height, 1))
-            nextCentre = [MaskCanvas.coord(nextCentre[0] + dx),
-                          MaskCanvas.coord(nextCentre[1] + dy)]
+            // Source coordinates, not displayed ones — see the note on the gradient's
+            // translate branch above. Same defect, same fix.
+            let from = normalized(value.startLocation)
+            let to = normalized(value.location)
+            // `nextCentre` is the drag's origin at this point (it is seeded from
+            // `originCenter` on a continuation and from `centre` on the first event).
+            let base = nextCentre
+            nextCentre = [MaskCanvas.coord(base[0] + Double(to.x - from.x)),
+                          MaskCanvas.coord(base[1] + Double(to.y - from.y))]
         case 1, 2:
             let local = localVector(from: nextCentre, to: value.location, rotation: rotation)
             if handle == 1 {

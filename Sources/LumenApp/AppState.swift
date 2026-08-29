@@ -2129,6 +2129,13 @@ final class AppState: ObservableObject {
     private func cursorDidChange(to photo: PhotoItem) {
         activeMaskID = nil
         activeComponentIndex = 0
+        // AND THE SOLO, for the same reason and it was the one that got left behind. A
+        // mask id is per-photograph, so after arrowing to the next frame `soloMaskOverlay`
+        // still held the previous photo's mask: the overlay did not draw (its raster
+        // comes back nil for an id this recipe has no mask for) AND the next press of `O`
+        // took the "solo is set, clear it" branch — so the first O after every photo
+        // change did nothing and you had to press it twice.
+        soloMaskOverlay = nil
         loadStrokeSets(for: recipe(for: photo))
         scheduleScopeRefresh()
         // The clipping panel follows the cursor and NOTHING ELSE. It is measured on the

@@ -585,6 +585,26 @@ private struct Sidebar: View {
                 .disabled(state.selection.count < 2)
                 .help("Group the selection into one stack (⌘G)")
 
+            // ⇧⌘G HAS TO BE ABOVE THE FOLD, and the comment that used to sit on it
+            // asserted the opposite: "Opening the section is not what makes it live —
+            // selecting a stacked photo is." That was false. `stacks` is constructed only
+            // when `stackExpanded` is true, the key equivalent lives on a button inside
+            // it, and a `.keyboardShortcut` on a view that is not in the hierarchy is
+            // never registered — so on a fresh install, where this section ships closed,
+            // ⇧⌘G did nothing at all while the Help sheet listed it as working. ⌘G worked,
+            // because ITS button is up here.
+            //
+            // Drawn with no label and zero size rather than duplicating the visible
+            // button: the visible one belongs beside the other stack verbs, and two
+            // buttons carrying one chord is how a grammar drifts.
+            Button("") { state.unstackSelection() }
+                .buttonStyle(.plain)
+                .frame(width: 0, height: 0)
+                .opacity(0)
+                .accessibilityHidden(true)
+                .keyboardShortcut("g", modifiers: [.command, .shift])
+                .disabled(state.primaryStack == nil)
+
             if stackExpanded { stacks }
         }
     }
@@ -612,14 +632,11 @@ private struct Sidebar: View {
                     .font(.system(size: 11))
                     .disabled(stack.isPick)
 
-                // ⇧⌘G stays here, inside `if let stack`, and was already conditional
-                // before this section could fold: a command to unstack nothing has
-                // nothing to act on. Opening the section is not what makes it live —
-                // selecting a stacked photo is.
+                // Unstack's BUTTON stays here beside the other stack verbs, where it
+                // reads; ⇧⌘G moved above the fold. See the note there.
                 Button("Unstack") { state.unstackSelection() }
                     .buttonStyle(.borderless)
                     .font(.system(size: 11))
-                    .keyboardShortcut("g", modifiers: [.command, .shift])
                     .help("Unstack (⇧⌘G)")
             } else {
                 // Three lines of teaching in front of one button, on a fresh folder,
