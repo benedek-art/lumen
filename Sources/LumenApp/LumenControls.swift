@@ -6,32 +6,39 @@
 // The contract, in one place. This list is what the file DOES, and it is worth saying
 // why that needs stating: it used to open with "←/→ nudge by one step; ⇧ multiplies by
 // 10; ⌥ divides by 10", and this file contains no key handling of any kind. The keymap
-// owns the arrows, where they move the photo selection. It also claimed the number
-// field scrubs, and the number field takes a click and lets you type.
+// owns the arrows, where they move the photo selection.
 //
 //   · drag the track — grab the thumb and it follows the cursor; press the track and
 //     the value jumps there once, then follows from there
-//   · click the number and type a value
+//   · ⇧ while dragging makes it fine, at any point, without the thumb jumping
+//   · drag the NUMBER to scrub it — three track-widths of travel per full range, so the
+//     readout is the precision instrument and the track is the coarse one
+//   · click the number and type a value, or type arithmetic: `+= 0.3`, `-= 0.2`,
+//     `* 2`, `/ 2`. A bare number is absolute, negative ones included
 //   · double-click the label or the track resets to the default (or to whatever
 //     `onReset` means for a row whose neutral is "auto")
 //   · the range is SOFT — dragging pins at the soft limit, typing accepts the hard one
 //   · a control that is not at its default shows it, so "what did I change?" is
 //     answerable at a glance rather than by memory
+//   · a haptic tick when the value CROSSES its default, on trackpads that have one
 //
-// WHY THERE IS NO KEYBOARD NUDGE, rather than a promise of one. Arrow keys already mean
-// "previous / next photo", claimed by `KeyDispatcher`'s NSEvent monitor, which sits in
-// FRONT of the responder chain — so a focused slider would never see an arrow at all.
+// WHY THERE IS STILL NO KEYBOARD NUDGE, rather than a promise of one. Arrow keys already
+// mean "previous / next photo", claimed by `KeyDispatcher`'s NSEvent monitor, which sits
+// in FRONT of the responder chain — so a focused slider would never see an arrow at all.
 // Making the nudge work needs three decisions, none of which is this file's to make
 // alone: the slider has to become focusable, so there must be a visible focus ring in a
 // chrome that is deliberately zero-chroma and near-featureless; the dispatcher has to
 // learn to hand the arrows back when a slider holds focus, the way it already does for
 // a focused text field and for the zoomed loupe's pan; and there has to be a way to put
 // focus on a slider and take it off again, or the arrows stop paging photographs and
-// the photographer cannot tell why. Until those exist, the honest thing is that the
-// nudge is not offered. The rest of the D45 contract that is still missing — arithmetic
-// entry, scrubby-drag on the readout, ⌥-scroll, ⌘-double-click to auto, ⇧⌥-drag to the
-// hard limit, haptic detents — is audit UX-04's parity half and is likewise absent
-// rather than advertised.
+// the photographer cannot tell why. That is docs/28 Phase 7, in one deliberate pass.
+// Until it exists, the honest thing is that the nudge is not offered. Also still absent
+// rather than advertised: ⌥-scroll, ⌘-double-click to auto, ⇧⌥-drag to the hard limit.
+//
+// The arithmetic behind the drag, the typing and the detent all lives in LumenCore —
+// `SliderTrack`, `FineDrag`, `SliderEntry`, `SliderDrag.crossesDetent` — because
+// `LumenApp` compiles only on macOS and a rule that cannot be tested is a rule that
+// drifts. This file is the presentation of those, and it should stay that thin.
 //
 // Chrome is zero-chroma by law (docs/00 Law 7): nothing in this file introduces a hue
 // that could bias a colour judgement about the photograph.
@@ -249,6 +256,10 @@ struct LumenSlider: View {
     /// jumping at the moment the modifier changes. See `FineDrag` in LumenCore, where
     /// the arithmetic and its properties are tested.
     @State private var gearbox = FineDrag(startValue: 0)
+    /// The readout's own scrub, kept separate from the track's gesture so the two can
+    /// never be half-way through each other.
+    @State private var isScrubbing = false
+    @State private var scrubGearbox = FineDrag(startValue: 0)
     /// The press that began this gesture was the second click of a double-click, so
     /// `reset()` ran and everything else the gesture delivers is ignored.
     @State private var pressWasReset = false
@@ -268,6 +279,43 @@ struct LumenSlider: View {
     /// keyboard, which is exactly the question.
     private static var shiftIsDown: Bool {
         NSEvent.modifierFlags.contains(.shift)
+    }
+
+    /// Write a value the gesture produced, ticking if it just passed the control's rest
+    /// position.
+    ///
+    /// Both halves are guarded. The value write is guarded because a mouse event that
+    /// does not cross a step must not publish — that is the per-event cost the drag work
+    /// exists to keep off this path — and the tick is guarded by `crossesDetent`, which
+    /// is a CROSSING rather than a proximity test: "near the default" is true for many
+    /// consecutive samples of a slow drag, and a landmark that rumbles is not a landmark.
+    ///
+    /// `.alignment` is AppKit's own name for this: the feedback a guide gives when
+    /// something snaps to it. On a Mac without a Force Touch trackpad the performer is a
+    /// silent no-op, which is the right behaviour and needs no check.
+    private func commit(_ next: Double) {
+        guard next != value else { return }
+        if SliderDrag.crossesDetent(from: value, to: next, detent: defaultValue) {
+            NSHapticFeedbackManager.defaultPerformer.perform(.alignment,
+                                                             performanceTime: .now)
+        }
+        value = next
+    }
+
+    /// The readout is a second, finer track.
+    ///
+    /// Three times the develop column's ~142 points, so crossing the whole range by
+    /// scrubbing the number is three deliberate hand movements where the track does it
+    /// in one — and ⇧ makes it twelve. That is what makes this the precision instrument
+    /// and the track the coarse one, which is the division of labour every pro tool with
+    /// a scrubby readout has.
+    ///
+    /// It carries the control's own `scale`, so scrubbing Temp still moves in mireds and
+    /// the number does not sprint at one end of the axis and crawl at the other.
+    private var scrubTrack: SliderTrack {
+        SliderTrack(width: 426,
+                    lowerBound: range.lowerBound, upperBound: range.upperBound,
+                    step: step, scale: scale)
     }
 
     var body: some View {
@@ -485,7 +533,7 @@ struct LumenSlider: View {
                                                     travelled: travelled,
                                                     fine: Self.shiftIsDown)
                         if let changed = out.changedGear { gearbox = changed }
-                        if out.value != value { value = out.value }
+                        commit(out.value)
                     }
                     .onEnded { drag in
                         // THE RELEASE IS A SAMPLE, and it is the last one.
@@ -518,7 +566,7 @@ struct LumenSlider: View {
                             let settled = gearbox.resolving(track: geometryOfDrag,
                                                             travelled: travelled,
                                                             fine: Self.shiftIsDown).value
-                            if settled != value { value = settled }
+                            commit(settled)
                         }
                         isDragging = false
                         onEditingChanged?(false)
@@ -548,11 +596,51 @@ struct LumenSlider: View {
                 Text(formatted)
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(isModified ? Lumen.primaryText : Lumen.secondaryText)
+                    .contentShape(Rectangle())
                     .onTapGesture {
                         textValue = formatted
                         isEditingText = true
                         textFocused = true
                     }
+                    // SCRUB THE NUMBER (docs/28 Phase 6). `minimumDistance: 3` is what
+                    // keeps tap-to-type alive: a press that does not travel three points
+                    // is never claimed by this gesture, so the tap above still fires and
+                    // the field still opens. At zero the drag would swallow every click
+                    // and typing a value would become impossible.
+                    .gesture(
+                        DragGesture(minimumDistance: 3)
+                            .onChanged { drag in
+                                if !isScrubbing {
+                                    isScrubbing = true
+                                    scrubGearbox = FineDrag(startValue: value,
+                                                            fine: Self.shiftIsDown)
+                                    onEditingChanged?(true)
+                                    sliderGestureChanged(true)
+                                }
+                                let travelled = Double(drag.location.x
+                                                       - drag.startLocation.x)
+                                let out = scrubGearbox.resolving(
+                                    track: scrubTrack, travelled: travelled,
+                                    fine: Self.shiftIsDown)
+                                if let changed = out.changedGear { scrubGearbox = changed }
+                                commit(out.value)
+                            }
+                            .onEnded { drag in
+                                guard isScrubbing else { return }
+                                // A release is a sample here for the same reason it is
+                                // one on the track: the last motion event is exactly
+                                // what gets dropped when the main actor is behind.
+                                let travelled = Double(drag.location.x
+                                                       - drag.startLocation.x)
+                                commit(scrubGearbox.resolving(
+                                    track: scrubTrack, travelled: travelled,
+                                    fine: Self.shiftIsDown).value)
+                                isScrubbing = false
+                                onEditingChanged?(false)
+                                sliderGestureChanged(false)
+                            }
+                    )
+                    .help("Drag to adjust, click to type — ⇧ for fine")
             }
         }
         .frame(width: Lumen.valueWidth, alignment: .trailing)

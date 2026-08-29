@@ -243,7 +243,7 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     "NSCursor", "NSMenu", "NSMenuItem", "NSPasteboard", "NSSavePanel", "NSOpenPanel",
     "NSWorkspace", "NSBezierPath", "NSGraphicsContext", "NSScreen", "NSFont",
     "NSSound", "NSAlert", "NSStatusBar", "NSTextField", "NSTextView", "NSHostingView",
-    "NSHostingController", "ModifierFlags", "OK",
+    "NSHostingController", "ModifierFlags", "OK", "NSHapticFeedbackManager",
     "NSLeftArrowFunctionKey", "NSRightArrowFunctionKey", "NSUpArrowFunctionKey",
     "NSDownArrowFunctionKey", "NSDeleteFunctionKey",
     # SwiftUI

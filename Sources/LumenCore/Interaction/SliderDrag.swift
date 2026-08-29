@@ -249,6 +249,25 @@ public enum SliderDrag {
         guard pressX.isFinite, thumbX.isFinite else { return false }
         return abs(pressX - thumbX) <= thumbGrabRadius
     }
+
+    /// Whether a move from `from` to `to` passed through `detent` — the question a
+    /// haptic tick at a slider's default has to answer.
+    ///
+    /// CROSSING, not proximity, and the difference is the whole of it. "Within a
+    /// tolerance of the default" is true for many consecutive samples of a slow drag,
+    /// so a proximity test buzzes continuously while the hand loiters near zero and
+    /// turns a landmark into a rumble. Crossing is true for exactly one sample, which
+    /// is what makes the tick mean "you just passed it".
+    ///
+    /// Landing exactly on the detent counts; leaving it does not. Otherwise a drag that
+    /// stopped on zero would tick twice — once arriving, once departing — and the
+    /// arrival is the event worth feeling.
+    public static func crossesDetent(from: Double, to: Double, detent: Double) -> Bool {
+        guard from.isFinite, to.isFinite, detent.isFinite, from != to else { return false }
+        if to == detent { return true }
+        if from == detent { return false }
+        return (from < detent) != (to < detent)
+    }
 }
 
 /// A drag that can change gear part-way through without moving the value.

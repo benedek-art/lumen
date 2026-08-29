@@ -178,6 +178,60 @@ final class FineDragTests: XCTestCase {
         }
     }
 
+    // MARK: The detent, which must tick once rather than rumble
+
+    func testCrossingTheDetentIsTrueForExactlyOneSampleOfASlowDrag() {
+        // The property a proximity test cannot have, and the reason this is a crossing
+        // test. Walk one step at a time through zero and count the ticks.
+        var ticks = 0
+        var previous = -5.0
+        for value in stride(from: -5.0, through: 5.0, by: 1.0) {
+            if SliderDrag.crossesDetent(from: previous, to: value, detent: 0) { ticks += 1 }
+            previous = value
+        }
+        XCTAssertEqual(ticks, 1, "a walk through the detent must tick once")
+    }
+
+    func testLandingOnTheDetentTicksAndLeavingItDoesNot() {
+        // Arriving is the event worth feeling. Ticking on departure too would make a
+        // drag that stopped on zero buzz twice for one landmark.
+        XCTAssertTrue(SliderDrag.crossesDetent(from: 3, to: 0, detent: 0))
+        XCTAssertFalse(SliderDrag.crossesDetent(from: 0, to: 3, detent: 0))
+        XCTAssertFalse(SliderDrag.crossesDetent(from: 0, to: -3, detent: 0))
+    }
+
+    func testSittingStillNeverTicks() {
+        XCTAssertFalse(SliderDrag.crossesDetent(from: 0, to: 0, detent: 0))
+        XCTAssertFalse(SliderDrag.crossesDetent(from: 7, to: 7, detent: 0))
+    }
+
+    func testAJumpRightOverTheDetentStillTicks() {
+        // Events coalesce, so a fast drag can step from −40 to +40 in one sample. The
+        // landmark was passed and the hand should be told.
+        XCTAssertTrue(SliderDrag.crossesDetent(from: -40, to: 40, detent: 0))
+        XCTAssertTrue(SliderDrag.crossesDetent(from: 40, to: -40, detent: 0))
+    }
+
+    func testADetentAwayFromZeroWorksTheSameWay() {
+        // Temp's default is the photograph's as-shot neutral, which is 5500 K on almost
+        // no camera; a detent hard-coded to zero would be a tick nobody ever feels.
+        XCTAssertTrue(SliderDrag.crossesDetent(from: 5200, to: 5800, detent: 5500))
+        XCTAssertFalse(SliderDrag.crossesDetent(from: 5600, to: 5800, detent: 5500))
+    }
+
+    func testMovingWhollyOnOneSideNeverTicks() {
+        for a in stride(from: 1.0, through: 50.0, by: 3.0) {
+            XCTAssertFalse(SliderDrag.crossesDetent(from: a, to: a + 2, detent: 0))
+            XCTAssertFalse(SliderDrag.crossesDetent(from: -a, to: -a - 2, detent: 0))
+        }
+    }
+
+    func testANonFiniteEndpointNeverTicks() {
+        XCTAssertFalse(SliderDrag.crossesDetent(from: .nan, to: 1, detent: 0))
+        XCTAssertFalse(SliderDrag.crossesDetent(from: -1, to: .nan, detent: 0))
+        XCTAssertFalse(SliderDrag.crossesDetent(from: -1, to: 1, detent: .nan))
+    }
+
     // MARK: Degenerate inputs
 
     func testANonFiniteTravelHoldsTheValueRatherThanPoisoningIt() {

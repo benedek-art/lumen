@@ -683,8 +683,17 @@ and against Lightroom via owner-exported references.
       - [ ] ⚑ BLOCKER for item 24 (⌘K control palette): ⌘K is already "Keyword the
             selection". Belongs to item 30's one deliberate keymap pass, not to
             whoever builds the palette first
-      - [ ] items 21, 23, 25, 26: haptic detents, scrubby readout, Speed Edit (D44),
-            ⌥-scroll
+      - [x] item 23, scrub the number: the readout is a SECOND, FINER track — 426 pt
+            of travel per full range against the column's ~142, so it is ~3x finer than
+            the track and ~12x with ⇧. Reuses `FineDrag` and the control's own scale, so
+            scrubbing Temp still moves in mireds. `minimumDistance: 3` keeps
+            tap-to-type alive. 426 is PICKED, not measured — one constant if wrong
+      - [x] item 21, a tick at the default: `SliderDrag.crossesDetent` (7 Linux tests)
+            is a CROSSING test, not proximity — "near the default" is true for many
+            samples of a slow drag and would rumble instead of marking a landmark.
+            Detent is `defaultValue`, so on Temp/Tint it marks the PHOTO's as-shot
+            neutral. Silent on a mouse: only Force Touch trackpads perform
+      - [ ] items 25, 26: Speed Edit (D44), ⌥-scroll
       **Phases 4, 7:**
       four workspaces and accordions ⚑ · one home for colour ⚑ · speed (arithmetic
       entry, scrubby readout, ⌘K palette, Speed Edit D44) · focus + the owed keymap

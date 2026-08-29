@@ -853,6 +853,36 @@ control palette needs a different key, or the keyword verb does, and that is a k
 decision belonging to **item 30's one deliberate pass over the whole grammar** rather
 than to whoever happens to build the palette first.
 
+**Items 21 and 23 shipped next**, the slider's last two small affordances.
+
+**Item 23 — scrub the number.** The readout is a second, *finer* track: 426 points of
+travel per full range against the develop column's ~142, so crossing the range by
+scrubbing is three deliberate hand movements where the track does it in one, and ⇧ makes
+it twelve. That is what makes the readout the precision instrument and the track the
+coarse one, which is the division of labour every pro tool with a scrubby readout has. It
+reuses `FineDrag` and the control's own `scale`, so scrubbing Temp still moves in mireds.
+`minimumDistance: 3` is load-bearing rather than decorative — at zero the drag would
+swallow every click and typing a value would become impossible. **426 is picked, not
+measured**; if it is wrong in the hand it is one constant.
+
+**Item 21 — a tick at the default.** `SliderDrag.crossesDetent` is a *crossing* test and
+that is the whole of it: "within a tolerance of the default" is true for many consecutive
+samples of a slow drag, so a proximity test buzzes continuously while the hand loiters
+near zero and turns a landmark into a rumble. Crossing is true for exactly one sample.
+Landing on the detent ticks, leaving it does not — a drag that stopped on zero would
+otherwise tick twice for one landmark — and a coalesced jump straight over it still ticks,
+because the landmark was passed. Seven Linux tests. The detent is `defaultValue`, not
+zero, so on Temp and Tint it marks the *photograph's* as-shot neutral rather than a number
+no camera ever shoots.
+
+Worth stating because it is invisible from here: **`NSHapticFeedbackManager` does nothing
+on a mouse.** Only a Force Touch trackpad performs. That is correct behaviour and needs no
+check, but it means half the potential audience will never know the feature exists.
+
+`LumenControls.swift`'s header now describes the slider that exists rather than the one
+that did — it had been listing arithmetic entry, scrubby-drag and haptic detents under
+"absent rather than advertised", which was honest when written and is not now.
+
 ### Phase 7 — Focus, keyboard, and the owed reconciliation
 
 27. Focus ring (docs/25 step 8): `.focusable()` + `.focusEffectDisabled()` + own ring.
