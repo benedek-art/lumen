@@ -276,7 +276,9 @@ struct MaskPanel: View {
                         range: 0...100, defaultValue: 100, step: 1, decimals: 0, bipolar: false)
             componentParameters(id, i, c)
             if let problem = c.validationError() {
-                note(problem + " — it renders empty until that is supplied.")
+                // A component that renders nothing must say so unprompted.
+                note(problem + " — it renders empty until that is supplied.",
+                     prominent: true)
             }
         }
         .padding(.leading, 6).padding(.bottom, 4)
@@ -288,11 +290,15 @@ struct MaskPanel: View {
         case .brush:
             brushParameters(c)
         case .linear:
+            // Live: `lineSummary` is the gradient's current geometry, so this is a
+            // readout wearing an instruction, not teaching.
             note("Drag on the image to set the gradient line — " + MaskPanel.lineSummary(c)
-                 + ". The span between the ends is the feather; there is no other control.")
+                 + ". The span between the ends is the feather; there is no other control.",
+                 prominent: true)
         case .similarityLine:
             VStack(alignment: .leading, spacing: 2) {
-                note("Drag on the image to set the ramp — " + MaskPanel.lineSummary(c) + ".")
+                note("Drag on the image to set the ramp — " + MaskPanel.lineSummary(c) + ".",
+                     prominent: true)
                 similarityParameters(id, i, c)
             }
         case .radial:
@@ -300,7 +306,8 @@ struct MaskPanel: View {
                 optionalSlider(id, i, "Feather", \.feather, 0...100, 50)
                 optionalSlider(id, i, "Rotation", \.rotation, -180...180, 0, bipolar: true)
                 note("Drag on the image to place and resize the ellipse — "
-                     + MaskPanel.ellipseSummary(c) + ". Falloff runs inward from the edge.")
+                     + MaskPanel.ellipseSummary(c) + ". Falloff runs inward from the edge.",
+                     prominent: true)
             }
         case .lumaRange:
             VStack(alignment: .leading, spacing: 2) {
@@ -319,7 +326,8 @@ struct MaskPanel: View {
                 // `aiMattes` is a literal empty dictionary at both call sites, so this
                 // component rasterizes to an empty plane and selects nothing.
                 note("No depth source in this build — embedded depth is not read and no "
-                     + "estimator ships, so this component renders empty.")
+                     + "estimator ships, so this component renders empty.",
+                     prominent: true)
             }
         case .colorRange:
             VStack(alignment: .leading, spacing: 2) {
@@ -729,7 +737,8 @@ struct MaskPanel: View {
                     // not is worse than an absent one — it costs the user the time to
                     // find out. They come back when the stage does.
                     note("Local noise reduction, moiré, defringe and grain are not "
-                         + "wired yet and are not shown. Use the global controls.")
+                         + "wired yet and are not shown. Use the global controls.",
+                         prominent: true)
                 }
             }
         }
@@ -1092,9 +1101,17 @@ struct MaskPanel: View {
         .buttonStyle(.plain).foregroundStyle(Lumen.primaryText)
     }
 
-    private func note(_ text: String) -> some View {
-        Text(text).font(.system(size: 10)).foregroundStyle(Lumen.secondaryText)
-            .fixedSize(horizontal: false, vertical: true).padding(.vertical, 2)
+    /// Explanatory copy, collapsed to a ⓘ row (see `DevelopNote`).
+    ///
+    /// Masks carried twenty of these, always visible, in the panel that also holds
+    /// thirty-five sliders plus a per-component editor — the worst prose-to-control
+    /// ratio in the app. Six stay visible, in the two categories `DevelopNote`
+    /// documents: three that disclose something not wired (an incomplete component, the
+    /// absent depth source, the local stages that do nothing), and three that carry the
+    /// live geometry of the gradient or ellipse being dragged, which is an instrument
+    /// rather than teaching.
+    private func note(_ text: String, prominent: Bool = false) -> some View {
+        DevelopNote(text, prominent: prominent)
     }
 
     // MARK: - Static tables

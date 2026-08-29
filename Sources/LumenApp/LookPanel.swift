@@ -521,13 +521,17 @@ struct LookPanel: View {
 
             if transformExpanded {
                 if transformIsInert {
+                    // Prominent: the four controls directly beneath this are
+                    // rendered disabled and inert, and a disclosure explaining why a
+                    // visible control does nothing cannot itself require a hover.
                     caption("A film stock is loaded, and a stock REPLACES this stage "
                             + "rather than sitting on top of it. The chain blends "
                             + "against its own neutral rendition, not against the "
                             + "preset below — so nothing here moves a pixel at ANY "
                             + "Strength, and dragging Strength up from zero swaps the "
                             + "whole rendition rather than fading into this one. Set "
-                            + "the stock to None to use these.")
+                            + "the stock to None to use these.",
+                            prominent: true)
                 }
                 // Disabled rather than hidden. The values are still the recipe's, they
                 // still travel in the sidecar, and they will render the moment the
@@ -716,9 +720,12 @@ struct LookPanel: View {
                                     + "section above moves nothing: a stock replaces "
                                     + "that stage, at every Strength.")
                     } else {
+                        // Prominent: the recipe names a stock, the picture does not
+                        // show it, and only this line says so.
                         caption("\u{201C}\(film.stock)\u{201D} is not a stock this build "
                                 + "ships — the render falls back to the neutral "
-                                + "transform rather than to a different look.")
+                                + "transform rather than to a different look.",
+                                prominent: true)
                     }
                 } else {
                     caption("A stock replaces the display transform rather than stacking "
@@ -808,12 +815,15 @@ struct LookPanel: View {
             })
     }
 
-    private func caption(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 10))
-            .foregroundStyle(Lumen.secondaryText)
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(.bottom, 4)
+    /// Explanatory copy, collapsed to a ⓘ row (see `DevelopNote`).
+    ///
+    /// This panel carried twelve of these plus a boxed banner — the heaviest prose load
+    /// in the app after Masks, in the tab that also holds thirty-eight sliders. Two stay
+    /// `prominent`, both honesty work: the stock that this build does not have, and the
+    /// warning that a loaded stock REPLACES the display transform whose controls are
+    /// sitting right there, disabled.
+    private func caption(_ text: String, prominent: Bool = false) -> some View {
+        DevelopNote(text, prominent: prominent)
     }
 
     /// Two pivots, ordered, inside the axis. A decoded file can carry anything.

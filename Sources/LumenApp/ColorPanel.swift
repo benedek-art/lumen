@@ -521,12 +521,15 @@ struct ColorPanel: View {
             set: { v in state.updateRecipe(coalescingKey: key) { set(&$0, v) } })
     }
 
-    private func caption(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 10))
-            .foregroundStyle(Lumen.secondaryText)
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(.bottom, 4)
+    /// Explanatory copy, collapsed to a ⓘ row like every other note in the app.
+    ///
+    /// These were the only always-visible prose left in this panel, and Uniformity's
+    /// alone ran to six lines — including a sentence about a spatial pass the shipping
+    /// graph does not run yet, in front of a photographer mid-edit. The live band
+    /// readout ("Red — centred on 29.2° in OKLCh…") is deliberately NOT routed through
+    /// here: it is a raw `Text` a few lines up, because it is an instrument.
+    private func caption(_ text: String, prominent: Bool = false) -> some View {
+        DevelopNote(text, prominent: prominent)
     }
 
     // MARK: - Static helpers

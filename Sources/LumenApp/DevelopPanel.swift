@@ -186,9 +186,22 @@ struct DevelopDisclosure<Content: View>: View {
 /// Collapsed by default since the owner's second session: thirty-one of these sat
 /// fully expanded and the panel read as documentation with sliders in it ("so much
 /// text that is honestly unnecessary"). The knowledge is one hover away on the ⓘ
-/// row — the same affordance as every slider's own tooltip. `prominent: true` keeps
-/// the old always-visible rendering, and it is reserved for notes doing honesty work
-/// (a control that is stored but not applied must say so without being asked).
+/// row — the same affordance as every slider's own tooltip.
+///
+/// `prominent: true` keeps the old always-visible rendering. It is for copy that must
+/// be READ rather than merely available, and there are exactly two kinds:
+///
+///   1. **Honesty work** — a control that is stored but not applied, a source this
+///      build does not have, a stage another stage replaces. Hiding a disclosure behind
+///      a hover is the same as not making it.
+///   2. **Live readouts** — a line whose text contains the current state of something
+///      (a gradient's geometry, the loaded stock). That is an instrument, not teaching,
+///      and an instrument nobody can see is not an instrument.
+///
+/// Everything else collapses. docs/28 Phase 1 extended this from `DevelopNote`'s own
+/// call sites to the nineteen `caption()` blocks in Colour and Look and the twenty
+/// `note()` blocks in Masks, which had never adopted it — roughly two to three full
+/// panel-heights of always-visible prose.
 struct DevelopNote: View {
     private let text: String
     private let prominent: Bool
