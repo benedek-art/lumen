@@ -54,6 +54,8 @@ struct ColorPanel: View {
     // Colour is open, these three decide whether the rows under one of its headers are.
     @State private var mixerExpanded: Bool = true
     @State private var pointExpanded: Bool = true
+    /// Only ever consulted while the treatment is on — see `blackAndWhiteSection`, where
+    /// the header stops offering a chevron once there is nothing behind it to fold.
     @State private var bwExpanded: Bool = true
 
     /// nil renders every section this panel owns, which is what the tab did.
@@ -71,13 +73,18 @@ struct ColorPanel: View {
     }
 
     /// What the three headers below pass for `LumenSectionHeader.topRhythm`, which is
-    /// that parameter's own distinction: 16 is a section boundary, 8 is a fold.
+    /// that parameter's own distinction: 20 is a section boundary, 10 is a fold.
     ///
     /// Under `only:` the column has already printed the section header above these, so a
     /// second full boundary would make each sub-heading shout as loudly as the heading
     /// it sits under. With `only` nil this panel IS the column and they are top-level
     /// sections, which is the 16 they have always had.
-    private var innerRhythm: CGFloat { only == nil ? 16 : 8 }
+    /// Tracks `LumenSectionHeader.topRhythm`, which moved to 20 for a section boundary
+    /// and 10 for a fold when the accordion's sections became cards. These were 16 and 8
+    /// and their prose still said so, which is a ratio drifting out of step with the
+    /// control it is supposed to match — invisible while both sides pass explicit
+    /// values, and exactly the sort of thing that is wrong for a year.
+    private var innerRhythm: CGFloat { only == nil ? 20 : 10 }
 
     // MARK: - Body
 
@@ -137,7 +144,10 @@ struct ColorPanel: View {
                                              (value: true, label: "All bands")],
                                    selection: Binding(get: { state.mixerAllBands },
                                                       set: { state.mixerAllBands = $0 }))
-                        .frame(width: 150)
+                        // `maxWidth`, not `width`: this was sized by eye against a
+                        // 300pt content area and the column is draggable now, so a hard
+                        // 150 overflows the moment someone narrows it.
+                        .frame(maxWidth: 150)
                 }
                 .padding(.vertical, 2)
 
@@ -429,38 +439,47 @@ struct ColorPanel: View {
 
     // MARK: - Black & white
 
+    /// THE CHEVRON FOLLOWS THE CONTENT. With the treatment off this section is one
+    /// switch, and the disclosure existed to hide that one switch — a full chevron over
+    /// a single row, which is why Black & White reads as a third of this panel when it
+    /// only becomes one after it is turned on.
+    ///
+    /// So the switch is always drawn, and the fold appears with the eight bands it would
+    /// actually be folding. `LumenSectionHeader` draws no chevron when `isExpanded` is
+    /// nil, which says "nothing to fold here" without inventing a second idiom for it —
+    /// and no gate can be stranded, because the switch that brings the chevron back sits
+    /// outside the one it gates.
     private var blackAndWhiteSection: some View {
         let bw = state.currentRecipe.look.bw
         let isOn = state.currentRecipe.look.blackAndWhiteIsOn
+        let fold: Binding<Bool>? = isOn ? $bwExpanded : nil
 
         return VStack(alignment: .leading, spacing: 2) {
             LumenSectionHeader(title: "Black & White",
-                               isExpanded: $bwExpanded,
+                               isExpanded: fold,
                                isModified: bw != nil,
                                onReset: { state.updateRecipe { $0.look.bw = nil } },
                                topRhythm: innerRhythm)
 
-            if bwExpanded {
-                LumenToggleRow(title: "Black & white treatment",
-                               isOn: Binding(get: { isOn }, set: { setTreatment($0) }),
-                               help: "Toggling the treatment keeps both sets of settings "
-                                   + "with this photo — the mix is stored in its recipe "
-                                   + "and the colour mixer is not touched. Reset above "
-                                   + "is what discards the mix.")
+            LumenToggleRow(title: "Black & white treatment",
+                           isOn: Binding(get: { isOn }, set: { setTreatment($0) }),
+                           help: "Toggling the treatment keeps both sets of settings "
+                               + "with this photo — the mix is stored in its recipe "
+                               + "and the colour mixer is not touched. Reset above "
+                               + "is what discards the mix.")
 
-                // Off draws the switch and nothing else. Three captions stood here —
-                // one naming the eight bands as the mixer's, one promising the mix
-                // survives the toggle, and one whose entire content was the word "Off."
-                // directly under a switch that was off. The promise is kept by
-                // `BlackAndWhite.toggled` writing `bw.enabled` rather than deleting the
-                // slot, and by the mixer living in `develop.mixer` where this never
-                // reaches; a sentence was never what kept it.
-                if isOn {
-                    ForEach(Array(0..<ColorEngine.bandCount), id: \.self) { i in
-                        LumenSlider(title: ColorPanel.bandName(i),
-                                    value: bwBinding(i),
-                                    range: -100...100, defaultValue: 0, step: 1, decimals: 0)
-                    }
+            // Off draws the switch and nothing else. Three captions stood here — one
+            // naming the eight bands as the mixer's, one promising the mix survives the
+            // toggle, and one whose entire content was the word "Off." directly under a
+            // switch that was off. The promise is kept by `BlackAndWhite.toggled`
+            // writing `bw.enabled` rather than deleting the slot, and by the mixer
+            // living in `develop.mixer` where this never reaches; a sentence was never
+            // what kept it.
+            if isOn, bwExpanded {
+                ForEach(Array(0..<ColorEngine.bandCount), id: \.self) { i in
+                    LumenSlider(title: ColorPanel.bandName(i),
+                                value: bwBinding(i),
+                                range: -100...100, defaultValue: 0, step: 1, decimals: 0)
                 }
             }
         }

@@ -146,7 +146,10 @@ struct DevelopSection<Content: View>: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        // 6, not 2. A heading two points off the row it governs is the "everything is
+        // super back to back to back" the owner named; the gap has to be big enough that
+        // the eye reads a title and then a list, rather than one column of text.
+        VStack(alignment: .leading, spacing: 6) {
             // No "Default" badge on clean sections any more (design audit §1.9):
             // chrome announcing the ABSENCE of information, repeated per section per
             // panel. The accent dot already says "modified"; silence says default.
@@ -158,9 +161,16 @@ struct DevelopSection<Content: View>: View {
                                isExpanded: onToggle == nil ? nil : .constant(isExpanded),
                                isModified: isModified, onReset: onReset,
                                onToggle: onToggle)
-            if isExpanded { content() }
+            if isExpanded {
+                content()
+                    // The same unfold `WorkspaceSectionView` uses — a section built
+                    // through this type and one composed by hand should not open two
+                    // different ways.
+                    .transition(.opacity.combined(
+                        with: .scale(scale: 0.97, anchor: .top)))
+            }
         }
-        // No compensating pad here any more: the header carries the whole 16 pt of
+        // No compensating pad here any more: the header carries the whole of the
         // section rhythm itself, so a section composed by hand out of a
         // `LumenSectionHeader` — which is how Colour, Look and Masks build theirs — gets
         // the same boundary as one built through this type. That is what let the
@@ -195,9 +205,23 @@ struct DevelopDisclosure<Content: View>: View {
         // and never passes through `PanelLayout.commit` where the accordion's animation
         // lives. Wrapping the binding rather than each of the twenty call sites means a
         // fold cannot be added without the movement coming with it.
+        // RE-TIMED, because "the animation for the open and close for the chevrons are
+        // not great" and `.smooth(duration: 0.22)` was the wrong shape for a fold.
+        //
+        // `.smooth` is a bezier: it eases in as well as out, so the first frames of an
+        // open barely move and the drawer appears to hesitate before committing — which
+        // on a control that responds to a click reads as lag rather than as grace. A
+        // critically damped spring (dampingFraction 1) leaves immediately and decelerates
+        // into place with no overshoot, which is what a hinge does. The response is
+        // slightly longer than the old duration and it still finishes sooner, because a
+        // spring spends its time at the end of the movement rather than the start.
+        //
+        // No bounce, for the reason `PanelLayout.commit` already gives: a panel is
+        // furniture being moved, not an object being thrown.
         self._isExpanded = Binding(get: { isExpanded.wrappedValue },
                                    set: { new in
-                                       withAnimation(.smooth(duration: 0.22)) {
+                                       withAnimation(.spring(response: 0.28,
+                                                             dampingFraction: 1)) {
                                            isExpanded.wrappedValue = new
                                        }
                                    })
@@ -205,15 +229,16 @@ struct DevelopDisclosure<Content: View>: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            // 8, not the section rhythm's 16: a disclosure is a fold inside a section,
+        VStack(alignment: .leading, spacing: 6) {
+            // 10, not the section rhythm's 20: a disclosure is a fold inside a section,
             // and giving it a full boundary would make the sub-heading read as louder
             // than the heading it sits under.
-            LumenSectionHeader(title: title, isExpanded: $isExpanded, topRhythm: 8)
+            LumenSectionHeader(title: title, isExpanded: $isExpanded, topRhythm: 10)
             if isExpanded {
                 content()
                     .padding(.leading, 8)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    .transition(.opacity.combined(
+                        with: .scale(scale: 0.97, anchor: .top)))
             }
         }
     }
@@ -267,7 +292,7 @@ struct DevelopNote: View {
         // furniture. docs/30 §2.2.
         if prominent {
             Text(text)
-                .font(.system(size: 10))
+                .font(.lumenCaption)
                 .foregroundStyle(Lumen.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.vertical, 2)
@@ -317,9 +342,10 @@ struct DevelopPanel: View {
             // NEITHER of these carries a fixed height any more, and that is the fix
             // for MAC-06 rather than a style preference.
             //
-            // The histogram was pinned to 96 points and its content is 157: 6 of
-            // padding, a graph pinned to `graphHeight` (104), the readout line (14),
-            // the space picker (~19), the two 4-point gaps and 6 more of padding.
+            // The histogram was pinned to 96 points and its content was 157: 6 of
+            // padding, a graph pinned to `graphHeight`, the readout line, the
+            // readout-space picker that used to sit under it, two gaps and 6 more of
+            // padding.
             // `.frame(height:)` does not clip — it sets the layout size and lets the
             // content draw past it — so roughly 30 points of "Working % | sRGB 255 |
             // Output 255" were painted straight over the divider and the section
@@ -340,21 +366,28 @@ struct DevelopPanel: View {
                 // The histogram sits above the sliders because it is the instrument
                 // they are being read against, not a panel of its own.
                 HistogramView(histogram: state.scopes?.histogram)
-                    .padding(.horizontal, 8)
-                    .padding(.bottom, 4)
+                    // 4, matching the accordion's cards below, so the instrument's edges
+                    // line up with the section edges instead of sitting eight points
+                    // inside them. Its own inner padding makes up the difference.
+                    .padding(.horizontal, 4)
+                    .padding(.bottom, 6)
             }
             if state.showScopes {
                 ScopesView(scopes: state.scopes)
-                    .padding(.horizontal, 8)
-                    .padding(.bottom, 4)
+                    .padding(.horizontal, 4)
+                    .padding(.bottom, 6)
             }
             // The column's two chrome bands, and they are bands rather than the three
             // hairlines that used to fence them (design audit §1.1: hairline-partitioned
-            // flat grey IS the pre-Yosemite AppKit read). The switcher and the footer
-            // drop to `windowBase` 0.18 while the scrolling body stays on `panel` 0.20 —
-            // the same recessed-chrome / raised-content step the status bar and the
+            // flat grey IS the pre-Yosemite AppKit read). The switcher and the footer sit
+            // on `windowBase` 0.18 — the same recessed-chrome step the status bar and the
             // filmstrip already use, so depth comes from surface value the way the rest
             // of the ladder does.
+            //
+            // They no longer need to paint it themselves: the whole column dropped to
+            // `windowBase` when the sections became cards, so chrome is simply the part
+            // of the column with no card on it. Left in place because it costs nothing
+            // and states the intent where a reader is looking for it.
             sectionSwitcher
                 .frame(maxWidth: .infinity)
                 .background(Lumen.windowBase)
@@ -367,8 +400,17 @@ struct DevelopPanel: View {
                 .frame(maxWidth: .infinity)
                 .background(Lumen.windowBase)
         }
-        .frame(width: Lumen.panelWidth)
-        .background(Lumen.panelBackground)
+        .frame(width: state.developPanelWidth)
+        // THE COLUMN IS THE TROUGH NOW, not the surface.
+        //
+        // It was `panel` 0.20 with everything drawn flat on it, which is why the column
+        // read as one undifferentiated scroll: nothing in it had anything to sit ON.
+        // Dropping the ground to `windowBase` 0.18 and raising each section onto a 0.20
+        // card is the same ladder used the way `LumenSurface.swift` describes — the
+        // greys are untouched, the light is what changed. Every control inside a section
+        // keeps the exact contrast against its background it was designed with, because
+        // its background is still 0.20.
+        .background(Lumen.windowBase)
         .foregroundStyle(Lumen.primaryText)
     }
 
@@ -377,7 +419,7 @@ struct DevelopPanel: View {
     private var header: some View {
         HStack(spacing: 6) {
             Text(subject?.filename ?? "No photo")
-                .font(.system(size: 11, weight: .medium))
+                .font(.lumenBodyStrong)
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer()
@@ -405,22 +447,25 @@ struct DevelopPanel: View {
     @ViewBuilder
     private var sectionContent: some View {
         scrollColumn {
-            // The dock first: while it is open it is what the photographer is working
-            // in, and the sections below are the adjustments the mask is scaling.
-            if panel.layout.isMaskDockOpen {
-                MaskDock(panel: panel)
+            // A REPLACEMENT, not a stack. A mask's `LocalAdjust` is the global set
+            // again, so drawing both put Tone, Curve, Colour and Grading in this column
+            // twice — see `MaskEditor`.
+            if panel.layout.isMasking {
+                MaskEditor(panel: panel)
+            } else {
+                WorkspaceSections(panel: panel,
+                                  nonDefault: WorkspaceSection.nonDefault(
+                                    in: state.currentRecipe,
+                                    softProofEnabled: state.softProof.enabled,
+                                    // The photograph's OWN starting point, not the
+                                    // type's. A high-ISO frame arrives with denoise
+                                    // already on, so comparing against `Denoise()`
+                                    // would light Detail on every RAW file ever
+                                    // opened — and a dot that is always on says
+                                    // nothing, which is the argument the "Default"
+                                    // badges were removed under.
+                                    denoiseDefault: denoiseDefault))
             }
-            WorkspaceSections(panel: panel,
-                              nonDefault: WorkspaceSection.nonDefault(
-                                in: state.currentRecipe,
-                                softProofEnabled: state.softProof.enabled,
-                                // The photograph's OWN starting point, not the type's.
-                                // A high-ISO frame arrives with denoise already on, so
-                                // comparing against `Denoise()` would light Detail on
-                                // every RAW file ever opened — and a dot that is always
-                                // on says nothing, which is the argument the "Default"
-                                // badges were removed under.
-                                denoiseDefault: denoiseDefault))
         }
     }
 
@@ -441,13 +486,19 @@ struct DevelopPanel: View {
     private func scrollColumn<Content: View>(
         @ViewBuilder _ content: () -> Content) -> some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 10) {
                 content()
             }
-            // 8, not 10: two points back on each side is four more points of track on
-            // every slider in the app, and nothing in this column is crowded by it.
-            .padding(.horizontal, 8)
-            .padding(.bottom, 14)
+            // 4, not 8, and NOT four points off every slider's track.
+            //
+            // The other four moved inside the section card (`WorkspaceSectionView`), so
+            // a row's content still begins eight points from the column's edge and the
+            // track is exactly the width it was. What changed is where the padding is
+            // spent: half of it now draws the trough the cards sit in rather than being
+            // blank margin.
+            .padding(.horizontal, 4)
+            .padding(.top, 6)
+            .padding(.bottom, 16)
         }
         .scrollIndicators(.never)
     }
@@ -457,7 +508,7 @@ struct DevelopPanel: View {
             Image(systemName: "slider.horizontal.below.rectangle")
                 .font(.system(size: 22))
             Text("Select a photo to develop")
-                .font(.system(size: 11))
+                .font(.lumenBody)
         }
         .foregroundStyle(Lumen.secondaryText)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -551,20 +602,23 @@ private struct DevelopFooterButton: View {
         Button(action: action) {
             HStack(spacing: 5) {
                 Image(systemName: systemImage)
-                    .font(.system(size: 10))
+                    .font(.lumenCaption)
                 Text(title)
-                    .font(.system(size: 11))
+                    .font(.lumenBody)
                     .lineLimit(1)
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 5)
             .background(hovering ? Lumen.controlHover : Color.clear)
             .foregroundStyle(hovering ? Lumen.primaryText : Lumen.secondaryText)
-            .clipShape(RoundedRectangle(cornerRadius: 5))
+            .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusControl,
+                                        style: .continuous))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.12), value: hovering)
+        .lumenClickCursor()
         .help(help)
     }
 }

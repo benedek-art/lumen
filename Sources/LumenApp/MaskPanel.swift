@@ -1,6 +1,13 @@
 // MaskPanel.swift
-// The Masks panel: the photo's mask list, the selected mask's component stack, its
+// The mask editor: the photo's mask list, the selected mask's component stack, its
 // refinement chain, and the full local adjustment set that runs through its alpha.
+//
+// THIS IS THE WHOLE DEVELOP COLUMN while `WorkspaceLayout.isMasking` is set — not a
+// panel among the workspace's sections and no longer a dock stacked above them. The
+// owner asked for "its own page ... its own kind of section area where you can fully
+// customize stuff about the masks", and the model agrees with him: `LocalAdjust` is the
+// global adjustment set again, so a column that drew both offered Tone, Curve, Colour
+// and Grading twice over. `MaskEditor` in DevelopColumn.swift is the seam.
 //
 // Four things this panel exists to get right:
 //   · The component operation is a control, not a modifier: Add / Subtract / Intersect
@@ -44,11 +51,11 @@ struct MaskPanel: View {
 
     /// Whether this panel draws its own "Masks" section header.
     ///
-    /// False when the caller has already titled it. `MaskDock` printed "Masks" and then
-    /// drew this panel, which printed "Masks" again directly underneath — two identical
-    /// headers, stacked, in every workspace, on every photograph. Every other panel the
-    /// column embeds has this escape (`ZonesPanel.showsSectionHeader`, `ColorPanel.only`)
-    /// and this one never did. The default is what a standalone rendering keeps.
+    /// False when the caller has already titled it, which is what `MaskEditor` does —
+    /// the column's top bar prints "Masks" beside the way out, and this printing it
+    /// again a row below is two identical headings stacked. Every other panel the column
+    /// embeds has this escape (`ZonesPanel.showsSectionHeader`, `ColorPanel.only`) and
+    /// this one never did. The default is what a standalone rendering keeps.
     var showsOwnHeader: Bool = true
 
     /// Spelled out because the synthesised memberwise initialiser is private the moment
@@ -81,14 +88,14 @@ struct MaskPanel: View {
 
     // MARK: - Body
 
-    /// NO SCROLL VIEW, NO PADDING, NO BACKGROUND OF ITS OWN any more.
+    /// NO SCROLL VIEW, NO PADDING, NO BACKGROUND OF ITS OWN.
     ///
-    /// Masks stopped being one of eight tabs and became a dock available in every
-    /// workspace (docs/28 Phase 4 item 14), so this is no longer the whole column and
-    /// cannot behave as though it were. A nested `ScrollView` inside the column's own is
-    /// a scroll trap: the column would stop scrolling wherever the pointer happened to
-    /// be over the dock. The column supplies all three now, and it already paints the
-    /// same `panelBackground` behind everything.
+    /// This fills the column but it does not OWN the column: `DevelopPanel.scrollColumn`
+    /// supplies the scroll view, the horizontal padding and the background, exactly as
+    /// it does for a workspace's sections. A nested `ScrollView` here would be a scroll
+    /// trap — the column would stop scrolling wherever the pointer happened to be — and
+    /// a second background would put a panel-coloured rectangle on a panel-coloured
+    /// panel.
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             // Hairlines gone; each header's own 16 pt is the boundary now
@@ -180,6 +187,16 @@ struct MaskPanel: View {
                 .foregroundStyle(isSelected ? Lumen.primaryText : Lumen.secondaryText)
 
             LumenBadge(text: "\(mask.components.count)")
+
+            // Masks fold in list order too — both renderers walk `plan.masks` front to
+            // back, so where two masks overlap the later one is working on the earlier
+            // one's output. Same control as the component rows below, because it is the
+            // same question being asked one level up.
+            reorderControls(canMoveUp: index > 0,
+                            canMoveDown: index < masks.count - 1,
+                            what: "mask") { delta in
+                moveMask(mask.id, by: delta)
+            }
 
             Button { state.soloMaskOverlay = isSolo ? nil : mask.id } label: {
                 Image(systemName: isSolo ? "circle.lefthalf.striped.horizontal"
@@ -284,6 +301,17 @@ struct MaskPanel: View {
             Spacer(minLength: 0)
             if component.validationError() != nil {
                 LumenBadge(text: "INCOMPLETE", emphasized: true)
+            }
+            // ORDER IS AN ARGUMENT HERE, not a preference. `MaskRaster.combine` folds
+            // the stack top-down into an accumulator that seeds empty, so Subject
+            // ∪ then Sky ∖ is a different selection from Sky ∖ then Subject ∪ — the
+            // second one subtracts from nothing and then adds everything back. The
+            // panel let you set the operation and never let you move the row, so half
+            // of what the fold can express was unreachable.
+            reorderControls(canMoveUp: index > 0,
+                            canMoveDown: index < mask.components.count - 1,
+                            what: "component") { delta in
+                moveComponent(mask.id, from: index, by: delta)
             }
             Button { removeComponent(mask.id, index) } label: {
                 Image(systemName: "minus.circle").font(.system(size: 10))
@@ -607,22 +635,23 @@ struct MaskPanel: View {
                     adjustSlider(mask.id, "Hue", \.hue, -180...180)
                     adjustSlider(mask.id, "Saturation", \.sat, -100...100)
                     adjustSlider(mask.id, "Vibrance", \.vibrance, -100...100)
+                    // WIRED, AND THE TARGET IS NOW A COLOUR THE PHOTOGRAPHER CHOSE.
+                    //
+                    // It used to seed `[0.5, 0.5, 0.5]` and offer no way to change it,
+                    // because nothing in the app wrote `colorTint` — so the target was
+                    // always neutral, and `applyColorTint` against a neutral target
+                    // holds luminance while mixing toward grey: it DESATURATED. A
+                    // control that moves the picture in the opposite direction to its
+                    // own name is worse than an absent one, and its help text admitted
+                    // as much rather than fixing it.
                     LumenToggleRow(title: "Colour tint",
                                    isOn: optionBinding(mask.id, hasTint,
-                                                       on: { $0.adjust.colorTint = [0.5, 0.5, 0.5] },
+                                                       on: { MaskPanel.enableTint(&$0) },
                                                        off: { $0.adjust.colorTint = nil }),
-                                   // There is no swatch control and no PickTarget
-                                   // writes colorTint, so the target is always the
-                                   // hardcoded mid-grey below. Against a grey target
-                                   // `applyColorTint` preserves luminance while mixing
-                                   // toward neutral — it DESATURATES. The control does
-                                   // change the picture, in the opposite direction to
-                                   // its name.
-                                   help: "Not wired yet: with no picker the target is "
-                                       + "mid-grey, so this desaturates toward neutral "
-                                       + "rather than tinting. Use a mask Point Colour "
-                                       + "swatch instead.")
+                                   help: "Mixes everything the mask selects toward one "
+                                       + "colour, holding each pixel's own brightness")
                     if hasTint {
+                        tintTargetRow(mask)
                         adjustSlider(mask.id, "Tint strength", \.colorTintStrength, 0...100,
                                      bipolar: false)
                     }
@@ -747,15 +776,23 @@ struct MaskPanel: View {
                     // Texture, Clarity and Dehaze reuse the global base–detail
                     // decomposition, and negative Sharpness softens.
                     adjustSlider(mask.id, "Sharpness", \.sharpness, -100...100)
-                    // Not shown: local Noise, Noise (chroma), Moiré, Defringe and
-                    // Grain. Every one of them has a field in the recipe and no stage
-                    // that reads it, and a slider that moves while the picture does
-                    // not is worse than an absent one — it costs the user the time to
-                    // find out. They come back when the stage does.
+                    // DELIBERATELY ABSENT, and re-checked with this rebuild: local
+                    // Noise, Noise (chroma), Moiré, Defringe and Grain. All five are
+                    // fields on `LocalAdjust`, all five round-trip through the wire
+                    // format, and all five are read by NOTHING — `applyLocalAdjust`
+                    // and `LocalPlan` between them are the complete list of consumers,
+                    // and neither mentions any of them. So a slider here would move
+                    // while the picture did not, which is worse than an absent one
+                    // because it costs the photographer the time to find out.
                     //
-                    // The row announcing that absence is gone too. There is nothing on
-                    // screen for it to be about: an apology for a control you cannot
-                    // see is one more thing to read past.
+                    // If you are adding one back, add the render stage first; the
+                    // control is the easy half. The four above are here precisely
+                    // because they DO have one (`localDetail` on the GPU path, the
+                    // matching block in `ReferenceRenderer`).
+                    //
+                    // The row announcing the absence is gone too. There is nothing on
+                    // screen for it to be about, and an apology for a control you
+                    // cannot see is one more thing to read past.
                 }
             }
         }
@@ -782,6 +819,28 @@ struct MaskPanel: View {
             if MaskPanel.aiKinds.contains(kind), m.refine == MaskRefine() { m.refine.feather = 10 }
         }
         selectedComponent = Swift.max((mask(id)?.components.count ?? 1) - 1, 0)
+    }
+
+    /// A swap rather than a remove-and-insert: the move is always by one place, and the
+    /// selection follows the row so that clicking the chevron twice moves the same
+    /// component twice instead of walking the selection down the stack.
+    private func moveComponent(_ id: String, from index: Int, by delta: Int) {
+        let target = index + delta
+        editMask(id, key: nil) { m in
+            guard m.components.indices.contains(index),
+                  m.components.indices.contains(target) else { return }
+            m.components.swapAt(index, target)
+        }
+        if mask(id)?.components.indices.contains(target) == true { selectedComponent = target }
+    }
+
+    private func moveMask(_ id: String, by delta: Int) {
+        state.updateRecipe(coalescingKey: nil) { recipe in
+            guard let i = recipe.masks.firstIndex(where: { $0.id == id }) else { return }
+            let target = i + delta
+            guard recipe.masks.indices.contains(target) else { return }
+            recipe.masks.swapAt(i, target)
+        }
     }
 
     private func removeComponent(_ id: String, _ index: Int) {
@@ -1113,6 +1172,72 @@ struct MaskPanel: View {
               + "no download")
     }
 
+    /// Two chevrons, for a list whose ORDER changes the picture.
+    ///
+    /// Buttons rather than drag-to-reorder: these rows live in a `VStack` inside the
+    /// column's one `ScrollView`, and a drag reorder there would need either a nested
+    /// `List` — a scroll trap, which is the defect this panel was rebuilt to remove —
+    /// or a hand-written hit-test against every row's frame. Two clicks move a row one
+    /// place, which for stacks that are three deep is the whole job.
+    private func reorderControls(canMoveUp: Bool, canMoveDown: Bool, what: String,
+                                 move: @escaping (Int) -> Void) -> some View {
+        HStack(spacing: 1) {
+            reorderButton("chevron.up", enabled: canMoveUp,
+                          help: "Move this \(what) earlier in the stack") { move(-1) }
+            reorderButton("chevron.down", enabled: canMoveDown,
+                          help: "Move this \(what) later in the stack") { move(1) }
+        }
+    }
+
+    private func reorderButton(_ symbol: String, enabled: Bool, help: String,
+                               action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 8, weight: .semibold))
+                // A fixed box, so a row with one chevron disabled does not shuffle the
+                // controls beside it a pixel to the left.
+                .frame(width: 12, height: 12)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .foregroundStyle(enabled ? Lumen.secondaryText : Lumen.separator)
+        .help(help)
+    }
+
+    /// The tint target, as a swatch that opens the system colour panel.
+    ///
+    /// `ColorPicker` rather than an eyedropper: sampling FROM the frame is what the
+    /// mask's Point Colour swatches already do, and a tint is the opposite job — you are
+    /// naming a colour the picture does not contain yet. An eyedropper would also need a
+    /// new `PickTarget`, which is a change to state this panel does not own.
+    private func tintTargetRow(_ mask: Mask) -> some View {
+        HStack(spacing: 6) {
+            Text("Tint colour")
+                .font(.system(size: 11))
+                .foregroundStyle(Lumen.secondaryText)
+            Spacer(minLength: 0)
+            ColorPicker("Tint colour", selection: tintBinding(mask.id),
+                        supportsOpacity: false)
+                .labelsHidden()
+        }
+        .frame(height: Lumen.rowHeight)
+    }
+
+    /// Working-space RGB on one side, a display colour on the other. `chipColor` is the
+    /// encode every other swatch in this panel is drawn through, so this is its inverse
+    /// and the two have to stay a pair — a picker that decoded differently would show a
+    /// colour the chip beside it does not agree with.
+    private func tintBinding(_ id: String) -> Binding<Color> {
+        Binding(get: {
+                    MaskPanel.chipColor(mask(id)?.adjust.colorTint ?? MaskPanel.defaultTint)
+                },
+                set: { picked in
+                    let working = MaskPanel.workingRGB(picked)
+                    editMask(id, key: "mask.tint.\(id)") { $0.adjust.colorTint = working }
+                })
+    }
+
     private func smallButton(_ title: String, _ systemImage: String,
                              action: @escaping () -> Void) -> some View {
         Button(action: action) {
@@ -1261,6 +1386,24 @@ struct MaskPanel: View {
                       centre[0], centre[1], radii[0], radii[1])
     }
 
+    /// What a freshly enabled tint starts on: a warm amber, chosen because it is the
+    /// commonest thing anyone tints a mask toward and because it is unmistakably NOT
+    /// neutral. `applyColorTint` normalises the target by its own luminance, so only the
+    /// chromaticity of these three numbers matters — and a neutral target has none,
+    /// which is exactly why the mid-grey this replaces desaturated instead of tinting.
+    static let defaultTint: [Double] = [0.96, 0.48, 0.15]
+
+    /// Turning the tint on also lifts Strength off zero when it is still there.
+    ///
+    /// Strength defaults to 0 and gates the whole stage, so the toggle on its own
+    /// changed nothing at all — a switch that has to be followed by a slider before it
+    /// does anything teaches that it is broken. 50 is a tint you can see and undo, not
+    /// one that commits the frame.
+    static func enableTint(_ mask: inout Mask) {
+        if mask.adjust.colorTint == nil { mask.adjust.colorTint = defaultTint }
+        if mask.adjust.colorTintStrength == 0 { mask.adjust.colorTintStrength = 50 }
+    }
+
     /// Working-space RGB is scene-linear, so a swatch gets a rough encode before it is
     /// shown — otherwise every chip reads as too dark.
     static func chipColor(_ sample: [Double]) -> Color {
@@ -1269,6 +1412,17 @@ struct MaskPanel: View {
         let g = Num.saturate(pow(Num.saturate(sample[1]), 1.0 / 2.2))
         let b = Num.saturate(pow(Num.saturate(sample[2]), 1.0 / 2.2))
         return Color(red: r, green: g, blue: b)
+    }
+
+    /// `chipColor` run backwards, for the one control that reads a colour instead of
+    /// writing one. sRGB rather than the display's own space: the picker hands back a
+    /// colour in whatever space the user picked it in, and the encode this undoes is the
+    /// same rough 2.2 the chips are drawn with.
+    static func workingRGB(_ color: Color) -> [Double] {
+        guard let srgb = NSColor(color).usingColorSpace(.sRGB) else { return defaultTint }
+        return [pow(Num.saturate(Double(srgb.redComponent)), 2.2),
+                pow(Num.saturate(Double(srgb.greenComponent)), 2.2),
+                pow(Num.saturate(Double(srgb.blueComponent)), 2.2)]
     }
 }
 

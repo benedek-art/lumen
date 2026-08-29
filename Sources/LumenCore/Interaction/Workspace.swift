@@ -90,10 +90,14 @@ public enum Workspace: String, CaseIterable, Hashable, Sendable {
 ///     disclosures inside those sections rather than sections of their own. That is
 ///     §12.12's second shape — per-control disclosure — and it is the difference between
 ///     Develop being six rows deep and being eight.
-///   · **Masks has no case at all.** docs/12 §12.1 already lists it as floating or docked
-///     via a key rather than as a panel in the rail, and masking happens while developing
-///     *and* while grading, so making it a section of either would be wrong twice over.
-///     It is `WorkspaceLayout.isMaskDockOpen`, which survives every workspace switch.
+///   · **Masks has no case at all**, and the reason changed. It used to be that masking
+///     happens while developing *and* while grading, so a section of either would be
+///     wrong twice over. The mask model says something stronger: `LocalAdjust` carries
+///     twenty scalars plus a local point curve and local grading wheels, which is to say
+///     a mask's adjustments are a COPY OF THE GLOBALS. Nobody masking wants global Tone
+///     — they want that mask's Tone, and it is right there. So masking is not one more
+///     section beside the others; it is what the column shows INSTEAD of them, and that
+///     is `WorkspaceLayout.isMasking`.
 ///   · **Render** (§12.1 #3, shipped as the Look panel's Display Transform) is not in
 ///     §5.1's Develop list. `canonicalRank` leaves 3 unused rather than closing the gap,
 ///     so adding it later is one case and one rank, with nothing renumbered.
@@ -369,24 +373,40 @@ public struct WorkspaceLayout: Equatable, Sendable {
     /// §12.12 requires of the register in as many words. Read `expandedSections` to draw.
     public var expanded: Set<WorkspaceSection>
 
-    /// docs/12 §12.1 lists Masks as floating or docked via a key rather than as a panel
-    /// in the rail, and docs/28 §5.1 makes it available in every workspace. It is a field
-    /// here rather than a `WorkspaceSection` case, and `select(_:)` leaves it alone, so
-    /// masking a frame and then switching from Develop to Grade to grade it does not put
-    /// the mask list away mid-edit.
+    /// MASKING TAKES THE COLUMN OVER, and this is the flag that says so.
     ///
-    /// Not forbidden in Cull. A rule saying where the dock may not open would be a second
-    /// rule to keep in step with the first, and docs/12:108 says any workspace.
-    public var isMaskDockOpen: Bool
+    /// The owner asked for it in those terms — "I would like to have its own page ...
+    /// instead of when I press it, it just shows up on the page that I am showing off" —
+    /// and the mask model agrees: `LocalAdjust` is the global adjustment set again, so a
+    /// column that stacked the mask editor ON TOP of Tone, Curve and Colour was offering
+    /// the same six controls twice, twenty rows apart, meaning different things.
+    ///
+    /// **It is a field and not a sixth `Workspace` case.** Two reasons, and the first is
+    /// mechanical: `LumenApp`'s View menu puts the workspaces in a `Group`, which is at
+    /// its ten-child builder limit now that Crop is the fifth. The second is that a
+    /// workspace is a persistent destination the switcher always offers, and masking is
+    /// somewhere you go and come back from — `workspace` keeps holding where you were,
+    /// which is what the way out returns to.
+    ///
+    /// **It is not an `AppState.viewMode` case either.** Masking does not want a
+    /// different centre pane — `LoupeView` is right, and `MaskCanvas` already composes
+    /// into it as an overlay gated on this same flag. What it takes over is the right
+    /// column, which `viewMode` has no say over; putting it there would add a second
+    /// orthogonal mode axis and cost a whole-window publish per toggle, which is the
+    /// exact cost `PanelLayout` was extracted to stop paying.
+    ///
+    /// Not forbidden in Cull. A rule saying where masking may not begin would be a
+    /// second rule to keep in step with the first, and docs/12:108 says any workspace.
+    public var isMasking: Bool
 
     public init(workspace: Workspace = .initial,
                 register: DisclosureRegister = .initial,
                 expanded: Set<WorkspaceSection> = [],
-                isMaskDockOpen: Bool = false) {
+                isMasking: Bool = false) {
         self.workspace = workspace
         self.register = register
         self.expanded = expanded
-        self.isMaskDockOpen = isMaskDockOpen
+        self.isMasking = isMasking
     }
 
     /// What a fresh install opens with.
@@ -415,13 +435,22 @@ public struct WorkspaceLayout: Equatable, Sendable {
 
     // MARK: What to draw
 
-    /// Whether there is a develop column at all — false only in Cull.
+    /// Whether there is a develop column at all — false only in Cull, and only when
+    /// nothing has taken the column over.
     ///
     /// Deliberately not `visibleSections.isEmpty`: a workspace whose sections are all
     /// hidden by the Simple register still needs its column, or the control that would
     /// bring them back goes with them.
+    ///
+    /// THE `isMasking` CLAUSE IS NOT A SPECIAL CASE, it is the sentence above applied
+    /// to a column that no longer draws sections at all. `isMasking`'s own contract has
+    /// always said masking is "not forbidden in Cull" — and it was, silently, because
+    /// Cull has no sections, so `ContentView` drew no column, so there was nothing for
+    /// the editor to take over and `M` did nothing a photographer could see. The dock
+    /// had the same hole and it mattered less, since a dock that cannot appear is a
+    /// missing panel rather than a missing page.
     public var showsDevelopColumn: Bool {
-        !workspace.sections.isEmpty
+        !workspace.sections.isEmpty || isMasking
     }
 
     /// The sections the column draws, in canonical order.
@@ -474,10 +503,21 @@ public struct WorkspaceLayout: Equatable, Sendable {
 
     // MARK: Transitions
 
-    /// Switch workspaces. Expansion, register and the mask dock all survive, so the only
-    /// thing a switch changes is which sections are on screen.
+    /// Switch workspaces, WHICH IS ALSO HOW YOU LEAVE MASKING.
+    ///
+    /// Expansion and the register survive untouched — a switch changes which sections
+    /// are on screen and nothing about how they are arranged, so the round trip back is
+    /// exact.
+    ///
+    /// Masking does not survive, and that is the one behaviour this verb gained with the
+    /// takeover. Naming a workspace is naming what the column shows, and while masking
+    /// there is no switcher on screen to name one with: the only callers left are ⌘1–⌘5
+    /// and the View menu. A ⌘3 that changed a workspace nobody could see, leaving the
+    /// mask editor exactly where it was, is a key that appears dead — the failure
+    /// `PanelLayout.reveal` already exists to avoid.
     public mutating func select(_ workspace: Workspace) {
         self.workspace = workspace
+        isMasking = false
     }
 
     /// The visible "Show all" control of docs/12 §12.12 — visible, and therefore a verb

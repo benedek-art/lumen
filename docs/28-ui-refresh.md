@@ -440,6 +440,16 @@ specifies**, each holding a short accordion stack in the canonical order of docs
 | **Grade** | `4` | Looks · Colour (Mixer, Point Colour, B&W) · Grading (wheels, printer lights, primaries) · Film Lab · Effects | 5 |
 | **Deliver** | `5` | Soft proof · Export recipes | 2 |
 
+**SUPERSEDED, 2026-08-29 (docs/30 §2.2).** Masking is no longer a dock. The owner tested
+it and asked for the thing Lightroom does: "I would like to have its own page … when you
+press the mask, you kind of have this independent editor that you edit stuff in." It now
+TAKES OVER the develop column — the switcher becomes a way back, and the editor gets the
+whole width, which is what ~30 sliders plus a component stack actually needs. The
+paragraph below describes the shape that shipped between Phase 4 and docs/30's second
+pass, kept because the argument it makes for a dock is the argument the mask model turned
+out to contradict: a mask carries its own copy of the develop controls, so you do not need
+to see global Tone while masking.
+
 **Masks leaves the tab strip entirely** and becomes a docked panel toggled by `M`,
 available in *any* workspace — which is what docs/12:108 already specifies ("floating/
 docked via a key") and what masking actually needs, since you mask while developing *and*

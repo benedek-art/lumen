@@ -369,14 +369,21 @@ struct BasicPanel: View {
     /// accordion's Tone row draws one, and the tab's section wraps these in another.
     private var toneRows: some View {
         VStack(alignment: .leading, spacing: 2) {
+            // TWO RAMPS IN THIS BLOCK, AND ONLY TWO. The owner asked for "a dark to
+            // light gradient on stuff like the exposure slider or contrast stuff", which
+            // overturns the refusal recorded in docs/28 Part 7 item 1 — see the
+            // `Lumen.exposureStops` comment for why a grey ramp costs Law 7 less than a
+            // coloured one does.
             LumenSlider(title: "Exposure",
                         value: binder.value(\.develop.tone.exposure, "tone.exposure"),
                         range: -5...5, hardRange: -10...10, defaultValue: 0,
-                        step: 0.01, decimals: 2)
+                        step: 0.01, decimals: 2,
+                        trackStops: Lumen.exposureStops)
             LumenSlider(title: "Contrast",
                         value: binder.value(\.develop.tone.contrast, "tone.contrast"),
                         range: -100...100, hardRange: nil, defaultValue: 0,
-                        step: 1, decimals: 0)
+                        step: 1, decimals: 0,
+                        trackStops: Lumen.contrastStops)
             // Under Contrast, not behind a chevron of its own. The pivot is the thing
             // Lightroom hides — its Contrast is a fixed S-curve anchored near L≈50 and
             // never documented, ours is a slope around a number the photographer can
@@ -387,6 +394,29 @@ struct BasicPanel: View {
                                             "tone.contrastPivot"),
                         range: -4...4, hardRange: nil, defaultValue: 0,
                         step: 0.01, decimals: 2)
+            // AND THE OTHER FIVE STAY PLAIN, which is a decision rather than an
+            // omission, so here is both sides of it.
+            //
+            // For ramping them: they are all tonal, they sit in one block, and a panel
+            // where two of seven rows are ramped looks like somebody stopped halfway.
+            // Consistency is a real argument and this is it.
+            //
+            // Against, and it wins twice over. First, it would not be true. Exposure's
+            // axis IS lightness; Highlights, Shadows, Whites and Blacks each act on ONE
+            // ZONE, so a full-track dark-to-light ramp on Shadows would claim the
+            // control runs from black to white when what it runs from is "leave the
+            // shadows" to "lift them". That is the track lying about the instrument, and
+            // the axis exception exists precisely to license tracks that tell the truth.
+            // Second, density is what kills the signal: two ramps in a block read as
+            // meaningful, seven read as a texture, and then Exposure's ramp — the one
+            // that is exact — has been spent on decorating its neighbours.
+            //
+            // Pivot is the honest near-miss and worth naming, because it is a stronger
+            // candidate than Contrast on the truth test: it says at WHAT LIGHTNESS the
+            // contrast hinge sits, which is a lightness axis exactly. It is left plain
+            // because the owner named two controls and this would be a third, and
+            // because Contrast reading as the headline with its modifier plain is a
+            // legible arrangement. It is one entry in a table if he wants it.
             LumenSlider(title: "Highlights",
                         value: binder.value(\.develop.tone.highlights, "tone.highlights"),
                         range: -100...100, hardRange: nil, defaultValue: 0,

@@ -15,10 +15,21 @@
 //     graph and the panel can never disagree about what a slider is worth. The middle
 //     zone is Exposure, not "Mids" — the histogram drives the tone panel (docs/04 §8.1).
 //
-// The readout-space picker is local state: the space the bins were actually binned in
-// travels with the value (`Histogram.transform.space`), and until the render
-// coordinator accepts a requested space this picker changes the numbers the view
-// prints and says so when the two disagree.
+// THE READOUT SPACE IS NOT A CONTROL ANY MORE, it is a property of the readout.
+//
+// It was a three-segment picker under the graph — `Working % | sRGB 255 | Output 255` —
+// and it printed the current space TWICE, four points apart: once as the selected
+// segment and once as the label at the right of the readout line directly above it. Two
+// consumers use the setting (this view and the loupe's sample pill), and neither is
+// touched in a normal edit; a photographer picks a space once and never returns. So it
+// held nineteen points of permanent chrome under the one instrument in this column that
+// wanted the height, to say a thing already written four points above it.
+//
+// So the label became the control: click it to cycle, right-click the graph to choose.
+// The space the bins were actually binned in still travels with the value
+// (`Histogram.transform.space`), and until the render coordinator accepts a requested
+// space the label says so when the two disagree — which is the one thing here that must
+// never be hidden behind a menu, and is not.
 
 #if os(macOS)
 
@@ -64,19 +75,34 @@ struct HistogramView: View {
     /// triangle, so leaving the triangle can put the overlay back the way it was.
     @State private var peekedMode: ClippingOverlay.Mode? = nil
 
-    private static let graphHeight: CGFloat = 104
+    /// 132, up from 104, and most of it was paid for rather than taken.
+    ///
+    /// The block stood 155 points tall and the graph was 104 of them: a third of the
+    /// instrument was chrome, and most of that third was the readout-space picker
+    /// underneath. Retiring the picker returned 23 points and they went straight into
+    /// the graph, which now has 77% of the block instead of 67%. The block itself grows
+    /// by 17 — the readout line is taller at the type scale's size — and that is the
+    /// honest cost.
+    ///
+    /// It is worth paying because a histogram is read for the SHAPE of a distribution,
+    /// and shape is what a short graph destroys: at 104 points a two-stop difference in
+    /// where the shadows sit is a few pixels of hill, which is the difference between an
+    /// instrument and a decoration.
+    private static let graphHeight: CGFloat = 132
     private static let triangleSize: CGFloat = 11
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 6) {
             graph
             readoutLine
-            LumenSegmented(options: spaceOptions, selection: $state.readoutSpace)
         }
         .padding(.horizontal, 8)
-        .padding(.vertical, 6)
-        .background(Lumen.panelBackground)
+        .padding(.top, 8)
+        .padding(.bottom, 6)
         .foregroundStyle(Lumen.primaryText)
+        // The same card the accordion's sections wear, so the instrument reads as one of
+        // the column's areas rather than as something painted onto the chrome above it.
+        .lumenSurface(radius: Lumen.radiusCard, elevation: .flush, fill: Lumen.panel)
     }
 
     // MARK: Graph
@@ -97,7 +123,7 @@ struct HistogramView: View {
                 }
                 if histogram == nil {
                     Text("No histogram yet")
-                        .font(.system(size: 10))
+                        .font(.lumenCaption)
                         .foregroundStyle(Lumen.secondaryText)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
@@ -121,8 +147,34 @@ struct HistogramView: View {
             }
         }
         .frame(height: HistogramView.graphHeight)
-        .background(Color.black.opacity(0.55))
-        .clipShape(RoundedRectangle(cornerRadius: 4))
+        // A WELL WITH A LIP, and a floor that is not one flat wash.
+        //
+        // It was `Color.black.opacity(0.55)` behind a bare 4pt clip: a rectangle of paint
+        // with no edge at all, which is the exact defect `LumenSurface.swift` was written
+        // about. The fill now falls off downward the way the inside of a recess does, and
+        // `lumenWell` adds the carved lip — dark along the top where the light does not
+        // reach, faintly lit along the bottom where it lands. Both together are what say
+        // "the graph is cut INTO the panel"; either alone reads as a drawn box.
+        .background(
+            LinearGradient(colors: [Color.black.opacity(0.62),
+                                    Color.black.opacity(0.46)],
+                           startPoint: .top, endPoint: .bottom))
+        .lumenWell(radius: Lumen.radiusControl)
+        // The graph is a five-zone horizontal scrubber and said so nowhere. `.help()` on
+        // a 300x132 surface is a one-second tooltip; the cursor answers in 100ms, and it
+        // is how Resolve, Capture One and Photoshop all advertise the same gesture.
+        .lumenScrubCursor()
+        // THE SPACE PICKER, demoted. An inline `Picker` in a context menu draws the
+        // checkmark itself, so the current space stays visible where it is chosen without
+        // this view printing it a third time.
+        .contextMenu {
+            Picker("Readout space", selection: $state.readoutSpace) {
+                ForEach(ReadoutSpace.allCases, id: \.self) { space in
+                    Text(HistogramView.shortLabel(space)).tag(space)
+                }
+            }
+            .pickerStyle(.inline)
+        }
     }
 
     // MARK: Readout line
@@ -130,16 +182,59 @@ struct HistogramView: View {
     private var readoutLine: some View {
         HStack(spacing: 6) {
             Text(primaryReadout)
-                .font(.system(size: 10).monospacedDigit())
+                // The subject of this block, not an annotation on it: `lumenNumericStrong`
+                // is the scale's entry for exactly this — "the histogram's clipping
+                // percentages". Tabular figures, so a number does not jitter sideways as
+                // the pointer sweeps the graph and it counts.
+                .font(.lumenNumericStrong)
                 .foregroundStyle(Lumen.primaryText)
                 .lineLimit(1)
+                // The instrument keeps its width; the space label gives ground first.
+                .layoutPriority(1)
             Spacer(minLength: 4)
-            Text(secondaryReadout)
-                .font(.system(size: 10))
-                .foregroundStyle(Lumen.secondaryText)
-                .lineLimit(1)
+            // CLICK TO CYCLE. This label already printed the readout space; with the
+            // segmented picker gone it is the only place that does, so making it the
+            // control costs no chrome at all and puts the switch on the words it changes.
+            // Three spaces cycle faster than a menu opens; the menu on the graph is there
+            // for going straight to one.
+            Button {
+                state.readoutSpace = HistogramView.next(after: state.readoutSpace)
+            } label: {
+                Text(secondaryReadout)
+                    .font(.lumenCaption)
+                    .foregroundStyle(Lumen.secondaryText)
+                    .lineLimit(1)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 2)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .lumenHoverable(radius: Lumen.radiusChip)
+            .lumenClickCursor()
+            .help("Readout space — click to cycle, or right-click the graph to choose")
         }
-        .frame(height: 14)
+        .frame(height: 20)
+    }
+
+    /// The next space in declaration order, wrapping.
+    private static func next(after space: ReadoutSpace) -> ReadoutSpace {
+        let all: [ReadoutSpace] = ReadoutSpace.allCases
+        guard let index = all.firstIndex(of: space) else { return all[0] }
+        return all[(index + 1) % all.count]
+    }
+
+    /// The short name, which is what a readout line has room for.
+    ///
+    /// `ReadoutSpace.label` spells the space out in full — "Working (Rec.2020 linear,
+    /// %)" — because it is written for a place where an unlabeled number would be a
+    /// defect. Here the axis it belongs to is on screen, so the long form buys nothing
+    /// and costs the clipping percentages beside it their width.
+    static func shortLabel(_ space: ReadoutSpace) -> String {
+        switch space {
+        case .working: return "Working %"
+        case .srgb255: return "sRGB 255"
+        case .outputProfile: return "Output 255"
+        }
     }
 
     /// What the pointer is over: the zone it would scrub, or the clipping summary when
@@ -186,17 +281,12 @@ struct HistogramView: View {
     }
 
     private var secondaryReadout: String {
-        guard let histogram else { return state.readoutSpace.label }
+        guard let histogram else { return HistogramView.shortLabel(state.readoutSpace) }
         if histogram.transform.space != state.readoutSpace {
-            return "binned in " + histogram.transform.space.rawValue
+            return "binned in "
+                + HistogramView.shortLabel(histogram.transform.space)
         }
-        return state.readoutSpace.label
-    }
-
-    private var spaceOptions: [(value: ReadoutSpace, label: String)] {
-        [(value: .working, label: "Working %"),
-         (value: .srgb255, label: "sRGB 255"),
-         (value: .outputProfile, label: "Output 255")]
+        return HistogramView.shortLabel(state.readoutSpace)
     }
 
     // MARK: Zones
@@ -313,6 +403,10 @@ struct HistogramView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        // Inside the graph's scrub cursor, so the pointing hand replaces it over the
+        // triangle and the scrub cursor comes back on the way out — `NSCursor` is
+        // push/pop, so the two nest rather than fight.
+        .lumenClickCursor()
         .onHover { inside in
             if inside {
                 if state.clippingOverlay == nil {
@@ -399,15 +493,38 @@ struct HistogramView: View {
         context.stroke(grid, with: .color(Lumen.separator.opacity(0.45)), lineWidth: 0.5)
 
         // R/G/B first, added together: overlaps read as the secondary they actually are.
+        //
+        // GRADIENT UNDER A CRISP EDGE, which is the whole of "can we make the histogram a
+        // bit more premium". A flat 0.55 fill has one value everywhere, so the boundary
+        // between the trace and the well is the same strength as the trace's own mass and
+        // the eye gets no help finding the curve — three of them overlapping is a slab of
+        // colour. Fading the fill downward puts the light where the information is (the
+        // envelope) and lets it fall away toward the baseline, and a one-pixel stroke on
+        // top of it makes the curve itself the sharpest thing in the frame. Lightroom and
+        // Capture One both draw exactly this, and it is the difference between a chart and
+        // an instrument.
+        //
+        // Both under `.plusLighter`, so the strokes add where channels coincide the same
+        // way the fills do — a neutral highlight still resolves to white rather than to
+        // three stacked outlines.
         context.blendMode = .plusLighter
         for trace in traces where trace.additive {
-            let path: Path = areaPath(trace.values, size: size)
-            context.fill(path, with: .color(trace.color.opacity(0.55)))
+            let line: Path = linePath(trace.values, size: size)
+            context.fill(closedArea(line, size: size),
+                         with: .linearGradient(
+                            Gradient(colors: [trace.color.opacity(0.60),
+                                              trace.color.opacity(0.10)]),
+                            startPoint: CGPoint(x: 0, y: 0),
+                            endPoint: CGPoint(x: 0, y: size.height)))
+            context.stroke(line, with: .color(trace.color.opacity(0.85)), lineWidth: 1)
         }
         context.blendMode = .normal
+        // Luma stays a line and gains a hair of weight, because it is the trace being
+        // read when a photographer asks "is this exposed" and it now has three brighter
+        // envelopes to stay on top of.
         for trace in traces where !trace.additive {
             let path: Path = linePath(trace.values, size: size)
-            context.stroke(path, with: .color(trace.color.opacity(0.85)), lineWidth: 1)
+            context.stroke(path, with: .color(trace.color.opacity(0.9)), lineWidth: 1.25)
         }
 
         // Zones on top: the hit regions are the drawing, so what you can grab is what
@@ -477,8 +594,13 @@ struct HistogramView: View {
         return path
     }
 
-    private static func areaPath(_ values: [Double], size: CGSize) -> Path {
-        var path = linePath(values, size: size)
+    /// The envelope closed down to the baseline, so it can be filled.
+    ///
+    /// Takes the line rather than the values: each additive trace now draws BOTH a fill
+    /// and a stroke, and building the polyline twice would double the only per-frame cost
+    /// this view has.
+    private static func closedArea(_ line: Path, size: CGSize) -> Path {
+        var path = line
         guard !path.isEmpty, size.width > 0, size.height > 0 else { return path }
         path.addLine(to: CGPoint(x: size.width, y: size.height))
         path.addLine(to: CGPoint(x: 0, y: size.height))

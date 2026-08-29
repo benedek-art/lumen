@@ -1015,8 +1015,16 @@ public struct ClassicNR: Codable, Equatable, Sendable {
     }
 }
 
-/// Geometry (docs/09). Crop is normalized to the source frame; masks are stored in
-/// source coordinates and reproject through geometry changes (docs/09 invariant).
+/// Geometry (docs/09).
+///
+/// `crop` is normalized to the USABLE frame — the largest axis-aligned rectangle inside
+/// the source rotated by `angle`, centred on it (`CropGeometry.usableSize`) — and not to
+/// the source frame. The two are the same thing at angle 0, which is why this said
+/// "normalized to the source frame" for as long as it did: every uncropped, unstraightened
+/// photograph agrees with both readings, and only a straightened one tells them apart.
+///
+/// Masks are stored in source coordinates and reproject through geometry changes
+/// (docs/09 invariant).
 public struct Geometry: Codable, Equatable, Sendable {
     public var crop: Crop
     public var angle: Double        // degrees, straighten

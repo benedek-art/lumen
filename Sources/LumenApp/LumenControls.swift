@@ -31,9 +31,11 @@
 // next photo", claimed by `KeyDispatcher`'s NSEvent monitor, which sits in FRONT of the
 // responder chain — so a focused slider would never have seen one.
 //
-//   1. The row is focusable, with the system ring turned off and the app's own drawn
-//      instead (`LumenFocus.swift`): macOS's blue halo is sized for standard AppKit
-//      controls and reads as a bug on a 4-point groove in a zero-chroma panel.
+//   1. The row is focusable, with the system ring turned off and the row's own SURFACE
+//      carrying the state instead (`LumenFocus.swift`): macOS's blue halo is sized for
+//      standard AppKit controls and reads as a bug on a groove in a zero-chroma panel —
+//      and so did the accent ring this app drew in its place, which fired on mouse-down
+//      and put a blue border around every slider the moment it was touched.
 //   2. The dispatcher stands down while a slider holds focus, by exactly the mechanism
 //      it already uses for the zoomed loupe's pan — returning nil hands the key to the
 //      responder chain. Without it `onKeyPress` below is unreachable code.
@@ -108,25 +110,34 @@ enum Lumen {
     static let fillColor = Color(nsColor: NSColor(white: 0.62, alpha: 1))
     static let separator = Color(nsColor: NSColor(white: 0.30, alpha: 1))
 
-    // MARK: Coloured tracks (Law 7's colour-axis exception)
+    // MARK: Tracks that carry their own axis (Law 7's axis exception)
 
     // Law 7 (docs/00) holds: the chrome is zero-chroma so nothing in the window can
     // bias a colour judgement about the photograph. docs/28 Phase 2 amends it in
     // exactly one place — a control's TRACK may carry chroma if and only if that
-    // control's axis IS a colour direction, at no larger a scale than the 4 pt groove.
+    // control's axis IS a colour direction, at no larger a scale than the groove.
     //
     // The rule that makes the exception safe is that it is narrow. Colour every track
     // and none of them reads; colour only the axes that are themselves colour, and
-    // every coloured track becomes self-teaching. Adobe and Capture One arrived at the
-    // same discipline independently, and both REFUSE the tonal sliders — Exposure,
-    // Contrast, Highlights, Shadows, Whites, Blacks — for the reason Law 7 exists: a
-    // light-to-dark ramp beside a photograph being judged for exposure is the precise
-    // contamination the law is about. So no tonal control gets stops here, including
-    // the exposure ramp the owner asked for by name. That call is his to overrule, and
-    // if he does, it is one entry in a table and one more sentence in Law 7 — not a
-    // quiet drift.
+    // every such track becomes self-teaching.
     //
-    // Both tables are static constants, never computed in a `body` from recipe values:
+    // THE TONAL REFUSAL IS OVERTURNED, by the person it was protecting. This comment
+    // used to say that no tonal control gets stops: Adobe and Capture One both refuse
+    // them, and a ramp beside a photograph being judged for exposure is the precise
+    // contamination Law 7 exists to prevent. docs/28 Part 7 item 1 recorded that as a
+    // call taken on the owner's behalf while he was away — "still his to overrule …
+    // one entry in a table". He has since asked for it directly and by name, so it is
+    // one entry in a table.
+    //
+    // And it engages a WEAKER clause than Temp's, which is why the overturn is cheap.
+    // The amendment is about CHROMA; a grey ramp introduces none. `exposureStops` is
+    // zero-chroma end to end, so it can bias a brightness judgement but not a colour
+    // one — and the ends stop short of black and white so the biggest thing a tonal
+    // track can do to the surround stays smaller than the histogram already does.
+    // Law 7 in docs/00 still names Exposure and Contrast as not permitted; that
+    // sentence is now behind the code and wants the amendment docs/00 §3 prescribes.
+    //
+    // Every table is a static constant, never computed in a `body` from recipe values:
     // a track's colour must not become a reason for a view to observe the edit signal.
 
     /// Blue below neutral, amber above it, anchored in KELVIN rather than in track
@@ -166,8 +177,65 @@ enum Lumen {
         LumenTrackStop(value: 1, color: Color(nsColor: NSColor(white: 0.88, alpha: 1))),
     ]
 
+    /// Dark to light across Exposure's −5…+5 EV, and the literal case for the
+    /// exception: this control's axis IS lightness, so the ramp is not decoration on
+    /// the track, it is what the control does, drawn on the thing that does it.
+    ///
+    /// The ends are 0.11 and 0.82 rather than black and white for the reason
+    /// `wheelLightnessStops` gives — a track that reaches the panel's own extremes
+    /// stops reading as a track — and for Law 7's: a ramp that cannot bias a colour
+    /// judgement can still bias a brightness one, and 180 points of near-white a
+    /// hand's width from the photograph is exactly the surround the law is about.
+    ///
+    /// The middle stop is not redundant. It pins the ramp's own mid-grey to the
+    /// control's zero, so the track says "neutral is here" in the same place the tick
+    /// does instead of wherever two-stop interpolation happens to put it.
+    static let exposureStops: [LumenTrackStop] = [
+        LumenTrackStop(value: -5, color: Color(nsColor: NSColor(white: 0.11, alpha: 1))),
+        LumenTrackStop(value: 0, color: Color(nsColor: NSColor(white: 0.45, alpha: 1))),
+        LumenTrackStop(value: 5, color: Color(nsColor: NSColor(white: 0.82, alpha: 1))),
+    ]
+
+    /// The same ramp for Contrast at about half the span, and the shallowness is the
+    /// honest part rather than a taste one.
+    ///
+    /// Exposure's axis is lightness exactly. Contrast's is SLOPE: pushing it right does
+    /// not make the picture lighter, it lifts what is above the pivot and drops what is
+    /// below, so a dark-to-light ramp is right about the highlights and backwards about
+    /// the shadows. One horizontal row of colour cannot say "further apart" — that
+    /// needs two values at one x — so this is the nearest true statement the mechanism
+    /// can make, at a span that reads as a sibling of the exact ramp rather than as a
+    /// second claim to be one. Owner-requested by name alongside Exposure; recorded as
+    /// a judgement so the next reader knows it was taken and not missed.
+    static let contrastStops: [LumenTrackStop] = [
+        LumenTrackStop(value: -100, color: Color(nsColor: NSColor(white: 0.27, alpha: 1))),
+        LumenTrackStop(value: 0, color: Color(nsColor: NSColor(white: 0.45, alpha: 1))),
+        LumenTrackStop(value: 100, color: Color(nsColor: NSColor(white: 0.66, alpha: 1))),
+    ]
+
     static let rowHeight: CGFloat = 22
-    static let panelWidth: CGFloat = 320
+    /// THE DEFAULT WIDTH, not the only one — the column is draggable and this is where
+    /// it starts.
+    ///
+    /// 380 rather than 320 because the arithmetic says so. A row spends
+    /// `labelWidth + valueWidth + two 6pt gaps` on text no matter how wide the column
+    /// is, so every point added to the panel is a point added to the TRACK. At 320 a
+    /// ±100 control had 0.90 points of travel per unit — under the ~1.0 at which a
+    /// one-pixel tremor stops costing a whole unit, and below Lightroom's narrowest
+    /// state. At 380 it is 1.24, past Lightroom's default and next to Capture One's.
+    ///
+    /// The owner asked for the drag directly: "what if I can have a click and drag? So
+    /// if I wanted a specific size, I can click or drag the right side pop-up window
+    /// either out more or in more, and the only thing that changes there is the size of
+    /// the sliders." That last clause is exactly what happens, and it is a property of
+    /// the row's layout rather than a thing anyone had to build.
+    static let defaultPanelWidth: CGFloat = 380
+    static let minimumPanelWidth: CGFloat = 320
+    static let maximumPanelWidth: CGFloat = 520
+
+    /// Kept as the compile-time default for anything that needs a width before a view
+    /// exists. Live layout reads `AppState.developPanelWidth`.
+    static let panelWidth: CGFloat = defaultPanelWidth
     /// THE CHROME WAS WIDER THAN THE INSTRUMENT, and that is the whole finding.
     ///
     /// At 94 + 52 this row spent 146 points telling you what the slider is called and
@@ -237,16 +305,24 @@ struct LumenSlider: View {
     /// deviation from neutral in both cases, and a flag was never what distinguished
     /// them.
     var bipolar: Bool = true
-    /// Non-nil turns the groove into the control's own colour axis — see the
+    /// Non-nil turns the groove into the control's own axis — see the
     /// `Lumen.temperatureStops` comment for which controls may have one and why almost
     /// none of them may.
     ///
-    /// It also SUPPRESSES the deviation fill, which is not a side effect but the point:
-    /// the fill paints a solid grey capsule from the default to the value, and on a
-    /// tinted row it would paint over exactly the hue information the gradient exists to
-    /// show. On these rows "what did I change?" is carried by the label brightening, the
-    /// numeric readout and the section's accent dot — which is how Lightroom and Capture
-    /// One do it too, for the same reason.
+    /// It SUPPRESSES the deviation fill, which is not a side effect but the point: the
+    /// fill paints a solid grey capsule from the default to the value, and on a ramped
+    /// row it would paint over exactly the information the gradient exists to show —
+    /// worst of all on a grey ramp, where fill and track are the same substance.
+    ///
+    /// WHAT IT MUST NOT DO IS DROP THE SIGNAL. The fill is how a panel answers "what
+    /// did I change?" in one sweep of the eye, and trading that away for a prettier
+    /// track would be a bad bargain made silently. So the deviation moves rather than
+    /// disappears: `modifiedUnderline` draws the same span, in the same place along the
+    /// track, as a 2 pt rule beneath the groove instead of a capsule inside it. It is
+    /// off entirely at the default, because the question it answers is only ever asked
+    /// about a control that has moved. The label, the readout and the section's accent
+    /// dot still carry it too; they were never enough on their own, which is why the
+    /// fill exists.
     var trackStops: [LumenTrackStop]?
     var wand: (() -> Void)?
     /// What this control does, in one clause, for the tooltip.
@@ -407,18 +483,36 @@ struct LumenSlider: View {
             }
         }
         .frame(height: Lumen.rowHeight)
-        // THE ROW ANSWERS THE POINTER. It had no hover state of any kind — no fill, no
-        // lift, no cursor — so a slider gave the pointer nothing at all until the mouse
-        // button went down. The app carried 67 tooltips against five `onHover` handlers,
-        // which is a UI that teaches by tooltip rather than by affordance, and it is a
-        // large part of why these read as inert rather than as instruments.
-        .lumenHoverable()
+        // AIR AROUND THE ROW, and it belongs to the row rather than to each of the
+        // fourteen stacks that hold one.
+        //
+        // The owner: "everything is super back to back to back, so I definitely give a
+        // little bit more spacing in between sliders as well as components." Every
+        // panel stacks its rows at `spacing: 2`, so raising the gap where it is written
+        // means fourteen files agreeing, and a fifteenth panel would arrive tight. Two
+        // points inside the hover fill and one outside it is the whole change: a 26pt
+        // target instead of 22, a 4pt gutter between adjacent fills instead of 2, and
+        // the pitch up from 24 to 30. The groove, the thumb and the two text columns are
+        // untouched — this is space around the instrument, not a resizing of it.
+        .padding(.vertical, 2)
+        // THE ROW ANSWERS THE POINTER AND THE KEYBOARD, on one surface. It had no hover
+        // state of any kind — no fill, no lift, no cursor — so a slider gave the pointer
+        // nothing at all until the mouse button went down. The app carried 67 tooltips
+        // against five `onHover` handlers, which is a UI that teaches by tooltip rather
+        // than by affordance, and it is a large part of why these read as inert rather
+        // than as instruments.
+        //
+        // Focus rides the same fill one rung higher (`LumenFocus.swift`) instead of the
+        // accent ring that used to be here, which the owner reported on sight: the ring
+        // fired on mouse-DOWN, so every drag of every slider began with a blue border.
+        .lumenInteractiveSurface(focused: rowFocused)
+        .padding(.vertical, 1)
         // KEYBOARD NUDGE (docs/28 Phase 7), and the three things it needed.
         //
         // One: the row is focusable, with the system's own ring turned off. macOS draws
         // a blue halo sized for standard AppKit controls, and on a 4-point groove in a
-        // zero-chroma panel that reads as a bug rather than as state; `lumenFocusRing`
-        // draws the audit's version instead (docs/25 step 8).
+        // zero-chroma panel that reads as a bug rather than as state; the surface above
+        // carries the state instead.
         //
         // Two: the dispatcher has to stand down. Its NSEvent monitor sits in FRONT of
         // the responder chain, so without `sliderFocusChanged` telling it a slider holds
@@ -428,11 +522,11 @@ struct LumenSlider: View {
         // this control does not observe `AppState` and must not start.
         //
         // Three: focus has to be releasable. Escape drops it, and so does clicking
-        // anything else; the ring is what makes the state visible in the meantime.
+        // anything else; the surface fill is what makes the state visible in the
+        // meantime.
         .focusable()
         .focusEffectDisabled()
         .focused($rowFocused)
-        .lumenFocusRing(rowFocused)
         .onChange(of: rowFocused) { _, focused in
             sliderFocusChanged(focused)
         }
@@ -540,7 +634,68 @@ struct LumenSlider: View {
     // How close to the thumb counts as grabbing it rather than pressing the track is
     // `SliderDrag.thumbGrabRadius`, in LumenCore. It is not restated here as a second
     // constant: two numbers that have to agree and can drift apart is the shape most of
-    // this file's history has had.
+    // this file's history has had. It is 11 pt and stays there — a grab radius wider
+    // than the thumb is forgiveness, and the thumb just got smaller.
+
+    // GROOVE 5, THUMB 9 — a correction, not a first attempt.
+    //
+    // 4 and 10 shipped, read as a thin line with a dot on it, and went to 6 and 12. That
+    // overshot in the other direction: the owner's words were "a little bit too thick"
+    // and "I don't like the super circular sliders". 5 and 9 is what he picked when the
+    // options were put side by side, and it is the proportion the complaint describes —
+    // the handle is 1.8 times the groove rather than 2.5, so it reads as a knob set into
+    // a channel instead of a bead threaded onto a wire. The row is 22 pt, so nothing
+    // here is fighting for space; this is all proportion.
+    //
+    // Named rather than inlined for one reason. The thumb's offset must be exactly half
+    // its diameter or the drawn handle sits off the value it reports — a silent,
+    // pixel-scale lie in the one place this app cannot afford one — and that used to be
+    // two literals a reader had to check against each other by eye.
+    private static let grooveHeight: CGFloat = 5
+    private static let thumbDiameter: CGFloat = 9
+    private static let thumbDraggingDiameter: CGFloat = 11
+    /// Tall enough to clear the groove's lip at both ends, short enough that the thumb
+    /// covers it whole when the control is sitting on its default.
+    private static let neutralMarkHeight: CGFloat = 8
+
+    /// The groove, whichever substance fills it, finished as a WELL: a hard shadow
+    /// under the near lip and a trace of light on the far one.
+    ///
+    /// This is `lumenWell()` from LumenSurface, which was written as exactly this idea
+    /// generalised — but that one is built on `RoundedRectangle`, and a continuous
+    /// rounded rectangle at radius = half its height is visibly flatter at the caps than
+    /// a capsule. At 5 pt tall the stroke would part company with the fill at both ends,
+    /// so the groove keeps its own capsule and the two agree by construction.
+    ///
+    /// A 1 pt line, not the soft wash the coloured tracks used to carry alone. A wash
+    /// shades a surface; an edge is what tells the eye where the surface stops, and the
+    /// groove had no edge at all — which is the whole finding of LumenSurface's header,
+    /// applied to the control it says the idea came from.
+    private func carvedGroove<Content: View>(_ filled: Content) -> some View {
+        filled
+            .overlay(
+                Capsule().strokeBorder(
+                    LinearGradient(colors: [Color.black.opacity(0.5),
+                                            Color.white.opacity(0.07)],
+                                   startPoint: .top, endPoint: .bottom),
+                    lineWidth: 1))
+            .frame(height: Self.grooveHeight)
+    }
+
+    /// The deviation, drawn where a gradient track cannot spare the room — see
+    /// `trackStops`. Same span and same anchoring as the fill, so the two states of the
+    /// app say "you changed this much, from here" in the same shape.
+    private func modifiedUnderline(fraction: Double,
+                                   zeroFraction: Double,
+                                   width: CGFloat) -> some View {
+        Capsule()
+            .fill(Lumen.sliderFillModified)
+            // A floor of 2, not 1: a one-point stub under a 5 pt groove reads as a
+            // rendering artefact rather than as a mark, and this only draws at all when
+            // the control has moved.
+            .frame(width: max(abs(fraction - zeroFraction) * width, 2), height: 2)
+            .offset(x: min(fraction, zeroFraction) * width, y: 4.5)
+    }
 
     private var track: some View {
         GeometryReader { geometry in
@@ -558,36 +713,50 @@ struct LumenSlider: View {
             // have drawn the thumb somewhere the drag would not have put it.
             let fraction = geometryOfDrag.fraction(of: value)
             let zeroFraction = geometryOfDrag.fraction(of: defaultValue)
+            let thumb = isDragging ? Self.thumbDraggingDiameter : Self.thumbDiameter
             ZStack(alignment: .leading) {
                 if let trackStops {
                     // The groove IS the information on these rows. Stops are placed by
                     // the same `fraction(of:)` that decides where the thumb is drawn, so
                     // a mired-axis Temp track puts its neutral where the control puts
                     // 5500 K rather than at the halfway mark.
-                    Capsule()
-                        .fill(LinearGradient(
-                            stops: trackStops.map {
-                                Gradient.Stop(color: $0.color,
-                                              location: geometryOfDrag.fraction(of: $0.value))
-                            },
-                            startPoint: .leading, endPoint: .trailing))
-                        // The same lit-from-above cue the neutral groove gets, kept so a
-                        // coloured track still reads as carved into the panel rather
-                        // than painted onto it.
-                        .overlay(Capsule().fill(LinearGradient(
-                            colors: [Color.black.opacity(0.30), Color.black.opacity(0)],
-                            startPoint: .top, endPoint: .bottom)))
-                        .frame(height: 6)
+                    carvedGroove(
+                        Capsule()
+                            .fill(LinearGradient(
+                                stops: trackStops.map {
+                                    Gradient.Stop(color: $0.color,
+                                                  location: geometryOfDrag.fraction(of: $0.value))
+                                },
+                                startPoint: .leading, endPoint: .trailing))
+                            // Body shading, now that `carvedGroove` draws the lip. It is
+                            // lighter than the 0.30 this used to carry alone, because a
+                            // wash strong enough to stand in for an edge was muddying
+                            // the top third of every stop it fell on — most visibly on
+                            // the exposure ramp, whose dark end it pushed to near black.
+                            .overlay(Capsule().fill(LinearGradient(
+                                colors: [Color.black.opacity(0.18), Color.black.opacity(0)],
+                                startPoint: .top, endPoint: .bottom))))
                 } else {
                     // The groove CARVES DOWN into the panel (a well, not a painted-on
-                    // stripe): the gradient's darker top edge is the light coming from
-                    // above, the same depth cue the histogram well already used.
-                    Capsule()
-                        .fill(LinearGradient(
-                            colors: [Color(nsColor: NSColor(white: 0.115, alpha: 1)),
-                                     Lumen.insetWell],
-                            startPoint: .top, endPoint: .bottom))
-                        .frame(height: 6)
+                    // stripe): the darker top edge is the light coming from above, the
+                    // same depth cue the histogram well already used.
+                    //
+                    // Three stops rather than two, and the middle one is where the depth
+                    // is. A straight ramp top to bottom shades a tube; a dark band held
+                    // tight against the top edge and released by 45% of the way down is
+                    // a shadow CAST by the lip, which is what a channel milled into a
+                    // surface actually looks like.
+                    carvedGroove(
+                        Capsule()
+                            .fill(LinearGradient(
+                                stops: [Gradient.Stop(
+                                            color: Color(nsColor: NSColor(white: 0.075, alpha: 1)),
+                                            location: 0),
+                                        Gradient.Stop(
+                                            color: Color(nsColor: NSColor(white: 0.128, alpha: 1)),
+                                            location: 0.45),
+                                        Gradient.Stop(color: Lumen.insetWell, location: 1)],
+                                startPoint: .top, endPoint: .bottom)))
                 }
                 // Fill from the default toward the value: the eye reads the deviation,
                 // not the absolute position. Where the fill STARTS is the lower of the
@@ -602,12 +771,27 @@ struct LumenSlider: View {
                 // in the one place a develop tool must answer "what did I change?"
                 // at a glance.
                 //
-                // Not drawn at all on a coloured track: see `trackStops`.
+                // Not drawn at all on a ramped track — it moves under the groove
+                // instead of vanishing. See `trackStops`.
                 if trackStops == nil {
                     Capsule()
                         .fill(isModified ? Lumen.sliderFillModified : Lumen.sliderFillRest)
-                        .frame(width: max(abs(fraction - zeroFraction) * width, 1), height: 6)
+                        // A SHEEN, not a second colour. The two fill greys carry the
+                        // measured 4:1 rest/modified separation and nothing here is
+                        // allowed to disturb it, so the form is added as a symmetric
+                        // light-over-dark pass that leaves the mean where it was: the
+                        // bar stops reading as a flat swatch dropped in the groove and
+                        // starts reading as something round sitting in it.
+                        .overlay(Capsule().fill(LinearGradient(
+                            colors: [Color.white.opacity(0.16), Color.black.opacity(0.16)],
+                            startPoint: .top, endPoint: .bottom)))
+                        .frame(width: max(abs(fraction - zeroFraction) * width, 1),
+                               height: Self.grooveHeight)
                         .offset(x: min(fraction, zeroFraction) * width)
+                } else if isModified {
+                    modifiedUnderline(fraction: fraction,
+                                      zeroFraction: zeroFraction,
+                                      width: width)
                 }
                 // The neutral mark. Sits under the thumb so the thumb covers it when
                 // the control is at its default, which is exactly when you do not
@@ -616,7 +800,7 @@ struct LumenSlider: View {
                     if trackStops == nil {
                         Rectangle()
                             .fill(Lumen.separator)
-                            .frame(width: 1, height: 10)
+                            .frame(width: 1, height: Self.neutralMarkHeight)
                             .offset(x: zeroFraction * width - 0.5)
                     } else {
                         // A 0.30-grey line vanishes against a saturated stop, and which
@@ -626,27 +810,39 @@ struct LumenSlider: View {
                         // end and the magenta end alike.
                         Rectangle()
                             .fill(Color.black.opacity(0.45))
-                            .frame(width: 3, height: 10)
+                            .frame(width: 3, height: Self.neutralMarkHeight)
                             .offset(x: zeroFraction * width - 1.5)
                         Rectangle()
                             .fill(Color.white.opacity(0.85))
-                            .frame(width: 1, height: 10)
+                            .frame(width: 1, height: Self.neutralMarkHeight)
                             .offset(x: zeroFraction * width - 0.5)
                     }
                 }
-                // A GROOVE OF 6 AND A THUMB OF 12, not 4 and 10.
+                // The handle. Sizes and the reason for them are with the constants;
+                // what is here is that it is LIT rather than filled.
                 //
-                // The handle used to be two and a half times the height of the thing it
-                // slid in, which is what made these read as thin lines with dots on them
-                // rather than as instruments. Capture One's groove is 6, DaVinci's is 8,
-                // Photomator's is 8; nobody ships 4. The row is 22 pt, so 6 costs
-                // nothing and the extra two points of thumb give the smallest target in
-                // the row a fifth more area.
+                // A flat disc of one grey is a token on a board — you cannot tell which
+                // way is up, so nothing about it says "grip me". Bright along the top,
+                // falling to 0.78 at the bottom, with a rim that is a highlight where
+                // the light lands and a dark edge where it does not, and the same disc
+                // reads as a machined knob standing off the panel. That was the owner's
+                // "make the sliders a bit more lively", answered in the one element he
+                // actually pushes.
+                //
+                // The offset is half the diameter, and it is derived from the diameter
+                // rather than written beside it — the two must not be able to disagree.
                 Circle()
-                    .fill(Lumen.primaryText)
-                    .overlay(Circle().strokeBorder(Color.white.opacity(0.14), lineWidth: 1))
-                    .frame(width: isDragging ? 14 : 12, height: isDragging ? 14 : 12)
-                    .offset(x: fraction * width - (isDragging ? 7 : 6))
+                    .fill(LinearGradient(
+                        colors: [Color(nsColor: NSColor(white: 0.99, alpha: 1)),
+                                 Color(nsColor: NSColor(white: 0.78, alpha: 1))],
+                        startPoint: .top, endPoint: .bottom))
+                    .overlay(Circle().strokeBorder(
+                        LinearGradient(colors: [Color.white.opacity(0.55),
+                                                Color.black.opacity(0.22)],
+                                       startPoint: .top, endPoint: .bottom),
+                        lineWidth: 0.5))
+                    .frame(width: thumb, height: thumb)
+                    .offset(x: fraction * width - thumb / 2)
                     .shadow(color: .black.opacity(0.5), radius: isDragging ? 3 : 1.5, y: 0.5)
             }
             .frame(height: Lumen.rowHeight)
@@ -922,10 +1118,19 @@ struct LumenSectionHeader: View {
     /// pair of sections in Colour, Look and Masks is gone and this padding is the
     /// boundary instead.
     ///
-    /// 16 pt is a section boundary. A disclosure nested INSIDE a section passes 8: it is
-    /// a fold, not a border, and giving it the full rhythm would make a sub-heading
+    /// 20 pt is a section boundary. A disclosure nested INSIDE a section passes 10: it
+    /// is a fold, not a border, and giving it the full rhythm would make a sub-heading
     /// louder than the heading above it.
-    var topRhythm: CGFloat = 16
+    ///
+    /// It was 16, and 16 was not enough on its own — "everything is super back to back
+    /// to back … I get a fatigue when I scroll down because everything is so close
+    /// together." Space is now one of three levers rather than the only one: the
+    /// workspace accordion wraps each section in a card and passes **0** here, because a
+    /// card's own edge and the gap between cards say "new area" far louder than any
+    /// amount of blank panel could. This value is what the hand-composed headers inside
+    /// those cards — Colour's, Look's, the mask editor's — still use to separate
+    /// themselves from each other.
+    var topRhythm: CGFloat = 20
 
     /// TAKES THE CLICK INSTEAD OF THE BINDING, and reports whether ⌥ was down.
     ///
@@ -964,8 +1169,19 @@ struct LumenSectionHeader: View {
                 Button {
                     toggle()
                 } label: {
-                    Image(systemName: isExpanded.wrappedValue ? "chevron.down" : "chevron.right")
+                    // ONE GLYPH, ROTATED — not two glyphs swapped.
+                    //
+                    // "The animation for the open and close for the chevrons are not
+                    // great", and this is the half of it that was not an animation at
+                    // all: `chevron.down` and `chevron.right` are different symbols, so
+                    // every `withAnimation` around the accordion had nothing to
+                    // interpolate and the arrow simply cut from one to the other while
+                    // the section beneath it moved. Rotating a single chevron gives the
+                    // enclosing animation a continuous property to carry, so the hinge
+                    // now turns at the speed the drawer opens.
+                    Image(systemName: "chevron.right")
                         .font(.system(size: 10, weight: .semibold))
+                        .rotationEffect(.degrees(isExpanded.wrappedValue ? 90 : 0))
                         // An 11x10 target was the smallest in the app — under half the
                         // 24pt minimum in both dimensions. It survived only because the
                         // whole header row also toggles, which is a fat target with the
@@ -975,7 +1191,6 @@ struct LumenSectionHeader: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(Lumen.secondaryText)
-                .lumenClickCursor()
             }
             // The header now outranks the rows it governs (design audit §1.2: the
             // highest-level element in the panel was the smallest text in it).
@@ -985,10 +1200,11 @@ struct LumenSectionHeader: View {
             // contents, which is exactly what the owner reported seeing. `primaryText`
             // takes it from 5.33:1 to 10.56:1 against the panel and buys a real
             // hierarchy step for nothing.
-            Text(title.uppercased())
-                .font(.system(size: 12, weight: .semibold))
-                .tracking(0.7)
-                .foregroundStyle(Lumen.primaryText)
+            //
+            // Through `LumenCapsLabel` rather than hand-rolled, because that type exists
+            // precisely to stop a sixth 12pt-semibold-0.7-tracking caps style being
+            // invented next to the five it replaced (`LumenType.swift`).
+            LumenCapsLabel(text: title, size: 12, color: Lumen.primaryText)
             if isModified {
                 Circle()
                     .fill(Lumen.accent)
@@ -1007,17 +1223,43 @@ struct LumenSectionHeader: View {
                 // a control that moves when you approach it is worse than a loud one.
                 Button("Reset", action: onReset)
                     .buttonStyle(.plain)
-                    .font(.system(size: 10))
+                    .font(.lumenCaption)
                     .foregroundStyle(Lumen.secondaryText)
                     .opacity(hovering ? 1 : 0)
                     .animation(.easeOut(duration: 0.1), value: hovering)
             }
         }
-        .padding(.top, topRhythm)
-        .padding(.bottom, 2)
+        .padding(.horizontal, 4)
+        .padding(.vertical, 4)
+        // THE HEADER ANSWERS THE POINTER TOO, on the state it already tracked.
+        //
+        // `hovering` has existed here since Reset started fading in on it; the row was
+        // simply not drawing anything with it. A second `onHover` stacked on top would
+        // have been two sources of one truth, and `lumenHoverable()` cannot be used at
+        // all — it paints BEHIND its content, and this header is about to be handed a
+        // filled card to sit in.
+        //
+        // Inside the fill, not outside: `topRhythm` is the space BEFORE the section, so
+        // including it would draw a pill twenty points taller than the words in it,
+        // hanging above the header like a dropped shadow.
+        .background(
+            RoundedRectangle(cornerRadius: Lumen.radiusChip, style: .continuous)
+                .fill(hovering ? Lumen.controlHover : Color.clear))
+        // The four points come straight back out. The fill wants to bleed past the words
+        // so it reads as a row rather than as a label with a box drawn round it, but the
+        // TITLE has to stay on the same left edge as the slider names beneath it — a
+        // heading that sits four points right of its own contents is the kind of drift
+        // nobody reports and everybody sees.
+        .padding(.horizontal, -4)
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
         .onTapGesture { toggle() }
+        // One cursor region for the whole header rather than one on the chevron: the
+        // row and the arrow do the same thing, so the pointing hand should not appear
+        // over 20 points of a 300-point target.
+        .lumenClickCursor()
+        .animation(.easeOut(duration: 0.12), value: hovering)
+        .padding(.top, topRhythm)
     }
 
     /// One path for the chevron and the row, so the two can never disagree about what a
@@ -1046,6 +1288,10 @@ struct LumenSegmented<T: Hashable>: View {
     /// four clicks to find out whether you touched the shadows.
     var marked: Set<T> = []
 
+    /// Which segment the pointer is over. Row-local and never observable, for the reason
+    /// `LumenHoverModifier` states — a pointer crossing a panel must not publish.
+    @State private var hovered: T?
+
     var body: some View {
         HStack(spacing: 1) {
             ForEach(Array(options.enumerated()), id: \.offset) { _, option in
@@ -1054,7 +1300,7 @@ struct LumenSegmented<T: Hashable>: View {
                 } label: {
                     HStack(spacing: 3) {
                         Text(option.label)
-                            .font(.system(size: 10))
+                            .font(.lumenCaption)
                         if marked.contains(option.value) {
                             Circle()
                                 .fill(Lumen.accent)
@@ -1062,16 +1308,45 @@ struct LumenSegmented<T: Hashable>: View {
                         }
                     }
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 3)
-                    .background(selection == option.value
-                                ? Lumen.fillColor.opacity(0.35) : Lumen.controlBackground)
+                    .padding(.vertical, 4)
+                    .background(fill(for: option.value))
                     .foregroundStyle(selection == option.value
                                      ? Lumen.primaryText : Lumen.secondaryText)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .onHover { inside in
+                    if inside {
+                        hovered = option.value
+                    } else if hovered == option.value {
+                        hovered = nil
+                    }
+                }
+                .lumenClickCursor()
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 4))
+        // A WELL, not a clip. `lumenWell` does the same rounding and adds the carved lip
+        // — dark along the top edge, faintly lit along the bottom — which is what tells
+        // the eye that the segments sit DOWN in the panel rather than being three
+        // rectangles that happen to be adjacent (`LumenSurface.swift`).
+        .lumenWell(radius: Lumen.radiusChip)
+        .animation(.easeOut(duration: 0.12), value: hovered)
+    }
+
+    /// THREE STATES IN ONE COLOUR, because they cannot be layered here.
+    ///
+    /// `lumenHoverable()` paints its fill as a `.background`, BEHIND the content — and
+    /// each segment already paints an opaque rest fill of its own, so a stacked hover
+    /// would have been perfectly invisible under the very control that most needed to
+    /// show one. Anything with its own background has to compute the state instead.
+    ///
+    /// Hover deliberately climbs to `controlActive` rather than `controlHover`: against
+    /// a rest fill of `controlSurface` the next rung up is a 1.05:1 step, which is below
+    /// what an eye resolves. Selection keeps its brighter fill above both.
+    private func fill(for value: T) -> Color {
+        if selection == value { return Lumen.fillColor.opacity(0.35) }
+        if hovered == value { return Lumen.controlActive }
+        return Lumen.controlBackground
     }
 }
 
@@ -1117,8 +1392,18 @@ struct LumenColorWheel: View {
                                        endRadius: diameter / 2)
                     )
                     .opacity(0.75)
+                // A LIT RIM, not a drawn outline. `LumenSurface` makes the argument in
+                // full: a uniform 1px line reads as pre-Yosemite chrome, while a stroke
+                // that is bright along the top and near-invisible along the bottom reads
+                // as an edge under a light from above. A circle cannot take
+                // `lumenSurface()` — it would clip to a rectangle — so it borrows the
+                // gradient.
                 Circle()
-                    .strokeBorder(Lumen.separator, lineWidth: 1)
+                    .strokeBorder(
+                        LinearGradient(colors: [Color.white.opacity(0.14),
+                                                Color.white.opacity(0.04)],
+                                       startPoint: .top, endPoint: .bottom),
+                        lineWidth: 1)
                 puck
             }
             .frame(width: diameter, height: diameter)
@@ -1161,7 +1446,7 @@ struct LumenColorWheel: View {
 
             if !title.isEmpty {
                 Text(title)
-                    .font(.system(size: 10))
+                    .font(.lumenCaption)
                     .foregroundStyle(Lumen.secondaryText)
             }
 
@@ -1209,7 +1494,7 @@ struct LumenToggleRow: View {
     var body: some View {
         HStack {
             Text(title)
-                .font(.system(size: 11))
+                .font(.lumenBody)
                 .foregroundStyle(Lumen.primaryText)
             Spacer()
             Toggle("", isOn: $isOn)
@@ -1218,6 +1503,23 @@ struct LumenToggleRow: View {
                 .controlSize(.mini)
         }
         .frame(height: Lumen.rowHeight)
+        // The same 2-in / 1-out air as a slider row, so a toggle dropped between two
+        // sliders keeps the column's pitch instead of pinching it.
+        .padding(.vertical, 2)
+        // THE WHOLE ROW IS THE SWITCH. A mini `Toggle` is a 26-point target at the far
+        // end of a 300-point row whose left half is a label naming what it does, and
+        // hitting it meant crossing the panel. Every list row in macOS that carries a
+        // switch toggles on the row; this one did not, and the label was the one part a
+        // photographer would naturally aim at.
+        //
+        // The tap goes on the HStack rather than on a `Button` wrapper so the `Toggle`
+        // keeps its own gesture: a click that lands on the switch is handled by the
+        // switch and never reaches here, which is what stops the two cancelling.
+        .contentShape(Rectangle())
+        .onTapGesture { isOn.toggle() }
+        .lumenHoverable()
+        .lumenClickCursor()
+        .padding(.vertical, 1)
         .help(help ?? "")
     }
 }
@@ -1228,12 +1530,19 @@ struct LumenBadge: View {
 
     var body: some View {
         Text(text)
-            .font(.system(size: 9, weight: .medium))
-            .padding(.horizontal, 5)
+            // 10, not 9. `LumenType` sets 10 as the floor and this was one of the
+            // forty-six sites underneath it.
+            .font(.lumenCaption)
+            .padding(.horizontal, 6)
             .padding(.vertical, 2)
-            .background(emphasized ? Lumen.accent.opacity(0.8) : Color.black.opacity(0.55))
             .foregroundStyle(.white)
-            .clipShape(RoundedRectangle(cornerRadius: 3))
+            // A chip is a small object, and an object has an edge. `lumenSurface` gives
+            // it the lit top the flat `clipShape` never had, at `.flush` because a badge
+            // sits ON the row it annotates rather than above it.
+            .lumenSurface(radius: Lumen.radiusChip,
+                          elevation: .flush,
+                          fill: emphasized ? Lumen.accent.opacity(0.8)
+                                           : Color.black.opacity(0.55))
     }
 }
 

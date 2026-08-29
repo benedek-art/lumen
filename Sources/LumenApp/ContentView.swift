@@ -6,6 +6,7 @@
 
 #if os(macOS)
 
+import AppKit
 import LumenCore
 import SwiftUI
 
@@ -30,6 +31,45 @@ struct ContentView: View {
     ///
     /// `Tab` is the key, because it is Lightroom's and has been for twenty years, and
     /// because `KeyGrammar.dispatchedKeys` did not claim it.
+    /// THE DIVIDER IS THE HANDLE. Owner: "what if I can have a click and drag? So if I
+    /// wanted a specific size, I can click or drag the right side pop-up window either
+    /// out more or in more, and the only thing that changes there is the size of the
+    /// sliders."
+    ///
+    /// That last clause is the whole reason this is worth doing, and it needed no work:
+    /// a slider row spends a fixed `labelWidth + valueWidth + gaps` on text, so every
+    /// point the column gains lands in the TRACK. Dragging from 320 to 520 takes a ±100
+    /// control from 0.90 points per unit to 1.90 — from below the threshold where a
+    /// one-pixel tremor costs a whole unit, to twice it.
+    ///
+    /// A 6pt hit region over a 1pt line, because a hairline is not a target; the drawn
+    /// rule stays exactly where it was. The width is written on every event so the
+    /// column tracks the hand, and persisted once on release — a `UserDefaults` write
+    /// per mouse event is the same defect the slider gesture sink exists to avoid.
+    private var columnResizer: some View {
+        Divider()
+            .overlay(Lumen.separator)
+            .frame(width: 1)
+            .overlay {
+                Rectangle()
+                    .fill(Color.clear)
+                    .frame(width: 6)
+                    .contentShape(Rectangle())
+                    .onHover { $0 ? NSCursor.resizeLeftRight.push() : NSCursor.pop() }
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { drag in
+                                // Leftward drag widens the column, so the delta is
+                                // negated: the pointer and the edge move together.
+                                let next = state.developPanelWidth - drag.translation.width
+                                state.developPanelWidth = Swift.min(
+                                    Swift.max(next, Lumen.minimumPanelWidth),
+                                    Lumen.maximumPanelWidth)
+                            }
+                            .onEnded { _ in state.persistDevelopPanelWidth() })
+            }
+    }
+
     var body: some View {
         NavigationSplitView(columnVisibility: Binding(
             get: { state.sidebarVisible ? .all : .detailOnly },
@@ -57,9 +97,9 @@ struct ContentView: View {
                         }
                         .overlay(alignment: .bottom) { inspectionBadge }
                     if showsDevelopColumn {
-                        Divider().overlay(Lumen.separator)
+                        columnResizer
                         DevelopPanel()
-                            .frame(width: Lumen.panelWidth)
+                            .frame(width: state.developPanelWidth)
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)

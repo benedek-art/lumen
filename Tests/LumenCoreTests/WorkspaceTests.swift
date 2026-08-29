@@ -123,36 +123,104 @@ final class WorkspaceTests: XCTestCase {
         XCTAssertEqual(ranks.max(), 15)
     }
 
-    // MARK: Masks is not a section
+    // MARK: Masking takes the column over; it is not a section, and not a workspace
 
+    /// STILL TRUE, and it is asserting something different now.
+    ///
+    /// It used to mean "masking is a dock, available everywhere, so it belongs to no
+    /// workspace". It now means "masking REPLACES the sections rather than joining
+    /// them": a `WorkspaceSection` is one accordion row of a workspace's column, and the
+    /// mask editor is the whole column instead of that workspace's rows. A case here
+    /// would put the mask list inside the very stack it displaces.
+    ///
+    /// The other half of the argument is in the model rather than in this list.
+    /// `LocalAdjust` carries twenty scalars plus a local point curve and local grading
+    /// wheels, so a mask's adjustments are a copy of the globals — a Masks section
+    /// stacked under Tone would offer Tone twice, twenty rows apart, meaning two
+    /// different things.
     func testMasksIsNotASectionOfAnyWorkspace() {
         for section in WorkspaceSection.allCases {
             XCTAssertFalse(section.rawValue.lowercased().contains("mask"))
             XCTAssertFalse(section.title.lowercased().contains("mask"),
-                           "docs/12 §12.1 lists Masks as docked via a key, not as a panel "
-                               + "in the rail; you mask while developing and while "
-                               + "grading, so it cannot be a section of either")
+                           "masking replaces a workspace's sections rather than joining "
+                               + "them (WorkspaceLayout.isMasking); a section here would "
+                               + "sit inside the stack it displaces")
         }
     }
 
-    func testTheMaskDockSurvivesEveryWorkspaceSwitch() {
+    /// Nor is it a sixth `Workspace`, and this is the half a reader will want a reason
+    /// for.
+    ///
+    /// Two reasons. The mechanical one: `LumenApp`'s View menu puts the workspaces in a
+    /// `Group`, which is at its ten-child builder limit now that Crop is the fifth — a
+    /// sixth case would not compile, and finding that out from a builder overload error
+    /// is not how a design decision should be discovered. The real one: a workspace is a
+    /// destination the switcher always offers and you can always be in, and masking is
+    /// somewhere you go FROM one of them and come back to. `workspace` keeps holding
+    /// where you were the whole time you are masking, which a sixth case could not do.
+    func testMaskingIsNotAWorkspaceEither() {
+        XCTAssertEqual(Workspace.allCases.count, 5)
+        for workspace in Workspace.allCases {
+            XCTAssertFalse(workspace.rawValue.lowercased().contains("mask"))
+        }
+        var layout = WorkspaceLayout(workspace: .grade, isMasking: true)
+        XCTAssertEqual(layout.workspace, .grade,
+                       "the workspace underneath is what the way out returns to, so "
+                           + "masking must never overwrite it")
+        layout.isMasking = false
+        XCTAssertEqual(layout.workspace, .grade)
+    }
+
+    /// THE TRIPWIRE, REWIRED. This asserted that masking survives every workspace
+    /// switch, which was right while masking was a dock beside the sections: the dock
+    /// stayed out while you moved between workspaces underneath it.
+    ///
+    /// A takeover is on the same axis as the workspaces, so naming one is naming what
+    /// the column shows — including "not the mask editor". And while masking there is no
+    /// switcher on screen to name a workspace with: the only callers left are ⌘1–⌘5 and
+    /// the View menu, so a switch that changed a workspace nobody could see and left the
+    /// mask editor in place would be a key that appears dead — the failure
+    /// `PanelLayout.reveal` exists to avoid.
+    func testNamingAWorkspaceIsHowYouLeaveMasking() {
         for from in Workspace.allCases {
             for to in Workspace.allCases {
-                var layout = WorkspaceLayout(workspace: from, isMaskDockOpen: true)
+                var layout = WorkspaceLayout(workspace: from, isMasking: true)
                 layout.select(to)
-                XCTAssertTrue(layout.isMaskDockOpen,
-                              "\(from.rawValue) → \(to.rawValue) put the mask list away "
-                                  + "mid-edit")
+                XCTAssertFalse(layout.isMasking,
+                               "\(from.rawValue) → \(to.rawValue) asked for a workspace "
+                                   + "and got the mask editor")
+                XCTAssertEqual(layout.workspace, to)
             }
         }
     }
 
-    func testTheMaskDockIsUnaffectedByTheRegister() {
-        var layout = WorkspaceLayout(workspace: .develop, isMaskDockOpen: true)
+    /// And the return trip is exact, which is what makes masking a detour rather than a
+    /// place you have to rebuild the column after visiting.
+    func testLeavingMaskingRestoresTheColumnItTookOver() {
+        let before = WorkspaceLayout(workspace: .grade, register: .full,
+                                     expanded: [.tone, .grading, .filmLab])
+        var layout = before
+        layout.isMasking = true
+        XCTAssertEqual(layout.expanded, before.expanded,
+                       "entering masking must not close anything — the sections are not "
+                           + "gone, they are behind")
+        XCTAssertEqual(layout.visibleSections, before.visibleSections)
+        layout.isMasking = false
+        XCTAssertEqual(layout, before)
+    }
+
+    /// The register is orthogonal and stays that way. It decides which of a WORKSPACE's
+    /// sections are drawn; masking decides whether that column is on screen at all, so
+    /// neither has anything to say about the other — and the register a photographer
+    /// chose has to be waiting for them when they come back.
+    func testMaskingIsUnaffectedByTheRegister() {
+        var layout = WorkspaceLayout(workspace: .develop, isMasking: true)
         layout.toggleRegister()
-        XCTAssertTrue(layout.isMaskDockOpen)
+        XCTAssertTrue(layout.isMasking)
+        XCTAssertEqual(layout.register, .full)
         layout.toggleRegister()
-        XCTAssertTrue(layout.isMaskDockOpen)
+        XCTAssertTrue(layout.isMasking)
+        XCTAssertEqual(layout.register, .simple)
     }
 
     // MARK: The two registers
@@ -463,14 +531,16 @@ final class WorkspaceTests: XCTestCase {
         XCTAssertEqual(layout.expanded, [.tone])
     }
 
+    /// Masking is the one exception, and it is deliberate — see
+    /// `testNamingAWorkspaceIsHowYouLeaveMasking`. This layout is not masking, so the
+    /// round trip here is the plain one.
     func testSwitchingWorkspaceChangesNothingButTheWorkspace() {
         var layout = WorkspaceLayout(workspace: .develop, register: .full,
-                                     expanded: [.tone, .grading], isMaskDockOpen: true)
+                                     expanded: [.tone, .grading])
         let before = layout
         layout.select(.grade)
         XCTAssertEqual(layout.expanded, before.expanded)
         XCTAssertEqual(layout.register, before.register)
-        XCTAssertEqual(layout.isMaskDockOpen, before.isMaskDockOpen)
         XCTAssertEqual(layout.expandedSections, [.grading])
         layout.select(.develop)
         XCTAssertEqual(layout, before, "the round trip must be exact, or a workspace is "
@@ -492,7 +562,7 @@ final class WorkspaceTests: XCTestCase {
                        Set(Workspace.develop.sections.filter(\.isInSimpleRegister)))
         XCTAssertEqual(layout.expandedSections, layout.visibleSections,
                        "nothing the opening column draws should start closed")
-        XCTAssertFalse(layout.isMaskDockOpen)
+        XCTAssertFalse(layout.isMasking)
         XCTAssertTrue(layout.showsDevelopColumn)
     }
 
@@ -590,6 +660,40 @@ final class WorkspaceTests: XCTestCase {
         return (0..<(1 << sections.count)).map { mask in
             Set(sections.enumerated().compactMap { mask & (1 << $0.offset) == 0
                                                        ? nil : $0.element })
+        }
+    }
+}
+
+extension WorkspaceTests {
+
+    /// Masking is reachable from Cull, which its own contract has always claimed and
+    /// which was silently false.
+    ///
+    /// Cull has no sections, `showsDevelopColumn` was `!sections.isEmpty`, and
+    /// `ContentView` gates the whole column on it — so pressing `M` in Cull set a flag
+    /// that nothing could draw. A page you can enter and cannot see is worse than one
+    /// that refuses, because the refusal at least tells you.
+    func testMaskingGivesCullAColumnItOtherwiseHasNot() {
+        var layout = WorkspaceLayout(workspace: .cull)
+        XCTAssertFalse(layout.showsDevelopColumn,
+                       "Cull's emptiness is the feature when nothing has taken it over")
+
+        layout.isMasking = true
+        XCTAssertTrue(layout.showsDevelopColumn,
+                      "the mask editor IS the column while it is up, so a workspace "
+                          + "with no sections still has one to give")
+
+        layout.isMasking = false
+        XCTAssertFalse(layout.showsDevelopColumn, "and Cull is empty again on the way out")
+    }
+
+    /// The clause must not disturb the workspaces that always had a column.
+    func testMaskingDoesNotChangeWhetherTheOtherWorkspacesDrawAColumn() {
+        for workspace in Workspace.allCases where workspace != .cull {
+            var layout = WorkspaceLayout(workspace: workspace)
+            XCTAssertTrue(layout.showsDevelopColumn, "\(workspace) draws a column")
+            layout.isMasking = true
+            XCTAssertTrue(layout.showsDevelopColumn, "\(workspace) still draws one")
         }
     }
 }

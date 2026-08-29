@@ -355,4 +355,249 @@ final class CropDragTests: XCTestCase {
             XCTAssertLessThanOrEqual(out.x + out.w, 1 + 1e-12)
         }
     }
+
+    // MARK: - Rotating by hand
+    //
+    // The sign is the whole difficulty, and `Straighten`'s header spends thirty lines on
+    // it: the failure it describes is the one that looks almost right, where the first
+    // drag improves the picture and the second makes it worse. So the sign below is
+    // asserted against `Straighten.displayedDirection` — the forward mapping — rather
+    // than against a number somebody wrote down while writing the inverse.
+
+    /// Clockwise on screen is positive, with y measured DOWNWARD as a drag hands it over.
+    func testAClockwiseDragSweepsPositive() throws {
+        // Three o'clock to six o'clock, about the origin, y down.
+        let sweep = CropGeometry.rotationSweep(centreX: 0, centreY: 0,
+                                               fromX: 100, fromY: 0,
+                                               toX: 0, toY: 100)
+        XCTAssertEqual(try XCTUnwrap(sweep), 90, accuracy: 1e-9)
+    }
+
+    func testAnAnticlockwiseDragSweepsNegative() throws {
+        let sweep = CropGeometry.rotationSweep(centreX: 0, centreY: 0,
+                                               fromX: 100, fromY: 0,
+                                               toX: 0, toY: -100)
+        XCTAssertEqual(try XCTUnwrap(sweep), -90, accuracy: 1e-9)
+    }
+
+    func testTheSweepIsMeasuredAboutTheCentreAndNotTheOrigin() throws {
+        let sweep = CropGeometry.rotationSweep(centreX: 400, centreY: 300,
+                                               fromX: 500, fromY: 300,
+                                               toX: 400, toY: 400)
+        XCTAssertEqual(try XCTUnwrap(sweep), 90, accuracy: 1e-9)
+    }
+
+    /// The wrap a difference of two `atan2`s gets wrong: crossing twelve o'clock has to
+    /// read as a few degrees, not as three hundred and fifty-odd.
+    func testCrossingTwelveOClockStaysASmallSweep() throws {
+        let before = -5.0 * .pi / 180
+        let after = 5.0 * .pi / 180
+        let radius = 200.0
+        let sweep = CropGeometry.rotationSweep(
+            centreX: 0, centreY: 0,
+            fromX: radius * cos(before - .pi / 2), fromY: radius * sin(before - .pi / 2),
+            toX: radius * cos(after - .pi / 2), toY: radius * sin(after - .pi / 2))
+        XCTAssertEqual(try XCTUnwrap(sweep), 10, accuracy: 1e-9)
+    }
+
+    /// A drag that starts or ends on the pivot has no angle in it, and reporting one
+    /// means the picture spins the moment the pointer passes through the middle.
+    func testADragTooCloseToTheCentreCarriesNoAngle() {
+        XCTAssertNil(CropGeometry.rotationSweep(centreX: 0, centreY: 0,
+                                                fromX: 2, fromY: 0, toX: 0, toY: 200))
+        XCTAssertNil(CropGeometry.rotationSweep(centreX: 0, centreY: 0,
+                                                fromX: 200, fromY: 0, toX: 0, toY: 3))
+        XCTAssertNotNil(CropGeometry.rotationSweep(centreX: 0, centreY: 0,
+                                                   fromX: 200, fromY: 0, toX: 0, toY: 200))
+    }
+
+    func testANonFiniteDragIsRefused() {
+        XCTAssertNil(CropGeometry.rotationSweep(centreX: 0, centreY: 0,
+                                                fromX: .nan, fromY: 0, toX: 0, toY: 200))
+        XCTAssertNil(CropGeometry.rotationSweep(centreX: 0, centreY: 0,
+                                                fromX: 200, fromY: 0,
+                                                toX: .infinity, toY: 200))
+    }
+
+    // MARK: - The sign, against the forward mapping
+
+    /// Turn the pointer clockwise and the picture must follow it, at every angle the
+    /// straighten range holds and with the frame mirrored or not.
+    ///
+    /// Asserted through `Straighten.displayedDirection`, which says where a SOURCE
+    /// direction appears on the frame being drawn. The source's own horizontal is the
+    /// probe: after a clockwise sweep it has to appear further clockwise than it did.
+    func testThePictureFollowsThePointer() {
+        for flipped in [false, true] {
+            for start in stride(from: -30.0, through: 30.0, by: 10.0) {
+                for sweep in [-8.0, -3.0, 3.0, 8.0] {
+                    let next = CropGeometry.rotationAngle(from: start, sweep: sweep,
+                                                    flipped: flipped)
+                    let before = Straighten.displayedDirection(sourceDegrees: 0,
+                                                               angle: start,
+                                                               flipped: flipped)
+                    let after = Straighten.displayedDirection(sourceDegrees: 0,
+                                                              angle: next,
+                                                              flipped: flipped)
+                    XCTAssertEqual(after - before, sweep, accuracy: 1e-9,
+                                   "a \(sweep)° sweep at \(start)° "
+                                       + "(flipped: \(flipped)) moved the picture "
+                                       + "\(after - before)°")
+                }
+            }
+        }
+    }
+
+    /// The mirror inverts the correction, exactly as it does for the ruler.
+    func testAFlipInvertsTheAngleARotationWrites() {
+        let plain = CropGeometry.rotationAngle(from: 4, sweep: 6, flipped: false)
+        let mirrored = CropGeometry.rotationAngle(from: 4, sweep: 6, flipped: true)
+        XCTAssertEqual(plain, 10, accuracy: 1e-9)
+        XCTAssertEqual(mirrored, -2, accuracy: 1e-9)
+    }
+
+    /// One range for the slider, the ruler and the gesture. Three answers to "how far
+    /// can this go" is how a drag writes an angle the slider then cannot show.
+    func testRotationIsClampedToTheStraightenRange() {
+        XCTAssertEqual(CropGeometry.rotationAngle(from: 40, sweep: 30),
+                       Straighten.limitDegrees, accuracy: 1e-9)
+        XCTAssertEqual(CropGeometry.rotationAngle(from: -40, sweep: -30),
+                       -Straighten.limitDegrees, accuracy: 1e-9)
+    }
+
+    func testANonFiniteRotationDoesNotEscape() {
+        XCTAssertEqual(CropGeometry.rotationAngle(from: .nan, sweep: 3), 0)
+        XCTAssertEqual(CropGeometry.rotationAngle(from: 3, sweep: .infinity), 0)
+    }
+
+    // MARK: - Refitting a rectangle to a ratio
+
+    func testRefittingAWholeFrameIsTheCentredCrop() {
+        for aspect in [1.0, 16.0 / 9, 4.0 / 5] {
+            let refit = CropGeometry.refit(Crop(), aspect: aspect,
+                                           sourceWidth: 6000, sourceHeight: 4000,
+                                           degrees: 0)
+            let centred = CropGeometry.centred(aspect: aspect, sourceWidth: 6000,
+                                               sourceHeight: 4000, degrees: 0)
+            XCTAssertEqual(refit.x, centred.x, accuracy: 1e-9)
+            XCTAssertEqual(refit.y, centred.y, accuracy: 1e-9)
+            XCTAssertEqual(refit.w, centred.w, accuracy: 1e-9)
+            XCTAssertEqual(refit.h, centred.h, accuracy: 1e-9)
+        }
+    }
+
+    /// The whole point of `refit` next to `centred`: a rectangle the photographer placed
+    /// keeps its place when the ratio changes.
+    func testRefittingKeepsTheCentreOfTheRectangleItReplaces() {
+        let crop = Crop(x: 0.05, y: 0.55, w: 0.3, h: 0.3)
+        let refit = CropGeometry.refit(crop, aspect: 16.0 / 9, sourceWidth: 6000,
+                                       sourceHeight: 4000, degrees: 0)
+        XCTAssertEqual(refit.x + refit.w / 2, crop.x + crop.w / 2, accuracy: 1e-9)
+        XCTAssertEqual(refit.y + refit.h / 2, crop.y + crop.h / 2, accuracy: 1e-9)
+    }
+
+    func testRefittingWritesTheRatioItWasAskedFor() throws {
+        for (w, h) in [(6000.0, 4000.0), (4000.0, 6000.0)] {
+            for degrees in [0.0, 7.0] {
+                for aspect in [1.0, 3.0 / 2, 16.0 / 9, 4.0 / 5] {
+                    let refit = CropGeometry.refit(Crop(x: 0.2, y: 0.1, w: 0.5, h: 0.4),
+                                                   aspect: aspect, sourceWidth: w,
+                                                   sourceHeight: h, degrees: degrees)
+                    let read = CropGeometry.displayedAspect(refit, sourceWidth: w,
+                                                            sourceHeight: h,
+                                                            degrees: degrees)
+                    XCTAssertEqual(try XCTUnwrap(read), aspect, accuracy: 1e-6,
+                                   "\(w)x\(h) at \(degrees)° asked for \(aspect)")
+                }
+            }
+        }
+    }
+
+    func testARefitRectangleStaysInsideTheFrame() {
+        for crop in [Crop(x: 0.9, y: 0.9, w: 0.1, h: 0.1),
+                     Crop(x: 0, y: 0, w: 0.06, h: 0.9),
+                     Crop(x: 0.4, y: 0, w: 0.6, h: 1)] {
+            for aspect in [1.0, 16.0 / 9, 2.0 / 3] {
+                let refit = CropGeometry.refit(crop, aspect: aspect, sourceWidth: 6000,
+                                               sourceHeight: 4000, degrees: 3)
+                XCTAssertGreaterThanOrEqual(refit.x, -1e-12)
+                XCTAssertGreaterThanOrEqual(refit.y, -1e-12)
+                XCTAssertLessThanOrEqual(refit.x + refit.w, 1 + 1e-12)
+                XCTAssertLessThanOrEqual(refit.y + refit.h, 1 + 1e-12)
+            }
+        }
+    }
+
+    // MARK: - Turning a rectangle on its side
+
+    /// Swapped in PIXELS. Swapping the normalized extents instead turns a 3:2 crop of a
+    /// 3:2 body into 4:9, which is the arithmetic slip this function exists to avoid.
+    func testSwappingOrientationInvertsThePixelRatio() throws {
+        for (w, h) in [(6000.0, 4000.0), (4000.0, 6000.0), (5000.0, 5000.0)] {
+            for degrees in [0.0, 6.0, -11.0] {
+                for crop in [Crop(), Crop(x: 0.1, y: 0.2, w: 0.6, h: 0.5),
+                             Crop(x: 0.3, y: 0.3, w: 0.2, h: 0.6)] {
+                    let before = try XCTUnwrap(CropGeometry.displayedAspect(
+                        crop, sourceWidth: w, sourceHeight: h, degrees: degrees))
+                    let swapped = CropGeometry.swappingOrientation(
+                        crop, sourceWidth: w, sourceHeight: h, degrees: degrees)
+                    let after = try XCTUnwrap(CropGeometry.displayedAspect(
+                        swapped, sourceWidth: w, sourceHeight: h, degrees: degrees))
+                    XCTAssertEqual(after, 1 / before, accuracy: 1e-6,
+                                   "\(w)x\(h) at \(degrees)°, \(crop)")
+                }
+            }
+        }
+    }
+
+    func testSwappingTwiceReturnsTheOriginalRectangleWhereItFits() {
+        // A crop that fits both ways round, so the fit-to-frame step never bites.
+        let crop = Crop(x: 0.3, y: 0.25, w: 0.3, h: 0.4)
+        let once = CropGeometry.swappingOrientation(crop, sourceWidth: 6000,
+                                                    sourceHeight: 4000, degrees: 0)
+        let twice = CropGeometry.swappingOrientation(once, sourceWidth: 6000,
+                                                     sourceHeight: 4000, degrees: 0)
+        XCTAssertEqual(twice.x, crop.x, accuracy: 1e-9)
+        XCTAssertEqual(twice.y, crop.y, accuracy: 1e-9)
+        XCTAssertEqual(twice.w, crop.w, accuracy: 1e-9)
+        XCTAssertEqual(twice.h, crop.h, accuracy: 1e-9)
+    }
+
+    func testASwappedRectangleStaysInsideTheFrame() {
+        for crop in [Crop(), Crop(x: 0, y: 0, w: 1, h: 0.4),
+                     Crop(x: 0.8, y: 0.8, w: 0.2, h: 0.2)] {
+            for (w, h) in [(6000.0, 4000.0), (4000.0, 6000.0)] {
+                let swapped = CropGeometry.swappingOrientation(crop, sourceWidth: w,
+                                                               sourceHeight: h,
+                                                               degrees: 9)
+                XCTAssertGreaterThanOrEqual(swapped.x, -1e-12)
+                XCTAssertGreaterThanOrEqual(swapped.y, -1e-12)
+                XCTAssertLessThanOrEqual(swapped.x + swapped.w, 1 + 1e-12)
+                XCTAssertLessThanOrEqual(swapped.y + swapped.h, 1 + 1e-12)
+                XCTAssertGreaterThanOrEqual(swapped.w, CropGeometry.minimumCropFraction - 1e-12)
+                XCTAssertGreaterThanOrEqual(swapped.h, CropGeometry.minimumCropFraction - 1e-12)
+            }
+        }
+    }
+
+    // MARK: - The custom ratio field
+
+    func testEveryFormOfACustomRatioReadsTheSame() throws {
+        for text in ["16:9", "16/9", "16 x 9", "16X9", " 16 : 9 "] {
+            XCTAssertEqual(try XCTUnwrap(CropGeometry.aspect(fromText: text)),
+                           16.0 / 9, accuracy: 1e-9, "\(text)")
+        }
+        XCTAssertEqual(try XCTUnwrap(CropGeometry.aspect(fromText: "1.85")),
+                       1.85, accuracy: 1e-9)
+        // A decimal comma, because a keyboard laid out for one is not a typo.
+        XCTAssertEqual(try XCTUnwrap(CropGeometry.aspect(fromText: "1,85")),
+                       1.85, accuracy: 1e-9)
+    }
+
+    func testACustomRatioThatIsNotOneIsRefused() {
+        for text in ["", "  ", "sixteen by nine", "16:", ":9", "16:0", "-3:2",
+                     "1:2:3", "0", "1:1000", "1000:1", "nan"] {
+            XCTAssertNil(CropGeometry.aspect(fromText: text), "\(text) was accepted")
+        }
+    }
 }

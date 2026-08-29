@@ -76,17 +76,16 @@ final class LoupeViewport: ObservableObject {
     /// Divider position for the split compare, 0…1 across the canvas.
     @Published var splitPosition: Double = 0.5
 
+    /// True while the crop tool is armed. `R` toggles it, and the crop workspace is the
+    /// other half of the gate (`LoupeView`'s rectangle, and the render's
+    /// `showingUncropped`).
+    ///
+    /// It is the only piece of the crop tool left here. The ratio lock was beside it, as
+    /// one `Double?` for the whole application, so a ratio chosen on one photograph
+    /// silently held every photograph opened afterwards; the lock, the guide, the revert
+    /// baseline and the double-press timing are `CropTool` now, where the lock carries
+    /// the frame it was chosen for.
     @Published var showCrop: Bool = false
-    /// Width ÷ height in pixels the crop drag must hold, or nil for a free crop.
-    ///
-    /// Set by the ratio menu and cleared by "Original", so it is a mode the user chose
-    /// rather than one inferred from whatever the rectangle happens to measure. Inferring
-    /// it would mean a free crop that lands within a rounding error of 16:9 silently
-    /// stops letting you nudge one edge.
-    ///
-    /// UI state, not recipe state: the rectangle is what gets saved, and the lock only
-    /// governs how the next drag behaves.
-    @Published var cropAspectLock: Double?
     /// True while the straighten ruler is armed. It disarms itself when the drag ends,
     /// so it reads as a tool you fire rather than a mode you have to remember to leave.
     @Published var showStraighten: Bool = false
@@ -1154,18 +1153,38 @@ struct LoupeView: View {
                     .frame(width: drawn.width, height: drawn.height)
             }
 
-            // Reachable again, and correct this time. The renderer is asked for the
-            // frame WITHOUT its crop while this is open (`showingUncropped`), so the
-            // rectangle is drawn against the frame it is expressed in rather than
-            // inside a picture that has already been cut to it.
-            // THE WORKSPACE, NOT THE SECTION. Crop moved from the Effects tab to
-            // Develop's Optics section, and gating on the SECTION being expanded would
+            // The renderer is asked for the frame WITHOUT its crop while this is open
+            // (`showingUncropped`), so the rectangle is drawn against the frame it is a
+            // fraction of rather than inside a picture already cut to it.
+            //
+            // THE WORKSPACE, NOT THE SECTION. Gating on the section being expanded would
             // make the rectangle vanish when the photographer folds the accordion to see
             // more of the picture — which is exactly when they want it. The workspace is
             // the place; `showCrop` is the arming, and `R` sets both.
             if viewport.showCrop && panel.layout.workspace == .crop {
                 CropOverlayView(crop: cropBinding,
-                                lockedAspect: viewport.cropAspectLock,
+                                geometry: recipe.develop.geometry,
+                                // The SOURCE frame, not `cg` — the same reason the mask
+                                // canvas needs it. The overlay converts through the
+                                // renderer's own inverse, which is stated in source
+                                // pixels.
+                                sourceSize: state.primaryFrameSize
+                                    ?? CGSize(width: cg.width, height: cg.height),
+                                // The render call above asks for the frame WITHOUT its
+                                // crop under exactly this condition, so inside this
+                                // branch the picture underneath is the whole inscribed
+                                // frame. Passed rather than assumed, because the day
+                                // that changes the rectangle must move with it.
+                                viewShowsCrop: false,
+                                photoID: photo.id,
+                                onAngle: { angle in
+                                    // The same coalescing key the ruler and the Angle
+                                    // slider write through, so a turn of the picture is
+                                    // one undo step however it was asked for.
+                                    state.updateRecipe(coalescingKey: "straighten") { recipe in
+                                        recipe.develop.geometry.angle = angle
+                                    }
+                                },
                                 frameAspect: cropFrameAspect)
                     .frame(width: drawn.width, height: drawn.height)
 
@@ -1192,11 +1211,12 @@ struct LoupeView: View {
             // radials and brush strokes are placed where they land. The canvas is
             // inert unless the masks section is open with a drawable component
             // selected, so it never eats a pan or a click-to-zoom.
-            // The dock, which is available in every workspace — that is the whole point
-            // of item 14, and it is why this is not a section test. Masks used to be one
-            // of the eight tabs, so editing a gradient meant leaving whatever else you
-            // were doing.
-            if panel.layout.isMaskDockOpen, let target = maskEditTarget {
+            // Gated on masking, not on a section: the mask editor IS the develop column
+            // while it is up (`WorkspaceLayout.isMasking`), and the handles on the
+            // photograph are the other half of that one surface. Masks used to be one of
+            // eight tabs, so editing a gradient meant leaving whatever else you were
+            // doing; now the picture and the panel enter and leave together.
+            if panel.layout.isMasking, let target = maskEditTarget {
                 // The strokes already on this component have to go IN as well as come
                 // out: the canvas appends to the set it was given, so handing it an
                 // empty one makes every stroke the only stroke.

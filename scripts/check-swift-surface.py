@@ -251,7 +251,8 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     # is the only way to build one, so the ramp cannot be declared without it.
     "Font",
     "SwiftUI", "View", "Text", "Image", "Color", "VStack", "HStack", "ZStack",
-    "Spacer", "Button", "Slider", "Toggle", "Picker", "TextField", "SecureField",
+    "Spacer", "Button", "Slider", "Toggle", "Picker", "ColorPicker", "TextField",
+    "SecureField",
     "List", "ForEach", "ScrollView", "ScrollViewReader", "LazyVGrid", "LazyHGrid",
     "LazyVStack", "LazyHStack", "GridItem", "NavigationStack", "NavigationSplitView",
     "NavigationLink", "Divider", "Group", "GroupBox", "Form", "Section", "Menu",

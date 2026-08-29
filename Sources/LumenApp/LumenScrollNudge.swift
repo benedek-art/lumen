@@ -72,7 +72,7 @@ extension View {
     /// ⌥-scroll anywhere over this view reports whole steps, and every other event
     /// passes through untouched.
     ///
-    /// An overlay rather than a background, for the same reason `lumenFocusRing` is one:
+    /// An overlay rather than a background, for the same reason `lumenInteractiveSurface` is one:
     /// it costs the control no layout. Which of the two it is makes no difference to
     /// event routing anyway — SwiftUI draws its own content rather than putting it in
     /// sibling `NSView`s, so a representable is the topmost real view under the pointer

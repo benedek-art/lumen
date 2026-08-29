@@ -140,6 +140,13 @@ public enum KeyGrammar {
             KeyRow(keys: "⌥O", action: "Cycle the six overlay modes"),
             KeyRow(keys: "'", action: "Invert the selected mask component"),
             KeyRow(keys: "R", action: "Crop tool on the image; again to leave it"),
+            // Neither of these is a `.keyboardShortcut` the scan can pair with an entry.
+            // R R is two presses of a key the dispatcher already claims, told apart by
+            // the interval between them (`CropTool.noteArming`); Return is attached in
+            // `CropPanel.swift` as a `KeyEquivalent` rather than a string literal, which
+            // is why that file is named in `filesWithComputedShortcuts` below.
+            KeyRow(keys: "R R", action: "Reset the crop and stay in the tool"),
+            KeyRow(keys: "Return", action: "Commit the crop and put the tool away"),
             KeyRow(keys: "⇧S", action: "Soft proof through the destination space"),
             KeyRow(keys: "\\", action: "Before / after, full frame"),
             KeyRow(keys: "Y", action: "Before / after, side by side"),
@@ -239,5 +246,10 @@ public enum KeyGrammar {
             "The printer-light steppers take their key and modifiers as parameters, so "
             + "one row type serves the master and the three colour trims. The four "
             + "chords are listed under Develop.",
+        "CropPanel.swift":
+            "Return commits the crop (docs/09). It is written as the `KeyEquivalent` "
+            + "`.return` rather than a string, because a bare carriage return in a "
+            + "source file is not a literal a scanner can read back. Listed under "
+            + "Develop.",
     ]
 }

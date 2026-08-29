@@ -1,15 +1,16 @@
 // EffectsPanel.swift
-// Vignette, film grain, crop/straighten and lens corrections — the creative and
-// geometric layers, in pipeline order (S13 effects, S16 geometry).
+// Vignette, film grain, lens corrections and the soft proof — the creative layers, the
+// one geometric correction that reaches a stage, and the check you make before you write
+// the file.
 //
 // Two things this panel makes visible that most editors hide:
 //   · The vignette is denominated in EV. A −0.7 EV edge burn means the same thing on
 //     every exposure, and because the display transform is hue-preserving, darkened
 //     corners do not colour-shift — so there is no "Highlight Priority / Colour
 //     Priority" dropdown to explain. Position in the pipeline does that work.
-//   · Geometry runs last, so dragging a crop re-runs one warp of an already-rendered
-//     buffer rather than the pipeline. Crop, straighten, perspective and lens
-//     distortion compose into a single resample.
+//   · Geometry runs last, so a crop re-runs one warp of an already-rendered buffer
+//     rather than the pipeline. Crop, straighten, perspective and lens distortion
+//     compose into a single resample.
 //
 // Optional-field policy: `Look.filmLab` nil means no stock is loaded, so the grain
 // rows are absent rather than dead — grain belongs to a stock, not to the frame. What
@@ -28,50 +29,22 @@
 // the accordion and a paragraph, on every visit. It comes back when a stage renders a
 // stroke.
 //
-// FIVE SECTIONS, THREE WORKSPACES. docs/28 §5.1 sends the creative layers to Grade's
-// Effects, crop and lens to Develop's Optics, and the proof to Deliver — the widest
-// split in that change, because "effects" was always the tab things landed in rather
-// than a subject. The sections stay in one file: they share `binder`, the `viewport`
-// the crop tool drives, and the frame-aspect arithmetic, and splitting the file would
-// duplicate all three to make a table of contents agree with itself. `only` is how the
-// column asks for one of them.
+// CROP LEFT, AND IT IS THE ONE SPLIT THAT WAS NOT ABOUT WORKSPACES. The other four
+// sections here are settings: a row, a number, a recipe field. The crop is a tool you
+// use on the photograph, with session state — a ratio lock, a guide, a baseline to
+// revert to — that no other section in this file has any use for. It is `CropPanel.swift`
+// now, and Optics composes the two.
+//
+// FOUR SECTIONS, THREE WORKSPACES. docs/28 §5.1 sends the creative layers to Grade's
+// Effects, the lens correction to the Crop workspace's Optics, and the proof to Deliver.
+// The rest stay in one file because they share `binder`; `only` is how the column asks
+// for one of them.
 
 #if os(macOS)
 
 import Foundation
 import LumenCore
 import SwiftUI
-
-// MARK: - Aspect ratios
-
-/// The standard ratio list (docs/09 §13.1), in Lightroom's order. `ratio` is
-/// width ÷ height in *image* pixels; nil is Original, which clears the crop.
-private struct CropAspect: Identifiable {
-    let name: String
-    let ratio: Double?
-
-    var id: String { name }
-}
-
-private let cropAspects: [CropAspect] = [
-    CropAspect(name: "Original", ratio: nil),
-    CropAspect(name: "1:1", ratio: 1.0),
-    CropAspect(name: "5:4", ratio: 5.0 / 4.0),
-    CropAspect(name: "4:3", ratio: 4.0 / 3.0),
-    CropAspect(name: "3:2", ratio: 3.0 / 2.0),
-    CropAspect(name: "7:5", ratio: 7.0 / 5.0),
-    CropAspect(name: "16:9", ratio: 16.0 / 9.0),
-    CropAspect(name: "16:10", ratio: 16.0 / 10.0),
-]
-
-/// The frame aspect the ratio menu falls back to before the real one is known.
-///
-/// The crop rectangle is stored normalized to the source frame, so turning "3:2" into a
-/// rectangle needs the frame's own aspect. `AppState.primaryFrameAspect` supplies it
-/// from the decoded dimensions; this covers the moment before that lands, and the case
-/// where there is no selection at all. It is right for most of the corpus and wrong in
-/// a visible way — not the silent way it was wrong when it was the ONLY path.
-private let assumedFrameAspect: Double = 3.0 / 2.0
 
 // MARK: - Effects panel
 
@@ -80,25 +53,6 @@ struct EffectsPanel: View {
     /// This surface shows the edit, so it observes the edit signal —
     /// `AppState.recipes` is deliberately not published (see `EditRevision`).
     @EnvironmentObject var edits: EditRevision
-
-    /// Width ÷ height of the decoded frame, when the caller knows it. Overrides the
-    /// live value from `state` — nothing passes it today, and it exists so the ratio
-    /// maths can be exercised against a frame that is not on screen.
-    var frameAspect: Double?
-
-    /// What the ratio menu actually measures against: an explicit override, else the
-    /// primary selection's real decoded aspect, else the 3:2 assumption.
-    ///
-    /// The assumption used to be the only path. `EffectsPanel` is constructed with no
-    /// argument, so `frameAspect` was always nil and every ratio was computed against
-    /// 3:2 — wrong on every 4:3 body and on every portrait-orientation frame.
-    private var effectiveFrameAspect: Double {
-        frameAspect ?? state.primaryFrameAspect ?? assumedFrameAspect
-    }
-
-    /// The ruler button arms an overlay that lives in the viewer, so this panel needs a
-    /// handle on the same viewport the keymap drives.
-    @ObservedObject private var viewport: LoupeViewport = LoupeViewport.shared
 
     private var binder: RecipeBinder { RecipeBinder(state: state) }
     private var recipe: Recipe { state.currentRecipe }
@@ -117,7 +71,10 @@ struct EffectsPanel: View {
                 grainSection
             }
             if shows(.optics) {
-                cropSection
+                // The crop is a tool rather than a row of settings, so it is its own
+                // file and its own session state — see `CropPanel.swift`. Optics is
+                // where the column asks for both halves.
+                CropSection()
                 lensSection
             }
             if shows(.softProof) {
@@ -233,154 +190,6 @@ struct EffectsPanel: View {
             binder.edit("look.grain.reset") { recipe in
                 recipe.look.filmLab?.grain = neutral
             }
-        }
-    }
-
-    // MARK: Crop & straighten
-
-    private var cropSection: some View {
-        DevelopSection("Crop", isModified: isGeometryModified, onReset: { resetGeometry() }) {
-            VStack(alignment: .leading, spacing: 2) {
-                aspectRow
-                LumenSlider(title: "Angle",
-                            value: binder.value(\.develop.geometry.angle, "geometry.angle"),
-                            range: -45...45, hardRange: nil, defaultValue: 0,
-                            step: 0.1, decimals: 1)
-                rulerRow
-                LumenToggleRow(title: "Flip horizontal",
-                               isOn: binder.flag(\.develop.geometry.flipH, "geometry.flipH"),
-                               // "Orientation flips with X inside the crop tool" was
-                               // false in the way that costs the most: X IS bound —
-                               // to the reject flag, everywhere, with no crop-mode
-                               // branch anywhere in `Keymap`. A photographer following
-                               // this tip inside the crop tool rejects the photograph
-                               // they are cropping. Portrait/landscape crop swapping
-                               // does not exist at all (GEO-04); the ratio menu offers
-                               // only landscape-oriented ratios.
-                               help: "Mirror the frame. This is a mirror, not a "
-                                   + "rotation — swapping a crop between portrait and "
-                                   + "landscape is not built yet.")
-                // No perspective rows: `Upright` is a wire format with no stage behind
-                // it. The single-resample story is in the file header.
-            }
-        }
-    }
-
-    /// Arms the ruler and opens the crop tool, which is where it lives — the loupe shows
-    /// the whole straightened frame while R is open, and that is the frame the angle is
-    /// expressed in.
-    ///
-    /// docs/09 binds this to ⌘-drag inside crop mode. It is an explicit arm here instead,
-    /// because a modifier-qualified drag is a gesture nobody can discover and a button
-    /// that says "Ruler" is one they can. The gesture itself is the specced one: drag a
-    /// line, and the frame levels to whichever axis the line is nearer.
-    private var rulerRow: some View {
-        HStack(spacing: 6) {
-            Text("Ruler")
-                .font(.system(size: 11))
-                .foregroundStyle(Lumen.secondaryText)
-                .frame(width: Lumen.labelWidth, alignment: .leading)
-            Button(viewport.showStraighten ? "Drag a line…" : "Straighten by line") {
-                state.showLoupe()
-                viewport.showCrop = true
-                viewport.showStraighten.toggle()
-            }
-            .font(.system(size: 10))
-            .help("Drag along a horizon or a doorframe and the frame levels to whichever "
-                  + "axis that line is nearer. The angle it writes is the one in the "
-                  + "slider above — nothing is hidden behind it.")
-            Spacer()
-        }
-        .frame(height: Lumen.rowHeight)
-    }
-
-    private var aspectRow: some View {
-        HStack(spacing: 6) {
-            Text("Aspect")
-                .font(.system(size: 11))
-                .foregroundStyle(Lumen.secondaryText)
-                .frame(width: Lumen.labelWidth, alignment: .leading)
-            Menu {
-                ForEach(cropAspects) { aspect in
-                    Button(aspect.name) { applyAspect(aspect) }
-                }
-            } label: {
-                Text(currentAspectName)
-                    .font(.system(size: 10))
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            // Ratios are measured against the real frame aspect rather than an
-            // assumed 3:2. Free-form dragging is on the image, under R.
-            .help("Standard ratios, centred on the frame. Press R to crop freely on "
-                  + "the image.")
-        }
-        .frame(height: Lumen.rowHeight)
-    }
-
-    /// Reports what the stored rectangle *is*, not what was last clicked — the same
-    /// grammar the white-balance preset row uses.
-    private var currentAspectName: String {
-        let geometry = recipe.develop.geometry
-        if geometry.crop == Crop() { return "Original" }
-        // Against the USABLE frame at the current angle, which is what the crop is a
-        // fraction of. Reading it back against the source's own aspect makes the menu
-        // disagree with the rectangle it just wrote as soon as the photo is straightened.
-        guard let size = frameSizeForCrop,
-              let ratio = CropGeometry.displayedAspect(geometry.crop,
-                                                       sourceWidth: size.width,
-                                                       sourceHeight: size.height,
-                                                       degrees: geometry.angle)
-        else { return "Custom" }
-        for aspect in cropAspects {
-            if let target = aspect.ratio, abs(target - ratio) < 0.005 {
-                return aspect.name
-            }
-        }
-        return "Custom"
-    }
-
-    /// The source frame in pixels, which the crop arithmetic needs — an aspect alone is
-    /// not enough once a straighten angle is involved, because the inscribed rectangle
-    /// depends on both edges.
-    private var frameSizeForCrop: (width: Double, height: Double)? {
-        if let size = state.primaryFrameSize, size.width > 0, size.height > 0 {
-            return (Double(size.width), Double(size.height))
-        }
-        let aspect = effectiveFrameAspect
-        guard aspect > 0 else { return nil }
-        return (aspect, 1)
-    }
-
-    private func applyAspect(_ aspect: CropAspect) {
-        guard let size = frameSizeForCrop else { return }
-        // The lock is a mode the user chose, so picking a ratio arms it and "Original"
-        // clears it. Without it the menu wrote a 3:2 rectangle and the very next corner
-        // drag made it free-form again, after which the menu read it back as "Custom".
-        viewport.cropAspectLock = aspect.ratio
-        binder.edit("geometry.crop.aspect") { recipe in
-            guard let ratio = aspect.ratio, ratio > 0 else {
-                recipe.develop.geometry.crop = Crop()
-                return
-            }
-            recipe.develop.geometry.crop = CropGeometry.centred(
-                aspect: ratio, sourceWidth: size.width, sourceHeight: size.height,
-                degrees: recipe.develop.geometry.angle)
-        }
-    }
-
-    private var isGeometryModified: Bool {
-        let geometry = recipe.develop.geometry
-        return geometry.crop != Crop() || geometry.angle != 0 || geometry.flipH
-    }
-
-    private func resetGeometry() {
-        // Outside the edit closure: that one mutates a recipe and may not run here, and
-        // the lock is view state.
-        viewport.cropAspectLock = nil
-        binder.edit("geometry.reset") { recipe in
-            recipe.develop.geometry.crop = Crop()
-            recipe.develop.geometry.angle = 0
-            recipe.develop.geometry.flipH = false
         }
     }
 

@@ -879,6 +879,29 @@ final class AppState: ObservableObject {
     /// On `AppState` rather than in the view because the View menu has to reach it, and
     /// a `Scene`'s commands cannot see a view's `@State`. One publish per toggle, which
     /// is a thing that happens a handful of times a session.
+    /// How wide the develop column is, in points, dragged by its own divider.
+    ///
+    /// On `AppState` rather than in a view because both `ContentView` (which draws the
+    /// divider) and `DevelopPanel` (which is the column) need it, and they are siblings.
+    /// `@AppStorage` would have been the obvious home except that a drag writes it on
+    /// every mouse event, and `@AppStorage` writes through to `UserDefaults` each time —
+    /// so it persists on release instead, the same bargain every slider in this app
+    /// already makes.
+    ///
+    /// Clamped on read rather than on write, because a value restored from a previous
+    /// version's bounds is not the user doing anything wrong.
+    @Published var developPanelWidth: CGFloat = {
+        let stored = UserDefaults.standard.double(forKey: "develop.panelWidth")
+        guard stored > 0 else { return Lumen.defaultPanelWidth }
+        return Swift.min(Swift.max(CGFloat(stored), Lumen.minimumPanelWidth),
+                         Lumen.maximumPanelWidth)
+    }()
+
+    /// Called on release, not per event.
+    func persistDevelopPanelWidth() {
+        UserDefaults.standard.set(Double(developPanelWidth), forKey: "develop.panelWidth")
+    }
+
     @Published var sidebarVisible = true
 
     @Published var showFilmstrip = true

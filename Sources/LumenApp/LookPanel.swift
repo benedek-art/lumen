@@ -61,17 +61,25 @@ struct LookPanel: View {
     }
 
     /// What this panel's own section headers pass for `LumenSectionHeader.topRhythm`,
-    /// which is that parameter's own distinction: 16 is a section boundary, 8 is a fold.
+    /// which is that parameter's own distinction: 20 is a section boundary, 10 is a fold.
     ///
     /// Under `only:` the column has already printed the section header above them, so a
     /// second full boundary would make each sub-heading shout as loudly as the heading
     /// it sits under. With `only` nil this panel IS the column and they are top-level
     /// sections, which is the 16 they have always had.
     ///
-    /// The one disclosure nested deeper — Colour balance — is left alone: it is a fold
-    /// inside a section in both framings, so nothing about its rank changed here.
-    /// Transform detail, which was the other one, is not a fold any more.
-    private var innerRhythm: CGFloat { only == nil ? 16 : 8 }
+    /// Colour balance takes it too now. It used to be the one disclosure nested deeper,
+    /// which is why it was left on the full boundary; with the "Colour Grading" header
+    /// gone under `only:` it is a sibling of Printer Lights and Primaries, and a
+    /// sub-heading that shouts twice as loud as the two beside it is the same defect
+    /// this property exists to prevent. Transform detail, the other one, is not a fold
+    /// any more.
+    /// Tracks `LumenSectionHeader.topRhythm`, which moved to 20 for a section boundary
+    /// and 10 for a fold when the accordion's sections became cards. These were 16 and 8
+    /// and their prose still said so, which is a ratio drifting out of step with the
+    /// control it is supposed to match — invisible while both sides pass explicit
+    /// values, and exactly the sort of thing that is wrong for a year.
+    private var innerRhythm: CGFloat { only == nil ? 20 : 10 }
 
     /// The normalized tonal axis the pivots live on spans black anchor → white anchor,
     /// i.e. −9 EV … +5 EV (ZoneWindows' defaults). Balance is denominated in EV, so the
@@ -250,67 +258,92 @@ struct LookPanel: View {
 
     // MARK: - Grading wheels
 
+    /// The second header in this panel that collides with the section printing it, and
+    /// the worse of the two: `WorkspaceSection.grading.title` is "Grading", and this
+    /// fold called itself "Colour Grading" directly underneath it — two headings, the
+    /// same word, and only the wheels behind the inner one. Counted from the tab it put
+    /// them four levels down: Grade → Grading → Colour Grading → Colour balance.
+    ///
+    /// So it gets the Film Lab treatment below, and the same consequence with it:
+    /// dropping the header takes `wheelsExpanded` away on that path, which is the point
+    /// rather than a side effect — a gate left behind with no chevron to reopen it could
+    /// only ever hide these rows for good.
+    ///
+    /// The Reset is not lost either, and that was worth checking rather than assuming.
+    /// `WorkspaceSection.grading.reset` already writes `GradingWheels()` — along with
+    /// printer lights and primaries, which is the whole of what this section draws — so
+    /// the accordion's own Reset does exactly what this header's did.
+    @ViewBuilder
     private var wheelsSection: some View {
+        if only == nil {
+            let wheels = state.currentRecipe.look.wheels
+            VStack(alignment: .leading, spacing: 2) {
+                LumenSectionHeader(title: "Colour Grading",
+                                   isExpanded: $wheelsExpanded,
+                                   isModified: !LookPanel.isNeutral(wheels),
+                                   onReset: {
+                                       state.updateRecipe { $0.look.wheels = GradingWheels() }
+                                   },
+                                   topRhythm: innerRhythm)
+
+                if wheelsExpanded { wheelsRows }
+            }
+        } else {
+            wheelsRows
+        }
+    }
+
+    /// One definition of the rows, so the two framings above can never drift apart.
+    @ViewBuilder
+    private var wheelsRows: some View {
         let wheels = state.currentRecipe.look.wheels
         let pivots = LookPanel.normalizedPivots(wheels.pivots)
-        let modified = !LookPanel.isNeutral(wheels)
 
-        return VStack(alignment: .leading, spacing: 2) {
-            LumenSectionHeader(title: "Colour Grading",
-                               isExpanded: $wheelsExpanded,
-                               isModified: modified,
-                               onReset: { state.updateRecipe { $0.look.wheels = GradingWheels() } },
-                               topRhythm: innerRhythm)
+        ZoneWeightStrip(pivots: pivots,
+                        blending: wheels.blending,
+                        balance: wheels.balance,
+                        onPivotChanged: { index, position in
+                            movePivot(index, to: position)
+                        })
 
-            if wheelsExpanded {
-                ZoneWeightStrip(pivots: pivots,
-                                blending: wheels.blending,
-                                balance: wheels.balance,
-                                onPivotChanged: { index, position in
-                                    movePivot(index, to: position)
-                                })
+        // ONE wheel at a time, at more than twice the diameter (docs/28 Phase 5).
+        //
+        // Four 68-point wheels in a 320-point column was the "clunky" the owner named: a
+        // puck is placed by eye at a radius, so half the radius is half the precision for
+        // the same hand movement, and a 2×2 grid of them gives no cue about which zone
+        // you are working — you read four captions and count. Lightroom's grading is the
+        // most learnable in the field for exactly this reason: one instrument, one
+        // meaning, fixed in place.
+        //
+        // What showing one at a time costs is the at-a-glance answer to "what did I
+        // change?", which this app is built to answer down a whole panel. So the
+        // segmented control carries the accent dot per zone — the same mark a modified
+        // section header wears — and the answer stays one look rather than four clicks.
+        LumenSegmented(options: GradeZone.allCases.map {
+                           (value: $0, label: $0.rawValue)
+                       },
+                       selection: $gradeZone,
+                       marked: touchedZones(wheels))
+        wheel(gradeZone.title, path: gradeZone.path, diameter: 150)
+            .frame(maxWidth: .infinity)
 
-                // ONE wheel at a time, at more than twice the diameter (docs/28 Phase 5).
-                //
-                // Four 68-point wheels in a 320-point column was the "clunky" the owner
-                // named: a puck is placed by eye at a radius, so half the radius is half
-                // the precision for the same hand movement, and a 2×2 grid of them gives
-                // no cue about which zone you are working — you read four captions and
-                // count. Lightroom's grading is the most learnable in the field for
-                // exactly this reason: one instrument, one meaning, fixed in place.
-                //
-                // What showing one at a time costs is the at-a-glance answer to "what
-                // did I change?", which this app is built to answer down a whole panel.
-                // So the segmented control carries the accent dot per zone — the same
-                // mark a modified section header wears — and the answer stays one look
-                // rather than four clicks.
-                LumenSegmented(options: GradeZone.allCases.map {
-                                   (value: $0, label: $0.rawValue)
-                               },
-                               selection: $gradeZone,
-                               marked: touchedZones(wheels))
-                wheel(gradeZone.title, path: gradeZone.path, diameter: 150)
-                    .frame(maxWidth: .infinity)
+        // THE SENTENCE IS ON THE ROW IT IS ABOUT, here and at three more sites in this
+        // file. A non-prominent `DevelopNote` draws nothing now, so each of those
+        // paragraphs was a string built for no reader; what each said about one control
+        // is that control's `help:`, which is what the pointer is already over when the
+        // question gets asked.
+        LumenSlider(title: "Blending",
+                    value: bindLook(\Look.wheels.blending, key: "wheels.blending"),
+                    range: 0...100, defaultValue: 50, step: 1, decimals: 0,
+                    bipolar: false,
+                    help: "Widens the crossfades between the zones the strip above "
+                        + "draws.")
+        LumenSlider(title: "Balance",
+                    value: bindLook(\Look.wheels.balance, key: "wheels.balance"),
+                    range: -100...100, defaultValue: 0, step: 1, decimals: 0,
+                    help: "Slides both pivots along the tonal axis together.")
 
-                // THE SENTENCE IS ON THE ROW IT IS ABOUT, here and at three more
-                // sites in this file. A non-prominent `DevelopNote` draws nothing now,
-                // so each of those paragraphs was a string built for no reader; what
-                // each said about one control is that control's `help:`, which is what
-                // the pointer is already over when the question gets asked.
-                LumenSlider(title: "Blending",
-                            value: bindLook(\Look.wheels.blending, key: "wheels.blending"),
-                            range: 0...100, defaultValue: 50, step: 1, decimals: 0,
-                            bipolar: false,
-                            help: "Widens the crossfades between the zones the strip "
-                                + "above draws.")
-                LumenSlider(title: "Balance",
-                            value: bindLook(\Look.wheels.balance, key: "wheels.balance"),
-                            range: -100...100, defaultValue: 0, step: 1, decimals: 0,
-                            help: "Slides both pivots along the tonal axis together.")
-
-                colorBalanceDisclosure
-            }
-        }
+        colorBalanceDisclosure
     }
 
     // MARK: - Colour balance (the advanced grid, D15)
@@ -335,7 +368,8 @@ struct LookPanel: View {
                                    state.updateRecipe {
                                        $0.look.wheels.colorBalance = ColorBalanceParams()
                                    }
-                               })
+                               },
+                               topRhythm: innerRhythm)
 
             if balanceExpanded {
                 LumenSlider(title: "Hue shift",

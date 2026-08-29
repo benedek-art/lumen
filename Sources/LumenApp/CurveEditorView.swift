@@ -36,6 +36,21 @@ private struct CurvePoint {
     let y: Double
 }
 
+/// One parametric region, as the graph draws it: the span the splits mark out for it,
+/// the slider that owns it, and how far along the axis that slider actually reaches.
+///
+/// `reach` is `weight × envelope` — the exact product `CurveStack.bakeParametric`
+/// multiplies the slider by — normalized to its own peak so it can be drawn at full
+/// height. Drawing it is the point: it swells at the region's centre and falls to
+/// nothing at both ends of the axis, which is the picture of why four sliders named
+/// after tones cannot move black or white however hard they are pushed.
+private struct ParametricRegion {
+    let title: String
+    let lower: Double
+    let upper: Double
+    let reach: [Double]
+}
+
 // MARK: - Curve editor
 
 struct CurveEditorView: View {
@@ -118,10 +133,43 @@ struct CurveEditorView: View {
     @State private var dragConsumed: Bool = false
     @State private var hoverLocation: CGPoint? = nil
     @State private var plotSize: CGSize = CGSize(width: 1, height: 1)
+    /// Which region slider the pointer is on, and which one a drag is holding.
+    ///
+    /// Two states rather than one because they end at different moments: the pointer
+    /// leaves the row long before the hand lets go of a slider it is still dragging,
+    /// and the band must not go dark underneath a value that is still moving.
+    @State private var hoverRegion: Int? = nil
+    @State private var dragRegion: Int? = nil
+    /// Where inside the handle the press landed, so a grabbed split does not jump to sit
+    /// under the pointer the instant it is taken hold of. A press is only ever within
+    /// `hitRadius` of the split, so the jump is small — but it is the same jump
+    /// `nearestSplitIndex` had to stop making at full plot width, and eight points of it
+    /// is no more wanted than three hundred.
+    @State private var splitGrabOffset: CGFloat = 0
 
     private static let sampleCount: Int = 128
     private static let hitRadius: CGFloat = 8
     private static let minimumSplitGap: Double = 0.02
+    private static let defaultSplits: [Double] = [0.25, 0.5, 0.75]
+    /// Deep enough for a 10-point triangle to sit under the plot without touching it.
+    private static let railHeight: CGFloat = 12
+    /// The four regions in the order the maths reads them — dark to light, which is
+    /// `[shadows, darks, lights, highlights]` in `CurveStack.bakeParametric`. The
+    /// sliders are listed light to dark, as every tone panel in the field lists them,
+    /// so the two orders are deliberately opposite and each site says which it is on.
+    private static let regionTitles: [String] = ["Shadows", "Darks", "Lights", "Highlights"]
+    private static let reachSamples: Int = 96
+    /// Small enough that the band names read as a caption on the graph rather than as a
+    /// second heading over it.
+    private static let regionLabelSize: CGFloat = 9
+    /// Measured once, and off the same face `.system(size:)` resolves to. A `Canvas`
+    /// redraws on every mouse move over the plot, and text metrics do not change
+    /// between frames.
+    private static let regionLabelWidths: [CGFloat] = regionTitles.map {
+        NSAttributedString(
+            string: $0,
+            attributes: [.font: NSFont.systemFont(ofSize: regionLabelSize)]).size().width
+    }
 
     private var recipe: Recipe { state.currentRecipe }
 
@@ -207,7 +255,12 @@ struct CurveEditorView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             LumenSegmented(options: channelOptions, selection: $channel)
-            plot
+            // The rail belongs to the plot's bottom edge, not to the column's rhythm,
+            // so it is spaced against the graph rather than against the readout.
+            VStack(spacing: 2) {
+                plot
+                if channel == .parametric { splitRail }
+            }
             readoutLine
             if channel == .parametric {
                 parametricControls
@@ -233,14 +286,17 @@ struct CurveEditorView: View {
             let backdrop: [Double] = histogram?.normalized(.luma) ?? []
             let samples: [Double] = curveSamples
             let controls: [CurvePoint] = channel == .parametric ? [] : currentPoints
-            let splits: [Double] = channel == .parametric ? currentSplits : []
+            let regions: [ParametricRegion] = channel == .parametric
+                ? CurveEditorView.regions(splits: currentSplits) : []
+            let highlight: Int? = channel == .parametric ? highlightRegion : nil
             let tint: Color = channel.tint
 
             ZStack {
                 Canvas { context, canvasSize in
                     CurveEditorView.draw(context: &context, size: canvasSize,
                                          backdrop: backdrop, samples: samples,
-                                         controls: controls, splits: splits, tint: tint)
+                                         controls: controls, regions: regions,
+                                         highlight: highlight, tint: tint)
                 }
             }
             .contentShape(Rectangle())
@@ -259,6 +315,51 @@ struct CurveEditorView: View {
         .clipShape(RoundedRectangle(cornerRadius: 4))
         .aspectRatio(1, contentMode: .fit)
         .frame(maxWidth: .infinity)
+        .help(plotHelp)
+    }
+
+    /// What the graph does under the pointer — at the pointer, which is where the hand
+    /// already is when the question gets asked.
+    ///
+    /// Both of these were `DevelopNote` paragraphs under the sliders. A non-prominent
+    /// note draws nothing now (docs/30 §2.2), so they were strings built on every body
+    /// pass for no reader at all; this is the only half of that change that was still
+    /// missing.
+    private var plotHelp: String {
+        if channel == .parametric {
+            return "Each shaded band belongs to one of the four sliders below, and the "
+                + "triangles under the graph set where the bands meet. The regions "
+                + "crossfade rather than cut, and every setting is solved to keep the "
+                + "curve's slope above a floor — so these four cannot posterize, invert, "
+                + "or move black or white."
+        }
+        return "Click to add a point, drag to move it, ⌥-click or right-click to delete "
+            + "it. Dragging a point out of the graph deletes it."
+    }
+
+    /// The three splits, on a rail of their own under the plot.
+    ///
+    /// They shipped as 8×8 squares on the plot's bottom edge — inside the same rectangle
+    /// where a Point-tab click adds a control point, with no rail and no separation — so
+    /// the one control that says "these four regions are yours to place" read as trim on
+    /// the graph's border. docs/04 §7.1 has always specified triangles; a rail is what
+    /// makes them look like something to take hold of.
+    private var splitRail: some View {
+        GeometryReader { geometry in
+            let size: CGSize = geometry.size
+            let splits: [Double] = currentSplits
+            let active: Int? = dragSplitIndex
+
+            Canvas { context, canvasSize in
+                CurveEditorView.drawSplitRail(context: &context, size: canvasSize,
+                                              splits: splits, active: active)
+            }
+            .contentShape(Rectangle())
+            .gesture(railGesture(size: size))
+        }
+        .frame(height: CurveEditorView.railHeight)
+        .help("Drag a triangle to move the boundary between two regions. Double-click "
+              + "one to put it back where it started.")
     }
 
     @ViewBuilder
@@ -268,7 +369,7 @@ struct CurveEditorView: View {
                 .disabled(nearestPointIndex(to: hoverLocation, size: plotSize) == nil)
             Button("Flatten \(channel.displayName)") { flattenCurrentCurve() }
         } else {
-            Button("Reset Splits") { writeSplits([0.25, 0.5, 0.75]) }
+            Button("Reset Splits") { writeSplits(CurveEditorView.defaultSplits) }
             Button("Reset Regions") { resetParametricRegions() }
         }
     }
@@ -308,33 +409,64 @@ struct CurveEditorView: View {
     // MARK: Parametric controls
 
     private var parametricControls: some View {
+        // Light to dark, which is the opposite of the region indices — see
+        // `regionTitles`. The order of the rows is not being changed to match it: every
+        // tone panel in the field puts highlights at the top, and the whole point of the
+        // shading is that a row no longer has to be read positionally at all.
         VStack(alignment: .leading, spacing: 2) {
-            LumenSlider(title: "Highlights",
-                        value: curveValue(\.parametric.highlights,
-                                          keyPrefix + "parametric.highlights"),
-                        range: -100...100, hardRange: nil, defaultValue: 0,
-                        step: 1, decimals: 0)
-            LumenSlider(title: "Lights",
-                        value: curveValue(\.parametric.lights,
-                                          keyPrefix + "parametric.lights"),
-                        range: -100...100, hardRange: nil, defaultValue: 0,
-                        step: 1, decimals: 0)
-            LumenSlider(title: "Darks",
-                        value: curveValue(\.parametric.darks,
-                                          keyPrefix + "parametric.darks"),
-                        range: -100...100, hardRange: nil, defaultValue: 0,
-                        step: 1, decimals: 0)
-            LumenSlider(title: "Shadows",
-                        value: curveValue(\.parametric.shadows,
-                                          keyPrefix + "parametric.shadows"),
-                        range: -100...100, hardRange: nil, defaultValue: 0,
-                        step: 1, decimals: 0)
-            DevelopNote("Drag the three splits along the bottom of the graph to move the "
-                        + "region boundaries. The regions crossfade with the same "
-                        + "weights the tone zones use, and an envelope pins both ends, "
-                        + "so a parametric curve cannot move black or white.")
+            parametricSlider("Highlights", region: 3, \.parametric.highlights,
+                             "parametric.highlights",
+                             help: "Raises or lowers the lightest of the four bands on "
+                                 + "the graph, above the third split. Both ends of the "
+                                 + "curve are pinned, so this cannot move white itself.")
+            parametricSlider("Lights", region: 2, \.parametric.lights,
+                             "parametric.lights",
+                             help: "Raises or lowers the band between the second and "
+                                 + "third splits.")
+            parametricSlider("Darks", region: 1, \.parametric.darks,
+                             "parametric.darks",
+                             help: "Raises or lowers the band between the first and "
+                                 + "second splits.")
+            parametricSlider("Shadows", region: 0, \.parametric.shadows,
+                             "parametric.shadows",
+                             help: "Raises or lowers the darkest of the four bands, "
+                                 + "below the first split. Both ends of the curve are "
+                                 + "pinned, so this cannot move black itself.")
         }
     }
+
+    /// One region slider, wired to its own band on the graph.
+    ///
+    /// The band lighting up under the pointer is the whole explanation of this control.
+    /// Four numbers named after tones say nothing about WHERE on the axis they act, and
+    /// the three handles that decide it are anonymous; a tooltip can describe that and a
+    /// highlight can show it. This is what makes the parametric curve teachable in
+    /// Lightroom, and it is the same reasoning that moved the panels' prose onto
+    /// `help:`, one step further along.
+    private func parametricSlider(_ title: String, region: Int,
+                                  _ path: WritableKeyPath<CurveSet, Double>,
+                                  _ key: String, help: String) -> some View {
+        LumenSlider(title: title,
+                    value: curveValue(path, keyPrefix + key),
+                    range: -100...100, hardRange: nil, defaultValue: 0,
+                    step: 1, decimals: 0,
+                    help: help,
+                    onEditingChanged: { editing in dragRegion = editing ? region : nil })
+            .onHover { inside in
+                if inside {
+                    hoverRegion = region
+                } else if hoverRegion == region {
+                    // Guarded: the pointer entering the next row fires that row's
+                    // enter before this row's exit, and an unguarded clear would blank
+                    // the band the pointer has just arrived on.
+                    hoverRegion = nil
+                }
+            }
+    }
+
+    /// A drag outlives the hover that started it — the pointer leaves the row long
+    /// before the hand lets go — so the drag wins.
+    private var highlightRegion: Int? { dragRegion ?? hoverRegion }
 
     private var pointControls: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -343,8 +475,6 @@ struct CurveEditorView: View {
                                            keyPrefix + "preserveLuminance"),
                            help: "Curve the luminance and carry the chroma ratios, so a "
                                + "contrast curve is not also a saturation boost (D10).")
-            DevelopNote("Click to add a point, drag to move it, ⌥-click or right-click "
-                        + "to delete it. Dragging a point out of the graph deletes it.")
         }
     }
 
@@ -453,19 +583,40 @@ struct CurveEditorView: View {
             }
             .onEnded { value in
                 if !dragConsumed { endDrag(at: value.location, size: size) }
-                dragBegan = false
-                dragConsumed = false
-                dragPointIndex = nil
-                dragSplitIndex = nil
-                sliderGestureChanged(false)
+                finishDrag()
             }
+    }
+
+    /// The rail's own gesture, sharing the plot's drag state because one mouse cannot
+    /// be in both at once — and because the split being dragged has to be the same fact
+    /// on both surfaces, which is what draws the lit triangle.
+    private func railGesture(size: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { value in
+                if !dragBegan {
+                    dragBegan = true
+                    sliderGestureChanged(true)
+                    beginSplitDrag(at: value.startLocation, size: size)
+                }
+                guard !dragConsumed, let index = dragSplitIndex else { return }
+                moveSplit(index, toX: value.location.x, size: size)
+            }
+            .onEnded { _ in finishDrag() }
+    }
+
+    private func finishDrag() {
+        dragBegan = false
+        dragConsumed = false
+        dragPointIndex = nil
+        dragSplitIndex = nil
+        splitGrabOffset = 0
+        sliderGestureChanged(false)
     }
 
     private func beginDrag(at location: CGPoint, size: CGSize) {
         guard size.width > 1, size.height > 1 else { dragConsumed = true; return }
         if channel == .parametric {
-            dragSplitIndex = nearestSplitIndex(to: location, size: size)
-            if dragSplitIndex == nil { dragConsumed = true }
+            beginSplitDrag(at: location, size: size)
             return
         }
         let points: [CurvePoint] = currentPoints
@@ -489,6 +640,42 @@ struct CurveEditorView: View {
         dragPointIndex = CurveEditorView.indexOfNearestX(sanitized, x: x)
     }
 
+    /// Take hold of the split under the press, or — on the second click of a
+    /// double-click — put that one back. docs/04 §7.1 specifies both.
+    ///
+    /// The click count is read at press rather than through an `onTapGesture(count: 2)`
+    /// because a minimumDistance-0 drag claims every press and a tap gesture behind one
+    /// never fires; LumenControls' slider track and the mixer ring both had to learn
+    /// this the same way.
+    private func beginSplitDrag(at location: CGPoint, size: CGSize) {
+        guard let index = nearestSplitIndex(to: location, size: size) else {
+            dragConsumed = true
+            return
+        }
+        if (NSApp.currentEvent?.clickCount ?? 1) >= 2 {
+            var splits: [Double] = currentSplits
+            guard index < splits.count, index < CurveEditorView.defaultSplits.count
+            else { dragConsumed = true; return }
+            splits[index] = CurveEditorView.defaultSplits[index]
+            writeSplits(splits)
+            dragConsumed = true
+            return
+        }
+        dragSplitIndex = index
+        splitGrabOffset = location.x - CGFloat(currentSplits[index]) * size.width
+    }
+
+    /// 10–90%, per docs/04 §7.1: a split pinned to either end would leave a region with
+    /// no axis under it and nothing for its slider to do.
+    private func moveSplit(_ index: Int, toX locationX: CGFloat, size: CGSize) {
+        guard size.width > 1 else { return }
+        var splits: [Double] = currentSplits
+        guard index >= 0, index < splits.count else { return }
+        let x: Double = Double((locationX - splitGrabOffset) / size.width)
+        splits[index] = Swift.min(Swift.max(CurveEditorView.clamp01(x), 0.10), 0.90)
+        writeSplits(splits)
+    }
+
     private func updateDrag(to location: CGPoint, size: CGSize) {
         guard size.width > 1, size.height > 1 else { return }
         let x: Double = CurveEditorView.clamp01(Double(location.x / size.width))
@@ -496,10 +683,7 @@ struct CurveEditorView: View {
 
         if channel == .parametric {
             guard let index = dragSplitIndex else { return }
-            var splits: [Double] = currentSplits
-            guard index >= 0, index < splits.count else { return }
-            splits[index] = Swift.min(Swift.max(x, 0.10), 0.90)
-            writeSplits(splits)
+            moveSplit(index, toX: location.x, size: size)
             return
         }
 
@@ -548,15 +732,24 @@ struct CurveEditorView: View {
         return best
     }
 
+    /// The split within `hitRadius` of the press, or none — the same radius, and the
+    /// same rule, as `nearestPointIndex`.
+    ///
+    /// It used to seed `bestDistance` with the plot's whole width, which made "nearest"
+    /// unconditional: ANY press anywhere in the Param graph grabbed a split, and since
+    /// the gesture fires once at press with `location == startLocation`, that split
+    /// jumped to the click point before the hand had moved. Exploring the graph with the
+    /// mouse silently changed the picture — the worst property a control can have while
+    /// someone is trying to work out what it is.
     private func nearestSplitIndex(to location: CGPoint, size: CGSize) -> Int? {
         guard size.width > 1 else { return nil }
         let splits: [Double] = currentSplits
         var best: Int? = nil
-        var bestDistance: CGFloat = size.width
+        var bestDistance: CGFloat = CurveEditorView.hitRadius
         for i in 0..<splits.count {
             let px: CGFloat = CGFloat(splits[i]) * size.width
             let distance: CGFloat = abs(px - location.x)
-            if distance < bestDistance {
+            if distance <= bestDistance {
                 bestDistance = distance
                 best = i
             }
@@ -584,7 +777,8 @@ struct CurveEditorView: View {
                              backdrop: [Double],
                              samples: [Double],
                              controls: [CurvePoint],
-                             splits: [Double],
+                             regions: [ParametricRegion],
+                             highlight: Int?,
                              tint: Color) {
         guard size.width > 1, size.height > 1 else { return }
 
@@ -615,6 +809,48 @@ struct CurveEditorView: View {
             context.fill(path, with: .color(Lumen.fillColor.opacity(0.18)))
         }
 
+        // THE FOUR REGIONS, NAMED, BEHIND THE CURVE. Four sliders called Highlights,
+        // Lights, Darks and Shadows over a blank square say nothing about which part of
+        // the axis each one owns, and three anonymous handles decide it. A band with the
+        // slider's own name written in it answers both at once, without a word of prose
+        // and without the photographer having to ask.
+        for r in 0..<regions.count {
+            let region: ParametricRegion = regions[r]
+            let x0: CGFloat = size.width * CGFloat(clamp01(region.lower))
+            let x1: CGFloat = size.width * CGFloat(clamp01(region.upper))
+            let band = CGRect(x: x0, y: 0, width: Swift.max(0, x1 - x0), height: size.height)
+            let lit: Bool = r == highlight
+            // Alternating, so four regions read as four without spending four hues on a
+            // zero-chroma panel; the lit one takes the accent because it is answering.
+            let fill: Color = lit
+                ? Lumen.accent.opacity(0.13)
+                : Lumen.fillColor.opacity(r % 2 == 0 ? 0.07 : 0.02)
+            context.fill(Path(band), with: .color(fill))
+
+            // Dropped rather than truncated when the splits leave no room: "Highl…"
+            // over a 20-point band is worse than the band alone, and the slider's own
+            // tooltip still names it.
+            let labelWidth: CGFloat = r < regionLabelWidths.count
+                ? regionLabelWidths[r] : .infinity
+            if labelWidth + 8 <= band.width {
+                context.draw(Text(region.title)
+                                .font(.system(size: regionLabelSize))
+                                .foregroundStyle(lit ? Lumen.primaryText
+                                                     : Lumen.secondaryText),
+                             at: CGPoint(x: band.midX, y: 9), anchor: .center)
+            }
+        }
+
+        // The boundaries themselves, which are the splits — drawn from the regions so
+        // the line and the band it divides can never disagree.
+        for r in 0..<Swift.max(0, regions.count - 1) {
+            let x: CGFloat = size.width * CGFloat(clamp01(regions[r].upper))
+            var edge = Path()
+            edge.move(to: CGPoint(x: x, y: 0))
+            edge.addLine(to: CGPoint(x: x, y: size.height))
+            context.stroke(edge, with: .color(Lumen.accent.opacity(0.45)), lineWidth: 1)
+        }
+
         // Quarter grid and the identity diagonal.
         var grid = Path()
         var line: Int = 1
@@ -634,16 +870,28 @@ struct CurveEditorView: View {
         context.stroke(diagonal, with: .color(Lumen.separator),
                        style: StrokeStyle(lineWidth: 0.75, dash: [3, 3]))
 
-        // The four parametric regions and their movable splits.
-        if !splits.isEmpty {
-            for i in 0..<splits.count {
-                let x: CGFloat = size.width * CGFloat(clamp01(splits[i]))
-                var edge = Path()
-                edge.move(to: CGPoint(x: x, y: 0))
-                edge.addLine(to: CGPoint(x: x, y: size.height))
-                context.stroke(edge, with: .color(Lumen.accent.opacity(0.55)), lineWidth: 1)
-                let handle = CGRect(x: x - 4, y: size.height - 8, width: 8, height: 8)
-                context.fill(Path(handle), with: .color(Lumen.accent))
+        // WHAT THE LIT SLIDER ACTUALLY REACHES, drawn as the shape it is rather than
+        // as the rectangle it is named after. The regions crossfade, so the band's edge
+        // is not a wall — a Darks move bleeds well into Shadows and Lights — and the
+        // endpoint envelope takes the whole thing to zero at both ends of the axis.
+        // That second fact is the answer to the question this control provokes most
+        // often, "why did nothing happen to my blacks", and it is far easier to see
+        // than to read.
+        if let highlight, highlight >= 0, highlight < regions.count {
+            let reach: [Double] = regions[highlight].reach
+            if reach.count > 1 {
+                var profile = Path()
+                profile.move(to: CGPoint(x: 0, y: size.height))
+                for i in 0..<reach.count {
+                    let x: CGFloat = size.width * CGFloat(i) / CGFloat(reach.count - 1)
+                    let y: CGFloat = size.height - CGFloat(clamp01(reach[i])) * size.height
+                    profile.addLine(to: CGPoint(x: x, y: y))
+                }
+                profile.addLine(to: CGPoint(x: size.width, y: size.height))
+                profile.closeSubpath()
+                context.fill(profile, with: .color(Lumen.accent.opacity(0.14)))
+                context.stroke(profile, with: .color(Lumen.accent.opacity(0.55)),
+                               lineWidth: 1)
             }
         }
 
@@ -672,6 +920,79 @@ struct CurveEditorView: View {
         }
     }
 
+    /// Three triangles on a rail, each pointing up at the boundary it sets.
+    private static func drawSplitRail(context: inout GraphicsContext,
+                                      size: CGSize,
+                                      splits: [Double],
+                                      active: Int?) {
+        guard size.width > 1, size.height > 1 else { return }
+
+        var rail = Path()
+        rail.move(to: CGPoint(x: 0, y: 0.5))
+        rail.addLine(to: CGPoint(x: size.width, y: 0.5))
+        context.stroke(rail, with: .color(Lumen.separator), lineWidth: 1)
+
+        let half: CGFloat = 5
+        let depth: CGFloat = Swift.min(8, size.height - 2)
+        for i in 0..<splits.count {
+            let x: CGFloat = size.width * CGFloat(clamp01(splits[i]))
+            var triangle = Path()
+            triangle.move(to: CGPoint(x: x, y: 1))
+            triangle.addLine(to: CGPoint(x: x - half, y: 1 + depth))
+            triangle.addLine(to: CGPoint(x: x + half, y: 1 + depth))
+            triangle.closeSubpath()
+            context.fill(triangle,
+                         with: .color(i == active ? Lumen.primaryText : Lumen.accent))
+            // Outlined in the panel's own colour so two splits dragged together still
+            // read as two handles rather than as one wide one.
+            context.stroke(triangle, with: .color(Lumen.panelBackground), lineWidth: 0.5)
+        }
+    }
+
+    // MARK: - Regions
+
+    /// The four regions the splits carve out, in the maths' own dark-to-light order.
+    ///
+    /// `reach` is rebuilt here rather than read off `CurveStack`, and deliberately so:
+    /// the bake's own `parametricBumps` samples a 1025-point grid because a slope solve
+    /// needs one, which is ten times the work a 300-point-wide graph can show. What is
+    /// copied is the FORMULA — `ZoneWeights.crossfade` over `regionCentres`, times the
+    /// same `4x(1−x)` envelope — so the shape drawn is the shape applied.
+    private static func regions(splits: [Double]) -> [ParametricRegion] {
+        let clean: [Double] = sanitizedSplits(splits)
+        let bounds: [Double] = [0] + clean + [1]
+        let centres: [Double] = CurveStack.regionCentres(clean)
+        let n: Int = Swift.max(2, reachSamples)
+
+        var out: [ParametricRegion] = []
+        out.reserveCapacity(4)
+        for r in 0..<4 {
+            var reach = [Double](repeating: 0, count: n)
+            var peak: Double = 0
+            for i in 0..<n {
+                let x: Double = Double(i) / Double(n - 1)
+                let (lower, weight) = ZoneWeights.crossfade(x: x, pivots: centres)
+                // A raised-cosine crossfade only ever touches two regions, so this one
+                // carries the weight, the remainder, or nothing.
+                let share: Double = lower == r ? weight : (lower + 1 == r ? 1 - weight : 0)
+                let value: Double = share * 4 * x * (1 - x)
+                reach[i] = value
+                peak = Swift.max(peak, value)
+            }
+            // Normalized to its own peak so every band's shape is legible at full
+            // height. The regions are not the same width — the middle two are half the
+            // outer two at the default splits — so drawing them to a common scale would
+            // make Darks and Lights look like weaker controls than they are.
+            if peak > 1e-12 {
+                for i in 0..<n { reach[i] /= peak }
+            }
+            out.append(ParametricRegion(title: regionTitles[r],
+                                        lower: bounds[r], upper: bounds[r + 1],
+                                        reach: reach))
+        }
+        return out
+    }
+
     // MARK: Sanitizing
 
     private static func sanitized(_ raw: [[Double]]?) -> [CurvePoint] {
@@ -694,16 +1015,34 @@ struct CurveEditorView: View {
     }
 
     private static func sanitizedSplits(_ raw: [Double]) -> [Double] {
-        var out: [Double] = raw.count == 3 ? raw : [0.25, 0.5, 0.75]
+        var out: [Double] = raw.count == 3 ? raw : defaultSplits
         for i in 0..<out.count where !out[i].isFinite {
-            out[i] = [0.25, 0.5, 0.75][i]
+            out[i] = defaultSplits[i]
         }
         out.sort()
         for i in 0..<out.count {
             out[i] = Swift.min(Swift.max(out[i], 0.10), 0.90)
         }
+        // THE CEILING IS THE SAME 0.90 THE CLAMP ABOVE USES, not 0.98.
+        //
+        // It was 0.98, which let the gap repair push a split past the range every
+        // interactive path enforces and that docs/04 specifies — clamp the third split to
+        // 0.90, find it within the minimum gap of the second, and this line moved it to
+        // 0.92. Only reachable from a decoded recipe whose three splits arrive under
+        // 0.02 apart, since `ParametricCurve` decodes `splits` without validating them,
+        // so it is a malformed-sidecar path rather than anything a hand can do. But a
+        // sanitiser whose repair violates the bound it just applied is not a sanitiser.
+        //
+        // Pushing UP from the previous split can therefore run out of room, so the last
+        // resort walks the earlier ones DOWN instead — the alternative is returning a
+        // set that is still unsorted or still overlapping, which is what this function
+        // exists to rule out.
         for i in 1..<out.count where out[i] <= out[i - 1] + minimumSplitGap {
-            out[i] = Swift.min(0.98, out[i - 1] + minimumSplitGap)
+            out[i] = Swift.min(0.90, out[i - 1] + minimumSplitGap)
+        }
+        for i in stride(from: out.count - 2, through: 0, by: -1)
+        where out[i] >= out[i + 1] - minimumSplitGap {
+            out[i] = Swift.max(0.10, out[i + 1] - minimumSplitGap)
         }
         return out
     }

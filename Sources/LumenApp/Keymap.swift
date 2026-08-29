@@ -177,9 +177,12 @@ final class KeyDispatcher {
             state.showLoupe()
             LoupeViewport.shared.showCrop.toggle()
         case "m":
-            // A DOCK, not a section — it is reachable from every workspace, so masking
-            // no longer means leaving whatever else you were doing (docs/28 item 14).
-            PanelLayout.shared.setMaskDock(open: !PanelLayout.shared.layout.isMaskDockOpen)
+            // M IS A ROUND TRIP, and it has to be, because it is the only key that both
+            // enters and leaves. The column becomes the mask editor and the workspace
+            // underneath is remembered, so pressing M twice puts a photographer back
+            // exactly where they were — which is the property that lets a mask be a
+            // detour rather than a destination.
+            PanelLayout.shared.setMasking(!PanelLayout.shared.layout.isMasking)
             state.showLoupe()
 
         // ---- Mask overlays (docs/08 §8.6) --------------------------------------
@@ -196,10 +199,10 @@ final class KeyDispatcher {
             } else {
                 state.toggleMaskOverlay()
             }
-            // The overlay keys open the dock rather than toggling it: pressing O to
-            // look at a mask and having it close the panel you are looking at would be
+            // The overlay keys ENTER masking rather than toggling it: pressing O to
+            // look at a mask and having it close the editor you are looking at would be
             // the key undoing its own reason for existing.
-            PanelLayout.shared.setMaskDock(open: true)
+            PanelLayout.shared.setMasking(true)
             state.showLoupe()
         case "'":
             // Invert the selected COMPONENT, which is what this key means in LR and in
@@ -400,6 +403,14 @@ final class KeyDispatcher {
             // Press it again with nothing focused and it means the grid, as before —
             // the ordinary nested-Escape idiom.
             if state.sliderHoldsFocus { return nil }
+            // Then masking, which is the next layer out: the column is showing the mask
+            // editor instead of the workspace, so Escape leaves it the way Escape leaves
+            // every other thing you are inside. Above the grid rather than below it, or
+            // Escape would jump past a whole surface to the light table.
+            if PanelLayout.shared.layout.isMasking {
+                PanelLayout.shared.setMasking(false)
+                return true
+            }
             if state.viewMode != .grid {
                 state.showGrid()
                 return true

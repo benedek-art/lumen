@@ -363,3 +363,149 @@ extension CropGeometry {
                      w: w, h: h, handle: handle, start: start, locked: true)
     }
 }
+
+// MARK: - Rotating
+
+extension CropGeometry {
+
+    /// How far from the pivot a rotate-drag has to be before it carries an angle, in the
+    /// same view points the drag is measured in.
+    ///
+    /// An angle taken from two points a few pixels either side of the centre is noise
+    /// in the way a two-pixel ruler drag is noise, and it arrives as a violent spin
+    /// rather than as a small one. `Straighten.minimumDragFraction` is the same rule for
+    /// the same reason, stated against a length instead of a radius.
+    public static let minimumRotationRadius: Double = 16
+
+    /// The signed sweep, in degrees, from one point to another about a centre.
+    ///
+    /// Measured in VIEW points with y DOWNWARD, as a drag gesture hands them over, so a
+    /// positive sweep is clockwise on the screen — the same convention `Straighten`
+    /// measures its ruler in, and the reason both live here rather than in the overlay
+    /// that captures the drag.
+    ///
+    /// One `atan2` of the cross and dot products, not the difference of two `atan2`s:
+    /// the difference wraps at ±180° and has to be unwrapped afterwards, and a rotate
+    /// drag that crosses the pointer over the pivot's twelve o'clock is exactly where
+    /// that unwrapping gets forgotten. This form is the signed angle BETWEEN the two
+    /// vectors by construction.
+    public static func rotationSweep(centreX: Double, centreY: Double,
+                                     fromX: Double, fromY: Double,
+                                     toX: Double, toY: Double,
+                                     minimumRadius: Double = minimumRotationRadius) -> Double? {
+        let ax = fromX - centreX, ay = fromY - centreY
+        let bx = toX - centreX, by = toY - centreY
+        guard ax.isFinite, ay.isFinite, bx.isFinite, by.isFinite else { return nil }
+        let floor = Swift.max(minimumRadius, 1e-9)
+        guard (ax * ax + ay * ay).squareRoot() >= floor,
+              (bx * bx + by * by).squareRoot() >= floor else { return nil }
+        let sweep = atan2(ax * by - ay * bx, ax * bx + ay * by) * 180 / .pi
+        return sweep.isFinite ? sweep : nil
+    }
+
+    /// The angle the recipe should hold after a rotate-drag, given the angle it held
+    /// when that drag began.
+    ///
+    /// THE SIGN, which is the only hard part and is `Straighten`'s derivation applied
+    /// the other way round. A source direction `s` appears on the frame at `angle + s`,
+    /// and at `−(angle + s)` when the frame is mirrored. So making the picture follow a
+    /// clockwise pointer means RAISING the angle — and lowering it under a flip, where
+    /// the mirror has already negated the sweep. Backwards, the picture runs away from
+    /// the pointer, and only on the photographs somebody flipped.
+    ///
+    /// Clamped to the straighten range, so the slider, the ruler and this gesture cannot
+    /// disagree about what the angle is allowed to be.
+    public static func rotationAngle(from startAngle: Double, sweep: Double,
+                                     flipped: Bool = false) -> Double {
+        guard startAngle.isFinite, sweep.isFinite else { return 0 }
+        let next = flipped ? startAngle - sweep : startAngle + sweep
+        return Num.clamp(next, -Straighten.limitDegrees, Straighten.limitDegrees)
+    }
+}
+
+// MARK: - Re-shaping a rectangle that already exists
+
+extension CropGeometry {
+
+    /// The crop a ratio menu should write OVER an existing rectangle: `aspect` in
+    /// pixels, on the same centre, at the same scale, as large as the frame allows.
+    ///
+    /// `centred` throws the framing away, and that is what made "Original" a destructive
+    /// button — the one control that could clear a ratio lock also put the rectangle
+    /// back to the whole frame, so there was no way to say "keep this crop, stop holding
+    /// 16:9". Reaching for the larger of the two scales rather than the smaller keeps
+    /// the subject inside the new shape instead of shrinking away from it.
+    public static func refit(_ crop: Crop, aspect: Double, sourceWidth: Double,
+                             sourceHeight: Double, degrees: Double) -> Crop {
+        let full = centred(aspect: aspect, sourceWidth: sourceWidth,
+                           sourceHeight: sourceHeight, degrees: degrees)
+        let c = normalized(crop)
+        guard full.w > 0, full.h > 0 else { return c }
+        // The floor is ratio-preserving, for the reason `shrinkIntoFrame` states: a
+        // rectangle floored on one axis alone comes out at the FRAME's aspect rather
+        // than its own, so the lock breaks at exactly the moment the crop gets small.
+        let floor = Swift.min(Swift.max(minimumCropFraction / full.w,
+                                        minimumCropFraction / full.h), 1)
+        let scale = Num.clamp(Swift.max(c.w / full.w, c.h / full.h), floor, 1)
+        let w = full.w * scale
+        let h = full.h * scale
+        return normalized(Crop(x: c.x + (c.w - w) / 2, y: c.y + (c.h - h) / 2, w: w, h: h))
+    }
+
+    /// The same rectangle turned on its side: the reciprocal pixel ratio, the same pixel
+    /// dimensions where they still fit, on the same centre.
+    ///
+    /// docs/09 binds this to X and calls it "flip orientation". It is not a flip — the
+    /// picture does not move — and it is the move a portrait crop of a landscape frame
+    /// needs, which the ratio menu cannot express because every ratio in it is written
+    /// wide.
+    ///
+    /// Swapped in PIXELS and converted back, because the crop is a fraction of the
+    /// usable frame: swapping the normalized extents instead turns a 3:2 crop of a 3:2
+    /// body into 4:9.
+    public static func swappingOrientation(_ crop: Crop, sourceWidth: Double,
+                                           sourceHeight: Double,
+                                           degrees: Double) -> Crop {
+        let usable = usableSize(width: sourceWidth, height: sourceHeight, degrees: degrees)
+        let c = normalized(crop)
+        guard usable.width > 0, usable.height > 0 else { return c }
+        var w = c.h * usable.height / usable.width
+        var h = c.w * usable.width / usable.height
+        guard w > 0, h > 0, w.isFinite, h.isFinite else { return c }
+        let over = Swift.max(w, h)
+        if over > 1 { w /= over; h /= over }
+        let floor = Swift.max(minimumCropFraction / w, minimumCropFraction / h)
+        if floor > 1 { w *= floor; h *= floor }
+        return normalized(Crop(x: c.x + (c.w - w) / 2, y: c.y + (c.h - h) / 2, w: w, h: h))
+    }
+
+    /// A ratio typed by hand — `16:9`, `16/9`, `3 x 2`, `1.85` — as width ÷ height.
+    ///
+    /// Nil for anything that is not a plausible ratio, so a custom field can decline an
+    /// entry rather than write a rectangle nobody asked for. The bounds are wider than
+    /// any preset and narrower than the arithmetic's own limits: 1:60 is a panorama and
+    /// 1:600 is a typo.
+    public static func aspect(fromText text: String) -> Double? {
+        let cleaned = text.replacingOccurrences(of: ",", with: ".")
+        let parts = cleaned
+            .components(separatedBy: CharacterSet(charactersIn: ":/xX×÷"))
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        // Empty pieces are kept and then refused, rather than filtered away: dropping
+        // them turns the half-typed `16:` into a plain 16, which is a 16:1 crop written
+        // while somebody was still reaching for the 9.
+        guard parts.allSatisfy({ !$0.isEmpty }) else { return nil }
+        let ratio: Double?
+        switch parts.count {
+        case 1: ratio = Double(parts[0])
+        case 2:
+            if let a = Double(parts[0]), let b = Double(parts[1]), b != 0 {
+                ratio = a / b
+            } else {
+                ratio = nil
+            }
+        default: ratio = nil
+        }
+        guard let ratio, ratio.isFinite, ratio >= 1.0 / 60, ratio <= 60 else { return nil }
+        return ratio
+    }
+}

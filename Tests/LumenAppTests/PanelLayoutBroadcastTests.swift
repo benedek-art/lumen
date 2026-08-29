@@ -128,23 +128,65 @@ final class PanelLayoutBroadcastTests: XCTestCase {
         XCTAssertTrue(panel.layout.expanded.isSuperset(of: [.tone, .presence]))
     }
 
-    /// The mask dock is available in every workspace, so it is not a section and does
-    /// not participate in the solo rule — opening it must leave the sections alone.
-    func testTheMaskDockDoesNotDisturbTheAccordion() {
+    /// MASKING TAKES THE COLUMN OVER WITHOUT DISTURBING IT, which is what makes the way
+    /// back cheap.
+    ///
+    /// The mask editor draws INSTEAD of the workspace's sections rather than above them,
+    /// so it would have been easy to make entering masking collapse the accordion —
+    /// nothing is drawing it, after all. It must not: the expanded set is the column a
+    /// photographer arranged, and leaving masking has to hand it back unchanged rather
+    /// than rebuild it from the register's defaults.
+    func testEnteringMaskingDoesNotDisturbTheAccordion() {
         let panel = layout(WorkspaceLayout(workspace: .develop, expanded: [.tone]))
-        panel.setMaskDock(open: true)
-        XCTAssertTrue(panel.layout.isMaskDockOpen)
+        panel.setMasking(true)
+        XCTAssertTrue(panel.layout.isMasking)
         XCTAssertEqual(panel.layout.expanded, [.tone],
-                       "the dock is a surface beside the column, not a section in it")
+                       "the sections are behind the mask editor, not closed by it")
+        XCTAssertEqual(panel.layout.workspace, .develop,
+                       "the workspace underneath is what the way out returns to")
     }
 
-    func testSettingTheMaskDockToWhereItAlreadyIsPublishesNothing() {
-        let panel = layout()
-        panel.setMaskDock(open: false)
+    /// One publish each way, because entering and leaving are each one value.
+    func testEnteringAndLeavingMaskingAreOnePublishEach() {
+        let panel = layout(WorkspaceLayout(workspace: .develop, expanded: [.tone]))
         var publishes = 0
         panel.objectWillChange.sink { _ in publishes += 1 }.store(in: &cancellables)
-        panel.setMaskDock(open: false)
+
+        panel.setMasking(true)
+        XCTAssertEqual(publishes, 1)
+        panel.setMasking(false)
+        XCTAssertEqual(publishes, 2)
+        XCTAssertEqual(panel.layout, WorkspaceLayout(workspace: .develop,
+                                                     expanded: [.tone]),
+                       "the round trip must land back on the same value")
+    }
+
+    func testSettingMaskingToWhereItAlreadyIsPublishesNothing() {
+        let panel = layout()
+        panel.setMasking(false)
+        var publishes = 0
+        panel.objectWillChange.sink { _ in publishes += 1 }.store(in: &cancellables)
+        panel.setMasking(false)
         XCTAssertEqual(publishes, 0)
+    }
+
+    /// NAMING A WORKSPACE WHILE MASKING IS ONE PUBLISH, INCLUDING THE ONE YOU ARE IN.
+    ///
+    /// Masking is on the workspace axis, so ⌘2 while masking means "show me Develop"
+    /// even when Develop is already the workspace underneath — the layout really did
+    /// change, and the no-op guard must not swallow it. That is the same guard asserted
+    /// from the other side in `testSwitchingToTheWorkspaceAlreadyShowingPublishesNothing`.
+    func testAWorkspaceKeyLeavesMaskingInOnePublish() {
+        let panel = layout(WorkspaceLayout(workspace: .develop, expanded: [.tone],
+                                           isMasking: true))
+        var publishes = 0
+        panel.objectWillChange.sink { _ in publishes += 1 }.store(in: &cancellables)
+
+        panel.select(.develop)
+
+        XCTAssertEqual(publishes, 1, "the workspace did not move but masking did")
+        XCTAssertFalse(panel.layout.isMasking)
+        XCTAssertEqual(panel.layout.expanded, [.tone])
     }
 
     /// The register is one publish and it changes what is DRAWN, never what applies.

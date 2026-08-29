@@ -39,6 +39,57 @@ final class MaskingTests: XCTestCase {
         }
     }
 
+    /// A hard-edged ellipse anywhere, so two components can be made to overlap.
+    private func hardRadial(at centre: [Double], radius: Double, op: MaskOp) -> MaskComponent {
+        var c = MaskComponent(op: op, kind: .radial)
+        c.center = centre
+        c.radii = [radius, radius]
+        c.rotation = 0
+        c.feather = 0
+        return c
+    }
+
+    // MARK: - The fold is ordered
+
+    /// WHY THE PANEL HAS TO LET YOU MOVE A COMPONENT.
+    ///
+    /// `combine` folds the stack top-down into an accumulator that seeds EMPTY, so the
+    /// operations are not commutative and the first row is privileged: a stack that
+    /// opens with Subtract subtracts from nothing, which is a no-op, and the ellipse
+    /// that was meant to be cut out instead lands whole.
+    ///
+    /// The panel offered Add / Subtract / Intersect as three equal buttons and no way to
+    /// reorder the rows, so exactly half of what this fold can express was unreachable —
+    /// a photographer could build the wrong one of these two and had no move that turned
+    /// it into the right one short of deleting both components and re-drawing them in
+    /// the other order.
+    func testTheComponentFoldDependsOnTheOrderOfTheStack() {
+        let size = (width: 48, height: 32)
+        let whole = hardRadial(at: [0.5, 0.5], radius: 0.3, op: .add)
+        let bite = hardRadial(at: [0.6, 0.5], radius: 0.2, op: .subtract)
+
+        let cutOut = MaskRaster.combine(mask: Mask(components: [whole, bite]), size: size)
+        let theOtherWayRound = MaskRaster.combine(mask: Mask(components: [bite, whole]),
+                                                  size: size)
+        let wholeAlone = MaskRaster.combine(mask: Mask(components: [whole]), size: size)
+
+        var differences = 0
+        for i in 0..<cutOut.values.count where cutOut.values[i] != theOtherWayRound.values[i] {
+            differences += 1
+        }
+        XCTAssertGreaterThan(differences, 0,
+                             "the same two components in the other order must select "
+                                 + "something else, or the reorder control is decoration")
+
+        // And the exact answer, not merely "different": a leading Subtract has an empty
+        // accumulator to work on, so it does nothing at all and the stack collapses to
+        // its second row.
+        for i in 0..<theOtherWayRound.values.count {
+            XCTAssertEqual(theOtherWayRound.values[i], wholeAlone.values[i],
+                           "a stack that opens with Subtract must equal the Add alone")
+        }
+    }
+
     // MARK: - Whole-mask invert
 
     func testWholeMaskInvertIsTheComplementOfTheFoldedStack() {

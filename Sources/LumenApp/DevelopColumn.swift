@@ -1,5 +1,5 @@
 // DevelopColumn.swift
-// The develop column's arrangement: four workspaces where eight icon tabs used to be,
+// The develop column's arrangement: five workspaces where eight icon tabs used to be,
 // and an accordion of sections inside each one.
 //
 // docs/28 Phase 4 items 13 and 15, and the owner's own words are the specification:
@@ -28,55 +28,155 @@ import SwiftUI
 struct WorkspaceSwitcher: View {
     @ObservedObject var panel: PanelLayout
 
+    /// Which tab the pointer is over, and whether it is on the mask door. Row-local, so
+    /// crossing the strip invalidates the strip and nothing else — hover state never
+    /// reaches an `ObservableObject` (`LumenHoverModifier`, and what `CommandState`
+    /// cost before it).
+    @State private var hovered: Workspace?
+    @State private var maskHovered = false
+    @State private var backHovered = false
+
+    /// THE SWITCHER IS ALSO THE WAY OUT OF MASKING, because masking is on this axis.
+    ///
+    /// While the mask editor has the column there is nothing here to switch between —
+    /// every workspace's sections are off screen — so the strip becomes the one control
+    /// that matters, which is the door back. Drawing the five tabs anyway would say the
+    /// column is showing a workspace when it is not, and would leave the way out to be
+    /// found by pressing the same icon twice.
     var body: some View {
-        HStack(spacing: 0) {
+        if panel.layout.isMasking {
+            maskingBar
+        } else {
+            workspaceStrip
+        }
+    }
+
+    /// "‹ Develop", naming the workspace underneath rather than saying "Back": the label
+    /// is the destination, so the photographer knows what they are returning to before
+    /// they commit to going. `layout.workspace` still holds it — masking never wrote it.
+    private var maskingBar: some View {
+        HStack(spacing: 6) {
+            Button {
+                panel.setMasking(false)
+            } label: {
+                HStack(spacing: 3) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 10, weight: .semibold))
+                    Text(panel.layout.workspace.title)
+                        .font(.lumenBody)
+                }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 6)
+                .background(tabFill(selected: false, hovered: backHovered))
+                .foregroundStyle(backHovered ? Lumen.primaryText : Lumen.secondaryText)
+                .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusChip,
+                                            style: .continuous))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .onHover { backHovered = $0 }
+            .lumenClickCursor()
+            .help("Leave masking and go back to \(panel.layout.workspace.title) "
+                  + "(Escape, or M)")
+            Spacer(minLength: 0)
+            // The column has to say where it is. The five tabs did that by highlighting
+            // one of themselves; with them gone, this word is the only thing left that
+            // does.
+            LumenCapsLabel(text: "Masks", size: 11, color: Lumen.primaryText)
+                .padding(.trailing, 8)
+        }
+        .padding(.horizontal, 4)
+        .padding(.vertical, 4)
+        .animation(.easeOut(duration: 0.12), value: backHovered)
+    }
+
+    private var workspaceStrip: some View {
+        HStack(spacing: 2) {
             ForEach(Workspace.allCases, id: \.self) { workspace in
                 let isCurrent = panel.layout.workspace == workspace
                 Button {
                     panel.select(workspace)
                 } label: {
                     Text(workspace.title)
-                        .font(.system(size: 11, weight: isCurrent ? .semibold : .regular))
+                        .font(isCurrent ? .lumenBodyStrong : .lumenBody)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 6)
-                        .background(isCurrent ? Lumen.fillColor.opacity(0.30) : Color.clear)
+                        .background(tabFill(selected: isCurrent,
+                                            hovered: hovered == workspace))
                         .foregroundStyle(isCurrent ? Lumen.primaryText : Lumen.secondaryText)
+                        // The selected fill was an unclipped square corner in a panel
+                        // whose every other surface is rounded — the one place the strip
+                        // looked drawn rather than built.
+                        .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusChip,
+                                                    style: .continuous))
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .onHover { inside in
+                    if inside {
+                        hovered = workspace
+                    } else if hovered == workspace {
+                        hovered = nil
+                    }
+                }
+                .lumenClickCursor()
                 // The chord, in the tooltip, because a switcher that teaches its own
                 // shortcut is how a photographer stops using the switcher.
                 .help("\(workspace.title) (⌘\(workspace.shortcutDigit))")
             }
-            // THE DOCK NEEDS A DOOR THAT IS NOT A KEY.
+            // MASKING NEEDS A DOOR THAT IS NOT A KEY.
             //
-            // `M` toggles it and the dock's own header closes it, but a surface whose
-            // only way in is a keystroke is half-built — it is exactly the "I genuinely
-            // don't get some of it" the tab strip earned. Set apart by a divider and
-            // drawn as an icon rather than a word, so four words plus one glyph cannot
-            // be misread as five workspaces.
+            // `M` opens it, but a surface whose only way in is a keystroke is half-built
+            // — it is exactly the "I genuinely don't get some of it" the tab strip
+            // earned. Set apart by a divider and drawn as an icon rather than a word, so
+            // five words plus one glyph cannot be misread as six workspaces. It never
+            // shows a selected state, because the strip it sits in is not on screen once
+            // masking has the column.
             Divider()
                 .frame(height: 14)
                 .overlay(Lumen.separator)
                 .padding(.horizontal, 4)
             Button {
-                panel.setMaskDock(open: !panel.layout.isMaskDockOpen)
+                panel.setMasking(true)
             } label: {
                 Image(systemName: "theatermasks")
                     .font(.system(size: 12))
                     .padding(.horizontal, 8)
                     .padding(.vertical, 6)
-                    .background(panel.layout.isMaskDockOpen
-                                ? Lumen.fillColor.opacity(0.30) : Color.clear)
-                    .foregroundStyle(panel.layout.isMaskDockOpen
-                                     ? Lumen.primaryText : Lumen.secondaryText)
+                    .background(tabFill(selected: false, hovered: maskHovered))
+                    .foregroundStyle(maskHovered ? Lumen.primaryText : Lumen.secondaryText)
+                    .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusChip,
+                                                style: .continuous))
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help("Masks (M) — available in every workspace")
+            .onHover { maskHovered = $0 }
+            .lumenClickCursor()
+            .help("Masks (M) — the column becomes the mask editor")
         }
         .padding(.horizontal, 4)
-        .padding(.vertical, 2)
+        .padding(.vertical, 4)
+        .animation(.easeOut(duration: 0.12), value: hovered)
+        .animation(.easeOut(duration: 0.12), value: maskHovered)
+    }
+
+    /// ONE BACKGROUND, THREE STATES — rest, hover, selected.
+    ///
+    /// `lumenHoverable()` cannot serve this strip and it is worth saying why, because
+    /// the mistake is invisible until you try it: the modifier paints its fill as a
+    /// `.background`, BEHIND the content, and a selected tab already paints an opaque
+    /// one. Stacking the two would have given every tab a hover except the one under
+    /// the pointer's most likely destination. A colour computed from both states cannot
+    /// be occluded by either.
+    ///
+    /// `controlActive` rather than the `fillColor.opacity(0.30)` this used to composite:
+    /// against `windowBase` those land within a thousandth of each other, so nothing
+    /// visible changed — but the tab now names the same rung of the ladder as every
+    /// other selected control in the app instead of arriving at it by arithmetic.
+    private func tabFill(selected: Bool, hovered: Bool) -> Color {
+        if selected { return Lumen.controlActive }
+        if hovered { return Lumen.controlHover }
+        return .clear
     }
 }
 
@@ -95,7 +195,7 @@ extension Workspace {
         }
     }
 
-    /// ⌘1–⌘4, in declaration order. The owner chose the modifier so that bare `1`–`5`
+    /// ⌘1–⌘5, in declaration order. The owner chose the modifier so that bare `1`–`5`
     /// stay star ratings and culling keeps its Lightroom muscle memory (docs/29 §2.1).
     var shortcutDigit: String {
         String((Self.allCases.firstIndex(of: self) ?? 0) + 1)
@@ -116,8 +216,14 @@ struct WorkspaceSections: View {
     /// LumenCore model deliberately does not know how to read a recipe.
     let nonDefault: Set<WorkspaceSection>
 
+    /// 8, not 2, and the gap is now doing work rather than merely existing.
+    ///
+    /// Each section is a card (`WorkspaceSectionView`), so this is the trough between
+    /// two of them — the darker `windowBase` the column paints showing through. Below
+    /// about 6 the cards read as one banded surface; much above 10 and the column starts
+    /// to feel gappy while scrolling.
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 8) {
             ForEach(panel.layout.visibleSections, id: \.self) { section in
                 WorkspaceSectionView(
                     section: section,
@@ -161,25 +267,55 @@ struct WorkspaceSections: View {
                     Circle().fill(Lumen.accent).frame(width: 5, height: 5)
                 }
                 Text(concealed ?? (isSimple ? "Show all sections" : "Show fewer sections"))
-                    .font(.system(size: 10))
+                    .font(.lumenCaption)
                     .foregroundStyle(Lumen.secondaryText)
             }
-            .padding(.top, 12)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 5)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        // THE TWELVE POINTS CAME OUT OF THE LABEL, and that had to happen before a hover
+        // fill could go on at all. `.padding(.top, 12)` was INSIDE the button's label, so
+        // the button's bounds — and therefore anything painted behind them — began twelve
+        // points above the words: a hover would have drawn a tall empty pill with the
+        // text stuck along its bottom edge. The space before a control is not part of it.
+        .lumenHoverable(radius: Lumen.radiusChip)
+        .lumenClickCursor()
+        .padding(.top, 12)
+        .padding(.horizontal, 4)
         .help(isSimple
               ? "Show every section in this workspace"
               : "Show only the sections most edits need")
     }
 }
 
-/// One section: its header, and its rows when it is open.
+/// One section: its header, and its rows when it is open — drawn as a CARD.
 ///
 /// The header is the column's rather than the panel's, so that every section in every
-/// workspace gets the same chevron, the same 16-point boundary and the same click rule —
+/// workspace gets the same chevron, the same boundary and the same click rule —
 /// including the ones assembled out of several panels' pieces, which could not have
 /// agreed on it themselves.
+///
+/// THE CARD IS THE SEPARATOR, and it is the answer to the loudest thing in the owner's
+/// second review: "I get a fatigue when I scroll down because everything is so close
+/// together … Lightroom has some sort of kind of separator from each different area so
+/// that you can tell somewhat that you're entering into a new area."
+///
+/// A hairline was the obvious reading of that sentence and it is the wrong one here.
+/// `Lumen.separator` measures 1.48:1 against the panel — a line the eye does not resolve
+/// without being told where to look — so the choice would have been between an invisible
+/// rule and repainting a token that eleven other files draw with. And a rule between two
+/// stretches of identical grey only says "a line happened"; it does not say the surface
+/// changed. `LumenSurface.swift` argues the alternative at length and had zero call
+/// sites: give the section an EDGE — a lit top border over its own fill, sitting in a
+/// darker trough — and the eye stops hunting for a boundary and starts reading an
+/// object. Six of those down a column is unmistakably six areas, at any scroll speed.
+///
+/// The horizontal arithmetic is deliberate and costs the slider nothing. `scrollColumn`
+/// gave up its 8 points of side padding to 4, and the other 4 are inside this card, so a
+/// row's content edge lands exactly where it did and every slider keeps all 180 points
+/// of its track (`Lumen.labelWidth`'s note on what those points are worth).
 private struct WorkspaceSectionView: View {
     let section: WorkspaceSection
     let isExpanded: Bool
@@ -188,11 +324,15 @@ private struct WorkspaceSectionView: View {
     @EnvironmentObject private var state: AppState
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 6) {
+            // `topRhythm: 0` — the card's own padding is the boundary now, and stacking
+            // twenty more points of blank panel on top of it inside the card would only
+            // push the title away from the rows it names.
             LumenSectionHeader(title: section.title,
                                isExpanded: .constant(isExpanded),
                                isModified: isModified,
                                onReset: reset,
+                               topRhythm: 0,
                                onToggle: onToggle)
             // CLOSED MEANS CLOSED. `DevelopSection` and `DevelopDisclosure` both take
             // their content as a closure now for this reason: a section that collapses
@@ -200,12 +340,30 @@ private struct WorkspaceSectionView: View {
             // claims to save, and Look holds 38 sliders in one of these.
             if isExpanded {
                 WorkspaceSectionBody(section: section)
-                    // Arriving from under its own header, not fading in place: the
-                    // header is the hinge, so the content should read as unfolding from
-                    // it. `.top` rather than `.leading` for that reason.
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    // UNFOLDING, NOT SLIDING — the other half of "the animation for the
+                    // open and close for the chevrons are not great".
+                    //
+                    // It was `.move(edge: .top)`, which translates the whole body
+                    // downward by its own height while the column's height grows to meet
+                    // it. On a section of three rows that reads as a drawer; on Look's
+                    // thirty-eight it is a long vertical wipe travelling at a completely
+                    // different speed from the card growing around it, and the two fight
+                    // visibly. A scale anchored at the top has no distance in it to get
+                    // wrong: the body expands from the header's own edge, at 0.97 so it
+                    // is felt rather than watched, and the card's clip keeps it from ever
+                    // painting over the section below.
+                    .transition(.opacity.combined(
+                        with: .scale(scale: 0.97, anchor: .top)))
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 4)
+        .padding(.top, 8)
+        .padding(.bottom, 8)
+        // `.flush`: an edge but no cast shadow. Six drop shadows stacked down a
+        // scrolling column is a pile of floating tiles, and these are tiled edge to
+        // edge — which is the case `Lumen.Elevation` names this step for.
+        .lumenSurface(radius: Lumen.radiusCard, elevation: .flush, fill: Lumen.panel)
     }
 
     /// RESET BELONGS TO THE SECTION HEADER NOW, and the section is the column's idea of
@@ -288,50 +446,46 @@ private struct WorkspaceSectionBody: View {
     }
 }
 
-// MARK: - The mask dock
+// MARK: - The mask editor
 
-/// Masks, reachable from every workspace instead of being one tab among eight.
+/// THE COLUMN WHILE MASKING — the whole of it, not a dock above it.
 ///
-/// docs/28 item 14, and the reason it is a dock rather than a section is the workflow it
-/// was breaking: a mask is a thing you make WHILE grading, and putting it in the tab
-/// strip meant leaving whatever you were doing to reach it and leaving it again to see
-/// the effect. `WorkspaceLayout.isMaskDockOpen` is therefore not part of the accordion's
-/// expanded set — it does not participate in the solo rule, and opening it closes
-/// nothing.
+/// It was a dock: the mask list stacked on top of the workspace's own sections, both
+/// scrolling together. The owner named what was wrong with that — "when I press it, it
+/// just shows up on the page that I am showing off" — and asked for "its own page ...
+/// its own kind of section area where you can fully customize stuff about the masks".
 ///
-/// It sits at the TOP of the column, above the workspace's own sections, because while
-/// it is open it is what the photographer is working in; the sections underneath are the
-/// adjustments that mask is scaling.
-struct MaskDock: View {
+/// The mask model says he is right rather than merely particular. `LocalAdjust` carries
+/// twenty scalars plus a local point curve and local grading wheels, so a mask's
+/// adjustments are a copy of the globals: stacked, the column offered Tone, Curve,
+/// Colour and Grading TWICE, twenty rows apart, meaning different things depending on
+/// how far you had scrolled. Nobody masking wants the global Tone — they want this
+/// mask's Tone, and it is right here.
+///
+/// So this replaces `WorkspaceSections` rather than sitting above it, and the switcher
+/// above becomes the way back (`WorkspaceSwitcher.maskingBar`). The workspace underneath
+/// is untouched — `expanded`, `register` and `workspace` all survive, so leaving returns
+/// the column exactly as it was left.
+///
+/// No header of its own: the bar above prints "Masks", and `MaskPanel` printing it again
+/// a row below is the duplication that was here before this was a takeover.
+struct MaskEditor: View {
     @ObservedObject var panel: PanelLayout
-    @EnvironmentObject private var state: AppState
     /// This surface shows the edit, so it observes the edit signal — `AppState.recipes`
     /// is deliberately not published (see `EditRevision`).
     @EnvironmentObject private var edits: EditRevision
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            // ONE HEADER, and it belongs to the dock. `MaskPanel` drew its own titled
-            // "Masks" directly beneath this one, unconditionally — two identical
-            // headings, stacked. Every other panel guards against exactly that; the dock
-            // was built without the guard.
-            //
-            // `isModified` reads the recipe rather than being hard-coded false: the
-            // panel's own header carried the dot, so suppressing that header would have
-            // silently taken the "this photograph has masks" signal with it, which is
-            // the one thing a closed dock most needs to say.
-            LumenSectionHeader(title: "Masks",
-                               isExpanded: .constant(true),
-                               isModified: !state.currentRecipe.masks.isEmpty,
-                               onToggle: { _ in panel.setMaskDock(open: false) })
-            MaskPanel(showsOwnHeader: false)
-            // A boundary under the dock, because what follows it belongs to a different
-            // job — the workspace's own sections — and the accordion's 16 pt rhythm
-            // alone would read as one more section rather than as the end of a surface.
-            Divider()
-                .overlay(Lumen.separator)
-                .padding(.top, 10)
-        }
+        MaskPanel(showsOwnHeader: false)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 4)
+            .padding(.top, 4)
+            .padding(.bottom, 8)
+            // The same card the accordion's sections wear, for the same reason and to
+            // keep the column's edges aligned across the takeover: while masking has the
+            // column this IS the area, so it should sit on the surface an area sits on
+            // rather than directly on the trough between them.
+            .lumenSurface(radius: Lumen.radiusCard, elevation: .flush, fill: Lumen.panel)
     }
 }
 
@@ -350,8 +504,9 @@ private struct ExportRecipesSection: View {
             DevelopNote("Export recipes are edited in the export sheet.")
             Button("Open Export…") { state.activeSheet = .export }
                 .buttonStyle(.plain)
-                .font(.system(size: 11))
+                .font(.lumenBody)
                 .foregroundStyle(Lumen.accent)
+                .lumenClickCursor()
         }
         .padding(.top, 2)
     }

@@ -3,7 +3,7 @@
 // arrangement of that column changes.
 //
 // docs/28 Phase 4 items 13 and 16. The arrangement itself — which workspace, which
-// sections are open, which register, whether the mask dock is out — is `WorkspaceLayout`
+// sections are open, which register, whether masking has the column — is `WorkspaceLayout`
 // in LumenCore, a plain `Equatable` value with no observation in it and its own tests.
 // This is the thin observable wrapper that lets a SwiftUI column watch it, and its whole
 // job is to publish as rarely as the value actually changes.
@@ -62,9 +62,13 @@ final class PanelLayout: ObservableObject {
 
     // MARK: Verbs
 
-    /// ⌘1–⌘4 and the workspace switcher. One publish, and none at all when the
+    /// ⌘1–⌘5 and the workspace switcher. One publish, and none at all when the
     /// photographer clicks the workspace they are already in — which is most of the
     /// clicks a switcher receives.
+    ///
+    /// It also leaves masking, because masking is on this axis rather than beside it —
+    /// see `WorkspaceLayout.select`. Naming the workspace you are already in while
+    /// masking is therefore a real change and does publish once.
     func select(_ workspace: Workspace) {
         var next = layout
         next.select(workspace)
@@ -128,11 +132,16 @@ final class PanelLayout: ObservableObject {
         commit(next)
     }
 
-    /// The mask dock, which is available in every workspace and therefore is not a
-    /// section — see `WorkspaceLayout.isMaskDockOpen`.
-    func setMaskDock(open: Bool) {
+    /// ENTER OR LEAVE MASKING — the column's other destination, and the only one that is
+    /// not a `Workspace`. See `WorkspaceLayout.isMasking` for why it is a flag and not a
+    /// sixth case.
+    ///
+    /// Leaving is deliberately its own verb rather than `select(layout.workspace)`: the
+    /// way back has to return to the workspace underneath WITHOUT deciding which one
+    /// that is, and a caller that had to name it could name the wrong one.
+    func setMasking(_ masking: Bool) {
         var next = layout
-        next.isMaskDockOpen = open
+        next.isMasking = masking
         commit(next)
     }
 
@@ -143,14 +152,14 @@ final class PanelLayout: ObservableObject {
     /// Writing an equal value through `@Published` still publishes, and every verb above
     /// recomputes a whole `WorkspaceLayout` — including a set — so assigning an equal
     /// one is the normal case rather than the exotic one. Clicking the open section's
-    /// own workspace, ⌥-clicking a section twice, toggling the dock to where it already
+    /// own workspace, ⌥-clicking a section twice, setting masking to where it already
     /// is: all of those arrive here identical.
     private func commit(_ next: WorkspaceLayout) {
         guard next != layout else { return }
         // ANIMATED HERE, once, rather than at each of the twenty call sites that could
         // have wrapped their own click. Every change to the arrangement — a workspace
-        // switch, a section opening, the register widening, the dock arriving — is this
-        // one assignment, so this is the only place the app has to say that arrangement
+        // switch, a section opening, the register widening, masking taking the column
+        // — is this one assignment, so this is the only place the app has to say that arrangement
         // changes are movements rather than jump cuts.
         //
         // The app had five `withAnimation` calls in twenty-four thousand lines and none
@@ -158,7 +167,12 @@ final class PanelLayout: ObservableObject {
         // jumped discontinuously. `.smooth` rather than a spring: a panel is furniture
         // being moved, not an object being thrown, and an overshoot on a list of
         // controls reads as sloppiness rather than as life.
-        withAnimation(.smooth(duration: 0.22)) {
+        // THE SAME CURVE THE DISCLOSURES USE. `DevelopDisclosure` moved to a critically
+        // damped spring this session and this did not, so a workspace section and a fold
+        // inside it opened on visibly different timings — the kind of mismatch nobody
+        // can name and everybody feels. Critically damped: leaves immediately, no
+        // overshoot, which is right for furniture being moved rather than thrown.
+        withAnimation(.spring(response: 0.28, dampingFraction: 1)) {
             layout = next
         }
         persist(next)
@@ -175,7 +189,14 @@ final class PanelLayout: ObservableObject {
         static let workspace = "develop.workspace"
         static let register = "develop.register"
         static let expanded = "develop.expanded"
-        static let maskDock = "develop.maskDock"
+        // A NEW KEY, not the old `develop.maskDock`, and the discontinuity is the point.
+        // What that key stored was "the mask list is docked above your sections", which
+        // is furniture that no longer exists; restoring `true` from it would now open a
+        // photographer straight into a full-column takeover they never chose. Everyone
+        // carrying the old key starts un-masked and the old value is simply never read
+        // again — which is the correct migration for a flag whose meaning changed rather
+        // than whose name did.
+        static let masking = "develop.masking"
     }
 
     private func persist(_ value: WorkspaceLayout) {
@@ -186,7 +207,10 @@ final class PanelLayout: ObservableObject {
         // iteration order is not stable. A defaults write is cheap and a diff-free one
         // is cheaper.
         defaults.set(value.expanded.map(\.rawValue).sorted(), forKey: Key.expanded)
-        defaults.set(value.isMaskDockOpen, forKey: Key.maskDock)
+        // Masking persists like the workspace does, and for the same reason: it is where
+        // the photographer was working, and an editor that forgets which surface you
+        // left it on makes you find your way back every launch.
+        defaults.set(value.isMasking, forKey: Key.masking)
     }
 
     /// TOLERANT, because this reads a previous version's idea of the layout.
@@ -213,7 +237,7 @@ final class PanelLayout: ObservableObject {
                                // false" and for "never written", and it is also the one
                                // name in this file that collides with the in-tree
                                // SQLite `bool(_:)` the surface checker resolves against.
-                               isMaskDockOpen: defaults.object(forKey: Key.maskDock)
+                               isMasking: defaults.object(forKey: Key.masking)
                                    as? Bool ?? false)
     }
 }
