@@ -105,11 +105,11 @@ final class KeyDispatcher {
 
         // ---- Flags -------------------------------------------------------------
         case "p":
-            state.setFlag(.picked)
+            state.setFlag(.pick)
         case "x":
-            state.setFlag(.rejected)
+            state.setFlag(.reject)
         case "u":
-            state.setFlag(.none)
+            state.setFlag(.unflagged)
 
         // ---- Ratings and labels ------------------------------------------------
         case "0", "1", "2", "3", "4", "5":
@@ -284,7 +284,7 @@ final class KeyDispatcher {
             }
             return true
         case NSDeleteFunctionKey, 0x7F:
-            state.setFlag(.rejected)
+            state.setFlag(.reject)
             return true
         case 0x1B:      // Escape
             if state.viewMode != .grid {

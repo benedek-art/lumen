@@ -19,60 +19,16 @@ import LumenCore
 import LumenPipeline
 import SwiftUI
 
-// MARK: - Formats
-
-/// What Lumen will browse. Deliberately NOT on `AppState`: the folder scan runs off
-/// the main actor, and a main-actor-isolated constant it has to reach for is both a
-/// concurrency warning today and an error under Swift 6.
-enum PhotoFormats {
-    /// Everything CIRAWFilter will decode. The short list this started as made a
-    /// Hasselblad, Phase One, Leica or Minolta file invisible in the grid and uncounted
-    /// by the ingest planner — not an error the user could act on, just an empty folder
-    /// where their shoot was.
-    static let raw: Set<String> = [
-        "arw", "sr2", "srf", "arq",              // Sony
-        "cr2", "cr3", "crw",                     // Canon
-        "nef", "nrw",                            // Nikon
-        "orf",                                   // Olympus / OM
-        "pef", "dng",                            // Pentax, and the open format
-        "raf",                                   // Fujifilm
-        "rw2",                                   // Panasonic
-        "rwl",                                   // Leica
-        "srw",                                   // Samsung
-        "erf",                                   // Epson
-        "x3f",                                   // Sigma
-        "3fr", "fff",                            // Hasselblad
-        "iiq", "cap",                            // Phase One
-        "mrw",                                   // Minolta
-        "dcr", "kdc",                            // Kodak
-        "mef",                                   // Mamiya
-        "raw",                                   // generic
-    ]
-    static let rendered: Set<String> = [
-        "jpg", "jpeg", "heic", "heif", "png", "tif", "tiff",
-    ]
-    static let browsable: Set<String> = raw.union(rendered)
-
-    static func isRaw(_ url: URL) -> Bool {
-        raw.contains(url.pathExtension.lowercased())
-    }
-
-    /// Already-rendered files, which decode through `RenderedImageSource` rather than
-    /// the RAW stage. A sibling of `isRaw` so callers do not each write the
-    /// lowercase-the-extension dance and drift apart on the one that forgets.
-    static func isRendered(_ url: URL) -> Bool {
-        rendered.contains(url.pathExtension.lowercased())
-    }
-}
-
 // MARK: - Photo
 
 struct PhotoItem: Identifiable, Hashable, Sendable {
     let id: URL
     var catalogID: Int64?
-    var flag: PhotoFlag = .none
+    var flag: PhotoFlag = .unflagged
     var rating: Int = 0
-    var label: ColorLabel = .none
+    /// `nil` is unlabelled. Not a sixth `ColorLabel` case: unlabelled is a NULL in
+    /// `photo.label`, which is why the filter carries `includeUnlabeled` beside its set.
+    var label: ColorLabel?
     /// What the file says it was shot at, from the catalog's EXIF row. It is what makes
     /// an unedited photo's noise-reduction defaults ISO-adaptive; nil until the
     /// metadata backfill has reached this photo, and nil forever for a file that
@@ -110,46 +66,6 @@ enum PickTarget: Equatable, Sendable {
     }
 }
 
-enum PhotoFlag: Int, Codable, Sendable, CaseIterable {
-    case rejected = -1
-    case none = 0
-    case picked = 1
-
-    var symbolName: String {
-        switch self {
-        case .picked: return "flag.fill"
-        case .rejected: return "xmark"
-        case .none: return "flag"
-        }
-    }
-}
-
-enum ColorLabel: Int, Codable, Sendable, CaseIterable {
-    case none = 0, red, yellow, green, blue, purple
-
-    var displayName: String {
-        switch self {
-        case .none: return "None"
-        case .red: return "Red"
-        case .yellow: return "Yellow"
-        case .green: return "Green"
-        case .blue: return "Blue"
-        case .purple: return "Purple"
-        }
-    }
-
-    var color: Color {
-        switch self {
-        case .none: return .clear
-        case .red: return Color(red: 0.85, green: 0.25, blue: 0.25)
-        case .yellow: return Color(red: 0.90, green: 0.75, blue: 0.20)
-        case .green: return Color(red: 0.30, green: 0.70, blue: 0.35)
-        case .blue: return Color(red: 0.25, green: 0.50, blue: 0.85)
-        case .purple: return Color(red: 0.60, green: 0.35, blue: 0.80)
-        }
-    }
-}
-
 // MARK: - View mode
 
 enum ViewMode: String, Sendable {
@@ -181,142 +97,6 @@ enum PanelSection: String, CaseIterable, Identifiable, Sendable {
         case .masks: return "theatermasks"
         case .look: return "photo.stack"
         }
-    }
-}
-
-// MARK: - Filtering
-
-/// ISO as a chip: bands rather than a free-form pair of numbers, because the question
-/// a photographer actually asks a filter is "show me the clean ones" or "show me the
-/// ones that will need denoise", and because a band is one click.
-enum ISOBand: String, CaseIterable, Identifiable, Sendable {
-    case upTo400 = "≤ 400"
-    case to1600 = "401–1600"
-    case to6400 = "1601–6400"
-    case above6400 = "≥ 6401"
-
-    var id: String { rawValue }
-
-    var range: ClosedRange<Int> {
-        switch self {
-        case .upTo400: return 0...400
-        case .to1600: return 401...1600
-        case .to6400: return 1601...6400
-        case .above6400: return 6401...4_000_000
-        }
-    }
-}
-
-/// The stack-state chip (docs/10 §10.2): everything, one row per collapsed stack, or
-/// only the frames that were never grouped.
-enum StackFilter: String, CaseIterable, Identifiable, Sendable {
-    case any = "All frames"
-    case collapsedTops = "Collapsed stacks"
-    case unstacked = "Unstacked only"
-
-    var id: String { rawValue }
-}
-
-struct LibraryFilter: Equatable, Sendable {
-    /// Criteria OR within themselves and AND across themselves — the day-one rule
-    /// (D39). An empty set means "no constraint from this criterion". `matchAny` is
-    /// the bar's All/Any toggle and flips the join BETWEEN criteria, never within one.
-    var flags: Set<PhotoFlag> = []
-    var minRating: Int = 0
-    var labels: Set<ColorLabel> = []
-    var text: String = ""
-    var rawOnly: Bool = false
-
-    /// nil = no constraint, true = has an edit that changes the picture, false = as
-    /// shot. Reads `photo.edited`, which `saveRecipe` maintains in the same transaction
-    /// as the recipe — no join, no parse, and true only when the recipe actually
-    /// renders differently.
-    var edited: Bool? = nil
-    var cameras: Set<String> = []
-    var lenses: Set<String> = []
-    var isoBands: Set<ISOBand> = []
-    var stackState: StackFilter = .any
-    var keywords: Set<String> = []
-    var matchAny: Bool = false
-
-    /// The criteria that only exist in SQL. The memory fallback cannot evaluate any of
-    /// them — it has no camera, no ISO and no stack table — so the bar hides these
-    /// chips rather than offering controls that would quietly do nothing.
-    var usesCatalogOnlyCriteria: Bool {
-        edited != nil || !cameras.isEmpty || !lenses.isEmpty || !isoBands.isEmpty
-            || stackState != .any || !keywords.isEmpty
-    }
-
-    var isActive: Bool {
-        !flags.isEmpty || minRating > 0 || !labels.isEmpty || !text.isEmpty || rawOnly
-            || usesCatalogOnlyCriteria
-    }
-
-    /// The memory path, used only when there is no catalog to ask. It answers the five
-    /// criteria a `PhotoItem` can answer and is deliberately not extended past them:
-    /// a filter that silently ignores a lit chip is the failure this file exists to
-    /// avoid, which is why the bar hides those chips in this mode instead.
-    func matches(_ photo: PhotoItem) -> Bool {
-        if !flags.isEmpty && !flags.contains(photo.flag) { return false }
-        if photo.rating < minRating { return false }
-        if !labels.isEmpty && !labels.contains(photo.label) { return false }
-        if rawOnly && !photo.isRaw { return false }
-        if !text.isEmpty
-            && !photo.filename.localizedCaseInsensitiveContains(text) { return false }
-        return true
-    }
-
-    /// The bar, compiled. Every chip becomes an indexed predicate in `CatalogStore`'s
-    /// builder — which was 200 lines of correct, tested SQL with no caller at all while
-    /// this struct filtered five criteria with a linear scan of the roll.
-    func query(sort: SortOrder, ascending: Bool, albumID: Int64?) -> PhotoQuery {
-        var query = PhotoQuery()
-        query.flags = flags.map(CatalogService.coreFlag)
-        if minRating > 0 {
-            query.rating = minRating
-            query.ratingComparison = .atLeast
-        }
-        for label in labels {
-            if let core = CatalogService.coreLabel(label) {
-                query.labels.append(core)
-            } else {
-                // `.none` in the app's vocabulary is "unlabelled", which is a NULL in
-                // the catalog's and therefore its own predicate — `label IN (…)` can
-                // never match a NULL.
-                query.includeUnlabeled = true
-            }
-        }
-        if rawOnly { query.fileTypes = PhotoFormats.raw.sorted() }
-        query.edited = edited
-        query.cameras = cameras.sorted()
-        query.lenses = lenses.sorted()
-        query.keywords = keywords.sorted()
-        if !isoBands.isEmpty {
-            // One predicate per lit band, OR-ed — NOT one range spanning them all.
-            //
-            // This used to take the minimum lower bound and the maximum upper bound and
-            // call the span "the honest reading of OR within a criterion". It is not:
-            // lighting "≤ 400" and "≥ 6401" asked for two bands and returned every ISO
-            // 800 frame between them. Adjacent bands still collapse naturally, because
-            // adjacent BETWEENs cover the same rows either way.
-            query.isoRanges = isoBands.map { $0.range }.sorted { $0.lowerBound < $1.lowerBound }
-        }
-        switch stackState {
-        case .any: query.stackState = .any
-        case .collapsedTops: query.stackState = .collapsedTopsOnly
-        case .unstacked: query.stackState = .unstacked
-        }
-        let trimmed = text.trimmingCharacters(in: .whitespaces)
-        query.text = trimmed.isEmpty ? nil : trimmed
-        query.matchAny = matchAny
-        query.albumID = albumID
-        // The grid shows files that are on the disk. Rows for frames that have gone
-        // offline keep their edits and stay findable, but putting them in the contact
-        // sheet would put cells in it that cannot be opened.
-        query.includeMissing = false
-        query.sortKey = sort.sortKey
-        query.ascending = ascending
-        return query
     }
 }
 
@@ -883,7 +663,9 @@ final class AppState: ObservableObject {
         case .flag:
             return filtered.sorted { by($0.flag.rawValue < $1.flag.rawValue) }
         case .label:
-            return filtered.sorted { by($0.label.rawValue < $1.label.rawValue) }
+            return filtered.sorted {
+                by(($0.label?.metaSlot ?? 0) < ($1.label?.metaSlot ?? 0))
+            }
         default:
             return filtered.sorted {
                 by($0.filename.localizedStandardCompare($1.filename) == .orderedAscending)
@@ -1576,7 +1358,7 @@ final class AppState: ObservableObject {
     /// per-item toggled the three back off, which is how a pass over a selection ends
     /// up with holes in it.
     func setFlag(_ flag: PhotoFlag) {
-        let target: PhotoFlag = referenceItem?.flag == flag ? .none : flag
+        let target: PhotoFlag = referenceItem?.flag == flag ? .unflagged : flag
         let from = cursorIndex
         mutateTargets("Flag") { $0.flag = target }
         advanceIfNeeded(from: from)
@@ -1591,7 +1373,9 @@ final class AppState: ObservableObject {
     }
 
     func setLabel(_ label: ColorLabel) {
-        let target: ColorLabel = referenceItem?.label == label ? .none : label
+        // Pressing a colour that is already set clears it, which is now `nil` rather
+        // than a `.none` case — same gesture, one fewer enum case to mean "no value".
+        let target: ColorLabel? = referenceItem?.label == label ? nil : label
         let from = cursorIndex
         mutateTargets("Label") { $0.label = target }
         advanceIfNeeded(from: from)
