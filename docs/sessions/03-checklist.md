@@ -1,5 +1,49 @@
 # Owner session C — the slider round, and the one number that settles it
 
+## MEASURED ON THE OWNER'S MACHINE (A7407753.ARW, 239-photo folder)
+
+Recorded here rather than left in a chat log, because these are the numbers that
+ended a five-round investigation and the next person will want them.
+
+**Reading 1 — the drag that matters**, Basic panel, Exposure 1.28 / Contrast 29 /
+Highlights 72 / Blacks −100:
+
+    in/out       35/s   22fps
+    input→draft  10.5 ms
+    draft         4.1 ms @576
+    after         —
+    settle       16.4 ms @2560
+    tables      240h 373b 220s
+    bake/stale   43/s    0/s
+
+**Reading 2 — the same session a moment later**, taken across four panels without
+dragging, so all four screenshots carry one frozen sample:
+
+    in/out        6/s    2fps
+    input→draft 306.1 ms
+    draft       272.1 ms @576
+    settle       80.5 ms @2560
+    tables      248h 375b 222s
+    bake/stale    2/s    2/s
+
+**What they say.**
+
+1. **The decode fix works.** `draft 4.1 ms` against `draft 457.5 ms` before it — about
+   110×. The 33 MP demosaic is no longer running inside every drag frame.
+2. **The ladder is pinned at its 576 px floor** in both readings, which is the blur that
+   remained. It walked there legitimately during the 457 ms era.
+3. **That build predates `recordSettle`.** A settle of 16.4 ms at 2560 px is less than
+   half the 35 ms budget; with the settle-recovery rule the ladder would have jumped
+   straight back to 2560. It did not, so the build is the one-commit window between the
+   decode fix and the ladder fix.
+4. **The colour-table path is healthy**: 43 bakes a second against ZERO stale serves in
+   reading 1. The third explanation (round 4e — a drag gated by the bake rate) is ruled
+   out on this machine, by measurement rather than by argument.
+5. Reading 2's 272 ms at 576 px is not steady state: it is a cold decode at a rung just
+   arrived at, or contention while panels and thumbnails load. `isRepresentative` is
+   what keeps the ladder from learning from exactly that frame.
+
+
 Third report of the same thing: "it's still not smooth … one by one, like tick by tick."
 Two rounds of fixes before this one were real defects that were not the cause. This
 round measured instead of reasoning, ruled three expensive fixes OUT, and fixed two
