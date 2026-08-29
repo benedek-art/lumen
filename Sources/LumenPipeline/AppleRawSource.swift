@@ -128,8 +128,12 @@ public final class AppleRawSource: ImageSource {
     /// keys legitimately differ, all against a single-entry cache, so every one of
     /// them EVICTED the viewer's demosaic and the viewer paid it again on the next
     /// frame. On a 45 MP RAW the demosaic is the whole cost of the interaction. Eight
-    /// entries covers the working set; the values are lazy CIImage recipes, so the
-    /// held cost is filter descriptions, not pixels.
+    /// entries covers the working set.
+    ///
+    /// This used to end "the values are lazy CIImage recipes, so the held cost is filter
+    /// descriptions, not pixels" — which was true, and was the whole defect: a
+    /// description is not a decode, so every hit re-ran the demosaic. The entries are
+    /// pixels now, which is why `evictDecodes` bounds them by bytes as well as by count.
     private static let decodeCacheCapacity = 8
     /// `bytes` is what the entry actually allocated — zero for one still held lazily.
     private var decodeCache: [(key: DecodeKey, image: CIImage, bytes: Int)] = []
@@ -160,67 +164,8 @@ public final class AppleRawSource: ImageSource {
     /// file is that what leaves it is scene-referred and keeps the headroom above
     /// display white — an 8-bit or clamped materialization would throw away the
     /// highlights the entire pipeline exists to protect.
-    private static let materializeContext: CIContext = {
-        var options: [CIContextOption: Any] = [
-            .workingFormat: CIFormat.RGBAh,
-            // Nothing is reused across these renders — each one materializes a
-            // different key exactly once — so an intermediate cache would only hold
-            // megabytes nobody reads.
-            .cacheIntermediates: false,
-        ]
-        if let working = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020) {
-            options[.workingColorSpace] = working
-            options[.outputColorSpace] = working
-        }
-        return CIContext(options: options)
-    }()
-
-    /// Above this, leave the decode lazy.
-    ///
-    /// An export decodes at full resolution, uses the result once, and would gain
-    /// nothing from being held; at 60 MP the buffer would be half a gigabyte. Every
-    /// INTERACTIVE size is below this — the viewer's settle, every rung of
-    /// `DraftLadder`, the mask raster, the 512 px probes — which is the whole working
-    /// set that repeats.
-    private static let materializeLongEdgeLimit = 3072
-
-    /// The decode's pixels and what they weigh, or nil if it should stay lazy.
     private func materialized(_ image: CIImage) -> (image: CIImage, bytes: Int)? {
-        let extent = image.extent
-        guard !extent.isInfinite, extent.width >= 1, extent.height >= 1,
-              Swift.max(extent.width, extent.height)
-                  <= CGFloat(Self.materializeLongEdgeLimit)
-        else { return nil }
-
-        let width = Int(extent.width.rounded())
-        let height = Int(extent.height.rounded())
-        var created: CVPixelBuffer?
-        let attributes: [CFString: Any] = [
-            // An IOSurface-backed buffer stays on the GPU, so the graph that reads it
-            // back does not pay a CPU round trip for the privilege of not re-decoding.
-            kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary,
-        ]
-        guard CVPixelBufferCreate(kCFAllocatorDefault, width, height,
-                                  kCVPixelFormatType_64RGBAHalf,
-                                  attributes as CFDictionary,
-                                  &created) == kCVReturnSuccess,
-              let buffer = created,
-              let working = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)
-        else { return nil }
-
-        Self.materializeContext.render(image, to: buffer, bounds: extent,
-                                       colorSpace: working)
-        // Named explicitly on the way back in, or Core Image assumes sRGB for a pixel
-        // buffer and every value would be re-interpreted through the wrong transfer
-        // function — a silent colour shift on every photograph in the app.
-        let out = CIImage(cvPixelBuffer: buffer, options: [.colorSpace: working])
-        // 8 bytes a pixel: four half-float channels.
-        let bytes = width * height * 8
-        // The buffer starts at the origin; the decode's extent may not. Put the pixels
-        // back where the caller's geometry expects to find them.
-        guard extent.origin != .zero else { return (out, bytes) }
-        return (out.transformed(by: CGAffineTransform(translationX: extent.origin.x,
-                                                     y: extent.origin.y)), bytes)
+        DecodeMaterializer.materialize(image)
     }
 
     public func decode(recipe: Recipe, draft: Bool, scaleFactor: Double = 1.0) -> CIImage? {
@@ -253,11 +198,15 @@ public final class AppleRawSource: ImageSource {
                             colorNR: standIn.chroma,
                             lensProfile: dev.geometry.lens.profile,
                             decoderVersion: resolvedVersion.rawValue)
-        // Core Image is lazy, so the cached value is a recipe rather than pixels — but
-        // it is a recipe bound to the filter's settings AT DECODE TIME, which is why a
-        // hit must match every field the filter reads. The source lives inside an
-        // actor, so there is no window where another caller mutates the filter between
-        // the check and the use.
+        // A hit must match every field the filter reads, because the entry was produced
+        // under the filter's settings AT DECODE TIME. The source lives inside an actor,
+        // so there is no window where another caller mutates the filter between the
+        // check and the use.
+        //
+        // The key mattered even more when the value was a lazy image, since the filter
+        // could have moved on beneath it by the time anyone rendered. It is pixels now,
+        // so a hit is a finished decode rather than a promise to make one — which is the
+        // difference between a drag frame costing 457 ms and costing the graph.
         if let hit = decodeCache.first(where: { $0.key == key })?.image {
             return hit
         }
