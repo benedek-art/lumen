@@ -1460,6 +1460,44 @@ side-by-side exports. **Exit gate: owner prefers or ties Lumen on ≥4 of 5.**
       and captioned them "one frame split in half". They routinely were not, and a whole
       round of diagnosis was built on `draft 10.8 @576` sitting next to `after 399`. The
       `after` line now carries the draft it was actually measured beside.
+- [x] **Round 5f — 4 MB of a constant table copied to the GPU on every frame.**
+      `ColorCube.filter` built a fresh `Data` from its LUT on every call.
+      `DitherStepCube` is 64³ in RGBA floats — 4 MB — and the dither is not
+      export-only: `renderPreview` dithers every frame it shows, so that the loupe does
+      not band where the file will not. At the frame rate a drag produces (~92/s,
+      measured) that is several hundred megabytes a second of transient allocation for
+      a table identical to the one on the previous frame, and a fresh `Data` each time
+      also denies Core Image any chance of reusing the texture behind an upload it
+      already holds.
+      `ColorCube.Baked` holds the bytes, copied once; `DitherStepCube`'s four
+      `static let`s hold it instead of the `LUT3D`. Footprint is unchanged rather than
+      doubled — the `[Float]` is released once the copy is taken.
+      THE BYTES AND NOT THE FILTER, deliberately. A `CIColorCube` is a mutable
+      Objective-C object whose `inputImage` every caller writes, and `ColorCube.filter`
+      is a public static reachable from any thread; `RenderCoordinator` being a serial
+      actor does not cover it, because `PipelineRenderer` has no isolation of its own,
+      export never goes through the coordinator, and pipeline work runs from
+      `Task.detached` workers while `MaskRasterCache` bakes on its own queue. Two
+      overlapping renders on one shared filter would race on `inputImage` and produce a
+      frame of the WRONG PHOTOGRAPH — a picture bug bought with a performance fix.
+      `Baked` holds only `Int` and `Data`, so a `static let` needs no lock and no
+      `@unchecked`; verified by compiling the alternative, which warns under Swift 5
+      strict concurrency and errors under 6.
+      Every plan-owned table still rebuilds per frame by design — finish, colour grade,
+      tone gain, each mask's local curve, the fallback tone cube. Caching one of those
+      would freeze a photographer's edit on screen.
+      **VERIFICATION GAP, stated because it is not small:** every file in
+      `LumenPipeline` is `#if os(macOS)`, so the module compiles EMPTY on Linux and the
+      local suite cannot type-check or run this change — `--filter LumenPipelineTests`
+      executes zero tests. What stands behind it is `swiftc -parse`, the surface checker
+      (mutation-tested against a renamed type), and the macOS lane. The two new golden
+      tests first really run there.
+      Two more instances of the same class found and deliberately NOT changed:
+      `PipelineRenderer.grainPlate` rebuilds three 128×128 tiles and re-runs the CPU
+      noise generator every frame when a grain stock is on (~768 KB, needs a keyed cache
+      rather than a `static let`), and `ditherPlate` rebuilds the constant 8×8 Bayer
+      cell every frame (~1 KB, and the cacheable object is a non-`Sendable` `CIImage`,
+      which is not worth the risk for a kilobyte).
 - [ ] **Deliberately NOT done in round 2: anything else to the render or display path.**
       The display path above is the leading suspect and a `CALayer`-contents or
       Metal-layer plate is the obvious next move — and shipping it now, unverified,

@@ -1801,14 +1801,21 @@ public final class PipelineRenderer {
 /// Static `let`s rather than a cache with a lock: there are four curves in play across
 /// every destination Lumen writes, Swift builds each of these once and only when it is
 /// first read, and an export that never leaves sRGB never bakes the other three.
+///
+/// Held as `ColorCube.Baked` — the table already in Core Image's bytes — and not as the
+/// `LUT3D` it is baked from, which is what makes the `static let` mean anything. Baking
+/// once and then handing the array to `ColorCube.filter` still copied 4 MB into a fresh
+/// `Data` on the way to the GPU on every frame that dithered, and `renderPreview`
+/// dithers every frame it shows. Same footprint as before, not double: the `[Float]` is
+/// released as soon as the copy is taken.
 enum DitherStepCube {
 
-    static let srgb = cube(.srgb)
-    static let gamma22 = cube(.gamma22)
-    static let gamma18 = cube(.gamma18)
-    static let rec709 = cube(.rec709)
+    static let srgb = ColorCube.Baked(cube(.srgb))
+    static let gamma22 = ColorCube.Baked(cube(.gamma22))
+    static let gamma18 = ColorCube.Baked(cube(.gamma18))
+    static let rec709 = ColorCube.Baked(cube(.rec709))
 
-    static func forTransfer(_ transfer: TransferFunction) -> LUT3D {
+    static func forTransfer(_ transfer: TransferFunction) -> ColorCube.Baked {
         switch transfer {
         case .gamma22: return gamma22
         case .gamma18: return gamma18

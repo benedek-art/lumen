@@ -2953,6 +2953,59 @@ final class KernelGoldenTests: XCTestCase {
                        "the dither shifted the tile's mean, so it is a bias not a dither")
     }
 
+    /// The two `ColorCube.filter` entry points are the SAME filter.
+    ///
+    /// This is the guarantee the cached-bytes overload rests on, and no other test in
+    /// this file can see it: both paths set the same dimension and the same bytes on the
+    /// same stock filter, so every golden passes either way and a divergence would show
+    /// up only as a wrong picture in somebody's photographs. Asserted on a table with
+    /// real structure per channel — an identity cube would agree even if the bytes were
+    /// transposed.
+    func testBakedCubeRendersIdenticallyToRebuildingItPerCall() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+        let lut = LUT3D(size: 17) { c in
+            RGB(c.r * c.r, sqrt(c.g), 1 - c.b)
+        }
+        let side = 16
+        let source = ImageBuffer(width: side, height: side) { x, y in
+            RGB(Double(x) / Double(side - 1), Double(y) / Double(side - 1), 0.5)
+        }
+        let input = ciImage(from: source)
+        guard let perCall = ColorCube.filter(lut, image: input),
+              let cached = ColorCube.filter(ColorCube.Baked(lut), image: input),
+              let a = readBack(perCall, width: side, height: side),
+              let b = readBack(cached, width: side, height: side)
+        else { return XCTFail("cube render failed") }
+
+        for y in 0..<side {
+            for x in 0..<side {
+                XCTAssertEqual(a[x, y].maxAbsDifference(b[x, y]), 0,
+                               "the cached cube changed the picture at \(x),\(y)")
+            }
+        }
+    }
+
+    /// The dither's step table is copied once, not once per frame.
+    ///
+    /// The defect this pins was invisible to every other test here, because the picture
+    /// was always right: `ColorCube.filter` rebuilt a fresh 4 MB `Data` from the same
+    /// `static let` table on every call, and `renderPreview` dithers every frame it
+    /// shows. Only the storage identity can tell the fixed version from the broken one,
+    /// so a revert — `forTransfer` handing back a `LUT3D` again — fails here rather than
+    /// in a drag nobody is profiling.
+    func testDitherStepTableIsCopiedOnceAndReusedAcrossFrames() {
+        let first = DitherStepCube.forTransfer(.srgb)
+        let second = DitherStepCube.forTransfer(.srgb)
+        XCTAssertEqual(first.size, 64, "the step table's size is part of its accuracy")
+        XCTAssertEqual(first.data.count, 64 * 64 * 64 * 4 * MemoryLayout<Float>.size)
+        // `Data` compares equal by CONTENT, so equality would pass on two fresh copies
+        // and prove nothing. The shared backing store is the whole claim.
+        let shared = first.data.withUnsafeBytes { a in
+            second.data.withUnsafeBytes { b in a.baseAddress == b.baseAddress }
+        }
+        XCTAssertTrue(shared, "the 4 MB dither table was copied again for this frame")
+    }
+
     /// 16-bit does not band, and paying for a dither there would be noise for nothing.
     func testDitherLeaves16BitAlone() throws {
         try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")

@@ -821,15 +821,67 @@ public enum KernelLibrary {
 
 public enum ColorCube {
 
+    /// A table already converted to the bytes `CIColorCube` wants, so a cube whose
+    /// CONTENTS never change is copied once rather than once per frame.
+    ///
+    /// The memcpy in `filter(_ lut:image:)` below is nothing at the sizes most of this
+    /// graph uses and is not nothing at 64. `DitherStepCube` is 64 cubed in RGBA floats
+    /// — 4 MB — and the dither is not an export-only stage: `renderPreview` dithers
+    /// every frame it shows, draft and settle alike, so that the loupe does not band
+    /// where the delivered file will not. At the frame rate a slider drag produces that
+    /// was several hundred megabytes a second of transient allocation for a table that
+    /// is the same four bytes at a time as it was on the previous frame — and a freshly
+    /// allocated `Data` every frame also denies Core Image any chance of recognising an
+    /// upload it already holds and reusing the texture behind it.
+    ///
+    /// WHY THE BYTES AND NOT THE WHOLE FILTER, which would save the last allocation too.
+    /// A `CIColorCube` is a mutable Objective-C object, and the first thing any caller
+    /// does to one is `setValue(image, forKey: kCIInputImageKey)`. A cached filter is
+    /// therefore shared MUTABLE state, and `ColorCube.filter` is a public static that
+    /// any thread may call. `RenderCoordinator` being a serial actor does not settle it:
+    /// `PipelineRenderer` is a plain `final class` with no isolation of its own, the
+    /// export path does not go through the coordinator at all, and the app runs pipeline
+    /// work off `Task.detached` workers while `MaskRasterCache` bakes on its own
+    /// `DispatchQueue`. Two renders overlapping on one shared filter would race on
+    /// `inputImage`, and the failure that buys is a frame of the wrong photograph — a
+    /// picture bug, produced by a performance fix, which is a bad trade at any speed.
+    ///
+    /// Caching the bytes leaves nothing mutable to share. `Data` is a `Sendable` value
+    /// type and this struct holds nothing else, so a `static let` of one is safe to read
+    /// from anywhere with no lock and no `@unchecked`. What remains per call is an
+    /// object header and three `setValue`s; the 4 MB was the whole of the cost.
+    public struct Baked: Sendable {
+        public let size: Int
+        public let data: Data
+
+        public init(_ lut: LUT3D) {
+            self.size = lut.size
+            self.data = lut.data.withUnsafeBufferPointer { Data(buffer: $0) }
+        }
+    }
+
     /// Wrap a baked table in the stock colour-cube filter. The data layout LUT3D
     /// produces (red fastest, then green, then blue; RGBA floats) is exactly what
     /// Core Image wants, so this is a memcpy and a filter, not a conversion.
+    ///
+    /// This stays the right call for every table the PLAN owns — the finish and
+    /// colour-grade tables, the tone gain cube, a mask's local point curve, the fallback
+    /// tone cube. Every one of those is keyed to the recipe and is rebuilt the moment a
+    /// number moves, so caching one would freeze the photographer's edit on screen,
+    /// which is a far worse defect than the copy it would save. Only a table that is
+    /// invariant for the life of the process takes the overload below.
     public static func filter(_ lut: LUT3D, image: CIImage) -> CIImage? {
-        let data = lut.data.withUnsafeBufferPointer { Data(buffer: $0) }
+        filter(Baked(lut), image: image)
+    }
+
+    /// The same wrap, over bytes that were copied once. Same dimension, same bytes, same
+    /// filter, same place in the graph as `filter(_ lut:image:)` — the only difference is
+    /// that the table is not re-copied.
+    public static func filter(_ cube: Baked, image: CIImage) -> CIImage? {
         guard let filter = CIFilter(name: "CIColorCube") else { return nil }
         filter.setValue(image, forKey: kCIInputImageKey)
-        filter.setValue(lut.size, forKey: "inputCubeDimension")
-        filter.setValue(data, forKey: "inputCubeData")
+        filter.setValue(cube.size, forKey: "inputCubeDimension")
+        filter.setValue(cube.data, forKey: "inputCubeData")
         return filter.outputImage
     }
 }
