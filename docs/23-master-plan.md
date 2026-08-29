@@ -652,7 +652,21 @@ and against Lightroom via owner-exported references.
             WATCH: this is the per-cell `.onHover` docs/28 §5.5 called an unmeasured
             macOS 15 scrolling cost — one owner session settles it, and the
             container-level `onContinuousHover` fallback is written down there
-      **Phases 4-7:**
+      **Phase 5 — one home for colour ⚑ (items 18-19 only; 17 needs the workspaces):**
+      - [x] four cramped 68 pt grading wheels become ONE 150 pt wheel under a
+            Shadows/Midtones/Highlights/Global segmented control. `LumenSegmented`
+            gained `marked`, so each zone holding a grade wears the accent dot and
+            one-at-a-time does not cost the at-a-glance "what did I change?"
+      - [x] picker-first mixer: `ColorEngine.dominantBand` in LumenCore (11 Linux
+            tests) answers which band owns a sampled colour, as the argmax of the same
+            membership vector the pixel loop uses — so a widened Blue claims the hues
+            it actually grades, and a near-grey returns nil instead of a random band.
+            New `PickTarget.mixerBand`; the eyedropper is the mixer's first control
+      - [x] cost accepted and written down: `selectedBand`/`allBands` moved from
+            ColorPanel `@State` to AppState (the pick resolves on the render actor and
+            must write where the panel sees it), so a band CLICK now publishes
+      - [ ] item 17, Colour and Grading adjacent — needs Phase 4's workspaces
+      **Phases 4, 6, 7:**
       four workspaces and accordions ⚑ · one home for colour ⚑ · speed (arithmetic
       entry, scrubby readout, ⌘K palette, Speed Edit D44) · focus + the owed keymap
       reconciliation. **Phase 4 is gated on the slider-smoothness verification** — it

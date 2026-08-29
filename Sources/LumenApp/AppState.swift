@@ -91,6 +91,9 @@ enum PickTarget: Equatable, Sendable {
     case neutral
     /// Append a Point Colour swatch carrying the clicked colour.
     case newPointColor
+    /// Select the mixer band that owns the clicked colour (docs/28 Phase 5). Writes no
+    /// recipe: it moves the panel's selection to the band already grading that hue.
+    case mixerBand
     /// Re-sample an existing swatch.
     case pointColor(index: Int)
     /// Add a sample to a Colour Range or Similarity mask component.
@@ -109,7 +112,10 @@ enum PickTarget: Equatable, Sendable {
     var samplesTheMaskStage: Bool {
         switch self {
         case .maskSample, .maskPointColor: return true
-        case .neutral, .newPointColor, .pointColor: return false
+        // `.mixerBand` reads the same tap as the global Point Colour, and for the same
+        // reason: the mixer is evaluated inside the S9/S10 table, so the hue that
+        // decides which band owns a pixel has to be the hue that table sees.
+        case .neutral, .newPointColor, .pointColor, .mixerBand: return false
         }
     }
 
@@ -118,6 +124,7 @@ enum PickTarget: Equatable, Sendable {
         switch self {
         case .neutral: return "Click something neutral grey in the picture."
         case .newPointColor, .pointColor: return "Click the colour to work on."
+        case .mixerBand: return "Click a colour — its band selects itself."
         case .maskSample: return "Click the colour this mask should select."
         case .maskPointColor: return "Click the colour to work on inside this mask."
         }
@@ -944,6 +951,19 @@ final class AppState: ObservableObject {
     /// the same click and the same coordinate inverse, and four booleans would be four
     /// chances for two of them to be true at once.
     @Published var pickTarget: PickTarget?
+
+    /// Which mixer band the Colour panel is editing, and whether it is editing all
+    /// eight at once.
+    ///
+    /// These were `@State` inside `ColorPanel` and they moved here for one reason: the
+    /// eyedropper resolves on the render actor and has to write the answer somewhere the
+    /// panel will see. That is a real cost — a band click now publishes, and a publish
+    /// re-bodies the window — and it is affordable precisely because it is a CLICK.
+    /// `CommandState` exists to keep per-mouse-event work off this path; one publish per
+    /// deliberate selection is what that budget was protecting.
+    @Published var mixerBand: Int = 0
+    @Published var mixerAllBands: Bool = false
+
     /// Which mask the loupe is showing as an overlay, if any. Setting it rasterizes
     /// that mask's alpha.
     @Published var soloMaskOverlay: String? {
@@ -2368,7 +2388,7 @@ final class AppState: ObservableObject {
                 statusMessage = String(format: "Neutral picked — %.0f K, tint %.0f",
                                        solved.kelvin, solved.tint)
 
-            case .newPointColor, .pointColor, .maskSample, .maskPointColor:
+            case .newPointColor, .pointColor, .maskSample, .maskPointColor, .mixerBand:
                 // WHICH TAP depends on what will compare against the stored value.
                 // A mask's samples are compared by `colorRangePlane` and
                 // `similarityPlane` against `localStageInput` — after tone, after the
@@ -2394,6 +2414,26 @@ final class AppState: ObservableObject {
                 }
                 let rgb = [sample.r, sample.g, sample.b]
                 switch target {
+                case .mixerBand:
+                    // The only pick that writes no recipe. It answers "which of eight
+                    // bands is this colour?" — a question the photographer previously
+                    // had to answer from memory before the three sliders meant
+                    // anything — and moves the panel's selection there.
+                    //
+                    // Through `ColorEngine.dominantBand`, which reads the LIVE arcs off
+                    // the recipe rather than the canonical geometry: the ring's handles
+                    // are draggable, so a widened Blue really does own hues that the
+                    // default geometry gives to Aqua, and selecting from the centres
+                    // would contradict the ring on screen.
+                    let arcs = ColorEngine.bandArcs(current.develop.mixer.bands)
+                    guard let band = ColorEngine.dominantBand(for: sample, arcs: arcs) else {
+                        statusMessage = "No colour to work on there — that pixel is grey."
+                        return
+                    }
+                    mixerBand = band
+                    mixerAllBands = false
+                    statusMessage = "\(ColorEngine.bandNames[band]) selected."
+                    return
                 case .newPointColor:
                     updateRecipe { recipe in
                         guard recipe.develop.pointColors.count < 8 else { return }

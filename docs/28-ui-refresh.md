@@ -756,6 +756,49 @@ for five eleven-point targets. Three things kept it honest:
 18. One large wheel + `Shadows · Midtones · Highlights · Global` segmented.
 19. Picker-first mixer: eyedropper promoted to the primary control, band auto-selects.
 
+**Items 18 and 19 shipped ahead of item 17**, because they do not need the workspaces.
+Item 17 is adjacency inside the Grade workspace and therefore waits on Phase 4, which
+waits on the slider verification; 18 and 19 are the Look and Colour panels' own
+interiors, and they are the half of this phase that answers "going through functionality
+for the grading like the colours and stuff is hard to understand and overall clunky".
+Neither raises per-event cost — one wheel in scope is strictly less than four.
+
+**Item 18 — one wheel, at more than twice the diameter.** Four 68 pt wheels in a 320 pt
+column, in a 2×2 grid with no cue about which zone you were in. A puck is placed by eye
+at a radius, so half the radius is half the precision for the same hand movement; that
+is the mechanical half of "clunky". Now a `Shadows · Midtones · Highlights · Global`
+segmented control over one 150 pt wheel. What one-at-a-time costs is the at-a-glance
+answer to "what did I change?", which this app is built to answer down a whole panel — so
+`LumenSegmented` gained a `marked` set and each zone holding a grade wears the accent dot,
+the same mark a modified section header wears. The dot test is `sat != 0 || lum != 0`,
+identical to `isNeutral`'s, so a lit dot and a lit section header cannot disagree; hue
+alone is deliberately not enough, because a hue with no saturation grades nothing and
+marking it would report a change the picture cannot show.
+
+**Item 19 — the picker is the primary control, and the engine already knew the answer.**
+Using the mixer began with a question the panel would not answer: which of Red, Orange,
+Yellow, Green, Aqua, Blue, Purple, Magenta owns the colour you want to change? A
+photographer knows the sky and the skin; nobody knows which 45° arc of OKLCh they fall
+in, and guessing wrong means three sliders that appear to do nothing — the Density lesson
+again, arriving through the user's mental model instead of through a disabled control.
+
+The answer lives in **LumenCore**, where Linux tests can reach it:
+`ColorEngine.dominantBand` is the argmax of the same membership vector the pixel loop
+uses. Reading `bandWeights` rather than comparing against `bandHueCentres` is the whole
+design — the ring's handles are draggable, so a widened Blue really does own hues the
+default geometry gives to Aqua, and an answer derived from the centres would contradict
+the ring on screen. `DominantBandTests` pins that (11 tests), including the reshaped-ring
+case and the refusal: a near-grey returns nil rather than a random band, because below
+the chroma gate a hue angle is noise and selecting from it would put three sliders in
+front of a decision nobody made.
+
+One cost, stated: `selectedBand` and `allBands` moved from `ColorPanel`'s `@State` to
+`AppState`, because the pick resolves on the render actor and has to write its answer
+somewhere the panel will see. A band click now publishes and re-bodies the window. That
+is affordable precisely because it is a *click* — `CommandState` exists to keep per-mouse-
+event work off this path, and one publish per deliberate selection is what that budget
+was protecting.
+
 ### Phase 6 — Speed
 
 20. **Arithmetic typed entry** (`+0.3`, `*2`) — parser in **LumenCore**, Linux-tested.

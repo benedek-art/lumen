@@ -647,6 +647,14 @@ struct LumenSectionHeader: View {
 struct LumenSegmented<T: Hashable>: View {
     let options: [(value: T, label: String)]
     @Binding var selection: T
+    /// Values whose segment carries something — drawn as the accent dot, the same mark
+    /// a modified section header wears.
+    ///
+    /// A segmented control that shows one thing at a time hides the other three, and
+    /// "what did I change?" is the question this app is built to answer down a whole
+    /// panel at a glance. Without the dots, four grading wheels behind one control mean
+    /// four clicks to find out whether you touched the shadows.
+    var marked: Set<T> = []
 
     var body: some View {
         HStack(spacing: 1) {
@@ -654,14 +662,21 @@ struct LumenSegmented<T: Hashable>: View {
                 Button {
                     selection = option.value
                 } label: {
-                    Text(option.label)
-                        .font(.system(size: 10))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 3)
-                        .background(selection == option.value
-                                    ? Lumen.fillColor.opacity(0.35) : Lumen.controlBackground)
-                        .foregroundStyle(selection == option.value
-                                         ? Lumen.primaryText : Lumen.secondaryText)
+                    HStack(spacing: 3) {
+                        Text(option.label)
+                            .font(.system(size: 10))
+                        if marked.contains(option.value) {
+                            Circle()
+                                .fill(Lumen.accent)
+                                .frame(width: 4, height: 4)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 3)
+                    .background(selection == option.value
+                                ? Lumen.fillColor.opacity(0.35) : Lumen.controlBackground)
+                    .foregroundStyle(selection == option.value
+                                     ? Lumen.primaryText : Lumen.secondaryText)
                 }
                 .buttonStyle(.plain)
             }
@@ -676,10 +691,17 @@ struct LumenSegmented<T: Hashable>: View {
 /// bar under it. The pivot pickers that make Lumen's wheels different from LR's live
 /// in the panel, not here — this is only the puck.
 struct LumenColorWheel: View {
+    /// Empty draws no caption — which is what the grade's single large wheel wants,
+    /// since the segmented control above it already names the zone.
     let title: String
     @Binding var hue: Double        // 0…360
     @Binding var sat: Double        // 0…1
     @Binding var lum: Double        // −1…+1
+    /// 68 is the four-up size. The grade's single wheel asks for 150: a puck is placed
+    /// by eye at a radius, and half the radius is half the precision for the same hand
+    /// movement — four wheels this small was the reason grading felt fiddly rather than
+    /// the reason it felt complete.
+    var diameter: CGFloat = 68
     var onEditingChanged: ((Bool) -> Void)?
     /// Injected once at the root (ContentView) and fired by EVERY slider in the app —
     /// which is the point: `onEditingChanged` sat unconsumed for the app's whole life
@@ -693,8 +715,6 @@ struct LumenColorWheel: View {
     /// count off the AppKit event at press time instead.
     @State private var dragActive = false
     @State private var pressWasReset = false
-
-    private let diameter: CGFloat = 68
 
     var body: some View {
         VStack(spacing: 4) {
@@ -749,9 +769,11 @@ struct LumenColorWheel: View {
                     }
             )
 
-            Text(title)
-                .font(.system(size: 9))
-                .foregroundStyle(Lumen.secondaryText)
+            if !title.isEmpty {
+                Text(title)
+                    .font(.system(size: 10))
+                    .foregroundStyle(Lumen.secondaryText)
+            }
 
             LumenSlider(title: "", value: $lum, range: -1...1, defaultValue: 0,
                         step: 0.01, decimals: 2,

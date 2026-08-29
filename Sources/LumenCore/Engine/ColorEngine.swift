@@ -549,6 +549,48 @@ public struct ColorEngine: Sendable {
         return 1 - Num.raisedCosine(Num.saturate(distance / extent))
     }
 
+    // MARK: - Which band owns a colour (docs/28 Phase 5, the picker-first mixer)
+
+    /// The band a hue reads as: the one whose membership at that hue is largest.
+    ///
+    /// The engine grades every hue through ALL eight bands — that is what the partition
+    /// of unity is for — so "which band is this orange" is a question about what the
+    /// photographer should reach for, not about what the maths does, and the honest
+    /// answer is the band carrying most of the weight. Asking `bandWeights` rather than
+    /// comparing against `bandHueCentres` is the point: the arcs are draggable, so a
+    /// widened Blue really does own a hue that the default geometry gives to Aqua, and
+    /// an answer derived from the centres would contradict the ring the user drew.
+    ///
+    /// Ties go to the lower index, which is only reachable at an exact midpoint between
+    /// two equally-shaped neighbours; determinism matters more there than the choice.
+    public static func dominantBand(hue: Double, arcs: [BandArc]) -> Int {
+        let w = bandWeights(hue: hue, arcs: arcs)
+        var best = 0
+        var bestWeight = -Double.infinity
+        for i in 0..<bandCount where w[i] > bestWeight {
+            bestWeight = w[i]
+            best = i
+        }
+        return best
+    }
+
+    /// The band a sampled COLOUR reads as, or nil when it has no colour to read.
+    ///
+    /// Near-greys are the reason this is optional. Below the chroma gate a pixel's hue
+    /// angle is numerical noise — the same noise `skinWeight` refuses to act on — so
+    /// selecting a band from it would be selecting at random and then showing the
+    /// photographer three sliders for a decision nobody made. "There is no colour there"
+    /// is a true answer and a cheap one to say.
+    public static func dominantBand(
+        for colour: RGB,
+        arcs: [BandArc],
+        context: OKLabTransform.Context = OKLabTransform.working) -> Int? {
+        guard colour.isFinite else { return nil }
+        let lch = context.toLCh(colour)
+        guard lch.C.isFinite, lch.h.isFinite, chromaGate(lch.C) > 0 else { return nil }
+        return dominantBand(hue: lch.h, arcs: arcs)
+    }
+
     /// Chroma gate. Multiplies adjustment magnitude, never membership.
     public static func chromaGate(_ chroma: Double) -> Double {
         Num.smoothstep(gateLoChroma, gateHiChroma, chroma)

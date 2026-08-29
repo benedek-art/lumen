@@ -26,8 +26,11 @@ struct LookPanel: View {
     @EnvironmentObject var edits: EditRevision
 
     @State private var wheelsExpanded: Bool = true
-    /// Closed by default: the four wheels are the first-second surface, and the grid is
-    /// for the second pass. It is a disclosure of the grade, not a second grading tool
+    /// Which zone the single large wheel is grading. View state and nothing else — the
+    /// recipe holds all four grades whichever one is on screen.
+    @State private var gradeZone: GradeZone = .shadows
+    /// Closed by default: the wheel is the first-second surface, and the grid is for
+    /// the second pass. It is a disclosure of the grade, not a second grading tool
     /// (D3) — which is why it lives inside `wheelsSection` rather than beside it.
     @State private var balanceExpanded: Bool = false
     @State private var printerExpanded: Bool = true
@@ -44,6 +47,29 @@ struct LookPanel: View {
     /// i.e. −9 EV … +5 EV (ZoneWindows' defaults). Balance is denominated in EV, so the
     /// handle geometry needs the span to convert.
     static let axisSpanEV: Double = 14.0
+
+    /// The four grades, in the order the tonal axis puts them.
+    ///
+    /// Global sits last rather than first even though it applies everywhere, because
+    /// the strip above reads dark→light and a segment that breaks that order would make
+    /// the control stop being a picture of the axis.
+    enum GradeZone: String, CaseIterable, Hashable {
+        case shadows = "Shadows"
+        case mid = "Midtones"
+        case high = "Highlights"
+        case global = "Global"
+
+        var title: String { rawValue }
+
+        var path: WritableKeyPath<GradingWheels, Wheel> {
+            switch self {
+            case .shadows: return \GradingWheels.shadows
+            case .mid: return \GradingWheels.mid
+            case .high: return \GradingWheels.high
+            case .global: return \GradingWheels.global
+            }
+        }
+    }
 
     // MARK: - Body
 
@@ -215,17 +241,30 @@ struct LookPanel: View {
                                 })
 
                 caption("Shadows, midtones and highlights, drawn. Drag a pivot to say "
-                        + "where a zone starts — the wheels below grade exactly what "
+                        + "where a zone starts — the wheel below grades exactly what "
                         + "the strip shows.")
 
-                HStack(alignment: .top, spacing: 6) {
-                    wheel("Shadows", path: \GradingWheels.shadows)
-                    wheel("Midtones", path: \GradingWheels.mid)
-                }
-                HStack(alignment: .top, spacing: 6) {
-                    wheel("Highlights", path: \GradingWheels.high)
-                    wheel("Global", path: \GradingWheels.global)
-                }
+                // ONE wheel at a time, at more than twice the diameter (docs/28 Phase 5).
+                //
+                // Four 68-point wheels in a 320-point column was the "clunky" the owner
+                // named: a puck is placed by eye at a radius, so half the radius is half
+                // the precision for the same hand movement, and a 2×2 grid of them gives
+                // no cue about which zone you are working — you read four captions and
+                // count. Lightroom's grading is the most learnable in the field for
+                // exactly this reason: one instrument, one meaning, fixed in place.
+                //
+                // What showing one at a time costs is the at-a-glance answer to "what
+                // did I change?", which this app is built to answer down a whole panel.
+                // So the segmented control carries the accent dot per zone — the same
+                // mark a modified section header wears — and the answer stays one look
+                // rather than four clicks.
+                LumenSegmented(options: GradeZone.allCases.map {
+                                   (value: $0, label: $0.rawValue)
+                               },
+                               selection: $gradeZone,
+                               marked: touchedZones(wheels))
+                wheel(gradeZone.title, path: gradeZone.path, diameter: 150)
+                    .frame(maxWidth: .infinity)
 
                 LumenSlider(title: "Blending",
                             value: bindLook(\Look.wheels.blending, key: "wheels.blending"),
@@ -236,8 +275,8 @@ struct LookPanel: View {
                             range: -100...100, defaultValue: 0, step: 1, decimals: 0)
 
                 caption("Blending widens the crossfades, Balance slides both pivots. "
-                        + "Wheel tints are constant-luminance; the bar under each wheel "
-                        + "is the zone's own lightness.")
+                        + "Wheel tints are constant-luminance; the bar under the wheel "
+                        + "is the selected zone's own lightness.")
 
                 colorBalanceDisclosure
             }
@@ -305,7 +344,7 @@ struct LookPanel: View {
 
                 caption("The grid grades the same three zones the strip above draws, "
                         + "measured on this stage's input — so opening this disclosure "
-                        + "never moves the zones the wheels are already working in.")
+                        + "never moves the zones the wheel is already working in.")
             }
         }
     }
@@ -364,11 +403,32 @@ struct LookPanel: View {
             || abs(axis.mid) > limit || abs(axis.high) > limit
     }
 
-    private func wheel(_ title: String, path: WritableKeyPath<GradingWheels, Wheel>) -> some View {
-        LumenColorWheel(title: title,
+    private func wheel(_ title: String, path: WritableKeyPath<GradingWheels, Wheel>,
+                       diameter: CGFloat = 68) -> some View {
+        // The caption is empty on the big wheel — the segmented control above already
+        // names the zone — but the COALESCING KEYS still carry the title, because they
+        // are what makes one drag one undo step and they must not collide between
+        // zones. That is why `title` is passed even when nothing draws it.
+        LumenColorWheel(title: "",
                         hue: bindWheel(path, \Wheel.hue, key: "wheel.\(title).hue"),
                         sat: bindWheel(path, \Wheel.sat, key: "wheel.\(title).sat"),
-                        lum: bindWheel(path, \Wheel.lum, key: "wheel.\(title).lum"))
+                        lum: bindWheel(path, \Wheel.lum, key: "wheel.\(title).lum"),
+                        diameter: diameter)
+    }
+
+    /// Which zones hold a grade, for the segmented control's dots.
+    ///
+    /// `sat == 0 && lum == 0` is the same test `isNeutral` uses for the section's own
+    /// marker, so a lit dot and a lit section header can never disagree. Hue alone is
+    /// deliberately not enough: a hue with no saturation grades nothing, and marking it
+    /// would report a change the picture cannot show.
+    private func touchedZones(_ wheels: GradingWheels) -> Set<GradeZone> {
+        var lit: Set<GradeZone> = []
+        for zone in GradeZone.allCases {
+            let w = wheels[keyPath: zone.path]
+            if w.sat != 0 || w.lum != 0 { lit.insert(zone) }
+        }
+        return lit
     }
 
     private func movePivot(_ index: Int, to position: Double) {

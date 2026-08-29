@@ -40,8 +40,11 @@ struct ColorPanel: View {
     /// `AppState.recipes` is deliberately not published (see `EditRevision`).
     @EnvironmentObject var edits: EditRevision
 
-    @State private var selectedBand: Int = 0
-    @State private var allBands: Bool = false
+    // Band selection lives on `AppState`, not here, because the eyedropper resolves on
+    // the render actor and has to write its answer somewhere this panel will see it.
+    // See `AppState.mixerBand` for what that costs and why it is affordable.
+    private var selectedBand: Int { state.mixerBand }
+    private var allBands: Bool { state.mixerAllBands }
     @State private var selectedSwatch: Int = 0
     @State private var mixerExpanded: Bool = true
     @State private var pointExpanded: Bool = true
@@ -87,10 +90,25 @@ struct ColorPanel: View {
                                onReset: { state.updateRecipe { $0.develop.mixer = Mixer() } })
 
             if mixerExpanded {
-                LumenSegmented(options: [(value: false, label: "Band"),
-                                         (value: true, label: "All bands")],
-                               selection: $allBands)
-                    .padding(.vertical, 2)
+                // PICKER FIRST (docs/28 Phase 5). Before this row, using the mixer began
+                // with a question the panel would not answer: which of Red, Orange,
+                // Yellow, Green, Aqua, Blue, Purple and Magenta owns the colour you want
+                // to change? A photographer knows the sky and the skin; nobody knows
+                // which 45° arc of OKLCh they fall in, and guessing wrong means three
+                // sliders that appear to do nothing. Capture One's most-praised colour
+                // idea is that you eyedrop the colour and the band selects itself, and
+                // the engine can already answer it — `ColorEngine.dominantBand` is the
+                // argmax of the same membership vector the pixel loop uses.
+                HStack(spacing: 6) {
+                    pickBandButton
+                    Spacer(minLength: 8)
+                    LumenSegmented(options: [(value: false, label: "Band"),
+                                             (value: true, label: "All bands")],
+                                   selection: Binding(get: { state.mixerAllBands },
+                                                      set: { state.mixerAllBands = $0 }))
+                        .frame(width: 150)
+                }
+                .padding(.vertical, 2)
 
                 bandSwatches(bands)
 
@@ -232,8 +250,8 @@ struct ColorPanel: View {
                 let touched = index < bands.count
                     && (bands[index].hue != 0 || bands[index].sat != 0 || bands[index].lum != 0)
                 Button {
-                    allBands = false
-                    selectedBand = index
+                    state.mixerAllBands = false
+                    state.mixerBand = index
                 } label: {
                     ZStack(alignment: .topTrailing) {
                         RoundedRectangle(cornerRadius: 3)
@@ -344,6 +362,36 @@ struct ColorPanel: View {
         guard state.currentRecipe.develop.pointColors.count < ColorPanel.maxSwatches
         else { return }
         state.beginPick(.newPointColor)
+    }
+
+    /// The mixer's eyedropper. Armed, it reads as armed — pressing it again disarms
+    /// rather than stacking a second pick, which is the same contract the white-balance
+    /// picker in BasicPanel already has.
+    private var pickBandButton: some View {
+        let armed = state.pickTarget == .mixerBand
+        return Button {
+            if armed {
+                state.cancelPick()
+            } else {
+                state.beginPick(.mixerBand)
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "eyedropper")
+                    .font(.system(size: 10))
+                Text(armed ? "Click a colour" : "Pick a colour")
+                    .font(.system(size: 10))
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .foregroundStyle(armed ? Lumen.primaryText : Lumen.secondaryText)
+            .background(armed ? Lumen.fillColor.opacity(0.35) : Lumen.controlBackground)
+            .clipShape(RoundedRectangle(cornerRadius: 4))
+        }
+        .buttonStyle(.plain)
+        .disabled(state.primarySelection == nil)
+        .help("Click a colour in the photograph and the band grading it selects itself")
     }
 
     private func removeSwatch() {
