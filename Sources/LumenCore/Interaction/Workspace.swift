@@ -382,9 +382,21 @@ public struct WorkspaceLayout: Equatable, Sendable {
     /// first in practice, white balance demoted below it because most frames' as-shot
     /// neutral is close and the row is a correction, not an opening move". The rail's
     /// order stays canonical; what is *open* on launch follows the hand.
-    public static let initial = WorkspaceLayout(workspace: .initial,
-                                                register: .initial,
-                                                expanded: [.tone])
+    /// EVERY SIMPLE SECTION OF THE OPENING WORKSPACE, not one of them.
+    ///
+    /// It was `[.tone]` while a click SOLOED, where opening one section closed another
+    /// and starting with more than one would have been a state the photographer could
+    /// not get back to. A plain click now toggles only what it names, so the opening
+    /// state is free to be the useful one — and Develop's three Simple sections are
+    /// White Balance, Tone and Presence, which is a first pass.
+    ///
+    /// A column that opens with one section of six visible reads as mostly empty, and
+    /// the fix for that should not be a photographer clicking twice before they can
+    /// start.
+    public static let initial = WorkspaceLayout(
+        workspace: .initial,
+        register: .initial,
+        expanded: Set(Workspace.initial.sections.filter(\.isInSimpleRegister)))
 
     // MARK: What to draw
 

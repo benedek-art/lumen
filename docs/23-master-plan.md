@@ -763,6 +763,13 @@ and against Lightroom via owner-exported references.
             "floating/docked via a key, available in any workspace"
       - [x] no keys assigned: `1`-`4` for the workspaces collides with the rating
             grammar, and that is item 30's pass, not this one's
+      - [x] SOLO INVERTED, on owner feedback minutes after the build went up: "can we
+            make it so that I can open all of the chevrons at the same time instead of
+            having to only open one at a time." A plain click now toggles only what it
+            names and ⌥ solos. Lightroom does the same — Solo Mode is opt-in there.
+            `SectionExpansion` expressed both all along, so this changed a default and
+            not a rule; the opening state became every Simple section of Develop, which
+            was one only because under solo a second open section was unreachable
       - [x] items 13-16, the UI half. The gate opened: the owner verified the drag
             on the round-5 build ("this is a whole lot better ... it's pretty
             solid"), and answered item 30's keymap question in the same breath.

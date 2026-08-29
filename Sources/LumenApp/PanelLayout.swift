@@ -71,8 +71,29 @@ final class PanelLayout: ObservableObject {
         commit(next)
     }
 
-    /// A section header was clicked. `keepingOthersOpen` is ⌥, and the rule it feeds is
-    /// `SectionExpansion.afterClick` in LumenCore.
+    /// A HEADER WAS CLICKED, and this is the one place that decides what a click means.
+    ///
+    /// A plain click toggles ONLY the section clicked; ⌥ solos it, closing the rest of
+    /// that workspace's stack. It shipped the other way round for one build and the
+    /// owner asked for this within minutes of using it: "can we make it so that I can
+    /// open all of the chevrons at the same time instead of having to only open one at a
+    /// time."
+    ///
+    /// He is right, and Lightroom agrees: its panels collapse independently and Solo
+    /// Mode is an opt-in you turn on deliberately. Solo defends the scroll length of a
+    /// long column, which is a cost the photographer can see and judge for themselves —
+    /// and paying it by default means every second click is undoing the first one. The
+    /// expansion set persists (`develop.expanded`), so opening what you want is a thing
+    /// you do once rather than every session.
+    ///
+    /// Both behaviours still exist, because `SectionExpansion.afterClick` in LumenCore
+    /// expresses both and always did. This inverted a default, not a rule.
+    func headerClicked(_ section: WorkspaceSection, optionHeld: Bool) {
+        click(section, keepingOthersOpen: !optionHeld)
+    }
+
+    /// The rule underneath, taking the model's own vocabulary rather than the modifier's
+    /// — `SectionExpansion.afterClick` in LumenCore holds it and its tests.
     func click(_ section: WorkspaceSection, keepingOthersOpen: Bool) {
         var next = layout
         next.click(section, keepingOthersOpen: keepingOthersOpen)

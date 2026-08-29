@@ -860,7 +860,7 @@ struct LumenSectionHeader: View {
     /// louder than the heading above it.
     var topRhythm: CGFloat = 16
 
-    /// TAKES THE CLICK INSTEAD OF THE BINDING, and is told whether ⌥ was down.
+    /// TAKES THE CLICK INSTEAD OF THE BINDING, and reports whether ⌥ was down.
     ///
     /// A `Binding<Bool>` can express "this section is open" and cannot express what an
     /// accordion needs, which is that opening one section closes its siblings unless a
@@ -876,7 +876,11 @@ struct LumenSectionHeader: View {
     /// in, the same way `LumenSlider` reads ⇧ for its fine drag: SwiftUI's tap gestures
     /// do not report modifiers, and threading a monitor through every header to learn
     /// one bit would cost more than reading it costs.
-    var onToggle: ((_ keepingOthersOpen: Bool) -> Void)?
+    /// The flag is the MODIFIER, not a policy. It said `keepingOthersOpen`, which made
+    /// this header assert what ⌥ means for an accordion it knows nothing about — and
+    /// when that policy inverted, the name became a lie in a file that had no reason to
+    /// care. A header reports what the hand did; the column decides what it meant.
+    var onToggle: ((_ optionHeld: Bool) -> Void)?
 
     private static var optionIsDown: Bool {
         NSEvent.modifierFlags.contains(.option)

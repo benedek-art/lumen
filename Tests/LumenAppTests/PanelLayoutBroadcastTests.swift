@@ -215,4 +215,70 @@ final class PanelLayoutBroadcastTests: XCTestCase {
         XCTAssertTrue(panel.layout.expanded.contains(.tone))
     }
 }
+
+extension PanelLayoutBroadcastTests {
+
+    // MARK: - What a header click means
+
+    /// THE DEFAULT THE OWNER ASKED FOR, within minutes of using the other one: "can we
+    /// make it so that I can open all of the chevrons at the same time instead of having
+    /// to only open one at a time."
+    ///
+    /// A plain click toggles only the section clicked. Lightroom agrees — its panels
+    /// collapse independently and Solo Mode is an opt-in you turn on deliberately. Solo
+    /// defends the scroll length of a long column, which is a cost a photographer can
+    /// see and judge; paying it by default means every second click undoes the first.
+    func testAPlainClickLeavesTheOtherSectionsAlone() {
+        let panel = layout(WorkspaceLayout(workspace: .develop, expanded: [.tone]))
+
+        panel.headerClicked(.presence, optionHeld: false)
+
+        XCTAssertEqual(panel.layout.expanded, [.tone, .presence],
+                       "opening one section must not close another")
+    }
+
+    /// Three in a row, because "all of the chevrons at the same time" is the ask and one
+    /// extra section is not it.
+    func testEverySectionInAWorkspaceCanBeOpenAtOnce() {
+        let panel = layout(WorkspaceLayout(workspace: .develop, register: .full))
+        let sections = Workspace.develop.sections
+        for section in sections {
+            panel.headerClicked(section, optionHeld: false)
+        }
+        XCTAssertEqual(panel.layout.expanded, Set(sections),
+                       "every section of a workspace must be able to be open together")
+    }
+
+    /// A plain click on an OPEN section still closes it — the toggle has to go both
+    /// ways, or the accordion becomes one-way and the column only ever grows.
+    func testAPlainClickOnAnOpenSectionClosesIt() {
+        let panel = layout(WorkspaceLayout(workspace: .develop,
+                                           expanded: [.tone, .presence]))
+        panel.headerClicked(.tone, optionHeld: false)
+        XCTAssertEqual(panel.layout.expanded, [.presence])
+    }
+
+    /// ⌥ still solos, because the rule was always able to express both and inverting a
+    /// default should not delete a behaviour.
+    func testOptionClickStillSolosTheSection() {
+        let panel = layout(WorkspaceLayout(workspace: .develop,
+                                           register: .full,
+                                           expanded: [.tone, .presence, .curve]))
+        panel.headerClicked(.curve, optionHeld: true)
+        XCTAssertEqual(panel.layout.expanded, [.curve],
+                       "⌥ collapses the rest of that workspace's stack")
+    }
+
+    /// And soloing is still one publish — the whole arrangement is one value however
+    /// many sections it closes.
+    func testSoloingSeveralSectionsIsStillOnePublish() {
+        let panel = layout(WorkspaceLayout(workspace: .develop,
+                                           register: .full,
+                                           expanded: [.tone, .presence, .curve]))
+        var publishes = 0
+        panel.objectWillChange.sink { _ in publishes += 1 }.store(in: &cancellables)
+        panel.headerClicked(.detail, optionHeld: true)
+        XCTAssertEqual(publishes, 1)
+    }
+}
 #endif

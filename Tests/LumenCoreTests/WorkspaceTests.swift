@@ -466,10 +466,21 @@ final class WorkspaceTests: XCTestCase {
                            + "a place you cannot return to")
     }
 
-    func testTheLayoutStartsWithOneSectionOpenInDevelop() {
+    /// THE OPENING STATE IS EVERY SECTION THE SIMPLE REGISTER DRAWS, not one of them.
+    ///
+    /// It was a single section while a click SOLOED: opening more than one would have
+    /// been a state the photographer could not return to, so one was the only honest
+    /// answer. A plain click now toggles only what it names — the owner asked for that
+    /// within minutes of using the alternative — so the opening state is free to be the
+    /// useful one. A column showing one section of six reads as mostly empty, and the
+    /// fix for that should not be two clicks before you can start.
+    func testTheLayoutStartsWithEverySimpleSectionOpenInDevelop() {
         let layout = WorkspaceLayout.initial
         XCTAssertEqual(layout.workspace, .develop)
-        XCTAssertEqual(layout.expandedSections, [.tone])
+        XCTAssertEqual(Set(layout.expandedSections),
+                       Set(Workspace.develop.sections.filter(\.isInSimpleRegister)))
+        XCTAssertEqual(layout.expandedSections, layout.visibleSections,
+                       "nothing the opening column draws should start closed")
         XCTAssertFalse(layout.isMaskDockOpen)
         XCTAssertTrue(layout.showsDevelopColumn)
     }

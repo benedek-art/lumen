@@ -122,8 +122,8 @@ struct WorkspaceSections: View {
                     section: section,
                     isExpanded: panel.layout.expanded.contains(section),
                     isModified: nonDefault.contains(section),
-                    onToggle: { keepingOthersOpen in
-                        panel.click(section, keepingOthersOpen: keepingOthersOpen)
+                    onToggle: { optionHeld in
+                        panel.headerClicked(section, optionHeld: optionHeld)
                     })
             }
             hiddenIndicator

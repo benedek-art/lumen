@@ -775,6 +775,16 @@ tooltip is a row that has to be learned by position, and the owner said he had n
 - **Four panels stopped owning a `ScrollView`.** Colour, Look, Masks and the column
   itself: nested inside the accordion's scroll they are traps, and Look is most of the
   column.
+- **A plain click opens a section and leaves the others alone; ⌥ solos.** This shipped
+  the other way round for one build and the owner asked within minutes of using it: "can
+  we make it so that I can open all of the chevrons at the same time instead of having to
+  only open one at a time." He is right, and Lightroom agrees — its panels collapse
+  independently and Solo Mode is an opt-in you turn on deliberately. Solo defends the
+  scroll length of a long column, which is a cost a photographer can see and judge;
+  paying it by default means every second click undoes the first. `SectionExpansion`
+  expressed both all along, so this inverted a default rather than a rule. The opening
+  state became every section the Simple register draws, which was only ever one because
+  under solo a second open section was a state you could not return to.
 - **Masks became a dock** (item 14), reachable from every workspace, at the top of the
   column when open. It is deliberately not in the expanded set — it does not participate
   in the solo rule and opening it closes nothing. `M`, the switcher's own glyph, or the
