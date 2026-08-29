@@ -91,6 +91,64 @@ enum Lumen {
     static let fillColor = Color(nsColor: NSColor(white: 0.62, alpha: 1))
     static let separator = Color(nsColor: NSColor(white: 0.30, alpha: 1))
 
+    // MARK: Coloured tracks (Law 7's colour-axis exception)
+
+    // Law 7 (docs/00) holds: the chrome is zero-chroma so nothing in the window can
+    // bias a colour judgement about the photograph. docs/28 Phase 2 amends it in
+    // exactly one place — a control's TRACK may carry chroma if and only if that
+    // control's axis IS a colour direction, at no larger a scale than the 4 pt groove.
+    //
+    // The rule that makes the exception safe is that it is narrow. Colour every track
+    // and none of them reads; colour only the axes that are themselves colour, and
+    // every coloured track becomes self-teaching. Adobe and Capture One arrived at the
+    // same discipline independently, and both REFUSE the tonal sliders — Exposure,
+    // Contrast, Highlights, Shadows, Whites, Blacks — for the reason Law 7 exists: a
+    // light-to-dark ramp beside a photograph being judged for exposure is the precise
+    // contamination the law is about. So no tonal control gets stops here, including
+    // the exposure ramp the owner asked for by name. That call is his to overrule, and
+    // if he does, it is one entry in a table and one more sentence in Law 7 — not a
+    // quiet drift.
+    //
+    // Both tables are static constants, never computed in a `body` from recipe values:
+    // a track's colour must not become a reason for a view to observe the edit signal.
+
+    /// Blue below neutral, amber above it, anchored in KELVIN rather than in track
+    /// position — see `LumenTrackStop`. What the anchors buy is that the grey stop
+    /// lands exactly where the mired axis puts 5500 K, which is about 66% along a
+    /// 2000–50000 K track and NOT its midpoint. Stating stops positionally would have
+    /// put neutral in the middle, where the track's own arithmetic says 3000 K is.
+    ///
+    /// The direction is the one every raw editor uses and it is worth saying why, since
+    /// it looks backwards: the slider answers "what colour was the light?", so telling
+    /// it the light was cool (high K) warms the picture. Right is therefore yellow.
+    static let temperatureStops: [LumenTrackStop] = [
+        LumenTrackStop(value: 2000, color: Color(red: 0.36, green: 0.50, blue: 0.80)),
+        LumenTrackStop(value: 3400, color: Color(red: 0.52, green: 0.62, blue: 0.84)),
+        LumenTrackStop(value: 5500, color: Color(red: 0.72, green: 0.72, blue: 0.72)),
+        LumenTrackStop(value: 9000, color: Color(red: 0.86, green: 0.78, blue: 0.54)),
+        LumenTrackStop(value: 50000, color: Color(red: 0.88, green: 0.72, blue: 0.34)),
+    ]
+
+    /// Green to magenta through neutral — the other half of the white balance, and the
+    /// axis perpendicular to Temp's. Linear, so the stops sit where they read.
+    static let tintStops: [LumenTrackStop] = [
+        LumenTrackStop(value: -150, color: Color(red: 0.42, green: 0.72, blue: 0.48)),
+        LumenTrackStop(value: 0, color: Color(red: 0.72, green: 0.72, blue: 0.72)),
+        LumenTrackStop(value: 150, color: Color(red: 0.76, green: 0.48, blue: 0.78)),
+    ]
+
+    /// Dark to light for the bar under each grading wheel, whose range is −1…+1.
+    ///
+    /// Zero chroma, so this one does not engage the amendment's colour clause at all —
+    /// it is a value ramp on a value axis, inside a colour instrument. It stops short of
+    /// black and white because a track that reaches the panel's own extremes stops
+    /// reading as a track.
+    static let wheelLightnessStops: [LumenTrackStop] = [
+        LumenTrackStop(value: -1, color: Color(nsColor: NSColor(white: 0.10, alpha: 1))),
+        LumenTrackStop(value: 0, color: Color(nsColor: NSColor(white: 0.45, alpha: 1))),
+        LumenTrackStop(value: 1, color: Color(nsColor: NSColor(white: 0.88, alpha: 1))),
+    ]
+
     static let rowHeight: CGFloat = 22
     static let panelWidth: CGFloat = 320
     /// Wide enough for the names that exist.
@@ -111,6 +169,21 @@ enum Lumen {
     /// arithmetic corrected.
     static let labelWidth: CGFloat = 94
     static let valueWidth: CGFloat = 52
+}
+
+// MARK: - Coloured track stop
+
+/// One stop on a coloured track, anchored to a VALUE rather than to a position.
+///
+/// The distinction is the whole point. `LumenSlider` owns the value→position map, and
+/// for Temp that map is the mired axis, not Kelvin — so a stop stated as "2000 K is
+/// blue" places itself correctly, while a stop stated as "the left end is blue" would
+/// have to duplicate `SliderTrack`'s arithmetic at the call site and would drift the
+/// first time a range moved. The track converts through the same `fraction(of:)` that
+/// decides where the thumb is drawn, so the gradient and the thumb cannot disagree.
+struct LumenTrackStop {
+    let value: Double
+    let color: Color
 }
 
 // MARK: - Slider
@@ -137,6 +210,17 @@ struct LumenSlider: View {
     /// deviation from neutral in both cases, and a flag was never what distinguished
     /// them.
     var bipolar: Bool = true
+    /// Non-nil turns the groove into the control's own colour axis — see the
+    /// `Lumen.temperatureStops` comment for which controls may have one and why almost
+    /// none of them may.
+    ///
+    /// It also SUPPRESSES the deviation fill, which is not a side effect but the point:
+    /// the fill paints a solid grey capsule from the default to the value, and on a
+    /// tinted row it would paint over exactly the hue information the gradient exists to
+    /// show. On these rows "what did I change?" is carried by the label brightening, the
+    /// numeric readout and the section's accent dot — which is how Lightroom and Capture
+    /// One do it too, for the same reason.
+    var trackStops: [LumenTrackStop]?
     var wand: (() -> Void)?
     var onEditingChanged: ((Bool) -> Void)?
     /// Injected once at the root (ContentView) and fired by EVERY slider in the app —
@@ -173,13 +257,23 @@ struct LumenSlider: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Text(title)
-                .font(.system(size: 11))
-                .foregroundStyle(isModified ? Lumen.primaryText : Lumen.secondaryText)
-                .frame(width: Lumen.labelWidth, alignment: .leading)
-                .lineLimit(1)
-                .onTapGesture(count: 2) { reset() }
-                .help("\(title) — double-click to reset")
+            // An untitled row does not reserve the label column, and that is a fix
+            // rather than a nicety. The grading wheels' lightness bar is a `LumenSlider`
+            // with an empty title inside a 108-point column: reserving 94 for a label
+            // with nothing in it, plus 52 for the readout and two 6-point gaps, asked
+            // for 158 points of a 108-point row and left the track squeezed to nothing.
+            // The caption under the wheels has been promising that "the bar under each
+            // wheel is the zone's own lightness" over a bar too narrow to read. Double
+            // click still resets it — the track's own gesture does that.
+            if !title.isEmpty {
+                Text(title)
+                    .font(.system(size: 11))
+                    .foregroundStyle(isModified ? Lumen.primaryText : Lumen.secondaryText)
+                    .frame(width: Lumen.labelWidth, alignment: .leading)
+                    .lineLimit(1)
+                    .onTapGesture(count: 2) { reset() }
+                    .help("\(title) — double-click to reset")
+            }
 
             track
 
@@ -220,15 +314,36 @@ struct LumenSlider: View {
             let fraction = geometryOfDrag.fraction(of: value)
             let zeroFraction = geometryOfDrag.fraction(of: defaultValue)
             ZStack(alignment: .leading) {
-                // The groove CARVES DOWN into the panel (a well, not a painted-on
-                // stripe): the gradient's darker top edge is the light coming from
-                // above, the same depth cue the histogram well already used.
-                Capsule()
-                    .fill(LinearGradient(
-                        colors: [Color(nsColor: NSColor(white: 0.115, alpha: 1)),
-                                 Lumen.insetWell],
-                        startPoint: .top, endPoint: .bottom))
-                    .frame(height: 4)
+                if let trackStops {
+                    // The groove IS the information on these rows. Stops are placed by
+                    // the same `fraction(of:)` that decides where the thumb is drawn, so
+                    // a mired-axis Temp track puts its neutral where the control puts
+                    // 5500 K rather than at the halfway mark.
+                    Capsule()
+                        .fill(LinearGradient(
+                            stops: trackStops.map {
+                                Gradient.Stop(color: $0.color,
+                                              location: geometryOfDrag.fraction(of: $0.value))
+                            },
+                            startPoint: .leading, endPoint: .trailing))
+                        // The same lit-from-above cue the neutral groove gets, kept so a
+                        // coloured track still reads as carved into the panel rather
+                        // than painted onto it.
+                        .overlay(Capsule().fill(LinearGradient(
+                            colors: [Color.black.opacity(0.30), Color.black.opacity(0)],
+                            startPoint: .top, endPoint: .bottom)))
+                        .frame(height: 4)
+                } else {
+                    // The groove CARVES DOWN into the panel (a well, not a painted-on
+                    // stripe): the gradient's darker top edge is the light coming from
+                    // above, the same depth cue the histogram well already used.
+                    Capsule()
+                        .fill(LinearGradient(
+                            colors: [Color(nsColor: NSColor(white: 0.115, alpha: 1)),
+                                     Lumen.insetWell],
+                            startPoint: .top, endPoint: .bottom))
+                        .frame(height: 4)
+                }
                 // Fill from the default toward the value: the eye reads the deviation,
                 // not the absolute position. Where the fill STARTS is the lower of the
                 // two, always — what decides it is where the default sits, not whether
@@ -241,18 +356,38 @@ struct LumenSlider: View {
                 // old 0.5→0.9 opacity change at ≈1.8:1 against the track — invisible,
                 // in the one place a develop tool must answer "what did I change?"
                 // at a glance.
-                Capsule()
-                    .fill(isModified ? Lumen.sliderFillModified : Lumen.sliderFillRest)
-                    .frame(width: max(abs(fraction - zeroFraction) * width, 1), height: 4)
-                    .offset(x: min(fraction, zeroFraction) * width)
+                //
+                // Not drawn at all on a coloured track: see `trackStops`.
+                if trackStops == nil {
+                    Capsule()
+                        .fill(isModified ? Lumen.sliderFillModified : Lumen.sliderFillRest)
+                        .frame(width: max(abs(fraction - zeroFraction) * width, 1), height: 4)
+                        .offset(x: min(fraction, zeroFraction) * width)
+                }
                 // The neutral mark. Sits under the thumb so the thumb covers it when
                 // the control is at its default, which is exactly when you do not
                 // need to be told where the default is.
                 if bipolar && zeroFraction > 0.001 && zeroFraction < 0.999 {
-                    Rectangle()
-                        .fill(Lumen.separator)
-                        .frame(width: 1, height: 8)
-                        .offset(x: zeroFraction * width - 0.5)
+                    if trackStops == nil {
+                        Rectangle()
+                            .fill(Lumen.separator)
+                            .frame(width: 1, height: 8)
+                            .offset(x: zeroFraction * width - 0.5)
+                    } else {
+                        // A 0.30-grey line vanishes against a saturated stop, and which
+                        // stop it lands on depends on the photograph's as-shot neutral —
+                        // so the mark carries its own contrast instead of assuming the
+                        // background: a dark halo under a light line reads on the green
+                        // end and the magenta end alike.
+                        Rectangle()
+                            .fill(Color.black.opacity(0.45))
+                            .frame(width: 3, height: 8)
+                            .offset(x: zeroFraction * width - 1.5)
+                        Rectangle()
+                            .fill(Color.white.opacity(0.85))
+                            .frame(width: 1, height: 8)
+                            .offset(x: zeroFraction * width - 0.5)
+                    }
                 }
                 Circle()
                     .fill(Lumen.primaryText)
@@ -619,7 +754,18 @@ struct LumenColorWheel: View {
                 .foregroundStyle(Lumen.secondaryText)
 
             LumenSlider(title: "", value: $lum, range: -1...1, defaultValue: 0,
-                        step: 0.01, decimals: 2, onEditingChanged: onEditingChanged)
+                        step: 0.01, decimals: 2,
+                        // Dark to light — the one VALUE ramp the Law 7 amendment
+                        // permits, and worth separating from the exposure ramp it
+                        // refuses. This bar is the L of an H/S/L triple, inside a
+                        // bordered colour instrument, 50 points wide; Exposure is a full
+                        // row in a column of tonal sliders beside the photograph being
+                        // judged for exposure. Lightroom draws exactly this distinction
+                        // and so does Resolve. It also makes the caption under these
+                        // wheels true — it has been claiming "the bar under each wheel
+                        // is the zone's own lightness" over an undifferentiated grey.
+                        trackStops: Lumen.wheelLightnessStops,
+                        onEditingChanged: onEditingChanged)
                 .frame(width: diameter + 40)
         }
     }

@@ -609,6 +609,36 @@ So what actually remained, and what shipped:
 8. Amend Law 7 in `docs/00-vision.md` and the shared-constraint line in `docs/25`,
    explicitly, per the docs/00 §3 amendment rule.
 
+**What shipped, and the two decisions taken inside it.**
+
+Eleven tracks now carry their own axis: **Temp** (blue→amber), **Tint** (green→magenta),
+the mixer's **Hue / Saturation / Luminance** for whichever of eight bands is selected, and
+the **lightness bar under each of the four grading wheels**. Every tonal control is
+untouched, including the exposure ramp the owner asked for by name — see Part 7 item 1;
+that call is still his to overrule and it is one entry in a table.
+
+`LumenTrackStop` anchors a stop to a **value, not a position**, and the track places it
+through the same `fraction(of:)` that decides where the thumb is drawn. That indirection
+is the whole design: on the mired axis 5500 K sits at 0.663 of the Temp track, so stops
+written positionally would have put neutral at the midpoint and called 3850 K white.
+Three Linux tests in `SliderDragTests` pin that — the anchors climb in order, both ends
+reach the ends, and the midpoint is 3850 K — so the gradient cannot drift from the
+control if a range is ever retuned.
+
+- **The mixer's tracks say scope as well as colour.** In *All bands* they go back to the
+  neutral groove: a track wearing Blue's colours while the drag also pulls skin toward
+  Orange would be the panel lying. The stops are static reference colours built once from
+  `bandSwatchComponents`, on the same doctrine as the swatches — the ribbon draws live
+  geometry, the tracks say which band you are in. A track that re-coloured itself under a
+  Hue drag would be an instrument reporting on itself.
+- **The wheel bar is a value ramp, and it needed a bug fixed first.** That bar is a
+  `LumenSlider` with an empty title inside a 108-point column, and an untitled row was
+  still reserving the full 94-point label column — 158 points of layout asked of 108, with
+  the track squeezed to nothing. So the caption under the wheels has been promising that
+  "the bar under each wheel is the zone's own lightness" over a bar too narrow to read.
+  Untitled rows no longer reserve the label column; Phase 1's 78→94 had made an existing
+  defect 16 points worse.
+
 ### Phase 3 — Reclaim the chrome ⚑
 
 9. Filter bar → filmstrip-edge popover with live counts; query sentence to the status bar;

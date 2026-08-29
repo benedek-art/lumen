@@ -99,6 +99,8 @@ For balance, and because a redesign that sands these off would be a failure: the
 
 Shared constraint, both options: **Law 7 holds absolutely.** Chrome stays zero-chroma gray; the one accent stays desaturated slate (or is dropped to pure value contrast); the wheel hues and label swatches remain the only documented exceptions; the photo's surround stays neutral and calm. Panel order, the D45 slider contract, the keymap, and the density envelope (±10% rows per screen) do not change in either option.
 
+*Amended 2026-08-29 by docs/28 Phase 2, per docs/00 §3: Law 7 now carries one narrow exception — a control's TRACK may carry chroma if and only if that control's axis is itself a colour direction (Temp, Tint, the mixer's per-band rows, the wheel luminance ramps), at no larger a scale than the 4 pt groove. Every tonal control stays neutral, and every other pixel of chrome is unchanged. The amendment is written out in full in docs/00-vision.md under Law 7; the sentence above stands for everything else it covers.*
+
 ### Option A — "The same soul, executed beautifully" (evolutionary, low risk)
 
 **The idea:** keep every layout decision and every idiom's position; replace the two-gray-plus-hairlines model with a real five-step elevation ladder, give the type an actual scale, make modified/selected/hover/focus states legible, and delete the noise (separator rules, "Default" badges, caps-label triplication). A user's hands notice nothing; their eyes notice everything.

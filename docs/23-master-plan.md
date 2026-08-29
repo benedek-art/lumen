@@ -599,7 +599,21 @@ and against Lightroom via owner-exported references.
             Hover-only Reset shipped — OWNER TASTE CALL, one line to revert
       - [x] footer verbs borderless at rest (the half of docs/25 step 6 that a80673c
             commented but did not implement)
-      **Phases 2-7:** colour where colour is information ⚑ · reclaim the chrome ⚑ ·
+      **Phase 2 — colour where colour is information ⚑ (the owner's headline ask):**
+      - [x] Law 7 amended explicitly in docs/00 per §3: a track may carry chroma iff the
+            control's axis IS a colour direction, at no larger a scale than the 4 pt
+            groove. Every tonal control stays neutral — including the exposure ramp the
+            owner named, which is Part 7 item 1 and still his to overrule
+      - [x] `LumenTrackStop` anchors stops to VALUES, placed by the same `fraction(of:)`
+            that draws the thumb — so Temp's neutral lands at 0.663 of the mired track
+            and not at its midpoint. Three Linux tests pin it
+      - [x] eleven coloured tracks: Temp, Tint, the mixer's Hue/Saturation/Luminance per
+            selected band (neutral again in All bands, because the track states scope),
+            and the lightness bar under each of the four grading wheels
+      - [x] fixed on the way: an untitled `LumenSlider` reserved the full 94 pt label
+            column, so the wheels' 108 pt lightness bar asked 158 pt of layout and drew
+            no visible track at all
+      **Phases 3-7:** reclaim the chrome ⚑ ·
       four workspaces and accordions ⚑ · one home for colour ⚑ · speed (arithmetic
       entry, scrubby readout, ⌘K palette, Speed Edit D44) · focus + the owed keymap
       reconciliation. **Phase 4 is gated on the slider-smoothness verification** — it

@@ -153,6 +153,57 @@ final class SliderDragTests: XCTestCase {
         XCTAssertGreaterThan(SliderDrag.thumbGrabRadius, 9 / 2)
     }
 
+    // MARK: Where a coloured track's stops land
+
+    /// The Temp track carries a blue→amber gradient (docs/28 Phase 2, and the Law 7
+    /// amendment that permits it). Its stops are stated in KELVIN and placed by
+    /// `fraction(of:)` — the same call that decides where the thumb is drawn — rather
+    /// than as positions along the track. These tests are why that indirection is not
+    /// ceremony.
+    private var tempTrack: SliderTrack {
+        SliderTrack(width: 142, lowerBound: 2000, upperBound: 50000, step: 10,
+                    scale: .reciprocal)
+    }
+
+    func testTheTemperatureStopsClimbTheTrackInOrderAndReachBothEnds() {
+        // `Lumen.temperatureStops`, by value. A stop that fell outside the range would
+        // clamp onto an end and silently merge with its neighbour — one colour missing
+        // from the gradient, and nothing anywhere would say so.
+        let anchors: [Double] = [2000, 3400, 5500, 9000, 50000]
+        let fractions = anchors.map { tempTrack.fraction(of: $0) }
+        for (a, b) in zip(fractions, fractions.dropFirst()) {
+            XCTAssertLessThan(a, b, "stops must climb the track in the order written")
+        }
+        XCTAssertEqual(fractions.first, 0, "the coldest stop must reach the left end")
+        XCTAssertEqual(fractions.last, 1, "the warmest stop must reach the right end")
+    }
+
+    func testNeutralSitsWhereTheMiredAxisPutsItAndNotAtTheMidpoint() {
+        // The reason stops are anchored to values. On the mired axis 5500 K is about
+        // two thirds along a 2000–50000 K track, so a gradient whose grey stop was
+        // placed at 0.5 would call 3000 K neutral — a slider that lies about the one
+        // number a white balance control exists to show.
+        let neutral = tempTrack.fraction(of: 5500)
+        XCTAssertEqual(neutral, 0.663, accuracy: 0.005)
+        XCTAssertGreaterThan(neutral, 0.6, "neutral is NOT the midpoint of this track")
+        // And the midpoint of the track is nowhere near 5500 K, stated from the other
+        // direction so the pair cannot both drift. 3850 rather than 3846.15 because the
+        // value comes back snapped to the control's 10 K step, as every value does.
+        XCTAssertEqual(tempTrack.value(from: 2000, travelled: tempTrack.width / 2), 3850)
+    }
+
+    func testATintStopAtEachEndOfTheRangeSpansTheWholeTrack() {
+        // Tint is linear and its stops sit at ±150 — the SOFT range. The hard range is
+        // ±300, so a stop written at ±300 would clamp to the same place as ±150 and the
+        // green and magenta ends would each be half the gradient they read as.
+        let track = SliderTrack(width: 142, lowerBound: -150, upperBound: 150, step: 1)
+        XCTAssertEqual(track.fraction(of: -150), 0)
+        XCTAssertEqual(track.fraction(of: 0), 0.5)
+        XCTAssertEqual(track.fraction(of: 150), 1)
+        XCTAssertEqual(track.fraction(of: -300), track.fraction(of: -150),
+                       "past the soft range a stop clamps, which is why none is written there")
+    }
+
     // MARK: Degenerate inputs
 
     func testATrackThatHasNotBeenLaidOutYetHoldsTheValueRatherThanDividingByZero() {

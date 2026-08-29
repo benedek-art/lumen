@@ -156,6 +156,21 @@ Breneman, Hunt effect) mean a dark surround makes users over-cook contrast and s
 darktable's manual states it plainly and ships a mid-gray theme. Lumen chrome is zero-chroma
 18–25% gray, the canvas surround is user-set, and one key toggles an ISO 12646 assessment mode.
 
+*Amendment, 2026-08-29 (docs/28 Phase 2, owner-commissioned: "make the bars show temp, for
+example lightroom has a blue to yellow tint on the temp slider").* **A control's track may carry
+chroma if and only if that control's axis is itself a colour direction, and at no larger a scale
+than the 4 pt groove.** Permitted, and nothing else: Temp (blue→amber), Tint (green→magenta), the
+colour mixer's per-band hue, saturation and luminance tracks, and the luminance ramps under the
+grading wheels. Explicitly **not** permitted: Exposure, Contrast, Highlights, Shadows, Whites,
+Blacks, Texture, Clarity, Dehaze, Blending, Balance — every tonal control stays neutral. Adobe and
+Capture One both arrived at this line independently, and the reason to hold it is this law's own:
+a light-to-dark ramp beside a photograph being judged for exposure is precisely the contamination
+Bartleson–Breneman warns about, whereas a blue→amber Temp track states the direction of an edit
+that is *about* colour and cannot mislead a judgement it is already the subject of. Colour every
+track and none of them reads; colour only the colour axes and every coloured track is
+self-teaching. The surround, the panels, the wells, the fills, the type and every other pixel of
+chrome remain zero-chroma, which is what the law was always for.
+
 **Law 8. Contrast belongs where the curve is steep.** Margulis's steepest-part principle: assign
 important image regions to the steep part of the transfer curve. It generalizes past LAB into
 Lumen's zone tools and range-limited contrast affordances, and into color as separation around

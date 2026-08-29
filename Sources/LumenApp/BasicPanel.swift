@@ -123,6 +123,10 @@ struct BasicPanel: View {
                             scale: .reciprocal,
                             defaultValue: display.temperature,
                             step: 10, decimals: 0, bipolar: false,
+                            // Blue below neutral, amber above, placed in Kelvin so the
+                            // grey stop lands where the mired axis actually puts 5500 K
+                            // (about two thirds along, not the middle). docs/28 Phase 2.
+                            trackStops: Lumen.temperatureStops,
                             // Double-clicking the label CLEARS the override rather than
                             // pinning the displayed number. `raw.temp` is optional and
                             // nil means as-shot; pinning a number there flips the
@@ -136,6 +140,7 @@ struct BasicPanel: View {
                             hardRange: -300...300,
                             defaultValue: display.tint,
                             step: 1, decimals: 0,
+                            trackStops: Lumen.tintStops,
                             onReset: { applyAsShot() })
                 // Tint honesty (docs/23 M2): the engine bounds the magenta half so
                 // the adaptation cannot invert the picture, and on a warm frame the

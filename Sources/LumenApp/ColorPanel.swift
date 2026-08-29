@@ -96,12 +96,19 @@ struct ColorPanel: View {
 
                 bandReach(arcs, index)
 
+                // The tracks carry the band's own colour, which also makes the track say
+                // what the row's SCOPE is: in All bands there is no single band's colour
+                // to show, so the three rows go back to the neutral groove and the
+                // ordinary deviation fill. See `mixerStops`.
                 LumenSlider(title: "Hue", value: mixerBinding(.hue),
-                            range: -100...100, defaultValue: 0, step: 1, decimals: 0)
+                            range: -100...100, defaultValue: 0, step: 1, decimals: 0,
+                            trackStops: mixerStops(ColorPanel.mixerHueStops, index))
                 LumenSlider(title: "Saturation", value: mixerBinding(.sat),
-                            range: -100...100, defaultValue: 0, step: 1, decimals: 0)
+                            range: -100...100, defaultValue: 0, step: 1, decimals: 0,
+                            trackStops: mixerStops(ColorPanel.mixerSaturationStops, index))
                 LumenSlider(title: "Luminance", value: mixerBinding(.lum),
-                            range: -100...100, defaultValue: 0, step: 1, decimals: 0)
+                            range: -100...100, defaultValue: 0, step: 1, decimals: 0,
+                            trackStops: mixerStops(ColorPanel.mixerLuminanceStops, index))
 
                 caption("Luminance holds chroma: a darkened sky stays as blue as it was.")
 
@@ -572,6 +579,18 @@ struct ColorPanel: View {
         return centres[index]
     }
 
+    /// The stops for one band's row, or nil for a neutral track.
+    ///
+    /// Nil in All-bands mode on purpose: the row then acts on every band at once, and a
+    /// track wearing Blue's colours while the drag also moves skin would be the panel
+    /// lying about scope. The bounds check is not defensive noise either — the tables
+    /// are sized from the swatch list and the index comes from `ColorEngine.bandCount`,
+    /// two constants that agree today and are declared in different modules.
+    private func mixerStops(_ table: [[LumenTrackStop]], _ index: Int) -> [LumenTrackStop]? {
+        guard !allBands, table.indices.contains(index) else { return nil }
+        return table[index]
+    }
+
     static func swatch(_ index: Int) -> Color {
         guard bandSwatchColors.indices.contains(index) else { return Lumen.controlBackground }
         return bandSwatchColors[index]
@@ -579,16 +598,91 @@ struct ColorPanel: View {
 
     /// Reference colours, not the OKLCh centres: the swatch labelled Orange has to look
     /// orange (docs/06 brief §1.1). The centres are what the ribbon plots.
-    static let bandSwatchColors: [Color] = [
-        Color(red: 0.84, green: 0.24, blue: 0.22),
-        Color(red: 0.86, green: 0.51, blue: 0.18),
-        Color(red: 0.84, green: 0.77, blue: 0.24),
-        Color(red: 0.34, green: 0.69, blue: 0.34),
-        Color(red: 0.26, green: 0.71, blue: 0.71),
-        Color(red: 0.28, green: 0.46, blue: 0.84),
-        Color(red: 0.55, green: 0.35, blue: 0.82),
-        Color(red: 0.82, green: 0.30, blue: 0.66),
+    ///
+    /// Held as components rather than as `Color` because the coloured tracks below need
+    /// darker, lighter and greyer versions of each band, and a `Color` cannot be taken
+    /// apart portably. `bandSwatchColors` derives from this, so there is still exactly
+    /// one answer to what Orange looks like.
+    static let bandSwatchComponents: [(r: Double, g: Double, b: Double)] = [
+        (0.84, 0.24, 0.22),
+        (0.86, 0.51, 0.18),
+        (0.84, 0.77, 0.24),
+        (0.34, 0.69, 0.34),
+        (0.26, 0.71, 0.71),
+        (0.28, 0.46, 0.84),
+        (0.55, 0.35, 0.82),
+        (0.82, 0.30, 0.66),
     ]
+
+    static let bandSwatchColors: [Color] = bandSwatchComponents.map {
+        Color(red: $0.r, green: $0.g, blue: $0.b)
+    }
+
+    // MARK: Coloured tracks for the three band rows (docs/28 Phase 2)
+
+    // Law 7's colour-axis exception (docs/00, amended 2026-08-29) covers exactly these
+    // three: Hue, Saturation and Luminance in the mixer are axes whose units ARE colour,
+    // so the track can say what the row does before the row is touched. Today all three
+    // are the same grey, and which of eight bands owns the colour under the cursor is
+    // something the photographer has to already know.
+    //
+    // All three tables are STATIC — built once from `bandSwatchComponents`, never
+    // computed in a `body` from recipe values. A track whose colour depended on the
+    // recipe would make every mixer row a reader of the edit signal, and a Hue drag
+    // rebuilds its panel on every mouse event.
+    //
+    // They are reference colours for the same reason the swatches are: the band arcs are
+    // editable, so the live centres move, and a track that slid its own colours around
+    // under a Hue drag would be an instrument reporting on itself. The ribbon is where
+    // live geometry is drawn; these say which band you are in.
+
+    /// The hue span the row shifts between — the neighbour below, this band, the
+    /// neighbour above. The ring wraps, so Red's left neighbour is Magenta.
+    static let mixerHueStops: [[LumenTrackStop]] = bandSwatchColors.indices.map { i in
+        let n = bandSwatchColors.count
+        return [LumenTrackStop(value: -100, color: bandSwatchColors[(i + n - 1) % n]),
+                LumenTrackStop(value: 0, color: bandSwatchColors[i]),
+                LumenTrackStop(value: 100, color: bandSwatchColors[(i + 1) % n])]
+    }
+
+    /// Grey to vivid, in this band's own hue.
+    static let mixerSaturationStops: [[LumenTrackStop]] = bandSwatchComponents.map { c in
+        [LumenTrackStop(value: -100, color: greyed(c, 1.0)),
+         LumenTrackStop(value: 0, color: greyed(c, 0.5)),
+         LumenTrackStop(value: 100, color: Color(red: c.r, green: c.g, blue: c.b))]
+    }
+
+    /// Dark to bright, in this band's own hue.
+    static let mixerLuminanceStops: [[LumenTrackStop]] = bandSwatchComponents.map { c in
+        [LumenTrackStop(value: -100, color: shaded(c, 0.38)),
+         LumenTrackStop(value: 0, color: Color(red: c.r, green: c.g, blue: c.b)),
+         LumenTrackStop(value: 100, color: shaded(c, 1.62))]
+    }
+
+    /// Toward black below 1, toward white above it. Multiplying past 1 would clip to the
+    /// same over-saturated colour for every band, which is why the light half blends
+    /// toward white instead.
+    private static func shaded(_ c: (r: Double, g: Double, b: Double),
+                               _ lightness: Double) -> Color {
+        if lightness <= 1 {
+            return Color(red: c.r * lightness, green: c.g * lightness, blue: c.b * lightness)
+        }
+        let t = min(lightness - 1, 1)
+        return Color(red: c.r + (1 - c.r) * t,
+                     green: c.g + (1 - c.g) * t,
+                     blue: c.b + (1 - c.b) * t)
+    }
+
+    /// Toward the colour's own luma rather than toward a fixed grey, so a desaturated
+    /// yellow stays as bright as the yellow was — which is what "remove the chroma"
+    /// means, and what the Luminance row's own caption promises the engine does.
+    private static func greyed(_ c: (r: Double, g: Double, b: Double),
+                               _ amount: Double) -> Color {
+        let y = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b
+        return Color(red: c.r + (y - c.r) * amount,
+                     green: c.g + (y - c.g) * amount,
+                     blue: c.b + (y - c.b) * amount)
+    }
 
     static let ribbonSteps: Int = 96
 
