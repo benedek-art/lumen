@@ -146,7 +146,20 @@ did not reach the path you are looking at.
 
 ---
 
-## 2c. The blur under the hand — the one you reported twice
+## 2c. The blur under the hand — read this section's LAST paragraph first
+
+> **Superseded, and kept because the reasoning is the record.** Everything below was
+> written when the blur looked like a decode-QUALITY problem. It was not. Your own HUD
+> reading settled it: `draft 457.5 ms @2048` beside `settle 14.5 ms @2560` — thirty
+> times slower at a smaller size, which only happens if a 33 MP demosaic runs inside
+> every drag frame. It did, on every frame of the app's whole life, because the decode
+> cache stored a lazy `CIImage` — the intention to decode rather than its pixels — so
+> every cache hit re-ran the demosaic. That is fixed. The blur you then saw was the
+> resolution ladder still parked at its 576 px floor, where it had correctly walked
+> during the slow era, climbing back one rung per gesture; it now reads the settle it was
+> already timing and recovers in one gesture. **So the test that matters now is simply:
+> drag Blacks, and read `draft` and `after`.** The rest of this section is history.
+
 
 Two separate things made a drag softer than a rest, and only one of them was ever
 deliberate. Both are dealt with in this build, and the HUD now tells you which one is

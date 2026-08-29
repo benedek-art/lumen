@@ -1175,6 +1175,25 @@ side-by-side exports. **Exit gate: owner prefers or ties Lumen on ≥4 of 5.**
       is enough, so recovery is one gesture instead of eight. Four tests, including the
       owner's exact scenario: 40 frames at 457 ms to the floor, then a single 14.5 ms
       settle at 2560 restoring it.
+- [x] **Round 5c — swept the codebase for the same bug class, and it is a population of
+      one.** A cache that stores a lazy `CIImage` stores the INTENTION to compute rather
+      than the result, and every "hit" pays the work again. That cost this project four
+      rounds, so the question is whether it appears anywhere else.
+      It does not. `ThumbnailLoader` holds `CGImage` with a byte-budgeted LRU;
+      `MaskRasterCache` holds `Plane` float buffers; `PlanTableCache` holds baked
+      `LUT3D`s; `RenderGraph.maskImages` is per-render state, not a cache.
+      `AppleRawSource.decodeCache` was the only one holding a promise — and the reason
+      is instructive rather than careless: its entries were CHEAP while they were lazy,
+      which is exactly why nobody counted them and why eight of them seemed free. The
+      byte budget added with the materialization is the same pattern `ThumbnailLoader`
+      has had all along; the decode cache was the outlier only because its entries used
+      to weigh nothing.
+      Also verified: the materialization preserves the scene-referred range that the
+      whole RAW contract exists to protect. `MaterializedDecodeTests` writes 4.0, 2.5
+      and 1.75 above display white and −0.25 below zero through the round trip and reads
+      them back, because a clamp there would fail NOTHING downstream — the goldens use a
+      stub source, and the parity tests would compare two renderers reading the same
+      clamped input. Every photograph would just quietly lose its highlights.
 - [ ] **Deliberately NOT done in round 2: anything else to the render or display path.**
       The display path above is the leading suspect and a `CALayer`-contents or
       Metal-layer plate is the obvious next move — and shipping it now, unverified,
