@@ -83,6 +83,25 @@ struct ContentView: View {
                 // themselves (design audit §1.1, and Phase 1's rule for the develop
                 // column's own bands).
                 FilterBar()
+                // THE WAY BACK, when the thing that normally holds it is not drawn.
+                //
+                // The workspace strip lives inside `DevelopPanel`, and Cull has no
+                // sections — so choosing Cull takes the column away and takes all five
+                // tabs with it. Opening another photograph does not bring them back,
+                // because the workspace is still Cull. The owner hit this within minutes
+                // of testing: "I clicked Cull, it kicked me out to the select a picture
+                // screen, and then when I clicked into another picture the edit area is
+                // completely gone." There was no way back except ⌘1–⌘5 or the Go menu —
+                // a tab strip that disappears when you use one of its tabs.
+                //
+                // docs/30 §7.4 recorded this and left it open as a decision about where
+                // navigation lives. Hitting it in the first minutes settles the decision:
+                // navigation has to survive every state it can reach.
+                //
+                // Trailing-aligned at the column's own width, so the strip appears in the
+                // same place on screen it occupies when the column is there — the tabs do
+                // not jump across the window as you move between workspaces.
+                WorkspaceReturnBar(columnWidth: state.developPanelWidth)
                 HStack(spacing: 0) {
                     centre
                         // The clipping panel and the hold badge ride the centre pane
@@ -165,13 +184,26 @@ struct ContentView: View {
     }
 
     private var showsDevelopColumn: Bool {
-        // CULL DRAWS NO COLUMN, and the emptiness is the feature rather than a hidden
-        // panel: docs/12 §12.1 asks for "Photo Mechanic's emptiness without an
-        // architectural wall behind it", which is why `Workspace.cull` has an empty
-        // section list instead of the column being suppressed by some separate flag.
-        // `WorkspaceLayout.showsDevelopColumn` is that list being empty, asked as a
-        // question.
-        PanelLayout.shared.layout.showsDevelopColumn
+        ContentView.showsDevelopColumn(layout: PanelLayout.shared.layout, state: state)
+    }
+
+    /// Whether the column is on screen RIGHT NOW — workspace, view mode and selection.
+    ///
+    /// Deliberately NOT the question `WorkspaceReturnBar` asks. That one asks whether the
+    /// chosen workspace has a column *at all*, which is narrower and is the one that
+    /// matters for being stranded: in the grid with Develop chosen this is false, but
+    /// opening a photograph brings the column and its tabs straight back, so there is
+    /// nothing to rescue. In Cull it is false in every view mode, and no gesture reaches
+    /// the tabs again. Collapsing the two would put a redundant strip over the contact
+    /// sheet during an ordinary cull, which is the one screen this app most wants empty.
+    ///
+    /// CULL DRAWS NO COLUMN, and the emptiness is the feature rather than a hidden panel:
+    /// docs/12 §12.1 asks for "Photo Mechanic's emptiness without an architectural wall
+    /// behind it", which is why `Workspace.cull` has an empty section list instead of the
+    /// column being suppressed by some separate flag. `WorkspaceLayout.showsDevelopColumn`
+    /// is that list being empty, asked as a question.
+    static func showsDevelopColumn(layout: WorkspaceLayout, state: AppState) -> Bool {
+        layout.showsDevelopColumn
             && state.primarySelection != nil
             && (state.viewMode == .loupe || state.viewMode == .compare)
     }
@@ -837,6 +869,36 @@ private struct KeyReferenceSheet: View {
         }
         .frame(width: 460, height: 560)
         .background(Lumen.panelBackground)
+    }
+}
+
+
+/// The workspace strip, shown only when the develop column that normally carries it is
+/// not on screen.
+///
+/// A view of its own rather than an `if` inside `ContentView`, and that is the point:
+/// `ContentView` reads `PanelLayout` WITHOUT observing it, so the column's presence has
+/// been depending on a value the window does not subscribe to. It has worked so far only
+/// because `viewMode` and `primarySelection` are published and happen to change at the
+/// same moment. Making `ContentView` an observer would fix that and undo what
+/// `PanelLayout` was extracted for — one section opening would re-body the whole window
+/// and the `Scene` with it. So the subscription lives here, in the one small view that
+/// needs it, and a workspace change invalidates a strip rather than a window.
+private struct WorkspaceReturnBar: View {
+    @ObservedObject private var panel = PanelLayout.shared
+    let columnWidth: CGFloat
+
+    var body: some View {
+        // THE WORKSPACE'S OWN ANSWER, not the window's. See `ContentView
+        // .showsDevelopColumn` for why these are two questions rather than one.
+        if !panel.layout.showsDevelopColumn {
+            HStack(spacing: 0) {
+                Spacer(minLength: 0)
+                WorkspaceSwitcher(panel: panel)
+                    .frame(width: columnWidth)
+            }
+            .background(Lumen.panel)
+        }
     }
 }
 
