@@ -79,6 +79,27 @@ final class PanelLayout: ObservableObject {
         commit(next)
     }
 
+    /// OPEN A SECTION BY NAME, from a key — and promote the register if it is hiding.
+    ///
+    /// `click` is a header being clicked, so the section is visible by construction and
+    /// the guard inside `WorkspaceLayout.click` never fires. A KEY is different: `D`
+    /// names Detail and `R` names Optics, and neither is in the Simple register the app
+    /// opens in, so routing a key through `click` answers a photographer who asked for a
+    /// section by name with silence. A key that does nothing is worse than a key that
+    /// does not exist, because it teaches that the app is broken rather than that the
+    /// feature is missing.
+    ///
+    /// Promoting rather than refusing is the right trade: Simple is a default, not a
+    /// mode, and the photographer just demonstrated they want the thing it was hiding.
+    /// Still one publish — the whole arrangement is one value.
+    func reveal(_ section: WorkspaceSection) {
+        var next = layout
+        next.select(section.workspace)
+        if !section.isVisible(in: next.register) { next.register = .full }
+        next.click(section, keepingOthersOpen: false)
+        commit(next)
+    }
+
     /// Simple ⇄ Full.
     func toggleRegister() {
         var next = layout

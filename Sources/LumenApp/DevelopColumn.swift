@@ -130,31 +130,46 @@ struct WorkspaceSections: View {
         }
     }
 
-    /// "3 more sections have adjustments" — the Simple register's honesty clause.
+    /// THE REGISTER'S CONTROL AND ITS HONESTY CLAUSE, in one line at the foot of the
+    /// column — which is where the eye ends up after reading the sections.
     ///
-    /// A register that hides a section does NOT revert it (that is `DisclosureRegister`'s
-    /// stated contract), so Simple can be concealing live adjustments. Without this line
-    /// a photographer in Simple sees a picture that does not match the controls in front
-    /// of them and has no way to find out why, which is worse than the eight tabs this
-    /// replaces. It is only ever drawn when there is something to disclose.
+    /// Two jobs that had to become one. The honesty clause first: a register that hides
+    /// a section does NOT revert it (that is `DisclosureRegister`'s stated contract), so
+    /// Simple can be concealing live adjustments, and a photographer looking at a
+    /// picture that does not match the controls in front of them has no way to find out
+    /// why. That is worse than the eight tabs this replaces.
+    ///
+    /// But an indicator that only appears when something is MODIFIED leaves a second
+    /// hole, and it is the one the tab strip did not have: in Simple, Develop draws
+    /// three sections of six and Grade two of five, and a photographer who has never
+    /// touched Grading has nothing on screen telling them Grading exists. Hiding a
+    /// feature until you have already used it is not a simple mode, it is a missing one.
+    ///
+    /// So the line is always drawn. It carries the count and the accent dot when there
+    /// is something concealed, and plain wording when there is not, and either way it is
+    /// the door.
     @ViewBuilder
     private var hiddenIndicator: some View {
-        if let text = panel.layout.hiddenActiveIndicator(nonDefault: nonDefault) {
-            Button {
-                panel.toggleRegister()
-            } label: {
-                HStack(spacing: 4) {
+        let concealed = panel.layout.hiddenActiveIndicator(nonDefault: nonDefault)
+        let isSimple = panel.layout.register == .simple
+        Button {
+            panel.toggleRegister()
+        } label: {
+            HStack(spacing: 4) {
+                if concealed != nil {
                     Circle().fill(Lumen.accent).frame(width: 5, height: 5)
-                    Text(text)
-                        .font(.system(size: 10))
-                        .foregroundStyle(Lumen.secondaryText)
                 }
-                .padding(.top, 12)
-                .contentShape(Rectangle())
+                Text(concealed ?? (isSimple ? "Show all sections" : "Show fewer sections"))
+                    .font(.system(size: 10))
+                    .foregroundStyle(Lumen.secondaryText)
             }
-            .buttonStyle(.plain)
-            .help("Show every section")
+            .padding(.top, 12)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .help(isSimple
+              ? "Show every section in this workspace"
+              : "Show only the sections most edits need")
     }
 }
 

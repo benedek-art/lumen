@@ -171,8 +171,9 @@ final class KeyDispatcher {
             // halves are set: the workspace is what `LoupeView` gates the on-image
             // rectangle on, and opening the section is what puts the ratio and angle
             // rows under the photographer's hand without a second click.
-            PanelLayout.shared.select(.develop)
-            PanelLayout.shared.click(.optics, keepingOthersOpen: false)
+            // `reveal`, not `click`: Optics is not in the Simple register the app
+            // opens in, so a click would be a silent no-op and R would do nothing.
+            PanelLayout.shared.reveal(.optics)
             state.showLoupe()
             LoupeViewport.shared.showCrop.toggle()
         case "m":
@@ -209,14 +210,13 @@ final class KeyDispatcher {
         // alone would leave the photographer looking at whichever section was last open.
         // Each opens the section that tab used to lead with.
         case "b":
-            PanelLayout.shared.select(.develop)
-            PanelLayout.shared.click(.tone, keepingOthersOpen: false)
+            PanelLayout.shared.reveal(.tone)
         case "l":
-            PanelLayout.shared.select(.grade)
-            PanelLayout.shared.click(.looks, keepingOthersOpen: false)
+            PanelLayout.shared.reveal(.looks)
         case "d":
-            PanelLayout.shared.select(.develop)
-            PanelLayout.shared.click(.detail, keepingOthersOpen: false)
+            // Detail is not in the Simple register, so this one genuinely needs the
+            // promotion `reveal` performs — through `click` the key was silent.
+            PanelLayout.shared.reveal(.detail)
         // H is the develop histogram, which bins the RENDERED picture — the instrument
         // docs/10 §10.5 calls the one that lies, because the render has been through
         // the tone stage and the display transform before it is counted. ⇧H is the
