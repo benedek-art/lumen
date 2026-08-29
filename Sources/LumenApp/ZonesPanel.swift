@@ -78,6 +78,11 @@ struct ZonesPanel: View {
                                     defaultValue: 0, step: 0.01, decimals: 2)
                     }
 
+                    // Survives the hairline cull (design audit §1.1) for the same reason
+                    // the Uniformity rule in ColorPanel does: it marks a change of scope
+                    // INSIDE a section — five per-zone rows above, one flat trim across
+                    // the whole axis below — rather than fencing two sections, which is
+                    // the job space now does.
                     Divider().overlay(Lumen.separator).padding(.vertical, 2)
 
                     LumenSlider(title: "Global",

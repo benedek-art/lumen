@@ -64,13 +64,12 @@ struct MaskPanel: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 2) {
+                // Hairlines gone; each header's own 16 pt is the boundary now
+                // (`LumenSectionHeader.topRhythm`). Design audit §1.1.
                 maskListSection
                 if let mask = activeMask {
-                    Divider()
                     componentSection(mask)
-                    Divider()
                     refineSection(mask)
-                    Divider()
                     adjustSections(mask)
                 } else {
                     note("No masks yet. A mask is a stack of components combined with add, "

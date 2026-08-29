@@ -436,6 +436,24 @@ struct LumenSectionHeader: View {
     var isExpanded: Binding<Bool>?
     var isModified: Bool = false
     var onReset: (() -> Void)?
+    /// The space that says "a new section begins here" — and it is what replaced the
+    /// hairline that used to say it.
+    ///
+    /// Design audit §1.1: the pre-Yosemite AppKit read comes from partitioning flat grey
+    /// with 1-pixel rules. Lightroom, Capture One and Darkroom all delineate by surface
+    /// value and space, and keep lines for instruments. So the `Divider()` between every
+    /// pair of sections in Colour, Look and Masks is gone and this padding is the
+    /// boundary instead.
+    ///
+    /// 16 pt is a section boundary. A disclosure nested INSIDE a section passes 8: it is
+    /// a fold, not a border, and giving it the full rhythm would make a sub-heading
+    /// louder than the heading above it.
+    var topRhythm: CGFloat = 16
+
+    /// Row-local, so a pointer crossing one header invalidates one header. Hover state
+    /// never goes anywhere observable — see `CommandState` for what a per-event publish
+    /// costs a drag.
+    @State private var hovering = false
 
     var body: some View {
         HStack(spacing: 4) {
@@ -462,15 +480,27 @@ struct LumenSectionHeader: View {
             }
             Spacer()
             if let onReset, isModified {
+                // Reset appears on hover (design audit step 3, and Lightroom's own
+                // behaviour). A develop panel can hold a dozen modified sections and a
+                // permanent "Reset" on each one is a dozen words of chrome competing
+                // with the values they sit beside — while the accent dot already answers
+                // "which sections did I touch?" from across the panel.
+                //
+                // Opacity rather than an `if`, deliberately: inserting the button on
+                // hover would reflow the header under the pointer that summoned it, and
+                // a control that moves when you approach it is worse than a loud one.
                 Button("Reset", action: onReset)
                     .buttonStyle(.plain)
                     .font(.system(size: 10))
                     .foregroundStyle(Lumen.secondaryText)
+                    .opacity(hovering ? 1 : 0)
+                    .animation(.easeOut(duration: 0.1), value: hovering)
             }
         }
-        .padding(.top, 8)
+        .padding(.top, topRhythm)
         .padding(.bottom, 2)
         .contentShape(Rectangle())
+        .onHover { hovering = $0 }
         .onTapGesture {
             if let isExpanded { isExpanded.wrappedValue.toggle() }
         }

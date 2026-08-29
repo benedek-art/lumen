@@ -138,7 +138,11 @@ struct DevelopSection<Content: View>: View {
                                isModified: isModified, onReset: onReset)
             content
         }
-        .padding(.top, 8)
+        // No compensating pad here any more: the header carries the whole 16 pt of
+        // section rhythm itself, so a section composed by hand out of a
+        // `LumenSectionHeader` — which is how Colour, Look and Masks build theirs — gets
+        // the same boundary as one built through this type. That is what let the
+        // `Divider()` between them go.
     }
 }
 
@@ -171,7 +175,10 @@ struct DevelopDisclosure<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            LumenSectionHeader(title: title, isExpanded: $isExpanded)
+            // 8, not the section rhythm's 16: a disclosure is a fold inside a section,
+            // and giving it a full boundary would make the sub-heading read as louder
+            // than the heading it sits under.
+            LumenSectionHeader(title: title, isExpanded: $isExpanded, topRhythm: 8)
             if isExpanded {
                 content()
                     .padding(.leading, 8)
@@ -288,16 +295,24 @@ struct DevelopPanel: View {
                     .padding(.horizontal, 8)
                     .padding(.bottom, 4)
             }
-            Divider().overlay(Lumen.separator)
+            // The column's two chrome bands, and they are bands rather than the three
+            // hairlines that used to fence them (design audit §1.1: hairline-partitioned
+            // flat grey IS the pre-Yosemite AppKit read). The switcher and the footer
+            // drop to `windowBase` 0.18 while the scrolling body stays on `panel` 0.20 —
+            // the same recessed-chrome / raised-content step the status bar and the
+            // filmstrip already use, so depth comes from surface value the way the rest
+            // of the ladder does.
             sectionSwitcher
-            Divider().overlay(Lumen.separator)
+                .frame(maxWidth: .infinity)
+                .background(Lumen.windowBase)
             if state.editTargets.isEmpty {
                 emptyState
             } else {
                 sectionContent
             }
-            Divider().overlay(Lumen.separator)
             footer
+                .frame(maxWidth: .infinity)
+                .background(Lumen.windowBase)
         }
         .frame(width: Lumen.panelWidth)
         .background(Lumen.panelBackground)
@@ -467,8 +482,14 @@ struct DevelopPanel: View {
 
 /// A verb, not a tile. The icon-above-caption 4×2 grid was the iPhoto/Aperture
 /// toolbar idiom — the audit's single most "2008" finding — and these are commands
-/// with key equivalents, not modes. Compact horizontal buttons, borderless at rest,
-/// surface on hover.
+/// with key equivalents, not modes.
+///
+/// Borderless at rest, surface on hover, which is the half of design step 6 the first
+/// pass wrote in this comment and did not implement: it painted `controlSurface` under
+/// all eight, so the bottom of the develop column was eight filled rectangles competing
+/// for attention with the photograph. A rest fill is how you draw a MODE, something that
+/// can be on; every one of these fires once and returns. The hover surface still
+/// confirms the hit target, and it is now the only thing that does — which is the point.
 private struct DevelopFooterButton: View {
     let title: String
     let systemImage: String
@@ -488,8 +509,8 @@ private struct DevelopFooterButton: View {
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 5)
-            .background(hovering ? Lumen.controlHover : Lumen.controlSurface)
-            .foregroundStyle(Lumen.primaryText)
+            .background(hovering ? Lumen.controlHover : Color.clear)
+            .foregroundStyle(hovering ? Lumen.primaryText : Lumen.secondaryText)
             .clipShape(RoundedRectangle(cornerRadius: 5))
             .contentShape(Rectangle())
         }

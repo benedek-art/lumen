@@ -52,10 +52,12 @@ struct ColorPanel: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 2) {
+                // The rules between these three are gone: each header carries 16 pt of
+                // its own boundary now (`LumenSectionHeader.topRhythm`), which is how
+                // every reference app separates sections and how BasicPanel already
+                // did. Design audit §1.1.
                 mixerSection
-                Divider()
                 pointColorSection
-                Divider()
                 blackAndWhiteSection
             }
             .padding(.horizontal, 10)
@@ -107,6 +109,12 @@ struct ColorPanel: View {
                 // one `Mixer.uniformity` on the wire and the engine applies it to all
                 // eight bands, each converging on its own core arc — so selecting Blue
                 // and dragging this also pulls skin toward Orange.
+                //
+                // This rule SURVIVES the hairline cull (design audit §1.1) on purpose:
+                // it does not fence two sections — those are spaced apart now — it marks
+                // a change of scope inside one, from "the selected band" to "every
+                // band". Space alone would read as an ordinary gap between rows, and
+                // reading this row as per-band is a wrong edit, not an ugly one.
                 Divider()
                     .padding(.vertical, 2)
 

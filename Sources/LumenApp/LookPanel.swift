@@ -50,17 +50,15 @@ struct LookPanel: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 2) {
+                // Six sections, and until now five hairlines between them. The headers
+                // carry their own 16 pt boundary (`LumenSectionHeader.topRhythm`) —
+                // design audit §1.1, and the same rhythm BasicPanel has always had.
                 lookBanner
                 savedLooksSection
-                Divider()
                 wheelsSection
-                Divider()
                 printerLightsSection
-                Divider()
                 primariesSection
-                Divider()
                 transformSection
-                Divider()
                 filmLabSection
             }
             .padding(.horizontal, 10)

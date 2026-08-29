@@ -355,6 +355,14 @@ token ladder and type scale now visible in `LumenControls.swift:47-98`. **Steps 
 open**: section headers, slider polish, filter-bar regroup, footer verbs, grid selection,
 the hover/focus modifier, the sidebar pass.
 
+*[Corrected 2026-08-29, after reading the code instead of docs/25's own status line: the
+sentence above was taken from that line and it was stale. Commit `a80673c` had already
+landed step 6 and most of steps 3, 4 and 7. What genuinely remained is set out at the
+foot of Phase 1, and docs/25 now carries a status header mapping every one of its nine
+steps to where it went. The lesson, since it will recur across seven phases: **a status
+line in a planning document is a claim about the past, and the code is the only record
+of it.** Check the code.]*
+
 This refresh must fold those in rather than restart. Several map one-to-one onto the
 owner's new complaints (step 5 *is* the filter bar; step 3 *is* the section headers).
 
@@ -558,6 +566,40 @@ the owner reacts in the running app. Owner checkpoints marked **⚑**.
    accent modified dot, 16 pt rhythm, delete panel-internal hairlines. ⚑ *(hover-only
    Reset is a taste call)*
 5. **docs/25 step 6**: footer 4×2 icon-tile grid → compact horizontal buttons.
+
+**Correction to items 4 and 5, written after reading the code rather than docs/25's own
+status line.** docs/25 says "steps 3–9 are open"; that line is stale. Commit `a80673c`
+("the visible half of design step 3-4-6-7") had already landed the Default badge's
+removal, the accent dot, the slider fill separation, the grid/filmstrip accent selection
+and the footer's tiles → horizontal verbs, and said in its own message that it was
+holding two taste calls: hover-only Reset and hover-reveal thumbs.
+
+So what actually remained, and what shipped:
+
+- **Step 3.** The 16 pt rhythm moves out of `DevelopSection` and into
+  `LumenSectionHeader.topRhythm`, so a section built by hand out of a header — which is
+  how Colour, Look and Masks build all fourteen of theirs — gets the same boundary as one
+  built through `DevelopSection`. That is what let the ten inter-section `Divider()`s go
+  (2 in Colour, 5 in Look, 3 in Masks), plus the three that fenced the develop column's
+  own bands: the section switcher and the footer now sit on `windowBase` 0.18 against the
+  body's `panel` 0.20, which is the ladder's own answer to "how do two regions divide".
+  **Two hairlines deliberately survive** — ColorPanel's Uniformity rule and ZonesPanel's
+  Global rule — because neither fences two sections; each marks a change of *scope inside
+  one*, from the selected band to every band, and from per-zone to the whole axis. Space
+  alone would read as an ordinary row gap there, and misreading those rows produces a
+  wrong edit rather than an ugly panel. Both now carry a comment saying so.
+  Hover-only Reset shipped: opacity rather than an `if`, so the header does not reflow
+  under the pointer that summoned it. **Still the ⚑ taste call — one line to revert.**
+- **Step 4 (thumbs).** `a80673c` held hover-reveal thumbs as the second taste call and
+  that hold stands; it is not folded in here.
+- **Step 5.** Already done, except that `a80673c`'s comment claimed "borderless at rest"
+  while the code painted `controlSurface` under all eight verbs — eight filled rectangles
+  at the foot of the column. Now borderless at rest, surface on hover. A rest fill draws a
+  *mode*; every one of these fires once and returns.
+- **Open question for the owner, not decided here.** All eight footer verbs now have a
+  menu item *and* a key equivalent (⇧⌘A, ⇧⌘R, ⌘Z, ⇧⌘Z, ⌘C, ⌘V, ⌥⌘C, ⌥⌘V). Whether they
+  still earn two rows at the foot of the develop column is a density call, not a defect,
+  so it stays his.
 
 ### Phase 2 — Colour where colour is information ⚑
 

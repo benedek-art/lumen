@@ -579,7 +579,33 @@ and against Lightroom via owner-exported references.
       OPTION A (2026-08-26), with a high-fidelity HTML mockup of Option B published
       as an artifact for a later call; steps 1-2 (elevation ladder + type scale)
       landed at df57ab9, checkpoint 1 (the brighter chrome, one full session before
-      judging) rides the next build; remaining A steps 3-9 in progress
+      judging) rides the next build; remaining A steps 3-9 in progress.
+      SUPERSEDED 2026-08-29 by the full refresh below — docs/25 now carries a status
+      header mapping each of its nine steps to where it went.
+- [ ] **Full UI/UX refresh (docs/28), commissioned 2026-08-28**: "the ui ux is rough…
+      I genuinely don't get some of it… make it better than lightroom in terms of ui
+      as well now." Seven phases; this is the live ledger, docs/28 Part 6 is the plan.
+      **Phase 1 — legibility and density (no IA change):**
+      - [x] labels stop truncating: `labelWidth` 78 → 94, track 158 → 142, the
+            `SliderDragTests` fixture re-proven parametrically 100-400 pt (9b8df2b)
+      - [x] `DevelopDisclosure` stores `() -> Content`, so closed means closed —
+            invisible today, and the precondition for Phase 4's accordions (9b8df2b)
+      - [x] 33 always-visible prose blocks collapse to the ⓘ row across Colour, Look
+            and Masks; 6 stay `prominent` (3 honesty disclosures, 3 live geometry
+            readouts) (88a2f99)
+      - [x] section rhythm moves into `LumenSectionHeader.topRhythm`, which retires
+            13 hairlines (10 inter-section + the develop column's 3 band fences, now
+            a `windowBase` 0.18 step); 2 intra-section rules deliberately survive.
+            Hover-only Reset shipped — OWNER TASTE CALL, one line to revert
+      - [x] footer verbs borderless at rest (the half of docs/25 step 6 that a80673c
+            commented but did not implement)
+      **Phases 2-7:** colour where colour is information ⚑ · reclaim the chrome ⚑ ·
+      four workspaces and accordions ⚑ · one home for colour ⚑ · speed (arithmetic
+      entry, scrubby readout, ⌘K palette, Speed Edit D44) · focus + the owed keymap
+      reconciliation. **Phase 4 is gated on the slider-smoothness verification** — it
+      changes how many slider rows are in scope per mouse event, so starting it before
+      that verification makes a regression there and a regression here
+      indistinguishable.
 - [x] First shipping-path golden that MOVES the six tone sliders through RenderGraph,
       preview + export scale: `ToneShippingGoldenTests` drives each slider
       individually through `RenderGraph.build` at both table sizes, asserting

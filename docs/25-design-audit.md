@@ -5,6 +5,33 @@ references are to that commit and go stale as the plan below lands; docs/23 M2's
 UI bullet is the live status. Owner decision pending: Option A first (recommended,
 a strict subset of B) vs straight to B. -->
 
+<!-- STATUS, 2026-08-29 — SUPERSEDED AND ABSORBED by docs/28 (the full UI/UX
+refresh), per docs/00 §3: nothing drifts silently. The owner chose Option A.
+This document stays as the CRITIQUE of record — §1's nine findings are the
+diagnosis the refresh is answering, and they are still the best statement of
+what was wrong — but §3's implementation table is no longer the live plan.
+Track the work in docs/28 Part 6.
+
+Where §3's steps went, by number, so none is silently dropped:
+
+  1, 2  token ladder, type scale ................ landed (Lumen enum)
+  3     section header .......................... landed; docs/28 Phase 1 item 4
+  4     slider polish ........................... landed EXCEPT hover-reveal
+                                                  thumbs, still an owner taste call
+  5     filter bar regroup ...................... docs/28 Phase 3 item 9, which
+                                                  supersedes it: the bar is deleted
+                                                  rather than regrouped
+  6     footer verbs ............................ landed; docs/28 Phase 1 item 5
+  7     grid/filmstrip selection ................ landed; rest in Phase 3 item 11
+  8     hover/focus modifier .................... docs/28 Phase 7 item 27
+  9     sidebar pass ............................ docs/28 Phase 3 items 10-11
+  10-12 Option B ............................... not chosen; Phase 4-5 take the
+                                                  parts of it that survived review
+
+The line further down reading "steps 3–9 are open" was true when written and is
+not now — steps 3, 6 and most of 4 and 7 landed in a80673c and its successors.
+It cost one planning pass to discover that; hence this header. -->
+
 I've read the chrome code in full — `LumenControls.swift`, `DevelopPanel.swift`, `ContentView.swift`, `FilterBar.swift`, the visual parts of `LoupeView.swift`, `GridView.swift`, `FilmstripView.swift`, `HistogramView.swift`, `BasicPanel.swift`/`DetailPanel.swift` composition — plus the design law in `docs/00-vision.md` (Law 7) and its full spec in `docs/12-spec-ux.md` §12.7. Here is the audit.
 
 ---
