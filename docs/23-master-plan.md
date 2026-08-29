@@ -1088,6 +1088,30 @@ side-by-side exports. **Exit gate: owner prefers or ties Lumen on ≥4 of 5.**
       step is now taken, in the app, where it happens. Four tests, including that an
       idle hand is not a display cost and that a render longer than its own interval
       reports zero rather than negative time.
+- [x] **Round 4e — a THIRD explanation for a stepping slider, which every instrument
+      this project has built would have called healthy.**
+      Whites and Blacks move the tone ANCHORS, so they re-key `finishLUT` on every mouse
+      event. The drag rides `tableAllowingStale` while the exact bake — 15 to 18 ms of
+      35 937 samples, measured — runs on `bakeQueue`. Which means the picture's visible
+      response to those two controls is gated by the BAKE rate, not the frame rate: the
+      renderer can deliver thirty honest frames a second that are all the same picture,
+      because they are all reading the same stale table, and the picture only moves when
+      a bake lands. Thirty frames a second showing ten distinct pictures is a slider
+      that ticks — and `in/out`, `draft` and `after` would every one of them look fine
+      while it happened.
+      The counters existed; only the totals were shown, which cannot be read during a
+      drag. `bakesPerSecond` / `staleServesPerSecond` sample the cache's own totals once
+      per delivered frame and print them as rates. `stale/s` near the input rate with
+      `bakes/s` far below it is the signature, and it points at the engine (a cheaper
+      finish bake) rather than at the render or the display path.
+      NOT yet acted on beyond the instrument, deliberately. The bake is ~15 ms on the
+      probe's CPU and likely faster on an M-series machine, which would put table
+      updates at 60–100/s and make this a non-issue; the mechanism is real but its
+      MAGNITUDE is unknown, and this round has already twice been wrong about a
+      mechanism it had not measured. The candidate fixes — a cheaper bake, a narrower
+      `concurrentPerform` so the bake stops stealing every core from the render, or
+      keeping the anchors out of the baked table — differ enough that guessing between
+      them is how the last two wrong calls happened.
 - [ ] **Deliberately NOT done in round 2: anything else to the render or display path.**
       The display path above is the leading suspect and a `CALayer`-contents or
       Metal-layer plate is the obvious next move — and shipping it now, unverified,

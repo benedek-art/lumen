@@ -71,9 +71,31 @@ final class LatencyHUD: ObservableObject {
     @Published private(set) var inputsPerSecond: Double?
     @Published private(set) var framesPerSecond: Double?
 
+    /// HOW FAST THE COLOUR TABLES ARE ACTUALLY LANDING.
+    ///
+    /// A third explanation for a stepping slider, which neither `in/out` nor
+    /// `draft/after` can see, and which applies to exactly the controls the owner names
+    /// most: Whites and Blacks move the tone ANCHORS, which re-keys `finishLUT` on every
+    /// mouse event. The drag then rides `tableAllowingStale` while the exact bake — 15
+    /// to 18 ms of 35 937 samples — runs on `bakeQueue`.
+    ///
+    /// So for those controls the picture's visible response is gated by the BAKE rate,
+    /// not the frame rate. The renderer can deliver thirty frames a second that are all
+    /// the same picture, because they are all reading the same stale table, and the
+    /// picture only moves when a bake lands. Thirty honest frames a second showing ten
+    /// distinct pictures is a slider that ticks, and every instrument this project has
+    /// built so far would call it healthy.
+    ///
+    /// The counters for this already existed; only the totals were shown, which cannot
+    /// be read during a drag. A rate can.
+    @Published private(set) var bakesPerSecond: Double?
+    @Published private(set) var staleServesPerSecond: Double?
+
     private var lastInputAt: UInt64?
     private var inputRate = EventRate()
     private var frameRate = EventRate()
+    private var lastTableStats: PlanTableCache.Stats?
+    private var lastTableStatsAt: Double?
 
     private func nowSeconds() -> Double {
         Double(DispatchTime.now().uptimeNanoseconds) / 1e9
@@ -109,6 +131,7 @@ final class LatencyHUD: ObservableObject {
         let now = nowSeconds()
         frameRate.record(at: now)
         framesPerSecond = frameRate.perSecond(now: now)
+        sampleTableTraffic(now: now)
         // A drag that has stopped must stop claiming a rate, or the last number of the
         // last gesture is read as the current one.
         if inputRate.isIdle(now: now) { inputsPerSecond = nil }
@@ -116,6 +139,26 @@ final class LatencyHUD: ObservableObject {
             inputToDraftMs = Double(DispatchTime.now().uptimeNanoseconds - input) / 1e6
             lastInputAt = nil  // one edit, one closure of the loop
         }
+    }
+
+    /// Turn the cache's running totals into rates, sampled once per delivered frame.
+    ///
+    /// Deltas rather than an `EventRate`, because the counters are incremented inside
+    /// the cache by whatever thread is baking; this side only ever reads them. A gap
+    /// longer than a gesture means the drag stopped, so the rates are dropped rather
+    /// than averaged across a pause — the same reasoning as `EventRate.isIdle`.
+    private func sampleTableTraffic(now: Double) {
+        let stats = PlanTableCache.currentStats
+        defer { lastTableStats = stats; lastTableStatsAt = now }
+        guard let previous = lastTableStats, let at = lastTableStatsAt else { return }
+        let elapsed = now - at
+        guard elapsed > 0, elapsed < 1.0 else {
+            bakesPerSecond = nil
+            staleServesPerSecond = nil
+            return
+        }
+        bakesPerSecond = Double(stats.bakes - previous.bakes) / elapsed
+        staleServesPerSecond = Double(stats.staleServes - previous.staleServes) / elapsed
     }
 
     func noteSettle(milliseconds: Double, longEdge: Int) {
@@ -157,6 +200,17 @@ struct LatencyHUDView: View {
         return "in/out    \(number(inputs))/s \(number(frames))fps"
     }
 
+    /// Bakes landing against tables served stale, per second. Read during a drag on
+    /// Whites or Blacks: `stale/s` near the input rate with `bakes/s` far below it means
+    /// the frames are honest and the PICTURE is not moving with them.
+    private func rateLine(bakes: Double?, stale: Double?) -> String {
+        func number(_ value: Double?) -> String {
+            guard let value, value.isFinite else { return "  — " }
+            return String(format: "%4.0f", value)
+        }
+        return "bake/stale\(number(bakes))/s \(number(stale))/s"
+    }
+
     var body: some View {
         let tables = PlanTableCache.currentStats
         let rasters = MaskRasterCache.currentStats
@@ -173,6 +227,12 @@ struct LatencyHUDView: View {
             Text(line("settle     ", hud.settleMs, hud.settleLongEdge))
             Text(cacheLine("tables     ", hits: tables.hits, bakes: tables.bakes,
                            stale: tables.staleServes))
+            // The same two counters as RATES, which is the only form in which they can
+            // be read during a drag. On Whites and Blacks every event re-keys the finish
+            // table, so `stale/s` tracks the hand and `bakes/s` is how often the picture
+            // can actually CHANGE: a frame served a stale table is the previous
+            // picture, however honest the frame rate above it looks.
+            Text(rateLine(bakes: hud.bakesPerSecond, stale: hud.staleServesPerSecond))
             Text(cacheLine("rasters    ", hits: rasters.hits, bakes: rasters.bakes,
                            stale: rasters.staleServes))
         }

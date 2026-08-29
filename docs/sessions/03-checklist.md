@@ -63,7 +63,24 @@ means you were not dragging hard enough for the number to mean anything.
   or resolution reduction touches it. This is the one that says "build the Metal-layer
   viewport", which is a real piece of work I have deliberately not started on a guess.
 
-If you write down one pair of numbers from this whole document, make it that one.
+**AND A THIRD CASE THE OTHER TWO CANNOT SEE.** The bottom line is new too:
+
+    bake/stale  12/s   84/s
+
+Whites and Blacks move the tone anchors, which re-keys the finish colour table on
+**every mouse event**. The drag then shows the previous event's table while the exact
+one bakes behind it. So `stale/s` is how often a frame was served an old table, and
+`bakes/s` is how often the picture could actually CHANGE.
+
+- **`bakes/s` close to `stale/s`** → fine, the tables are keeping up.
+- **`stale/s` high, `bakes/s` far below it** → the renderer is delivering honest frames
+  at a healthy rate that are all *the same picture*, because they are all reading the
+  same stale table. Thirty frames a second showing ten distinct pictures is a slider
+  that ticks — and `in/out`, `draft` and `after` would all look perfectly healthy while
+  it happened. This is why it is worth a line of its own.
+
+If you write down one set of numbers from this whole document, make it those three
+lines — `in/out`, `draft`/`after`, and `bake/stale` — during one hard drag on Blacks.
 
 **Why the in/out pair too.** Latency alone cannot tell two opposite problems
 apart, and three rounds of this work have been argued without the distinction:
