@@ -154,6 +154,36 @@ final class CropTool: ObservableObject {
 
     func endSession() { baseline = nil }
 
+    /// Put the frame back the way it was when the tool opened, and close it.
+    ///
+    /// ON THE TOOL RATHER THAN IN THE PANEL because Escape cannot reach the panel.
+    /// `KeyDispatcher` installs an `NSEvent` monitor in FRONT of the responder chain and
+    /// spends `0x1B` before any view sees it, so a `.keyboardShortcut(.escape)` on the
+    /// crop column would be dead code wearing a shortcut — the defect this project has
+    /// shipped twice and now has a test for. The panel's Revert button calls the same
+    /// path, so the key and the button cannot drift.
+    ///
+    /// THREE FIELDS, not the whole `Geometry`: Lens Corrections lives in this same
+    /// workspace, and a revert that also un-ticked the built-in lens profile would undo
+    /// something the photographer did not do inside the crop tool.
+    @MainActor
+    func revert(in state: AppState) {
+        guard let photo = state.primarySelection,
+              let baseline = baselineGeometry(for: photo.id) else {
+            endSession()
+            forgetArming()
+            return
+        }
+        state.updateRecipe(coalescingKey: "geometry.revert") { recipe in
+            recipe.develop.geometry.crop = baseline.crop
+            recipe.develop.geometry.angle = baseline.angle
+            recipe.develop.geometry.flipH = baseline.flipH
+        }
+        setLock(nil, for: photo.id)
+        endSession()
+        forgetArming()
+    }
+
     // MARK: The double press
 
     /// How close together two presses of R have to be to mean "reset", in seconds.
@@ -621,15 +651,10 @@ struct CropSection: View {
     }
 
     private func revertCrop() {
-        if let target = revertTarget {
-            binder.edit("geometry.revert") { recipe in
-                recipe.develop.geometry.crop = target.crop
-                recipe.develop.geometry.angle = target.angle
-                recipe.develop.geometry.flipH = target.flipH
-            }
-        }
-        if let photoID { tool.setLock(nil, for: photoID) }
-        commitCrop()
+        // One path for the button and the key — see `CropTool.revert(in:)`.
+        tool.revert(in: state)
+        viewport.showCrop = false
+        viewport.showStraighten = false
     }
 }
 

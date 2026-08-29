@@ -411,6 +411,25 @@ final class KeyDispatcher {
                 PanelLayout.shared.setMasking(false)
                 return true
             }
+            // Then the crop tool, the same layer of the same idiom: a rectangle on the
+            // photograph is a thing you are inside, and Escape leaves it.
+            //
+            // It has to be HERE rather than in the overlay, and that is the whole point.
+            // This monitor sits in front of the responder chain and spent 0x1B on the
+            // grid unconditionally, so a `.keyboardShortcut(.escape)` on the crop panel
+            // would have been dead code wearing a shortcut — the exact defect class this
+            // project has shipped twice and now tests for. The crop stream declined to
+            // print a key that does nothing and shipped a Revert button instead, which
+            // was right, and this is the line that lets the key exist.
+            //
+            // Leaving reverts, because that is what Escape means everywhere else. The
+            // rectangle at arming time is `CropTool`'s to remember.
+            if LoupeViewport.shared.showCrop {
+                CropTool.shared.revert(in: state)
+                LoupeViewport.shared.showCrop = false
+                LoupeViewport.shared.showStraighten = false
+                return true
+            }
             if state.viewMode != .grid {
                 state.showGrid()
                 return true

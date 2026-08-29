@@ -114,7 +114,9 @@ public enum KeyGrammar {
             KeyRow(keys: "N", action: "Survey selection"),
             KeyRow(keys: "Space", action: "Hold for loupe from the grid; fit ↔ 1:1 under "
                   + "the cursor in the loupe"),
-            KeyRow(keys: "Esc", action: "Back to the grid"),
+            KeyRow(keys: "Esc",
+                   action: "Leave what you are inside — a focused slider, then masking, "
+                       + "then the crop tool, then back to the grid"),
         ]),
         KeyGroup(title: "Culling", rows: [
             KeyRow(keys: "P", action: "Pick"),
