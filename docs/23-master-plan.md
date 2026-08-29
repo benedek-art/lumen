@@ -642,9 +642,16 @@ and against Lightroom via owner-exported references.
             keyboard shortcut
       - [x] docs/25 steps 7 and 9 complete (accent selection + 10 pt stars landed in
             a80673c; sidebar rows here)
-      - [ ] hover rating overlays on thumbnails — held for its own push: cells already
-            SHOW flag/stars/label, so this adds clickability not visibility, and
-            per-cell `.onHover` over a LazyVGrid is the cost docs/28 §5.5 warned about
+      - [x] hover rating on grid thumbnails: five stars appear under the pointer and
+            each is a target. `PhotoCell` stays value-typed — the click arrives as
+            `AppState.ratingSink`, stored on the same `lazy var` pattern as
+            `sliderGestureSink` so it is one closure identity rather than sixty per
+            body pass. The click SELECTS then rates, because `setRating` acts on
+            `editTargets` and would otherwise rate whatever was selected elsewhere.
+            Filmstrip cells are excluded (96 pt is too small for five targets).
+            WATCH: this is the per-cell `.onHover` docs/28 §5.5 called an unmeasured
+            macOS 15 scrolling cost — one owner session settles it, and the
+            container-level `onContinuousHover` fallback is written down there
       **Phases 4-7:**
       four workspaces and accordions ⚑ · one home for colour ⚑ · speed (arithmetic
       entry, scrubby readout, ⌘K palette, Speed Edit D44) · focus + the owed keymap

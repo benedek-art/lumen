@@ -49,6 +49,10 @@ struct GridView: View {
                                       isSelected: state.selection.contains(photo.id),
                                       isPrimary: state.primarySelection?.id == photo.id,
                                       showsCaption: side >= 110,
+                                      // Stored on AppState, so this is the same
+                                      // closure value on every pass rather than a
+                                      // fresh identity per cell per body.
+                                      onRate: state.ratingSink,
                                       loader: state.thumbnails)
                                 .onTapGesture(count: 2) {
                                     state.select(photo)
@@ -147,9 +151,18 @@ struct PhotoCell: View {
     let isSelected: Bool
     let isPrimary: Bool
     let showsCaption: Bool
+    /// Non-nil turns the badge strip's stars into targets and reveals them on hover.
+    ///
+    /// The filmstrip passes nil: its cells are 96 points tall, and five click targets
+    /// eleven points wide inside one of them is a dexterity test, not an affordance.
+    let onRate: ((PhotoItem, Int) -> Void)?
     let loader: ThumbnailLoader
 
     @State private var image: CGImage? = nil
+    /// Cell-local, so a pointer crossing one thumbnail invalidates one thumbnail. It
+    /// never reaches AppState, which is what keeps this type's stated contract — value
+    /// inputs only, no observation — true.
+    @State private var hovering = false
 
     /// Spelled out rather than left to the memberwise initializer, which private
     /// state would otherwise make inaccessible from the filmstrip's file.
@@ -159,6 +172,7 @@ struct PhotoCell: View {
          isSelected: Bool,
          isPrimary: Bool,
          showsCaption: Bool = true,
+         onRate: ((PhotoItem, Int) -> Void)? = nil,
          loader: ThumbnailLoader) {
         self.photo = photo
         self.side = side
@@ -166,6 +180,7 @@ struct PhotoCell: View {
         self.isSelected = isSelected
         self.isPrimary = isPrimary
         self.showsCaption = showsCaption
+        self.onRate = onRate
         self.loader = loader
     }
 
@@ -174,6 +189,12 @@ struct PhotoCell: View {
     private var hasBadges: Bool {
         photo.flag != .none || photo.rating > 0 || photo.label != .none
     }
+
+    /// Hovering a rateable cell reveals the strip even on an untouched photo, so five
+    /// empty stars appear under the pointer and nowhere else. Drawing them on every
+    /// cell unconditionally would put three hundred grey stars on a contact sheet — the
+    /// reason `hasBadges` exists at all.
+    private var showsStars: Bool { photo.rating > 0 || (onRate != nil && hovering) }
 
     private var borderColor: Color {
         // Primary selection is the accent's textbook job (design audit §1.9): three
@@ -219,8 +240,9 @@ struct PhotoCell: View {
         .animation(.easeOut(duration: 0.12), value: image == nil)
         .frame(width: side, height: wellHeight)
         .overlay(alignment: .bottom) {
-            if hasBadges { badges }
+            if hasBadges || showsStars { badges }
         }
+        .onHover { if onRate != nil { hovering = $0 } }
         .clipShape(RoundedRectangle(cornerRadius: 3))
         .overlay(
             RoundedRectangle(cornerRadius: 3)
@@ -235,7 +257,7 @@ struct PhotoCell: View {
                     .font(.system(size: 9, weight: .semibold))
                     .foregroundStyle(photo.flag == .picked ? Color.white : Lumen.secondaryText)
             }
-            if photo.rating > 0 { stars }
+            if showsStars { stars }
             Spacer(minLength: 0)
             if photo.label != .none {
                 RoundedRectangle(cornerRadius: 2)
@@ -252,13 +274,32 @@ struct PhotoCell: View {
     private var stars: some View {
         HStack(spacing: 1) {
             ForEach(1...5, id: \.self) { index in
-                Image(systemName: "star.fill")
-                    // 7pt was below any Mac legibility floor (design audit §1.9);
-                    // 10pt is the app-wide minimum now.
-                    .font(.system(size: 10))
-                    .foregroundStyle(index <= photo.rating ? Color.white : Lumen.trackColor)
+                if let onRate {
+                    Button {
+                        onRate(photo, index)
+                    } label: {
+                        star(index)
+                            // The drawn star is 10 points; the target is the strip's
+                            // full height, because aiming at a ten-point glyph and
+                            // missing costs a rating on the wrong number.
+                            .frame(width: 12, height: 14)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help(index == photo.rating ? "Clear the rating" : "Rate \(index)")
+                } else {
+                    star(index)
+                }
             }
         }
+    }
+
+    private func star(_ index: Int) -> some View {
+        Image(systemName: "star.fill")
+            // 7pt was below any Mac legibility floor (design audit §1.9);
+            // 10pt is the app-wide minimum now.
+            .font(.system(size: 10))
+            .foregroundStyle(index <= photo.rating ? Color.white : Lumen.trackColor)
     }
 
     private func loadThumbnail() async {

@@ -712,12 +712,32 @@ of the three hand-rolled caps-label styles the audit counted (§1.2) and lifts i
   Filter popover. The sidebar's `Keyboard` button is gone; it is ⌘/ in the Help menu.
 
 **Item 11** is complete: accent selection and 10 pt grid stars landed in `a80673c`, and
-the sidebar rows landed here. **Still open in item 9:** hover rating overlays on
-thumbnails — held back deliberately, not forgotten. Cells already *display* flag, stars
-and label permanently, so the overlay would add clickability rather than visibility, and
-it is the one item in this phase whose cost is unclear: per-cell `.onHover` across a
-`LazyVGrid` is the shape this plan warned about in §5.5. It goes in its own push so a
-scrolling regression is attributable to exactly one commit.
+the sidebar rows landed here.
+
+**Hover rating, the tail of item 9.** Shipped in its own push, so a scrolling regression
+would be attributable to exactly one commit. Hovering a grid cell reveals five stars in
+the badge strip and each is a target; the strip is unchanged on cells that already carry
+a rating, and unchanged everywhere in the filmstrip, whose 96-point cells are too small
+for five eleven-point targets. Three things kept it honest:
+
+- **`PhotoCell` stays value-typed.** Its own header states the contract — "it never reads
+  AppState, so a rating written three cells away does not invalidate the whole sheet" —
+  so the click arrives as a closure. That closure is `AppState.ratingSink`, stored on the
+  same `lazy var` pattern as `sliderGestureSink`, because building it inside the grid's
+  `body` would mean sixty new closure identities on every pass of a view that re-bodies
+  on selection, on scroll and on every culling keystroke.
+- **The click selects, then rates.** `setRating` acts on `editTargets`, so a click on an
+  unselected thumbnail would otherwise rate whatever was selected elsewhere on screen.
+  Selecting first is what every grid in the field does with a click, and it leaves the
+  keyboard grammar as the single implementation of what a rating means — including the
+  toggle (clicking the third star of a 3 clears it) and auto-advance, which will move on
+  after the click exactly as it does after the keystroke.
+- **Hover is cell-local `@State`.** Nothing reaches AppState, so a pointer crossing one
+  thumbnail invalidates one thumbnail. This is the per-cell `.onHover` §5.5 flagged as an
+  unmeasured macOS 15 scrolling cost; the container-level `onContinuousHover` alternative
+  it describes remains available, and the reason to take the simple road first is that
+  the cost is *unmeasured* rather than known — sixty tracking areas in a lazy grid is not
+  obviously the shape that hurts, and one owner session settles it either way.
 
 ### Phase 4 — Workspaces and accordions ⚑ (the IA change)
 

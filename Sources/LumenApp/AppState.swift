@@ -2556,6 +2556,33 @@ final class AppState: ObservableObject {
         self?.sliderGesture(active: active)
     }
 
+    /// The grid's hover-rating hook, on the same pattern and for the same reason.
+    ///
+    /// `PhotoCell` is value-typed by contract — "it never reads AppState, so a rating
+    /// written three cells away does not invalidate the whole sheet" — so the click has
+    /// to arrive as a value. Allocating a closure per cell inside the grid's `body`
+    /// would mean sixty new closure identities on every pass of a view that re-bodies
+    /// on selection, scroll and every culling keystroke. One stored closure, handed
+    /// down unchanged.
+    lazy var ratingSink: (PhotoItem, Int) -> Void = { [weak self] photo, rating in
+        self?.rate(photo, rating)
+    }
+
+    /// Rate one photograph from the contact sheet.
+    ///
+    /// It SELECTS first, which is what makes it correct rather than merely convenient:
+    /// `setRating` acts on `editTargets`, so a click on an unselected thumbnail would
+    /// otherwise rate whatever was selected somewhere else on screen. Selecting first
+    /// is also what every other grid in the field does with a click, and it leaves the
+    /// keyboard grammar — 1…5 on the selection, toggling, honouring auto-advance —
+    /// as the single implementation of what a rating means.
+    func rate(_ photo: PhotoItem, _ rating: Int) {
+        if primarySelection?.id != photo.id || selection.count > 1 {
+            select(photo)
+        }
+        setRating(rating)
+    }
+
     func sliderGesture(active: Bool) {
         if active {
             lastGestureEventAt = Date()
