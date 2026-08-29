@@ -245,6 +245,10 @@ struct LumenSlider: View {
 
     @State private var isDragging = false
     @State private var dragStartValue: Double = 0
+    /// The gesture's gearbox: ⇧ makes the drag fine, and this is what stops the thumb
+    /// jumping at the moment the modifier changes. See `FineDrag` in LumenCore, where
+    /// the arithmetic and its properties are tested.
+    @State private var gearbox = FineDrag(startValue: 0)
     /// The press that began this gesture was the second click of a double-click, so
     /// `reset()` ran and everything else the gesture delivers is ignored.
     @State private var pressWasReset = false
@@ -254,6 +258,17 @@ struct LumenSlider: View {
 
     private var effectiveHardRange: ClosedRange<Double> { hardRange ?? range }
     private var isModified: Bool { abs(value - defaultValue) > step / 1000 }
+
+    /// Read at the moment a sample is handled rather than carried on the gesture.
+    ///
+    /// `DragGesture.Value` carries no modifier flags on macOS, and `.modifiers(.shift)`
+    /// is the wrong tool: it would make a SEPARATE gesture that can only begin while ⇧
+    /// is already held, when the whole point of fine-drag is that you press, you drag,
+    /// and then you want precision. `NSEvent.modifierFlags` is the current state of the
+    /// keyboard, which is exactly the question.
+    private static var shiftIsDown: Bool {
+        NSEvent.modifierFlags.contains(.shift)
+    }
 
     var body: some View {
         HStack(spacing: 6) {
@@ -443,14 +458,34 @@ struct LumenSlider: View {
                                     x: Double(drag.startLocation.x))
                                 value = dragStartValue
                             }
+                            // The gesture's gearbox, opened at the press. Coarse it is
+                            // arithmetically identical to the old direct call — see
+                            // `FineDragTests` — so this is not a new drag model, it is
+                            // the same one with an anchor that ⇧ can move.
+                            gearbox = FineDrag(startValue: dragStartValue,
+                                               fine: Self.shiftIsDown)
                             onEditingChanged?(true)
                             sliderGestureChanged(true)
                         }
                         if pressWasReset { return }
                         let travelled = Double(drag.location.x - drag.startLocation.x)
-                        let moved = geometryOfDrag.value(from: dragStartValue,
-                                                         travelled: travelled)
-                        if moved != value { value = moved }
+                        // ⇧ read off the live AppKit modifier flags rather than from the
+                        // gesture, because SwiftUI's `DragGesture.Value` carries no
+                        // modifiers on macOS and `.modifiers(.shift)` would make this a
+                        // DIFFERENT gesture that only starts while ⇧ is held — which is
+                        // the opposite of what fine-drag is for. You press, you drag, and
+                        // THEN you want precision.
+                        //
+                        // `resolving`, not the mutating form: a `@State` write is a view
+                        // invalidation, so storing the gearbox every event would publish
+                        // on every event of every drag — including the majority that do
+                        // not move the value because the pointer has not crossed a step.
+                        // Both writes below are guarded for the same reason.
+                        let out = gearbox.resolving(track: geometryOfDrag,
+                                                    travelled: travelled,
+                                                    fine: Self.shiftIsDown)
+                        if let changed = out.changedGear { gearbox = changed }
+                        if out.value != value { value = out.value }
                     }
                     .onEnded { drag in
                         // THE RELEASE IS A SAMPLE, and it is the last one.
@@ -474,9 +509,15 @@ struct LumenSlider: View {
                         }
                         if isDragging {
                             let travelled = Double(drag.location.x - drag.startLocation.x)
-                            let settled = SliderDrag.endedValue(track: geometryOfDrag,
-                                                                from: dragStartValue,
-                                                                travelled: travelled)
+                            // Through the same gearbox as every motion sample, because a
+                            // release IS a motion sample. Resolving it against
+                            // `dragStartValue` directly would throw away every rebase ⇧
+                            // made during the gesture and land the drag where a coarse
+                            // one would have — the exact class of bug the release-is-a-
+                            // sample rule exists to prevent, arriving from the other end.
+                            let settled = gearbox.resolving(track: geometryOfDrag,
+                                                            travelled: travelled,
+                                                            fine: Self.shiftIsDown).value
                             if settled != value { value = settled }
                         }
                         isDragging = false
@@ -544,15 +585,21 @@ struct LumenSlider: View {
 
     private func commitText() {
         isEditingText = false
-        // `Double("nan")`, `Double("inf")` and `Double("1e999")` all parse, and the
-        // clamp below does NOT filter them: `max(NaN, lo)` is NaN, because every
-        // comparison against NaN is false. A NaN reaching the recipe is not a bad
-        // render, it is data loss — `JSONEncoder` refuses non-conforming floats, so
-        // the canonical JSON collapses to "{}" and that is what gets written to the
-        // sidecar, erasing the photo's edit from the copy that exists to survive
-        // losing the catalog.
-        guard let parsed = Double(textValue.trimmingCharacters(in: .whitespaces)),
-              parsed.isFinite else { return }
+        // Through `SliderEntry` in LumenCore, which is where the grammar and its refusals
+        // are tested. It accepts arithmetic — `+= 0.3`, `-= 0.2`, `* 2`, `/ 2` (docs/28
+        // Phase 6, claiming one of D45's deliberate omissions) — and a bare number is
+        // still absolute, INCLUDING a negative one: the readout pre-fills and selects, so
+        // replacing it with "-40" is how a photographer sets −40 on a ±100 control, and
+        // Figma's leading-minus-is-relative grammar would have made that a silent −10.
+        //
+        // It also refuses what `Double(_:)` would happily hand over. `Double("nan")`,
+        // `Double("inf")` and `Double("1e999")` all parse, and the clamp below does NOT
+        // filter them: `max(NaN, lo)` is NaN, because every comparison against NaN is
+        // false. A NaN reaching the recipe is not a bad render, it is data loss —
+        // `JSONEncoder` refuses non-conforming floats, so the canonical JSON collapses to
+        // "{}" and that is what gets written to the sidecar, erasing the photo's edit
+        // from the copy that exists to survive losing the catalog.
+        guard let parsed = SliderEntry.value(of: textValue, current: value) else { return }
         // Typing reaches the hard limit; dragging does not. That asymmetry is what
         // makes soft limits helpful instead of restrictive.
         onEditingChanged?(true)

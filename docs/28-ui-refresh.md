@@ -815,6 +815,44 @@ was protecting.
 26. **⌥-scroll** last of the six: wheel events have no end phase, so the gesture sink
     needs a timeout or every tick is a SQLite write and a scope re-bin.
 
+**Items 20 and 22 shipped together**, both as LumenCore arithmetic with Linux tests and a
+thin wire-up, which is this plan's own "Linux-provable halves first" rule.
+
+**Item 20 — the grammar, and the trap it is shaped around.** `40` and `-40` replace the
+value; `+= 0.3`, `-= 0.2`, `* 2`, `/ 2` change it. **Figma's convention — a leading `+`
+or `-` is relative — is deliberately not used.** Figma's numeric fields are mostly
+non-negative dimensions; Lumen's are Exposure at ±5, the tone sliders at ±100 and Tint at
+±150, so typing a negative absolute is routine. The readout pre-fills with the current
+value and selects it, so "replace it all with `-40`" is *the* way to set −40 — and under
+Figma's grammar that would silently mean "subtract 40 from 30" and land on −10. A control
+that quietly does something else with a number a photographer typed is worse than one
+that cannot do arithmetic at all. `*` and `/` need no `=` because no number begins with
+them. `SliderEntry` also refuses what `Double(_:)` accepts — `nan`, `inf`, `1e999`,
+hex floats, `/ 0`, and an *overflowing result* from finite inputs — because a non-finite
+value in a recipe is not a bad render but data loss.
+
+**Item 22 — ⇧ fine-drag, and the performance shape that matters more than the maths.**
+The arithmetic is as this plan predicted: `travelled` is absolute from the press, so
+scaling it the instant ⇧ goes down also scales the travel already spent and the thumb
+jumps backward. `FineDrag` carries an anchor that moves only when the modifier does.
+
+The part not predicted here, and the one that would have quietly cost the session's
+drag-smoothness work: **a `@State` write is a view invalidation.** A gearbox stored on
+every mouse event publishes on every event of every drag — including the majority that do
+not move the value, because the pointer has not crossed a step — which is exactly the
+per-event cost `CommandState` and `EditRevision` exist to keep off this path. So
+`FineDrag.resolving` returns a replacement *only when the gear changed*, and the view
+writes only then; the mutating form stays for readability and the tests. `FineDragTests`
+pins that as a property, alongside the ones that matter to the hand: toggling ⇧ never
+moves the value, twenty toggles do not drift it, and a coarse drag through `FineDrag` is
+arithmetically identical to the old direct call at every sample.
+
+⚑ **Blocker found for item 24, recorded before it bites.** ⌘K is taken — it is "Keyword
+the selection" in the sidebar, attached to a visible control and in `KeyGrammar`. The
+control palette needs a different key, or the keyword verb does, and that is a keymap
+decision belonging to **item 30's one deliberate pass over the whole grammar** rather
+than to whoever happens to build the palette first.
+
 ### Phase 7 — Focus, keyboard, and the owed reconciliation
 
 27. Focus ring (docs/25 step 8): `.focusable()` + `.focusEffectDisabled()` + own ring.

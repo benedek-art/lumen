@@ -250,3 +250,77 @@ public enum SliderDrag {
         return abs(pressX - thumbX) <= thumbGrabRadius
     }
 }
+
+/// A drag that can change gear part-way through without moving the value.
+///
+/// ⇧ makes a drag fine (docs/28 Phase 6, and D45's list of deliberate omissions). The
+/// reason it needs a type rather than a multiply is stated in that plan and is worth
+/// repeating where the code is: `SliderTrack.value(from:travelled:)` reads the pointer's
+/// CURRENT offset from the press, absolutely, with no accumulator — which is exactly what
+/// makes a dropped sample harmless. Scaling that absolute offset the instant ⇧ goes down
+/// also scales the travel already spent, so the thumb jumps backward to a quarter of
+/// where the hand had taken it, and jumps forward again on release.
+///
+/// So the gesture carries an anchor instead: the value it had reached, and the travel at
+/// which the gear last changed. Every sample is still resolved from the pointer's current
+/// position, so the dropped-sample property survives intact — the anchor only moves when
+/// the modifier does.
+public struct FineDrag: Equatable, Sendable {
+
+    /// A quarter. Fine enough to place a value the coarse gear skips over, coarse enough
+    /// that crossing a ±100 track still takes one gesture rather than four.
+    public static let scale: Double = 0.25
+
+    private var anchorValue: Double
+    private var anchorTravel: Double
+    private var isFine: Bool
+
+    public init(startValue: Double, fine: Bool = false) {
+        self.anchorValue = startValue
+        self.anchorTravel = 0
+        self.isFine = fine
+    }
+
+    /// What the gesture is worth now, and a replacement gearbox ONLY if the gear moved.
+    ///
+    /// The odd shape is the important part, and it is about what a `@State` write costs
+    /// rather than about arithmetic. The mutating form below writes on every call, and
+    /// in SwiftUI a `@State` write is a view invalidation — so a slider that used it
+    /// would publish on every mouse event of every drag, including the majority that do
+    /// not move the value at all because the pointer has not crossed a step. That is
+    /// precisely the per-event cost `CommandState` and `EditRevision` exist to keep off
+    /// this path. Returning nil for "nothing to store" lets the view write only when ⇧
+    /// actually changes, which is a handful of times per gesture at most.
+    public func resolving(track: SliderTrack, travelled: Double,
+                          fine: Bool) -> (value: Double, changedGear: FineDrag?) {
+        guard travelled.isFinite else { return (track.resolve(anchorValue), nil) }
+        guard fine != isFine else {
+            return (resolved(track: track, travelled: travelled), nil)
+        }
+        // Rebase at the value the OLD gear had already reached — `next` is built from
+        // `self`, whose `isFine` has not moved yet — so the change of gear is worth
+        // exactly nothing.
+        var next = self
+        next.anchorValue = resolved(track: track, travelled: travelled)
+        next.anchorTravel = travelled
+        next.isFine = fine
+        return (next.resolved(track: track, travelled: travelled), next)
+    }
+
+    /// What the gesture is worth now, given where the pointer is and whether ⇧ is down.
+    ///
+    /// The convenient form, and the one the tests read. A view should prefer
+    /// `resolving` — see its note.
+    public mutating func value(track: SliderTrack, travelled: Double,
+                               fine: Bool) -> Double {
+        let out = resolving(track: track, travelled: travelled, fine: fine)
+        if let changed = out.changedGear { self = changed }
+        return out.value
+    }
+
+    private func resolved(track: SliderTrack, travelled: Double) -> Double {
+        let gear = isFine ? Self.scale : 1
+        return track.value(from: anchorValue,
+                           travelled: (travelled - anchorTravel) * gear)
+    }
+}

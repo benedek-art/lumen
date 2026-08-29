@@ -666,7 +666,26 @@ and against Lightroom via owner-exported references.
             ColorPanel `@State` to AppState (the pick resolves on the render actor and
             must write where the panel sees it), so a band CLICK now publishes
       - [ ] item 17, Colour and Grading adjacent — needs Phase 4's workspaces
-      **Phases 4, 6, 7:**
+      **Phase 6 — speed (items 20 and 22 of six):**
+      - [x] arithmetic typed entry, `SliderEntry` in LumenCore (19 Linux tests):
+            `+= 0.3`, `-= 0.2`, `* 2`, `/ 2`, and a bare number stays ABSOLUTE
+            including a negative one. Figma's leading-minus-is-relative grammar was
+            rejected on purpose: the readout pre-fills and selects, so replacing it
+            with "-40" is how you set −40 on a ±100 control, and Figma's rule would
+            make that a silent −10. Also refuses nan/inf/1e999/hex//0 and an
+            overflowing RESULT from finite inputs
+      - [x] ⇧ fine-drag, `FineDrag` in LumenCore (14 Linux tests). An anchor that
+            moves only when the modifier does, so the thumb never jumps at the gear
+            change. AND `resolving` returns a replacement only when the gear actually
+            moved — a `@State` write is a view invalidation, so storing a gearbox per
+            mouse event would have published on every drag event and quietly undone
+            the drag-smoothness work this session started with
+      - [ ] ⚑ BLOCKER for item 24 (⌘K control palette): ⌘K is already "Keyword the
+            selection". Belongs to item 30's one deliberate keymap pass, not to
+            whoever builds the palette first
+      - [ ] items 21, 23, 25, 26: haptic detents, scrubby readout, Speed Edit (D44),
+            ⌥-scroll
+      **Phases 4, 7:**
       four workspaces and accordions ⚑ · one home for colour ⚑ · speed (arithmetic
       entry, scrubby readout, ⌘K palette, Speed Edit D44) · focus + the owed keymap
       reconciliation. **Phase 4 is gated on the slider-smoothness verification** — it
