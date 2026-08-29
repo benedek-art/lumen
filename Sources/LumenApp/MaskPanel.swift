@@ -381,7 +381,10 @@ struct MaskPanel: View {
         case .radial:
             VStack(alignment: .leading, spacing: 2) {
                 optionalSlider(id, i, "Feather", \.feather, 0...100, 50)
-                optionalSlider(id, i, "Rotation", \.rotation, -180...180, 0, bipolar: true)
+                // ±90, not ±180: an axis-aligned ellipse has rotational period 180°
+                // (`MaskRaster.radialPlane`), so half the old track duplicated the other
+                // half — two thumb positions 180° apart rasterized the same mask.
+                optionalSlider(id, i, "Rotation", \.rotation, -90...90, 0, bipolar: true)
                 note("Drag on the image to place and resize the ellipse — "
                      + MaskPanel.ellipseSummary(c) + ". Falloff runs inward from the edge.")
             }
@@ -722,8 +725,19 @@ struct MaskPanel: View {
                             wheel(mask.id, "Highlights", \.high, "high")
                             wheel(mask.id, "Global", \.global, "global")
                         }
-                        wheelsSlider(mask.id, "Blending", \.blending, 0...100, 50)
-                        wheelsSlider(mask.id, "Balance", \.balance, -100...100, 0, bipolar: true)
+                        // NO BLENDING OR BALANCE ROW. `adoptingWindows(from:)` copies
+                        // the global wheels' `pivots`, `blending` and `balance` over the
+                        // mask's own before either render path sees them — its own doc
+                        // comment asserts the premise that made that safe, "whose window
+                        // fields no mask control can write", which stopped being true
+                        // when these two rows were added. Dragging them changed the
+                        // recipe, the fingerprint and the modified dot, and produced a
+                        // bit-identical frame. Worse: if they were the only mask grade
+                        // edits, `GradingWheels.isNeutral` stayed true and the stage was
+                        // declared identity, so no table was baked at all.
+                        //
+                        // docs/08 §8.4's contract is that a mask inherits the global
+                        // tonal windows, so the rows go rather than the adoption.
                     }
                 }
             }
@@ -1376,7 +1390,19 @@ struct MaskPanel: View {
         var c = MaskComponent(op: op, kind: kind)
         switch kind {
         case .brush:
-            c.strokesRef = try? BrushStrokeSet().blobRef()
+            // NO SEEDED REF. It used to be the content hash of an EMPTY stroke set, and
+            // nothing ever wrote those bytes to the blob store — `MaskCanvas.apply` is
+            // the only writer and it runs on a committed stroke. So an unpainted brush
+            // component carried a reference that resolves nowhere, which is exactly what
+            // `BrushStrokes.unresolvedReferences` reports and what export refuses the
+            // whole photograph over: "1 brush stroke set could not be read — the masking
+            // would have exported empty", for strokes nobody ever made.
+            //
+            // Reachable in one click: add a mask (Brush is first in the picker), decide
+            // on a gradient instead, paint nothing, export. Leaving it nil is also the
+            // honest state — the component then reads INCOMPLETE, which is what
+            // `validationError()` exists to say.
+            break
         case .linear:
             c.line = [0.5, 0.75, 0.5, 0.25]
         case .radial:

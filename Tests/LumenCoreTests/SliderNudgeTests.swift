@@ -290,3 +290,58 @@ final class ScrollNudgeTests: XCTestCase {
         XCTAssertEqual(exposure.nudged(0, steps: steps), 0.19, accuracy: 0.06)
     }
 }
+
+// MARK: - A nudge must not evict a value that is already past the soft limit
+
+extension SliderNudgeTests {
+
+    /// The defect: one arrow press on a hard-range value jumped it by the whole gap.
+    ///
+    /// The soft/hard split is the contract — dragging pins at the soft limit, typing
+    /// accepts the hard one — and `nudged` clamped to the soft range unconditionally. So
+    /// Exposure typed to −8 (legal: the hard range is ±10) and then nudged ONE step
+    /// landed on −5: a three-stop jump from a gesture that promises 0.01 EV, in either
+    /// direction, unrecoverable except by retyping. Tint could jump 150 units.
+    func testANudgeDoesNotDragAHardRangeValueBackToTheSoftLimit() {
+        // Exposure's geometry: soft ±5, step 0.01.
+        let track = SliderTrack(width: 210, lowerBound: -5, upperBound: 5, step: 0.01)
+
+        // Typed to −8, which only the hard range allows. A step inward moves one step.
+        XCTAssertEqual(track.nudged(-8, steps: 1), -7.99, accuracy: 1e-9,
+                       "→ must move one step, not three stops")
+        XCTAssertEqual(track.nudged(8, steps: -1), 7.99, accuracy: 1e-9)
+
+        // OUTWARD IS STILL REFUSED, and the asymmetry is the contract rather than an
+        // oversight — this assertion was written the other way round first and the
+        // implementation disagreed with it, which is the useful direction for a test to
+        // fail in. `nudged`'s rule is that the hard range is somewhere you go
+        // deliberately, by saying a number, "not where you can arrive by leaning on an
+        // arrow key". Letting an outside value step further out is exactly leaning on an
+        // arrow key to arrive at the hard limit, one press at a time. So the value is
+        // HELD where typing put it: the only thing the fix added is that the arrow no
+        // longer drags it home.
+        XCTAssertEqual(track.nudged(-8, steps: -1), -8, accuracy: 1e-9,
+                       "← must hold, not walk further into the hard range")
+        XCTAssertEqual(track.nudged(8, steps: 1), 8, accuracy: 1e-9)
+    }
+
+    /// And the contract it must not break: from INSIDE, an arrow still cannot leave.
+    func testANudgeStillCannotCarryAValuePastTheSoftLimit() {
+        let track = SliderTrack(width: 210, lowerBound: -5, upperBound: 5, step: 0.01)
+        XCTAssertEqual(track.nudged(4.995, steps: 1), 5, accuracy: 1e-9,
+                       "a nudge from inside pins at the soft limit, as a drag does")
+        XCTAssertEqual(track.nudged(5, steps: 1), 5, accuracy: 1e-9)
+        XCTAssertEqual(track.nudged(-5, steps: -1), -5, accuracy: 1e-9)
+    }
+
+    /// A value outside the range can still walk back INTO it, and then it is captured by
+    /// the soft limit like any other interior value — the widening is per-call, not a
+    /// mode the track enters.
+    func testAValueOutsideWalksBackInAndIsThenHeldByTheSoftLimit() {
+        let track = SliderTrack(width: 210, lowerBound: -5, upperBound: 5, step: 1)
+        XCTAssertEqual(track.nudged(-8, steps: 1), -7, accuracy: 1e-9)
+        XCTAssertEqual(track.nudged(-6, steps: 1), -5, accuracy: 1e-9)
+        XCTAssertEqual(track.nudged(-5, steps: -1), -5, accuracy: 1e-9,
+                       "back inside, the soft limit holds again")
+    }
+}

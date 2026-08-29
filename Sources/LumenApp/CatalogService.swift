@@ -967,6 +967,28 @@ final class CatalogService: @unchecked Sendable {
             // fall into the no-sidecar branch, and be replaced wholesale. The rating
             // is still in the catalog; the user's work in that file is not
             // recoverable from anywhere.
+            // A HALF-READ DOCUMENT IS NOT SAFE TO SPLICE INTO, and this is the third
+            // member of the same family as the two branches below.
+            //
+            // `content` was seeded from a read of this file, and `update` strips every
+            // Lumen-owned element before re-emitting the fields it was handed. So an
+            // element the parse never REACHED — because the document is truncated, or
+            // has an XML error part-way down — is deleted by the write. The reachable
+            // case is a sidecar damaged below its rating element: press `3` on that
+            // frame during a cull and the intact `<lumen:recipe>` further down goes.
+            // Nothing looks wrong, because the catalog still has the recipe; what was
+            // destroyed is the copy that exists for when the catalog does not.
+            //
+            // Refusing costs this frame's rating in the sidecar and nothing else. The
+            // catalog keeps it, and the next write after somebody repairs the file
+            // carries it across.
+            if !content.parsedCleanly {
+                NSLog("Lumen: left %@ untouched — it did not parse completely, and "
+                      + "rewriting it would delete whatever lies past the damage",
+                      path.lastPathComponent)
+                continue
+            }
+
             let text: String
             switch XMPSidecar.classify(try? Data(contentsOf: path)) {
             case .unreadable:

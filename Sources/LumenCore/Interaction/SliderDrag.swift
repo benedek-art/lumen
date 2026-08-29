@@ -182,13 +182,32 @@ public struct SliderTrack: Sendable, Equatable {
     /// existing contract: the hard range is where you go deliberately, by saying a
     /// number, not where you can arrive by leaning on an arrow key.
     ///
+    /// BUT IT MUST NOT EVICT A VALUE THAT IS ALREADY OUT THERE, and it used to. The rule
+    /// above says an arrow cannot take you PAST the soft limit; it says nothing about a
+    /// value that got past it by the route the contract provides. Type −8 into Exposure
+    /// (legal: the hard range is ±10) and tap → once, or ⌥-scroll one click: `resolve`
+    /// clamped to the soft ±5 and the value jumped **three stops** from a gesture that
+    /// promises 0.01 EV — in the direction of the arrow or against it, indifferently, and
+    /// unrecoverable except by retyping. Every slider with a wider hard range had this:
+    /// Exposure, Tint (a jump of up to 150 units), the six Zones rows, three export rows.
+    ///
+    /// So the clamp becomes one-sided. A value inside the soft range still cannot leave
+    /// it. A value already outside may move by one step in either direction and is held
+    /// where it is rather than dragged home — the arrow does what it says, and the only
+    /// way back inside is the same deliberate one that got it out.
+    ///
     /// A non-finite input holds the value rather than propagating: a NaN in a recipe is
     /// data loss, because the canonical JSON refuses non-conforming floats and collapses
     /// to "{}" on its way to the sidecar.
     public func nudged(_ value: Double, steps: Int) -> Double {
         guard value.isFinite else { return value }
         guard isUsable, steps != 0 else { return resolve(value) }
-        return resolve(value + Double(steps) * step)
+        let moved = value + Double(steps) * step
+        // The window this nudge may land in: the soft range, widened just far enough to
+        // include wherever the value already is.
+        let low = Swift.min(lowerBound, value)
+        let high = Swift.max(upperBound, value)
+        return snapped(Swift.min(Swift.max(moved, low), high))
     }
 
     /// Where along the track a value is drawn, 0…1. The view's thumb offset and fill

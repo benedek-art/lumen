@@ -185,6 +185,22 @@ struct BasicPanel: View {
 
     private var whiteBalanceRows: some View {
         let display = whiteBalanceDisplay
+        // THE AS-SHOT NEUTRAL, NOT THE DISPLAYED VALUE, and the difference is the whole
+        // of a defect that made the app's two most-used rows the only two that could
+        // never report themselves modified.
+        //
+        // Both rows used to pass `display.temperature` / `display.tint` as BOTH the
+        // binding's stand-in and the `defaultValue`. `WhiteBalanceEngine.displayed`
+        // returns `temp ?? kelvin`, so the moment an override exists the two are the
+        // same number by construction — `value == defaultValue`, identically, for every
+        // value. Drag Temp from 3200 K to 7800 K and `isModified` stays false: the label
+        // and readout stay secondary, the deviation underline these two rows carry is
+        // gated on `isModified` so it never draws, Tint's neutral tick sits at the
+        // thumb's own position and is permanently hidden under it, and the crossing
+        // haptic can never fire because the detent equals where you started.
+        //
+        // The neutral is what "unchanged" means here, and it is what `onReset` restores.
+        let neutral = asShotNeutral ?? .reference
         // While the neutral is unknown the rows have nothing honest to stand in, so they
         // do not accept a drag. The window is one hop onto the render actor and it only
         // opens on a photo whose recipe carries no override — the case where a drag
@@ -209,8 +225,8 @@ struct BasicPanel: View {
                         range: 2000...50000,
                         hardRange: 2000...50000,
                         scale: .reciprocal,
-                        defaultValue: display.temperature,
-                        step: 10, decimals: 0, bipolar: false,
+                        defaultValue: neutral.kelvin,
+                        step: 10, decimals: 0, bipolar: true,
                         // Blue below neutral, amber above, placed in Kelvin so the
                         // grey stop lands where the mired axis actually puts 5500 K
                         // (about two thirds along, not the middle). docs/28 Phase 2.
@@ -226,7 +242,11 @@ struct BasicPanel: View {
                                             orAuto: display.tint),
                         range: -150...150,
                         hardRange: -300...300,
-                        defaultValue: display.tint,
+                        defaultValue: neutral.tint,
+                        // THE AS-SHOT LANDMARK GETS DRAWN. `bipolar` is what gates the
+                        // default tick, and Tint already had it; Temp did not, which is
+                        // why the one row whose neutral moves per photograph was the one
+                        // row with nothing on its track saying where that neutral is.
                         step: 1, decimals: 0,
                         trackStops: Lumen.tintStops,
                         onReset: { applyAsShot() })

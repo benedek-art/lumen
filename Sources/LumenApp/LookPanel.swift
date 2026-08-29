@@ -738,8 +738,17 @@ struct LookPanel: View {
                                              get: { $0.blackTarget },
                                              fallback: base.blackTarget,
                                              set: { $0.blackTarget = $1 }),
-                        range: 0...15, defaultValue: base.blackTarget,
-                        step: 0.01, decimals: 2, bipolar: false,
+                        // 0…9 ON THE TRACK, 0…15 BY TYPING. `DisplayTransform` clamps
+                        // this to `midGrey * 0.5` — 0.09, i.e. blackTarget 9 — so the top
+                        // 40% of a 0…15 track rendered identically to its 60% mark. And
+                        // the step had to come down: the preset's own value is 0.0152, so
+                        // at step 0.01 neither a drag, nor the readout scrub, nor a
+                        // keyboard nudge could land on it (0.0152 + 0.01 resolves to
+                        // 0.03), and `decimals: 2` printed it as "0.02" — a number that,
+                        // typed back, is 31% higher than the preset.
+                        range: 0...9, hardRange: 0...15,
+                        defaultValue: base.blackTarget,
+                        step: 0.001, decimals: 3, bipolar: false,
                         help: LookPanel.overrideHelp,
                         onReset: { clearTransformOverride(\.blackTarget) })
         }
@@ -875,8 +884,13 @@ struct LookPanel: View {
                         value: bindFilm("film.grain.size",
                                         get: { $0.grain.size },
                                         set: { $0.grain.size = Num.clamp($1, 0.5, 2.0) }),
+                        // `bipolar: true`, matching the Effects panel's row for the SAME
+                        // field. One of the two had to move: an interior default of 1.0
+                        // is exactly what the flag draws a tick for, and the two rows
+                        // were showing one value with and without it depending on which
+                        // panel you were looking at.
                         range: 0.5...2.0, defaultValue: 1.0, step: 0.05, decimals: 2,
-                        bipolar: false)
+                        bipolar: true)
 
             // What a loaded stock does to the Display Transform is not written here
             // any more. It was written here, and above the transform's own controls,

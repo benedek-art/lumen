@@ -38,9 +38,19 @@ extension WorkspaceSection {
     /// every RAW file ever opened — a dot that is always on is a dot that says nothing.
     /// nil is the right answer for a rendered file, which has no ISO profile to start
     /// from.
+    /// `renderDefault` is the same asymmetry one section over, and it was missing.
+    ///
+    /// `AppState.startingRecipe` gives a rendered file `look.render.preset = "Linear"`
+    /// precisely so the app does not apply a second tone map on top of the camera's own.
+    /// `RenderParams()` defaults to `"Neutral"`. So comparing against the TYPE's default
+    /// lit the Looks dot on every untouched JPEG, HEIC and TIFF — and the dot is what
+    /// enables the header's Reset, which then wrote "Neutral" and visibly crushed the
+    /// picture. The photographer's own Reset button in the footer disagreed, because it
+    /// compares against the photograph's starting recipe like this now does.
     public static func nonDefault(in recipe: Recipe,
                                   softProofEnabled: Bool = false,
-                                  denoiseDefault: Denoise? = nil) -> Set<WorkspaceSection> {
+                                  denoiseDefault: Denoise? = nil,
+                                  renderDefault: RenderParams? = nil) -> Set<WorkspaceSection> {
         var out: Set<WorkspaceSection> = []
         let develop = recipe.develop
         let look = recipe.look
@@ -88,7 +98,30 @@ extension WorkspaceSection {
         // a recipe from another build, or a sidecar written elsewhere, can carry spots.
         // The dot still lights for them, because the alternative is a photograph whose
         // recipe differs from its defaults with nothing on screen admitting it.
-        if look.vignette != 0 || develop.heal != Heal() { out.insert(.effects) }
+        // AND GRAIN, which this clause used to leave out although the section draws it.
+        //
+        // `EffectsPanel` renders `vignetteSection` AND `grainSection` under `.effects`,
+        // and `grainSection` computes its own modified state — so with Vignette at 0 and
+        // Grain raised, the accordion header said "nothing changed here" directly above
+        // a sub-header saying "changed", the header's Reset was not offered, and when
+        // Vignette WAS modified that Reset cleared the vignette and left the grain rows
+        // it sits above untouched. The same predicate feeds `hiddenActiveIndicator`, so a
+        // grain edit concealed by the Simple register was not disclosed either — the
+        // exact failure this function's header says it exists to prevent.
+        //
+        // Against the STOCK's own default rather than `FilmGrain()`: loading Portra
+        // brings its grain with it, and a photographer who loaded a stock and touched
+        // nothing has not made an edit here. That is the same rule `denoiseDefault`
+        // follows one clause down, and it is what `EffectsPanel.isGrainModified` already
+        // uses — this is the two of them agreeing rather than a new judgement.
+        let grainIsModified: Bool = {
+            guard let film = look.filmLab else { return false }
+            let stockDefault = FilmStock.named(film.stock)?.grainDefault ?? 0
+            return film.grain != FilmGrain(size: 1.0, amount: stockDefault)
+        }()
+        if look.vignette != 0 || develop.heal != Heal() || grainIsModified {
+            out.insert(.effects)
+        }
 
         if develop.mixer != Mixer() || !develop.pointColors.isEmpty || look.bw != nil {
             out.insert(.color)
@@ -104,7 +137,9 @@ extension WorkspaceSection {
         // render lights the section it is actually drawn in. The stored-but-unapplied
         // LUT counts too: it is a thing the photographer set, and a dot that ignored it
         // would be the panel disagreeing with the sidecar.
-        if look.render != RenderParams() || look.lut != nil { out.insert(.looks) }
+        if look.render != (renderDefault ?? RenderParams()) || look.lut != nil {
+            out.insert(.looks)
+        }
 
         if softProofEnabled { out.insert(.softProof) }
 
@@ -204,6 +239,14 @@ extension WorkspaceSection {
         case .effects:
             recipe.look.vignette = 0
             recipe.develop.heal = Heal()
+            // Grain back to the stock's own, not to zero: this section's Reset means
+            // "put back what I found", and what a photographer found after loading
+            // Portra was Portra's grain. Leaving the film chain otherwise alone — the
+            // stock, the strength and the halation belong to Film Lab's Reset.
+            if let stock = recipe.look.filmLab.map({ $0.stock }) {
+                let stockDefault = FilmStock.named(stock)?.grainDefault ?? 0
+                recipe.look.filmLab?.grain = FilmGrain(size: 1.0, amount: stockDefault)
+            }
 
         case .softProof, .exportRecipes:
             break

@@ -37,10 +37,30 @@ public struct SidecarContent: Equatable, Sendable {
     public var catalogUUID: String?
     public var writeStamp: String?  // ISO 8601
 
+    /// WHETHER THE WHOLE DOCUMENT PARSED, and it is a safety interlock rather than a
+    /// diagnostic.
+    ///
+    /// `parse` salvages partial reads on purpose — a truncated sidecar that yielded a
+    /// rating is better recovered than dropped. That is right for READING and dangerous
+    /// for WRITING, because the writer seeds its pending content from the read and
+    /// `XMPMerge` strips every Lumen-owned element before re-emitting the fields it was
+    /// given. A field the parse never reached is therefore DELETED from the file.
+    ///
+    /// The reachable case: a `.xmp` damaged below its rating element (a crash during
+    /// someone else's write, a partial sync). Press `3` on that frame during a cull and
+    /// Lumen rewrites the file with the rating — and the intact `<lumen:recipe>` further
+    /// down is gone. The catalog still has it, so nothing looks wrong; the RECOVERY COPY
+    /// is what was destroyed, which is the only thing that copy is for.
+    ///
+    /// Defaults to true so a `SidecarContent` the app builds itself — which is every
+    /// caller but `parse` — is writable without saying so.
+    public var parsedCleanly: Bool
+
     public init(rating: Int = 0, flag: SidecarFlag = .none, label: String? = nil,
                 pipelineVersion: Int = currentPipelineVersion,
                 recipeFingerprint: String? = nil, recipeJSON: String? = nil,
-                catalogUUID: String? = nil, writeStamp: String? = nil) {
+                catalogUUID: String? = nil, writeStamp: String? = nil,
+                parsedCleanly: Bool = true) {
         self.rating = rating
         self.flag = flag
         self.label = label
@@ -49,6 +69,7 @@ public struct SidecarContent: Equatable, Sendable {
         self.recipeJSON = recipeJSON
         self.catalogUUID = catalogUUID
         self.writeStamp = writeStamp
+        self.parsedCleanly = parsedCleanly
     }
 }
 
@@ -405,11 +426,18 @@ public enum XMPSidecar {
         let delegate = SidecarParserDelegate()
         let parser = XMLParser(data: data)
         parser.delegate = delegate
-        _ = parser.parse()
+        let complete = parser.parse() && parser.parserError == nil
         // Partial salvage is deliberate: a truncated sidecar that yielded fields is
         // better recovered than dropped (docs/15 §15.5 conflict rules do the rest).
+        //
+        // But the salvage now says it is one. The result used to be discarded entirely,
+        // so a half-read document was indistinguishable from a whole one — and the writer
+        // seeds itself from the read, then strips and re-emits, so every element the
+        // parse never reached was deleted from the file. See `parsedCleanly`.
         guard delegate.sawAnyField else { return nil }
-        return delegate.content
+        var content = delegate.content
+        content.parsedCleanly = complete
+        return content
     }
 
     public static func parse(_ string: String) -> SidecarContent? {

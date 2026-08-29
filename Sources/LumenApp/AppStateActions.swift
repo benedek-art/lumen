@@ -64,10 +64,18 @@ extension AppState {
                 }
                 self.history.record(before: before, after: after, coalescingKey: nil,
                                     label: "Auto Tone")
-                for (url, recipe) in applied {
-                    self.catalog?.saveRecipe(recipe, url: url,
-                                             catalogID: self.catalogID(for: url))
-                }
+                // THROUGH `persist`, not a hand-rolled save loop. Writing the catalog
+                // directly skipped everything else `persist` does — notably
+                // `refreshLibraryQueryIfEditStateShows`, so with the filter chip set to
+                // "Edited: no" an auto-toned frame stayed in a list claiming to hold only
+                // untouched photographs until something unrelated forced a requery.
+                self.persist(applied)
+                // AND THE INSTRUMENTS. `scheduleScopeRefresh` is the only producer of
+                // `AppState.scopes`, and every other write path calls it. Auto did not:
+                // press Auto with the histogram open and it kept describing the picture
+                // from BEFORE Auto ran, until you touched another control. The one
+                // instrument you would use to judge Auto was the one that did not move.
+                self.scheduleScopeRefresh()
                 self.statusMessage = "Auto applied to \(applied.count) photo"
                     + (applied.count == 1 ? "" : "s")
             }

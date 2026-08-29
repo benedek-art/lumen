@@ -315,6 +315,13 @@ struct DevelopPanel: View {
     /// The photograph's denoise starting point, or nil for a rendered file with no ISO
     /// profile to start from. Read here and handed down so the header's dot and the
     /// header's Reset agree about what "default" means for this frame.
+    /// The photograph's own display transform starting point — "Linear" for a rendered
+    /// file, the type's default for a RAW. See `WorkspaceSection.nonDefault`.
+    private var renderDefault: RenderParams? {
+        guard let photo = state.primarySelection else { return nil }
+        return AppState.startingRecipe(for: photo.id, iso: photo.iso).look.render
+    }
+
     private var denoiseDefault: Denoise? {
         guard let photo = state.primarySelection,
               !PhotoFormats.isRendered(photo.id),
@@ -464,7 +471,13 @@ struct DevelopPanel: View {
                                     // opened — and a dot that is always on says
                                     // nothing, which is the argument the "Default"
                                     // badges were removed under.
-                                    denoiseDefault: denoiseDefault))
+                                    denoiseDefault: denoiseDefault,
+                                    // The photograph's own display transform, for the
+                                    // reason `denoiseDefault` is here: a rendered file
+                                    // starts at "Linear" and the type's default is
+                                    // "Neutral", so without this the Looks dot was on for
+                                    // every untouched JPEG in the library.
+                                    renderDefault: renderDefault))
             }
         }
     }

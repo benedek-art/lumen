@@ -578,15 +578,32 @@ private struct WorkspaceSectionView: View {
         }
         guard section.resetsTheRecipe else { return nil }
         return {
-            let denoiseStart = denoiseDefault
+            // THE PHOTO-AWARE OVERLOAD, and per target rather than per selection.
+            //
+            // This used to resolve the ISO denoise profile once, from the PRIMARY
+            // selection, and then write it through `updateRecipe` — which applies to
+            // every edit target. Select an ISO 100 frame and an ISO 12800 frame, click
+            // Reset on the Detail header, and both got the ISO 100 profile: the high-ISO
+            // frame effectively un-denoised, its section reporting "default", with
+            // nothing on screen to say so. The whole-recipe Reset in the footer always
+            // did this correctly; this one was written against the wrong overload.
             state.updateRecipe(coalescingKey: "workspace.\(section.rawValue).reset") {
-                recipe in
+                photo, recipe in
+                let start = AppState.startingRecipe(for: photo.id, iso: photo.iso)
                 section.reset(&recipe)
                 // `reset` writes `Denoise()` because LumenCore cannot know the ISO. The
                 // photograph's own starting point is the honest default, and it is the
                 // one double-clicking a denoise slider already lands on.
-                if section == .detail, let denoiseStart {
-                    recipe.develop.denoise = denoiseStart
+                if section == .detail {
+                    recipe.develop.denoise = start.develop.denoise
+                }
+                // And the same for the display transform. `reset` writes `RenderParams()`
+                // — preset "Neutral" — for the same reason it writes `Denoise()`: the
+                // model cannot know the file is a JPEG that already carries the camera's
+                // curve and starts at "Linear". Resetting to Neutral there applies a
+                // second tone map and calls the result unedited.
+                if section == .looks {
+                    recipe.look.render = start.look.render
                 }
             }
         }

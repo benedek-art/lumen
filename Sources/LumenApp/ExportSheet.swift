@@ -474,9 +474,31 @@ private struct ExportRecipeEditor: View {
     private var sizeSection: some View {
         VStack(alignment: .leading, spacing: 2) {
             LumenSectionHeader(title: "Size")
+            // ONE FIELD, TWO UNITS — so the mode change has to carry the number.
+            //
+            // Megapixels (0.5…100) and Pixels (320…8000) both write `resizeValue`, and
+            // nothing converted it. Take the shipped "Web sRGB 2048" preset and switch to
+            // Megapixels: the row reads 2048 on a slider whose drag ends at 100, and
+            // `targetSize` computes two GIGApixels — clamped to no resize at all, or
+            // attempted if "Don't enlarge" is off. Drag it back to a sane 24 and switch
+            // to Long edge, and every photograph exports **24 pixels wide**. The only
+            // warning anywhere was a summary line reading "Long edge 24px".
+            //
+            // Written through a wrapper binding rather than an `onChange` so the
+            // conversion happens in the same update as the mode, and the row can never be
+            // drawn holding the other unit's number.
             LumenMenuPicker(title: "Resize",
                             options: resizeOptions,
-                            selection: $recipe.resizeMode,
+                            selection: Binding(
+                                get: { recipe.resizeMode },
+                                set: { mode in
+                                    let wasMP = recipe.resizeMode == .megapixels
+                                    let isMP = mode == .megapixels
+                                    recipe.resizeMode = mode
+                                    if wasMP != isMP {
+                                        recipe.resizeValue = isMP ? 24 : 2048
+                                    }
+                                }),
                             help: "Which measurement of the picture the number below "
                                 + "sets")
             if recipe.resizeMode == .megapixels {

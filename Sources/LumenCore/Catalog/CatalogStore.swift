@@ -977,6 +977,26 @@ public final class CatalogStore {
         var textIndexAvailable = false
         do {
             textIndexAvailable = try CatalogStore.prepareCacheDatabase(at: resolvedCachePath)
+        } catch let error as CatalogError {
+            // A cache.db FROM A NEWER BUILD IS DISPOSABLE, and treating it as fatal was
+            // the most expensive line in this file.
+            //
+            // `prepareCacheDatabase` throws `schemaTooNew` for a cache whose
+            // `user_version` is ahead of this build's migrations. The catch below is
+            // `SQLiteError`-typed, and `CatalogError` is not one — so the throw escaped
+            // `init` entirely, `AppState.openCatalog` caught it, set `catalog = nil`, and
+            // the whole session ran in memory: no catalog rows AND no sidecars, because
+            // the sidecar writer lives inside `CatalogService`. Every edit, rating and
+            // flag made that day was discarded at quit, announced only by ten-point text
+            // at the bottom of a sidebar that can be hidden.
+            //
+            // docs/15 §15.2 is explicit that this database is derived and is recreated
+            // empty when it cannot be used. "Written by a newer build" is exactly that
+            // case: nothing in it is user work. Run a dev build, go back to the release,
+            // and this fired.
+            guard case .schemaTooNew = error else { throw error }
+            try? FileManager.default.removeItem(atPath: resolvedCachePath)
+            textIndexAvailable = try CatalogStore.prepareCacheDatabase(at: resolvedCachePath)
         } catch let error as SQLiteError where error.indicatesCorruptDatabase {
             // Corrupt cache -> recreate empty; the workers refill it (docs/15 §15.2).
             // Losing it costs warm-up time and nothing else.

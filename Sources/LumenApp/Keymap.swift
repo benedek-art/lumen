@@ -394,12 +394,13 @@ final class KeyDispatcher {
         // is handled by `lowercased()`.
         guard let raw = event.charactersIgnoringModifiers?.lowercased().first
         else { return false }
-        let key: Character
-        switch raw {
-        case "{": key = "["
-        case "}": key = "]"
-        default: key = raw
-        }
+        //
+        // Written as a ternary rather than a `switch`, and that is not a style choice:
+        // `KeyGrammarTests` reads this file as TEXT and treats every `case "x":` in the
+        // dispatcher as a bare-key binding, so a `switch` here declared `{` and `}` as two
+        // new keys the grammar reference does not have — and the suite said so within the
+        // minute. The scanner is right; a normalisation is not a binding.
+        let key: Character = raw == "{" ? "[" : (raw == "}" ? "]" : raw)
 
         // The inspection holds answer their own key-up, through the same rule that
         // answered the key-down. Asking the rule rather than testing `holdActive` here

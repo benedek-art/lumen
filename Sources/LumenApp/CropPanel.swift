@@ -174,7 +174,15 @@ final class CropTool: ObservableObject {
             forgetArming()
             return
         }
-        state.updateRecipe(coalescingKey: "geometry.revert") { recipe in
+        // ONLY THE PHOTOGRAPH THE BASELINE BELONGS TO. `updateRecipe` writes every
+        // `editTargets` entry, and the baseline is taken for the primary selection alone
+        // — so with three frames selected, Escape stamped the primary's pre-crop framing
+        // onto the other two and their own crops were gone. Recorded as one undo step, so
+        // ⌘Z recovered it, but nothing on screen said three photographs had been rewritten
+        // by a key that means "cancel". Framing is a per-photograph gesture: the rectangle
+        // is on ONE picture and so is the revert.
+        state.updateRecipe(coalescingKey: "geometry.revert",
+                           targets: [photo]) { recipe in
             recipe.develop.geometry.crop = baseline.crop
             recipe.develop.geometry.angle = baseline.angle
             recipe.develop.geometry.flipH = baseline.flipH
@@ -317,11 +325,34 @@ struct CropSection: View {
                                 + "a horizon.")
                 rulerRow
                 guidesRow
+                // THE CROP MIRRORS WITH THE FRAME, and until now it did not.
+                //
+                // `geometryRects` applies the mirror FIRST and then measures the crop
+                // rectangle from the left edge of the already-mirrored frame. So on a
+                // crop of `x=0 w=0.5` — the left half — ticking this box delivered a
+                // mirrored version of the RIGHT half: the subject you framed is simply
+                // gone, and the masks do not move with it (they are stored in source
+                // coordinates and applied before geometry), so they stay on a subject the
+                // crop has left. The row's own help says "mirror the frame", which is
+                // what a photographer expects and what this now does.
+                //
+                // One line, and it keeps every stored recipe's meaning stable: a centred
+                // crop is its own mirror, so nothing that exists today moves.
                 LumenToggleRow(title: "Flip horizontal",
-                               isOn: binder.flag(\.develop.geometry.flipH, "geometry.flipH"),
-                               help: "Mirror the frame. This is a mirror, not a rotation "
-                                   + "— turning the crop between portrait and landscape "
-                                   + "is the ⇅ button beside the ratio.")
+                               isOn: Binding(
+                                get: { recipe.develop.geometry.flipH },
+                                set: { on in
+                                    binder.edit("geometry.flipH") { r in
+                                        r.develop.geometry.flipH = on
+                                        let c = r.develop.geometry.crop
+                                        r.develop.geometry.crop.x = 1 - c.x - c.w
+                                    }
+                                }),
+                               help: "Mirror the frame. The crop mirrors with it, so the "
+                                   + "framing stays on the same part of the picture. This "
+                                   + "is a mirror, not a rotation — turning the crop "
+                                   + "between portrait and landscape is the ⇅ button "
+                                   + "beside the ratio.")
                 if viewport.showCrop { commitRow }
                 // No perspective rows: `Upright` is a wire format with no stage behind
                 // it, and a control that reaches nothing is the defect this panel's

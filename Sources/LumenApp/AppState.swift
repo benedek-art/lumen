@@ -714,7 +714,11 @@ final class AppState: ObservableObject {
     /// it — and the thing that used to be missing, an eviction, is exactly the case
     /// where skipping the pass renders the mask as nothing. The authoritative check
     /// lives beside the cache, in `RenderCoordinator.ensureMattes`.
-    func ensureMaskMattes() {
+    /// `attemptedSoFar` is the union of every kind previous re-entries already tried for
+    /// this photograph. Empty from the outside; carried forward by the one recursive
+    /// call, which is what turns "try again" into "try again only if the last try got
+    /// somewhere". See the note at the re-entry below for what it costs when it does not.
+    func ensureMaskMattes(attemptedSoFar: Set<String> = []) {
         guard let photo = primarySelection else { return }
         let url = photo.id
         let recipe = recipe(for: photo)
@@ -733,11 +737,25 @@ final class AppState: ObservableObject {
             // rasterized empty under a WORKING spinner until the next edit happened
             // to call back in. One re-entry closes the gap: it no-ops unless the
             // recipe wants a kind the pass did not attempt.
-            if self.primarySelection?.id == url,
+            //
+            // AND IT ONLY RE-ENTERS ON PROGRESS, which is what stops it being an
+            // unbounded loop. `RenderCoordinator.ensureMattes` records `attempted` only
+            // INSIDE its optional-binding chain, so when the source cannot be built —
+            // the original is missing, the volume is ejected, Apple RAW refuses the file
+            // — nothing is attempted, the `allSatisfy` is false forever, and the
+            // `pendingMattes` guard has already been released a line above. Select a
+            // photograph with a Subject mask whose file is gone and the app span at
+            // 100%: a main-actor Task, an actor hop and a decode attempt per iteration,
+            // thousands a second, while the loupe showed the embedded preview and looked
+            // fine. Requiring the attempted set to have GROWN makes a pass that could
+            // not run a pass that will not run again.
+            let progressed = !pass.attempted.isSubset(of: attemptedSoFar)
+            if progressed,
+               self.primarySelection?.id == url,
                let current = self.primarySelection.map(self.recipe(for:)),
                !VisionMattes.kinds(in: current)
                    .allSatisfy({ pass.attempted.contains($0.rawValue) }) {
-                self.ensureMaskMattes()
+                self.ensureMaskMattes(attemptedSoFar: attemptedSoFar.union(pass.attempted))
             }
         }
     }
@@ -2517,9 +2535,18 @@ final class AppState: ObservableObject {
     /// baseline. Session findings: Reset flipped a JPEG's Linear preset to the
     /// default sigmoid — a second tone map, persisted, and undo recorded the same
     /// wrong baseline so it could not come back.
+    /// `targets` narrows the write to specific photographs. Nil means the whole
+    /// selection, which is what every ordinary edit wants and what this always did.
+    ///
+    /// It exists for the gestures that are about ONE picture even when several are
+    /// selected. Escape in the crop tool is the case that forced it: the baseline it puts
+    /// back is taken for the primary selection alone, so writing it through the selection
+    /// stamped that photograph's framing onto every other one and destroyed their crops —
+    /// from a key that means "cancel".
     func updateRecipe(coalescingKey: String? = nil, label: String? = nil,
+                      targets explicit: [PhotoItem]? = nil,
                       _ mutate: (PhotoItem, inout Recipe) -> Void) {
-        let targets = editTargets
+        let targets = explicit ?? editTargets
         guard !targets.isEmpty else { return }
         var before: [URL: HistoryStack.PhotoEdit] = [:]
         var after: [URL: HistoryStack.PhotoEdit] = [:]
@@ -2735,7 +2762,11 @@ final class AppState: ObservableObject {
         settleTick &+= 1
     }
 
-    private func persist(_ changes: [URL: Recipe]) {
+    /// INTERNAL, not private, because `AppStateActions` is an extension in another file
+    /// and `private` in Swift is file-scoped. Auto Tone lived over there writing the
+    /// catalog by hand for want of this, and so skipped the library requery that keeps an
+    /// "Edited: no" filter honest.
+    func persist(_ changes: [URL: Recipe]) {
         guard let catalog else { return }
         for (url, recipe) in changes {
             // One dictionary lookup. This was `allPhotos.first(where:)` — a linear scan
@@ -2799,7 +2830,20 @@ final class AppState: ObservableObject {
             }
         }
         persist(recipeChanges)
-        if touchedPixels { scheduleScopeRefresh() }
+        if touchedPixels {
+            scheduleScopeRefresh()
+            // AND THE MASK OVERLAY, which undo never told. `maskOverlayAlpha` is written
+            // only by `refreshMaskOverlay`, whose callers are the solo toggle,
+            // `updateRecipe`, the matte pass and a photo change — none of which fires
+            // here. So turning a mask's overlay on, dragging its radius and pressing ⌘Z
+            // reverted the picture and left the red wash at the pre-undo shape: the
+            // instrument and the photograph disagreeing about the same mask. Undoing a
+            // mask DELETION was worse — the overlay for a mask that no longer existed
+            // stayed painted until some unrelated edit happened to refresh it.
+            refreshMaskOverlay()
+            // Same reason: a restored Vision mask needs its matte asked for again.
+            ensureMaskMattes()
+        }
     }
 
     // MARK: Copy / paste settings
