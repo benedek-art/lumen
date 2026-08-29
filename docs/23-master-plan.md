@@ -715,9 +715,14 @@ and against Lightroom via owner-exported references.
             holding an arrow nudges once. Keeps the gesture bracket prompt.
             Hold-to-sweep needs `phases: [.down, .repeat]` AND dropping the bracket for
             the 8 s watchdog, which is a longer crash window — an owner call
-      - [ ] ⚑ item 30, THE KEYMAP RECONCILIATION — a decision, not work: `L`, `⌘B`, `F`,
-            `M` have drifted from docs/12's canonical map, and Phase 6's ⌘K collision
-            waits on the same single pass
+      - [ ] ⚑ item 30, THE KEYMAP RECONCILIATION — AUDITED AND WRITTEN UP as
+            docs/29-keymap-reconciliation.md, awaiting the owner's answers. Eight
+            bindings have drifted from docs/12's canonical map; five would move under
+            the recommendations. Two live collisions: workspaces want `1`-`4` (those
+            are ratings — recommend `⌘1`-`⌘4`) and the ⌘K palette wants ⌘K (recommend
+            keywording moves to `⌘⇧K`). Speed Edit turns out NOT to be blocked: docs/12
+            §12.4 shares letters by tap-vs-hold on purpose, so it needs the
+            discriminator built, not keys assigned
       **Phase 4:**
       four workspaces and accordions ⚑ · one home for colour ⚑ · speed (arithmetic
       entry, scrubby readout, ⌘K palette, Speed Edit D44) · focus + the owed keymap
