@@ -159,17 +159,39 @@ darktable's manual states it plainly and ships a mid-gray theme. Lumen chrome is
 *Amendment, 2026-08-29 (docs/28 Phase 2, owner-commissioned: "make the bars show temp, for
 example lightroom has a blue to yellow tint on the temp slider").* **A control's track may carry
 chroma if and only if that control's axis is itself a colour direction, and at no larger a scale
-than the 4 pt groove.** Permitted, and nothing else: Temp (blue→amber), Tint (green→magenta), the
-colour mixer's per-band hue, saturation and luminance tracks, and the luminance ramps under the
-grading wheels. Explicitly **not** permitted: Exposure, Contrast, Highlights, Shadows, Whites,
-Blacks, Texture, Clarity, Dehaze, Blending, Balance — every tonal control stays neutral. Adobe and
+than the groove.** Permitted: Temp (blue→amber), Tint (green→magenta), the colour mixer's per-band
+hue, saturation and luminance tracks, and the luminance ramps under the grading wheels. Adobe and
 Capture One both arrived at this line independently, and the reason to hold it is this law's own:
-a light-to-dark ramp beside a photograph being judged for exposure is precisely the contamination
-Bartleson–Breneman warns about, whereas a blue→amber Temp track states the direction of an edit
+a blue→amber Temp track states the direction of an edit
 that is *about* colour and cannot mislead a judgement it is already the subject of. Colour every
 track and none of them reads; colour only the colour axes and every coloured track is
 self-teaching. The surround, the panels, the wells, the fills, the type and every other pixel of
 chrome remain zero-chroma, which is what the law was always for.
+
+*Second amendment, 2026-08-29 (owner, directly: "I would also like to add a dark to light gradient
+on stuff like the exposure slider or contrast stuff").* **A control's track may also carry a
+LIGHTNESS ramp when lightness is that control's own axis.** Permitted: Exposure and Contrast.
+
+This overturns the first amendment's explicit refusal of exactly those two, and the reversal is
+recorded rather than edited away because of who made each call. The refusal was mine, taken on the
+owner's behalf while he was away, on the argument above — that a light-to-dark ramp beside a
+photograph being judged for exposure is the contamination Bartleson–Breneman warns about. He has
+now asked for it by name, which settles it: the law exists to protect his colour judgement, and he
+is the one making the judgement.
+
+It is also a weaker clause than the first, not a wider one. A grey ramp introduces **no chroma at
+all**, so Bartleson–Breneman's surround argument barely engages — what a 5 pt neutral groove does
+to an adapting field beside a 1200 pt photograph is not measurable. Exposure is the exact case:
+its axis IS lightness, so the ramp is the control drawn on itself. Contrast is the honest
+near-miss and is recorded as one — its axis is *slope*, not lightness, so a dark→light ramp is
+right about the highlights and backwards about the shadows; it ships at roughly half Exposure's
+span so it reads as a sibling rather than a second claim to exactness.
+
+Still **not** permitted, and the density argument is the reason: Highlights, Shadows, Whites,
+Blacks, Texture, Clarity, Dehaze, Blending, Balance. Each acts on one *zone*, so a full-track ramp
+would claim an axis the control does not have — the track lying about the instrument, which is
+what this exception exists to prevent. And two ramps in a panel read as meaningful where seven
+read as texture.
 
 **Law 8. Contrast belongs where the curve is steep.** Margulis's steepest-part principle: assign
 important image regions to the steep part of the transfer curve. It generalizes past LAB into
