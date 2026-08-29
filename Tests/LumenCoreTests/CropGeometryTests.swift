@@ -566,7 +566,9 @@ final class CropDragTests: XCTestCase {
     func testASwappedRectangleStaysInsideTheFrame() {
         for crop in [Crop(), Crop(x: 0, y: 0, w: 1, h: 0.4),
                      Crop(x: 0.8, y: 0.8, w: 0.2, h: 0.2)] {
-            for (w, h) in [(6000.0, 4000.0), (4000.0, 6000.0)] {
+            // The last pair is a panorama, where a swap that keeps the ratio does not
+            // exist: the point is that the answer is still a rectangle inside the frame.
+            for (w, h) in [(6000.0, 4000.0), (4000.0, 6000.0), (7000.0, 1000.0)] {
                 let swapped = CropGeometry.swappingOrientation(crop, sourceWidth: w,
                                                                sourceHeight: h,
                                                                degrees: 9)

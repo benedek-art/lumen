@@ -474,8 +474,16 @@ extension CropGeometry {
         guard w > 0, h > 0, w.isFinite, h.isFinite else { return c }
         let over = Swift.max(w, h)
         if over > 1 { w /= over; h /= over }
+        // The floor is ratio-preserving where the frame allows it, and capped where it
+        // does not: a 140:1 crop of a 7:1 body has no 1:140 counterpart that fits, and
+        // the honest answer there is the largest rectangle that does rather than one
+        // that runs off the edge. `normalized` finishes it.
         let floor = Swift.max(minimumCropFraction / w, minimumCropFraction / h)
-        if floor > 1 { w *= floor; h *= floor }
+        if floor > 1 {
+            let capped = Swift.min(floor, Swift.min(1 / w, 1 / h))
+            w *= capped
+            h *= capped
+        }
         return normalized(Crop(x: c.x + (c.w - w) / 2, y: c.y + (c.h - h) / 2, w: w, h: h))
     }
 
