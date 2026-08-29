@@ -369,6 +369,16 @@ struct LumenSlider: View {
                     .foregroundStyle(isModified ? Lumen.primaryText : Lumen.secondaryText)
                     .frame(width: Lumen.labelWidth, alignment: .leading)
                     .lineLimit(1)
+                    // SHRINK RATHER THAN TRUNCATE. The 86pt column was measured against
+                    // 11pt labels and the type scale moved them to 12, which puts the
+                    // longest name in the app — "Luminance Contrast", in Noise Reduction
+                    // — a few points over. A truncated label is the defect this column
+                    // was widened to 94 to avoid in the first place: two different
+                    // controls reading "Luminance D…" and "Luminance C…", indistinguishable
+                    // without a hover. A name that renders 8% smaller on four rows out of
+                    // ninety-two is a far cheaper price than eight points of track on all
+                    // of them, and it degrades gracefully if a longer name is ever added.
+                    .minimumScaleFactor(0.86)
                     .onTapGesture(count: 2) { reset() }
                     // COMPOSED, not layered. The row carries a `.help` too, and an outer
                     // `.help` is SHADOWED wherever an inner one covers — so hovering a

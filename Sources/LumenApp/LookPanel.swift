@@ -4,8 +4,9 @@
 //
 // This panel is deliberately not Develop. Everything in it is the portable layer (D4):
 // one grade applies to eight hundred frames as a selection gesture, while each frame
-// keeps its own white balance, exposure and denoise. The panel says that in a caption
-// instead of assuming the user remembers which column they are in.
+// keeps its own white balance, exposure and denoise. It used to say that in a tinted
+// banner across the top of the column, every time the section opened; it says it now
+// where a hand asks — on the Save button that writes one.
 //
 // The zone strip is the load-bearing difference from Lightroom's colour grading: LrC's
 // tonal zones exist but are invisible and fixed, so "why did my shadow tint land in the
@@ -39,7 +40,6 @@ struct LookPanel: View {
     @State private var printerExpanded: Bool = true
     @State private var primariesExpanded: Bool = false
     @State private var transformExpanded: Bool = true
-    @State private var transformAdvanced: Bool = false
     @State private var filmExpanded: Bool = true
     @State private var looksExpanded: Bool = true
     /// The name being typed into the save field. View state, not recipe state: it
@@ -68,9 +68,9 @@ struct LookPanel: View {
     /// it sits under. With `only` nil this panel IS the column and they are top-level
     /// sections, which is the 16 they have always had.
     ///
-    /// The two disclosures nested deeper — Colour balance and Transform detail — are
-    /// left alone: they are folds inside a section in both framings, so nothing about
-    /// their rank changed here.
+    /// The one disclosure nested deeper — Colour balance — is left alone: it is a fold
+    /// inside a section in both framings, so nothing about its rank changed here.
+    /// Transform detail, which was the other one, is not a fold any more.
     private var innerRhythm: CGFloat { only == nil ? 16 : 8 }
 
     /// The normalized tonal axis the pivots live on spans black anchor → white anchor,
@@ -115,12 +115,13 @@ struct LookPanel: View {
             // `innerRhythm`) — design audit §1.1, and the rhythm BasicPanel has always
             // had.
             //
-            // The banner is drawn with Looks alone rather than above each section: the
-            // accordion can have all three of this panel's sections open at once, and a
-            // banner that rode along with each of them would say the same paragraph
-            // three times down one column.
+            // NOTHING PRECEDES THE FIRST SECTION ANY MORE. An accent-tinted box with a
+            // LOOK badge used to open this column and spend thirty-eight words saying
+            // what a saved look carries — redrawn every time the section opened, whether
+            // or not one had ever been saved, and carrying not one fact about the
+            // photograph in front of it. Its deletion is the point (docs/30 Phase A step
+            // 4); what it explained is on the tooltip of the button that saves one.
             if renders(.looks) {
-                lookBanner
                 savedLooksSection
             }
             if renders(.grading) {
@@ -189,17 +190,13 @@ struct LookPanel: View {
                 .background(Lumen.controlBackground)
                 .clipShape(RoundedRectangle(cornerRadius: 4))
 
-                if state.savedLooks.isEmpty {
-                    caption("No saved looks yet. Name the grade on this frame and it is "
-                            + "on every photo in the catalog, in any folder, after the "
-                            + "next launch too.")
-                } else {
-                    ForEach(state.savedLooks, id: \.id) { look in
-                        savedLookRow(look)
-                    }
-                    caption("Applying a look replaces the grade, film stock, primaries "
-                            + "and transform on the selection. Every frame keeps its "
-                            + "own exposure, white balance, crop and masks.")
+                // An empty list draws nothing at all, deliberately. The field and
+                // the Save button above it are the affordance; a sentence announcing
+                // that a list is empty is a caption on absence. The paragraph that used
+                // to close the list said what the banner said and what Save's tooltip
+                // says — three statements of one sentence in one section.
+                ForEach(state.savedLooks, id: \.id) { look in
+                    savedLookRow(look)
                 }
             }
         }
@@ -251,36 +248,6 @@ struct LookPanel: View {
         newLookName = ""
     }
 
-    /// The one visual difference between this column and Develop: a tinted band with an
-    /// accent rule down its edge, and one line of prose saying what that means.
-    private var lookBanner: some View {
-        HStack(alignment: .top, spacing: 8) {
-            Rectangle()
-                .fill(Lumen.accent)
-                .frame(width: 2)
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 5) {
-                    LumenBadge(text: "LOOK", emphasized: true)
-                    Text("this is what a saved look carries")
-                        .font(.system(size: 10))
-                        .foregroundStyle(Lumen.secondaryText)
-                }
-                Text("Grade, printer lights, primaries, film stock and the display "
-                     + "transform apply to every frame you paste them onto, in any "
-                     + "folder. Exposure, white balance, crop and detail stay in "
-                     + "Develop, per frame.")
-                    .font(.system(size: 10))
-                    .foregroundStyle(Lumen.secondaryText)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .padding(8)
-        .background(Lumen.accent.opacity(0.10))
-        .clipShape(RoundedRectangle(cornerRadius: 4))
-        .padding(.top, 8)
-        .padding(.bottom, 4)
-    }
-
     // MARK: - Grading wheels
 
     private var wheelsSection: some View {
@@ -302,10 +269,6 @@ struct LookPanel: View {
                                 onPivotChanged: { index, position in
                                     movePivot(index, to: position)
                                 })
-
-                caption("Shadows, midtones and highlights, drawn. Drag a pivot to say "
-                        + "where a zone starts — the wheel below grades exactly what "
-                        + "the strip shows.")
 
                 // ONE wheel at a time, at more than twice the diameter (docs/28 Phase 5).
                 //
@@ -329,17 +292,21 @@ struct LookPanel: View {
                 wheel(gradeZone.title, path: gradeZone.path, diameter: 150)
                     .frame(maxWidth: .infinity)
 
+                // THE SENTENCE IS ON THE ROW IT IS ABOUT, here and at three more
+                // sites in this file. A non-prominent `DevelopNote` draws nothing now,
+                // so each of those paragraphs was a string built for no reader; what
+                // each said about one control is that control's `help:`, which is what
+                // the pointer is already over when the question gets asked.
                 LumenSlider(title: "Blending",
                             value: bindLook(\Look.wheels.blending, key: "wheels.blending"),
                             range: 0...100, defaultValue: 50, step: 1, decimals: 0,
-                            bipolar: false)
+                            bipolar: false,
+                            help: "Widens the crossfades between the zones the strip "
+                                + "above draws.")
                 LumenSlider(title: "Balance",
                             value: bindLook(\Look.wheels.balance, key: "wheels.balance"),
-                            range: -100...100, defaultValue: 0, step: 1, decimals: 0)
-
-                caption("Blending widens the crossfades, Balance slides both pivots. "
-                        + "Wheel tints are constant-luminance; the bar under the wheel "
-                        + "is the selected zone's own lightness.")
+                            range: -100...100, defaultValue: 0, step: 1, decimals: 0,
+                            help: "Slides both pivots along the tonal axis together.")
 
                 colorBalanceDisclosure
             }
@@ -380,10 +347,6 @@ struct LookPanel: View {
                                             key: "cb.vibrance"),
                             range: -100...100, defaultValue: 0, step: 1, decimals: 0)
 
-                caption("Master moves, across the whole frame: the hue rotation holds "
-                        + "lightness and chroma, and Vibrance spends itself on the "
-                        + "colours that have least.")
-
                 balanceAxis("Chroma", \Look.wheels.colorBalance.chroma, "cb.chroma",
                             note: "Colourfulness at constant lightness and hue.")
 
@@ -404,10 +367,6 @@ struct LookPanel: View {
                                 : "H-K corrected brightness at constant ratio: "
                                     + "exposure-like, perceptually scaled.",
                             warn: LookPanel.brillianceIsPushed(grid.brilliance))
-
-                caption("The grid grades the same three zones the strip above draws, "
-                        + "measured on this stage's input — so opening this disclosure "
-                        + "never moves the zones the wheel is already working in.")
             }
         }
     }
@@ -536,11 +495,6 @@ struct LookPanel: View {
                 printerRow("Red / Cyan", "r", lights.r, trimLimit, .control)
                 printerRow("Green / Mag", "g", lights.g, trimLimit, .option)
                 printerRow("Blue / Yellow", "b", lights.b, trimLimit, .shift)
-
-                caption("One point is one twelfth of a stop, exactly — twelve points is "
-                        + "2×, with no hidden negative gamma. \u{201C}+3R, −2 master\u{201D} "
-                        + "is a fact you can say out loud, repeat on the next frame and "
-                        + "count your way back out of.")
             }
         }
     }
@@ -604,6 +558,8 @@ struct LookPanel: View {
                                topRhythm: innerRhythm)
 
             if primariesExpanded {
+                // The paragraph that used to close this group is the tooltip on all
+                // eight rows — see `bipolarSlider`, which carries it.
                 bipolarSlider("Red Hue", \Look.primaries.rHue, "prim.rHue")
                 bipolarSlider("Red Purity", \Look.primaries.rPurity, "prim.rPurity")
                 bipolarSlider("Green Hue", \Look.primaries.gHue, "prim.gHue")
@@ -612,11 +568,6 @@ struct LookPanel: View {
                 bipolarSlider("Blue Purity", \Look.primaries.bPurity, "prim.bPurity")
                 bipolarSlider("Shadow Tint", \Look.primaries.tintHue, "prim.tintHue")
                 bipolarSlider("Tint Purity", \Look.primaries.tintPurity, "prim.tintPurity")
-
-                caption("Redefines what red, green and blue mean for this image. The "
-                        + "mixer targets pixels that look blue; a primary moves every "
-                        + "pixel containing blue — global, smooth, and unable to "
-                        + "posterize. Greys are preserved by construction.")
             }
         }
     }
@@ -626,15 +577,28 @@ struct LookPanel: View {
     private var transformSection: some View {
         let render = state.currentRecipe.look.render
         let base = DisplayTransformParams.preset(named: render.preset)
-        let overridden = render.contrast != nil || render.skew != nil
-            || render.huePreservation != nil || render.blackTarget != nil
 
         return VStack(alignment: .leading, spacing: 2) {
             // The baseline is the PHOTO's, not the type's: a rendered file starts on
             // the Linear preset, so comparing against RenderParams() marked every
             // untouched JPEG modified — and Reset re-applied the default sigmoid on
             // top of the camera's own curve.
-            LumenSectionHeader(title: "Display Transform",
+            //
+            // THE TITLE NAMES THE STOCK, and that is what replaced sixty-five words. A
+            // loaded stock bypasses this stage completely, and three paragraphs in this
+            // one file used to say so — the longest of them shouting two words in
+            // capitals directly above four controls that were sitting there, visible
+            // and inert, saying nothing about it themselves. Six words in the header
+            // answer it where the eye already is; the rows below answer it by going
+            // dim. Prose was never the only way to be honest about a disabled control.
+            //
+            // One line, allowed to shrink, because the loaded form is long: uppercased
+            // at 12 pt semibold with 0.7 tracking it wants about 344 points and the
+            // column offers roughly 271 beside the chevron, less again when a modified
+            // section lays out its Reset. A section header that wrapped to two lines
+            // would read as a bug rather than as emphasis, and one that truncated would
+            // eat the stock's name, which is the whole point of the line.
+            LumenSectionHeader(title: transformTitle,
                                isExpanded: $transformExpanded,
                                isModified: render != state.currentStartingRecipe.look.render,
                                onReset: { state.updateRecipe { photo, recipe in
@@ -642,47 +606,51 @@ struct LookPanel: View {
                                        for: photo.id, iso: photo.iso).look.render
                                } },
                                topRhythm: innerRhythm)
+                .lineLimit(1)
+                .minimumScaleFactor(0.65)
 
             if transformExpanded {
-                if transformIsInert {
-                    // Prominent: the four controls directly beneath this are
-                    // rendered disabled and inert, and a disclosure explaining why a
-                    // visible control does nothing cannot itself require a hover.
-                    caption("A film stock is loaded, and a stock REPLACES this stage "
-                            + "rather than sitting on top of it. The chain blends "
-                            + "against its own neutral rendition, not against the "
-                            + "preset below — so nothing here moves a pixel at ANY "
-                            + "Strength, and dragging Strength up from zero swaps the "
-                            + "whole rendition rather than fading into this one. Set "
-                            + "the stock to None to use these.",
-                            prominent: true)
-                }
-                // Disabled rather than hidden. The values are still the recipe's, they
-                // still travel in the sidecar, and they will render the moment the
-                // stock is removed — but a control the user can drag while it cannot
-                // reach a pixel is the defect this section shipped with, and the
-                // caption above only helps if the sliders stop pretending.
-                transformControls(base: base, overridden: overridden)
+                // Ghosted, not hidden. The values are still the recipe's, they still
+                // travel in the sidecar, and they render the moment the stock comes off
+                // — but a control the user can drag while it cannot reach a pixel is
+                // the defect this section shipped with. Opacity alone, with no fill or
+                // second surface behind it: a disabled state drawn as another box would
+                // add an object to a column that already has too many.
+                transformControls(base: base)
                     .disabled(transformIsInert)
-                    .opacity(transformIsInert ? 0.45 : 1)
+                    .opacity(transformIsInert ? 0.30 : 1)
             }
         }
     }
 
-    /// True when `RenderPlan` will build a `FilmChain` — the exact condition under
-    /// which its display closure bypasses `transform` entirely.
+    /// "Display Transform", or the stock that has taken it over.
     ///
-    /// Same three terms as `RenderPlan.init`: a film block, a positive Strength, and a
-    /// stock this build actually ships. A recipe naming a stock we do not have falls
-    /// back to the neutral transform, and at that point these controls are live again.
-    private var transformIsInert: Bool {
-        guard let film = state.currentRecipe.look.filmLab else { return false }
-        return film.amount > 0 && FilmStock.named(film.stock) != nil
+    /// Printed without the `Lumen ` prefix all six stocks carry: it distinguishes
+    /// nothing when every one of them has it, and this line has to fit beside a
+    /// chevron, a modified dot and a Reset in the width of the column.
+    private var transformTitle: String {
+        guard let stock = replacingStock else { return "Display Transform" }
+        let name = stock.hasPrefix("Lumen ") ? String(stock.dropFirst(6)) : stock
+        return "Display Transform · replaced by " + name
     }
 
+    /// The stock standing in for this stage, or nil while the stage is live.
+    ///
+    /// The three terms are `RenderPlan.init`'s own — a film block, a positive Strength,
+    /// and a stock this build actually ships — because they are the exact condition
+    /// under which its display closure bypasses `transform` entirely. A recipe naming a
+    /// stock we do not have falls back to the neutral transform, and at that point
+    /// these controls are live again.
+    private var replacingStock: String? {
+        guard let film = state.currentRecipe.look.filmLab, film.amount > 0,
+              let stock = FilmStock.named(film.stock) else { return nil }
+        return stock.name
+    }
+
+    private var transformIsInert: Bool { replacingStock != nil }
+
     @ViewBuilder
-    private func transformControls(base: DisplayTransformParams,
-                                   overridden: Bool) -> some View {
+    private func transformControls(base: DisplayTransformParams) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             pickerRow("Preset") {
                 Picker("", selection: presetBinding) {
@@ -692,51 +660,56 @@ struct LookPanel: View {
                 }
             }
 
-            LumenSectionHeader(title: "Transform detail",
-                               isExpanded: $transformAdvanced,
-                               isModified: overridden,
-                               onReset: { clearTransformOverrides() })
-
-            if transformAdvanced {
-                LumenSlider(title: "Contrast",
-                            value: renderBinding("render.contrast",
-                                                 get: { $0.contrast },
-                                                 fallback: base.contrast,
-                                                 set: { $0.contrast = $1 }),
-                            range: 0.1...10, defaultValue: base.contrast,
-                            step: 0.05, decimals: 2, bipolar: false,
-                            onReset: { clearTransformOverride(\.contrast) })
-                LumenSlider(title: "Skew",
-                            value: renderBinding("render.skew",
-                                                 get: { $0.skew },
-                                                 fallback: base.skew,
-                                                 set: { $0.skew = $1 }),
-                            range: -1...1, defaultValue: base.skew,
-                            step: 0.01, decimals: 2,
-                            onReset: { clearTransformOverride(\.skew) })
-                LumenSlider(title: "Hue keep",
-                            value: renderBinding("render.hue",
-                                                 get: { $0.huePreservation },
-                                                 fallback: base.huePreservation,
-                                                 set: { $0.huePreservation = $1 }),
-                            range: 0...100, defaultValue: base.huePreservation,
-                            step: 1, decimals: 0, bipolar: false,
-                            onReset: { clearTransformOverride(\.huePreservation) })
-                LumenSlider(title: "Black target",
-                            value: renderBinding("render.black",
-                                                 get: { $0.blackTarget },
-                                                 fallback: base.blackTarget,
-                                                 set: { $0.blackTarget = $1 }),
-                            range: 0...15, defaultValue: base.blackTarget,
-                            step: 0.01, decimals: 2, bipolar: false,
-                            onReset: { clearTransformOverride(\.blackTarget) })
-
-                caption("Untouched, these follow the preset — so a retuned preset "
-                        + "reaches every recipe that only said its name. Move one "
-                        + "and it pins itself to this image forever.")
-            }
+            // ONE FOLD, NOT TWO. Opening Display Transform used to reveal this picker
+            // and a second chevron, "Transform detail", over the four rows below it. A
+            // fold whose content is a fold is not depth, it is a stutter, and four rows
+            // is not enough to hide (docs/30 Phase A step 7). The inner group's own
+            // Reset went with its chevron, and nothing is lost by that: each row still
+            // clears its override on a double-click, and the section header above
+            // returns the whole stage to this photograph's starting point.
+            LumenSlider(title: "Contrast",
+                        value: renderBinding("render.contrast",
+                                             get: { $0.contrast },
+                                             fallback: base.contrast,
+                                             set: { $0.contrast = $1 }),
+                        range: 0.1...10, defaultValue: base.contrast,
+                        step: 0.05, decimals: 2, bipolar: false,
+                        help: LookPanel.overrideHelp,
+                        onReset: { clearTransformOverride(\.contrast) })
+            LumenSlider(title: "Skew",
+                        value: renderBinding("render.skew",
+                                             get: { $0.skew },
+                                             fallback: base.skew,
+                                             set: { $0.skew = $1 }),
+                        range: -1...1, defaultValue: base.skew,
+                        step: 0.01, decimals: 2,
+                        help: LookPanel.overrideHelp,
+                        onReset: { clearTransformOverride(\.skew) })
+            LumenSlider(title: "Hue keep",
+                        value: renderBinding("render.hue",
+                                             get: { $0.huePreservation },
+                                             fallback: base.huePreservation,
+                                             set: { $0.huePreservation = $1 }),
+                        range: 0...100, defaultValue: base.huePreservation,
+                        step: 1, decimals: 0, bipolar: false,
+                        help: LookPanel.overrideHelp,
+                        onReset: { clearTransformOverride(\.huePreservation) })
+            LumenSlider(title: "Black target",
+                        value: renderBinding("render.black",
+                                             get: { $0.blackTarget },
+                                             fallback: base.blackTarget,
+                                             set: { $0.blackTarget = $1 }),
+                        range: 0...15, defaultValue: base.blackTarget,
+                        step: 0.01, decimals: 2, bipolar: false,
+                        help: LookPanel.overrideHelp,
+                        onReset: { clearTransformOverride(\.blackTarget) })
         }
     }
+
+    /// The line that used to close the fold, on each of the four rows it was about.
+    private static let overrideHelp =
+        "Untouched, this follows the preset, so a retuned preset reaches every recipe "
+        + "that only named it. Move it and it pins itself to this image."
 
     private var presetBinding: Binding<String> {
         Binding(
@@ -749,21 +722,12 @@ struct LookPanel: View {
     /// `LumenSlider`'s double-click reset writes `defaultValue`, and for these four rows
     /// the default is the preset's current value — so resetting pinned that number
     /// instead of clearing the override. The row stayed marked modified and stopped
-    /// following a retuned preset, which is the exact behaviour the caption below the
-    /// group promises you get by NOT touching it.
+    /// following a retuned preset, which is the exact behaviour the group's tooltip
+    /// promises you get by NOT touching it.
     private func clearTransformOverride(
         _ field: WritableKeyPath<RenderParams, Double?>) {
         state.updateRecipe { recipe in
             recipe.look.render[keyPath: field] = nil
-        }
-    }
-
-    private func clearTransformOverrides() {
-        state.updateRecipe { recipe in
-            recipe.look.render.contrast = nil
-            recipe.look.render.skew = nil
-            recipe.look.render.huePreservation = nil
-            recipe.look.render.blackTarget = nil
         }
     }
 
@@ -845,6 +809,18 @@ struct LookPanel: View {
                         range: 0...100,
                         defaultValue: stock?.halationDefault ?? 0,
                         step: 1, decimals: 0, bipolar: false)
+            // NO PRINT SIZE CONTROL, and no caption apologising for one. A menu of
+            // five sizes shipped once, above a sentence explaining that choosing one
+            // does nothing; the caption has now gone after the menu, so the reasoning
+            // lives here instead of nowhere. `plateScale` reaches pixels through
+            // enlargement × the print's pixel density, the print's long edge appears in
+            // both factors and cancels exactly, and the proof
+            // `testGrainFollowsTheGateAndTheRenderSizeNotThePrintSize` pins that to
+            // 1e-12 from 5″ to 30″ — grain follows the GATE and the render's pixel
+            // count. `FilmLab.printSize` stays on the wire for the day the gate becomes
+            // selectable (35 mm / half-frame / 120, the control docs/05 asked for and
+            // the one variable that provably moves grain), which is the other half of
+            // that arithmetic.
             LumenSlider(title: "Grain",
                         value: bindFilm("film.grain.amount",
                                         get: { $0.grain.amount },
@@ -859,25 +835,21 @@ struct LookPanel: View {
                         range: 0.5...2.0, defaultValue: 1.0, step: 0.05, decimals: 2,
                         bipolar: false)
 
-            if let stock {
-                caption(LookPanel.stockCaption(stock)
-                            + " While it is loaded the Display Transform "
-                            + "section above moves nothing: a stock replaces "
-                            + "that stage, at every Strength.")
-            } else {
-                // Prominent: the recipe names a stock, the picture does not
-                // show it, and only this line says so.
+            // What a loaded stock does to the Display Transform is not written here
+            // any more. It was written here, and above the transform's own controls,
+            // and again where no stock is loaded at all — one fact, three paragraphs,
+            // one panel. The Display Transform header now names the stock that replaced
+            // it and its rows sit ghosted underneath, which is the same fact in six
+            // words at the place the eye is already looking.
+            if stock == nil {
+                // The one line in this file that must be READ rather than merely
+                // available: the recipe names a stock, the picture does not show it,
+                // and nothing else on screen says so.
                 caption("\u{201C}\(film.stock)\u{201D} is not a stock this build "
                         + "ships — the render falls back to the neutral "
                         + "transform rather than to a different look.",
                         prominent: true)
             }
-        } else {
-            caption("A stock replaces the display transform rather than stacking "
-                    + "on top of it — one picture-formation stage, parameterized. "
-                    + "Exposure moves stay film-like because the curve lives in "
-                    + "log-exposure. Loading one therefore makes the Display "
-                    + "Transform section inert.")
         }
     }
 
@@ -933,12 +905,26 @@ struct LookPanel: View {
     }
 
     /// The −100…+100, default-0 row this panel is mostly made of.
+    ///
+    /// Every caller is a Primaries row, so the clause those eight rows need is the
+    /// default rather than the same long string written eight times. It is the one
+    /// question all eight raise — how is this not the mixer — and it used to be a
+    /// paragraph under the group. A caller from anywhere else passes its own.
     private func bipolarSlider(_ title: String,
                                _ path: WritableKeyPath<Look, Double>,
-                               _ key: String) -> some View {
+                               _ key: String,
+                               _ help: String = LookPanel.primariesHelp) -> some View {
         LumenSlider(title: title, value: bindLook(path, key: key),
-                    range: -100...100, defaultValue: 0, step: 1, decimals: 0)
+                    range: -100...100, defaultValue: 0, step: 1, decimals: 0,
+                    help: help)
     }
+
+    private static let primariesHelp =
+        "Redefines what red, green and blue mean for this image. The mixer targets "
+        + "pixels that look blue; a primary moves every pixel containing blue — "
+        + "global, smooth, and unable to posterize. Greys are preserved by "
+        + "construction."
+
 
     private func bindLook(_ path: WritableKeyPath<Look, Double>, key: String) -> Binding<Double> {
         Binding(
@@ -958,13 +944,14 @@ struct LookPanel: View {
             })
     }
 
-    /// Explanatory copy, collapsed to a ⓘ row (see `DevelopNote`).
+    /// The one paragraph this panel still draws (see `DevelopNote`).
     ///
-    /// This panel carried twelve of these plus a boxed banner — the heaviest prose load
-    /// in the app after Masks, in the tab that also holds thirty-eight sliders. Two stay
-    /// `prominent`, both honesty work: the stock that this build does not have, and the
-    /// warning that a loaded stock REPLACES the display transform whose controls are
-    /// sitting right there, disabled.
+    /// It carried thirteen of these plus a boxed banner — the heaviest prose load in
+    /// the app after Masks, in the tab that also holds thirty-eight sliders. Twelve are
+    /// gone: a non-prominent note renders nothing at all now, so each of them was a
+    /// string built for nobody, and the clauses worth keeping moved onto the `.help` of
+    /// the control they were about. The survivor is honesty work no design can carry —
+    /// a recipe naming a film stock this build does not ship.
     private func caption(_ text: String, prominent: Bool = false) -> some View {
         DevelopNote(text, prominent: prominent)
     }
@@ -999,39 +986,6 @@ struct LookPanel: View {
         return untouched && wheels.blending == 50 && wheels.balance == 0
             && wheels.colorBalance.isZero
             && normalizedPivots(wheels.pivots) == normalizedPivots(GradingWheels.defaultPivots)
-    }
-
-    /// No `film` parameter any more: the only thing it carried was the print
-    /// size, and the caption stopped naming that when it turned out the print
-    /// size cannot change the picture.
-    ///
-    /// The Print size picker that wrote it is gone too. It sat directly under this
-    /// caption for a round — a menu offering five sizes, above a sentence explaining
-    /// that choosing one does nothing. `plateScale` reaches pixels through
-    /// enlargement × the print's pixel density, the print's long edge appears in both
-    /// factors and cancels exactly, and `testGrainFollowsTheGateAndTheRenderSizeNotThePrintSize`
-    /// pins that to 1e-12 across 5″ to 30″. That cancellation IS the anchoring working:
-    /// ask for a bigger print from the same pixels and the grain keeps its footprint.
-    /// It is not a control. `FilmLab.printSize` stays on the wire so a decoded recipe
-    /// round-trips, and the two render paths keep reading it, because the day the GATE
-    /// becomes selectable — Grain Format 35mm / half-frame / 120, which is the control
-    /// docs/05 asked for and the one variable that provably moves grain — the print
-    /// size is the other half of that arithmetic.
-    static func stockCaption(_ stock: FilmStock) -> String {
-        var text = stock.name
-        if let print = stock.printName {
-            text += " → " + print
-        } else {
-            text += " (transparency)"
-        }
-        // What is true: the grain's pixel footprint follows the GATE and the render's
-        // pixel count. The print size cancels out of the enlargement and the print's
-        // pixel density, which is the anchoring working correctly — but the caption
-        // used to name the chosen size as though changing it changed the picture, and
-        // it cannot. Saying so is better than a number that updates and does nothing.
-        text += String(format: ". Grain follows the %.1f mm gate and the render size; "
-                           + "the print size cancels out.", stock.gateLongEdgeMM)
-        return text
     }
 }
 
@@ -1154,47 +1108,66 @@ struct PrinterLightRow: View {
     var body: some View {
         HStack(spacing: 6) {
             Text(title)
-                .font(.system(size: 11))
+                .font(.lumenBody)
                 .foregroundStyle(points == 0 ? Lumen.secondaryText : Lumen.primaryText)
                 .frame(width: Lumen.labelWidth, alignment: .leading)
                 .lineLimit(1)
                 .onTapGesture(count: 2) { onReset() }
-                .help("\(title) — double-click to reset")
+                .help("\(title) — one point is one twelfth of a stop exactly, so "
+                      + "twelve of them is a doubling. Double-click to reset.")
 
-            Button {
-                onStep(-1)
-            } label: {
-                Image(systemName: "minus.circle").font(.system(size: 11))
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(points <= -limit ? Lumen.secondaryText : Lumen.primaryText)
-            .disabled(points <= -limit)
-            .keyboardShortcut(decrement, modifiers: modifiers)
-            .help("One point down (1/12 stop)")
+            stepper("minus.circle", enabled: points > -limit, key: decrement,
+                    help: "One point down (1/12 stop)") { onStep(-1) }
 
-            Text(String(format: "%+d", points))
-                .font(.system(size: 11, design: .monospaced))
+            // `lumenNumeric` rather than the SF Mono this row used: tabular figures on
+            // the same face as the label beside it, which is the only property the
+            // second typeface was ever bought for (`LumenType`).
+            Text(readout)
+                .font(.lumenNumeric)
                 .foregroundStyle(points == 0 ? Lumen.secondaryText : Lumen.primaryText)
-                .frame(width: 32, alignment: .trailing)
+                .frame(width: 124, alignment: .trailing)
 
-            Button {
-                onStep(1)
-            } label: {
-                Image(systemName: "plus.circle").font(.system(size: 11))
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(points >= limit ? Lumen.secondaryText : Lumen.primaryText)
-            .disabled(points >= limit)
-            .keyboardShortcut(increment, modifiers: modifiers)
-            .help("One point up (1/12 stop)")
-
-            Text(String(format: "%+.2f EV", Double(points) / GradeEngine.pointsPerStop))
-                .font(.system(size: 10, design: .monospaced))
-                .foregroundStyle(Lumen.secondaryText)
+            stepper("plus.circle", enabled: points < limit, key: increment,
+                    help: "One point up (1/12 stop)") { onStep(1) }
 
             Spacer(minLength: 0)
         }
         .frame(height: Lumen.rowHeight)
+    }
+
+    /// ONE NUMBER, NOT TWO. This row printed the same value twice — `+0` in 11 pt and
+    /// `+0.00 EV` in 10 pt — and a second type size does not make a second fact, it
+    /// makes the same fact compete with itself in a 22-point row.
+    ///
+    /// EV is what the picture answers to, so EV is what is read. The point count rides
+    /// in the same string at the same size rather than disappearing, because it is the
+    /// unit the keyboard steps in and the one a photographer can say out loud and count
+    /// their way back out of on the next frame.
+    private var readout: String {
+        let ev = String(format: "%+.2f EV", Double(points) / GradeEngine.pointsPerStop)
+        return (points >= 0 ? "+" : "") + "\(points) pt · " + ev
+    }
+
+    /// ⊖ and ⊕, at a size a hand can hit.
+    ///
+    /// They were 12×12 pt glyphs with 32 points of nothing between them: the worst
+    /// targets in the app, in a row that then spent 78 points on a trailing Spacer
+    /// (docs/30 §2.3). This is 24 by the row's full height of hit area around the same
+    /// 11 pt glyph, paid for out of that Spacer — the row looks as it did and stops
+    /// being missed.
+    private func stepper(_ symbol: String, enabled: Bool, key: KeyEquivalent,
+                         help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 11))
+                .frame(width: 24, height: Lumen.rowHeight)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(enabled ? Lumen.primaryText : Lumen.secondaryText)
+        .disabled(!enabled)
+        .keyboardShortcut(key, modifiers: modifiers)
+        .help(help)
     }
 }
 
