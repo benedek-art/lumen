@@ -627,8 +627,24 @@ and against Lightroom via owner-exported references.
             on a view not in the hierarchy is never registered — it would have stayed
             in the source, still passed `KeyGrammarTests` (which reads shortcuts as
             text), and been dead in the app
-      - [ ] sidebar regroup into four collapsible sections; prose to tooltips
-      - [ ] docs/25 steps 7 and 9: 10 pt grid stars, sidebar rows
+      - [x] sidebar's five unrelated jobs become four collapsible sections on the SAME
+            `LumenSectionHeader` the panels use — Library, Albums, Keywords, Stack.
+            Expansion in `@AppStorage`, never published on AppState. Keywords and Stack
+            start closed (both inert until something is selected); a closed section
+            holding state wears the accent dot, which is docs/12 §12.12's hidden-panel
+            indicator arriving by another name
+      - [x] the culling counts became CONTROLS: "Picked 14" now shows the picks, which
+            is what a count in a source list means everywhere else in the field
+      - [x] near-miss caught: ⌘B, ⌘K and ⌘G were about to end up inside collapsible
+            sections — the same dead-shortcut defect as ⌘\, one commit later, by a
+            different door. Every shortcut-bearing button now sits ABOVE the fold.
+            RULE FOR PHASE 4: a section that folds may not be the only home of a
+            keyboard shortcut
+      - [x] docs/25 steps 7 and 9 complete (accent selection + 10 pt stars landed in
+            a80673c; sidebar rows here)
+      - [ ] hover rating overlays on thumbnails — held for its own push: cells already
+            SHOW flag/stars/label, so this adds clickability not visibility, and
+            per-cell `.onHover` over a LazyVGrid is the cost docs/28 §5.5 warned about
       **Phases 4-7:**
       four workspaces and accordions ⚑ · one home for colour ⚑ · speed (arithmetic
       entry, scrubby readout, ⌘K palette, Speed Edit D44) · focus + the owed keymap

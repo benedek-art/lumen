@@ -679,6 +679,46 @@ Three decisions inside it worth writing down:
   reconciling two different `PhotoFlag`/`ColorLabel` pairs (Int-raw in LumenApp,
   String-raw in `CatalogStore`) — a real refactor, and not one to bundle into a UI change.
 
+**Item 10 as shipped — the sidebar's five jobs become four sections.**
+
+It was an action, a folder path, three counts, three catalog structures and a help button,
+stacked with hairlines between them and no grouping, in a column whose own idiom appeared
+nowhere else in the app. Now: **Library · Albums · Keywords · Stack**, each a
+`LumenSectionHeader` — the same component the develop panels use, which retires the third
+of the three hand-rolled caps-label styles the audit counted (§1.2) and lifts it off the
+9 pt floor. Rules gone, the header's 16 pt boundary in their place, as in Phase 1.
+
+- **Expansion is `@AppStorage`**, never a published field on `AppState`: it persists for
+  free and invalidates this column alone. Keywords and Stack start closed, because both
+  are inert until a photo or a stack is selected and both were section-height ways of
+  saying "nothing yet". Nothing is secret — a closed section holding state wears the
+  accent dot, which is the same mark the develop panels use for "there is something in
+  here", now doing the job docs/12 §12.12 asks of its hidden-panel indicator.
+- **The near-miss worth recording.** ⌘B, ⌘K and ⌘G all live in these sections, and a
+  `.keyboardShortcut` inside a collapsed section is not in the hierarchy and is not
+  registered — the identical defect item 9 avoided for ⌘\, one commit earlier, arriving
+  by a different door. Every shortcut-bearing button now sits **above the fold**, under
+  its header and outside the `if`. That is also just what docs/12 §12.12 asks for on its
+  own merits: each section leads with its one-click entry point and keeps the deeper
+  machinery one triangle away. **General rule for Phase 4, where whole panels become
+  collapsible: a section that folds may not be the only home of a keyboard shortcut.**
+- **The culling counts became controls.** "Picked 14" beside an album list that selects
+  on click is a row a photographer will click, and it did nothing — which is a good part
+  of what "hard to understand" meant. They now write the flag criterion the Filter
+  popover writes, and stay in step because both read `state.filter`. "Showing" is gone:
+  the status bar says "12 of 239" beside the sentence explaining why.
+- The Stack teaching paragraph took the ⓘ row (`DevelopNote`), and its text was wrong as
+  well as long — it pointed at "the Metadata chip", which item 9 had just moved into the
+  Filter popover. The sidebar's `Keyboard` button is gone; it is ⌘/ in the Help menu.
+
+**Item 11** is complete: accent selection and 10 pt grid stars landed in `a80673c`, and
+the sidebar rows landed here. **Still open in item 9:** hover rating overlays on
+thumbnails — held back deliberately, not forgotten. Cells already *display* flag, stars
+and label permanently, so the overlay would add clickability rather than visibility, and
+it is the one item in this phase whose cost is unclear: per-cell `.onHover` across a
+`LazyVGrid` is the shape this plan warned about in §5.5. It goes in its own push so a
+scrolling regression is attributable to exactly one commit.
+
 ### Phase 4 — Workspaces and accordions ⚑ (the IA change)
 
 12. `Workspace` model in **LumenCore** — membership, order, register, solo rules — with

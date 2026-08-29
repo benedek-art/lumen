@@ -141,41 +141,46 @@ private struct Sidebar: View {
     @State private var newKeyword: String = ""
     @FocusState private var keywordFieldFocused: Bool
 
+    // Expansion is `@AppStorage`, deliberately, and never a published field on
+    // `AppState` (docs/28 §5.5): it persists for free and it invalidates this column
+    // and nothing else, where a publish on AppState re-bodies the whole window.
+    //
+    // Keywords and Stack start CLOSED because they are inert until a photo is selected
+    // or a stack exists, and on a fresh folder they were two full-height sections of
+    // "nothing here yet". Defaults, not options, set perceived complexity — docs/12
+    // §12.12 says so about darktable and it is just as true of a sidebar. Neither is
+    // ever secret: a closed section whose contents hold state wears the accent dot.
+    //
+    // ONE RULE MAKES THIS SAFE, and it is the same rule ⌘\ ran into one commit ago: a
+    // `.keyboardShortcut` on a view that is not in the hierarchy is never registered.
+    // Collapsing a section that contains one leaves the shortcut in the source, still
+    // passing `KeyGrammarTests` — which reads shortcuts as TEXT — and dead in the app.
+    // ⌘B, ⌘K and ⌘G all live in these sections. So every shortcut-bearing button sits
+    // ABOVE THE FOLD, directly under its header and outside the `if`, which is also
+    // exactly what docs/12 §12.12 asks for on its own merits: each section leads with
+    // its one-click entry point and keeps the deeper machinery one triangle away.
+    // (⇧⌘G is the exception and was already one before this change: Unstack lives
+    // inside `if let stack`, because a command to unstack nothing has no meaning.)
+    @AppStorage("sidebar.library") private var libraryExpanded = true
+    @AppStorage("sidebar.albums") private var albumsExpanded = true
+    @AppStorage("sidebar.keywords") private var keywordsExpanded = false
+    @AppStorage("sidebar.stack") private var stackExpanded = false
+
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 10) {
-                Button {
-                    state.chooseFolder()
-                } label: {
-                    Label("Open Folder…", systemImage: "folder")
-                        .font(.system(size: 12))
-                }
-                .buttonStyle(.borderless)
-
-                if let folder = state.folderURL {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(folder.lastPathComponent)
-                            .font(.system(size: 12, weight: .semibold))
-                            .lineLimit(1)
-                        Text(folder.deletingLastPathComponent().path)
-                            .font(.system(size: 10))
-                            .foregroundStyle(Lumen.secondaryText)
-                            .lineLimit(2)
-                            .truncationMode(.head)
-                    }
-                }
-
-                Divider().overlay(Lumen.separator)
-
-                counts
-
+            // Four sections on the SAME header the develop panels use, which is most of
+            // the answer to "the side bar with the files is hard to understand": it was
+            // five unrelated jobs — an action, a path, three counts, three catalog
+            // structures and a help button — stacked with hairlines between them and no
+            // grouping, in a column whose own idiom appeared nowhere else in the app.
+            // One idiom, four groups, and the rules are gone the way they went in the
+            // panels (Phase 1): the header carries its own 16 pt boundary.
+            VStack(alignment: .leading, spacing: 2) {
+                librarySection
                 if state.isCatalogAvailable {
-                    Divider().overlay(Lumen.separator)
-                    albums
-                    Divider().overlay(Lumen.separator)
-                    keywords
-                    Divider().overlay(Lumen.separator)
-                    stacks
+                    albumsSection
+                    keywordsSection
+                    stackSection
                 }
 
                 if let catalogStatus = state.catalogStatus {
@@ -186,18 +191,11 @@ private struct Sidebar: View {
                         .font(.system(size: 10))
                         .foregroundStyle(Lumen.primaryText)
                         .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, 12)
                 }
-
-                Button {
-                    state.showKeyReference = true
-                } label: {
-                    Label("Keyboard", systemImage: "keyboard")
-                        .font(.system(size: 11))
-                }
-                .buttonStyle(.borderless)
-                .foregroundStyle(Lumen.secondaryText)
             }
-            .padding(12)
+            .padding(.horizontal, 12)
+            .padding(.bottom, 16)
             // A VStack inside a ScrollView is only as wide as its widest child, and the
             // album rows put their count on a trailing Spacer — without this they draw
             // the count hard against the name instead of at the column edge.
@@ -206,26 +204,109 @@ private struct Sidebar: View {
         .background(Lumen.panelBackground)
     }
 
+    // MARK: Library
+
+    private var librarySection: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            LumenSectionHeader(title: "Library", isExpanded: $libraryExpanded)
+            if libraryExpanded {
+                Button {
+                    state.chooseFolder()
+                } label: {
+                    Label("Open Folder…", systemImage: "folder")
+                        .font(.system(size: 11))
+                }
+                .buttonStyle(.borderless)
+
+                if let folder = state.folderURL {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(folder.lastPathComponent)
+                            .font(.system(size: 11, weight: .semibold))
+                            .lineLimit(1)
+                        Text(folder.deletingLastPathComponent().path)
+                            .font(.system(size: 10))
+                            .foregroundStyle(Lumen.tertiaryText)
+                            .lineLimit(2)
+                            .truncationMode(.head)
+                    }
+                    .padding(.bottom, 2)
+                }
+
+                counts
+            }
+        }
+    }
+
+    /// The culling counts, and they are CONTROLS now rather than readouts.
+    ///
+    /// A row reading "Picked  14" beside an album list that selects on click is a row a
+    /// photographer will click, and it did nothing — which is most of what "hard to
+    /// understand" meant here. Every other library sidebar in the field (Lightroom's
+    /// collections, Capture One's filters, Finder's tags) answers a click on a count by
+    /// showing you those items, so this one does too: it writes the flag criterion the
+    /// Filter popover writes, and the two stay in step because both read `state.filter`.
+    ///
+    /// "Showing" is gone: the status bar now says "12 of 239" beside the sentence that
+    /// explains why, which is a better home for a derived number than a list of sources.
     private var counts: some View {
         // Memoised in AppState.cullCounts; these were two more full passes per body.
         let picked = state.cullCounts.flags[.picked] ?? 0
         let rejected = state.cullCounts.flags[.rejected] ?? 0
-        return VStack(alignment: .leading, spacing: 3) {
-            row("All photos", state.allPhotos.count)
-            row("Picked", picked)
-            row("Rejected", rejected)
-            if state.filter.isActive || state.selectedCollectionID != nil {
-                row("Showing", state.photos.count)
+        // Named and typed rather than written as bare `[.picked]` literals at four
+        // sites: `LumenApp` compiles only on macOS and the surface checker misses
+        // everything type-level, so an inference that needs help is an inference this
+        // machine cannot find out about.
+        let picks: Set<PhotoFlag> = [.picked]
+        let rejects: Set<PhotoFlag> = [.rejected]
+        let noFlag: Set<PhotoFlag> = []
+        return VStack(alignment: .leading, spacing: 1) {
+            // These three set the FLAG criterion and nothing else, which the help text
+            // says out loud: a rating or a label filter set elsewhere still applies, so
+            // "All photos" means "no flag restriction", not "clear everything". ⌘\ is
+            // what clears everything, and the status bar's sentence always says which
+            // it is.
+            sourceRow(title: "All photos", count: state.allPhotos.count,
+                      isSelected: state.filter.flags.isEmpty, isTarget: false,
+                      help: "No flag restriction — any other criteria still apply") {
+                state.filter.flags = noFlag
+            }
+            sourceRow(title: "Picked", count: picked,
+                      isSelected: state.filter.flags == picks, isTarget: false,
+                      help: "Show only picks") {
+                state.filter.flags = state.filter.flags == picks ? noFlag : picks
+            }
+            sourceRow(title: "Rejected", count: rejected,
+                      isSelected: state.filter.flags == rejects, isTarget: false,
+                      help: "Show only rejects") {
+                state.filter.flags = state.filter.flags == rejects ? noFlag : rejects
             }
         }
     }
 
     // MARK: Albums
 
+    private var albumsSection: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            LumenSectionHeader(title: "Albums", isExpanded: $albumsExpanded,
+                               isModified: state.selectedCollectionID != nil)
+            // Above the fold: the section's one-click verb, and the holder of ⌘B.
+            Button {
+                state.addSelectionToTargetCollection()
+            } label: {
+                Label(addToTargetTitle, systemImage: "tray.and.arrow.down")
+                    .font(.system(size: 11))
+            }
+            .buttonStyle(.borderless)
+            .keyboardShortcut("b", modifiers: [.command])
+            .disabled(state.targetCollection == nil || state.editTargets.isEmpty)
+            .help("Add the selection to the target album (⌘B)")
+
+            if albumsExpanded { albums }
+        }
+    }
+
     private var albums: some View {
         VStack(alignment: .leading, spacing: 4) {
-            sectionLabel("Albums")
-
             sourceRow(title: "This folder", count: state.allPhotos.count,
                       isSelected: state.selectedCollectionID == nil,
                       isTarget: false) {
@@ -265,17 +346,6 @@ private struct Sidebar: View {
             .padding(.vertical, 3)
             .background(Lumen.controlBackground)
             .clipShape(RoundedRectangle(cornerRadius: 4))
-
-            Button {
-                state.addSelectionToTargetCollection()
-            } label: {
-                Label(addToTargetTitle, systemImage: "tray.and.arrow.down")
-                    .font(.system(size: 11))
-            }
-            .buttonStyle(.borderless)
-            .keyboardShortcut("b", modifiers: [.command])
-            .disabled(state.targetCollection == nil || state.editTargets.isEmpty)
-            .help("Add the selection to the target album (⌘B)")
         }
     }
 
@@ -291,36 +361,18 @@ private struct Sidebar: View {
 
     // MARK: Keywords
 
-    private var keywords: some View {
+    private var keywordsSection: some View {
         VStack(alignment: .leading, spacing: 4) {
-            sectionLabel("Keywords")
+            LumenSectionHeader(title: "Keywords", isExpanded: $keywordsExpanded,
+                               isModified: !state.primaryKeywords.isEmpty)
+            // Above the fold: the field you type into, and the button holding ⌘K.
+            keywordEntry
+            if keywordsExpanded { keywords }
+        }
+    }
 
-            if state.primaryKeywords.isEmpty {
-                Text(state.primarySelection == nil
-                     ? "Select a photo to keyword it"
-                     : "None on this photo")
-                    .font(.system(size: 10))
-                    .foregroundStyle(Lumen.secondaryText)
-            } else {
-                ForEach(state.primaryKeywords, id: \.self) { word in
-                    HStack(spacing: 4) {
-                        Text(word)
-                            .font(.system(size: 11))
-                            .foregroundStyle(Lumen.primaryText)
-                        Spacer()
-                        Button {
-                            state.removeKeyword(word)
-                        } label: {
-                            Image(systemName: "xmark")
-                                .font(.system(size: 9))
-                        }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(Lumen.secondaryText)
-                        .help("Remove \(word) from the selection")
-                    }
-                }
-            }
-
+    private var keywordEntry: some View {
+        VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 4) {
                 TextField("Add keyword", text: $newKeyword)
                     .textFieldStyle(.plain)
@@ -343,13 +395,50 @@ private struct Sidebar: View {
             .clipShape(RoundedRectangle(cornerRadius: 4))
 
             // ⌘K puts the cursor in the field rather than applying anything: the verb a
-            // photographer wants from a keyword shortcut is "let me type one".
-            Button("Keyword the selection") { keywordFieldFocused = true }
-                .buttonStyle(.borderless)
-                .font(.system(size: 11))
-                .keyboardShortcut("k", modifiers: [.command])
-                .disabled(state.editTargets.isEmpty)
-                .help("Type a keyword for the selection (⌘K)")
+            // photographer wants from a keyword shortcut is "let me type one". It also
+            // opens the section, so the keywords already on the photo come into view
+            // with the cursor.
+            Button("Keyword the selection") {
+                keywordsExpanded = true
+                keywordFieldFocused = true
+            }
+            .buttonStyle(.borderless)
+            .font(.system(size: 11))
+            .keyboardShortcut("k", modifiers: [.command])
+            .disabled(state.editTargets.isEmpty)
+            .help("Type a keyword for the selection (⌘K)")
+        }
+    }
+
+    /// What is already on the photo — the part that folds away, because on a fresh
+    /// folder with nothing selected it is a section-height way of saying "nothing yet".
+    private var keywords: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if state.primaryKeywords.isEmpty {
+                Text(state.primarySelection == nil
+                     ? "Select a photo to keyword it"
+                     : "None on this photo")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Lumen.tertiaryText)
+            } else {
+                ForEach(state.primaryKeywords, id: \.self) { word in
+                    HStack(spacing: 4) {
+                        Text(word)
+                            .font(.system(size: 11))
+                            .foregroundStyle(Lumen.primaryText)
+                        Spacer()
+                        Button {
+                            state.removeKeyword(word)
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 9))
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(Lumen.secondaryText)
+                        .help("Remove \(word) from the selection")
+                    }
+                }
+            }
         }
     }
 
@@ -360,10 +449,24 @@ private struct Sidebar: View {
 
     // MARK: Stacks
 
+    private var stackSection: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            LumenSectionHeader(title: "Stack", isExpanded: $stackExpanded,
+                               isModified: state.primaryStack != nil)
+            // Above the fold: the verb that makes a stack, and the holder of ⌘G.
+            Button("Stack Selection") { state.stackSelection() }
+                .buttonStyle(.borderless)
+                .font(.system(size: 11))
+                .keyboardShortcut("g", modifiers: [.command])
+                .disabled(state.selection.count < 2)
+                .help("Group the selection into one stack (⌘G)")
+
+            if stackExpanded { stacks }
+        }
+    }
+
     private var stacks: some View {
         VStack(alignment: .leading, spacing: 4) {
-            sectionLabel("Stack")
-
             if let stack = state.primaryStack {
                 Text("\(stack.memberCount) frame\(stack.memberCount == 1 ? "" : "s")"
                      + " · \(stack.collapsed ? "collapsed" : "expanded")"
@@ -385,39 +488,37 @@ private struct Sidebar: View {
                     .font(.system(size: 11))
                     .disabled(stack.isPick)
 
+                // ⇧⌘G stays here, inside `if let stack`, and was already conditional
+                // before this section could fold: a command to unstack nothing has
+                // nothing to act on. Opening the section is not what makes it live —
+                // selecting a stacked photo is.
                 Button("Unstack") { state.unstackSelection() }
                     .buttonStyle(.borderless)
                     .font(.system(size: 11))
                     .keyboardShortcut("g", modifiers: [.command, .shift])
                     .help("Unstack (⇧⌘G)")
             } else {
-                Text("Collapsed stacks show one frame each — the pick. Filter the grid "
-                     + "to them with the Metadata chip.")
-                    .font(.system(size: 10))
-                    .foregroundStyle(Lumen.secondaryText)
-                    .fixedSize(horizontal: false, vertical: true)
+                // Three lines of teaching in front of one button, on a fresh folder,
+                // for a feature nobody has used yet — the same complaint the develop
+                // panels answered in Phase 1, and the same answer: the ⓘ row, with the
+                // words a hover away. `DevelopNote` is the app's one form for this.
+                DevelopNote("Collapsed stacks show one frame each — the pick. Filter "
+                            + "the grid to them from the Filter popover's Metadata "
+                            + "menu.")
             }
-
-            Button("Stack Selection") { state.stackSelection() }
-                .buttonStyle(.borderless)
-                .font(.system(size: 11))
-                .keyboardShortcut("g", modifiers: [.command])
-                .disabled(state.selection.count < 2)
-                .help("Group the selection into one stack (⌘G)")
         }
     }
 
     // MARK: Pieces
 
-    private func sectionLabel(_ text: String) -> some View {
-        Text(text.uppercased())
-            .font(.system(size: 9, weight: .semibold))
-            .tracking(0.5)
-            .foregroundStyle(Lumen.secondaryText)
-    }
+    // `sectionLabel` is gone with the four sections that used it: this column now takes
+    // `LumenSectionHeader` like every panel does. It was one of the three separately
+    // hand-rolled caps-label styles the audit counted (§1.2), and at 9 pt it was under
+    // the type floor the same audit set. One idiom, one size, one place to change it.
 
     private func sourceRow(title: String, count: Int, isSelected: Bool,
-                           isTarget: Bool, action: @escaping () -> Void) -> some View {
+                           isTarget: Bool, help: String? = nil,
+                           action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 4) {
                 if isTarget {
@@ -440,19 +541,11 @@ private struct Sidebar: View {
             .clipShape(RoundedRectangle(cornerRadius: 3))
         }
         .buttonStyle(.plain)
+        .help(help ?? "")
     }
 
-    private func row(_ title: String, _ count: Int) -> some View {
-        HStack {
-            Text(title)
-                .font(.system(size: 11))
-                .foregroundStyle(Lumen.primaryText)
-            Spacer()
-            Text("\(count)")
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundStyle(Lumen.secondaryText)
-        }
-    }
+    // `row` is gone too: the culling counts were the only caller and they are
+    // `sourceRow`s now, because a count sitting in a source list is a thing people click.
 }
 
 // MARK: - Status bar
