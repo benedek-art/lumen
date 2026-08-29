@@ -363,3 +363,80 @@ public struct FineDrag: Equatable, Sendable {
                            travelled: (travelled - anchorTravel) * gear)
     }
 }
+
+/// A wheel or a two-finger scroll, read as whole steps of a control.
+///
+/// WHAT MAKES A SCROLL DIFFERENT FROM A DRAG, which is the only reason this is a type
+/// rather than `travelled / pointsPerStep` written inline in a view. Everything above
+/// resolves a gesture ABSOLUTELY, from where the press began — the property that makes a
+/// dropped sample harmless, and most of what this file is about. A scroll has no press.
+/// It arrives as increments and never says where it started, so the only honest reading
+/// is cumulative, and a cumulative reading has to KEEP the travel that has not yet earned
+/// a step or a gentle scroll moves the control not at all.
+///
+/// The residue is therefore the type. Its property, and the one the tests pin, is the
+/// nearest thing a scroll has to the dropped-sample rule: N points of scrolling are worth
+/// the same number of steps however they are chopped up — one event of 80, or eighty
+/// events of 1.
+///
+/// Denominated in STEPS rather than in range, like `SliderTrack.nudged` and unlike the
+/// drag, because that is what lets ONE constant serve ninety controls whose ranges run
+/// from ±1 to 2000–50000 K. A step is already the smallest move each control considers
+/// meaningful, so a wheel click worth one of them is worth roughly the same amount of
+/// judgement everywhere.
+public struct ScrollNudge: Equatable, Sendable {
+
+    /// How much continuous scrolling one step of the control is worth.
+    ///
+    /// A comfortable two-finger swipe delivers on the order of 150 points, so it is worth
+    /// about 19 steps: 19 units on a ±100 tone control, 0.19 EV on Exposure. Both are a
+    /// tweak rather than a journey, which is what the wheel is for — crossing a range is
+    /// the track's job at one track width, and placing a value exactly is the readout
+    /// scrub's at three.
+    public static let pointsPerStep: Double = 8
+
+    /// Travel that has not yet earned a step, carried rather than discarded. Without it a
+    /// slow scroll delivers two or three points per event, every one of them rounds to
+    /// nothing, and the control appears not to answer the wheel at all.
+    private var residue: Double = 0
+
+    public init() {}
+
+    /// Whole steps earned by one more scroll event, keeping the remainder.
+    ///
+    /// `precise` is AppKit's `hasPreciseScrollingDeltas`, and it is the flag that tells
+    /// the two instruments apart. A trackpad reports POINTS and is continuous, so its
+    /// delta accumulates as it stands. A wheel reports LINES and is discrete, so one line
+    /// converts to exactly one step — which makes a click of the wheel exactly a press of
+    /// ←/→, and that equivalence is the whole idea of the feature: the arrows without
+    /// having to focus the row first.
+    ///
+    /// A non-finite delta is refused rather than added. NaN in the residue is permanent,
+    /// and a control that quietly stops answering the wheel until its panel is rebuilt is
+    /// a defect nobody would think to report as one.
+    public mutating func steps(scrolling delta: Double, precise: Bool) -> Int {
+        guard delta.isFinite else { return 0 }
+        residue += precise ? delta : delta * Self.pointsPerStep
+        // `Int(_:)` traps on a value it cannot represent rather than saturating. No hand
+        // on a trackpad produces a residue this large, which is exactly why the
+        // conversion is guarded instead of trusted.
+        guard abs(residue) < 1e12 else {
+            residue = 0
+            return 0
+        }
+        let whole = (residue / Self.pointsPerStep).rounded(.towardZero)
+        guard whole != 0 else { return 0 }
+        residue -= whole * Self.pointsPerStep
+        return Int(whole)
+    }
+
+    /// Drop the remainder because a new gesture has begun.
+    ///
+    /// Only a trackpad can say when one does — a wheel has no phases, which is the whole
+    /// difficulty this feature was blocked on. It matters because a few points left over
+    /// from the last flick would otherwise fire the first step of the next one early,
+    /// which reads as a control that moves before the hand does.
+    public mutating func beginGesture() {
+        residue = 0
+    }
+}

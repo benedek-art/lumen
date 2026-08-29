@@ -185,7 +185,7 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     "JSONSerialization", "PropertyListEncoder", "PropertyListDecoder",
     "PropertyListSerialization", "NSError", "NSString", "NSNumber", "NSObject",
     "NSLock", "NSRecursiveLock", "NSRegularExpression", "NSLog", "NSAttributedString",
-    "NSItemProvider", "NSSize", "Notification", "NotificationCenter", "Locale",
+    "NSItemProvider", "NSSize", "NSPoint", "Notification", "NotificationCenter", "Locale",
     "Calendar", "TimeZone", "ISO8601DateFormatter", "NumberFormatter",
     "ByteCountFormatter", "CharacterSet", "IndexSet", "Scanner", "Timer", "Process",
     "Pipe", "Thread", "OperationQueue", "DispatchQueue", "DispatchGroup",

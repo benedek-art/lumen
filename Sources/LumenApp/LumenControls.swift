@@ -23,6 +23,8 @@
 //   · a haptic tick when the value CROSSES its default, on trackpads that have one
 //   · click the row to focus it, then ←/→ nudge by one step and ⇧←/⇧→ by ten;
 //     Escape drops the focus
+//   · ⌥-scroll over the row nudges it without focusing it first — one step per wheel
+//     click, ten with ⇧, and a plain scroll still scrolls the panel
 //
 // THE NUDGE NEEDED THREE THINGS, and it is worth saying which, because the reason it
 // was absent for so long was never the arithmetic. Arrow keys already mean "previous /
@@ -39,13 +41,14 @@
 //      a second yield in the same dispatcher. Press Escape again with nothing focused
 //      and it still means the grid.
 //
-// Still absent rather than advertised: ⌥-scroll, ⌘-double-click to auto, ⇧⌥-drag to the
-// hard limit, and hold-to-sweep on the arrows (see `nudge`).
+// Still absent rather than advertised: ⌘-double-click to auto, ⇧⌥-drag to the hard
+// limit, and hold-to-sweep on the arrows (see `nudge`).
 //
-// The arithmetic behind the drag, the typing and the detent all lives in LumenCore —
-// `SliderTrack`, `FineDrag`, `SliderEntry`, `SliderDrag.crossesDetent` — because
-// `LumenApp` compiles only on macOS and a rule that cannot be tested is a rule that
-// drifts. This file is the presentation of those, and it should stay that thin.
+// The arithmetic behind the drag, the typing, the detent and the wheel all lives in
+// LumenCore — `SliderTrack`, `FineDrag`, `SliderEntry`, `SliderDrag.crossesDetent`,
+// `ScrollNudge` — because `LumenApp` compiles only on macOS and a rule that cannot be
+// tested is a rule that drifts. This file is the presentation of those, and it should
+// stay that thin.
 //
 // Chrome is zero-chroma by law (docs/00 Law 7): nothing in this file introduces a hue
 // that could bias a colour judgement about the photograph.
@@ -404,6 +407,13 @@ struct LumenSlider: View {
             rowFocused = false
             return .handled
         }
+        // ⌥-SCROLL (docs/28 Phase 6 item 26), which is the same nudge without the focus.
+        // Placed on the whole row, not on the track, because the thing being aimed at is
+        // "the slider under the pointer" and the label and the readout are part of it.
+        // The gate that stops it eating the develop column's own scrolling is in
+        // `LumenScrollNudge.swift`; everything about it that a Mac is not needed to run
+        // is `ScrollNudge` in LumenCore.
+        .lumenOptionScrollNudge { wheelNudge($0) }
     }
 
     /// One arrow press, ten under ⇧.
@@ -439,6 +449,50 @@ struct LumenSlider: View {
         onEditingChanged?(false)
         sliderGestureChanged(false)
         return .handled
+    }
+
+    /// One wheel click, ten under ⇧ — the arrows, without having to focus the row first.
+    ///
+    /// The magnitude is `SliderTrack.nudged` again, deliberately, so there is one answer
+    /// in the app to "how much is one deliberate tick of this control worth" and it is
+    /// the same whether it arrives from a key or from a wheel. `ScrollNudge` in LumenCore
+    /// is what turns a trackpad's continuous points into those clicks, and its header
+    /// states the trade in the constant.
+    ///
+    /// THE TWO GESTURE HOOKS PART COMPANY HERE, and this is the only place in the file
+    /// where they do. `onEditingChanged` brackets one edit, and a tick IS one complete
+    /// edit, so it closes like a key press's. `sliderGestureChanged` is the DEFERRAL, and
+    /// it is deliberately left open: a wheel has no release to close it with — the exact
+    /// sentence docs/28 item 26 was blocked on — so closing it per tick would make every
+    /// tick a SQLite write plus four whole-recipe JSON codings for the fingerprint, plus
+    /// a scope re-bin, which is the entire cost the deferral exists to avoid. Repeated
+    /// `true` refreshes `AppState.lastGestureEventAt` rather than re-latching, and the
+    /// 8-second silence watchdog lands the write once, after the scrolling stops.
+    ///
+    /// THE TRADE THAT BUYS, stated where it bites rather than left to be discovered. The
+    /// deferral holds the catalog write, the scope re-bin and `settleTick` — so for the
+    /// eight seconds after the scrolling stops, the loupe stays on the DRAFT it was
+    /// rendering during the gesture (`LoupeView`'s `gestureInFlight` guard) and the scopes
+    /// stay on the reading they had. The edit itself is never at risk in the meantime any
+    /// more than a long drag's is: the in-memory recipe the render reads is current from
+    /// the first tick, a photo switch flushes, and so does quitting. What is at risk is a
+    /// crash inside that window, which is now up to eight seconds rather than the length
+    /// of a hand movement.
+    ///
+    /// Two ways out were considered and both are worse than the wait. A wheel-idle timer
+    /// per row is ninety timers to replace one that already exists and already has the
+    /// three unlatches — release, photo switch, quit — that this inherits for free.
+    /// Closing on a trackpad's `.ended` phase would shorten it for trackpad users only
+    /// and leave a mouse wheel, which has no phases, on the watchdog anyway; that is a
+    /// second signal path for half the hardware, and it is the change to make first if
+    /// the owner finds eight seconds long.
+    private func wheelNudge(_ clicks: Int) {
+        let next = scrubTrack.nudged(value, steps: clicks * (Self.shiftIsDown ? 10 : 1))
+        guard next != value, next.isFinite else { return }
+        onEditingChanged?(true)
+        sliderGestureChanged(true)
+        commit(next)
+        onEditingChanged?(false)
     }
 
     // How close to the thumb counts as grabbing it rather than pressing the track is

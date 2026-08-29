@@ -1,5 +1,6 @@
 // SliderNudgeTests.swift
-// What one arrow press is worth on a focused slider.
+// What one arrow press is worth on a focused slider — and, at the foot of the file, what
+// one click of a wheel is worth on a slider that is merely under the pointer.
 //
 // The nudge is the last item on D45's list of deliberate omissions, and it was omitted
 // for a reason that had nothing to do with arithmetic: the arrows already mean "previous
@@ -131,5 +132,161 @@ final class SliderNudgeTests: XCTestCase {
         XCTAssertEqual(temp.nudged(40000, steps: 1), 40010)
         XCTAssertEqual(temp.nudged(2000, steps: -1), 2000)
         XCTAssertEqual(temp.nudged(50000, steps: 1), 50000)
+    }
+}
+
+// MARK: - The wheel
+
+/// The nudge's second input device (docs/28 Phase 6 item 26).
+///
+/// ⌥-scroll reaches `SliderTrack.nudged` above, so everything that file pins about what a
+/// step is worth is already true of it. What is NEW, and what this class is for, is
+/// getting from a scroll event to a number of steps at all: a wheel reports discrete
+/// lines and a trackpad reports continuous points, neither of them says where the gesture
+/// started, and a reading that discards the travel between two whole steps leaves a slow
+/// scroll doing nothing whatsoever.
+final class ScrollNudgeTests: XCTestCase {
+
+    /// AppKit's `hasPreciseScrollingDeltas`, named at the call site so each test says
+    /// which instrument it is describing.
+    private let trackpad = true
+    private let wheel = false
+
+    // MARK: One click of a wheel is one press of an arrow
+
+    func testOneWheelLineIsExactlyOneStep() {
+        // The equivalence the whole feature is built on: the wheel is the arrow key you
+        // do not have to focus the row to use.
+        var nudge = ScrollNudge()
+        XCTAssertEqual(nudge.steps(scrolling: 1, precise: wheel), 1)
+        XCTAssertEqual(nudge.steps(scrolling: -1, precise: wheel), -1)
+    }
+
+    func testAWheelLeavesNothingBankedBetweenClicks() {
+        // A wheel's delta converts to a whole number of steps, so ten separate clicks and
+        // ten clicks in a row must be identical — no residue can survive one of them to
+        // make the next arrive early.
+        var separate = ScrollNudge()
+        var total = 0
+        for _ in 0..<10 { total += separate.steps(scrolling: 1, precise: wheel) }
+        XCTAssertEqual(total, 10)
+
+        var atOnce = ScrollNudge()
+        XCTAssertEqual(atOnce.steps(scrolling: 10, precise: wheel), 10)
+    }
+
+    // MARK: A scroll chopped up differently is worth the same
+
+    func testTheSameTravelIsTheSameNumberOfStepsHoweverItIsDelivered() {
+        // The scroll's version of the dropped-sample rule `SliderDragTests` is about. A
+        // drag gets it for free by being absolute; a scroll has to earn it by carrying
+        // the remainder.
+        let travel = 20 * ScrollNudge.pointsPerStep
+        for chunk in [1.0, 2, 3, 5, 8, 40, travel] {
+            var nudge = ScrollNudge()
+            var steps = 0
+            var delivered = 0.0
+            while delivered < travel {
+                let next = Swift.min(chunk, travel - delivered)
+                steps += nudge.steps(scrolling: next, precise: trackpad)
+                delivered += next
+            }
+            XCTAssertEqual(steps, 20,
+                           "\(travel) points delivered \(chunk) at a time was worth "
+                               + "\(steps) steps, not 20")
+        }
+    }
+
+    func testAScrollTooGentleToEarnAStepIsBankedRatherThanDiscarded() {
+        // The defect this prevents is the loud one: a trackpad delivers two or three
+        // points per event, every one of them rounds to nothing, and the control appears
+        // not to answer the wheel at all.
+        var nudge = ScrollNudge()
+        var steps = 0
+        for _ in 0..<Int(ScrollNudge.pointsPerStep) {
+            steps += nudge.steps(scrolling: 1, precise: trackpad)
+        }
+        XCTAssertEqual(steps, 1, "eight banked points must eventually earn their step")
+    }
+
+    func testScrollingBackCancelsScrollingForward() {
+        var nudge = ScrollNudge()
+        XCTAssertEqual(nudge.steps(scrolling: ScrollNudge.pointsPerStep / 2,
+                                   precise: trackpad), 0)
+        XCTAssertEqual(nudge.steps(scrolling: -ScrollNudge.pointsPerStep / 2,
+                                   precise: trackpad), 0)
+        // The bank is empty again, so a full step's travel is worth exactly one step and
+        // not two.
+        XCTAssertEqual(nudge.steps(scrolling: ScrollNudge.pointsPerStep,
+                                   precise: trackpad), 1)
+    }
+
+    func testDirectionIsSignPreservingInBothInstruments() {
+        for precise in [true, false] {
+            var nudge = ScrollNudge()
+            let unit = precise ? ScrollNudge.pointsPerStep : 1
+            XCTAssertGreaterThan(nudge.steps(scrolling: unit * 3, precise: precise), 0)
+            XCTAssertLessThan(nudge.steps(scrolling: -unit * 3, precise: precise), 0)
+        }
+    }
+
+    // MARK: A new gesture starts from nothing
+
+    func testBeginningAGestureDropsTheRemainderOfTheLastOne() {
+        // Only a trackpad can say a gesture began. Without honouring it, a few points
+        // left over from the last flick fire the first step of the next one early —
+        // which reads as a control that moves before the hand does.
+        var nudge = ScrollNudge()
+        XCTAssertEqual(nudge.steps(scrolling: ScrollNudge.pointsPerStep - 1,
+                                   precise: trackpad), 0)
+        nudge.beginGesture()
+        XCTAssertEqual(nudge.steps(scrolling: 1, precise: trackpad), 0,
+                       "one point after a fresh start is one point, not a whole step")
+    }
+
+    // MARK: What a bad event costs
+
+    func testANonFiniteDeltaIsRefusedRatherThanPoisoningTheBank() {
+        // NaN in the accumulator is permanent, and a control that silently stops
+        // answering the wheel until its panel is rebuilt is a defect nobody would think
+        // to report as one.
+        var nudge = ScrollNudge()
+        XCTAssertEqual(nudge.steps(scrolling: .nan, precise: trackpad), 0)
+        XCTAssertEqual(nudge.steps(scrolling: .infinity, precise: trackpad), 0)
+        XCTAssertEqual(nudge.steps(scrolling: -.infinity, precise: wheel), 0)
+        XCTAssertEqual(nudge.steps(scrolling: ScrollNudge.pointsPerStep,
+                                   precise: trackpad), 1,
+                       "the bank must still work afterwards")
+    }
+
+    func testAnAbsurdDeltaCannotTrapTheIntegerConversion() {
+        // `Int(_:)` traps on a value it cannot represent rather than saturating, so the
+        // conversion is guarded instead of trusted. No hand produces this; a broken
+        // driver might.
+        var nudge = ScrollNudge()
+        XCTAssertEqual(nudge.steps(scrolling: 1e300, precise: trackpad), 0)
+        XCTAssertEqual(nudge.steps(scrolling: ScrollNudge.pointsPerStep,
+                                   precise: trackpad), 1)
+    }
+
+    // MARK: The magnitude, as a statement about the hand
+
+    func testAComfortableSwipeIsATweakAndNotAJourney() {
+        // The taste call, written down so a change to `pointsPerStep` has to argue with
+        // it: about 150 points of scrolling — one unhurried two-finger swipe — should be
+        // worth a tweak on a ±100 control, not a traversal of it.
+        var nudge = ScrollNudge()
+        let steps = nudge.steps(scrolling: 150, precise: trackpad)
+        XCTAssertGreaterThan(steps, 8)
+        XCTAssertLessThan(steps, 40)
+
+        let tone = SliderTrack(width: 142, lowerBound: -100, upperBound: 100, step: 1)
+        let landed = tone.nudged(0, steps: steps)
+        XCTAssertLessThan(abs(landed), 40, "one swipe must not cross the range")
+
+        // The same swipe on Exposure, whose step is a hundredth of a stop: a fifth of a
+        // stop, which is the size of adjustment the wheel exists for.
+        let exposure = SliderTrack(width: 142, lowerBound: -5, upperBound: 5, step: 0.01)
+        XCTAssertEqual(exposure.nudged(0, steps: steps), 0.19, accuracy: 0.06)
     }
 }
