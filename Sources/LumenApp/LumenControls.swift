@@ -1570,10 +1570,15 @@ struct LumenToggleRow: View {
                 .font(.lumenBody)
                 .foregroundStyle(Lumen.primaryText)
             Spacer()
-            Toggle("", isOn: $isOn)
-                .labelsHidden()
-                .toggleStyle(.switch)
-                .controlSize(.mini)
+            // DRAWN, not AppKit's. `.toggleStyle(.switch)` fills its capsule with the
+            // system accent — blue on a default install — and this row appears 26 times
+            // across eight panels, most of them in the develop column inches from the
+            // photograph. docs/00 Law 7 forbids exactly that, and the app's own accent
+            // policy says "marker scale, never area". `LumenSwitch` fills it with
+            // `sliderFillModified` instead, which is already this app's word for "you
+            // changed this" — so an ON switch and a moved slider now say the same thing
+            // the same way.
+            LumenSwitch(isOn: $isOn)
         }
         .frame(height: Lumen.rowHeight)
         // The same 2-in / 1-out air as a slider row, so a toggle dropped between two
@@ -1585,7 +1590,7 @@ struct LumenToggleRow: View {
         // switch toggles on the row; this one did not, and the label was the one part a
         // photographer would naturally aim at.
         //
-        // The tap goes on the HStack rather than on a `Button` wrapper so the `Toggle`
+        // The tap goes on the HStack rather than on a `Button` wrapper so the switch
         // keeps its own gesture: a click that lands on the switch is handled by the
         // switch and never reaches here, which is what stops the two cancelling.
         .contentShape(Rectangle())

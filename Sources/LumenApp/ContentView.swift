@@ -687,9 +687,10 @@ private struct StatusBar: View {
         let sentence = state.filter.sentence(catalogLive: state.isLibraryQueryLive)
         return HStack(spacing: 12) {
             if state.isScanning {
-                ProgressView()
-                    .controlSize(.small)
-                    .scaleEffect(0.6)
+                // `LumenSpinner`, not `ProgressView()`: the indeterminate AppKit
+                // spinner is tinted by the system accent like every other stock control,
+                // and this one sits in the status bar under the photograph.
+                LumenSpinner(diameter: 11, lineWidth: 1.6)
             }
             if let message = state.statusMessage, !message.isEmpty {
                 Text(message)

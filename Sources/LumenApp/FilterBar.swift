@@ -544,7 +544,10 @@ struct FilterBar: View {
     }
 
     private var autoAdvanceToggle: some View {
-        Toggle(isOn: $state.autoAdvance) {
+        // Hand-composed rather than a `Toggle` with a label, because the switch is drawn
+        // now (`LumenSwitch`) and AppKit's label placement was the only thing `Toggle`
+        // was still supplying. The whole strip toggles, not just the 28 points of switch.
+        HStack(spacing: 5) {
             HStack(spacing: 3) {
                 Image(systemName: "forward.end.alt.fill")
                     .font(.system(size: 9))
@@ -553,9 +556,11 @@ struct FilterBar: View {
                     .lineLimit(1)
             }
             .foregroundStyle(state.autoAdvance ? Lumen.primaryText : Lumen.secondaryText)
+            LumenSwitch(isOn: $state.autoAdvance)
         }
-        .toggleStyle(.switch)
-        .controlSize(.mini)
+        .contentShape(Rectangle())
+        .onTapGesture { state.autoAdvance.toggle() }
+        .lumenClickCursor()
         .fixedSize()
         .help("After a flag, star or label, move to the next photo")
     }

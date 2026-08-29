@@ -533,8 +533,27 @@ def brace_body(text, brace_index):
     return ""
 
 
-METHOD_DECL = re.compile(r"\bfunc\s+([a-z]\w*)\s*(?:<[^<>]*>)?\s*\(")
-METHOD_CALL = re.compile(r"(?<![\w.])(?:[a-z]\w*|\))\s*\.\s*([a-z]\w*)\s*\(")
+METHOD_DECL = re.compile(
+    r"(private\s+|fileprivate\s+)?(?:static\s+|class\s+|mutating\s+|nonmutating\s+"
+    r"|final\s+|override\s+|@\w+(?:\([^)]*\))?\s+)*"
+    r"\bfunc\s+([a-z]\w*)\s*(?:<[^<>]*>)?\s*\(")
+METHOD_CALL = re.compile(r"(?<![\w.])([a-z]\w*|\))\s*\.\s*([a-z]\w*)\s*\(")
+
+# Words that can sit immediately before a leading-dot expression WITHOUT being a
+# receiver. `case .mask(let id):` and `return .failure(error)` are an enum case pattern
+# and an implicit-member expression; neither is a method call on anything named `case` or
+# `return`, but the regex above cannot tell — a keyword is spelled like an identifier.
+#
+# This was a live false positive rather than a hypothetical one: three `case .mask(let
+# id):` patterns in `CurveEditorView` were being judged against `MaskPanel`'s private
+# `mask(_:)`, and passed only because the labels happened to line up. Once private
+# declarations stopped being visible across files the disguise came off, which is how the
+# older bug got found.
+RECEIVER_KEYWORDS = {
+    "case", "return", "try", "await", "throw", "throws", "in", "else", "where", "is",
+    "as", "do", "catch", "default", "break", "continue", "guard", "if", "while", "for",
+    "let", "var", "repeat", "switch", "yield", "some", "any", "init", "deinit",
+}
 
 # The same call, but through a TYPE rather than a value: `Self.applyLocalAdjust(...)`,
 # `RenderGraph.gaussianBlur(...)`. METHOD_CALL requires a lowercase receiver, so every
@@ -569,12 +588,24 @@ METHOD_SKIP = {
 
 
 def collect_methods():
-    """method name -> [(labels, required labels)] for every in-tree func."""
+    """method name -> [(labels, required labels, file, file_local)] for every in-tree func.
+
+    THE FILE AND THE ACCESS LEVEL COME WITH IT, and they have to, because this pass is
+    name-based. `EventRate` declares `private mutating func trim(before:)`; SwiftUI
+    declares `Shape.trim(from:to:)`. Without the access level the checker read a
+    `Circle().trim(from:to:)` in a different target as a call to the private helper and
+    reported a real platform call as a mistake — the exact false positive that trains
+    people to add names to `METHOD_SKIP` until the pass stops finding anything.
+
+    A `private` or `fileprivate` declaration is invisible outside its own file, so it
+    cannot be what a call in another file resolves to, and must not be judged against.
+    """
     out = {}
     for path in FILES:
         text = strip_comments(path.read_text())
         for m in METHOD_DECL.finditer(text):
-            name = m.group(1)
+            file_local = m.group(1) is not None
+            name = m.group(2)
             open_i = m.end() - 1
             close = match_paren(text, open_i)
             if close is None:
@@ -594,7 +625,7 @@ def collect_methods():
                 if len(rest) > 1 and "=" not in rest[1]:
                     required.append(label)
             if ok:
-                out.setdefault(name, []).append((labels, required))
+                out.setdefault(name, []).append((labels, required, path, file_local))
     return out
 
 
@@ -625,7 +656,9 @@ def pass_method_labels():
     def call_sites(text):
         """Every method call this pass can judge, value-receiver and type-receiver."""
         for m in METHOD_CALL.finditer(text):
-            yield m, m.group(1)
+            if m.group(1) in RECEIVER_KEYWORDS:
+                continue
+            yield m, m.group(2)
         for m in METHOD_CALL_TYPED.finditer(text):
             receiver = m.group(1)
             if receiver == "Self" or receiver in intree_types:
@@ -665,7 +698,7 @@ def pass_method_labels():
                 return gi == len(call_labels) and all(r in call_labels for r in required)
 
             def accepts(sig):
-                labels, required = sig
+                labels, required, _, _ = sig
                 # A `{` after a method call is a trailing closure OR the body of the
                 # `if`/`guard`/`while` the call sits in. Pass 2 can assume the former
                 # because `Type(...) {` is nearly always a closure; here both readings
@@ -678,11 +711,19 @@ def pass_method_labels():
                     return matches(trimmed, [r for r in required if r in trimmed])
                 return False
 
+            # Only the declarations this file can actually SEE. A `private` or
+            # `fileprivate` func is invisible outside its own file, so a call elsewhere
+            # cannot be resolving to it — and judging against it turns a real platform
+            # call into a reported mistake. See `collect_methods`.
+            visible = [s for s in methods[name] if not s[3] or s[2] == path]
+            if not visible:
+                continue
+
             checked += 1
-            if not any(accepts(s) for s in methods[name]):
+            if not any(accepts(s) for s in visible):
                 line = text.count("\n", 0, m.start()) + 1
                 problems.append((path.relative_to(ROOT).as_posix(), line, name,
-                                 call_labels, methods[name]))
+                                 call_labels, visible))
 
     if not problems:
         print(f"labels:   {checked} method call sites match a declared signature")

@@ -206,7 +206,11 @@ struct ExportSheet: View {
         VStack(alignment: .leading, spacing: 8) {
             if state.isExporting {
                 VStack(alignment: .leading, spacing: 3) {
-                    ProgressView(value: clampedProgress).progressViewStyle(.linear)
+                    // Drawn, for the same reason as the checkbox above — and this one
+                    // matters more, because an export bar is the one control in the app
+                    // a photographer watches instead of watching a photograph, so there
+                    // is nothing beside it to judge its hue against.
+                    LumenProgressBar(value: clampedProgress)
                     Text("Exporting — \(Int((clampedProgress * 100).rounded()))%")
                         .font(.system(size: 10))
                         .foregroundStyle(Lumen.secondaryText)
@@ -324,10 +328,10 @@ private struct ExportRecipeRow: View {
 
     var body: some View {
         HStack(spacing: 7) {
-            Toggle("", isOn: $enabled)
-                .labelsHidden()
-                .toggleStyle(.checkbox)
-                .controlSize(.small)
+            // `LumenCheckbox`, not `.toggleStyle(.checkbox)`: a checked AppKit box is
+            // filled with the system accent, and this sheet is the last place in the app
+            // that was still drawing one.
+            LumenCheckbox(isOn: $enabled)
                 .help("Include this recipe in the next export")
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 4) {

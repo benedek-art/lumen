@@ -174,7 +174,26 @@ struct LumenMenu<Content: View>: View {
 
     private var trigger: some View {
         Button {
-            isOpen.toggle()
+            // OPENS RATHER THAN TOGGLES — but only when the list is a popover, and the
+            // distinction is a bug this repository has already paid for once.
+            //
+            // `FilterBar.filterButton` carries the finding: "A popover eats the click
+            // that dismisses it, so a toggle here would close and immediately reopen when
+            // you click the button that is already showing one." The dismissing click
+            // both closes the popover — through the `isPresented` binding — and then
+            // reaches the button underneath, so a `toggle()` reads false, flips to true,
+            // and the menu never appears to close. The photographer sees a control that
+            // ignores every second click.
+            //
+            // A popover therefore closes the way every popover on this platform closes:
+            // Escape, a click outside, or choosing something. An INLINE list has no
+            // outside to click, so there the trigger is the only way back and it must
+            // toggle.
+            if inline {
+                isOpen.toggle()
+            } else {
+                isOpen = true
+            }
         } label: {
             HStack(spacing: 5) {
                 if let symbol {
