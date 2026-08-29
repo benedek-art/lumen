@@ -1682,15 +1682,20 @@ public final class PipelineRenderer {
         // Scaled to fit rather than clipped, because a mark cropped in half is worse than
         // a mark a little smaller than asked for, and the slider's own top setting (20%)
         // overflows a landscape frame with a short name.
-        var rendered = rendered
+        //
+        // A NEW NAME, not `var rendered = rendered`. Shadowing an immutable with a
+        // mutable of the same name works for a parameter, which comes from an enclosing
+        // scope; it is a redeclaration for a `let` in the SAME scope, and Swift refuses
+        // it. Caught only on the macOS lane, because `LumenPipeline` needs CoreImage and
+        // so type-checks nowhere else — the same blind spot `LumenApp` has.
         let available = Swift.max(extent.width - inset * 2, 1)
-        if rendered.extent.width > available {
-            let shrink = available / rendered.extent.width
-            rendered = rendered.transformed(
-                by: CGAffineTransform(scaleX: shrink, y: shrink))
-        }
+        let fitted: CIImage = rendered.extent.width > available
+            ? rendered.transformed(by: CGAffineTransform(
+                scaleX: available / rendered.extent.width,
+                y: available / rendered.extent.width))
+            : rendered
 
-        let size = rendered.extent
+        let size = fitted.extent
         var x = extent.maxX - size.width - inset
         var y = extent.minY + inset
         switch watermark.position {
@@ -1715,7 +1720,7 @@ public final class PipelineRenderer {
                                                            extent.minX))
         y = Swift.min(Swift.max(y, extent.minY), Swift.max(extent.maxY - size.height,
                                                            extent.minY))
-        let placed = rendered.transformed(by: CGAffineTransform(translationX: x, y: y))
+        let placed = fitted.transformed(by: CGAffineTransform(translationX: x, y: y))
         return placed.composited(over: image).cropped(to: extent)
     }
 
