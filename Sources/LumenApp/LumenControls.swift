@@ -93,7 +93,23 @@ enum Lumen {
 
     static let rowHeight: CGFloat = 22
     static let panelWidth: CGFloat = 320
-    static let labelWidth: CGFloat = 78
+    /// Wide enough for the names that exist.
+    ///
+    /// At 78 pt these clipped, at 11 pt SF Pro: `Luminance Detail`, `Luminance
+    /// Contrast`, `Colour Smoothness`, `Halo Suppression`. Denoise therefore offered a
+    /// column reading "Luminance D…" above "Luminance C…" — two different controls a
+    /// photographer could not tell apart without hovering for the tooltip. That is a
+    /// defect, not a density trade.
+    ///
+    /// 94 pt fits the longest of them. The track pays for it — 320 − 94 − 52, less the
+    /// gaps, is about 142 pt instead of 158 — which is a 10% change in drag resolution,
+    /// roughly 1.27 → 1.41 units per point on a ±100 control. That is below the step
+    /// snap, so no value becomes unreachable and no drag feels different.
+    ///
+    /// `SliderDragTests` re-proves its properties parametrically from 100 to 400 pt of
+    /// track, so nothing here is pinned; only that file's worked example needed its
+    /// arithmetic corrected.
+    static let labelWidth: CGFloat = 94
     static let valueWidth: CGFloat = 52
 }
 

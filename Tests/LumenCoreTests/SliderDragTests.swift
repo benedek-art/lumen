@@ -18,9 +18,14 @@ import XCTest
 final class SliderDragTests: XCTestCase {
 
     /// A ±100 tone control on a track the width the develop column actually affords:
-    /// 320 points of panel, less the 78-point label, the 52-point readout and the gaps.
+    /// 320 points of panel, less the 94-point label, the 52-point readout and the gaps.
+    ///
+    /// A worked example, not a pinned constant — every property below is re-proven
+    /// parametrically from 100 to 400 points of track, which is what lets the label
+    /// column widen (docs/28 Phase 1) without weakening a single assertion. The example
+    /// still has to be arithmetically true, or the next reader trusts a stale number.
     private var toneTrack: SliderTrack {
-        SliderTrack(width: 158, lowerBound: -100, upperBound: 100, step: 1)
+        SliderTrack(width: 142, lowerBound: -100, upperBound: 100, step: 1)
     }
 
     // MARK: The theory under test

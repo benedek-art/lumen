@@ -110,7 +110,11 @@ struct ColorPanel: View {
                 Divider()
                     .padding(.vertical, 2)
 
-                LumenSlider(title: "Uniformity (all bands)",
+                // "(all bands)" dropped from the title: it is a 22-character name in a
+                // 94-point column, and the caption directly below already opens with
+                // "Uniformity converges EVERY band's hues…" — the qualifier was said
+                // twice, and the copy that fits is the one that stays.
+                LumenSlider(title: "Uniformity",
                             value: bind("mixer.uniformity",
                                         get: { $0.develop.mixer.uniformity },
                                         set: { $0.develop.mixer.uniformity = $1 }),

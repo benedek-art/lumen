@@ -113,6 +113,12 @@ struct DevelopSection<Content: View>: View {
     private let title: String
     private let isModified: Bool
     private let onReset: (() -> Void)?
+    /// Eager on purpose, for now: this section has no `if`, so its content renders on
+    /// every pass regardless and a closure would only move the allocation from the
+    /// parent's body to this one. It becomes a closure in docs/28 Phase 4, in the same
+    /// change that gives it an `isExpanded` — which is the point at which deferring
+    /// actually defers something. See `DevelopDisclosure` for the version that already
+    /// needs it.
     private let content: Content
 
     init(_ title: String, isModified: Bool, onReset: (() -> Void)? = nil,
@@ -141,19 +147,33 @@ struct DevelopSection<Content: View>: View {
 struct DevelopDisclosure<Content: View>: View {
     private let title: String
     @Binding private var isExpanded: Bool
-    private let content: Content
+    /// THE CLOSURE, NOT THE VIEW — so a collapsed disclosure costs nothing.
+    ///
+    /// `if isExpanded` already stops SwiftUI evaluating the body of, and laying out,
+    /// content that is closed. But storing `content()` meant the rows were still
+    /// CONSTRUCTED on every pass of the parent's body: each `LumenSlider` struct, and
+    /// each of the two escaping closures a `RecipeBinder` binding allocates. Deferring
+    /// the call into the `if` makes "closed" mean closed.
+    ///
+    /// Today's saving is small and honest to state: three disclosures, of one, two and
+    /// three rows. The reason to do it now is docs/28 Phase 4, which makes whole
+    /// sections collapsible — and Look holds 38 sliders in one of them. A drag re-bodies
+    /// its panel on every mouse event, so what a collapsed section costs per event is
+    /// the difference between an accordion that is free and one that is not.
+    private let content: () -> Content
 
-    init(_ title: String, isExpanded: Binding<Bool>, @ViewBuilder content: () -> Content) {
+    init(_ title: String, isExpanded: Binding<Bool>,
+         @ViewBuilder content: @escaping () -> Content) {
         self.title = title
         self._isExpanded = isExpanded
-        self.content = content()
+        self.content = content
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             LumenSectionHeader(title: title, isExpanded: $isExpanded)
             if isExpanded {
-                content
+                content()
                     .padding(.leading, 8)
             }
         }
