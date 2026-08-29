@@ -723,13 +723,24 @@ and against Lightroom via owner-exported references.
             keywording moves to `⌘⇧K`). Speed Edit turns out NOT to be blocked: docs/12
             §12.4 shares letters by tap-vs-hold on purpose, so it needs the
             discriminator built, not keys assigned
-      **Phase 4:**
-      four workspaces and accordions ⚑ · one home for colour ⚑ · speed (arithmetic
-      entry, scrubby readout, ⌘K palette, Speed Edit D44) · focus + the owed keymap
-      reconciliation. **Phase 4 is gated on the slider-smoothness verification** — it
-      changes how many slider rows are in scope per mouse event, so starting it before
-      that verification makes a regression there and a regression here
-      indistinguishable.
+      **Phase 4 — workspaces and accordions (item 12 shipped; 13-16 still gated ⚑):**
+      - [x] item 12, the `Workspace` model in LumenCore, 48 Linux tests: four
+            workspaces, docs/12 §12.1's canonical order carried as `canonicalRank`
+            with its gaps intact, the Simple/Full register, the hidden-active count
+            behind §12.12's indicator, and the solo transition. Membership derives
+            from one total switch, so there is no second table to drift; one test
+            reads docs/28 §5.1's table out of the document and compares it
+      - [x] Masks modelled by ABSENCE — no section case, a flag on `WorkspaceLayout`
+            that every workspace switch leaves alone, which is docs/12:108's
+            "floating/docked via a key, available in any workspace"
+      - [x] no keys assigned: `1`-`4` for the workspaces collides with the rating
+            grammar, and that is item 30's pass, not this one's
+      - [ ] ⚑ items 13-16, the UI half — four workspaces replacing the tab strip,
+            Masks docked, the register control, the same-push counting test.
+            **Still gated on the slider-smoothness verification**: they change how
+            many slider rows are in scope per mouse event, so starting them before
+            that verification makes a regression there and a regression here
+            indistinguishable.
 - [x] First shipping-path golden that MOVES the six tone sliders through RenderGraph,
       preview + export scale: `ToneShippingGoldenTests` drives each slider
       individually through `RenderGraph.build` at both table sizes, asserting

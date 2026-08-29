@@ -750,6 +750,40 @@ for five eleven-point targets. Three things kept it honest:
 16. Same-push counting test: a workspace switch costs one publish; a 48-event drag costs
     `PanelLayout` zero.
 
+**Item 12 shipped, ahead of the rest of the phase and deliberately alone.** Items 13–16
+are the half that changes how many slider rows sit in scope per mouse event, so they stay
+behind the slider-smoothness verification; item 12 changes nothing on screen and answers
+the questions that half would otherwise settle by writing `if`s. `Workspace.swift` in
+LumenCore, 48 Linux tests, nothing in `Sources/LumenApp` touched and `PanelSection`
+unchanged.
+
+- **Membership derives from one total switch.** `WorkspaceSection.workspace` is the
+  source of truth and the per-workspace lists, the canonical order and the Simple
+  register's subset all come off it, so there is no second hand-written "what is in
+  Develop" for it to drift from. `WorkspaceTests` then reads §5.1's table out of *this
+  document* and compares the counts and the section names against the model, failing if
+  the table is reformatted out of its reach — the `KeyGrammar` discipline, applied to a
+  document instead of to the sources.
+- **Masks is modelled by its absence.** No `WorkspaceSection` case, because docs/12 §12.1
+  already lists it as docked via a key and because you mask while developing *and* while
+  grading. It is a flag on `WorkspaceLayout` that every workspace switch leaves alone.
+- **The solo rule, with the two calls it needed.** A plain click on one of several open
+  sections *solos* it rather than toggling it closed, because otherwise the plain click is
+  not the gesture that gets you back to one panel — and §5.5 makes the open row count the
+  per-event cost. A plain click on the only open section closes it, so a disclosure
+  triangle can still disclose nothing. Solo clears only the clicked section's own
+  workspace, so each workspace keeps its own arrangement across a switch for free.
+- **Deliver's Simple register shows Export recipes and hides Soft proof.** §5.1 names only
+  Develop's and Grade's Simple sets; docs/12 §12.12's own list names Export and not soft
+  proof, which is the right way round — a soft proof is a check against a destination
+  profile, and there is nothing to check against until one is chosen.
+- **`canonicalRank` keeps §12.1's numbering, gaps included.** 3 is Render and 12 is B&W,
+  neither of which is in §5.1's membership. Closing the gaps would cost the model and the
+  document their shared vocabulary; leaving them means adding Render later is one case and
+  one rank, with nothing renumbered.
+- **No keys.** `1`–`4` collides with the rating grammar and that is item 30's single pass.
+  A model that guessed at it would make the guess look settled.
+
 ### Phase 5 — One home for colour ⚑
 
 17. Colour and Grading adjacent in Grade.
