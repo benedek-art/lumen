@@ -642,9 +642,42 @@ control if a range is ever retuned.
 ### Phase 3 — Reclaim the chrome ⚑
 
 9. Filter bar → filmstrip-edge popover with live counts; query sentence to the status bar;
+   *(shipped, with one deviation from this line — see below)*
    hover rating overlays on thumbnails. *(The owner's culling loop lives here.)*
 10. Sidebar regroup into four collapsible sections; prose to tooltips.
 11. **docs/25 steps 7 and 9**: grid/filmstrip accent selection, 10 pt stars, sidebar rows.
+
+**Item 9 as shipped — two rows of fourteen become one row of five.**
+
+The strip now holds search, a **Filter** button badged with the number of active
+*criteria* (not chips: three flag chips lit is one clause of the query, and a badge
+counting chips would say 5 where the sentence says 2), a **Clear** that appears only when
+something is filtered, then sort, direction, auto-advance and thumbnail size. Everything
+else moved rather than went away — the criteria into the popover, where they finally have
+room for **per-chip counts under every star and every label swatch**, and the query
+sentence and photo count into the status bar.
+
+Three decisions inside it worth writing down:
+
+- **The popover is anchored to the Filter button, not to the filmstrip's edge as this
+  plan said.** The filmstrip is optional in Lumen (`state.showFilmstrip`, and it is
+  hidden entirely when the roll is empty), so a filter reachable only from it is a filter
+  that disappears. Photomator can anchor there because its filmstrip is permanent.
+- **Clear stayed out of the popover, and this is a correctness point rather than a
+  layout one.** It carries ⌘\ (docs/10 §10.8, "one key back to everything"), and a
+  `.keyboardShortcut` on a view that is not in the hierarchy is never registered — so
+  filing it inside a popover would have left the shortcut in the source, still passing
+  `KeyGrammarTests` (which reads shortcuts as *text*), and dead in the running app. That
+  is the exact class of defect this codebase's honesty policy exists to prevent, arriving
+  through the test that is supposed to catch it.
+- **The sentence now lives on `LibraryFilter`, not in a view.** Two surfaces read it —
+  the status bar shows it, the popover shows the same words back inside the control that
+  produced them — and two hand-rolled versions of a sentence that is meant to be
+  authoritative is one too many. *Follow-up worth doing separately:* `LibraryFilter` sits
+  in `AppState.swift` and so compiles only on macOS, which leaves the query grammar
+  docs/10 §10.8 calls a differentiator untestable. Moving it to LumenCore means
+  reconciling two different `PhotoFlag`/`ColorLabel` pairs (Int-raw in LumenApp,
+  String-raw in `CatalogStore`) — a real refactor, and not one to bundle into a UI change.
 
 ### Phase 4 — Workspaces and accordions ⚑ (the IA change)
 

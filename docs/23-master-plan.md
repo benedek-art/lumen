@@ -613,7 +613,23 @@ and against Lightroom via owner-exported references.
       - [x] fixed on the way: an untitled `LumenSlider` reserved the full 94 pt label
             column, so the wheels' 108 pt lightness bar asked 158 pt of layout and drew
             no visible track at all
-      **Phases 3-7:** reclaim the chrome ⚑ ·
+      **Phase 3 — reclaim the chrome ⚑ (the owner's first-named complaint):**
+      - [x] the filter bar's two full-width rows of fourteen controls become ONE row of
+            five: search, a Filter button badged with the active CRITERIA count, a
+            Clear that appears only when something is filtered, then sort, direction,
+            auto-advance and thumbnail size
+      - [x] criteria move into a popover where they finally have room for per-chip
+            counts under every star and every label swatch (Capture One's best idea)
+      - [x] the query sentence and the photo count move to the status bar, off
+            `LibraryFilter.sentence` so the popover and the status bar cannot describe
+            the same query two different ways
+      - [x] Clear stayed OUT of the popover: it carries ⌘\, and a `.keyboardShortcut`
+            on a view not in the hierarchy is never registered — it would have stayed
+            in the source, still passed `KeyGrammarTests` (which reads shortcuts as
+            text), and been dead in the app
+      - [ ] sidebar regroup into four collapsible sections; prose to tooltips
+      - [ ] docs/25 steps 7 and 9: 10 pt grid stars, sidebar rows
+      **Phases 4-7:**
       four workspaces and accordions ⚑ · one home for colour ⚑ · speed (arithmetic
       entry, scrubby readout, ⌘K palette, Speed Edit D44) · focus + the owed keymap
       reconciliation. **Phase 4 is gated on the slider-smoothness verification** — it

@@ -280,6 +280,91 @@ struct LibraryFilter: Equatable, Sendable {
         return true
     }
 
+    /// How many criteria are lit, for the badge on the Filter button.
+    ///
+    /// Criteria, not values: three flag chips lit is ONE criterion, because they OR
+    /// together into a single clause of the query. A badge counting chips would read
+    /// "5" for what the sentence calls two conditions.
+    var activeCriteriaCount: Int {
+        var n = 0
+        if !flags.isEmpty { n += 1 }
+        if minRating > 0 { n += 1 }
+        if !labels.isEmpty { n += 1 }
+        if rawOnly { n += 1 }
+        if edited != nil { n += 1 }
+        if !cameras.isEmpty { n += 1 }
+        if !lenses.isEmpty { n += 1 }
+        if !isoBands.isEmpty { n += 1 }
+        if !keywords.isEmpty { n += 1 }
+        if stackState != .any { n += 1 }
+        if !text.isEmpty { n += 1 }
+        return n
+    }
+
+    /// The criteria that are actually HIDDEN behind the Filter button.
+    ///
+    /// Search text is a criterion like any other and `activeCriteriaCount` counts it,
+    /// but its field is right there in the strip with its own contents and its own
+    /// clear ✕. Badging the button "1" for something the eye can already read would
+    /// send the photographer into a popover where every group is empty.
+    var hiddenCriteriaCount: Int {
+        activeCriteriaCount - (text.isEmpty ? 0 : 1)
+    }
+
+    /// The active query written out. "or" inside a criterion, and between criteria
+    /// whatever the Match toggle says — the sentence IS the documentation, which is why
+    /// it survived the filter bar being taken apart (docs/28 Phase 3) and moved to the
+    /// status bar rather than being deleted with its container.
+    ///
+    /// It lives on the filter rather than in a view because two surfaces now read it:
+    /// the status bar shows it, and the filter popover shows the same words back inside
+    /// the control that produced them. Two hand-rolled versions of a sentence that is
+    /// supposed to be authoritative is exactly one too many.
+    ///
+    /// `catalogLive` only changes what the EMPTY sentence says: with no catalog the app
+    /// filters in memory over `PhotoItem`, and a bar that did not say so would be
+    /// claiming a reach it does not have.
+    func sentence(catalogLive: Bool) -> String {
+        guard isActive else {
+            return catalogLive
+                ? "No filter — showing every photo"
+                : "No filter — filtering in memory, without the catalog"
+        }
+        var parts: [String] = []
+        if !flags.isEmpty {
+            parts.append(flags.sorted { $0.rawValue > $1.rawValue }
+                .map(Self.flagName).joined(separator: " or "))
+        }
+        if minRating > 0 {
+            parts.append("★ \(minRating) or better")
+        }
+        if !labels.isEmpty {
+            parts.append(labels.sorted { $0.rawValue < $1.rawValue }
+                .map { $0 == ColorLabel.none ? "Unlabelled" : $0.displayName }
+                .joined(separator: " or "))
+        }
+        if rawOnly { parts.append("RAW only") }
+        if let edited { parts.append(edited ? "edited" : "untouched") }
+        if !cameras.isEmpty { parts.append(cameras.sorted().joined(separator: " or ")) }
+        if !lenses.isEmpty { parts.append(lenses.sorted().joined(separator: " or ")) }
+        if !isoBands.isEmpty {
+            parts.append(ISOBand.allCases.filter { isoBands.contains($0) }
+                .map { "ISO " + $0.rawValue }.joined(separator: " or "))
+        }
+        if !keywords.isEmpty { parts.append(keywords.sorted().joined(separator: " or ")) }
+        if stackState != .any { parts.append(stackState.rawValue.lowercased()) }
+        if !text.isEmpty { parts.append("matching \"\(text)\"") }
+        return parts.joined(separator: matchAny ? "  or  " : "  and  ")
+    }
+
+    static func flagName(_ flag: PhotoFlag) -> String {
+        switch flag {
+        case .picked: return "Picked"
+        case .rejected: return "Rejected"
+        case .none: return "Unflagged"
+        }
+    }
+
     /// The bar, compiled. Every chip becomes an indexed predicate in `CatalogStore`'s
     /// builder — which was 200 lines of correct, tested SQL with no caller at all while
     /// this struct filtered five criteria with a linear scan of the roll.

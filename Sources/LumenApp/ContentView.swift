@@ -18,8 +18,11 @@ struct ContentView: View {
                 .navigationSplitViewColumnWidth(min: 190, ideal: 230, max: 320)
         } detail: {
             VStack(spacing: 0) {
+                // No rule under the bar: it sits on `panel` 0.20 and the photo's field
+                // below is `surroundCanvas` 0.165, so the surfaces already divide
+                // themselves (design audit §1.1, and Phase 1's rule for the develop
+                // column's own bands).
                 FilterBar()
-                Divider().overlay(Lumen.separator)
                 HStack(spacing: 0) {
                     centre
                         // The clipping panel and the hold badge ride the centre pane
@@ -458,14 +461,35 @@ private struct StatusBar: View {
     @EnvironmentObject var state: AppState
 
     var body: some View {
-        HStack(spacing: 12) {
+        // Built once and read twice, by the label and by its own tooltip — the tooltip
+        // is what a truncated sentence falls back on in a 22-point bar.
+        let sentence = state.filter.sentence(catalogLive: state.isLibraryQueryLive)
+        return HStack(spacing: 12) {
             if state.isScanning {
                 ProgressView()
                     .controlSize(.small)
                     .scaleEffect(0.6)
             }
-            Text(state.statusMessage ?? "")
+            if let message = state.statusMessage, !message.isEmpty {
+                Text(message)
+                    .font(.system(size: 10))
+                    .foregroundStyle(Lumen.secondaryText)
+            }
+            // The query, in words. It used to own the second row of a full-width filter
+            // bar; the bar is one row now (docs/28 Phase 3) and the sentence outlived it
+            // because it is the part worth keeping — better product thinking than
+            // Lightroom's filter bar, which shows you lit chips and leaves you to
+            // reconstruct what they mean together. Here it sits beside the count it
+            // qualifies, which is where a query result belongs.
+            Text(sentence)
                 .font(.system(size: 10))
+                .foregroundStyle(state.filter.isActive
+                                 ? Lumen.primaryText : Lumen.tertiaryText)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .help(sentence)
+            Text(countText)
+                .font(.system(size: 10, design: .monospaced))
                 .foregroundStyle(Lumen.secondaryText)
             Spacer()
             if state.isExporting {
@@ -487,6 +511,17 @@ private struct StatusBar: View {
         .padding(.horizontal, 10)
         .frame(height: 22)
         .background(Lumen.panelBackground)
+    }
+
+    /// Read off the grid itself rather than counted separately, so the number and the
+    /// contact sheet under it can never disagree — an older version re-ran the whole
+    /// in-memory predicate on every keystroke to produce a second answer.
+    private var countText: String {
+        let total = state.allPhotos.count
+        guard state.filter.isActive || state.selectedCollectionID != nil else {
+            return "\(total) photos"
+        }
+        return "\(state.photos.count) of \(total)"
     }
 }
 
