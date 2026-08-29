@@ -17,6 +17,7 @@
 
 import CoreGraphics
 import CoreImage
+import CoreVideo
 import Foundation
 import LumenCore
 
@@ -132,6 +133,93 @@ public final class AppleRawSource: ImageSource {
     private static let decodeCacheCapacity = 8
     private var decodeCache: [(key: DecodeKey, image: CIImage)] = []
 
+    // MARK: Materializing the decode
+
+    /// THE MEASUREMENT THAT FORCED THIS, from the owner's own machine:
+    ///
+    ///     in/out      106/s    4fps
+    ///     draft     457.5 ms @2048
+    ///     settle     14.5 ms @2560
+    ///
+    /// A draft frame at 2048 px cost 457 ms — thirteen times the drag budget, and
+    /// thirty times what a settle at a LARGER size cost. No graph over 2.8 megapixels
+    /// does that. A 33 MP demosaic does.
+    ///
+    /// The cache above is why. `filter.outputImage` is a lazy `CIImage`: a description
+    /// of a decode, not its pixels. Storing it caches the INTENTION to decode, so every
+    /// frame that consumed a "hit" re-ran the full RAW demosaic on the GPU. The context
+    /// runs with `cacheIntermediates: true`, which is what was supposed to save this —
+    /// but the intermediate here is a 33 MP RGBAh buffer, roughly 260 MB, far past what
+    /// that cache will hold, so it was evicted and recomputed every single frame.
+    /// `DragProbeTests` names this trap in its own header and measured it as worth
+    /// ~10%; it measured a SYNTHETIC source, where there is no demosaic to repeat.
+    ///
+    /// So the decode is rendered into real pixels once per key and the cache holds
+    /// those. Half-float RGBA in the working space, because the whole contract of this
+    /// file is that what leaves it is scene-referred and keeps the headroom above
+    /// display white — an 8-bit or clamped materialization would throw away the
+    /// highlights the entire pipeline exists to protect.
+    private static let materializeContext: CIContext = {
+        var options: [CIContextOption: Any] = [
+            .workingFormat: CIFormat.RGBAh,
+            // Nothing is reused across these renders — each one materializes a
+            // different key exactly once — so an intermediate cache would only hold
+            // megabytes nobody reads.
+            .cacheIntermediates: false,
+        ]
+        if let working = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020) {
+            options[.workingColorSpace] = working
+            options[.outputColorSpace] = working
+        }
+        return CIContext(options: options)
+    }()
+
+    /// Above this, leave the decode lazy.
+    ///
+    /// An export decodes at full resolution, uses the result once, and would gain
+    /// nothing from being held; at 60 MP the buffer would be half a gigabyte. Every
+    /// INTERACTIVE size is below this — the viewer's settle, every rung of
+    /// `DraftLadder`, the mask raster, the 512 px probes — which is the whole working
+    /// set that repeats.
+    private static let materializeLongEdgeLimit = 3072
+
+    /// The decode's pixels, or nil if it should stay lazy.
+    private func materialized(_ image: CIImage) -> CIImage? {
+        let extent = image.extent
+        guard !extent.isInfinite, extent.width >= 1, extent.height >= 1,
+              Swift.max(extent.width, extent.height)
+                  <= CGFloat(Self.materializeLongEdgeLimit)
+        else { return nil }
+
+        let width = Int(extent.width.rounded())
+        let height = Int(extent.height.rounded())
+        var created: CVPixelBuffer?
+        let attributes: [CFString: Any] = [
+            // An IOSurface-backed buffer stays on the GPU, so the graph that reads it
+            // back does not pay a CPU round trip for the privilege of not re-decoding.
+            kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary,
+        ]
+        guard CVPixelBufferCreate(kCFAllocatorDefault, width, height,
+                                  kCVPixelFormatType_64RGBAHalf,
+                                  attributes as CFDictionary,
+                                  &created) == kCVReturnSuccess,
+              let buffer = created,
+              let working = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)
+        else { return nil }
+
+        Self.materializeContext.render(image, to: buffer, bounds: extent,
+                                       colorSpace: working)
+        // Named explicitly on the way back in, or Core Image assumes sRGB for a pixel
+        // buffer and every value would be re-interpreted through the wrong transfer
+        // function — a silent colour shift on every photograph in the app.
+        let out = CIImage(cvPixelBuffer: buffer, options: [.colorSpace: working])
+        // The buffer starts at the origin; the decode's extent may not. Put the pixels
+        // back where the caller's geometry expects to find them.
+        guard extent.origin != .zero else { return out }
+        return out.transformed(by: CGAffineTransform(translationX: extent.origin.x,
+                                                     y: extent.origin.y))
+    }
+
     public func decode(recipe: Recipe, draft: Bool, scaleFactor: Double = 1.0) -> CIImage? {
         let dev = recipe.develop
 
@@ -237,14 +325,17 @@ public final class AppleRawSource: ImageSource {
             filter.decoderVersion = pinnedVersion
             image = filter.outputImage
         }
-        if let image {
-            decodeCache.removeAll { $0.key == key }
-            decodeCache.insert((key: key, image: image), at: 0)
-            if decodeCache.count > Self.decodeCacheCapacity {
-                decodeCache.removeLast(decodeCache.count - Self.decodeCacheCapacity)
-            }
+        guard let image else { return nil }
+        // Pixels, not the promise of pixels — see `materialized`. Falling back to the
+        // lazy image keeps every failure path working exactly as before: a decode that
+        // cannot be materialized is still a correct decode, just an expensive one.
+        let stored = materialized(image) ?? image
+        decodeCache.removeAll { $0.key == key }
+        decodeCache.insert((key: key, image: stored), at: 0)
+        if decodeCache.count > Self.decodeCacheCapacity {
+            decodeCache.removeLast(decodeCache.count - Self.decodeCacheCapacity)
         }
-        return image
+        return stored
     }
 
     /// Metadata the develop panel and the catalog both want.
