@@ -6,17 +6,21 @@
 //     approximation, so "what does this band actually touch" is answerable by looking.
 //     The bands are a smooth partition of unity — there are no wedge edges to see.
 //   · Luminance is chroma-preserving (D13). Darkening a blue sky must not desaturate
-//     it, and the caption says so next to the slider rather than in a manual.
-//   · A caption says what the control does, not what it was going to do. Uniformity sat
-//     under the band selector captioned "converges THIS BAND's hues" and is one global
-//     value the engine applies to all eight — so selecting Blue and dragging it also
-//     pulled skin toward Orange, and the panel said otherwise. Making it per-band is a
-//     wire-format change (`Mixer.uniformity` would become eight fields, and every
-//     sidecar and the canonical fixture would move with it). The convergence target is
-//     docs/05's now: `measuredBandMeanHues` reaches every rendering plan through
-//     `RenderPlan(bandMeanHues:)`, so Uniformity converges on the image's own measured
-//     hues, falling back to the core-arc midpoint only when the frame measures as
-//     grey. The caption is what was false, so the caption is what changed.
+//     it — stated here, where the people who could break it read, and no longer also
+//     captioned under the slider where nobody was reading it.
+//   · A control is NAMED for what it does; it is not captioned into meaning something
+//     else. "Uniformity" sat under the band selector captioned "converges THIS BAND's
+//     hues" and is one global value the engine applies to all eight — so selecting Blue
+//     and dragging it also pulled skin toward Orange, and the panel said otherwise.
+//     Making it per-band is a wire-format change (`Mixer.uniformity` would become eight
+//     fields, and every sidecar and the canonical fixture would move with it). So the
+//     row is called "Even out hues" now and carries no caption at all. The convergence
+//     target is docs/05's: `measuredBandMeanHues` reaches every rendering plan through
+//     `RenderPlan(bandMeanHues:)`, so it converges on the image's own measured hues and
+//     falls back to the core-arc midpoint only when the frame measures as grey.
+//     Sixty-two words of that used to be on screen, half of them describing a
+//     texture-preserving spatial pass the shipping graph does not run. A name is the
+//     smallest true thing a control can carry.
 //   · Switching to B&W and back loses nothing, and "nothing" now means per photo and
 //     across a quit. The Mixer lives in `develop.mixer` and the B&W mix in `look.bw`;
 //     the treatment toggle never writes across that line, and it writes `bw.enabled`
@@ -155,9 +159,7 @@ struct ColorPanel: View {
                             range: -100...100, defaultValue: 0, step: 1, decimals: 0,
                             trackStops: mixerStops(ColorPanel.mixerLuminanceStops, index))
 
-                caption("Luminance holds chroma: a darkened sky stays as blue as it was.")
-
-                // Not inside the band block above, and titled for what it is. There is
+                // Not inside the band block above, and named for what it is. There is
                 // one `Mixer.uniformity` on the wire and the engine applies it to all
                 // eight bands, each converging on its own core arc — so selecting Blue
                 // and dragging this also pulls skin toward Orange.
@@ -166,28 +168,23 @@ struct ColorPanel: View {
                 // it does not fence two sections — those are spaced apart now — it marks
                 // a change of scope inside one, from "the selected band" to "every
                 // band". Space alone would read as an ordinary gap between rows, and
-                // reading this row as per-band is a wrong edit, not an ugly one.
+                // reading this row as per-band is a wrong edit, not an ugly one. It is
+                // now the only thing on screen that marks the change of scope, which is
+                // what it was always for.
                 Divider()
                     .padding(.vertical, 2)
 
-                // "(all bands)" dropped from the title: it is a 22-character name in a
-                // 94-point column, and the caption directly below already opens with
-                // "Uniformity converges EVERY band's hues…" — the qualifier was said
-                // twice, and the copy that fits is the one that stays.
-                LumenSlider(title: "Uniformity",
+                // "Even out hues", not "Uniformity". The coalescing key stays
+                // `mixer.uniformity` and so does the wire field; this is the label doing
+                // the caption's job. "Uniformity" is a word out of the format, and it
+                // took sixty-two words underneath it to turn back into an instruction —
+                // which is the definition of a control that has not been designed yet.
+                LumenSlider(title: "Even out hues",
                             value: bind("mixer.uniformity",
                                         get: { $0.develop.mixer.uniformity },
                                         set: { $0.develop.mixer.uniformity = $1 }),
                             range: 0...100, defaultValue: 0, step: 1, decimals: 0,
                             bipolar: false)
-
-                caption("Uniformity converges EVERY band's hues toward that band's "
-                        + "measured mean hue in this photo — not just the selected "
-                        + "band. A frame too grey to measure falls back to the middle "
-                        + "of each band's core arc, so the inner handles still steer "
-                        + "it. Texture-preserving convergence needs a spatial pass the "
-                        + "shipping graph does not run yet; today it moves the whole "
-                        + "pixel.")
             }
         }
     }
@@ -357,6 +354,9 @@ struct ColorPanel: View {
                 }
                 .frame(height: Lumen.rowHeight)
 
+                // Nothing when the list is empty. `+` in the row above is the whole
+                // message; a sentence defining what a swatch would do is answering a
+                // question nobody asks with an empty row in front of them.
                 if let index {
                     LumenSlider(title: "Hue", value: pointBinding(index, .hue),
                                 range: -60...60, defaultValue: 0, step: 1, decimals: 0)
@@ -369,11 +369,6 @@ struct ColorPanel: View {
                                 bipolar: false)
                     LumenSlider(title: "Variance", value: pointBinding(index, .variance),
                                 range: -100...100, defaultValue: 0, step: 1, decimals: 0)
-                    caption("Range is how much of the picture this swatch claims. "
-                            + "Variance compresses (−) or expands (+) what is inside it.")
-                } else {
-                    caption("No swatches yet. Add one to shift a single colour without "
-                            + "touching its neighbours on the hue circle.")
                 }
             }
         }
@@ -436,9 +431,7 @@ struct ColorPanel: View {
 
     private var blackAndWhiteSection: some View {
         let bw = state.currentRecipe.look.bw
-        let bands = ColorPanel.normalizedDoubles(bw?.bands)
         let isOn = state.currentRecipe.look.blackAndWhiteIsOn
-        let hasStoredMix = bw != nil && bands.contains(where: { $0 != 0 })
 
         return VStack(alignment: .leading, spacing: 2) {
             LumenSectionHeader(title: "Black & White",
@@ -455,20 +448,19 @@ struct ColorPanel: View {
                                    + "and the colour mixer is not touched. Reset above "
                                    + "is what discards the mix.")
 
+                // Off draws the switch and nothing else. Three captions stood here —
+                // one naming the eight bands as the mixer's, one promising the mix
+                // survives the toggle, and one whose entire content was the word "Off."
+                // directly under a switch that was off. The promise is kept by
+                // `BlackAndWhite.toggled` writing `bw.enabled` rather than deleting the
+                // slot, and by the mixer living in `develop.mixer` where this never
+                // reaches; a sentence was never what kept it.
                 if isOn {
                     ForEach(Array(0..<ColorEngine.bandCount), id: \.self) { i in
                         LumenSlider(title: ColorPanel.bandName(i),
                                     value: bwBinding(i),
                                     range: -100...100, defaultValue: 0, step: 1, decimals: 0)
                     }
-                    caption("Same eight bands as the mixer, same smooth weighting — an "
-                            + "aggressive mix darkens cleanly instead of banding. Toning "
-                            + "is the grading wheels in the Look panel, not a second tool.")
-                } else if hasStoredMix {
-                    caption("The mix is kept with this photo. Turn the treatment back on "
-                            + "and it returns exactly as it was, today or next month.")
-                } else {
-                    caption("Off. The colour mixer above keeps its own state either way.")
                 }
             }
         }
@@ -613,16 +605,15 @@ struct ColorPanel: View {
             set: { v in state.updateRecipe(coalescingKey: key) { set(&$0, v) } })
     }
 
-    /// Explanatory copy, collapsed to a ⓘ row like every other note in the app.
-    ///
-    /// These were the only always-visible prose left in this panel, and Uniformity's
-    /// alone ran to six lines — including a sentence about a spatial pass the shipping
-    /// graph does not run yet, in front of a photographer mid-edit. The live band
-    /// readout ("Red — centred on 29.2° in OKLCh…") is deliberately NOT routed through
-    /// here: it is a raw `Text` a few lines up, because it is an instrument.
-    private func caption(_ text: String, prominent: Bool = false) -> some View {
-        DevelopNote(text, prominent: prominent)
-    }
+    // NO `caption` HELPER, AND NO CAPTIONS. All seven were non-prominent
+    // `DevelopNote`s, which render nothing at all since docs/30 Phase A item 3 — seven
+    // strings built on every redraw of this panel for a view nobody could see. Five
+    // were explanation, one has become a slider's name ("Even out hues"), and one read
+    // "Off." underneath a switch that was off.
+    //
+    // The live band readout ("Red — centred on 29.2° in OKLCh…") never went through
+    // here and stays where it is: it is a raw `Text` further up, because it is an
+    // instrument rather than teaching, and it changes as you drag.
 
     // MARK: - Static helpers
 

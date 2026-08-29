@@ -303,14 +303,27 @@ private struct WorkspaceSectionBody: View {
 /// adjustments that mask is scaling.
 struct MaskDock: View {
     @ObservedObject var panel: PanelLayout
+    @EnvironmentObject private var state: AppState
+    /// This surface shows the edit, so it observes the edit signal — `AppState.recipes`
+    /// is deliberately not published (see `EditRevision`).
+    @EnvironmentObject private var edits: EditRevision
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
+            // ONE HEADER, and it belongs to the dock. `MaskPanel` drew its own titled
+            // "Masks" directly beneath this one, unconditionally — two identical
+            // headings, stacked. Every other panel guards against exactly that; the dock
+            // was built without the guard.
+            //
+            // `isModified` reads the recipe rather than being hard-coded false: the
+            // panel's own header carried the dot, so suppressing that header would have
+            // silently taken the "this photograph has masks" signal with it, which is
+            // the one thing a closed dock most needs to say.
             LumenSectionHeader(title: "Masks",
                                isExpanded: .constant(true),
-                               isModified: false,
+                               isModified: !state.currentRecipe.masks.isEmpty,
                                onToggle: { _ in panel.setMaskDock(open: false) })
-            MaskPanel()
+            MaskPanel(showsOwnHeader: false)
             // A boundary under the dock, because what follows it belongs to a different
             // job — the workspace's own sections — and the accordion's 16 pt rhythm
             // alone would read as one more section rather than as the end of a surface.

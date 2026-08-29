@@ -6,15 +6,19 @@
 //   · The component operation is a control, not a modifier: Add / Subtract / Intersect
 //     are three equal buttons, editable after creation. LrC hides Intersect behind an
 //     Alt-click at creation time; that is the difference being made here.
-//   · The refinement chain appears in the order the engine runs it (Refine → Edge Shift
-//     → Feather → Levels) under its UI names, never the wire names — `MaskRefine` spells
-//     the guided filter `feather` and the Gaussian `blur`, and leaking that would teach
-//     the user the wrong word for both.
+//   · The refinement chain appears in the order the engine runs it (Refine → Grow /
+//     Shrink → Feather → Start / End / Curve) under its UI names, never the wire names.
+//     `MaskRefine` spells the guided filter `feather` and the Gaussian `blur`, and
+//     leaking that would teach the user the wrong word for both; "Levels Lo/Hi/Gamma"
+//     was a histogram dialog from 1994 describing a density ramp.
 //   · A mask runs the local point curve and the local grading wheels — the two tools
 //     Lightroom Classic still lacks inside a mask — so both are visible sections.
 //   · Where the format has no field for a spec'd control (linear Mirror, per-axis
-//     colour tolerances, similarity geometry, depth source), the control is ABSENT
-//     rather than invented.
+//     colour tolerances, similarity geometry), the control is ABSENT rather than
+//     invented — and where a whole KIND cannot be computed at all (Depth, Sky, Object,
+//     Landscape), it is absent from the picker rather than offered with an apology
+//     attached to it. An absent entry teaches nothing false; a present one that
+//     apologises teaches that the app is unfinished.
 //
 // Every slider is a `LumenSlider`, every edit goes through
 // `updateRecipe(coalescingKey:)` so one drag is one undo step, and every index into
@@ -37,6 +41,22 @@ struct MaskPanel: View {
     /// size/feather/flow/density/flags into the blob as it is drawn, so the panel and the
     /// canvas share one store rather than inventing a component field.
     @ObservedObject private var brush: MaskBrushStore = MaskBrushStore.shared
+
+    /// Whether this panel draws its own "Masks" section header.
+    ///
+    /// False when the caller has already titled it. `MaskDock` printed "Masks" and then
+    /// drew this panel, which printed "Masks" again directly underneath — two identical
+    /// headers, stacked, in every workspace, on every photograph. Every other panel the
+    /// column embeds has this escape (`ZonesPanel.showsSectionHeader`, `ColorPanel.only`)
+    /// and this one never did. The default is what a standalone rendering keeps.
+    var showsOwnHeader: Bool = true
+
+    /// Spelled out because the synthesised memberwise initialiser is private the moment
+    /// any stored property is, and every `@State` fold below is. Without this,
+    /// `MaskPanel(showsOwnHeader:)` would not be callable from the column that draws it.
+    init(showsOwnHeader: Bool = true) {
+        self.showsOwnHeader = showsOwnHeader
+    }
 
     /// Selection lives in `AppState`, not in this view: the on-image canvas edits
     /// gradient and brush geometry from the viewer, and it has to know which component
@@ -79,8 +99,7 @@ struct MaskPanel: View {
                 refineSection(mask)
                 adjustSections(mask)
             } else {
-                note("No masks yet. A mask is a stack of components combined with add, "
-                     + "subtract and intersect, carrying one set of local adjustments.")
+                emptyMaskState
             }
         }
     }
@@ -91,8 +110,17 @@ struct MaskPanel: View {
         let list = masks
         return VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 6) {
-                LumenSectionHeader(title: "Masks", isExpanded: nil, isModified: !list.isEmpty)
-                kindMenu(label: "Add mask") { kind in addMask(kind: kind) }
+                if showsOwnHeader {
+                    LumenSectionHeader(title: "Masks", isExpanded: nil,
+                                       isModified: !list.isEmpty)
+                }
+                // Only once there is a list to add to: with none, `emptyMaskState` below
+                // carries the add control at a size worth aiming at, and the same
+                // affordance twice, twenty points apart, is the duplication this rebuild
+                // is for.
+                if !list.isEmpty {
+                    kindMenu(label: "Add mask") { kind in addMask(kind: kind) }
+                }
             }
             ForEach(Array(list.indices), id: \.self) { i in maskRow(list[i], index: i) }
             if let mask = activeMask {
@@ -102,15 +130,15 @@ struct MaskPanel: View {
                             range: 0...200, defaultValue: 100, step: 1, decimals: 0)
                 // Whole-mask invert (docs/08 §8.1), not the per-component one further
                 // down: this flips the folded stack. It runs BEFORE the refinement
-                // chain, so Refine still snaps to the picture and Edge Shift still
+                // chain, so Refine still snaps to the picture and Grow / Shrink still
                 // grows what is now selected.
                 LumenToggleRow(title: "Invert mask",
                                isOn: optionBinding(mask.id, mask.invert,
                                                    on: { $0.invert = true },
                                                    off: { $0.invert = false }),
                                help: "Selects everything this stack does not, after the "
-                                   + "components combine and before Refine, Edge Shift, "
-                                   + "Feather and Levels")
+                                   + "components combine and before Refine, Grow / "
+                                   + "Shrink, Feather and the density ramp")
                 HStack(spacing: 4) {
                     smallButton("Duplicate", "plus.square.on.square") { duplicateMask(mask.id) }
                     smallButton("Delete", "trash") { deleteMask(mask.id) }
@@ -118,11 +146,22 @@ struct MaskPanel: View {
                 }
                 .frame(height: Lumen.rowHeight)
                 overlayControls(mask)
-                note("Amount scales the adjustment deltas, not the alpha: past 100 it "
-                     + "amplifies beyond the slider maxima instead of clipping a mask that "
-                     + "is already fully opaque.")
             }
         }
+    }
+
+    /// The empty state: an affordance, not a definition.
+    ///
+    /// What stood here defined a mask — "a stack of components combined with add,
+    /// subtract and intersect" — to somebody looking at an empty list, which is the one
+    /// moment that sentence cannot help. The only useful thing an empty list can do is
+    /// be easy to fill, so the control that fills it is the biggest object on screen.
+    private var emptyMaskState: some View {
+        HStack(spacing: 0) {
+            kindMenu(label: "Add a mask", prominent: true) { kind in addMask(kind: kind) }
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 6)
     }
 
     private func maskRow(_ mask: Mask, index: Int) -> some View {
@@ -221,11 +260,11 @@ struct MaskPanel: View {
                     ForEach(Array(mask.components.indices), id: \.self) { i in
                         componentRow(mask, i)
                     }
+                    // Nothing when the stack is empty: `Add` sits in the header one row
+                    // above, and a mask with no components is a state you pass through
+                    // in a single click.
                     if let i = activeComponentIndex, mask.components.indices.contains(i) {
                         componentEditor(mask.id, i, mask.components[i])
-                    } else {
-                        note("No components yet, so this mask's alpha is empty. The stack "
-                             + "folds in order, starting from nothing.")
                     }
                 }
             }
@@ -279,8 +318,7 @@ struct MaskPanel: View {
             componentParameters(id, i, c)
             if let problem = c.validationError() {
                 // A component that renders nothing must say so unprompted.
-                note(problem + " — it renders empty until that is supplied.",
-                     prominent: true)
+                note(problem + " — it renders empty until that is supplied.")
             }
         }
         .padding(.leading, 6).padding(.bottom, 4)
@@ -290,17 +328,15 @@ struct MaskPanel: View {
     private func componentParameters(_ id: String, _ i: Int, _ c: MaskComponent) -> some View {
         switch c.kind {
         case .brush:
-            brushParameters(c)
+            brushParameters()
         case .linear:
             // Live: `lineSummary` is the gradient's current geometry, so this is a
             // readout wearing an instruction, not teaching.
             note("Drag on the image to set the gradient line — " + MaskPanel.lineSummary(c)
-                 + ". The span between the ends is the feather; there is no other control.",
-                 prominent: true)
+                 + ". The span between the ends is the feather; there is no other control.")
         case .similarityLine:
             VStack(alignment: .leading, spacing: 2) {
-                note("Drag on the image to set the ramp — " + MaskPanel.lineSummary(c) + ".",
-                     prominent: true)
+                note("Drag on the image to set the ramp — " + MaskPanel.lineSummary(c) + ".")
                 similarityParameters(id, i, c)
             }
         case .radial:
@@ -308,103 +344,78 @@ struct MaskPanel: View {
                 optionalSlider(id, i, "Feather", \.feather, 0...100, 50)
                 optionalSlider(id, i, "Rotation", \.rotation, -180...180, 0, bipolar: true)
                 note("Drag on the image to place and resize the ellipse — "
-                     + MaskPanel.ellipseSummary(c) + ". Falloff runs inward from the edge.",
-                     prominent: true)
+                     + MaskPanel.ellipseSummary(c) + ". Falloff runs inward from the edge.")
             }
         case .lumaRange:
             VStack(alignment: .leading, spacing: 2) {
-                bandSlider(id, i, "Band Lo", isLow: true, depth: false)
-                bandSlider(id, i, "Band Hi", isLow: false, depth: false)
+                // From / To, not Band Lo / Band Hi. Both are EV on the fixed −10…+4
+                // axis over scene luminance, never auto-ranged, so a band means the same
+                // thing on every frame — which is a fact about the axis, not a caption.
+                bandSlider(id, i, "From", isLow: true, depth: false)
+                bandSlider(id, i, "To", isLow: false, depth: false)
                 optionalSlider(id, i, "Smoothness", \.smooth, 0...100, 50)
-                note("EV-denominated on a fixed −10…+4 axis over scene luminance, never "
-                     + "auto-ranged, so a band means the same on every frame.")
             }
+        // Still editable, no longer offerable. Nothing estimates depth and nothing reads
+        // embedded depth — `aiMattes` is a literal empty dictionary at both call sites —
+        // so the kind left `rangeKinds` and the paragraph apologising for it left with
+        // the menu entry. A recipe made elsewhere can still carry one, and when it does
+        // `modelNote` marks it inert in the same badge as every other kind that needs a
+        // model it has not got.
         case .depthRange:
             VStack(alignment: .leading, spacing: 2) {
                 bandSlider(id, i, "Near", isLow: true, depth: true)
                 bandSlider(id, i, "Far", isLow: false, depth: true)
                 optionalSlider(id, i, "Smoothness", \.smooth, 0...100, 50)
-                // Nothing estimates depth and nothing reads embedded depth:
-                // `aiMattes` is a literal empty dictionary at both call sites, so this
-                // component rasterizes to an empty plane and selects nothing.
-                note("No depth source in this build — embedded depth is not read and no "
-                     + "estimator ships, so this component renders empty.",
-                     prominent: true)
+                modelNote(c)
             }
         case .colorRange:
             VStack(alignment: .leading, spacing: 2) {
                 sampleChips(id, i, c)
+                // One Refine, not three: it drives the hue, chroma and lightness
+                // tolerances together because the per-axis split has no field in the
+                // format, so the other two are absent rather than faked.
                 optionalSlider(id, i, "Refine", \.rangeAmount, 0...100, 50)
-                note("Refine drives the hue, chroma and lightness tolerances together; the "
-                     + "per-axis split has no field in the format, so it is not shown.")
             }
         case .similarity:
             similarityParameters(id, i, c)
-        // People and Landscape shipped sixteen checkboxes between them — ten person
-        // parts, six landscape classes — that wrote `personParts` and `classes`, and
-        // NOTHING read either field. The caption said parts were "synthesised from the
-        // person matte"; nothing synthesised anything. Per-person chips and the nine
-        // parts need a face-landmark pass and a per-person matte the wire format cannot
-        // express yet, and Landscape needs a model that does not ship.
+        // People, Landscape and Object shipped sixteen checkboxes and a prompt counter
+        // between them, every one of them writing a field (`personParts`, `classes`,
+        // `prompt`) that NOTHING read. docs/18: a control that stores a value nothing
+        // reads is worse than an absent one, because absence is honest — so those went,
+        // and the five paragraphs that had grown up to explain their absence have now
+        // gone the same way. Landscape and Object are not in the picker at all any more
+        // (see `visionKinds`), so what is left for them is `modelNote`'s inert badge:
+        // the disabled state doing the work three sentences were doing.
         //
-        // docs/18: a control that stores a value nothing reads is worse than an absent
-        // one, because absence is honest. So the checkboxes are gone and the note says
-        // what the component actually selects. Both now route through `modelNote`, which
-        // is what makes a row that has run and found nothing say so — People was the one
+        // Every kind routes through `modelNote`, People included — People was the one
         // Vision kind whose editor skipped it, so a People mask could never show
         // NOTHING FOUND however long you waited.
         case .aiPerson:
             VStack(alignment: .leading, spacing: 2) {
+                // Six words, and they name what IS selected rather than what is not.
+                // Per-person chips and the nine body parts need a face-landmark pass
+                // and a per-person matte the wire format cannot express, which is a
+                // fact for this comment to carry and not a row in the panel.
                 Text("Entire Person, for everyone in the frame.")
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
-                Text("Per-person selection and the nine body parts need a "
-                     + "face-landmark pass and a per-person matte the recipe format "
-                     + "cannot express yet, so they are not offered.")
-                    .font(.system(size: 9))
-                    .foregroundStyle(.tertiary)
                 modelNote(c)
             }
-        case .aiLandscape:
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Selects nothing yet — Lumen ships no landscape model.")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
-                Text("The six classes are designed and specified; the class toggles "
-                     + "are not shown because nothing would read them.")
-                    .font(.system(size: 9))
-                    .foregroundStyle(.tertiary)
-                modelNote(c)
-            }
-        case .aiObject:
-            // The prompt count and its Reset are gone, and this is the note that
-            // replaces them. They were inert by construction, not by omission: nothing
-            // anywhere writes `MaskComponent.prompt`, because `MaskCanvas.isLive`
-            // excludes `aiObject` and the only other reference to the field in the app
-            // was the count itself. So the row read "0 prompt point(s)" on every
-            // component that has ever existed and could not read anything else, and
-            // Reset cleared a value that was already nil. Two affordances for a model
-            // that is not bundled, arranged so that the one thing they could tell you
-            // was a number that never changes.
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Selects nothing yet — Lumen ships no object model.")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
-                Text("Click-to-select needs prompt points, and nothing writes them "
-                     + "because there is nothing to prompt; the count and its Reset "
-                     + "are not shown rather than shown reading zero forever.")
-                    .font(.system(size: 9))
-                    .foregroundStyle(.tertiary)
-                modelNote(c)
-            }
-        case .aiSubject, .aiSky, .aiBackground:
+        case .aiSubject, .aiSky, .aiBackground, .aiObject, .aiLandscape:
             modelNote(c)
         }
     }
 
-    private func brushParameters(_ c: MaskComponent) -> some View {
-        let ref = c.strokesRef.map { String($0.prefix(20)) + "…" } ?? "no blob yet"
-        return VStack(alignment: .leading, spacing: 2) {
+    /// No component argument any more. The only thing it fed was a note printing the
+    /// stroke blob's content hash — a developer's readout, in a photographer's panel,
+    /// under four sliders it said nothing about.
+    ///
+    /// These are the settings the NEXT stroke records, not this component's: a stroke
+    /// carries its own size, feather, flow, density and flags into the blob as it is
+    /// drawn. Size is a fraction of the source long edge, so a stroke keeps its width at
+    /// export resolution.
+    private func brushParameters() -> some View {
+        VStack(alignment: .leading, spacing: 2) {
             LumenSlider(title: "Size", value: brushValue(\.size), range: 0.002...0.5,
                         defaultValue: BrushStroke.defaultSize, step: 0.002, decimals: 3,
                         bipolar: false)
@@ -418,21 +429,20 @@ struct MaskPanel: View {
                            help: "Erase strokes fold into the same buffer in draw order")
             LumenToggleRow(title: "Automask", isOn: brushFlag(\.automask),
                            help: "Gates each stamp by colour similarity to the stamp centre")
-            note("The settings the NEXT stroke records. Size is a fraction of the source "
-                 + "long edge, so a stroke keeps its width at export resolution. "
-                 + "Strokes: " + ref + ".")
         }
     }
 
+    /// Both sliders are the width of the OKLab similarity gate, one across chroma and
+    /// one across lightness — "Chroma sel." and "Luma sel." were the axes of the gate
+    /// wearing the abbreviations of a debug build. Point positions and radius have no
+    /// field in the shipped format, so the gate evaluates over the whole frame; that was
+    /// a paragraph in the panel and is a fact about the format, which is here.
     private func similarityParameters(_ id: String, _ i: Int,
                                       _ c: MaskComponent) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             sampleChips(id, i, c)
-            optionalSlider(id, i, "Chroma sel.", \.chromaSel, 0...100, 50)
-            optionalSlider(id, i, "Luma sel.", \.lumaSel, 0...100, 50)
-            note("Selectivity is the width of the OKLab similarity gate. Point positions "
-                 + "and radius have no field in the shipped format, so the gate currently "
-                 + "evaluates over the whole frame.")
+            optionalSlider(id, i, "Colour range", \.chromaSel, 0...100, 50)
+            optionalSlider(id, i, "Brightness range", \.lumaSel, 0...100, 50)
         }
     }
 
@@ -486,12 +496,16 @@ struct MaskPanel: View {
             text = c.kind == .aiPerson
                 ? "Vision found no person in this frame. Try a brush, or Subject."
                 : "Vision found no clear subject in this frame. Try a brush, or a "
-                    + "Similarity Point on what you meant."
+                    + "Colour Pick on what you meant."
         case .needsModel:
+            // The badge is the whole message. Every kind that reaches this case has
+            // left the picker (`visionKinds`, `rangeKinds`), so the only way to be
+            // looking at one is a recipe made somewhere else — and a paragraph
+            // apologising for a component you could not have created here teaches that
+            // the app is unfinished, which is the opposite of what an inert badge on an
+            // imported component teaches.
             badge = "MODEL NEEDED"
-            text = "No model for this is bundled and nothing computes it, so this "
-                + "component selects nothing at all. Subject, Background and People "
-                + "work today; this one does not."
+            text = ""
         case .notNeeded:
             badge = c.model ?? ""
             text = ""
@@ -517,15 +531,21 @@ struct MaskPanel: View {
                                onReset: { editMask(mask.id, key: nil) { $0.refine = MaskRefine() } })
             if refineExpanded {
                 VStack(alignment: .leading, spacing: 2) {
+                    // Drawn in the order the engine runs them — an edge-aware snap
+                    // against the image structure, a boundary shift, a Gaussian soften,
+                    // then the density remap — which is why they are not alphabetical
+                    // and not grouped. Start / End / Curve are `levelsLo` / `levelsHi` /
+                    // `levelsGamma`, and Grow / Shrink is `edge`: the wire names are a
+                    // histogram dialog describing a density ramp, and the labels now say
+                    // which end of the ramp each handle moves.
                     refineSlider(mask.id, "Refine", \.feather, 0...100, 0)
-                    refineSlider(mask.id, "Edge Shift", \.edge, -50...50, 0, bipolar: true)
+                    refineSlider(mask.id, "Grow / Shrink", \.edge, -50...50, 0,
+                                 bipolar: true)
                     refineSlider(mask.id, "Feather", \.blur, 0...100, 0)
-                    levelsSlider(mask.id, "Levels Lo", low: true)
-                    levelsSlider(mask.id, "Levels Hi", low: false)
-                    refineSlider(mask.id, "Levels Gamma", \.levelsGamma, 0.2...5, 1,
+                    levelsSlider(mask.id, "Start", low: true)
+                    levelsSlider(mask.id, "End", low: false)
+                    refineSlider(mask.id, "Curve", \.levelsGamma, 0.2...5, 1,
                                  step: 0.05, decimals: 2, bipolar: true)
-                    note("In engine order: an edge-aware snap against the image structure, "
-                         + "a boundary shift, a Gaussian soften, then the density remap.")
                 }
             }
         }
@@ -555,29 +575,22 @@ struct MaskPanel: View {
                     adjustSlider(mask.id, "Shadows", \.shadows, -100...100)
                     adjustSlider(mask.id, "Whites", \.whites, -100...100)
                     adjustSlider(mask.id, "Blacks", \.blacks, -100...100)
-                    // Whites and Blacks do two things, and this caption used to name
-                    // only the first. They move the tone engine's ANCHORS, which is
-                    // what reshapes the Highlights and Shadows windows — and globally
-                    // those anchors also feed the display transform, which is the seam
-                    // that makes them mean "white point" and "black point". A mask has
-                    // no display transform of its own, so that half really does stop
-                    // at the window geometry.
-                    //
-                    // But `ToneEngine.zonalStops` gives each of them a SHELF as well,
-                    // added because an anchor-only Whites measured 26.7 code values
-                    // over its whole travel and Blacks 0.20 — "a slider a photographer
-                    // would call dead". `LocalPlan` and
+                    // Whites and Blacks do two things here. They move the tone engine's
+                    // ANCHORS, which reshapes the Highlights and Shadows windows —
+                    // globally those anchors also feed the display transform, which is
+                    // the seam that makes them mean "white point" and "black point", and
+                    // a mask has no display transform of its own, so that half really
+                    // does stop at the window geometry. And `ToneEngine.zonalStops`
+                    // gives each a SHELF, added because an anchor-only Whites measured
+                    // 26.7 code values over its whole travel and Blacks 0.20 — "a slider
+                    // a photographer would call dead". `LocalPlan` and
                     // `ReferenceRenderer.applyLocalAdjust` both feed the local values
-                    // into that same engine, so a mask carrying nothing but Whites
-                    // +100 lifts the top of its range by up to 1.3 EV and Blacks −100
-                    // drops the bottom by up to 2.2, with mid-grey untouched in both
-                    // cases. "On their own they do not move the picture" described the
-                    // engine before those shelves existed, and by then it was a claim
-                    // no test covered on either path.
-                    note("Whites and Blacks are shelves at the two ends of this mask's "
-                         + "range, and they also reshape where Highlights and Shadows "
-                         + "act. On their own they move the top and the bottom and "
-                         + "leave mid-grey where it was.")
+                    // into that same engine, so a mask carrying nothing but Whites +100
+                    // lifts the top of its range by up to 1.3 EV and Blacks −100 drops
+                    // the bottom by up to 2.2, mid-grey untouched in both cases.
+                    //
+                    // All of which is a fact about the engine. The four-line caption
+                    // that used to say it to the photographer is gone.
                 }
             }
         }
@@ -628,13 +641,16 @@ struct MaskPanel: View {
                     // The same editor the global curve uses, pointed at this mask.
                     // A second, simpler widget here would be two curve UIs that could
                     // disagree about what the pipeline applies; this one draws
-                    // `CurveStack`'s own evaluation, which is what gets baked.
+                    // `CurveStack`'s own evaluation, which is what gets baked. It taps
+                    // AFTER the display transform, alongside the global curve, through
+                    // this mask's alpha, so the axis means the same thing here as it
+                    // does globally, and the mask's Amount scales how far it moves the
+                    // picture.
+                    //
+                    // Fifty-three words of that were on screen, opening with which
+                    // feature Lightroom lacks. A photographer editing a mask is not
+                    // reading about Lightroom.
                     CurveEditorView(target: .mask(mask.id))
-                    note("A curve per mask — one of the two tools Lightroom still does "
-                         + "not put inside a local adjustment. It taps AFTER the "
-                         + "display transform, alongside the global curve, through this "
-                         + "mask's alpha, so the axis means the same thing here as it "
-                         + "does globally. Amount scales how far it moves the picture.")
                 }
             }
         }
@@ -647,6 +663,11 @@ struct MaskPanel: View {
                                onReset: { editMask(mask.id, key: nil) { $0.adjust.wheels = nil } })
             if wheelsExpanded {
                 VStack(alignment: .leading, spacing: 4) {
+                    // Off draws the toggle and nothing else. What stood under it was a
+                    // forty-three-word advertisement — the same engine as the global
+                    // grade, the thing Lightroom has no local equivalent for — shown to
+                    // somebody already standing inside the mask panel with the switch
+                    // under their pointer.
                     LumenToggleRow(title: "Local grading wheels",
                                    isOn: optionBinding(mask.id, has,
                                                        on: { $0.adjust.wheels = GradingWheels() },
@@ -663,12 +684,6 @@ struct MaskPanel: View {
                         }
                         wheelsSlider(mask.id, "Blending", \.blending, 0...100, 50)
                         wheelsSlider(mask.id, "Balance", \.balance, -100...100, 0, bipolar: true)
-                    } else {
-                        note("Grading wheels inside a mask — the second thing Lightroom "
-                             + "does not have locally. The same engine as the global "
-                             + "grade, so the zone windows and the constant-luminance "
-                             + "translation behave identically; the mask's Amount "
-                             + "scales how far each wheel pushes, not which way.")
                     }
                 }
             }
@@ -702,6 +717,8 @@ struct MaskPanel: View {
                         smallButton("Remove", "minus") { removeSwatch(mask.id) }
                     }
                     .frame(height: Lumen.rowHeight)
+                    // Nothing when there are no swatches: Add is in the row directly
+                    // above, and it is the whole message.
                     if let s = index {
                         swatchSlider(mask.id, s, "Hue", -60...60, 0,
                                      get: { $0.shift.h }, set: { $0.shift.h = $1 })
@@ -713,9 +730,6 @@ struct MaskPanel: View {
                                      get: { $0.range }, set: { $0.range = $1 }, bipolar: false)
                         swatchSlider(mask.id, s, "Variance", -100...100, 0,
                                      get: { $0.variance }, set: { $0.variance = $1 })
-                    } else {
-                        note("Up to eight swatches per mask, each shifting one colour without "
-                             + "touching its neighbours on the hue circle.")
                     }
                 }
             }
@@ -730,17 +744,18 @@ struct MaskPanel: View {
                     adjustSlider(mask.id, "Texture", \.texture, -100...100)
                     adjustSlider(mask.id, "Clarity", \.clarity, -100...100)
                     adjustSlider(mask.id, "Dehaze", \.dehaze, -100...100)
+                    // Texture, Clarity and Dehaze reuse the global base–detail
+                    // decomposition, and negative Sharpness softens.
                     adjustSlider(mask.id, "Sharpness", \.sharpness, -100...100)
-                    note("Texture, Clarity and Dehaze reuse the global base–detail "
-                         + "decomposition; negative Sharpness softens.")
                     // Not shown: local Noise, Noise (chroma), Moiré, Defringe and
                     // Grain. Every one of them has a field in the recipe and no stage
                     // that reads it, and a slider that moves while the picture does
                     // not is worse than an absent one — it costs the user the time to
                     // find out. They come back when the stage does.
-                    note("Local noise reduction, moiré, defringe and grain are not "
-                         + "wired yet and are not shown. Use the global controls.",
-                         prominent: true)
+                    //
+                    // The row announcing that absence is gone too. There is nothing on
+                    // screen for it to be about: an apology for a control you cannot
+                    // see is one more thing to read past.
                 }
             }
         }
@@ -1053,7 +1068,20 @@ struct MaskPanel: View {
 
     // MARK: - Small views
 
-    private func kindMenu(label: String, action: @escaping (MaskKind) -> Void) -> some View {
+    /// Every component type that can select something, and only those.
+    ///
+    /// The fourth section — "AI — needs a model Lumen does not ship", each of its three
+    /// entries suffixed "· empty" — is gone, and Depth Range has left the Range list.
+    /// All four were an offer and a retraction in the same row: choosing one built a
+    /// component that rasterizes to an empty plane, and the panel then spent a paragraph
+    /// underneath saying so. Absence is quieter and it is truer. `MaskKind` still
+    /// carries all four, `kindName` still names them and their editors still open, so a
+    /// recipe made elsewhere loses nothing by this.
+    ///
+    /// `prominent` is the empty-list rendering: the same roster, drawn as the one thing
+    /// worth pressing rather than as a corner of a header.
+    private func kindMenu(label: String, prominent: Bool = false,
+                          action: @escaping (MaskKind) -> Void) -> some View {
         Menu {
             Section("Drawn") {
                 ForEach(MaskPanel.drawnKinds, id: \.self) { k in
@@ -1070,22 +1098,19 @@ struct MaskPanel: View {
                     Button(MaskPanel.kindName(k)) { action(k) }
                 }
             }
-            Section("AI — needs a model Lumen does not ship") {
-                ForEach(MaskPanel.modelKinds, id: \.self) { k in
-                    Button(MaskPanel.kindName(k) + "  ·  empty") { action(k) }
-                }
-            }
         } label: {
-            HStack(spacing: 3) {
-                Image(systemName: "plus").font(.system(size: 9, weight: .semibold))
-                Text(label).font(.system(size: 10))
+            HStack(spacing: prominent ? 5 : 3) {
+                Image(systemName: "plus")
+                    .font(.system(size: prominent ? 11 : 9, weight: .semibold))
+                Text(label)
+                    .font(.system(size: prominent ? 12 : 10,
+                                  weight: prominent ? .medium : .regular))
             }
+            .padding(.vertical, prominent ? 4 : 0)
         }
         .fixedSize()
-        .help("Every component type. Subject, Background and People are computed on "
-              + "this Mac by Vision, with no download; Sky, Object and Landscape need "
-              + "a model that is not bundled, and adding one of those produces an "
-              + "empty mask.")
+        .help("Subject, Background and People are computed on this Mac by Vision, with "
+              + "no download")
     }
 
     private func smallButton(_ title: String, _ systemImage: String,
@@ -1103,17 +1128,21 @@ struct MaskPanel: View {
         .buttonStyle(.plain).foregroundStyle(Lumen.primaryText)
     }
 
-    /// Explanatory copy, collapsed to a ⓘ row (see `DevelopNote`).
+    /// The four rows of copy this panel still draws, and none of them is prose.
     ///
-    /// Masks carried twenty of these, always visible, in the panel that also holds
-    /// thirty-five sliders plus a per-component editor — the worst prose-to-control
-    /// ratio in the app. Six stay visible, in the two categories `DevelopNote`
-    /// documents: three that disclose something not wired (an incomplete component, the
-    /// absent depth source, the local stages that do nothing), and three that carry the
-    /// live geometry of the gradient or ellipse being dragged, which is an instrument
-    /// rather than teaching.
-    private func note(_ text: String, prominent: Bool = false) -> some View {
-        DevelopNote(text, prominent: prominent)
+    /// There were nineteen, always visible, in the panel that also holds thirty-five
+    /// sliders plus a per-component editor — the worst prose-to-control ratio in the
+    /// app. Fifteen were explanation. They are DELETED rather than collapsed behind a
+    /// ⓘ row, because that was the previous fix and it turned nineteen paragraphs into
+    /// nineteen rows advertising a tooltip (docs/30 §2.2). What is left is instrument:
+    /// three carry the live geometry of the gradient or ellipse under the pointer right
+    /// now, and one names a component that is producing nothing at this moment.
+    ///
+    /// So this always draws, and there is no `prominent:` to forget. Non-prominent
+    /// `DevelopNote` renders nothing at all now; a note in this panel that nobody can
+    /// see would be a bug, not a quiet default.
+    private func note(_ text: String) -> some View {
+        DevelopNote(text, prominent: true)
     }
 
     // MARK: - Static tables
@@ -1128,30 +1157,37 @@ struct MaskPanel: View {
     }
 
     static let drawnKinds: [MaskKind] = [.brush, .linear, .radial]
+
+    /// Depth Range is deliberately not in this list, and there is no `modelKinds` list
+    /// any more. Between them they named the four kinds the picker can no longer offer:
+    /// nothing estimates depth, nothing reads embedded depth, and no Core ML model is
+    /// bundled, so all four rasterize to an empty plane. The kinds themselves stay in
+    /// `MaskKind` — the wire format carries them and a foreign recipe may hold one —
+    /// and their editors still open. What is gone is the offer.
     static let rangeKinds: [MaskKind] = [.lumaRange, .colorRange, .similarity,
-                                         .similarityLine, .depthRange]
+                                         .similarityLine]
+
+    /// Still the full roster: this is what decides whether a new mask gets the
+    /// edge-aware snap seeded, which is a question about mattes and not about menus.
     static let aiKinds: [MaskKind] = [.aiSubject, .aiSky, .aiBackground, .aiObject,
                                       .aiPerson, .aiLandscape]
 
-    /// The menu splits the AI roster by what actually computes it, rather than filing
-    /// all of it under "requires a model": three come out of Vision on this Mac with no
-    /// download, and the rest select nothing at all until a model is bundled. Both
-    /// lists are derived from `MaskKind.matteProvider`, so a kind cannot end up in the
-    /// wrong one.
-    /// (Depth Range is not in either list: it lives under Range, where its own row
-    /// already says no depth source ships.)
+    /// What the picker offers, derived from `MaskKind.matteProvider` so a kind cannot
+    /// end up in the wrong list. Only Vision's three: they come out of an OS framework
+    /// on this Mac with no download and no bundled weights.
     static let visionKinds: [MaskKind] = aiKinds.filter { $0.matteProvider == .vision }
-    static let modelKinds: [MaskKind] = aiKinds.filter { $0.matteProvider == .model }
 
     static func kindName(_ kind: MaskKind) -> String {
         switch kind {
         case .brush: return "Brush"
         case .linear: return "Linear Gradient"
         case .radial: return "Radial Gradient"
-        case .lumaRange: return "Luminance Range"
+        case .lumaRange: return "Brightness Range"
         case .colorRange: return "Colour Range"
-        case .similarity: return "Similarity Point"
-        case .similarityLine: return "Similarity Line"
+        // "Similarity" is the kernel's word. What the photographer does is pick a
+        // colour, or drag a line along one.
+        case .similarity: return "Colour Pick"
+        case .similarityLine: return "Colour Along a Line"
         case .aiSubject: return "Subject"
         case .aiSky: return "Sky"
         case .aiBackground: return "Background"
