@@ -12,14 +12,23 @@
 //     distortion compose into a single resample.
 //
 // Optional-field policy: `Look.filmLab` nil means no stock is loaded, so the grain
-// rows are absent rather than dead — grain belongs to a stock, not to the frame.
+// rows are absent rather than dead — grain belongs to a stock, not to the frame. What
+// stands in their place is the one move that leads anywhere from here: a button into
+// Film Lab. A sentence explaining the emptiness leaves the photographer exactly where
+// it found them, and the one that was here named a panel that no longer exists.
 //
 // The same rule, applied harder, is why Lens Corrections shows one control. Remove
 // chromatic aberration and the seven Defringe controls were live, wrote the recipe, and
 // reached no stage; the CA toggle was on by default and its tooltip described the
 // polynomial fit it does not perform. They are gone until a stage reads them.
 //
-// SIX SECTIONS, THREE WORKSPACES. docs/28 §5.1 sends the creative layers to Grade's
+// Retouch is gone for the same reason taken one step further: its entire content was a
+// paragraph saying heal and clone are not implemented. An absent feature costs nothing;
+// a section that exists to explain its own absence costs a header, a chevron, a place in
+// the accordion and a paragraph, on every visit. It comes back when a stage renders a
+// stroke.
+//
+// FIVE SECTIONS, THREE WORKSPACES. docs/28 §5.1 sends the creative layers to Grade's
 // Effects, crop and lens to Develop's Optics, and the proof to Deliver — the widest
 // split in that change, because "effects" was always the tab things landed in rather
 // than a subject. The sections stay in one file: they share `binder`, the `viewport`
@@ -101,9 +110,8 @@ struct EffectsPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             // Ordered as the tab ordered them rather than grouped by workspace, so that
-            // nil is still exactly the Effects tab. Retouch sat between Lens and Soft
-            // Proof there; moving it up to join the other two Grade sections would be a
-            // change to the surface this argument is meant to leave alone.
+            // nil is still exactly the Effects tab, less Retouch — which sat between
+            // Lens and Soft Proof, and is deleted rather than moved.
             if shows(.effects) {
                 vignetteSection
                 grainSection
@@ -112,7 +120,6 @@ struct EffectsPanel: View {
                 cropSection
                 lensSection
             }
-            if shows(.effects) { retouchSection }
             if shows(.softProof) {
                 // Deliver's own header prints "Soft Proof", so wrapping these in a
                 // section titled "Soft Proof" would print the name twice. The tab has
@@ -138,12 +145,6 @@ struct EffectsPanel: View {
                             value: binder.value(\.look.vignette, "look.vignette"),
                             range: -3.0...1.0, hardRange: nil, defaultValue: 0,
                             step: 0.01, decimals: 2)
-                DevelopNote("Stops at the corner, applied on scene-linear data before "
-                            + "the display transform, with the ellipse taken from the "
-                            + "crop rectangle so it stays centred on what you see. A "
-                            + "straighten angle shifts it slightly — the crop is "
-                            + "measured on the straightened frame and this stage runs "
-                            + "before the rotation.")
             }
         }
     }
@@ -176,30 +177,34 @@ struct EffectsPanel: View {
                                 range: 0...100, hardRange: nil,
                                 defaultValue: grainDefault,
                                 step: 1, decimals: 0, bipolar: false)
+                    // Size is the pitch at the gate relative to the stock's own. The
+                    // footprint is denominated at the GATE and scales with the render's
+                    // pixel count, so it is the same fraction of the picture at every
+                    // delivery size — print size cancels algebraically out of
+                    // `plateScale`, pinned to 1e-12 by
+                    // `testGrainFollowsTheGateAndTheRenderSizeNotThePrintSize`. Kept as
+                    // a comment because `LookPanel` binds this same field, and two
+                    // panels binding one value must not tell opposite stories about it.
                     LumenSlider(title: "Size",
                                 value: binder.custom("look.grain.size",
                                                      get: { r in r.look.filmLab?.grain.size ?? 1 },
                                                      set: { r, v in r.look.filmLab?.grain.size = v }),
                                 range: 0.5...2.0, hardRange: nil, defaultValue: 1.0,
                                 step: 0.05, decimals: 2, bipolar: true)
-                    // The CONCLUSION here was right and the mechanism was backwards.
-                    // This said "Grain is anchored to print size", and `LookPanel`'s
-                    // caption on the same field said the print size cancels out — which
-                    // it does, algebraically, out of `plateScale`, pinned to 1e-12 by
-                    // `testGrainFollowsTheGateAndTheRenderSizeNotThePrintSize`. What
-                    // keeps the character constant is the other half: the footprint is
-                    // denominated at the GATE and scales with the render's pixel count,
-                    // so it is the same fraction of the picture at every size. Two
-                    // panels binding one value must not tell opposite stories about it.
-                    DevelopNote("Size is the grain pitch at the gate relative to the "
-                                + "stock's own. The footprint is anchored to the gate "
-                                + "and scales with the render, so grain keeps its "
-                                + "character whatever size the picture is delivered at.")
                 }
             } else {
-                DevelopNote("Grain belongs to a film stock, not to the frame. Load a "
-                            + "stock in the Look panel and its amount and size appear "
-                            + "here.")
+                // The empty state is the way out of the empty state. Grain is a
+                // property of a stock, so the only move that leads anywhere from here
+                // is loading one, and `reveal` promotes the register if Film Lab is
+                // hiding in Simple.
+                HStack(spacing: 6) {
+                    Button("Load a film stock") { PanelLayout.shared.reveal(.filmLab) }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 10))
+                        .foregroundStyle(Lumen.accent)
+                    Spacer()
+                }
+                .frame(height: Lumen.rowHeight)
             }
         }
     }
@@ -255,11 +260,8 @@ struct EffectsPanel: View {
                                help: "Mirror the frame. This is a mirror, not a "
                                    + "rotation — swapping a crop between portrait and "
                                    + "landscape is not built yet.")
-                DevelopNote("Crop and rotation compose into one Lanczos-3 resample that "
-                            + "runs last, so every upstream cache is crop-independent. "
-                            + "Perspective correction is not implemented: `Upright` is a "
-                            + "wire format with no stage behind it, so there are no "
-                            + "sliders for it here.")
+                // No perspective rows: `Upright` is a wire format with no stage behind
+                // it. The single-resample story is in the file header.
             }
         }
     }
@@ -395,10 +397,9 @@ struct EffectsPanel: View {
                                isOn: binder.flag(\.develop.geometry.lens.profile,
                                                  "geometry.lens.profile"),
                                help: "Applies the correction opcodes and manufacturer "
-                                   + "profile embedded in the file, at decode.")
-                DevelopNote("No lens-profile database in v1, and Lumen never refuses a "
-                            + "file: a lens we have no profile for still develops, "
-                            + "uncorrected and honest about it.")
+                                   + "profile embedded in the file, at decode. There is "
+                                   + "no lens database in this build, so a file carrying "
+                                   + "no profile develops uncorrected.")
                 // Not shown: Remove chromatic aberration, and the seven controls under
                 // Defringe. `removeCA` and every field of `Defringe` have a wire format
                 // and no reader — grep across Sources/ finds them only in the `Recipe`
@@ -410,41 +411,14 @@ struct EffectsPanel: View {
                 // every photo in the library carried a ticked box doing nothing, and
                 // its own tooltip described the machinery in detail — "R and B are
                 // re-registered to G by a radial polynomial fit, folded into the
-                // geometry warp" — two rows above the note conceding none of it runs.
+                // geometry warp" — two rows above a note conceding none of it runs.
                 // A reader who trusts the control loses the time it takes to find out,
                 // and one who trusts the footnote is left wondering which half of the
                 // panel to believe. `MaskPanel` had already settled the form for the
-                // local group: take the controls out, keep the sentence.
-                DevelopNote("Remove chromatic aberration and Defringe are not shown: "
-                            + "neither is wired to a stage, so nothing they store "
-                            + "reaches a pixel. They come back when the correction "
-                            + "does. Lens profile corrections do apply, at decode.")
+                // local group: take the controls out. The sentence that stood in for
+                // them has now gone too — a panel owes nobody an inventory of what it
+                // does not contain, and this comment is where such an inventory belongs.
             }
-        }
-    }
-
-    // MARK: Retouch
-
-    /// No controls, on purpose.
-    ///
-    /// `Heal { strokesRef, count }` is declared in the recipe and reaches no stage on any
-    /// path — there is no writer, no blob loader and no renderer for it. A slider that
-    /// stored spots nothing removed would be worse than this note, because absence is
-    /// honest and a dead control is not. The note exists so that somebody looking for the
-    /// spot-removal tool learns it is missing here rather than concluding they cannot
-    /// find it.
-    private var retouchSection: some View {
-        DevelopSection("Retouch", isModified: false, onReset: nil) {
-            // Prominent: the whole point of this note is that someone hunting for
-            // the spot-removal tool LEARNS it is missing — behind the hover-ⓘ they
-            // find an empty section and conclude they cannot find the tool, the
-            // exact outcome the note was written to prevent.
-            DevelopNote("Heal and clone are not implemented. The recipe format reserves "
-                        + "them, and nothing renders them — a file that arrives carrying "
-                        + "healed spots will show every spot still there. There is no "
-                        + "control here rather than one that stores a value no stage "
-                        + "reads.",
-                        prominent: true)
         }
     }
 
@@ -465,8 +439,17 @@ struct EffectsPanel: View {
     private var proofRows: some View {
         VStack(alignment: .leading, spacing: 2) {
             LumenToggleRow(title: "Soft proof", isOn: $state.softProof.enabled,
+                           // The second clause is the one that saves a photographer
+                           // from concluding the proof is broken: the loupe is handed
+                           // to SwiftUI as an sRGB image, so a destination at least as
+                           // wide as sRGB looks almost the same proofed or not, and the
+                           // warning and the paper simulation are what carry the
+                           // information there.
                            help: "⇧S. Renders the picture through the destination "
-                               + "space so you can see what the delivery will hold.")
+                               + "space so you can see what the delivery will hold. The "
+                               + "loupe is drawn as sRGB, so a destination that wide "
+                               + "changes little beyond the gamut warning and the paper "
+                               + "simulation.")
             if state.softProof.enabled {
                 HStack(spacing: 6) {
                     Text("Destination")
@@ -502,8 +485,8 @@ struct EffectsPanel: View {
                                isOn: $state.softProof.simulatePaperWhite,
                                help: "Brings white down to a sheet's reflectance and "
                                    + "black up to the ink's, which is the flatness a "
-                                   + "print has and a screen does not.")
-                DevelopNote(proofNote)
+                                   + "print has and a screen does not — from one "
+                                   + "documented white and black, not an ICC profile.")
             }
         }
     }
@@ -511,20 +494,6 @@ struct EffectsPanel: View {
     private var intentOptions: [(value: RenderingIntent, label: String)] {
         [(value: .perceptual, label: "Perceptual"),
          (value: .relativeColorimetric, label: "Relative")]
-    }
-
-    /// What the proof does and does not tell you. The second half matters: the loupe
-    /// hands SwiftUI an sRGB image, so a destination at least as wide as sRGB looks
-    /// almost the same proofed or not — the warning and the paper simulation are the
-    /// parts that carry information there.
-    private var proofNote: String {
-        "The proof rides in the finish table both render paths apply, so what is on "
-            + "screen is the picture through the destination's primaries. The gamut "
-            + "warning is computed per pixel rather than baked, so its edge is the real "
-            + "gamut boundary. Two limits: the loupe is drawn as an sRGB image, so "
-            + "proofing to a space at least as wide as sRGB changes little on screen "
-            + "beyond the warning and the paper simulation; and there is no ICC profile "
-            + "behind \"paper & ink\" — it uses one documented white and black."
     }
 }
 

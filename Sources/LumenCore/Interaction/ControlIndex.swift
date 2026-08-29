@@ -149,8 +149,12 @@ public struct ControlIndex: Sendable {
                 aliases: ["vignetting", "corners", "edge darkening"]),
         Control(id: "look.filmLab.grain", title: "Grain", section: .effects,
                 aliases: ["noise", "film grain"]),
-        Control(id: "heal", title: "Retouch", section: .effects,
-                aliases: ["heal", "clone", "spot", "blemish", "dust"]),
+        // Retouch is deliberately absent. Its section was deleted with the rest of
+        // docs/30 Phase A: heal and clone are not implemented, and a named section whose
+        // entire content was 43 words about its own absence cost a header, a paragraph
+        // and the photographer's attention forever. A palette entry that reveals a
+        // section with no trace of the thing you searched for is the same lie one level
+        // up. It comes back when a stage renders a stroke.
 
         // Deliver
         Control(id: "softProof", title: "Soft Proof", section: .softProof,

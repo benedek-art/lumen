@@ -9,10 +9,17 @@
 // is never double-sharpened. A user who understands that stops stacking one on top of
 // the other to fix the other's artefacts.
 //
-// Optional-field policy (CaptureSharpen.radius/amount): nil means "measured from the
-// frame's own greens" — a real number that only the decode knows. The override rows
-// stand in 0.80 px and 50 while the fields are nil and badge the section AUTO; the
-// first move pins a concrete value, and "Use measured values" writes nil back.
+// Optional-field policy (CaptureSharpen.amount): nil means "measured from the frame's
+// own greens" — a real number that only the decode knows. The Amount row stands in the
+// engine's own 100 while the field is nil and badges the section AUTO; the first move
+// pins a concrete value, and "Use measured values" writes nil back.
+//
+// There is no Radius row and no Overrides fold, both deliberately.
+// `CaptureSharpen.radius` reaches only `DetailEngine.captureSharpen`, which has no
+// caller — the RAW stage reads `strengthFraction` and nothing else — so the control
+// stored a number no stage read, and the panel had to carry a paragraph saying so. A
+// fold whose two rows were one live control and one dead one is depth bought with a
+// lie. Both come back with the stage.
 //
 // All three belong to Develop's Detail (docs/28 §5.1), and Denoise is a fold inside it
 // rather than a section of its own — which is the difference between Develop being six
@@ -25,14 +32,12 @@ import Foundation
 import LumenCore
 import SwiftUI
 
-/// What the capture-sharpen override rows show while the recipe says "auto". The
-/// radius stand-in is the middle of the 0.4–2.0 px estimation range for a modern
-/// full-frame sensor at a good aperture; the amount stand-in is the engine's own
-/// default strength.
-private let captureRadiusStandIn: Double = 0.8
-// 100, not 50: both readers of `CaptureSharpen.amount` treat nil as 100
-// (`DetailEngine.captureSharpen`, `AppleRawSource`). Showing 50 while auto renders at
-// 100 meant the first nudge of the slider halved the sharpening.
+/// What the capture-sharpen Amount row shows while the recipe says "auto" — the
+/// engine's own default strength.
+///
+/// 100, not 50: both readers of `CaptureSharpen.amount` treat nil as 100
+/// (`DetailEngine.captureSharpen`, `AppleRawSource`). Showing 50 while auto renders at
+/// 100 meant the first nudge of the slider halved the sharpening.
 private let captureAmountStandIn: Double = 100
 
 struct DetailPanel: View {
@@ -40,8 +45,6 @@ struct DetailPanel: View {
     /// This surface shows the edit, so it observes the edit signal —
     /// `AppState.recipes` is deliberately not published (see `EditRevision`).
     @EnvironmentObject var edits: EditRevision
-
-    @State private var showCaptureOverrides: Bool = false
 
     /// Denoise starts closed. A fold that opens by itself gives back the depth it was
     /// folded away to save, and these are rows a photographer sets once per ISO.
@@ -93,65 +96,41 @@ struct DetailPanel: View {
                                    + "has no caller and no test, so it does not run and "
                                    + "there is no per-frame radius measurement in this "
                                    + "build.")
-                if recipe.develop.detail.capture.auto {
-                    captureOverrides
-                } else {
-                    DevelopNote("Capture sharpening is off for this photo. It is on by "
-                                + "default for raw and off for JPEG/HEIC, where the "
-                                + "camera has already sharpened.")
-                }
+                if recipe.develop.detail.capture.auto { captureOverrides }
             }
         }
     }
 
     private var captureOverrides: some View {
-        DevelopDisclosure("Overrides", isExpanded: $showCaptureOverrides) {
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(hasCaptureOverride ? "Manual" : "Measured")
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
+                Text(hasCaptureOverride ? "Manual" : "Measured")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Lumen.secondaryText)
+                Spacer()
+                if hasCaptureOverride {
+                    Button("Use measured values") { clearCaptureOverrides() }
+                        .buttonStyle(.plain)
                         .font(.system(size: 10))
-                        .foregroundStyle(Lumen.secondaryText)
-                    Spacer()
-                    if hasCaptureOverride {
-                        Button("Use measured values") { clearCaptureOverrides() }
-                            .buttonStyle(.plain)
-                            .font(.system(size: 10))
-                            .foregroundStyle(Lumen.accent)
-                    } else {
-                        LumenBadge(text: "Auto")
-                    }
+                        .foregroundStyle(Lumen.accent)
+                } else {
+                    LumenBadge(text: "Auto")
                 }
-                .frame(height: Lumen.rowHeight)
-
-                // Both rows are optional-backed, where nil means "use the measured
-                // value", so double-clicking to reset must CLEAR rather than write the
-                // stand-in — writing it pins an override and only flips the badge from
-                // Auto to Manual.
-                LumenSlider(title: "Radius",
-                            value: binder.value(\.develop.detail.capture.radius,
-                                                "detail.capture.radius",
-                                                orAuto: captureRadiusStandIn),
-                            range: 0.4...2.0, hardRange: nil,
-                            defaultValue: captureRadiusStandIn,
-                            step: 0.05, decimals: 2, bipolar: false,
-                            onReset: { clearCaptureOverrides() })
-                LumenSlider(title: "Amount",
-                            value: binder.value(\.develop.detail.capture.amount,
-                                                "detail.capture.amount",
-                                                orAuto: captureAmountStandIn),
-                            range: 0...150, hardRange: nil,
-                            defaultValue: captureAmountStandIn,
-                            step: 1, decimals: 0, bipolar: false,
-                            onReset: { clearCaptureOverrides() })
-                // Radius is honest about being reference-only: `CaptureSharpen.radius`
-                // reaches only `DetailEngine.captureSharpen`, which has no caller — the
-                // RAW stage reads `strengthFraction` and nothing else. Amount's range
-                // now matches the engine's 0…150 rather than stopping at the default.
-                DevelopNote("Amount pins the strength for this photo. Radius is stored "
-                            + "but not applied in this build — the decode stage takes "
-                            + "the strength and measures the radius itself.",
-                            prominent: true)
             }
+            .frame(height: Lumen.rowHeight)
+
+            // Optional-backed, where nil means "use the measured value", so
+            // double-clicking to reset must CLEAR rather than write the stand-in —
+            // writing it pins an override and only flips the badge from Auto to Manual.
+            // The range is the engine's 0…150 rather than stopping at the default.
+            LumenSlider(title: "Amount",
+                        value: binder.value(\.develop.detail.capture.amount,
+                                            "detail.capture.amount",
+                                            orAuto: captureAmountStandIn),
+                        range: 0...150, hardRange: nil,
+                        defaultValue: captureAmountStandIn,
+                        step: 1, decimals: 0, bipolar: false,
+                        onReset: { clearCaptureOverrides() })
         }
     }
 
@@ -164,6 +143,8 @@ struct DetailPanel: View {
         recipe.develop.detail.capture != CaptureSharpen()
     }
 
+    /// Clears `radius` as well, though no control writes it now: a recipe from another
+    /// build can carry one, and "Use measured values" must mean all of them.
     private func clearCaptureOverrides() {
         binder.edit("detail.capture.auto.restore") { recipe in
             recipe.develop.detail.capture.radius = nil
@@ -184,11 +165,20 @@ struct DetailPanel: View {
                                                 "detail.sharpen.amount"),
                             range: 0...150, hardRange: nil, defaultValue: 0,
                             step: 1, decimals: 0, bipolar: false)
+                // Radius here is in RAW PIXELS and the band steps are fixed pixel
+                // counts, while every other spatial stage in the graph sizes itself
+                // off the long edge. A preview is also capped at 4096 px, so no view in
+                // this application — 1:1 included — shows a 45 MP export's sharpening.
+                // The person that costs is the one judging an export by a preview, and
+                // this is the row they are looking at when it costs them.
                 LumenSlider(title: "Radius",
                             value: binder.value(\.develop.detail.sharpen.radius,
                                                 "detail.sharpen.radius"),
                             range: 0.5...3.0, hardRange: nil, defaultValue: 1.0,
                             step: 0.1, decimals: 1, bipolar: false)
+                    .help("Pixels, not a fraction of the frame, so a full-size export is "
+                          + "less sharpened than the preview it was judged on — and "
+                          + "previews cap at 4096 px.")
                 LumenSlider(title: "Detail",
                             value: binder.value(\.develop.detail.sharpen.detail,
                                                 "detail.sharpen.detail"),
@@ -204,28 +194,10 @@ struct DetailPanel: View {
                                                 "detail.sharpen.haloSuppression"),
                             range: 0...100, hardRange: nil, defaultValue: 0,
                             step: 1, decimals: 0, bipolar: false)
-                if recipe.develop.detail.capture.auto {
-                    DevelopNote("Capture sharpening already owns the baseline for this "
-                                + "photo, so Amount starts at 0.")
-                } else {
-                    lightroomClassicHint
-                }
-                // Radius here is in RAW PIXELS and the band steps are fixed pixel
-                // counts, while every other spatial stage in the graph sizes itself off
-                // the long edge. A preview is also capped at 4096 px, so there is no
-                // view in this application — 1:1 included — that shows a 45 MP export's
-                // sharpening. Saying so is not a fix; it is the least the panel owes a
-                // user judging an export by a preview.
-                // Honesty work stays prominent (DevelopNote's own rule): this is a
-                // disclosure that the export differs from every preview, for the
-                // person judging an export by one — behind the hover-ⓘ they see
-                // nothing at the moment it matters.
-                DevelopNote("Sharpening is measured in pixels, not in fractions of the "
-                            + "frame, so a full-size export is less sharpened than the "
-                            + "preview it was judged on. Previews also render at up to "
-                            + "4096 px, which means no view here — 1:1 included — shows "
-                            + "an export's sharpening on a high-resolution file.",
-                            prominent: true)
+                // Nothing when capture sharpening is on: it owns the baseline, which
+                // is why Amount above starts at 0. The hint is for the refugee who has
+                // no capture stage and no starting point.
+                if !recipe.develop.detail.capture.auto { lightroomClassicHint }
             }
         }
     }
@@ -278,11 +250,6 @@ struct DetailPanel: View {
         return photo.iso.map { Double($0) }
     }
 
-    /// The ISO the FILE records, whether or not the profile uses it. Only for saying so.
-    private var recordedISO: Double? {
-        state.primarySelection?.iso.map { Double($0) }
-    }
-
     /// Whether this photo is one the ISO table deliberately skips.
     private var isRenderedFile: Bool {
         state.primarySelection.map { PhotoFormats.isRendered($0.id) } ?? false
@@ -312,20 +279,10 @@ struct DetailPanel: View {
                 LumenBadge(text: recipe.develop.denoise == isoDefault ? "Auto" : "Manual")
             }
             .frame(height: Lumen.rowHeight)
-        } else if isRenderedFile, let iso = recordedISO {
-            // The file HAS an ISO. Saying "no ISO recorded" here would be a second lie
-            // on top of the one this branch exists to stop.
-            DevelopNote("This file records ISO \(Int(iso)), but it is already a rendered "
-                        + "picture — the camera denoised it, so the sensor noise model "
-                        + "does not describe these pixels. These start flat and the "
-                        + "profile is the base one.")
-        } else if isRenderedFile {
-            DevelopNote("A rendered file: the camera has already denoised it, so these "
-                        + "start at the flat defaults rather than at a profiled guess.")
-        } else {
-            DevelopNote("No ISO recorded for this file, so these start at the flat "
-                        + "defaults rather than at a profiled guess.")
         }
+        // No row at all when there is no profiled ISO — a rendered file, or one that
+        // records none. The three branches that used to be here were sentences saying
+        // why there is no number, which is a paragraph in place of a blank.
     }
 
     /// A `DevelopDisclosure` rather than a `DevelopSection`, because the disclosure
@@ -341,7 +298,7 @@ struct DetailPanel: View {
             VStack(alignment: .leading, spacing: 4) {
                 LumenSegmented(options: [(value: Denoise.Mode.off, label: "Off"),
                                          (value: Denoise.Mode.classic, label: "Classic"),
-                                         (value: Denoise.Mode.ai, label: "AI")],
+                                         (value: Denoise.Mode.ai, label: "AI (stand-in)")],
                                selection: binder.choice(\.develop.denoise.mode,
                                                         "denoise.mode"))
                 noiseControls
@@ -353,9 +310,9 @@ struct DetailPanel: View {
     private var noiseControls: some View {
         switch recipe.develop.denoise.mode {
         case .off:
-            DevelopNote("No denoise at all — Hot Pixels included, because off means "
-                        + "off. Capture sharpening still gates itself away from "
-                        + "low-contrast regions, so this is a usable setting at base ISO.")
+            // Off means off, Hot Pixels included — there is nothing to draw and nothing
+            // to say about it.
+            EmptyView()
         case .classic:
             VStack(alignment: .leading, spacing: 2) {
                 isoBadgeRow
@@ -391,12 +348,15 @@ struct DetailPanel: View {
                             range: 0...100, hardRange: nil,
                             defaultValue: isoDefault.classic.lumaDetail,
                             step: 1, decimals: 0, bipolar: false)
+                    .help("Raises the shrinkage threshold, so texture survives — and so "
+                          + "does the noise beside it.")
                 LumenSlider(title: "Luminance Contrast",
                             value: binder.value(\.develop.denoise.classic.lumaContrast,
                                                 "denoise.classic.lumaContrast"),
                             range: 0...100, hardRange: nil,
                             defaultValue: isoDefault.classic.lumaContrast,
                             step: 1, decimals: 0, bipolar: false)
+                    .help("Keeps coarse luminance structure, at the cost of mottling.")
                 LumenSlider(title: "Colour",
                             value: binder.custom(
                                 "denoise.classic.chroma",
@@ -420,71 +380,52 @@ struct DetailPanel: View {
                             range: 0...100, hardRange: nil,
                             defaultValue: isoDefault.classic.colorDetail,
                             step: 1, decimals: 0, bipolar: false)
+                    .help("Protects thin colour edges.")
                 LumenSlider(title: "Colour Smoothness",
                             value: binder.value(\.develop.denoise.classic.colorSmoothness,
                                                 "denoise.classic.colorSmoothness"),
                             range: 0...100, hardRange: nil,
                             defaultValue: isoDefault.classic.colorSmoothness,
                             step: 1, decimals: 0, bipolar: false)
+                    // The one row here with a cost worth naming, so it is named on the
+                    // row rather than in a paragraph four rows below it.
+                    .help("Reaches the large blotches. Its guided pass follows "
+                          + "luminance, so it softens a boundary that is pure colour.")
                 LumenSlider(title: "Hot Pixels",
                             value: binder.value(\.develop.denoise.classic.hotPixels,
                                                 "denoise.classic.hotPixels"),
                             range: 0...100, hardRange: nil, defaultValue: 0,
                             step: 1, decimals: 0, bipolar: false)
-                DevelopNote("Profiled wavelet noise reduction, live on every frame. "
-                            + "Luminance is gentle by design and Colour is aggressive: "
-                            + "chroma smoothing costs almost nothing to look at, and "
-                            + "blotches are the artefact nobody wants to see.")
-                DevelopNote("Detail raises the shrinkage threshold, so texture — and "
-                            + "the noise beside it — survives. Contrast keeps coarse "
-                            + "luminance structure at the cost of mottling. Colour "
-                            + "Detail protects thin colour edges; Colour Smoothness "
-                            + "reaches the large blotches, and it is the one row here "
-                            + "with a measured cost — its guided pass follows "
-                            + "luminance, so it softens a boundary that is pure colour.")
-                DevelopNote("Hot Pixels replaces single-pixel outliers with the median "
-                            + "of their neighbours, and only where the pixel is a "
-                            + "strict extremum — an edge or a fine line always has a "
-                            + "neighbour on its own side, so neither is touched.")
             }
         case .ai:
             VStack(alignment: .leading, spacing: 2) {
+                // Tier 2 does not exist: no model ships, `AIDenoiseSplice` has no
+                // caller, and Amount reaches the decoder's own denoise instead — which
+                // is why dragging it is slow, the stand-in being part of the decode key,
+                // so each step re-demosaics the frame. The segment above says
+                // "(stand-in)" so that fact is on the control that offers the mode,
+                // where it costs no rows and is read before anything is dragged.
+                //
+                // And it reaches the RAW decoder only: `RenderedImageSource.decode`
+                // takes the recipe and reads nothing out of it but the scale factor, so
+                // on a rendered file this slider moves a value no stage consumes. That
+                // is a different sentence, and the only place it belongs is the row.
                 LumenSlider(title: "Amount",
                             value: binder.value(\.develop.denoise.amount, "denoise.amount"),
                             range: 0...100, hardRange: nil, defaultValue: 50,
                             step: 1, decimals: 0, bipolar: false)
-                // Tier 2 does not exist: no model ships, `AIDenoiseSplice` has no
-                // caller, and Amount reaches the decoder's own denoise instead. That
-                // is also why dragging it is slow — the stand-in is part of the decode
-                // key, so each step re-demosaics the frame.
-                //
-                // And it reaches the RAW decoder only. `RenderedImageSource.decode`
-                // takes the recipe and reads nothing out of it but the scale factor,
-                // so on a rendered file this slider moves a value no stage consumes.
-                // The note used to describe the raw behaviour for both.
-                if isRenderedFile {
-                    DevelopNote("On a rendered file this slider does nothing: no AI "
-                                + "model ships, and the decoder stand-in Amount drives "
-                                + "on raw files is part of the raw decode, which this "
-                                + "file does not go through. Classic is the engine "
-                                + "that runs here.",
-                                prominent: true)
-                } else {
-                    DevelopNote("No AI model ships yet. Amount drives the raw decoder's "
-                                + "own noise reduction as a stand-in, and because that "
-                                + "is part of the decode, dragging it re-decodes the "
-                                + "frame rather than blending a cached result.")
-                }
-                // Switching to AI zeroes the Tier-1 masters, on the reasoning that the
-                // noise they compensate for is gone by then. That is invisible from
-                // this screen, since the Classic rows are not on it — so it is said.
-                DevelopNote("Turning this on drops the Classic Luminance and Colour to "
-                            + "zero, unless you set them yourself — a hand-set value is "
-                            + "kept. Luminance Detail, Contrast, Colour Detail, Colour "
-                            + "Smoothness and Hot Pixels are untouched either way.")
-                DevelopNote("Classic is the profiled engine and it runs on every frame "
-                            + "and every export. It is the one to reach for until a "
-                            + "model ships.")
+                    .help(isRenderedFile
+                          ? "The stand-in is part of the raw decode, which this file "
+                              + "does not go through, so Amount changes nothing here. "
+                              + "Classic is the engine that runs."
+                          : "No model ships yet: Amount drives the raw decoder's own "
+                              + "noise reduction, and because that is part of the "
+                              + "decode, each step re-decodes the frame.")
+                // Switching to AI zeroes the Tier-1 masters unless they were hand-set
+                // — `ISODefaults.coupled` owns that rule and its tests — on the
+                // reasoning that the noise they compensate for is gone by then. It is
+                // invisible from this screen, since the Classic rows are not on it, and
+                // it was two more sentences under a slider that already has one.
             }
         }
     }

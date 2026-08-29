@@ -75,7 +75,12 @@ extension WorkspaceSection {
         // Crop, straighten, flip, upright and the lens corrections are one section.
         if develop.geometry != Geometry() { out.insert(.optics) }
 
-        // Retouch is `develop.heal`; the vignette is a look. Both are Grade's Effects.
+        // The vignette is a look; `develop.heal` is a photograph's healed spots. The
+        // Retouch SECTION is gone (docs/30 Phase A — heal and clone are not implemented
+        // and the section held nothing but a paragraph saying so), but the field is not:
+        // a recipe from another build, or a sidecar written elsewhere, can carry spots.
+        // The dot still lights for them, because the alternative is a photograph whose
+        // recipe differs from its defaults with nothing on screen admitting it.
         if look.vignette != 0 || develop.heal != Heal() { out.insert(.effects) }
 
         if develop.mixer != Mixer() || !develop.pointColors.isEmpty || look.bw != nil {
