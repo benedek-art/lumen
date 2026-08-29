@@ -44,7 +44,28 @@ different parts of the machine.
 | Saturation | …… | …… | …… | …… |
 | Texture | …… | …… | …… | …… |
 
-**Why both numbers and not one.** Latency alone cannot tell two opposite problems
+**THE HUD NOW SPLITS THE FRAME IN HALF FOR YOU.** Under `draft` there is a new line:
+
+    draft    11.8 ms @2560
+    after    78.4 ms
+
+`draft` is the render. `after` is everything else in the gap before the next frame
+arrived — handing the finished picture to SwiftUI, its layout pass, the texture upload,
+compositing. It only appears while your hand is actually saturating the loop; a dash
+means you were not dragging hard enough for the number to mean anything.
+
+**These two want opposite fixes, which is why three rounds of this went in circles:**
+
+- **`draft` large, `after` small** → the render is the ceiling. The resolution ladder
+  handles this by itself; watch `@size` walk down.
+- **`draft` small, `after` large** → the render is fine and *displaying* it is not.
+  Nothing in this app has ever measured that path, and no amount of render optimisation
+  or resolution reduction touches it. This is the one that says "build the Metal-layer
+  viewport", which is a real piece of work I have deliberately not started on a guess.
+
+If you write down one pair of numbers from this whole document, make it that one.
+
+**Why the in/out pair too.** Latency alone cannot tell two opposite problems
 apart, and three rounds of this work have been argued without the distinction:
 
 - **`in` high (60–120), `out` low (under ~20), and `draft` also HIGH (say 40 ms+)** —

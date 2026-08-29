@@ -604,7 +604,15 @@ final class PhotoRenderModel: ObservableObject {
                 LatencyHUD.shared.noteDraft(
                     milliseconds: draftMs,
                     longEdge: Swift.max(draft.image.width, draft.image.height),
-                    requestedLongEdge: Swift.max(draftTarget, 64))
+                    requestedLongEdge: Swift.max(draftTarget, 64),
+                    // The same interval `costSample` folds into the ladder, reported
+                    // separately: the ladder needs one number to act on, a person needs
+                    // to know which half of the frame is large, because the two halves
+                    // have opposite fixes.
+                    afterRenderMilliseconds: DraftLadder.afterRenderMilliseconds(
+                        renderMilliseconds: draftMs,
+                        sincePreviousFrameMilliseconds: period,
+                        handWasWaiting: Task.isCancelled))
                 if FrameDelivery.shouldShow(frameFor: url,
                                             currentRequest: currentRequestURL,
                                             generation: draft.generation,

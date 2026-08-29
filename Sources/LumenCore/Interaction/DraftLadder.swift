@@ -105,6 +105,42 @@ public struct DraftLadder: Sendable, Equatable {
         return Swift.max(renderMilliseconds, period)
     }
 
+    /// EVERYTHING THE RENDER'S OWN TIMER CANNOT SEE, as a number rather than an
+    /// inference.
+    ///
+    /// `costSample` above folds the display path into the ladder's input so the ladder
+    /// stops being blind to it. This exposes the same quantity SEPARATELY, because the
+    /// ladder and a person want different things from it: the ladder needs one cost to
+    /// act on, and a person needs to know WHICH of the two halves is large, since they
+    /// have opposite fixes. A slow render wants fewer pixels — which the ladder already
+    /// does by itself. A cheap render whose frames still arrive slowly means the time is
+    /// going somewhere after `createCGImage`: the handoff to SwiftUI as a fresh
+    /// `Image(decorative:)`, the body pass, the texture upload, compositing — the path
+    /// a Metal-layer viewport would replace and a resolution ladder would not.
+    ///
+    /// Three rounds of this project have argued about which of those it is without ever
+    /// printing the difference, and `DragProbeTests` says in its own header that it
+    /// stops one step before the answer. This is that step, measured where it actually
+    /// happens.
+    ///
+    /// Nil unless the loop is saturated, for `costSample`'s reason: an idle gap between
+    /// two frames is the hand's, not the machine's, and subtracting a render from it
+    /// would report a hand's pause as a display cost.
+    public static func afterRenderMilliseconds(renderMilliseconds: Double,
+                                               sincePreviousFrameMilliseconds: Double?,
+                                               handWasWaiting: Bool) -> Double? {
+        guard handWasWaiting,
+              let period = sincePreviousFrameMilliseconds,
+              period.isFinite, period > 0,
+              period <= continuityCeilingMilliseconds,
+              renderMilliseconds.isFinite
+        else { return nil }
+        // Never negative: the period is measured landing-to-landing and the render is
+        // measured inside it, so a larger render than period means a clock or an
+        // ordering this function should report as "nothing after", not as a negative.
+        return Swift.max(0, period - renderMilliseconds)
+    }
+
     /// WHETHER A FRAME'S COST DESCRIBES THE STEADY STATE AT ITS SIZE.
     ///
     /// The ladder's lever is the decode scale. `PipelineRenderer.renderPreview` derives

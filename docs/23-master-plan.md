@@ -1055,6 +1055,39 @@ side-by-side exports. **Exit gate: owner prefers or ties Lumen on ≥4 of 5.**
       ±100 at step 1 over a track of about 150 pt — roughly 1.5 device pixels per
       distinct value. No hand can move slowly enough to see that, so the ticking was
       never the control; it was always frame delivery.
+- [x] **Round 4d — measured the CPU half, killed two suspects, and printed the number
+      that decides the last one.**
+      `PlanCostProbeTests` in a RELEASE build, which is the first time this project has
+      had that number: plan construction on the DRAFT path is **1.22 ms** (exposure),
+      **1.52** (whites), **0.96** (saturation), **1.01** (texture). Against a ~35 ms
+      frame that is 3–4%, and stale-while-bake is doing exactly its job — whites costs
+      1.52 ms drafting against 16.77 ms settling, an 11× gap.
+      *Suspect killed:* the tone gain cube. It is a 32³ = 32 768-sample cube whose value
+      depends only on `encoded.r` and is gray, applied to `logLuminance` — which is to
+      say a 512 KB three-dimensional texture, rebuilt and uploaded per frame, encoding a
+      ONE-dimensional function of 32 values, on exactly the six sliders a photographer
+      reaches for first. That is a genuine 1024× redundancy and it looked like the fixed
+      cost the ladder cannot touch. It is not: exposure (which re-keys the cube and
+      nothing else) costs 1.22 ms against texture's 1.01 ms, so the whole bake is about
+      **0.2 ms**. Restructuring it to a 1-D lookup would be mathematically exact — for a
+      gray input, trilinear along the diagonal IS linear interpolation — and would save
+      nothing worth the risk to the goldens and the parity lane. Recorded so it is not
+      rediscovered and "optimised" by someone reading the redundancy without the
+      measurement.
+      *Suspect killed:* the sliders' own quantization (see round 4c).
+      **What is left is the display path, and the HUD now prints it.**
+      `DraftLadder.afterRenderMilliseconds` is the interval between two delivered frames
+      MINUS the render's own wall time, while the loop is saturated — the CGImage
+      handoff, the body pass, the texture upload, compositing. `costSample` already
+      folded that quantity into the ladder's input; this reports it separately, because
+      the ladder needs one number to act on and a person needs to know which half is
+      large. `draft` large and `after` small is the render, which the ladder already
+      handles. `draft` small and `after` large is the Metal-plate case, which nothing in
+      this app has ever measured and which no resolution reduction touches.
+      `DragProbeTests` says in its own header that it stops one step before this; that
+      step is now taken, in the app, where it happens. Four tests, including that an
+      idle hand is not a display cost and that a render longer than its own interval
+      reports zero rather than negative time.
 - [ ] **Deliberately NOT done in round 2: anything else to the render or display path.**
       The display path above is the leading suspect and a `CALayer`-contents or
       Metal-layer plate is the obvious next move — and shipping it now, unverified,

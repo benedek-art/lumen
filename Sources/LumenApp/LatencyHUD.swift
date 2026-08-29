@@ -48,6 +48,17 @@ final class LatencyHUD: ObservableObject {
     /// say.
     @Published private(set) var draftShortfall: Int?
 
+    /// THE HALF OF A FRAME NOBODY HAS EVER PRINTED.
+    ///
+    /// `draftMs` is the render, measured around the await. This is the rest of the
+    /// interval between two delivered frames while the loop is saturated: the CGImage
+    /// handed to SwiftUI as a fresh `Image(decorative:)`, the body pass, the texture
+    /// upload, compositing. `DragProbeTests` says in its own header that it stops one
+    /// step before this, and the last three rounds have argued about whether it matters
+    /// without measuring it. Nil when the hand is not saturating the loop, because then
+    /// the gap is the hand's.
+    @Published private(set) var afterRenderMs: Double?
+
     /// THE PAIR THAT ENDS THE ARGUMENT.
     ///
     /// Latency alone cannot tell the two explanations for a stepping slider apart, and
@@ -84,10 +95,12 @@ final class LatencyHUD: ObservableObject {
     /// against the delivered extent it becomes evidence — a shortfall means the render
     /// path returned less than the ladder thinks it sized, which is a lead on any
     /// uncropped photograph.
-    func noteDraft(milliseconds: Double, longEdge: Int, requestedLongEdge: Int? = nil) {
+    func noteDraft(milliseconds: Double, longEdge: Int, requestedLongEdge: Int? = nil,
+                   afterRenderMilliseconds: Double? = nil) {
         guard enabled else { return }
         draftMs = milliseconds
         draftLongEdge = longEdge
+        afterRenderMs = afterRenderMilliseconds
         if let requestedLongEdge, requestedLongEdge > longEdge {
             draftShortfall = requestedLongEdge
         } else {
@@ -152,6 +165,11 @@ struct LatencyHUDView: View {
             Text(line("input→draft", hud.inputToDraftMs, nil))
             Text(line("draft      ", hud.draftMs, hud.draftLongEdge)
                     + (hud.draftShortfall.map { " (asked \($0))" } ?? ""))
+            // Sits directly under `draft` because the two are one frame split in half,
+            // and the split is the whole diagnosis: `draft` large wants fewer pixels,
+            // which the ladder already does by itself; `after` large wants a Metal
+            // plate, which nothing in this app has yet.
+            Text(line("after      ", hud.afterRenderMs, nil))
             Text(line("settle     ", hud.settleMs, hud.settleLongEdge))
             Text(cacheLine("tables     ", hits: tables.hits, bakes: tables.bakes,
                            stale: tables.staleServes))

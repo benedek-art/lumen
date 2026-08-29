@@ -281,6 +281,52 @@ final class DraftLadderTests: XCTestCase {
                            + "\(guarded.longEdge(requested: requested)) px")
     }
 
+    /// The number that decides between the two remaining explanations, and which this
+    /// project has argued about for three rounds without printing.
+    func testTheTimeAfterTheRenderIsTheIntervalLessTheRender() throws {
+        let after = try XCTUnwrap(
+            DraftLadder.afterRenderMilliseconds(renderMilliseconds: 12,
+                                                sincePreviousFrameMilliseconds: 95,
+                                                handWasWaiting: true))
+        XCTAssertEqual(
+            after, 83, accuracy: 1e-9,
+            "a 12 ms render arriving every 95 ms is 83 ms spent somewhere the render "
+                + "timer cannot see — that is the display path, and no resolution "
+                + "ladder touches it")
+    }
+
+    func testAnIdleHandIsNotADisplayCost() {
+        XCTAssertNil(
+            DraftLadder.afterRenderMilliseconds(renderMilliseconds: 12,
+                                                sincePreviousFrameMilliseconds: 400,
+                                                handWasWaiting: false),
+            "the loop was not saturated, so the gap belongs to the hand")
+        XCTAssertNil(
+            DraftLadder.afterRenderMilliseconds(renderMilliseconds: 12,
+                                                sincePreviousFrameMilliseconds: nil,
+                                                handWasWaiting: true),
+            "the first frame of a gesture continues nothing")
+        XCTAssertNil(
+            DraftLadder.afterRenderMilliseconds(
+                renderMilliseconds: 12,
+                sincePreviousFrameMilliseconds:
+                    DraftLadder.continuityCeilingMilliseconds + 1,
+                handWasWaiting: true),
+            "a gap longer than any gesture's frame period is a pause, not a cost")
+    }
+
+    func testARenderLongerThanItsOwnIntervalReportsNothingAfterRatherThanNegativeTime()
+    throws {
+        let after = try XCTUnwrap(
+            DraftLadder.afterRenderMilliseconds(renderMilliseconds: 40,
+                                                sincePreviousFrameMilliseconds: 30,
+                                                handWasWaiting: true))
+        XCTAssertEqual(
+            after, 0, accuracy: 1e-9,
+            "the period contains the render, so this is a clock or an ordering — and a "
+                + "negative display cost on a HUD is worse than a zero")
+    }
+
     /// The rule's own edges, stated separately from the scenario above.
     func testOnlyAFrameWhoseSizeMatchesThePreviousOneIsRepresentative() {
         XCTAssertFalse(DraftLadder.isRepresentative(renderedLongEdge: 2048,
