@@ -263,3 +263,96 @@ extension WorkspaceModificationTests {
         }
     }
 }
+
+// MARK: - The two per-photograph baselines, and the section fixture's blind spot
+
+extension WorkspaceModificationTests {
+
+    /// GRAIN LIGHTS `.effects` ON ITS OWN, and until this test nothing asked.
+    ///
+    /// The Effects section draws Vignette AND Grain, and `nonDefault` consulted only the
+    /// vignette — so the header said "nothing changed here" directly above a sub-header
+    /// saying "changed", and its Reset cleared the vignette and left the grain. That was
+    /// fixed; this is the test that stops it coming back.
+    ///
+    /// It needs its own fixture and that is the whole point. `everythingEdited()` sets
+    /// `look.vignette = -1.2`, which carries `.effects` in and out on its own, so the two
+    /// property tests below pass **whether or not** the grain clause exists. I checked:
+    /// deleting the clause leaves them green. A property test over every section is only
+    /// as strong as the one fixture it walks, and a section with two reasons to light
+    /// needs a case where each is the only reason.
+    func testGrainAloneLightsEffectsAndItsResetPutsTheStockBack() {
+        var recipe = Recipe()
+        recipe.look.vignette = 0
+        let stock = FilmStock.named("lumen/portra400")
+        recipe.look.filmLab = stock.map(FilmChain.defaultRecipe(for:))
+        let stockDefault = stock?.grainDefault ?? 0
+        recipe.look.filmLab?.grain = FilmGrain(size: 1.0, amount: stockDefault + 30)
+
+        XCTAssertTrue(WorkspaceSection.nonDefault(in: recipe).contains(.effects),
+                      "a grain edit is an edit to the section that draws grain")
+
+        WorkspaceSection.effects.reset(&recipe)
+        XCTAssertFalse(WorkspaceSection.nonDefault(in: recipe).contains(.effects),
+                       "and its Reset has to put the grain back with the vignette")
+        XCTAssertEqual(recipe.look.filmLab?.grain.amount ?? -1, stockDefault,
+                       accuracy: 1e-9,
+                       "back to the STOCK's own grain, not to zero — loading Portra "
+                       + "brings its grain with it and that is not an edit")
+    }
+
+    /// LOADING A STOCK AND TOUCHING NOTHING IS NOT AN EDIT, which is the other half.
+    ///
+    /// Constructed through `FilmChain.defaultRecipe(for:)` rather than `FilmLab(stock:)`,
+    /// and the distinction is one this test found. The memberwise initialiser defaults
+    /// `grain` to `FilmGrain()` — amount 0 — while `defaultRecipe` is what the app
+    /// actually calls when a stock is picked, and it carries `stock.grainDefault`. So a
+    /// bare `FilmLab(stock:)` is a recipe with the grain deliberately turned off, which
+    /// IS an edit, and asserting otherwise was the test being wrong rather than the rule.
+    func testAStocksOwnGrainDoesNotLightEffects() throws {
+        let stock = try XCTUnwrap(FilmStock.named("lumen/portra400"))
+        var recipe = Recipe()
+        recipe.look.filmLab = FilmChain.defaultRecipe(for: stock)
+        XCTAssertFalse(WorkspaceSection.nonDefault(in: recipe).contains(.effects))
+
+        // And turning that grain OFF is an edit, for the same reason.
+        recipe.look.filmLab?.grain.amount = 0
+        XCTAssertEqual(stock.grainDefault > 0, true,
+                       "this stock has to carry grain for the assertion below to mean "
+                       + "anything")
+        XCTAssertTrue(WorkspaceSection.nonDefault(in: recipe).contains(.effects))
+    }
+
+    /// A RENDERED FILE'S DISPLAY TRANSFORM IS NOT AN EDIT EITHER.
+    ///
+    /// `AppState.startingRecipe` gives a JPEG `preset: "Linear"` so the app does not lay
+    /// its own sigmoid on top of the camera's curve. `RenderParams()` is `"Neutral"`. So
+    /// comparing against the TYPE's default lit the Looks dot on every untouched rendered
+    /// file in the library — and the dot is what enables the header's Reset, which then
+    /// wrote "Neutral" and visibly crushed the picture while the dot went out.
+    ///
+    /// The `renderDefault` parameter exists for exactly the asymmetry `denoiseDefault`
+    /// exists for. This asserts it is honoured in both directions.
+    func testARenderedFilesOwnDisplayTransformIsNotAnEdit() {
+        var linear = RenderParams()
+        linear.preset = "Linear"
+
+        var recipe = Recipe()
+        recipe.look.render = linear
+
+        XCTAssertTrue(WorkspaceSection.nonDefault(in: recipe).contains(.looks),
+                      "against the type's default, Linear reads as an edit — which is "
+                      + "what the caller must correct for")
+        XCTAssertFalse(
+            WorkspaceSection.nonDefault(in: recipe, renderDefault: linear)
+                .contains(.looks),
+            "told the photograph's own starting transform, an untouched file is clean")
+
+        var neutral = recipe
+        neutral.look.render = RenderParams()
+        XCTAssertTrue(
+            WorkspaceSection.nonDefault(in: neutral, renderDefault: linear)
+                .contains(.looks),
+            "and a photographer who DID choose Neutral on a JPEG has made an edit")
+    }
+}
