@@ -100,7 +100,7 @@ final class KeyDispatcher {
         // silently, because the popover was covering the badge. A popover is a window of
         // its own on this platform, so "the key window is not the main window" is the
         // test, and it costs nothing when none is up.
-        if let key = NSApp.keyWindow, key !== NSApp.mainWindow, !key.isSheet {
+        if let window = NSApp.keyWindow, window !== NSApp.mainWindow, !window.isSheet {
             return false
         }
 

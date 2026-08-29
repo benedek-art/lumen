@@ -181,8 +181,10 @@ final class CropTool: ObservableObject {
         // ⌘Z recovered it, but nothing on screen said three photographs had been rewritten
         // by a key that means "cancel". Framing is a per-photograph gesture: the rectangle
         // is on ONE picture and so is the revert.
+        // `_, recipe` because naming `targets:` selects the photo-aware overload — the
+        // one-argument form has no such parameter. The photograph is already `photo`.
         state.updateRecipe(coalescingKey: "geometry.revert",
-                           targets: [photo]) { recipe in
+                           targets: [photo]) { _, recipe in
             recipe.develop.geometry.crop = baseline.crop
             recipe.develop.geometry.angle = baseline.angle
             recipe.develop.geometry.flipH = baseline.flipH

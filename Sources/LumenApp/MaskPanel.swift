@@ -1096,20 +1096,6 @@ struct MaskPanel: View {
                     range: r, defaultValue: 0, step: step, decimals: decimals, bipolar: bipolar)
     }
 
-    private func wheelsSlider(_ id: String, _ t: String,
-                              _ p: WritableKeyPath<GradingWheels, Double>,
-                              _ r: ClosedRange<Double>, _ d: Double,
-                              bipolar: Bool = false) -> some View {
-        LumenSlider(title: t,
-                    value: maskValue(id, "wheels." + t,
-                                     get: { $0.adjust.wheels?[keyPath: p] ?? d },
-                                     set: { m, v in
-                                         var w = m.adjust.wheels ?? GradingWheels()
-                                         w[keyPath: p] = Num.clamp(v, r.lowerBound, r.upperBound)
-                                         m.adjust.wheels = w
-                                     }),
-                    range: r, defaultValue: d, step: 1, decimals: 0, bipolar: bipolar)
-    }
 
     private func wheel(_ id: String, _ t: String, _ p: WritableKeyPath<GradingWheels, Wheel>,
                        _ key: String) -> some View {
