@@ -67,11 +67,40 @@ public struct DraftLadder: Sendable, Equatable {
 
     /// One frame over `stepDownOver` steps down: a hot draft is a dropped frame the
     /// hand feels NOW, and one sample is evidence enough at 3x the noise of a GPU
-    /// timing. Stepping UP waits for `stepUpAfter` consecutive frames under
-    /// `stepUpUnder` — headroom has to be a pattern before it is spent.
+    /// timing. Stepping UP waits for `stepUpAfter` consecutive frames that `stepUpFits`
+    /// accepts — headroom has to be a pattern before it is spent.
     public static let stepDownOver: Double = budgetMilliseconds * 1.3
-    public static let stepUpUnder: Double = budgetMilliseconds * 0.5
     public static let stepUpAfter: Int = 12
+
+    /// WOULD THE NEXT RUNG UP STILL FIT THE BUDGET, given what this frame cost?
+    ///
+    /// This replaced a flat `stepUpUnder` of half the budget, and the constant was
+    /// wrong for a reason no single number can fix: THE RUNGS ARE NOT EVENLY SPACED.
+    /// 2560 → 3072 is 1.44x the pixels and 3072 → 4096 is 1.78x, so a threshold safe
+    /// for the larger step needlessly refuses the smaller one, and one safe for the
+    /// smaller would overcommit on the larger. Measured on the owner's machine: a draft
+    /// at 2048 cost 8.5 ms against a 35 ms budget — four times the headroom it needed —
+    /// and the ladder stopped climbing at 3072 because 19 ms is over 17.5, while 4096
+    /// would have cost about 34 and fit. He saw that as a picture still slightly soft
+    /// under the hand at 217% zoom, where the draft was half the settle's linear size.
+    ///
+    /// So the question the step up actually asks is asked directly, per step. The
+    /// projection is `cost x (to/from)^2` — pure pixel proportionality — and it is
+    /// deliberately an OVERESTIMATE: measured per-rung costs are markedly sublinear
+    /// because a real frame carries a fixed overhead that does not shrink with the
+    /// picture (`DragProbeTests` sweeps show 576 → 1024 tripling the pixels for 1.4x the
+    /// cost). An upper bound that says "fits" is therefore an inequality rather than a
+    /// hope, which is the only kind of claim this ladder is allowed to spend a rung on.
+    ///
+    /// False at the top rung: there is nothing above it to fit.
+    public static func stepUpFits(renderMilliseconds ms: Double, at rung: Int) -> Bool {
+        guard ms.isFinite, ms > 0 else { return false }
+        guard rung > 0, rung < rungs.count else { return false }
+        let from = Double(rungs[rung]), to = Double(rungs[rung - 1])
+        guard from > 0 else { return false }
+        let pixelRatio = (to / from) * (to / from)
+        return ms * pixelRatio < budgetMilliseconds
+    }
 
     /// How many CONSECUTIVE frames must be hot before the ladder steps down on heat it
     /// found only in the delivery interval rather than in the render.
@@ -325,11 +354,10 @@ public struct DraftLadder: Sendable, Equatable {
         //
         // This asymmetry is the other half of the same defect. `ms` is
         // `max(render, frame period)`, so on any machine whose frame period is floored
-        // above `stepUpUnder` by something other than pixels, `ms` never falls under the
-        // threshold, the streak never accumulates, and the ladder cannot climb from the
-        // floor no matter how cheap its renders are. 28 delivered frames a second is a
-        // 35.7 ms period; `stepUpUnder` is 17.5. The ladder would have been permanently
-        // pinned by its own arrival rate.
+        // by something other than pixels, `ms` never falls low enough, the streak never
+        // accumulates, and the ladder cannot climb from the floor no matter how cheap
+        // its renders are. The ladder would have been permanently pinned by its own
+        // arrival rate.
         //
         // The render answers the question a step up actually asks — can this machine
         // afford more pixels — and `ms < budgetMilliseconds` is the guard that keeps the
@@ -342,7 +370,7 @@ public struct DraftLadder: Sendable, Equatable {
         // neutral would let a run of tiny frames sit inside a streak that a hot one
         // should have broken.
         guard renderedLongEdge == Self.rungs[rung],
-              render < Self.stepUpUnder,
+              Self.stepUpFits(renderMilliseconds: render, at: rung),
               ms < Self.budgetMilliseconds else {
             cheapStreak = 0
             return

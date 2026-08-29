@@ -1460,6 +1460,38 @@ side-by-side exports. **Exit gate: owner prefers or ties Lumen on ≥4 of 5.**
       and captioned them "one frame split in half". They routinely were not, and a whole
       round of diagnosis was built on `draft 10.8 @576` sitting next to `after 399`. The
       `after` line now carries the draft it was actually measured beside.
+- [x] **Round 5g — the climb stopped three rungs short because it asked one question
+      for every step.** Owner on the round-5 build: "I can still see slight blur, but
+      this is a whole lot better than it was before ... if we can remove it fully, that
+      would be great."
+      His HUD: `draft 8.5 ms @2048`, `after 0.0 (its draft 9.7)`, `49 fps` against
+      `55/s` input, `settle 312.7 ms @4096`, at **217% zoom**. The ladder had climbed
+      576 → 2048 and the stalls were gone. What was left is arithmetic: at 217% the
+      settle is 4096 and the draft 2048, so the picture under the hand was half the
+      settle's LINEAR size. Exactly one factor of two of softness, which is what
+      "slight blur" looks like.
+      And 8.5 ms against a 35 ms budget is four times the headroom. Projecting from his
+      own number: 2560 ≈ 13 ms, 3072 ≈ 19, 4096 ≈ 34. **His machine can afford the top
+      rung.** The flat `stepUpUnder` of half the budget (17.5 ms) refused the last two
+      steps.
+      THE CONSTANT COULD NOT HAVE BEEN RIGHT, because the rungs are not evenly spaced:
+      2560 → 3072 is 1.44x the pixels, 3072 → 4096 is 1.78x. A threshold safe for the
+      larger step needlessly refuses the smaller; one safe for the smaller overcommits
+      on the larger. So `stepUpFits(renderMilliseconds:at:)` asks the question the step
+      actually poses, per step: would `cost x (to/from)^2` still fit the budget?
+      Deliberately an OVERESTIMATE — measured per-rung costs are markedly sublinear,
+      since a frame carries fixed overhead that does not shrink with the picture
+      (`DragProbeTests`: 576 → 1024 triples the pixels for 1.4x the cost) — so a "fits"
+      is an inequality rather than a hope, which is the only claim worth spending a rung
+      on. `stepUpUnder` is gone; nothing else referenced it.
+      Five tests. The headline one replays his measurement — cost scaling with pixels
+      from 8.5 ms at 2048, the projection's own law rather than a flattering one — and
+      asserts the ladder reaches 4096 in exactly three gestures. Its sibling gives a
+      machine two and a half times slower and asserts it is NOT sent to a rung it cannot
+      afford, and that wherever it settles is itself inside the budget.
+      Still visible in that HUD and not addressed: `settle 312.7 ms @4096`. That is the
+      pause between letting go and the picture sharpening, and it is nine times the drag
+      budget.
 - [x] **Round 5f — 4 MB of a constant table copied to the GPU on every frame.**
       `ColorCube.filter` built a fresh `Data` from its LUT on every call.
       `DitherStepCube` is 64³ in RGBA floats — 4 MB — and the dither is not

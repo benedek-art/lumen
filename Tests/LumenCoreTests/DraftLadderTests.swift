@@ -242,7 +242,9 @@ final class DraftLadderTests: XCTestCase {
     func testAFreshDecodeAfterAStepDownDoesNotWalkTheLadderToTheFloor() {
         let requested = 4096
         let expensiveFirstFrameAtANewSize = DraftLadder.stepDownOver * 3
-        let comfortableSteadyState = DraftLadder.stepUpUnder
+        // Cheap enough that any rung's step up fits — the point of this test is the
+        // decode cascade, not the threshold.
+        let comfortableSteadyState = DraftLadder.budgetMilliseconds * 0.2
 
         // Believing every frame: the ladder never sees a cheap one, because it changes
         // size before any size gets a second frame.
@@ -614,10 +616,10 @@ final class DraftLadderTests: XCTestCase {
     /// THE OTHER HALF OF THE FIELD DEFECT.
     ///
     /// The streak used to be judged on `costSample` — `max(render, frame period)`. Any
-    /// machine whose frame period is floored above `stepUpUnder` by something other than
-    /// pixels could therefore never accumulate a streak and never climb, however cheap
-    /// its renders were. An 11 ms render arriving every 20 ms is a loop with obvious
-    /// headroom, and the old rule read it as permanently ineligible.
+    /// machine whose frame period is floored by something other than pixels could
+    /// therefore never accumulate a streak and never climb, however cheap its renders
+    /// were. An 11 ms render arriving every 20 ms is a loop with obvious headroom, and
+    /// the old rule read it as permanently ineligible.
     func testACheapRenderClimbsEvenWhenDeliveryIsSlowerThanTheStepUpThreshold() {
         var ladder = DraftLadder()
         let requested = 4096
@@ -630,8 +632,9 @@ final class DraftLadderTests: XCTestCase {
         }
         let floor = ladder.rung
         let period = 20.0
-        XCTAssertGreaterThan(period, DraftLadder.stepUpUnder,
-                             "the test is only meaningful if the old rule would refuse")
+        XCTAssertFalse(DraftLadder.stepUpFits(renderMilliseconds: period, at: 8),
+                       "the test is only meaningful if judging the climb on the "
+                           + "delivered period would refuse this step")
         for _ in 0..<DraftLadder.stepUpAfter {
             ladder.record(draftMilliseconds: period, renderMilliseconds: 11,
                           renderedLongEdge: ladder.longEdge(requested: requested),
@@ -745,5 +748,98 @@ final class DraftLadderTests: XCTestCase {
                       renderedLongEdge: ladder.longEdge(requested: 4096),
                       requested: 4096, allowStepUp: false)
         XCTAssertEqual(ladder.rung, 0, "and it costs no sharpness")
+    }
+
+    // MARK: - The climb asks about the step it is actually taking
+
+    /// THE OWNER'S MACHINE, FROM HIS OWN HUD, REACHES THE TOP RUNG.
+    ///
+    /// Measured: `draft 8.5 ms @2048` at 217% zoom against a `settle @4096` — four
+    /// times the headroom the budget asks for, and a picture still half the settle's
+    /// linear size under the hand. The flat 17.5 ms threshold stopped the climb at 3072
+    /// (about 19 ms projected) even though 4096 projects to about 34 against a budget
+    /// of 35.
+    func testTheOwnersHeadroomReachesTheTopRung() {
+        var ladder = DraftLadder()
+        let requested = 4096
+        // Put it at 2048, where he measured.
+        while DraftLadder.rungs[ladder.rung] > 2048 {
+            ladder.record(draftMilliseconds: 200, renderMilliseconds: 200,
+                          renderedLongEdge: ladder.longEdge(requested: requested),
+                          requested: requested, allowStepUp: false)
+        }
+        XCTAssertEqual(DraftLadder.rungs[ladder.rung], 2048)
+
+        // Cost scales with pixels from his 8.5 ms at 2048 — the same law the projection
+        // assumes, so this is the honest worst case rather than a flattering one.
+        var gestures = 0
+        while ladder.rung > 0, gestures < 20 {
+            let edge = Double(DraftLadder.rungs[ladder.rung])
+            let cost = 8.5 * (edge / 2048) * (edge / 2048)
+            for _ in 0..<DraftLadder.stepUpAfter {
+                ladder.record(draftMilliseconds: cost, renderMilliseconds: cost,
+                              renderedLongEdge: ladder.longEdge(requested: requested),
+                              requested: requested, allowStepUp: false)
+            }
+            ladder.gestureEnded()
+            gestures += 1
+        }
+        XCTAssertEqual(DraftLadder.rungs[ladder.rung], 4096,
+                       "a machine that can render the top rung inside the budget must "
+                           + "be allowed to reach it")
+        XCTAssertEqual(gestures, 3, "one rung per gesture, three rungs to climb")
+    }
+
+    /// And it stops where the budget stops it. The same machine two and a half times
+    /// slower cannot afford 4096, and the projection must refuse the step rather than
+    /// take it and step back down.
+    func testAMachineThatCannotAffordTheTopRungIsNotSentThere() {
+        var ladder = DraftLadder()
+        let requested = 4096
+        while ladder.rung < DraftLadder.rungs.count - 1 {
+            ladder.record(draftMilliseconds: 500, renderMilliseconds: 500,
+                          renderedLongEdge: ladder.longEdge(requested: requested),
+                          requested: requested, allowStepUp: false)
+        }
+        var gestures = 0
+        var previous = -1
+        while ladder.rung != previous, gestures < 30 {
+            previous = ladder.rung
+            let edge = Double(DraftLadder.rungs[ladder.rung])
+            let cost = 21.0 * (edge / 2048) * (edge / 2048)
+            for _ in 0..<DraftLadder.stepUpAfter {
+                ladder.record(draftMilliseconds: cost, renderMilliseconds: cost,
+                              renderedLongEdge: ladder.longEdge(requested: requested),
+                              requested: requested, allowStepUp: false)
+            }
+            ladder.gestureEnded()
+            gestures += 1
+        }
+        XCTAssertGreaterThan(ladder.rung, 0,
+                             "21 ms at 2048 is 84 at 4096 — far outside the budget, and "
+                                 + "the ladder must not walk into it")
+        let held = Double(DraftLadder.rungs[ladder.rung])
+        XCTAssertLessThan(21.0 * (held / 2048) * (held / 2048),
+                          DraftLadder.budgetMilliseconds,
+                          "wherever it settled must itself be inside the budget")
+    }
+
+    /// The rungs are not evenly spaced, which is why one constant could not serve them:
+    /// 2560 -> 3072 is 1.44x the pixels and 3072 -> 4096 is 1.78x. A cost that can
+    /// afford the smaller step cannot necessarily afford the larger one, and the old
+    /// flat threshold had to be wrong for one of them.
+    func testTheSameCostAnswersDifferentlyForDifferentlySizedSteps() {
+        let cost = 20.0
+        let smallStep = DraftLadder.rungs.firstIndex(of: 2560)!
+        let largeStep = DraftLadder.rungs.firstIndex(of: 3072)!
+        XCTAssertTrue(DraftLadder.stepUpFits(renderMilliseconds: cost, at: smallStep),
+                      "20 ms at 2560 projects to about 29 at 3072 — inside 35")
+        XCTAssertFalse(DraftLadder.stepUpFits(renderMilliseconds: cost, at: largeStep),
+                       "the same 20 ms at 3072 projects to about 36 at 4096 — outside")
+    }
+
+    /// There is nothing above the top rung to fit into.
+    func testTheTopRungHasNoStepToFit() {
+        XCTAssertFalse(DraftLadder.stepUpFits(renderMilliseconds: 0.1, at: 0))
     }
 }

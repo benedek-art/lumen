@@ -47,7 +47,11 @@ lost except the two panel shortcuts.
 
 ## 2. The two live collisions
 
-### 2.1 Workspaces want `1`–`4`, and those are ratings — ⚑ **needs your answer**
+### 2.1 Workspaces want `1`–`4`, and those are ratings — ✅ **ANSWERED: option 1**
+
+**Owner's decision: `⌘1`–`⌘4` for workspaces; ratings keep the bare digits.** Culling
+stays Lightroom-compatible, and the workspace switch pays one modifier. Build against
+this; `KeyGrammarTests` gets the four new pairs and no existing pair moves.
 
 This is the only genuinely hard one, and it is hard because both claimants are right.
 `1`–`5` for stars is LR-compatible and D35 promises exactly that compatibility; workspace
@@ -65,7 +69,12 @@ Three ways out, in the order I would rank them:
    is also the one option that breaks the single most-pressed keys in a culling app, and
    D35's LR-compatibility promise with them. I would not.
 
-### 2.2 ⌘K is taken — ◆
+### 2.2 ⌘K is taken — ✅ **ANSWERED: the palette takes it**
+
+**Owner's decision: `⌘K` is the control palette; "Keyword the selection" moves to
+`⌘⇧K`.** The sidebar control's label and `KeyGrammar` entry both move with it — and the
+label is the part that is easy to forget, since a caption promising a key that no longer
+works is exactly the FAKE class docs/23's M5 sweep exists to catch.
 
 ⌘K is "Keyword the selection" (sidebar, visible control, in `KeyGrammar`). The ⌘K palette
 is a near-universal convention now and worth having under that key.
