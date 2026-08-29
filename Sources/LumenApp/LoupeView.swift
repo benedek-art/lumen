@@ -922,7 +922,7 @@ struct LoupeView: View {
             .task(id: ViewerRenderKey.current(url: photo.id, recipe: recipe,
                                               longEdge: longEdge, state: state,
                                               showingUncropped: viewport.showCrop
-                                                  && panel.layout.workspace == .develop)) {
+                                                  && panel.layout.workspace == .crop)) {
                 await renderCurrent(longEdge: longEdge)
             }
             .task(id: BeforeKey(url: photo.id, recipe: beforeRecipe,
@@ -1015,7 +1015,7 @@ struct LoupeView: View {
                          // WITHOUT its crop, so the rectangle being dragged is drawn
                          // against the frame it is expressed in.
                          showingUncropped: viewport.showCrop
-                             && panel.layout.workspace == .develop,
+                             && panel.layout.workspace == .crop,
                          // The proof is what the photographer is looking THROUGH; the
                          // before rendition below deliberately does not get it, because
                          // a before/after of "proofed vs not" is not the comparison the
@@ -1163,7 +1163,7 @@ struct LoupeView: View {
             // make the rectangle vanish when the photographer folds the accordion to see
             // more of the picture — which is exactly when they want it. The workspace is
             // the place; `showCrop` is the arming, and `R` sets both.
-            if viewport.showCrop && panel.layout.workspace == .develop {
+            if viewport.showCrop && panel.layout.workspace == .crop {
                 CropOverlayView(crop: cropBinding,
                                 lockedAspect: viewport.cropAspectLock,
                                 frameAspect: cropFrameAspect)

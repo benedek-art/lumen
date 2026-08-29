@@ -48,14 +48,19 @@ final class WorkspaceTests: XCTestCase {
 
     func testTheSectionCountsAreTheOnesDocs28Specifies() {
         XCTAssertEqual(Workspace.cull.sections.count, 0)
-        XCTAssertEqual(Workspace.develop.sections.count, 6)
+        XCTAssertEqual(Workspace.develop.sections.count, 5)
+        // Crop holds one SECTION — Lens. The frame itself is not a section: it is drawn
+        // on the photograph, and a workspace whose main tool lives on the image is
+        // exactly why Crop stopped being a section of Develop.
+        XCTAssertEqual(Workspace.crop.sections.count, 1)
         XCTAssertEqual(Workspace.grade.sections.count, 5)
         XCTAssertEqual(Workspace.deliver.sections.count, 2)
     }
 
     func testEachWorkspaceHoldsTheSectionsDocs28Names() {
         XCTAssertEqual(Workspace.develop.sections,
-                       [.whiteBalance, .tone, .curve, .presence, .detail, .optics])
+                       [.whiteBalance, .tone, .curve, .presence, .detail])
+        XCTAssertEqual(Workspace.crop.sections, [.optics])
         XCTAssertEqual(Workspace.grade.sections,
                        [.looks, .color, .grading, .filmLab, .effects])
         XCTAssertEqual(Workspace.deliver.sections, [.softProof, .exportRecipes])
@@ -219,10 +224,10 @@ final class WorkspaceTests: XCTestCase {
         // would mean clearing the expansion of a section the Simple register hides, so
         // that a look at the full stack costs the user their arrangement.
         var layout = WorkspaceLayout(workspace: .develop, register: .simple,
-                                     expanded: [.tone, .curve, .optics])
+                                     expanded: [.tone, .curve, .detail])
         let before = layout.expandedSections
         layout.toggleRegister()
-        XCTAssertEqual(layout.expandedSections, [.tone, .curve, .optics])
+        XCTAssertEqual(layout.expandedSections, [.tone, .curve, .detail])
         layout.toggleRegister()
         XCTAssertEqual(layout.expandedSections, before)
         XCTAssertEqual(before, [.tone])
@@ -232,9 +237,13 @@ final class WorkspaceTests: XCTestCase {
 
     func testAHiddenSectionCarryingAnEditIsCounted() {
         let layout = WorkspaceLayout(workspace: .develop, register: .simple)
-        XCTAssertEqual(layout.hiddenActiveCount(nonDefault: [.curve, .detail, .optics]), 3)
+        // Two, not three: `.optics` moved to Crop and joined the Simple register, so
+        // Develop's only Simple-hidden sections are Curve and Detail. A section of
+        // another workspace can never be counted here — `hiddenSections(in:)` is
+        // workspace-scoped.
+        XCTAssertEqual(layout.hiddenActiveCount(nonDefault: [.curve, .detail, .optics]), 2)
         XCTAssertEqual(layout.hiddenActiveIndicator(nonDefault: [.curve, .detail, .optics]),
-                       "3 hidden sections active")
+                       "2 hidden sections active")
     }
 
     func testASectionOnScreenIsNeverCountedAsHidden() {
@@ -300,14 +309,16 @@ final class WorkspaceTests: XCTestCase {
         let layout = WorkspaceLayout(workspace: .develop, register: .simple)
         XCTAssertEqual(layout.hiddenActiveIndicator(nonDefault: [.curve]),
                        "1 hidden section active")
-        XCTAssertEqual(layout.hiddenActiveIndicator(nonDefault: [.curve, .optics]),
+        XCTAssertEqual(layout.hiddenActiveIndicator(nonDefault: [.curve, .detail]),
                        "2 hidden sections active")
     }
 
     func testTheIndicatorListsItsSectionsInCanonicalOrder() {
         let layout = WorkspaceLayout(workspace: .develop, register: .simple)
+        // `.optics` is deliberately in the input and deliberately absent from the
+        // output: it belongs to Crop now, and this indicator is workspace-scoped.
         XCTAssertEqual(layout.hiddenActiveSections(nonDefault: [.optics, .curve, .detail]),
-                       [.curve, .detail, .optics])
+                       [.curve, .detail])
     }
 
     // MARK: Solo
@@ -360,7 +371,7 @@ final class WorkspaceTests: XCTestCase {
     }
 
     func testASoloedSectionOpensAgainOnTheThirdClick() {
-        var expanded: Set<WorkspaceSection> = [.curve, .optics]
+        var expanded: Set<WorkspaceSection> = [.curve, .detail]
         expanded = SectionExpansion.afterClick(on: .tone, expanded: expanded,
                                                keepingOthersOpen: false)
         XCTAssertEqual(expanded, [.tone])
@@ -556,7 +567,7 @@ final class WorkspaceTests: XCTestCase {
                            "docs/28 §5.1's \(name) row and this model list different "
                                + "sections, or list them in a different order")
         }
-        XCTAssertEqual(rowsRead, 4,
+        XCTAssertEqual(rowsRead, 5,
                        "the §5.1 table was reformatted out of this test's reach, which "
                            + "means the model is no longer checked against it")
     }

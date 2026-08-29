@@ -193,14 +193,19 @@ private struct LumenCommands: Commands {
                         PanelLayout.shared.select(.develop); state.showLoupe()
                     }
                     .keyboardShortcut("2", modifiers: [.command])
+                    Button("Crop") {
+                        PanelLayout.shared.select(.crop); state.showLoupe()
+                        LoupeViewport.shared.showCrop = true
+                    }
+                    .keyboardShortcut("3", modifiers: [.command])
                     Button("Grade") {
                         PanelLayout.shared.select(.grade); state.showLoupe()
                     }
-                    .keyboardShortcut("3", modifiers: [.command])
+                    .keyboardShortcut("4", modifiers: [.command])
                     Button("Deliver") {
                         PanelLayout.shared.select(.deliver); state.showLoupe()
                     }
-                    .keyboardShortcut("4", modifiers: [.command])
+                    .keyboardShortcut("5", modifiers: [.command])
                 }
                 Group {
                     Divider()

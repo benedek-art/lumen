@@ -435,9 +435,10 @@ specifies**, each holding a short accordion stack in the canonical order of docs
 | Workspace | Key | Contains | Sections |
 |---|---|---|---|
 | **Cull** | `1` | filmstrip/grid, badges, filter popover, no develop column | 0 |
-| **Develop** | `2` | White Balance · Tone (Zones inside) · Curve · Presence · Detail (Denoise inside) · Optics | 6 |
-| **Grade** | `3` | Looks · Colour (Mixer, Point Colour, B&W) · Grading (wheels, printer lights, primaries) · Film Lab · Effects | 5 |
-| **Deliver** | `4` | Soft proof · Export recipes | 2 |
+| **Develop** | `2` | White Balance · Tone (Zones inside) · Curve · Presence · Detail (Denoise inside) | 5 |
+| **Crop** | `3` | Lens | 1 |
+| **Grade** | `4` | Looks · Colour (Mixer, Point Colour, B&W) · Grading (wheels, printer lights, primaries) · Film Lab · Effects | 5 |
+| **Deliver** | `5` | Soft proof · Export recipes | 2 |
 
 **Masks leaves the tab strip entirely** and becomes a docked panel toggled by `M`,
 available in *any* workspace — which is what docs/12:108 already specifies ("floating/

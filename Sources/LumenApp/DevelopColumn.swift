@@ -89,6 +89,7 @@ extension Workspace {
         switch self {
         case .cull: return "Cull"
         case .develop: return "Develop"
+        case .crop: return "Crop"
         case .grade: return "Grade"
         case .deliver: return "Deliver"
         }

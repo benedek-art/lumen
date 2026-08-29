@@ -55,6 +55,19 @@ public enum Workspace: String, CaseIterable, Hashable, Sendable {
     /// The normalising half of D4's Develop/Look split.
     case develop
 
+    /// GEOMETRY IS ITS OWN JOB, and it is the one job in this app done entirely on the
+    /// photograph rather than in the column.
+    ///
+    /// It was a section of Develop, which was wrong in a way the tool made obvious: the
+    /// crop rectangle is gated on the WORKSPACE (fold the accordion to see more of the
+    /// picture and the rectangle must stay), so Optics was already behaving like a mode
+    /// while being filed as a section. The owner named the same thing from the other end
+    /// — "I'd just like to have cull, develop, crop, grade, and deliver."
+    ///
+    /// Between Develop and Grade because that is the order of the work: normalise the
+    /// frame, choose what is in it, then interpret it.
+    case crop
+
     /// The interpreting half. Two workspaces rather than two tabs among eight is what
     /// makes that split spatial, which is the whole argument of docs/28 §5.1.
     case grade
@@ -153,8 +166,10 @@ public enum WorkspaceSection: String, CaseIterable, Hashable, Sendable {
     /// workspaces or in none, and a new case cannot compile without answering this.
     public var workspace: Workspace {
         switch self {
-        case .whiteBalance, .tone, .curve, .presence, .detail, .optics:
+        case .whiteBalance, .tone, .curve, .presence, .detail:
             return .develop
+        case .optics:
+            return .crop
         case .looks, .color, .grading, .filmLab, .effects:
             return .grade
         case .softProof, .exportRecipes:
@@ -170,7 +185,7 @@ public enum WorkspaceSection: String, CaseIterable, Hashable, Sendable {
         case .curve: return "Curve"
         case .presence: return "Presence"
         case .detail: return "Detail"
-        case .optics: return "Optics"
+        case .optics: return "Lens"
         case .looks: return "Looks"
         case .color: return "Colour"
         case .grading: return "Grading"
@@ -193,9 +208,9 @@ public enum WorkspaceSection: String, CaseIterable, Hashable, Sendable {
     /// register is not what empties it.
     public var isInSimpleRegister: Bool {
         switch self {
-        case .whiteBalance, .tone, .presence, .looks, .color, .exportRecipes:
+        case .whiteBalance, .tone, .presence, .looks, .color, .exportRecipes, .optics:
             return true
-        case .curve, .detail, .optics, .grading, .filmLab, .effects, .softProof:
+        case .curve, .detail, .grading, .filmLab, .effects, .softProof:
             return false
         }
     }
