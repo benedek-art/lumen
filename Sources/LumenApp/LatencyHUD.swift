@@ -122,7 +122,19 @@ final class LatencyHUD: ObservableObject {
         guard enabled else { return }
         draftMs = milliseconds
         draftLongEdge = longEdge
-        afterRenderMs = afterRenderMilliseconds
+        // KEPT, not overwritten with nil — otherwise this line can never be read.
+        //
+        // `afterRenderMilliseconds` is nil unless the loop was saturated when the frame
+        // landed, and the LAST frame of every gesture is by definition the one with
+        // nothing queued behind it. Assigning it unconditionally meant the final frame
+        // of every drag wiped the reading, so the number was only ever on screen while
+        // the hand was moving — which is exactly when nobody can read a HUD. All five of
+        // the owner's screenshots show a dash here, and that is why.
+        //
+        // So the last MEASURED value stays up. The rates above go to "—" when the drag
+        // stops, which is what tells a reader this number belongs to the gesture that
+        // just ended rather than to right now.
+        if let afterRenderMilliseconds { afterRenderMs = afterRenderMilliseconds }
         if let requestedLongEdge, requestedLongEdge > longEdge {
             draftShortfall = requestedLongEdge
         } else {
