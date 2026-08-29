@@ -1355,6 +1355,52 @@ side-by-side exports. **Exit gate: owner prefers or ties Lumen on ≥4 of 5.**
       them back, because a clamp there would fail NOTHING downstream — the goldens use a
       stub source, and the parity tests would compare two renderers reading the same
       clamped input. Every photograph would just quietly lose its highlights.
+- [x] **Round 5d — the ladder's own instrument was aiming it at a target it could not
+      hit, and it was my regression.** Owner, on the current build: "the numbers work
+      fine with the drag ... it's just when I'm holding it down, the image is actually so
+      horrible ... it looks like the worst version of a photo ever", with two screenshots
+      showing a drag frame and a settle frame side by side.
+      His HUD said the rest. `draft 10.8-12.0 ms @576` — the ladder pinned at its
+      ABSOLUTE FLOOR while costing a third of the 35 ms budget. Three times the headroom
+      it needed, sitting at the bottom. And `after` — the delivery overhead the render's
+      own timer cannot see — read 0.1 ms or 0.00 ms on the large majority of frames and
+      spiked to 285, 378 and 399 ms on scattered ones.
+      Two defects, both mine, both introduced in round 5b with `costSample`.
+      1. **The descent was acting on heat it had no lever against.** `record` was fed
+         `costSample` = `max(render, frame period)`, and read every one of those 285-399
+         ms outliers as one sample eight times over `stepDownOver`. Each dropped a rung,
+         so the ladder walked to the floor inside a single drag and stayed there for the
+         session. But a 399 ms interval around an 11 ms render at 576 px — 1.3 MB of
+         image — is not an upload cost, and there is NO smaller draft that would have
+         avoided it. The ladder was spending its one lever on a disturbance the lever
+         has no authority over, and paying for it in sharpness.
+      2. **The climb could not be reached from where the descent had put it.** The
+         cheap-frame streak was ALSO judged on `costSample`, so on any machine whose
+         frame period is floored above `stepUpUnder` (17.5 ms) by something other than
+         pixels, the streak can never accumulate however cheap the renders are. 28
+         delivered frames a second is a 35.7 ms period. The ladder was capable of being
+         permanently pinned by its own arrival rate.
+      Down fast, up never — which is exactly the picture the owner described.
+      The fix splits the evidence, because the two directions ask different questions.
+      The DESCENT is judged on what the hand felt and the CLIMB on what the render cost,
+      since the render is the only part of the interval resolution can change. A hot
+      render still steps down on one sample — pixels caused it, fewer will fix it. Heat
+      found only in the delivery interval must now REPEAT (`stepDownRunOnDelivery`, 2)
+      before it counts: sustained, it is a real cost fewer pixels can relieve; once, it
+      is a stall, and the answer to a stall is to find the stall. The climb requires a
+      cheap RENDER at the rung and additionally `cost < budgetMilliseconds`, which leaves
+      a dead band between the budget and `stepDownOver` where the ladder holds still —
+      the right move when neither direction would help, and the hysteresis that stops the
+      new climb rule from oscillating against the new descent rule.
+      `recordSettle` is unchanged and was not the bug; its `ms < budget` guard is sound
+      in one direction only, and the owner's 87.5 ms settle at 2560 genuinely proves
+      nothing about a 35 ms draft. Its header now says so, because it had been written
+      as a general fast path and it is a strong-machine one.
+      Eight tests. The headline one replays the owner's trace — six bursts of twelve
+      11 ms frames with a 285/378/399 ms stall between them — and asserts the ladder is
+      still at rung 0. Under the old rule that trace reached the floor.
+      Still open: the stall itself. The ladder no longer dives on it, but a 399 ms hitch
+      is a 399 ms hitch and the hand feels it. Under investigation separately.
 - [ ] **Deliberately NOT done in round 2: anything else to the render or display path.**
       The display path above is the leading suspect and a `CALayer`-contents or
       Metal-layer plate is the obvious next move — and shipping it now, unverified,

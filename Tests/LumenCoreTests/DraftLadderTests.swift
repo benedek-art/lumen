@@ -505,7 +505,8 @@ final class DraftLadderTests: XCTestCase {
             let sample = DraftLadder.costSample(renderMilliseconds: 15,
                                                 sincePreviousFrameMilliseconds: 90,
                                                 handWasWaiting: true)
-            ladder.record(draftMilliseconds: sample, renderedLongEdge: rendered,
+            ladder.record(draftMilliseconds: sample, renderMilliseconds: 15,
+                          renderedLongEdge: rendered,
                           requested: requested, allowStepUp: false)
         }
         XCTAssertLessThan(ladder.longEdge(requested: requested), requested,
@@ -526,5 +527,170 @@ final class DraftLadderTests: XCTestCase {
         XCTAssertEqual(ladder.rung, afterHeat,
                        "a 320 px frame being cheap is not evidence that the rung is "
                            + "affordable")
+    }
+
+    // MARK: - Heat the ladder has no lever against
+
+    /// THE FIELD DEFECT, as one test.
+    ///
+    /// Measured on the owner's machine during a slider drag: the draft render cost
+    /// 11 ms, the delivery overhead read 0.1 ms on the large majority of frames, and
+    /// spiked to 285/378/399 ms on scattered ones. Every spike was one sample eight
+    /// times over `stepDownOver`, so every spike dropped a rung; the ladder reached its
+    /// 576 floor inside one drag and stayed there for the session, leaving the picture
+    /// soft under the hand at three times the headroom it needed.
+    ///
+    /// A 399 ms interval around an 11 ms render at 576 px is not a cost fewer pixels can
+    /// relieve, so the ladder must not spend rungs on it.
+    func testScatteredDeliveryStallsDoNotWalkTheLadderToTheFloor() {
+        var ladder = DraftLadder()
+        let requested = 4096
+        // Twelve cheap frames, then a stall, twelve more, another stall — six times.
+        for burst in 0..<6 {
+            for _ in 0..<12 {
+                let rendered = ladder.longEdge(requested: requested)
+                ladder.record(draftMilliseconds: 11.1, renderMilliseconds: 11,
+                              renderedLongEdge: rendered, requested: requested,
+                              allowStepUp: false)
+            }
+            let rendered = ladder.longEdge(requested: requested)
+            ladder.record(draftMilliseconds: [285, 378, 399][burst % 3],
+                          renderMilliseconds: 11,
+                          renderedLongEdge: rendered, requested: requested,
+                          allowStepUp: false)
+        }
+        XCTAssertEqual(ladder.rung, 0,
+                       "six isolated stalls around an 11 ms render are six stalls, not "
+                           + "six rungs' worth of evidence that the machine is slow")
+    }
+
+    /// The other side of the same rule: delivery heat that REPEATS is a real cost, and
+    /// fewer pixels is the only lever available for it.
+    func testTwoConsecutiveHotDeliveriesDoStepDown() {
+        var ladder = DraftLadder()
+        let requested = 4096
+        for _ in 0..<DraftLadder.stepDownRunOnDelivery {
+            ladder.record(draftMilliseconds: 90, renderMilliseconds: 11,
+                          renderedLongEdge: ladder.longEdge(requested: requested),
+                          requested: requested, allowStepUp: false)
+        }
+        XCTAssertGreaterThan(ladder.rung, 0,
+                            "sustained slow delivery is an expense, not an outlier")
+    }
+
+    /// Consecutive means consecutive. A comfortable frame between two stalls is the
+    /// evidence that they were stalls.
+    func testACoolFrameBetweenTwoStallsBreaksTheRun() {
+        var ladder = DraftLadder()
+        let requested = 4096
+        let rendered = ladder.longEdge(requested: requested)
+        ladder.record(draftMilliseconds: 399, renderMilliseconds: 11,
+                      renderedLongEdge: rendered, requested: requested,
+                      allowStepUp: false)
+        ladder.record(draftMilliseconds: 11.1, renderMilliseconds: 11,
+                      renderedLongEdge: rendered, requested: requested,
+                      allowStepUp: false)
+        ladder.record(draftMilliseconds: 399, renderMilliseconds: 11,
+                      renderedLongEdge: rendered, requested: requested,
+                      allowStepUp: false)
+        XCTAssertEqual(ladder.rung, 0,
+                       "two stalls separated by a good frame are two stalls")
+    }
+
+    /// A hot RENDER needs no corroboration: pixels caused it and fewer will fix it.
+    /// This is the one-sample descent the ladder has always promised, and the delivery
+    /// rule must not have slowed it down.
+    func testAHotRenderStillStepsDownOnItsFirstFrame() {
+        var ladder = DraftLadder()
+        ladder.record(draftMilliseconds: DraftLadder.stepDownOver + 5,
+                      renderMilliseconds: DraftLadder.stepDownOver + 5,
+                      renderedLongEdge: DraftLadder.rungs[0], requested: 4096,
+                      allowStepUp: false)
+        XCTAssertEqual(ladder.rung, 1, "a hot render is a dropped frame felt now")
+    }
+
+    // MARK: - Climbing on what the render costs
+
+    /// THE OTHER HALF OF THE FIELD DEFECT.
+    ///
+    /// The streak used to be judged on `costSample` — `max(render, frame period)`. Any
+    /// machine whose frame period is floored above `stepUpUnder` by something other than
+    /// pixels could therefore never accumulate a streak and never climb, however cheap
+    /// its renders were. An 11 ms render arriving every 20 ms is a loop with obvious
+    /// headroom, and the old rule read it as permanently ineligible.
+    func testACheapRenderClimbsEvenWhenDeliveryIsSlowerThanTheStepUpThreshold() {
+        var ladder = DraftLadder()
+        let requested = 4096
+        // Put it on the floor first, so there is somewhere to climb from.
+        while ladder.rung < DraftLadder.rungs.count - 1 {
+            ladder.record(draftMilliseconds: 200,
+                          renderMilliseconds: 200,
+                          renderedLongEdge: ladder.longEdge(requested: requested),
+                          requested: requested, allowStepUp: false)
+        }
+        let floor = ladder.rung
+        let period = 20.0
+        XCTAssertGreaterThan(period, DraftLadder.stepUpUnder,
+                             "the test is only meaningful if the old rule would refuse")
+        for _ in 0..<DraftLadder.stepUpAfter {
+            ladder.record(draftMilliseconds: period, renderMilliseconds: 11,
+                          renderedLongEdge: ladder.longEdge(requested: requested),
+                          requested: requested, allowStepUp: false)
+        }
+        ladder.gestureEnded()
+        XCTAssertLessThan(ladder.rung, floor,
+                          "an 11 ms render is headroom whatever the arrival rate is")
+    }
+
+    /// The hysteresis that keeps the previous test from becoming an oscillator: a cheap
+    /// render inside a loop that is ALREADY missing the budget earns nothing, because
+    /// spending it would only make the loop later. Between the budget and `stepDownOver`
+    /// the ladder holds still — neither direction helps there.
+    func testACheapRenderInAnAlreadyLateLoopEarnsNothing() {
+        var ladder = DraftLadder()
+        let requested = 4096
+        ladder.record(draftMilliseconds: 200, renderMilliseconds: 200,
+                      renderedLongEdge: ladder.longEdge(requested: requested),
+                      requested: requested, allowStepUp: false)
+        let held = ladder.rung
+        let late = (DraftLadder.budgetMilliseconds + DraftLadder.stepDownOver) / 2
+        for _ in 0..<(DraftLadder.stepUpAfter * 3) {
+            ladder.record(draftMilliseconds: late, renderMilliseconds: 11,
+                          renderedLongEdge: ladder.longEdge(requested: requested),
+                          requested: requested, allowStepUp: false)
+        }
+        ladder.gestureEnded()
+        XCTAssertEqual(ladder.rung, held,
+                       "a loop already over budget is not a loop with room for pixels")
+        XCTAssertLessThan(late, DraftLadder.stepDownOver,
+                          "and it is not hot enough to step down either — that dead "
+                              + "band is the point")
+    }
+
+    /// A run of hot deliveries is a claim about one continuous gesture. Two unrelated
+    /// stalls, one per drag, must not add up to evidence neither of them is.
+    func testTheHandComingUpForgetsAnUnfinishedRunOfStalls() {
+        var ladder = DraftLadder()
+        let requested = 4096
+        ladder.record(draftMilliseconds: 399, renderMilliseconds: 11,
+                      renderedLongEdge: ladder.longEdge(requested: requested),
+                      requested: requested, allowStepUp: false)
+        ladder.gestureEnded()
+        ladder.record(draftMilliseconds: 399, renderMilliseconds: 11,
+                      renderedLongEdge: ladder.longEdge(requested: requested),
+                      requested: requested, allowStepUp: false)
+        XCTAssertEqual(ladder.rung, 0,
+                       "one stall in each of two drags is one stall in each of two drags")
+    }
+
+    /// Callers from before the split still mean what they said: with no separate render
+    /// measurement the cost sample IS the render measurement, and one hot sample steps
+    /// down immediately.
+    func testACallerThatNamesNoRenderTimeIsTakenAtItsWord() {
+        var ladder = DraftLadder()
+        ladder.record(draftMilliseconds: 200,
+                      renderedLongEdge: DraftLadder.rungs[0], requested: 4096)
+        XCTAssertGreaterThan(ladder.rung, 0,
+                             "an unqualified 200 ms frame is a 200 ms render")
     }
 }

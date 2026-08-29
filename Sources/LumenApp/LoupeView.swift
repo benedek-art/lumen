@@ -578,6 +578,15 @@ final class PhotoRenderModel: ObservableObject {
                     renderedLongEdge: renderedLongEdge,
                     previousRenderedLongEdge: lastDraftLongEdge) {
                     draftLadder.record(draftMilliseconds: cost,
+                                       // BOTH numbers, because the two directions ask
+                                       // different questions. `cost` is what the hand
+                                       // felt and decides the descent; `draftMs` is what
+                                       // the render actually cost and decides the climb,
+                                       // since it is the only part of `cost` that fewer
+                                       // pixels can change. Passing only `cost` pinned
+                                       // the ladder at its floor: a stall in delivery
+                                       // dropped rungs the render never earned back.
+                                       renderMilliseconds: draftMs,
                                        renderedLongEdge: renderedLongEdge,
                                        requested: draftRequested,
                                        // Monotone downward while the hand is down: a

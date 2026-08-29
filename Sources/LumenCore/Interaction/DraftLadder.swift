@@ -13,6 +13,14 @@
 // back UP only after a run of comfortably-cheap frames says the machine has headroom.
 // Down fast, up slow — a hot frame is felt immediately and a wasted opportunity is
 // not.
+//
+// Both directions are judged on a DIFFERENT number, and getting that wrong is what
+// pinned this ladder at its floor in the field. The descent is judged on what the hand
+// felt, which is the interval between delivered frames; the climb is judged on what the
+// render cost, which is the only part of that interval resolution can change. Feeding
+// the interval to the climb makes a ladder that cannot rise above its own arrival rate;
+// feeding a single outlying interval to the descent makes a ladder that dives on a
+// stall it has no lever against. `record` holds both arguments.
 
 import Foundation
 
@@ -64,6 +72,17 @@ public struct DraftLadder: Sendable, Equatable {
     public static let stepDownOver: Double = budgetMilliseconds * 1.3
     public static let stepUpUnder: Double = budgetMilliseconds * 0.5
     public static let stepUpAfter: Int = 12
+
+    /// How many CONSECUTIVE frames must be hot before the ladder steps down on heat it
+    /// found only in the delivery interval rather than in the render.
+    ///
+    /// One hot render is evidence enough because pixels caused it and fewer pixels will
+    /// fix it. One long INTERVAL between two delivered frames is not the same claim: it
+    /// is the only place a stall can hide — a bake queue draining, a settle landing, an
+    /// allocation — and none of those get shorter when the draft gets smaller. Requiring
+    /// the heat to repeat is what separates a cost curve from an outlier, and it costs
+    /// one extra hot frame to notice a delivery cost that is genuinely sustained.
+    public static let stepDownRunOnDelivery: Int = 2
 
     /// A gap between two delivered frames longer than this is not a drag — the hand
     /// paused, or the app was idle waiting for input. Half a second is far outside any
@@ -174,6 +193,7 @@ public struct DraftLadder: Sendable, Equatable {
     /// should not look worse because a slow machine exists.
     public private(set) var rung: Int = 0
     private var cheapStreak: Int = 0
+    private var deliveryHotStreak: Int = 0
 
     public init() {}
 
@@ -217,35 +237,76 @@ public struct DraftLadder: Sendable, Equatable {
     /// finished removing for a different reason. So within a gesture the ladder is
     /// monotone downward, and it earns rungs back between gestures, where a single
     /// change of sharpness is invisible.
-    public mutating func record(draftMilliseconds ms: Double, renderedLongEdge: Int,
+    public mutating func record(draftMilliseconds ms: Double,
+                                renderMilliseconds: Double? = nil,
+                                renderedLongEdge: Int,
                                 requested: Int, allowStepUp: Bool = true) {
         guard ms.isFinite, ms > 0 else { return }
         guard renderedLongEdge == longEdge(requested: requested) else { return }
+        // With no separate render measurement the cost sample IS the render
+        // measurement, which is what every caller meant before `costSample` existed.
+        let render: Double = {
+            guard let renderMilliseconds, renderMilliseconds.isFinite,
+                  renderMilliseconds > 0 else { return ms }
+            return renderMilliseconds
+        }()
 
         if ms > Self.stepDownOver {
-            // Down to the first rung strictly CHEAPER THAN WHAT WAS JUST MEASURED, not
-            // merely one index down.
+            // WHERE the heat was decides how much evidence one frame is.
             //
-            // The rung index and the size delivered are two different things whenever
-            // the caller's request is the binding constraint, which at fit it always
-            // is: `longEdge` answers `min(rungs[rung], requested)`. A loupe asking for
-            // 1280 with the ladder at rung 0 renders 1280, and stepping 2048 → 1600
-            // changes the answer to `min(1600, 1280)` — 1280 again. The frame that was
-            // too expensive would be rendered at exactly the same size it was too
-            // expensive at, for as many hot frames as it takes to walk the index past
-            // the request. Naming the measured size instead makes one hot frame mean
-            // one visible step down, which is the "down fast" this ladder promises.
-            let target = Self.rungs.firstIndex { $0 < renderedLongEdge }
-                ?? (Self.rungs.count - 1)
-            rung = Swift.max(rung, target)
+            // A hot RENDER is one-sample evidence: pixels caused it, cost is monotone in
+            // pixels, and fewer pixels will fix it. A frame whose render was comfortably
+            // inside budget and whose DELIVERY interval was not is a different claim
+            // entirely, and it is the claim that broke this ladder in the field. The
+            // owner's measurements: draft render 11 ms at the 576 floor, delivery
+            // overhead 0.1 ms on the large majority of frames — and 285, 378, 399 ms on
+            // scattered ones. Each of those outliers is one sample eight times over the
+            // step-down threshold, so each one dropped a rung, and the ladder walked to
+            // the floor inside a single drag and stayed there for the session. The
+            // picture was soft under the hand at three times the headroom it needed.
+            //
+            // A 399 ms interval around an 11 ms render at 576 px — 1.3 MB of image — is
+            // not an upload cost, and there is no smaller draft that would have avoided
+            // it. Acting on it spent the one lever this ladder has on a disturbance the
+            // lever has no authority over. So delivery heat has to REPEAT before it
+            // counts: sustained, it is a real cost that fewer pixels can relieve; once,
+            // it is a stall, and the answer to a stall is to find the stall.
+            if render > Self.stepDownOver {
+                deliveryHotStreak = 0
+                stepDown(below: renderedLongEdge)
+                return
+            }
+            deliveryHotStreak += 1
             cheapStreak = 0
+            guard deliveryHotStreak >= Self.stepDownRunOnDelivery else { return }
+            deliveryHotStreak = 0
+            stepDown(below: renderedLongEdge)
             return
         }
-        // Anything short of heat clears the streak, including a cheap frame rendered
+        deliveryHotStreak = 0
+        // THE CLIMB IS JUDGED ON THE RENDER, THE DESCENT ON WHAT THE HAND FELT.
+        //
+        // This asymmetry is the other half of the same defect. `ms` is
+        // `max(render, frame period)`, so on any machine whose frame period is floored
+        // above `stepUpUnder` by something other than pixels, `ms` never falls under the
+        // threshold, the streak never accumulates, and the ladder cannot climb from the
+        // floor no matter how cheap its renders are. 28 delivered frames a second is a
+        // 35.7 ms period; `stepUpUnder` is 17.5. The ladder would have been permanently
+        // pinned by its own arrival rate.
+        //
+        // The render answers the question a step up actually asks — can this machine
+        // afford more pixels — and `ms < budgetMilliseconds` is the guard that keeps the
+        // answer from being spent into a loop that is already late: it leaves a dead band
+        // between the budget and `stepDownOver` where the ladder holds still, which is
+        // the right move when neither direction would help.
+        //
+        // Anything short of that clears the streak, including a cheap frame rendered
         // below the rung: it is not evidence FOR the rung, and letting it merely be
         // neutral would let a run of tiny frames sit inside a streak that a hot one
         // should have broken.
-        guard renderedLongEdge == Self.rungs[rung], ms < Self.stepUpUnder else {
+        guard renderedLongEdge == Self.rungs[rung],
+              render < Self.stepUpUnder,
+              ms < Self.budgetMilliseconds else {
             cheapStreak = 0
             return
         }
@@ -264,6 +325,25 @@ public struct DraftLadder: Sendable, Equatable {
             rung -= 1
             cheapStreak = 0
         }
+    }
+
+    /// Down to the first rung strictly CHEAPER THAN WHAT WAS JUST MEASURED, not merely
+    /// one index down.
+    ///
+    /// The rung index and the size delivered are two different things whenever the
+    /// caller's request is the binding constraint, which at fit it always is: `longEdge`
+    /// answers `min(rungs[rung], requested)`. A loupe asking for 1280 with the ladder at
+    /// rung 0 renders 1280, and stepping 2048 → 1600 changes the answer to
+    /// `min(1600, 1280)` — 1280 again. The frame that was too expensive would be
+    /// rendered at exactly the same size it was too expensive at, for as many hot frames
+    /// as it takes to walk the index past the request. Naming the measured size instead
+    /// makes one hot frame mean one visible step down, which is the "down fast" this
+    /// ladder promises.
+    private mutating func stepDown(below renderedLongEdge: Int) {
+        let target = Self.rungs.firstIndex { $0 < renderedLongEdge }
+            ?? (Self.rungs.count - 1)
+        rung = Swift.max(rung, target)
+        cheapStreak = 0
     }
 
     /// A SETTLE IS A MEASUREMENT OF THE TOP OF THE LADDER, AND THE LADDER WAS IGNORING
@@ -288,6 +368,16 @@ public struct DraftLadder: Sendable, Equatable {
     ///
     /// It only ever climbs, never claims a size it did not measure, and one settle is
     /// enough — which makes recovery immediate instead of eight gestures long.
+    ///
+    /// WHEN IT SAYS NOTHING, which is worth stating because the paragraph above reads
+    /// like a promise it cannot always keep. The inequality only runs one way: a settle
+    /// INSIDE the budget proves a draft at that size is inside it too, and a settle
+    /// OVER the budget proves nothing at all, because the settle pays exact table bakes
+    /// the draft would have served stale. Measured on the owner's machine, a full-size
+    /// settle at 2560 costs 87.5 ms against a 35 ms drag budget, so this path is silent
+    /// there and the climb is entirely the cheap-frame streak's job. That is the correct
+    /// answer rather than a gap — 2560 genuinely is not a draft size on that machine —
+    /// but it does mean this is a fast path on strong machines, not a general one.
     public mutating func recordSettle(milliseconds ms: Double, renderedLongEdge: Int) {
         guard ms.isFinite, ms > 0, ms < Self.budgetMilliseconds else { return }
         guard renderedLongEdge > 0 else { return }
@@ -310,5 +400,9 @@ public struct DraftLadder: Sendable, Equatable {
             rung -= 1
         }
         cheapStreak = 0
+        // A run of hot deliveries is a claim about one continuous gesture. Carrying half
+        // of one across the gap into the next drag would let two unrelated stalls, one
+        // per gesture, add up to evidence neither of them is.
+        deliveryHotStreak = 0
     }
 }
