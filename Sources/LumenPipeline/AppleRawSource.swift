@@ -131,7 +131,8 @@ public final class AppleRawSource: ImageSource {
     /// entries covers the working set; the values are lazy CIImage recipes, so the
     /// held cost is filter descriptions, not pixels.
     private static let decodeCacheCapacity = 8
-    private var decodeCache: [(key: DecodeKey, image: CIImage)] = []
+    /// `bytes` is what the entry actually allocated — zero for one still held lazily.
+    private var decodeCache: [(key: DecodeKey, image: CIImage, bytes: Int)] = []
 
     // MARK: Materializing the decode
 
@@ -183,8 +184,8 @@ public final class AppleRawSource: ImageSource {
     /// set that repeats.
     private static let materializeLongEdgeLimit = 3072
 
-    /// The decode's pixels, or nil if it should stay lazy.
-    private func materialized(_ image: CIImage) -> CIImage? {
+    /// The decode's pixels and what they weigh, or nil if it should stay lazy.
+    private func materialized(_ image: CIImage) -> (image: CIImage, bytes: Int)? {
         let extent = image.extent
         guard !extent.isInfinite, extent.width >= 1, extent.height >= 1,
               Swift.max(extent.width, extent.height)
@@ -213,11 +214,13 @@ public final class AppleRawSource: ImageSource {
         // buffer and every value would be re-interpreted through the wrong transfer
         // function — a silent colour shift on every photograph in the app.
         let out = CIImage(cvPixelBuffer: buffer, options: [.colorSpace: working])
+        // 8 bytes a pixel: four half-float channels.
+        let bytes = width * height * 8
         // The buffer starts at the origin; the decode's extent may not. Put the pixels
         // back where the caller's geometry expects to find them.
-        guard extent.origin != .zero else { return out }
-        return out.transformed(by: CGAffineTransform(translationX: extent.origin.x,
-                                                     y: extent.origin.y))
+        guard extent.origin != .zero else { return (out, bytes) }
+        return (out.transformed(by: CGAffineTransform(translationX: extent.origin.x,
+                                                     y: extent.origin.y)), bytes)
     }
 
     public func decode(recipe: Recipe, draft: Bool, scaleFactor: Double = 1.0) -> CIImage? {
@@ -329,11 +332,11 @@ public final class AppleRawSource: ImageSource {
         // Pixels, not the promise of pixels — see `materialized`. Falling back to the
         // lazy image keeps every failure path working exactly as before: a decode that
         // cannot be materialized is still a correct decode, just an expensive one.
-        let stored = materialized(image) ?? image
+        let stored = materialized(image) ?? (image: image, bytes: 0)
         decodeCache.removeAll { $0.key == key }
-        decodeCache.insert((key: key, image: stored), at: 0)
+        decodeCache.insert((key: key, image: stored.image, bytes: stored.bytes), at: 0)
         evictDecodes()
-        return stored
+        return stored.image
     }
 
     /// Bound the cache by BYTES as well as by count.
@@ -356,15 +359,15 @@ public final class AppleRawSource: ImageSource {
         }
     }
 
-    /// What the held decodes weigh, counting only the materialized ones — a lazy entry
-    /// is a description and weighs nothing worth counting.
-    private var decodeHeldBytes: Int {
-        decodeCache.reduce(0) { total, entry in
-            let extent = entry.image.extent
-            guard !extent.isInfinite, entry.image.pixelBuffer != nil else { return total }
-            return total + Int(extent.width) * Int(extent.height) * 8
-        }
-    }
+    /// What the held decodes weigh, from what was actually allocated.
+    ///
+    /// Measured at materialization rather than inferred from the stored image, because
+    /// inferring it is wrong in a way that would be silent: `CIImage.pixelBuffer` is nil
+    /// for an image that has been TRANSFORMED, and a decode whose extent does not start
+    /// at the origin gets exactly that treatment on the way into the cache. Such an
+    /// entry would have been counted as weightless and never evicted — the budget
+    /// leaking on precisely the entries it was written to bound.
+    private var decodeHeldBytes: Int { decodeCache.reduce(0) { $0 + $1.bytes } }
 
     /// Room for the working set that actually repeats — the viewer's settle, the rung
     /// under the hand, the 512 px probes, the mask raster — and not much more.
