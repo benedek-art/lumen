@@ -34,18 +34,26 @@ final class MaterializedDecodeTests: XCTestCase {
         return out
     }
 
+    /// One known colour in the working space. `CIColor`'s colour-space initializer is
+    /// failable, so the unwrap lives here rather than at six call sites.
+    private func colour(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat) throws -> CIColor {
+        let working = try XCTUnwrap(DecodeMaterializer.workingSpace)
+        return try XCTUnwrap(CIColor(red: r, green: g, blue: b, alpha: 1,
+                                     colorSpace: working))
+    }
+
     /// A flat image of one known colour, so the assertion is about the round trip and
     /// not about interpolation.
-    private func flat(_ colour: CIColor, size: CGFloat = 8) -> CIImage {
-        CIImage(color: colour)
+    private func flat(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat,
+                      size: CGFloat = 8) throws -> CIImage {
+        CIImage(color: try colour(r, g, b))
             .cropped(to: CGRect(x: 0, y: 0, width: size, height: size))
     }
 
     func testAHighlightAboveDisplayWhiteSurvivesMaterialization() throws {
         // 4.0 is two stops above display white — an ordinary specular highlight in a
         // scene-referred RAW, and exactly what Apple's stages are turned off to keep.
-        let input = flat(CIColor(red: 4.0, green: 2.5, blue: 1.75, alpha: 1,
-                                 colorSpace: try XCTUnwrap(DecodeMaterializer.workingSpace)))
+        let input = try flat(4.0, 2.5, 1.75)
         let out = try XCTUnwrap(DecodeMaterializer.materialize(input),
                                 "an 8×8 image is far inside the size limit")
         let read = try XCTUnwrap(sample(out.image, at: CGPoint(x: 4, y: 4)))
@@ -64,9 +72,7 @@ final class MaterializedDecodeTests: XCTestCase {
     /// the gamut stage decides what to do about it — and clamping them at zero would
     /// change which colours the soft clip has to work on.
     func testAValueBelowZeroSurvivesMaterialization() throws {
-        let working = try XCTUnwrap(DecodeMaterializer.workingSpace)
-        let input = flat(CIColor(red: -0.25, green: 0.5, blue: 1.0, alpha: 1,
-                                 colorSpace: working))
+        let input = try flat(-0.25, 0.5, 1.0)
         let out = try XCTUnwrap(DecodeMaterializer.materialize(input))
         let read = try XCTUnwrap(sample(out.image, at: CGPoint(x: 4, y: 4)))
         XCTAssertEqual(Double(read[0]), -0.25, accuracy: 0.01,
@@ -78,9 +84,7 @@ final class MaterializedDecodeTests: XCTestCase {
     /// expressed in the decode's own coordinates, so an image that comes back at a
     /// different origin or size silently shifts every crop and every mask.
     func testTheExtentIsPreserved() throws {
-        let working = try XCTUnwrap(DecodeMaterializer.workingSpace)
-        let input = flat(CIColor(red: 0.5, green: 0.5, blue: 0.5, alpha: 1,
-                                 colorSpace: working), size: 32)
+        let input = try flat(0.5, 0.5, 0.5, size: 32)
             .transformed(by: CGAffineTransform(translationX: 7, y: 11))
         let out = try XCTUnwrap(DecodeMaterializer.materialize(input))
         XCTAssertEqual(out.image.extent.origin.x, 7, accuracy: 0.5)
@@ -92,10 +96,8 @@ final class MaterializedDecodeTests: XCTestCase {
     /// What it reports having allocated must be what it actually allocated, because the
     /// cache's byte budget is spent against this number and nothing else checks it.
     func testTheReportedWeightIsTheBufferItAllocated() throws {
-        let working = try XCTUnwrap(DecodeMaterializer.workingSpace)
         let out = try XCTUnwrap(DecodeMaterializer.materialize(
-            flat(CIColor(red: 0.2, green: 0.2, blue: 0.2, alpha: 1,
-                         colorSpace: working), size: 64)))
+            try flat(0.2, 0.2, 0.2, size: 64)))
         XCTAssertEqual(out.bytes, 64 * 64 * 8,
                        "four half-float channels is 8 bytes a pixel")
     }
@@ -103,10 +105,8 @@ final class MaterializedDecodeTests: XCTestCase {
     /// An export-sized decode is used once and would cost half a gigabyte to hold, so
     /// it must stay lazy — the caller falls back to the unmaterialized image.
     func testAnImageAboveTheLimitStaysLazy() throws {
-        let working = try XCTUnwrap(DecodeMaterializer.workingSpace)
-        let big = flat(CIColor(red: 0.5, green: 0.5, blue: 0.5, alpha: 1,
-                               colorSpace: working),
-                       size: CGFloat(DecodeMaterializer.longEdgeLimit + 1))
+        let big = try flat(0.5, 0.5, 0.5,
+                           size: CGFloat(DecodeMaterializer.longEdgeLimit + 1))
         XCTAssertNil(DecodeMaterializer.materialize(big),
                      "above the limit this must decline rather than allocate")
     }
@@ -114,9 +114,7 @@ final class MaterializedDecodeTests: XCTestCase {
     /// An infinite extent — what `CIImage(color:)` has before it is cropped — must be
     /// declined rather than turned into an allocation of infinite size.
     func testAnInfiniteExtentIsDeclined() throws {
-        let working = try XCTUnwrap(DecodeMaterializer.workingSpace)
-        let unbounded = CIImage(color: CIColor(red: 0.5, green: 0.5, blue: 0.5, alpha: 1,
-                                               colorSpace: working))
+        let unbounded = CIImage(color: try colour(0.5, 0.5, 0.5))
         XCTAssertNil(DecodeMaterializer.materialize(unbounded))
     }
 }
