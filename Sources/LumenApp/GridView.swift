@@ -65,6 +65,9 @@ struct GridView: View {
                     }
                     .padding(spacing)
                 }
+                // docs/30: every scroll view in the app is silent. A legacy scroller insets
+                // its content, so an indicator appearing is a relayout of everything inside it.
+                .scrollIndicators(.never)
                 .background(Lumen.viewerBackground)
                 .onAppear {
                     // ↑/↓ are the keymap's, but only the grid knows how wide a row is.

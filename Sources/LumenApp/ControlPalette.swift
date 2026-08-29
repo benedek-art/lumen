@@ -72,6 +72,9 @@ struct ControlPalette: View {
                             }
                         }
                     }
+                    // docs/30: every scroll view in the app is silent. A legacy scroller insets
+                    // its content, so an indicator appearing is a relayout of everything inside it.
+                    .scrollIndicators(.never)
                     .frame(maxHeight: 260)
                     .onChange(of: selection) { _, new in
                         // Arrowing past the fold has to bring the row with it, or the

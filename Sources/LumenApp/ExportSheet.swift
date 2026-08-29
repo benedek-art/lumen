@@ -129,6 +129,9 @@ struct ExportSheet: View {
                 }
                 .padding(.bottom, 6)
             }
+            // docs/30: every scroll view in the app is silent. A legacy scroller insets
+            // its content, so an indicator appearing is a relayout of everything inside it.
+            .scrollIndicators(.never)
 
             Divider().overlay(Lumen.separator)
 
@@ -375,6 +378,9 @@ private struct ExportRecipeEditor: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
         }
+        // docs/30: every scroll view in the app is silent. A legacy scroller insets
+        // its content, so an indicator appearing is a relayout of everything inside it.
+        .scrollIndicators(.never)
     }
 
     // MARK: Format
@@ -530,7 +536,7 @@ private struct ExportRecipeEditor: View {
             }
             ExportFieldRow("Preview") {
                 Text(filenamePreview)
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(.system(size: 11).monospacedDigit())
                     .foregroundStyle(Lumen.primaryText)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)

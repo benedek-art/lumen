@@ -14,7 +14,9 @@
 // They are a wire format that no stage reads — `zonePanelStops` takes `.ev` and nothing
 // else, and `zonePanelIsIdentity` inspects `.ev` alone, so a non-neutral zone wheel does
 // not even force a re-render. Shipping them as live sliders would cost the user the time
-// to find out. The note at the foot of the panel says so rather than leaving a gap.
+// to find out. The panel used to say so in a note at its foot; it says so here instead,
+// because which fields have a wire format and no reader is a fact about this repository
+// and the photographer is not the one who needs it.
 //
 // The pivots are zone CENTRES, not boundaries: `ZoneWeights.weights` finds the interval
 // containing x and crossfades between the two pivots bounding it with a raised cosine,
@@ -93,11 +95,10 @@ struct ZonesPanel: View {
                                movePivot(index, to: position)
                            })
 
-            DevelopNote("Each zone is an exposure in stops, applied through the "
-                        + "same edge-aware mask the six sliders use — so a zone "
-                        + "lift follows edges instead of haloing across them. "
-                        + "Drag a pivot to say where a zone sits.")
-
+            // No note between the strip and the rows. Its last clause — "drag a pivot
+            // to say where a zone sits" — is already on the handle you would drag, and
+            // the strip is a picture of the crossfade, which is a better account of
+            // what a zone is than a sentence about it.
             ForEach(Self.register) { zone in
                 LumenSlider(title: zone.name,
                             value: evBinding(zone.path, key: "zones.\(zone.name)"),
@@ -112,16 +113,15 @@ struct ZonesPanel: View {
             // the job space now does.
             Divider().overlay(Lumen.separator).padding(.vertical, 2)
 
+            // The divider above is what said "this one is different"; the note that
+            // used to say it again in words is gone, and so is its closing clause about
+            // fields with a wire format and no reader — which was a line addressed to
+            // whoever maintains this file, printed in a photographer's panel. It is at
+            // the top of this one now.
             LumenSlider(title: "Global",
                         value: evBinding(\Zones.global, key: "zones.Global"),
                         range: -3...3, hardRange: -5...5,
                         defaultValue: 0, step: 0.01, decimals: 2)
-
-            DevelopNote("Global is a flat trim across the whole axis — the same "
-                        + "as Exposure, but recorded here so a zone set reads as "
-                        + "one decision. Per-zone colour, saturation and falloff "
-                        + "have a wire format and no stage reads them, so they "
-                        + "are not shown.")
         }
     }
 

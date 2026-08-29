@@ -177,6 +177,9 @@ struct CompareView: View {
                 }
                 .padding(6)
             }
+            // docs/30: every scroll view in the app is silent. A legacy scroller insets
+            // its content, so an indicator appearing is a relayout of everything inside it.
+            .scrollIndicators(.never)
         }
     }
 

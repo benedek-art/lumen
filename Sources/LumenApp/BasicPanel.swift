@@ -74,8 +74,6 @@ struct BasicPanel: View {
     /// The tab strip, which passes nothing, sees no change at all.
     var only: WorkspaceSection? = nil
 
-    @State private var showPivot: Bool = false
-    @State private var showSaturationAdvanced: Bool = false
     /// Zones opens closed. It is the register a photographer reaches for after the six
     /// sliders have not been enough, not one they want in the way while using them.
     @State private var zonesExpanded = false
@@ -229,6 +227,13 @@ struct BasicPanel: View {
             // this is the first place the PHOTOGRAPHER hears it — without it the
             // stretch reads as a broken control (the Density lesson: a correct
             // gate that looks like a dead slider).
+            //
+            // This one STAYS while Density's sentence goes, and the difference is
+            // that this carries a number. Density's line explained a state you could
+            // already see; this reports the value the render is actually using, which
+            // no amount of drawing the slider differently can say. It is also absent
+            // on every ordinary frame — `boundedTintCaption` returns nil while the
+            // slider and the render agree, so daylight editing never grows a caption.
             if let bounded = boundedTintCaption(display: display) {
                 Text(bounded)
                     .font(.system(size: 10))
@@ -273,12 +278,11 @@ struct BasicPanel: View {
         HStack(spacing: 6) {
             Menu {
                 Button("As Shot") { applyAsShot() }
-                // The reason is IN the label. A bare greyed "Auto" with the reason in
-                // a .help — which macOS does not dependably show for menu items —
-                // reads as broken white balance: the Density lesson (a correct gate
-                // that looks like a dead control), reintroduced one panel up.
-                Button("Auto — needs scene statistics, not wired yet") {}
-                    .disabled(true)
+                // There is no Auto entry, and its absence is the whole design. It was
+                // here, disabled, with the reason written into its own label — a menu
+                // item whose only job was to announce that it does not work. A menu
+                // missing an entry teaches nothing; a menu apologising teaches that the
+                // app is unfinished. It comes back when scene statistics do.
                 Divider()
                 ForEach(wbIlluminants) { illuminant in
                     Button(illuminant.name) {
@@ -373,7 +377,16 @@ struct BasicPanel: View {
                         value: binder.value(\.develop.tone.contrast, "tone.contrast"),
                         range: -100...100, hardRange: nil, defaultValue: 0,
                         step: 1, decimals: 0)
-            pivotDisclosure
+            // Under Contrast, not behind a chevron of its own. The pivot is the thing
+            // Lightroom hides — its Contrast is a fixed S-curve anchored near L≈50 and
+            // never documented, ours is a slope around a number the photographer can
+            // move — and hiding our version in a fold that holds one row spent a whole
+            // disclosure to conceal the one thing we have that they do not.
+            LumenSlider(title: "Pivot",
+                        value: binder.value(\.develop.tone.contrastPivot,
+                                            "tone.contrastPivot"),
+                        range: -4...4, hardRange: nil, defaultValue: 0,
+                        step: 0.01, decimals: 2)
             LumenSlider(title: "Highlights",
                         value: binder.value(\.develop.tone.highlights, "tone.highlights"),
                         range: -100...100, hardRange: nil, defaultValue: 0,
@@ -393,24 +406,6 @@ struct BasicPanel: View {
         }
     }
 
-    /// Contrast's disclosure. The pivot is the thing Lightroom hides: its Contrast is
-    /// a fixed S-curve anchored near L≈50, never documented. Here the anchor is a
-    /// number, in stops relative to mid-grey.
-    private var pivotDisclosure: some View {
-        DevelopDisclosure("Pivot", isExpanded: $showPivot) {
-            VStack(alignment: .leading, spacing: 2) {
-                LumenSlider(title: "Pivot",
-                            value: binder.value(\.develop.tone.contrastPivot,
-                                                "tone.contrastPivot"),
-                            range: -4...4, hardRange: nil, defaultValue: 0,
-                            step: 0.01, decimals: 2)
-                DevelopNote("Contrast is a slope around this pivot in log-exposure "
-                            + "space, relaxing back to 1 beyond ±4 EV so extremes "
-                            + "compress instead of exploding.")
-            }
-        }
-    }
-
     // MARK: Presence
 
     private var presenceSection: some View {
@@ -427,33 +422,24 @@ struct BasicPanel: View {
                         value: binder.value(\.develop.detail.texture, "detail.texture"),
                         range: -100...100, hardRange: nil, defaultValue: 0,
                         step: 1, decimals: 0)
+            // THE TOOLTIP IS A MEASUREMENT, which is why it is worth its words. The
+            // halo-free property belongs to the local Laplacian, which runs in
+            // `ReferenceRenderer` and renders no pixel anybody sees; the GPU ships a
+            // single guided band, and beside a clean 3 EV step it rims — Clarity by
+            // 0.127 EV at +100 against the Laplacian's 0.0049, positive Texture by
+            // 0.267 EV. Two earlier versions of this text promised a cached
+            // decomposition nobody had written and a halo that is not avoided, and a
+            // note is a promise to the person reading it: each one cost the reader
+            // their trust in every other word on the panel.
             LumenSlider(title: "Clarity",
                         value: binder.value(\.develop.detail.clarity, "detail.clarity"),
                         range: -100...100, hardRange: nil, defaultValue: 0,
                         step: 1, decimals: 0)
+                .help("Pushed hard, Clarity rims a clean edge — most past about +50.")
             LumenSlider(title: "Dehaze",
                         value: binder.value(\.develop.detail.dehaze, "detail.dehaze"),
                         range: -100...100, hardRange: nil, defaultValue: 0,
                         step: 1, decimals: 0)
-            // This used to claim all three "recombine one cached decomposition of
-            // the frame, so dragging any of them costs a recombination, not a
-            // re-analysis". There is no such cache: `applyDetailBands` builds fresh
-            // guided filters every frame and `makeGraph` rebuilds the graph per
-            // render. A panel note is a promise to the person reading it, and that
-            // one was describing an optimisation nobody had written.
-            // "neither can halo" was the second false promise in this one note.
-            // The halo-free property belongs to the local Laplacian, which runs in
-            // `ReferenceRenderer` and renders no pixel anybody sees; the GPU ships a
-            // single guided band, and beside a clean 3 EV step it rims — Clarity by
-            // 0.127 EV at +100 against the Laplacian's 0.0049, positive Texture by
-            // 0.267 EV. Saying so costs nothing and claiming otherwise cost the
-            // reader their trust in every other note on the panel.
-            DevelopNote("Texture and Clarity work on different scales of the same "
-                        + "frame. Pushed hard they can rim a clean edge — Clarity "
-                        + "most, past about +50 — because the shipping path uses a "
-                        + "guided band rather than the halo-free decomposition the "
-                        + "engine also carries. Dehaze is a transmission estimate, "
-                        + "so it lifts contrast where the air is, not everywhere.")
         }
     }
 
@@ -485,63 +471,72 @@ struct BasicPanel: View {
                        onReset: { binder.edit("color.reset") {
                            $0.develop.color = ColorAdjust()
                        } }) {
-            VStack(alignment: .leading, spacing: 2) {
-                LumenSlider(title: "Vibrance",
-                            value: binder.value(\.develop.color.vibrance, "color.vibrance"),
-                            range: -100...100, hardRange: nil, defaultValue: 0,
-                            step: 1, decimals: 0)
-                LumenSlider(title: "Saturation",
-                            value: binder.value(\.develop.color.saturation, "color.saturation"),
-                            range: -100...100, hardRange: nil, defaultValue: 0,
-                            step: 1, decimals: 0)
-                advancedColourDisclosure
-            }
+            saturationRows
         }
     }
 
-    private var advancedColourDisclosure: some View {
-        // Density blends Saturation's additive push against its subtractive one, and a
-        // pull has no push to blend — the engine guards it on `satAmount > 0`. The dial
-        // used to be drawn live across all of that half of Saturation's range while
-        // doing exactly nothing, which is worse than a dead control because it looks
-        // like it is working. The predicate is `ColorAdjust.densityIsLive`, in LumenCore
-        // next to the field, with a test tying it to the engine's own guard.
+    /// Vibrance, Saturation, Density and Protect Skin, flat.
+    ///
+    /// The last two used to sit behind an "Advanced" chevron. Two rows do not pay for a
+    /// fold: the chevron cost a header, a click and a second level of hierarchy to hide
+    /// forty-four points of panel, and it hid them from the photographer who had just
+    /// pushed Saturation and was one row away from the dial that shapes the push.
+    ///
+    /// DENSITY IS NOT DRAWN UNTIL IT IS LIVE, which is the design that retires a
+    /// sentence. Density blends Saturation's additive push against its subtractive one,
+    /// and a pull has no push to blend — the engine guards it on `satAmount > 0`, and
+    /// the predicate is `ColorAdjust.densityIsLive` in LumenCore, next to the field,
+    /// with a test tying it to that guard.
+    ///
+    /// Three drawings of that gate have now been tried. Live across the whole range
+    /// while doing nothing: worse than dead, because it looked like it was working, and
+    /// session A duly reported it as "doesn't seem to be able to be moved". Disabled
+    /// with the reason in a tooltip: a correct gate reading as a broken control, because
+    /// the explanation sat behind a hover delay. Disabled with the reason printed under
+    /// it: honest, and eleven of those sentences are what "so much wording" means
+    /// (docs/30 §2.2) — a disabled control does owe the reason to the same glance that
+    /// finds it disabled, and a sentence is not what a glance reads.
+    ///
+    /// So it arrives instead, under the control that made it live, at the moment it
+    /// does. That says everything the sentence said and one thing it never did: what
+    /// Density depends on. Nothing is hidden that could have been used — before the
+    /// crossing there is no push for it to act on — and it is strictly more findable
+    /// than it was yesterday, when the fold above shipped closed and no amount of
+    /// Saturation opened it.
+    private var saturationRows: some View {
         let densityIsLive = recipe.develop.color.densityIsLive
-        return DevelopDisclosure("Advanced", isExpanded: $showSaturationAdvanced) {
-            VStack(alignment: .leading, spacing: 2) {
+        return VStack(alignment: .leading, spacing: 2) {
+            LumenSlider(title: "Vibrance",
+                        value: binder.value(\.develop.color.vibrance, "color.vibrance"),
+                        range: -100...100, hardRange: nil, defaultValue: 0,
+                        step: 1, decimals: 0)
+            LumenSlider(title: "Saturation",
+                        value: binder.value(\.develop.color.saturation, "color.saturation"),
+                        range: -100...100, hardRange: nil, defaultValue: 0,
+                        step: 1, decimals: 0)
+            if densityIsLive {
                 LumenSlider(title: "Density",
                             value: binder.value(\.develop.color.density, "color.density"),
                             range: 0...100, hardRange: nil, defaultValue: 50,
                             step: 1, decimals: 0, bipolar: true)
-                    .disabled(!densityIsLive)
-                    .help(densityIsLive
-                          ? "How much of a Saturation push is subtractive."
-                          : "Density acts on a Saturation push. Raise Saturation above "
-                              + "zero and this comes live.")
-                // Visible, not a tooltip. Session A reported this row as "doesn't
-                // seem to be able to be moved": the row was disabled BY DESIGN and
-                // the only explanation sat behind a hover delay, so a correct gate
-                // read as a broken control. A disabled control owes the reason to
-                // the same glance that finds it disabled.
-                if !densityIsLive {
-                    Text("Needs a Saturation push — raise Saturation above 0.")
-                        .font(.system(size: 10))
-                        .foregroundStyle(Lumen.tertiaryText)
-                        .padding(.leading, Lumen.labelWidth + 6)
-                }
-                LumenSlider(title: "Protect Skin",
-                            value: binder.value(\.develop.color.protectSkin,
-                                                "color.protectSkin"),
-                            range: 0...100, hardRange: nil, defaultValue: 70,
-                            step: 1, decimals: 0, bipolar: true)
-                DevelopNote("Density blends a Saturation PUSH between an additive one "
-                            + "and a subtractive one — colour intensifying by darkening, "
-                            + "the way stacked dye does. It does nothing on the way "
-                            + "down. Protect Skin attenuates Vibrance and a Saturation "
-                            + "push inside the skin-tone band; Saturation −100 still "
-                            + "reaches true black and white everywhere.")
+                    // Verbatim the live half of what this row already said. The other
+                    // half — "raise Saturation above zero and this comes live" — is
+                    // what the row's own arrival now says.
+                    .help("How much of a Saturation push is subtractive.")
+                    // The same transition a section body uses, because to a
+                    // photographer this is the same event.
+                    .transition(.opacity.combined(with: .move(edge: .top)))
             }
+            LumenSlider(title: "Protect Skin",
+                        value: binder.value(\.develop.color.protectSkin,
+                                            "color.protectSkin"),
+                        range: 0...100, hardRange: nil, defaultValue: 70,
+                        step: 1, decimals: 0, bipolar: true)
         }
+        // Declared against the value rather than wrapped around the write: the write is
+        // a drag sample inside `RecipeBinder`, which no panel reaches. Same curve as
+        // `PanelLayout.commit`, so a row appearing moves the way a section opening does.
+        .animation(.smooth(duration: 0.22), value: densityIsLive)
     }
 }
 

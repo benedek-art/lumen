@@ -147,7 +147,20 @@ final class PanelLayout: ObservableObject {
     /// is: all of those arrive here identical.
     private func commit(_ next: WorkspaceLayout) {
         guard next != layout else { return }
-        layout = next
+        // ANIMATED HERE, once, rather than at each of the twenty call sites that could
+        // have wrapped their own click. Every change to the arrangement — a workspace
+        // switch, a section opening, the register widening, the dock arriving — is this
+        // one assignment, so this is the only place the app has to say that arrangement
+        // changes are movements rather than jump cuts.
+        //
+        // The app had five `withAnimation` calls in twenty-four thousand lines and none
+        // of them were on the accordion, so sections teleported and the column's height
+        // jumped discontinuously. `.smooth` rather than a spring: a panel is furniture
+        // being moved, not an object being thrown, and an overshoot on a list of
+        // controls reads as sloppiness rather than as life.
+        withAnimation(.smooth(duration: 0.22)) {
+            layout = next
+        }
         persist(next)
     }
 

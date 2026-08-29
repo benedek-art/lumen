@@ -191,7 +191,16 @@ struct DevelopDisclosure<Content: View>: View {
     init(_ title: String, isExpanded: Binding<Bool>,
          @ViewBuilder content: @escaping () -> Content) {
         self.title = title
-        self._isExpanded = isExpanded
+        // ANIMATED AT THE BINDING, because a disclosure's state is view-local `@State`
+        // and never passes through `PanelLayout.commit` where the accordion's animation
+        // lives. Wrapping the binding rather than each of the twenty call sites means a
+        // fold cannot be added without the movement coming with it.
+        self._isExpanded = Binding(get: { isExpanded.wrappedValue },
+                                   set: { new in
+                                       withAnimation(.smooth(duration: 0.22)) {
+                                           isExpanded.wrappedValue = new
+                                       }
+                                   })
         self.content = content
     }
 
@@ -204,6 +213,7 @@ struct DevelopDisclosure<Content: View>: View {
             if isExpanded {
                 content()
                     .padding(.leading, 8)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
     }
@@ -241,22 +251,26 @@ struct DevelopNote: View {
     }
 
     var body: some View {
+        // NOT PROMINENT MEANS NOT DRAWN. It used to mean an ⓘ row reading "How this
+        // works", and there were fifty-nine of them.
+        //
+        // That was meant to be the fix for always-visible prose, and it made the panel
+        // worse in a way that looked like an improvement: nineteen paragraphs in the mask
+        // panel did not become zero rows, they became nineteen rows advertising a
+        // tooltip. A tooltip that ships its own visible label is not a tooltip — it is a
+        // permanent three-word advertisement for one, in front of a photograph, at
+        // 3.18:1 (below the contrast this project's own docs require), repeated down
+        // every panel until it reads as texture rather than as language.
+        //
+        // `.help()` on the control already does this job with no row at all, and every
+        // `LumenSlider` already carries one. The sentence is not lost; it stops being
+        // furniture. docs/30 §2.2.
         if prominent {
             Text(text)
                 .font(.system(size: 10))
                 .foregroundStyle(Lumen.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.vertical, 2)
-        } else {
-            HStack(spacing: 3) {
-                Image(systemName: "info.circle")
-                    .font(.system(size: 10))
-                Text("How this works")
-                    .font(.system(size: 10))
-            }
-            .foregroundStyle(Lumen.tertiaryText)
-            .help(text)
-            .padding(.vertical, 1)
         }
     }
 }
@@ -410,15 +424,32 @@ struct DevelopPanel: View {
         }
     }
 
+    /// NO SCROLL INDICATOR, and this is a bug fix rather than a preference.
+    ///
+    /// The owner asked for it — "there's a lot of switching from a scroll bar to not a
+    /// scroll bar, I just like no scroll bar" — and he was describing a real defect. On a
+    /// mouse macOS draws LEGACY scrollers rather than overlay ones, and a legacy scroller
+    /// insets the document view. So opening one accordion section makes this column
+    /// overflow, the 15pt scroller appears, and every slider in the panel loses 15 of its
+    /// 142 points of track: a 10.6% precision change in the control this app is made of,
+    /// caused by clicking a chevron.
+    ///
+    /// `.never` rather than `.hidden`, because `.hidden` leaves the system free to show
+    /// them anyway. The column's content is a named, ordered list the photographer chose
+    /// the shape of; there is no "what else is down there" question for an indicator to
+    /// answer, and the register line at the foot is the real door.
     private func scrollColumn<Content: View>(
         @ViewBuilder _ content: () -> Content) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 2) {
                 content()
             }
-            .padding(.horizontal, 10)
+            // 8, not 10: two points back on each side is four more points of track on
+            // every slider in the app, and nothing in this column is crowded by it.
+            .padding(.horizontal, 8)
             .padding(.bottom, 14)
         }
+        .scrollIndicators(.never)
     }
 
     private var emptyState: some View {

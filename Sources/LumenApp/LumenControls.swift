@@ -168,24 +168,34 @@ enum Lumen {
 
     static let rowHeight: CGFloat = 22
     static let panelWidth: CGFloat = 320
-    /// Wide enough for the names that exist.
+    /// THE CHROME WAS WIDER THAN THE INSTRUMENT, and that is the whole finding.
     ///
-    /// At 78 pt these clipped, at 11 pt SF Pro: `Luminance Detail`, `Luminance
-    /// Contrast`, `Colour Smoothness`, `Halo Suppression`. Denoise therefore offered a
-    /// column reading "Luminance D…" above "Luminance C…" — two different controls a
-    /// photographer could not tell apart without hovering for the tooltip. That is a
-    /// defect, not a density trade.
+    /// At 94 + 52 this row spent 146 points telling you what the slider is called and
+    /// what it says, against 142 points of actual control. Fifty-one percent of the
+    /// primary instrument of a photo editor was text about the instrument.
     ///
-    /// 94 pt fits the longest of them. The track pays for it — 320 − 94 − 52, less the
-    /// gaps, is about 142 pt instead of 158 — which is a 10% change in drag resolution,
-    /// roughly 1.27 → 1.41 units per point on a ±100 control. That is below the step
-    /// snap, so no value becomes unreachable and no drag feels different.
+    /// What 142 points cost, measured (docs/30 §2.3): on a ±100 control, 0.71 pt per
+    /// unit — one device pixel of pointer travel is 0.70 units, and since `resolve`
+    /// snaps to the step there is no stable middle, so **58 of the 201 integer values
+    /// could not be landed on by dragging at all.** On Exposure the declared 0.01 EV
+    /// step worked out to 0.284 of a device pixel: the track could not express the
+    /// resolution its own readout was advertising. The owner reported it as "limited to
+    /// being able to touch it up slightly." He was describing arithmetic.
     ///
-    /// `SliderDragTests` re-proves its properties parametrically from 100 to 400 pt of
-    /// track, so nothing here is pinned; only that file's worked example needed its
-    /// arithmetic corrected.
-    static let labelWidth: CGFloat = 94
-    static let valueWidth: CGFloat = 52
+    /// 86 fits every name that exists — the four denoise labels that forced 94
+    /// (`Luminance Contrast` and friends) measure under 84 at 11 pt SF Pro, and 94 was
+    /// rounded up from a measurement rather than measured. 44 fits `-5.00`, the longest
+    /// readout, with room. With the column's padding at 8 that is 180 pt of track:
+    /// **0.90 pt per unit, up 27%**, and 143 of the 201 values become 181 of them.
+    ///
+    /// It is still short of the 1.0 that would make a ±100 control genuinely precise —
+    /// that needs the resizable column in docs/30 Phase D, which takes it past
+    /// Lightroom's default. This is the half available without touching layout.
+    ///
+    /// `SliderDragTests` re-proves the drag's properties parametrically from 100 to
+    /// 400 pt of track, so nothing here is pinned to a width.
+    static let labelWidth: CGFloat = 86
+    static let valueWidth: CGFloat = 44
 }
 
 // MARK: - Coloured track stop
@@ -239,6 +249,13 @@ struct LumenSlider: View {
     /// One do it too, for the same reason.
     var trackStops: [LumenTrackStop]?
     var wand: (() -> Void)?
+    /// What this control does, in one clause, for the tooltip.
+    ///
+    /// The sentences that used to sit under the panels as prose belong here: a
+    /// photographer looking at their photograph is not reading, and a photographer who
+    /// stops to ask is hovering. Composed into the label's tooltip by `body` so it does
+    /// not fight the double-click hint that was already there.
+    var help: String?
     var onEditingChanged: ((Bool) -> Void)?
     /// Injected once at the root (ContentView) and fired by EVERY slider in the app —
     /// which is the point: `onEditingChanged` sat unconsumed for the app's whole life
@@ -348,12 +365,20 @@ struct LumenSlider: View {
             // click still resets it — the track's own gesture does that.
             if !title.isEmpty {
                 Text(title)
-                    .font(.system(size: 11))
+                    .font(.lumenBody)
                     .foregroundStyle(isModified ? Lumen.primaryText : Lumen.secondaryText)
                     .frame(width: Lumen.labelWidth, alignment: .leading)
                     .lineLimit(1)
                     .onTapGesture(count: 2) { reset() }
-                    .help("\(title) — double-click to reset")
+                    // COMPOSED, not layered. The row carries a `.help` too, and an outer
+                    // `.help` is SHADOWED wherever an inner one covers — so hovering a
+                    // slider's NAME, which is the most natural place to point when
+                    // asking "what is this", was showing only the reset hint. That
+                    // matters more than it sounds: docs/30's plan retires fifty-nine
+                    // prose rows by moving their text onto exactly this tooltip, and the
+                    // strategy would have silently failed over a third of the row.
+                    .help(help.map { "\(title) — \($0)\n\nDouble-click to reset" }
+                          ?? "\(title) — double-click to reset")
             }
 
             track
@@ -363,14 +388,21 @@ struct LumenSlider: View {
             if let wand {
                 Button(action: wand) {
                     Image(systemName: "wand.and.stars")
-                        .font(.system(size: 9))
+                        .font(.lumenCaption)
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(Lumen.secondaryText)
+                .lumenClickCursor()
                 .help("Set \(title) automatically")
             }
         }
         .frame(height: Lumen.rowHeight)
+        // THE ROW ANSWERS THE POINTER. It had no hover state of any kind — no fill, no
+        // lift, no cursor — so a slider gave the pointer nothing at all until the mouse
+        // button went down. The app carried 67 tooltips against five `onHover` handlers,
+        // which is a UI that teaches by tooltip rather than by affordance, and it is a
+        // large part of why these read as inert rather than as instruments.
+        .lumenHoverable()
         // KEYBOARD NUDGE (docs/28 Phase 7), and the three things it needed.
         //
         // One: the row is focusable, with the system's own ring turned off. macOS draws
@@ -535,7 +567,7 @@ struct LumenSlider: View {
                         .overlay(Capsule().fill(LinearGradient(
                             colors: [Color.black.opacity(0.30), Color.black.opacity(0)],
                             startPoint: .top, endPoint: .bottom)))
-                        .frame(height: 4)
+                        .frame(height: 6)
                 } else {
                     // The groove CARVES DOWN into the panel (a well, not a painted-on
                     // stripe): the gradient's darker top edge is the light coming from
@@ -545,7 +577,7 @@ struct LumenSlider: View {
                             colors: [Color(nsColor: NSColor(white: 0.115, alpha: 1)),
                                      Lumen.insetWell],
                             startPoint: .top, endPoint: .bottom))
-                        .frame(height: 4)
+                        .frame(height: 6)
                 }
                 // Fill from the default toward the value: the eye reads the deviation,
                 // not the absolute position. Where the fill STARTS is the lower of the
@@ -564,7 +596,7 @@ struct LumenSlider: View {
                 if trackStops == nil {
                     Capsule()
                         .fill(isModified ? Lumen.sliderFillModified : Lumen.sliderFillRest)
-                        .frame(width: max(abs(fraction - zeroFraction) * width, 1), height: 4)
+                        .frame(width: max(abs(fraction - zeroFraction) * width, 1), height: 6)
                         .offset(x: min(fraction, zeroFraction) * width)
                 }
                 // The neutral mark. Sits under the thumb so the thumb covers it when
@@ -574,7 +606,7 @@ struct LumenSlider: View {
                     if trackStops == nil {
                         Rectangle()
                             .fill(Lumen.separator)
-                            .frame(width: 1, height: 8)
+                            .frame(width: 1, height: 10)
                             .offset(x: zeroFraction * width - 0.5)
                     } else {
                         // A 0.30-grey line vanishes against a saturated stop, and which
@@ -584,20 +616,28 @@ struct LumenSlider: View {
                         // end and the magenta end alike.
                         Rectangle()
                             .fill(Color.black.opacity(0.45))
-                            .frame(width: 3, height: 8)
+                            .frame(width: 3, height: 10)
                             .offset(x: zeroFraction * width - 1.5)
                         Rectangle()
                             .fill(Color.white.opacity(0.85))
-                            .frame(width: 1, height: 8)
+                            .frame(width: 1, height: 10)
                             .offset(x: zeroFraction * width - 0.5)
                     }
                 }
+                // A GROOVE OF 6 AND A THUMB OF 12, not 4 and 10.
+                //
+                // The handle used to be two and a half times the height of the thing it
+                // slid in, which is what made these read as thin lines with dots on them
+                // rather than as instruments. Capture One's groove is 6, DaVinci's is 8,
+                // Photomator's is 8; nobody ships 4. The row is 22 pt, so 6 costs
+                // nothing and the extra two points of thumb give the smallest target in
+                // the row a fifth more area.
                 Circle()
                     .fill(Lumen.primaryText)
-                    .overlay(Circle().strokeBorder(Color.white.opacity(0.10), lineWidth: 1))
-                    .frame(width: isDragging ? 12 : 10, height: isDragging ? 12 : 10)
-                    .offset(x: fraction * width - (isDragging ? 6 : 5))
-                    .shadow(color: .black.opacity(0.5), radius: isDragging ? 2.5 : 1, y: 0.5)
+                    .overlay(Circle().strokeBorder(Color.white.opacity(0.14), lineWidth: 1))
+                    .frame(width: isDragging ? 14 : 12, height: isDragging ? 14 : 12)
+                    .offset(x: fraction * width - (isDragging ? 7 : 6))
+                    .shadow(color: .black.opacity(0.5), radius: isDragging ? 3 : 1.5, y: 0.5)
             }
             .frame(height: Lumen.rowHeight)
             .contentShape(Rectangle())
@@ -727,14 +767,22 @@ struct LumenSlider: View {
             if isEditingText {
                 TextField("", text: $textValue)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(.lumenNumeric)
                     .multilineTextAlignment(.trailing)
                     .focused($textFocused)
                     .onSubmit { commitText() }
                     .onExitCommand { isEditingText = false }
             } else {
+                // TABULAR FIGURES ON SF PRO, not SF Mono. The app mixed two typefaces
+                // at 23 sites — a second family, a different x-height, inches from the
+                // label beside it — to buy a property `.monospacedDigit()` gives on the
+                // body face: a fixed digit advance so a scrubbed number does not jitter
+                // as it counts. `.contentTransition(.numericText())` is the other half:
+                // the value now counts rather than snapping, which is the difference
+                // between a readout and an instrument.
                 Text(formatted)
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(isScrubbing ? .lumenNumericStrong : .lumenNumeric)
+                    .contentTransition(.numericText())
                     .foregroundStyle(isModified ? Lumen.primaryText : Lumen.secondaryText)
                     .contentShape(Rectangle())
                     .onTapGesture {
@@ -742,6 +790,15 @@ struct LumenSlider: View {
                         isEditingText = true
                         textFocused = true
                     }
+                    // THE CURSOR IS THE ADVERTISEMENT. This readout is the app's
+                    // PRECISION instrument — 2.13 points per unit against the track's
+                    // 0.71, three times finer — and its only disclosure was a tooltip
+                    // after a one-second hover delay. Meanwhile it is a 44x22 target
+                    // against the coarse track's 180x22, so the app gave the blunt tool
+                    // four times the hit area of the fine one and told nobody the fine
+                    // one existed. Every other tool in this category — Figma, Resolve,
+                    // After Effects, Photoshop, Capture One — says it with the cursor.
+                    .lumenScrubCursor()
                     // SCRUB THE NUMBER (docs/28 Phase 6). `minimumDistance: 3` is what
                     // keeps tap-to-type alive: a press that does not travel three points
                     // is never claimed by this gesture, so the tap above still fires and
@@ -898,17 +955,30 @@ struct LumenSectionHeader: View {
                     toggle()
                 } label: {
                     Image(systemName: isExpanded.wrappedValue ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 9, weight: .semibold))
+                        .font(.system(size: 10, weight: .semibold))
+                        // An 11x10 target was the smallest in the app — under half the
+                        // 24pt minimum in both dimensions. It survived only because the
+                        // whole header row also toggles, which is a fat target with the
+                        // wrong owner. This changes nothing that is drawn.
+                        .frame(width: 20, height: 20)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(Lumen.secondaryText)
+                .lumenClickCursor()
             }
             // The header now outranks the rows it governs (design audit §1.2: the
             // highest-level element in the panel was the smallest text in it).
+            // A HEADING, NOT TEXTURE. It was 11pt semibold in `secondaryText` — the
+            // identical colour to the rows beneath it and one weight-step away, with no
+            // rule, no fill and no container. Six of those stacked is a table of
+            // contents, which is exactly what the owner reported seeing. `primaryText`
+            // takes it from 5.33:1 to 10.56:1 against the panel and buys a real
+            // hierarchy step for nothing.
             Text(title.uppercased())
-                .font(.system(size: 11, weight: .semibold))
-                .tracking(0.8)
-                .foregroundStyle(Lumen.secondaryText)
+                .font(.system(size: 12, weight: .semibold))
+                .tracking(0.7)
+                .foregroundStyle(Lumen.primaryText)
             if isModified {
                 Circle()
                     .fill(Lumen.accent)

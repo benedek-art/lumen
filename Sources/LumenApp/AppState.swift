@@ -867,6 +867,20 @@ final class AppState: ObservableObject {
     @Published var gridThumbnailSize: Double = 160 {
         didSet { scheduleSourceStateSave() }
     }
+    /// WHETHER THE SOURCES COLUMN IS DRAWN, and it is the single largest thing this
+    /// window can do for the photograph.
+    ///
+    /// Measured (docs/30 §3): deleting the top bar AND the status bar changes a 3:2
+    /// landscape frame by +0.00 percentage points, because a landscape photograph in
+    /// this window is WIDTH-limited — every horizontal band removed returns letterbox
+    /// rather than picture. Hiding the 230pt sidebar is worth +19.95 points on its own,
+    /// more than every other composition change combined.
+    ///
+    /// On `AppState` rather than in the view because the View menu has to reach it, and
+    /// a `Scene`'s commands cannot see a view's `@State`. One publish per toggle, which
+    /// is a thing that happens a handful of times a session.
+    @Published var sidebarVisible = true
+
     @Published var showFilmstrip = true
     /// Published by the grid as it lays out, so ↑/↓ move by a real row rather than by
     /// a guess. Never zero — a divide-by-row-count would be a crash in the key path.
@@ -1995,7 +2009,15 @@ final class AppState: ObservableObject {
         refreshLibraryQuery()
         refreshLibrarySections()
         isScanning = false
-        statusMessage = "\(items.count) photo\(items.count == 1 ? "" : "s")"
+        // NO COUNT HERE. `ContentView.countText` owns the count and prints it a few
+        // points to the right, so writing it into `statusMessage` put "239 photos" on
+        // screen twice, in one band, permanently — `statusMessage` is cleared only by a
+        // pick cancel or a colour pick, so it was not a transient toast. Counting the
+        // sidebar's "All photos 239" and "This folder 239", both drawn as active, the
+        // number 239 appeared four times in one window in three phrasings (docs/30 §2.4).
+        // This one had the weakest claim: it is a scan completing, and a scan that
+        // completes with the expected number is not news.
+        statusMessage = nil
         if primarySelection == nil, let first = photos.first {
             select(first)
         }

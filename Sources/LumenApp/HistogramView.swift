@@ -130,7 +130,7 @@ struct HistogramView: View {
     private var readoutLine: some View {
         HStack(spacing: 6) {
             Text(primaryReadout)
-                .font(.system(size: 10, design: .monospaced))
+                .font(.system(size: 10).monospacedDigit())
                 .foregroundStyle(Lumen.primaryText)
                 .lineLimit(1)
             Spacer(minLength: 4)

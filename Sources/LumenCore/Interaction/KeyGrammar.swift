@@ -175,6 +175,8 @@ public enum KeyGrammar {
         // and every one is checked against the sources. Seven of them were in neither
         // this list nor the dispatcher until the scan went looking.
         KeyGroup(title: "Menu commands", rows: [
+            KeyRow(KeyBinding("s", command: true, option: true),
+                   "Show / hide the sources sidebar"),
             KeyRow(KeyBinding("1", command: true), "Cull workspace"),
             KeyRow(KeyBinding("2", command: true), "Develop workspace"),
             KeyRow(KeyBinding("3", command: true), "Grade workspace"),

@@ -148,23 +148,78 @@ private struct LumenCommands: Commands {
             // does not conform to Commands" about an expression that plainly does.
             // Nesting a second `Group` would have satisfied the compiler and left two
             // menus that should always have been one.
-            CommandMenu("Go") {
-                // In the Scene rather than beside the palette itself, for the reason
-                // ⌘1-⌘4 are: a `.keyboardShortcut` on a view that is not in the
-                // hierarchy is never registered, and the palette does not exist until
-                // this opens it. A key that only works once the thing it opens is
-                // already open is no key at all.
-                Button("Go to a Control…") { state.showControlPalette = true }
-                    .keyboardShortcut("k", modifiers: [.command])
-                Divider()
-                Button("Cull") { PanelLayout.shared.select(.cull) }
-                    .keyboardShortcut("1", modifiers: [.command])
-                Button("Develop") { PanelLayout.shared.select(.develop) }
+            // THE VIEW MENU, which is the cheapest possible answer to "it's super
+            // difficult for me to navigate the app."
+            //
+            // 45 of this app's 65 keyboard actions had no menu item, and there was no
+            // View menu at all — so Compare and Survey, two of the four primary view
+            // modes, had NO pointer entry point of any kind. The only way to discover
+            // them was to press C or N, printed in a sheet behind ⌘/. docs/12's law is
+            // "every action has a key; every key action has a menu item", and the app
+            // was satisfying exactly half of it.
+            //
+            // The bare keys are shown in the labels rather than attached as
+            // `.keyboardShortcut`. That is deliberate and it is a compromise:
+            // `KeyDispatcher` owns them through an `NSEvent` monitor, and claiming them
+            // here would make the dispatcher's cases dead and break the set-equality
+            // `KeyGrammarTests` asserts between the two. The real end state is docs/12's
+            // — generate the menu FROM `KeyGrammar` so neither can drift — and that is a
+            // larger change than this. Meanwhile the actions become findable, which is
+            // the whole complaint.
+            CommandMenu("View") {
+                // GROUPED BECAUSE A BUILDER TAKES TEN CHILDREN, and this menu has
+                // fifteen. The compiler does not say "too many children" — it says
+                // `'buildExpression' is unavailable` on the eleventh line and then once
+                // per sibling, which reads as a type error in code that is plainly a
+                // View. `KeyGrammarTests` guards the outer `Commands` group against
+                // exactly this; menu contents are the same limit one level in.
+                Group {
+                    Button("Grid — G") { state.showGrid() }
+                    Button("Loupe — E") { state.showLoupe() }
+                    Button("Compare — C") { state.toggleCompare() }
+                    Button("Survey — N") { state.toggleSurvey() }
+                    Divider()
+                    // ⌘1 USED TO LIE. `PanelLayout.select` only mutates the layout
+                    // value — structurally it cannot reach `viewMode`, since
+                    // `WorkspaceLayout` lives in LumenCore with no access to `AppState`
+                    // — so pressing ⌘1 for "Cull" removed the develop column and left
+                    // the photographer looking at one large photograph with 320 points
+                    // of empty space where the panel had been. The app's most prominent
+                    // navigation control was named after a mode it did not enter.
+                    // Pairing the two here is the smallest honest fix.
+                    Button("Cull") { PanelLayout.shared.select(.cull); state.showGrid() }
+                        .keyboardShortcut("1", modifiers: [.command])
+                    Button("Develop") {
+                        PanelLayout.shared.select(.develop); state.showLoupe()
+                    }
                     .keyboardShortcut("2", modifiers: [.command])
-                Button("Grade") { PanelLayout.shared.select(.grade) }
+                    Button("Grade") {
+                        PanelLayout.shared.select(.grade); state.showLoupe()
+                    }
                     .keyboardShortcut("3", modifiers: [.command])
-                Button("Deliver") { PanelLayout.shared.select(.deliver) }
+                    Button("Deliver") {
+                        PanelLayout.shared.select(.deliver); state.showLoupe()
+                    }
                     .keyboardShortcut("4", modifiers: [.command])
+                }
+                Group {
+                    Divider()
+                    // In the Scene rather than beside the palette itself, for the reason
+                    // ⌘1-⌘4 are: a `.keyboardShortcut` on a view that is not in the
+                    // hierarchy is never registered, and the palette does not exist
+                    // until this opens it.
+                    Button("Go to a Control…") { state.showControlPalette = true }
+                        .keyboardShortcut("k", modifiers: [.command])
+                    Divider()
+                    Button(state.sidebarVisible ? "Hide Sidebar" : "Show Sidebar") {
+                        state.sidebarVisible.toggle()
+                    }
+                    .keyboardShortcut("s", modifiers: [.command, .option])
+                    Divider()
+                    Button("Filmstrip — F") { state.showFilmstrip.toggle() }
+                    Button("Histogram — H") { state.showHistogram.toggle() }
+                    Button("Scopes — S") { state.showScopes.toggle() }
+                }
             }
 
             // Instruments for a test session, not features: everything here exists

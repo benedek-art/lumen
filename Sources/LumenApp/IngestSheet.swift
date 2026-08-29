@@ -129,6 +129,9 @@ struct IngestSheet: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 8)
             }
+            // docs/30: every scroll view in the app is silent. A legacy scroller insets
+            // its content, so an indicator appearing is a relayout of everything inside it.
+            .scrollIndicators(.never)
             Divider().overlay(Lumen.separator)
             footer
         }
@@ -225,12 +228,12 @@ struct IngestSheet: View {
                     ForEach(files) { file in
                         HStack(spacing: 6) {
                             Text(file.filename)
-                                .font(.system(size: 10, design: .monospaced))
+                                .font(.system(size: 10).monospacedDigit())
                                 .foregroundStyle(Lumen.primaryText)
                                 .lineLimit(1)
                             Spacer(minLength: 8)
                             Text(ingestByteString(file.byteSize))
-                                .font(.system(size: 10, design: .monospaced))
+                                .font(.system(size: 10).monospacedDigit())
                                 .foregroundStyle(Lumen.secondaryText)
                         }
                         .padding(.horizontal, 8)
@@ -239,6 +242,9 @@ struct IngestSheet: View {
                 }
                 .padding(.vertical, 4)
             }
+            // docs/30: every scroll view in the app is silent. A legacy scroller insets
+            // its content, so an indicator appearing is a relayout of everything inside it.
+            .scrollIndicators(.never)
             .frame(height: 120)
             .background(Lumen.controlBackground)
             .clipShape(RoundedRectangle(cornerRadius: 5))
@@ -311,7 +317,7 @@ struct IngestSheet: View {
 
             IngestFieldRow("Preview") {
                 Text(pathPreview)
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(.system(size: 11).monospacedDigit())
                     .foregroundStyle(Lumen.primaryText)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)

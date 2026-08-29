@@ -97,7 +97,7 @@ struct FilterBar: View {
                 // it would send you into a popover where every group is empty.
                 if state.filter.hiddenCriteriaCount > 0 {
                     Text("\(state.filter.hiddenCriteriaCount)")
-                        .font(.system(size: 9, design: .monospaced))
+                        .font(.system(size: 9).monospacedDigit())
                 }
             }
             .padding(.horizontal, 6)
@@ -201,7 +201,7 @@ struct FilterBar: View {
                             .foregroundStyle(value <= state.filter.minRating
                                              ? Lumen.primaryText : Lumen.trackColor)
                         Text("\(ratingCount(value))")
-                            .font(.system(size: 9, design: .monospaced))
+                            .font(.system(size: 9).monospacedDigit())
                             .foregroundStyle(Lumen.tertiaryText)
                     }
                     .contentShape(Rectangle())
@@ -229,7 +229,7 @@ struct FilterBar: View {
                                                   lineWidth: state.filter.labels.contains(label) ? 2 : 1)
                             )
                         Text("\(labelCount(label))")
-                            .font(.system(size: 9, design: .monospaced))
+                            .font(.system(size: 9).monospacedDigit())
                             .foregroundStyle(Lumen.tertiaryText)
                     }
                     .contentShape(Rectangle())
@@ -509,21 +509,32 @@ struct FilterBar: View {
         .help("After a flag, star or label, move to the next photo")
     }
 
+    /// THE GRID'S OWN CONTROL, drawn only where the grid is.
+    ///
+    /// `gridThumbnailSize` is read by exactly one view — `GridView`. This slider sat in
+    /// the top-right of the window in ALL FOUR view modes and in the empty state, moving
+    /// a number that has no visible effect in three of them. The codebase had already
+    /// diagnosed precisely this for the keyboard: `Keymap` notes that "`[` / `]` were
+    /// already moving a number nobody could see" outside the grid, and made those keys
+    /// conditional on the view mode. The pointer version received no such condition.
+    ///
+    /// It also duplicated a documented keyboard grammar — `[` and `]` step the same
+    /// value through the same clamps — and its left end-cap, a `square.grid.3x3.fill`
+    /// glyph, is the one thing in this bar that LOOKS like a view-mode switcher. The
+    /// owner read it as exactly that. There was no view-mode switcher; there is now, in
+    /// the View menu.
+    @ViewBuilder
     private var sizeSlider: some View {
-        HStack(spacing: 4) {
-            Image(systemName: "square.grid.3x3.fill")
-                .font(.system(size: 9))
-                .foregroundStyle(Lumen.secondaryText)
-            Slider(value: $state.gridThumbnailSize,
-                   in: AppState.minThumbnailSize...AppState.maxThumbnailSize)
-                .controlSize(.mini)
-                .tint(Lumen.fillColor)
-                .frame(width: 100)
-            Image(systemName: "square.fill")
-                .font(.system(size: 10))
-                .foregroundStyle(Lumen.secondaryText)
+        if state.viewMode == .grid {
+            HStack(spacing: 4) {
+                Slider(value: $state.gridThumbnailSize,
+                       in: AppState.minThumbnailSize...AppState.maxThumbnailSize)
+                    .controlSize(.mini)
+                    .tint(Lumen.fillColor)
+                    .frame(width: 90)
+            }
+            .help("Thumbnail size  ([ and ])")
         }
-        .help("Thumbnail size")
     }
 
     // MARK: Counts
@@ -600,7 +611,7 @@ struct FilterBar: View {
                     .lineLimit(1)
                 if let count, count > 0 {
                     Text("\(count)")
-                        .font(.system(size: 9, design: .monospaced))
+                        .font(.system(size: 9).monospacedDigit())
                         .foregroundStyle(Lumen.secondaryText)
                 }
             }

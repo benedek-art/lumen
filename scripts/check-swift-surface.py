@@ -247,6 +247,9 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     "NSLeftArrowFunctionKey", "NSRightArrowFunctionKey", "NSUpArrowFunctionKey",
     "NSDownArrowFunctionKey", "NSDeleteFunctionKey",
     # SwiftUI
+    # `Font` arrived with `LumenType`, the app's type scale — `Font.system(size:weight:)`
+    # is the only way to build one, so the ramp cannot be declared without it.
+    "Font",
     "SwiftUI", "View", "Text", "Image", "Color", "VStack", "HStack", "ZStack",
     "Spacer", "Button", "Slider", "Toggle", "Picker", "TextField", "SecureField",
     "List", "ForEach", "ScrollView", "ScrollViewReader", "LazyVGrid", "LazyHGrid",

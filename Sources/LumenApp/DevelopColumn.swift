@@ -199,6 +199,10 @@ private struct WorkspaceSectionView: View {
             // claims to save, and Look holds 38 sliders in one of these.
             if isExpanded {
                 WorkspaceSectionBody(section: section)
+                    // Arriving from under its own header, not fading in place: the
+                    // header is the hinge, so the content should read as unfolding from
+                    // it. `.top` rather than `.leading` for that reason.
+                    .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
     }

@@ -12,8 +12,28 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject var state: AppState
 
+    /// THE SIDEBAR CAN BE HIDDEN, AND THAT IS THE LARGEST SINGLE THING THIS WINDOW CAN
+    /// DO FOR THE PHOTOGRAPH.
+    ///
+    /// The composition audit ran the arithmetic and it is counter-intuitive enough to
+    /// write down. For an 1800x1169 window, chrome is 41.3% and a 3:2 landscape frame is
+    /// 49.35% of the window. Then:
+    ///
+    ///     delete the top bar AND the status bar  ->  landscape photograph: +0.00 points
+    ///     hide the 230pt sidebar                 ->  landscape photograph: +19.95 points
+    ///
+    /// A landscape photograph in this window is WIDTH-limited. Every horizontal band
+    /// removed gives back letterbox, not picture. The sidebar is worth more than every
+    /// other composition change combined — and until now the app declared no
+    /// `columnVisibility`, no toggle, and no sidebar row in its own 65-row keyboard
+    /// reference, so there was no way to get those points at all.
+    ///
+    /// `Tab` is the key, because it is Lightroom's and has been for twenty years, and
+    /// because `KeyGrammar.dispatchedKeys` did not claim it.
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: Binding(
+            get: { state.sidebarVisible ? .all : .detailOnly },
+            set: { state.sidebarVisible = ($0 != .detailOnly) })) {
             Sidebar()
                 .navigationSplitViewColumnWidth(min: 190, ideal: 230, max: 320)
         } detail: {
@@ -236,6 +256,9 @@ private struct Sidebar: View {
             // the count hard against the name instead of at the column edge.
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        // docs/30: every scroll view in the app is silent. A legacy scroller insets
+        // its content, so an indicator appearing is a relayout of everything inside it.
+        .scrollIndicators(.never)
         .background(Lumen.panelBackground)
     }
 
@@ -572,7 +595,7 @@ private struct Sidebar: View {
                     .lineLimit(1)
                 Spacer()
                 Text("\(count)")
-                    .font(.system(size: 10, design: .monospaced))
+                    .font(.system(size: 10).monospacedDigit())
                     .foregroundStyle(Lumen.secondaryText)
             }
             .padding(.horizontal, 5)
@@ -623,7 +646,7 @@ private struct StatusBar: View {
                 .truncationMode(.tail)
                 .help(sentence)
             Text(countText)
-                .font(.system(size: 10, design: .monospaced))
+                .font(.system(size: 10).monospacedDigit())
                 .foregroundStyle(Lumen.secondaryText)
             Spacer()
             if state.isExporting {
@@ -631,11 +654,11 @@ private struct StatusBar: View {
                     .font(.system(size: 10))
                     .foregroundStyle(Lumen.secondaryText)
             }
-            if let photo = state.primarySelection {
-                Text(photo.filename)
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundStyle(Lumen.secondaryText)
-            }
+            // NO FILENAME HERE. `DevelopPanel.header` draws it whenever the develop
+            // column is showing, which is every loupe and compare session — so the same
+            // string sat at both ends of the window, about 990 points apart. The panel's
+            // copy is the one beside the controls that act on that photograph; this one
+            // was decoration at the far corner.
             if state.selection.count > 1 {
                 Text("\(state.selection.count) selected")
                     .font(.system(size: 10))
@@ -711,7 +734,7 @@ private struct KeyReferenceSheet: View {
                             ForEach(group.entries) { entry in
                                 HStack(alignment: .top, spacing: 10) {
                                     Text(entry.keys)
-                                        .font(.system(size: 11, design: .monospaced))
+                                        .font(.system(size: 11).monospacedDigit())
                                         .frame(width: 84, alignment: .leading)
                                         .foregroundStyle(Lumen.primaryText)
                                     Text(entry.action)
@@ -726,6 +749,9 @@ private struct KeyReferenceSheet: View {
                 }
                 .padding(14)
             }
+            // docs/30: every scroll view in the app is silent. A legacy scroller insets
+            // its content, so an indicator appearing is a relayout of everything inside it.
+            .scrollIndicators(.never)
         }
         .frame(width: 460, height: 560)
         .background(Lumen.panelBackground)
