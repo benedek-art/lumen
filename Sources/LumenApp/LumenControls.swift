@@ -495,17 +495,20 @@ struct LumenSlider: View {
         // the pitch up from 24 to 30. The groove, the thumb and the two text columns are
         // untouched — this is space around the instrument, not a resizing of it.
         .padding(.vertical, 2)
-        // THE ROW ANSWERS THE POINTER AND THE KEYBOARD, on one surface. It had no hover
-        // state of any kind — no fill, no lift, no cursor — so a slider gave the pointer
-        // nothing at all until the mouse button went down. The app carried 67 tooltips
-        // against five `onHover` handlers, which is a UI that teaches by tooltip rather
-        // than by affordance, and it is a large part of why these read as inert rather
-        // than as instruments.
+        // THE ROW ANSWERS THE KEYBOARD, and — since the owner's third review — no longer
+        // answers the pointer.
         //
-        // Focus rides the same fill one rung higher (`LumenFocus.swift`) instead of the
-        // accent ring that used to be here, which the owner reported on sight: the ring
-        // fired on mouse-DOWN, so every drag of every slider began with a blue border.
-        .lumenInteractiveSurface(focused: rowFocused)
+        // It gained a hover fill in the second pass because it had no pointer state of
+        // any kind, and lost it again in the third: "I would remove a bunch of the hover
+        // effects, like hovering over the white balance or the temperature or tint." A
+        // groove with a thumb in it already says what it is, and eleven rows lighting up
+        // in sequence as the pointer crosses the panel is motion beside a colour
+        // decision. `LumenFocus.swift` holds the full argument.
+        //
+        // Focus keeps the surface, because focus has nothing else to show it — and it is
+        // there instead of the accent ring the owner reported on sight: the ring fired on
+        // mouse-DOWN, so every drag of every slider began with a blue border.
+        .lumenFocusSurface(focused: rowFocused)
         .padding(.vertical, 1)
         // KEYBOARD NUDGE (docs/28 Phase 7), and the three things it needed.
         //

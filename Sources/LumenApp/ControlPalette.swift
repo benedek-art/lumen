@@ -29,7 +29,11 @@ import SwiftUI
 
 struct ControlPalette: View {
     @EnvironmentObject var state: AppState
-    @ObservedObject private var panel = PanelLayout.shared
+    // No `PanelLayout` handle any more. The palette used to hold one so it could call
+    // `reveal` on commit; it goes through `AppState.jump` now, which is that call plus
+    // the view mode and the crop tool. An `@ObservedObject` kept only to write to is a
+    // subscription paid for nothing — this view would have re-bodied on every section
+    // anyone opened anywhere.
     @State private var query: String = ""
     @State private var selection: Int = 0
     @FocusState private var fieldFocused: Bool
@@ -134,11 +138,12 @@ struct ControlPalette: View {
     private func commit() {
         guard results.indices.contains(selection) else { return }
         let control = results[selection]
-        // `reveal`, not `click`: half these sections are hidden by the Simple register
-        // the app opens in, and a palette that answers a named request with silence is
-        // worse than no palette at all.
-        panel.reveal(control.section)
-        state.showLoupe()
+        // `jump`, which is `reveal` plus everything arriving somewhere means — the view
+        // mode, and the crop tool if the named control lives in Crop. `reveal` alone
+        // moves the column and nothing else, and half these sections are hidden by the
+        // Simple register the app opens in, so a palette that answered a named request
+        // with silence would be worse than no palette at all.
+        state.jump(to: control.section)
         state.showControlPalette = false
     }
 }

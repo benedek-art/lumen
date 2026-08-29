@@ -142,14 +142,34 @@ extension Lumen {
 
     // MARK: Radii
 
-    /// THREE RADII, NOT SEVEN.
+    /// FOUR RADII, NOT SEVEN.
     ///
     /// The app shipped 1, 2, 3, 4, 5, 6 and 10 — with 3 and 4 each used 22 times, which
     /// is two values for one decision, invisibly different. And 3–4 pt on a 320 pt panel
     /// is the Aqua proportion; every app this one wants to be compared to runs 8–12 on a
     /// card and 6–8 on a control.
-    static let radiusCard: CGFloat = 10
-    static let radiusControl: CGFloat = 6
-    static let radiusChip: CGFloat = 4
+    ///
+    /// THE LADDER MOVED UP ONE STEP, on the owner's third review: "I'd love if we can
+    /// maybe make the corner radius a little higher, so a little bit more circular,
+    /// especially for the Cull, Develop, Crop, Grade, Deliver items, as well as the
+    /// independent items like the Curves tab, the White Balance, Tone."
+    ///
+    /// He is naming both ends of the scale — the tab strip and the section cards — so
+    /// the fix is the tokens rather than the call sites, and every surface in the app
+    /// rounds together. 10 → 14 on a card is the difference between "a rectangle with
+    /// its corners taken off" and a shape; 6 → 9 keeps a control in proportion to the
+    /// card holding it; 4 → 6 does the same for a chip.
+    static let radiusCard: CGFloat = 14
+    static let radiusControl: CGFloat = 9
+    static let radiusChip: CGFloat = 6
+
+    /// The workspace strip's own, and the only radius that is nearly a capsule.
+    ///
+    /// A tab is 28 points tall, so 12 leaves four points of straight edge at the top and
+    /// bottom of each corner — round enough to read as a pill at a glance, square enough
+    /// that five of them in a row still read as a segmented strip rather than as five
+    /// loose lozenges. It is a separate number from `radiusChip` because a chip is 16
+    /// points tall and 12 on one of those is a circle.
+    static let radiusTab: CGFloat = 12
 }
 #endif

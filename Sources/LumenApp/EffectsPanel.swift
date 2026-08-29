@@ -151,10 +151,10 @@ struct EffectsPanel: View {
             } else {
                 // The empty state is the way out of the empty state. Grain is a
                 // property of a stock, so the only move that leads anywhere from here
-                // is loading one, and `reveal` promotes the register if Film Lab is
+                // is loading one, and `jump` promotes the register if Film Lab is
                 // hiding in Simple.
                 HStack(spacing: 6) {
-                    Button("Load a film stock") { PanelLayout.shared.reveal(.filmLab) }
+                    Button("Load a film stock") { state.jump(to: .filmLab) }
                         .buttonStyle(.plain)
                         .font(.system(size: 10))
                         .foregroundStyle(Lumen.accent)

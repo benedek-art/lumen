@@ -167,15 +167,13 @@ final class KeyDispatcher {
             // overlay's rect is normalized to the straightened frame — a second inset
             // crop inside the first, compounding on every drag. The renderer now shows
             // the uncropped frame while this is on, which is what makes it correct.
-            // Crop lives in Develop's Optics section now, not the Effects tab. Both
-            // halves are set: the workspace is what `LoupeView` gates the on-image
-            // rectangle on, and opening the section is what puts the ratio and angle
-            // rows under the photographer's hand without a second click.
-            // `reveal`, not `click`: Optics is not in the Simple register the app
-            // opens in, so a click would be a silent no-op and R would do nothing.
-            PanelLayout.shared.reveal(.frame)
-            state.showLoupe()
-            LoupeViewport.shared.showCrop.toggle()
+            // Crop is its own workspace now, and R is one of three doors into it — the
+            // menu item and the tab strip are the others. All three call the same verb,
+            // because fixing them one at a time is exactly how the tab came to be the
+            // one route that did not arm the tool. `AppState.toggleCropTool` holds the
+            // round trip: from outside it enters Crop with the section open and the
+            // rectangle live, and from inside it toggles the rectangle without leaving.
+            state.toggleCropTool()
         case "m":
             // M IS A ROUND TRIP, and it has to be, because it is the only key that both
             // enters and leaves. The column becomes the mask editor and the workspace
@@ -212,14 +210,18 @@ final class KeyDispatcher {
         // The three panel keys now name a workspace AND a section, because a workspace
         // alone would leave the photographer looking at whichever section was last open.
         // Each opens the section that tab used to lead with.
+        //
+        // Through `state.jump` rather than `PanelLayout.reveal` directly, because a key
+        // that names a section is a key that names a PLACE: pressed from the grid,
+        // `reveal` opened Tone behind a contact sheet and left it there.
         case "b":
-            PanelLayout.shared.reveal(.tone)
+            state.jump(to: .tone)
         case "l":
-            PanelLayout.shared.reveal(.looks)
+            state.jump(to: .looks)
         case "d":
             // Detail is not in the Simple register, so this one genuinely needs the
             // promotion `reveal` performs — through `click` the key was silent.
-            PanelLayout.shared.reveal(.detail)
+            state.jump(to: .detail)
         // H is the develop histogram, which bins the RENDERED picture — the instrument
         // docs/10 §10.5 calls the one that lies, because the render has been through
         // the tone stage and the display transform before it is counted. ⇧H is the

@@ -31,6 +31,25 @@
 // now looks like "this control is engaged" instead of like an error state. Zero chroma,
 // no stroke, and no layout: a ring that changed a row's height on focus would make the
 // whole panel jump as the arrows moved between rows.
+//
+// AND THEN THE HOVER RUNG CAME BACK OUT, one review later: "I would remove a bunch of
+// the hover effects, like hovering over the white balance or the temperature or tint,
+// stuff like that. I don't really like the fact that I can get that hover effect."
+//
+// He asked for hover on everything in the review before this one, and both requests are
+// right, because a slider row is not the same kind of thing as a button. A button needs
+// hover to say "this is pressable" — its whole affordance is that it can be clicked and
+// nothing about a word in a panel says so on its own. A slider says what it is by
+// LOOKING like a slider: there is a groove and a thumb sitting in it. The fill added
+// nothing to that, and it cost something real, because these rows are what a photographer
+// sweeps the pointer across on the way to the picture. Eleven of them lighting up in
+// sequence is a wave of grey moving through the panel beside a photograph somebody is
+// trying to judge the tone of — motion in the peripheral vision of a colour decision,
+// which is the one thing docs/00's Law 4 says the surround may never do.
+//
+// So the fill is focus-only now, and the surviving hover in this app is on things you
+// can click: headers, chevrons, tabs, buttons, chips. The keyboard state keeps its
+// surface, because that is the state with nothing else to show it.
 
 #if os(macOS)
 
@@ -38,47 +57,24 @@ import SwiftUI
 
 extension View {
 
-    /// Answer the pointer AND the keyboard on one surface.
+    /// Say that this row holds the keyboard, without a ring and without a hover.
     ///
-    /// One modifier for both states rather than `lumenHoverable()` plus something drawn
-    /// on top, because they are the same pixels: a hover fill is a background and a
-    /// focus indication drawn as an overlay would sit ON the groove it is reporting,
-    /// dimming the instrument to announce that you can type at it. Folding the two into
-    /// a single three-step fill also means a row that is hovered AND focused cannot show
-    /// both — it shows the higher state, which is the one the eye should read.
+    /// Drawn as a background rather than an overlay, because an overlay would sit ON the
+    /// groove it is reporting — dimming the instrument in order to announce that you can
+    /// type at it. It is the same fill `lumenHoverable()` paints one rung lower, so a
+    /// focused row and a hovered button are visibly the same family of state.
     ///
-    /// Focus outranks hover deliberately. A focused row keeps its surface while the
-    /// pointer wanders away, which is the entire reason a keyboard state exists.
-    func lumenInteractiveSurface(focused: Bool,
-                                 radius: CGFloat = Lumen.radiusControl) -> some View {
-        modifier(LumenInteractiveSurface(focused: focused, radius: radius))
-    }
-}
-
-private struct LumenInteractiveSurface: ViewModifier {
-    let focused: Bool
-    let radius: CGFloat
-    /// Row-local. Hover state must never reach an `ObservableObject` — a pointer
-    /// crossing a panel would publish once per row, and this app has already paid for
-    /// that lesson once in `CommandState`.
-    @State private var hovering = false
-
-    private var fill: Color {
-        if focused { return Lumen.controlActive }
-        if hovering { return Lumen.controlHover }
-        return .clear
-    }
-
-    func body(content: Content) -> some View {
-        content
-            .background(
-                RoundedRectangle(cornerRadius: radius, style: .continuous)
-                    .fill(fill))
+    /// NO HOVER RUNG. It had one and the owner asked for it to go; the file header holds
+    /// the argument. What is left is a single binary fill, which is also why this no
+    /// longer needs `@State` of its own.
+    func lumenFocusSurface(focused: Bool,
+                           radius: CGFloat = Lumen.radiusControl) -> some View {
+        background(
+            RoundedRectangle(cornerRadius: radius, style: .continuous)
+                .fill(focused ? Lumen.controlActive : Color.clear))
             .contentShape(Rectangle())
-            .onHover { hovering = $0 }
-            // Animated on the values rather than on the view, so an un-hover fades out
+            // Animated on the value rather than on the view, so losing focus fades out
             // rather than snapping — the asymmetry the eye reads as responsiveness.
-            .animation(.easeOut(duration: 0.12), value: hovering)
             .animation(.easeOut(duration: 0.12), value: focused)
     }
 }

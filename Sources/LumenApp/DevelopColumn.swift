@@ -27,6 +27,12 @@ import SwiftUI
 
 struct WorkspaceSwitcher: View {
     @ObservedObject var panel: PanelLayout
+    /// A tab is a DESTINATION, not an arrangement — see `AppState.enter`. The strip used
+    /// to call `panel.select` directly, which moved the column and nothing else, so
+    /// clicking Cull left you in the loupe and clicking Crop left the crop tool off. The
+    /// menu items had both fixes written into them individually; the tabs, which are what
+    /// a photographer actually clicks, had neither.
+    @EnvironmentObject private var state: AppState
 
     /// Which tab the pointer is over, and whether it is on the mask door. Row-local, so
     /// crossing the strip invalidates the strip and nothing else — hover state never
@@ -69,7 +75,7 @@ struct WorkspaceSwitcher: View {
                 .padding(.vertical, 6)
                 .background(tabFill(selected: false, hovered: backHovered))
                 .foregroundStyle(backHovered ? Lumen.primaryText : Lumen.secondaryText)
-                .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusChip,
+                .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusTab,
                                             style: .continuous))
                 .contentShape(Rectangle())
             }
@@ -95,7 +101,7 @@ struct WorkspaceSwitcher: View {
             ForEach(Workspace.allCases, id: \.self) { workspace in
                 let isCurrent = panel.layout.workspace == workspace
                 Button {
-                    panel.select(workspace)
+                    state.enter(workspace)
                 } label: {
                     Text(workspace.title)
                         .font(isCurrent ? .lumenBodyStrong : .lumenBody)
@@ -107,7 +113,12 @@ struct WorkspaceSwitcher: View {
                         // The selected fill was an unclipped square corner in a panel
                         // whose every other surface is rounded — the one place the strip
                         // looked drawn rather than built.
-                        .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusChip,
+                        //
+                        // `radiusTab`, which is the strip's own and nearly a capsule: the
+                        // owner named these five by name as the place he most wanted the
+                        // corner opened up. See `Lumen.radiusTab` for why it is a
+                        // separate number from the chip radius rather than the same one.
+                        .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusTab,
                                                     style: .continuous))
                         .contentShape(Rectangle())
                 }
@@ -145,7 +156,7 @@ struct WorkspaceSwitcher: View {
                     .padding(.vertical, 6)
                     .background(tabFill(selected: false, hovered: maskHovered))
                     .foregroundStyle(maskHovered ? Lumen.primaryText : Lumen.secondaryText)
-                    .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusChip,
+                    .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusTab,
                                                 style: .continuous))
                     .contentShape(Rectangle())
             }
@@ -312,10 +323,22 @@ struct WorkspaceSections: View {
 /// darker trough — and the eye stops hunting for a boundary and starts reading an
 /// object. Six of those down a column is unmistakably six areas, at any scroll speed.
 ///
-/// The horizontal arithmetic is deliberate and costs the slider nothing. `scrollColumn`
-/// gave up its 8 points of side padding to 4, and the other 4 are inside this card, so a
-/// row's content edge lands exactly where it did and every slider keeps all 180 points
-/// of its track (`Lumen.labelWidth`'s note on what those points are worth).
+/// THE HORIZONTAL ARITHMETIC, and it changed on the owner's third review: "I feel like
+/// there isn't enough padding from the sides of the Exposure, Contrast, stuff like that,
+/// the text, so it's really, really close to the wall. Can we move those in just a little
+/// bit more so it's a little more comfortable?"
+///
+/// He is right, and the number says why. `scrollColumn` gave up its 8 points of side
+/// padding to 4 and the card held the other 4, so "Exposure" began **8 points** from the
+/// panel's edge — a gutter narrower than the gap between two of its own letters, on a
+/// card whose corner radius is now 14. Ten points inside the card puts the label 14 from
+/// the edge, which is the same distance as the corner, so the text clears the curve
+/// instead of tucking under it.
+///
+/// It costs the track 12 points, and that is affordable now in a way it was not before:
+/// the column is draggable (`ContentView.columnResizer`), so a photographer who wants
+/// those points back takes them, and the default width is 380 rather than the 320 the
+/// original arithmetic was measured against.
 private struct WorkspaceSectionView: View {
     let section: WorkspaceSection
     let isExpanded: Bool
@@ -357,7 +380,7 @@ private struct WorkspaceSectionView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 4)
+        .padding(.horizontal, 10)
         .padding(.top, 8)
         .padding(.bottom, 8)
         // `.flush`: an edge but no cast shadow. Six drop shadows stacked down a
@@ -479,7 +502,10 @@ struct MaskEditor: View {
     var body: some View {
         MaskPanel(showsOwnHeader: false)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 4)
+            // Ten, matching `WorkspaceSectionView`: the takeover wears the accordion's
+            // card, so it has to wear the accordion's gutter or the column's text edge
+            // would jump sideways every time masking opened.
+            .padding(.horizontal, 10)
             .padding(.top, 4)
             .padding(.bottom, 8)
             // The same card the accordion's sections wear, for the same reason and to

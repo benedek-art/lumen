@@ -186,26 +186,23 @@ private struct LumenCommands: Commands {
                     // the photographer looking at one large photograph with 320 points
                     // of empty space where the panel had been. The app's most prominent
                     // navigation control was named after a mode it did not enter.
-                    // Pairing the two here is the smallest honest fix.
-                    Button("Cull") { PanelLayout.shared.select(.cull); state.showGrid() }
+                    //
+                    // Pairing it here was the smallest fix and it was the wrong shape:
+                    // ⌘3 then needed its own second line to arm the crop tool, and the
+                    // TAB STRIP — which calls neither of these — got no fix at all, which
+                    // is how the owner came to be looking at the Crop workspace with no
+                    // rectangle on his photograph. `AppState.enter` is the one verb now,
+                    // and these five are five names for it.
+                    Button("Cull") { state.enter(.cull) }
                         .keyboardShortcut("1", modifiers: [.command])
-                    Button("Develop") {
-                        PanelLayout.shared.select(.develop); state.showLoupe()
-                    }
-                    .keyboardShortcut("2", modifiers: [.command])
-                    Button("Crop") {
-                        PanelLayout.shared.select(.crop); state.showLoupe()
-                        LoupeViewport.shared.showCrop = true
-                    }
-                    .keyboardShortcut("3", modifiers: [.command])
-                    Button("Grade") {
-                        PanelLayout.shared.select(.grade); state.showLoupe()
-                    }
-                    .keyboardShortcut("4", modifiers: [.command])
-                    Button("Deliver") {
-                        PanelLayout.shared.select(.deliver); state.showLoupe()
-                    }
-                    .keyboardShortcut("5", modifiers: [.command])
+                    Button("Develop") { state.enter(.develop) }
+                        .keyboardShortcut("2", modifiers: [.command])
+                    Button("Crop") { state.enter(.crop) }
+                        .keyboardShortcut("3", modifiers: [.command])
+                    Button("Grade") { state.enter(.grade) }
+                        .keyboardShortcut("4", modifiers: [.command])
+                    Button("Deliver") { state.enter(.deliver) }
+                        .keyboardShortcut("5", modifiers: [.command])
                 }
                 Group {
                     Divider()

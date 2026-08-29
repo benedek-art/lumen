@@ -125,6 +125,27 @@ final class PanelLayout: ObservableObject {
         commit(next)
     }
 
+    /// OPEN A SECTION AND LEAVE THE REST ALONE — the idempotent sibling of `reveal`.
+    ///
+    /// `reveal` is a jump: it solos the section, which is right for a key that means "go
+    /// to Detail" and wrong for anything that runs as a side effect of arriving
+    /// somewhere. It also TOGGLES, because `click` toggles, so calling it on a section
+    /// that is already open closes it — invisible for a key you press deliberately, and a
+    /// real defect for a call the photographer did not make: entering the Crop workspace
+    /// would have folded the Crop section shut whenever it happened to be open.
+    ///
+    /// This one is a statement of the state wanted rather than of the gesture made, so
+    /// calling it twice says the same thing twice.
+    func expose(_ section: WorkspaceSection) {
+        var next = layout
+        next.select(section.workspace)
+        if !section.isVisible(in: next.register) { next.register = .full }
+        if !next.expanded.contains(section) {
+            next.click(section, keepingOthersOpen: true)
+        }
+        commit(next)
+    }
+
     /// Simple ⇄ Full.
     func toggleRegister() {
         var next = layout
