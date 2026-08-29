@@ -113,20 +113,36 @@ struct DevelopSection<Content: View>: View {
     private let title: String
     private let isModified: Bool
     private let onReset: (() -> Void)?
-    /// Eager on purpose, for now: this section has no `if`, so its content renders on
-    /// every pass regardless and a closure would only move the allocation from the
-    /// parent's body to this one. It becomes a closure in docs/28 Phase 4, in the same
-    /// change that gives it an `isExpanded` — which is the point at which deferring
-    /// actually defers something. See `DevelopDisclosure` for the version that already
-    /// needs it.
-    private let content: Content
+    /// Whether this section draws its rows. `true` for every section that has no
+    /// accordion above it, which is what the memberwise default preserves.
+    private let isExpanded: Bool
+    /// Present only when an accordion owns the expansion — see `LumenSectionHeader`'s
+    /// `onToggle` for why the click cannot be a per-section binding.
+    private let onToggle: ((Bool) -> Void)?
+    /// THE CLOSURE, NOT THE VIEW.
+    ///
+    /// It was eager, on the reasoning that a section with no `if` renders its content on
+    /// every pass anyway, so deferring would move an allocation rather than avoid one.
+    /// That reasoning expires here: docs/28 §5.5 requires this to land BEFORE the
+    /// workspaces, because a section that can now be closed but still CONSTRUCTS its
+    /// rows is an accordion that costs what it claims to save — and a drag re-bodies the
+    /// panel on every mouse event, so the per-event difference is the whole point.
+    ///
+    /// Look holds 38 sliders in one section. Each is a `LumenSlider` struct plus the two
+    /// escaping closures a `RecipeBinder` binding allocates, built 48 times over a drag
+    /// whether or not anybody can see them. `DevelopDisclosure` made this move already,
+    /// for the same reason and with the same argument.
+    private let content: () -> Content
 
     init(_ title: String, isModified: Bool, onReset: (() -> Void)? = nil,
-         @ViewBuilder content: () -> Content) {
+         isExpanded: Bool = true, onToggle: ((Bool) -> Void)? = nil,
+         @ViewBuilder content: @escaping () -> Content) {
         self.title = title
         self.isModified = isModified
         self.onReset = onReset
-        self.content = content()
+        self.isExpanded = isExpanded
+        self.onToggle = onToggle
+        self.content = content
     }
 
     var body: some View {
@@ -134,9 +150,15 @@ struct DevelopSection<Content: View>: View {
             // No "Default" badge on clean sections any more (design audit §1.9):
             // chrome announcing the ABSENCE of information, repeated per section per
             // panel. The accent dot already says "modified"; silence says default.
-            LumenSectionHeader(title: title, isExpanded: nil,
-                               isModified: isModified, onReset: onReset)
-            content
+            //
+            // The chevron appears only when somebody can act on it. A section with no
+            // `onToggle` is not collapsible, and drawing a disclosure arrow that does
+            // nothing is the same lie as a caption promising a dead shortcut.
+            LumenSectionHeader(title: title,
+                               isExpanded: onToggle == nil ? nil : .constant(isExpanded),
+                               isModified: isModified, onReset: onReset,
+                               onToggle: onToggle)
+            if isExpanded { content() }
         }
         // No compensating pad here any more: the header carries the whole 16 pt of
         // section rhythm itself, so a section composed by hand out of a

@@ -860,6 +860,28 @@ struct LumenSectionHeader: View {
     /// louder than the heading above it.
     var topRhythm: CGFloat = 16
 
+    /// TAKES THE CLICK INSTEAD OF THE BINDING, and is told whether ⌥ was down.
+    ///
+    /// A `Binding<Bool>` can express "this section is open" and cannot express what an
+    /// accordion needs, which is that opening one section closes its siblings unless a
+    /// modifier says otherwise. That rule is `SectionExpansion.afterClick` in LumenCore,
+    /// it operates on the whole expanded SET, and no per-section binding can reach it.
+    ///
+    /// So when this is present the header reports the click and lets the caller decide;
+    /// `isExpanded` then only draws the chevron and may be a constant. Absent, the
+    /// binding toggles itself exactly as before — which is what the 44 existing call
+    /// sites do and why this is an addition rather than a change.
+    ///
+    /// The flag is read from `NSEvent.modifierFlags` at click time rather than carried
+    /// in, the same way `LumenSlider` reads ⇧ for its fine drag: SwiftUI's tap gestures
+    /// do not report modifiers, and threading a monitor through every header to learn
+    /// one bit would cost more than reading it costs.
+    var onToggle: ((_ keepingOthersOpen: Bool) -> Void)?
+
+    private static var optionIsDown: Bool {
+        NSEvent.modifierFlags.contains(.option)
+    }
+
     /// Row-local, so a pointer crossing one header invalidates one header. Hover state
     /// never goes anywhere observable — see `CommandState` for what a per-event publish
     /// costs a drag.
@@ -869,7 +891,7 @@ struct LumenSectionHeader: View {
         HStack(spacing: 4) {
             if let isExpanded {
                 Button {
-                    isExpanded.wrappedValue.toggle()
+                    toggle()
                 } label: {
                     Image(systemName: isExpanded.wrappedValue ? "chevron.down" : "chevron.right")
                         .font(.system(size: 9, weight: .semibold))
@@ -911,9 +933,18 @@ struct LumenSectionHeader: View {
         .padding(.bottom, 2)
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
-        .onTapGesture {
-            if let isExpanded { isExpanded.wrappedValue.toggle() }
+        .onTapGesture { toggle() }
+    }
+
+    /// One path for the chevron and the row, so the two can never disagree about what a
+    /// click means — which they would the moment only one of them learned about
+    /// `onToggle`.
+    private func toggle() {
+        if let onToggle {
+            onToggle(Self.optionIsDown)
+            return
         }
+        isExpanded?.wrappedValue.toggle()
     }
 }
 
