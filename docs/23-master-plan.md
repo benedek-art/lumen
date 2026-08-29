@@ -1374,13 +1374,22 @@ side-by-side exports. **Exit gate: owner prefers or ties Lumen on ≥4 of 5.**
          image — is not an upload cost, and there is NO smaller draft that would have
          avoided it. The ladder was spending its one lever on a disturbance the lever
          has no authority over, and paying for it in sharpness.
-      2. **The climb could not be reached from where the descent had put it.** The
-         cheap-frame streak was ALSO judged on `costSample`, so on any machine whose
-         frame period is floored above `stepUpUnder` (17.5 ms) by something other than
-         pixels, the streak can never accumulate however cheap the renders are. 28
-         delivered frames a second is a 35.7 ms period. The ladder was capable of being
-         permanently pinned by its own arrival rate.
-      Down fast, up never — which is exactly the picture the owner described.
+      2. **The climb was judged on a number that cannot answer its question.** The
+         cheap-frame streak was ALSO fed `costSample`, so on any machine whose frame
+         period is floored above `stepUpUnder` (17.5 ms) by something other than pixels,
+         the streak can never accumulate however cheap the renders are — the ladder can
+         be permanently pinned by its own arrival rate.
+         **CORRECTED, same session:** this is a latent hazard the fix removes, and it is
+         NOT what happened to the owner. It was written up here as the second half of
+         his defect on the assumption of a ~28 fps loop. The table counters say the loop
+         was running at about **92 frames a second** — `bake/stale 92/s 0/s` is one
+         exact tone-cube bake per plan and therefore 92 plans a second, reproduced
+         against his `tables 2241h 2230b` — so his frame period was ~11 ms, well under
+         the threshold, and the climb was reachable throughout. What actually held the
+         ladder down was defect 1 resetting the streak faster than twelve frames could
+         rebuild it. Recorded rather than quietly edited because reasoning from an
+         assumed frame rate is the mistake, not the arithmetic.
+      Down fast, and up too slowly to matter — which is the picture the owner described.
       The fix splits the evidence, because the two directions ask different questions.
       The DESCENT is judged on what the hand felt and the CLIMB on what the render cost,
       since the render is the only part of the interval resolution can change. A hot
@@ -1401,6 +1410,56 @@ side-by-side exports. **Exit gate: owner prefers or ties Lumen on ≥4 of 5.**
       still at rung 0. Under the old rule that trace reached the floor.
       Still open: the stall itself. The ladder no longer dives on it, but a 399 ms hitch
       is a 399 ms hitch and the hand feels it. Under investigation separately.
+- [x] **Round 5e — the instrument the last three rounds reasoned from was measuring
+      something else, and it named the stall.** `afterRenderMs` has been documented
+      since it was written as "the CGImage handed to SwiftUI, the body pass, the texture
+      upload, compositing" — the half of a frame a resolution ladder cannot fix and a
+      Metal-layer viewport would. Every argument for that plate has cited it. The
+      arithmetic never supported it and was always available:
+
+          period  = landedAt(N) - landedAt(N-1)
+          draftMs = landedAt(N) - draftStarted(N)
+          period - draftMs = draftStarted(N) - landedAt(N-1)
+
+      `draftStarted` is stamped BEFORE the await (`LoupeView.swift:531`), so queueing,
+      render and readback are all inside `draftMs`. The remainder is the gap between one
+      frame LANDING and the next being REQUESTED. No part of the display path is in it.
+      It is normally zero or negative — `.task(id:)` starts frame N+1 without waiting
+      for N — so the `0.00` that dominated the owner's readings is the `max(0, ...)`
+      clamp, not a free display path.
+      Which means a large `after` says the request stream STOPPED. Mid-gesture, with the
+      button still down, that is the hand pausing. And the saturation guard meant to
+      exclude exactly that was sampled at one end only: `Task.isCancelled` read when the
+      frame lands answers "was work queued behind this frame", never "was work queued
+      when the interval opened". A pause followed by a hard resume passes it, and the
+      whole pause is charged to the machine. 285, 378 and 399 ms all sit under
+      `continuityCeilingMilliseconds` — the band a hesitation occupies, not the band a
+      stall does.
+      `DraftLadder.loopWasSaturated` now requires the previous frame to have been
+      cancelled too, and the viewer carries that forward (`lastDraftWasSaturated`).
+      Four tests, including the owner's trace reaching the ladder as an 11 ms frame.
+      **And a real stall was found underneath it, in the place the guard was missing
+      entirely.** `PhotoRenderModel.load` defaults `settleTick: 0` and
+      `gestureInFlight: { false }`, and **neither compare-pane call site passed either**
+      (`CompareView.swift:262`, `:470`). Their `.task(id:)` is keyed on
+      `ViewerRenderKey`, which contains the recipe — so with a pane open, every mouse
+      event of a drag scheduled a FULL-RESOLUTION settle on the same serial coordinator
+      the loupe's drafts queue on, whose passes have no cancellation points. That is
+      verbatim the defect `LoupeView.swift:637-651` documents and fixed in one place
+      only: "once one started every event behind it waited 100-300 ms for a lane that
+      could not be given back." Stack three and it is 285-399 ms, landing in the loupe's
+      frame interval. Both sites now pass both arguments — the tick is not optional
+      beside the guard, since the guard skips the settle and the tick is what asks for
+      it again. Those panes' ladders also receive their first-ever `gestureEnded()`.
+      `beforeModel` (`LoupeView.swift:1024`) deliberately does NOT get the guard:
+      `BeforeKey` carries no tick, so it would trade a rare extra settle for a
+      permanently soft before rendition — and `beforeRecipe` does not move while the
+      edited section's sliders do, so there is no storm there to stop. Written down at
+      the call site.
+      Also fixed: the HUD printed a sticky `after` directly beneath a per-frame `draft`
+      and captioned them "one frame split in half". They routinely were not, and a whole
+      round of diagnosis was built on `draft 10.8 @576` sitting next to `after 399`. The
+      `after` line now carries the draft it was actually measured beside.
 - [ ] **Deliberately NOT done in round 2: anything else to the render or display path.**
       The display path above is the leading suspect and a `CALayer`-contents or
       Metal-layer plate is the obvious next move — and shipping it now, unverified,

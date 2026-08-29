@@ -48,16 +48,39 @@ final class LatencyHUD: ObservableObject {
     /// say.
     @Published private(set) var draftShortfall: Int?
 
-    /// THE HALF OF A FRAME NOBODY HAS EVER PRINTED.
+    /// THE GAP BEFORE THE NEXT FRAME WAS ASKED FOR — which is not what this was called
+    /// for three rounds, and the difference decided a diagnosis.
     ///
-    /// `draftMs` is the render, measured around the await. This is the rest of the
-    /// interval between two delivered frames while the loop is saturated: the CGImage
-    /// handed to SwiftUI as a fresh `Image(decorative:)`, the body pass, the texture
-    /// upload, compositing. `DragProbeTests` says in its own header that it stops one
-    /// step before this, and the last three rounds have argued about whether it matters
-    /// without measuring it. Nil when the hand is not saturating the loop, because then
-    /// the gap is the hand's.
+    /// It read "the CGImage handed to SwiftUI, the body pass, the texture upload,
+    /// compositing", and every argument about whether this app needs a Metal-layer
+    /// viewport has cited it. The arithmetic never supported that. The viewer stamps
+    /// the render's start BEFORE awaiting the coordinator, so:
+    ///
+    ///     interval - render = draftStarted(N) - landedAt(N-1)
+    ///
+    /// Queueing, render and readback are all inside `render`. What is left is the time
+    /// between one frame arriving and the next being REQUESTED — no part of the display
+    /// path is in it. It is usually zero or negative (the next frame's task starts
+    /// before the last one lands), so the 0.00 that dominates a healthy loop is a clamp
+    /// rather than a free display path.
+    ///
+    /// It goes large when the request stream stops. Mid-gesture that means the hand
+    /// paused, which is worth seeing and is not a cost. `DraftLadder.costSample` is
+    /// what decides whether the ladder is allowed to believe it.
+    ///
+    /// Nil unless the loop was saturated at both ends of the interval.
     @Published private(set) var afterRenderMs: Double?
+    /// THE FRAME `afterRenderMs` WAS MEASURED ON, because it is not the frame `draftMs`
+    /// describes and the two lines sit one above the other.
+    ///
+    /// `draftMs` is overwritten every frame; `afterRenderMs` is deliberately kept (see
+    /// `noteDraft`). So the pair on screen is routinely a current draft beside a reading
+    /// from some earlier frame, and it reads as one frame split in half — the caption
+    /// under the two lines said exactly that. A whole round of diagnosis was built on
+    /// the owner's `draft 10.8 ms @576` sitting next to `after 399`, which were never
+    /// the same frame. The `after` line now carries its own frame's cost so the
+    /// mis-pairing is not available to make.
+    @Published private(set) var afterRenderDraftMs: Double?
 
     /// THE PAIR THAT ENDS THE ARGUMENT.
     ///
@@ -134,7 +157,10 @@ final class LatencyHUD: ObservableObject {
         // So the last MEASURED value stays up. The rates above go to "—" when the drag
         // stops, which is what tells a reader this number belongs to the gesture that
         // just ended rather than to right now.
-        if let afterRenderMilliseconds { afterRenderMs = afterRenderMilliseconds }
+        if let afterRenderMilliseconds {
+            afterRenderMs = afterRenderMilliseconds
+            afterRenderDraftMs = milliseconds
+        }
         if let requestedLongEdge, requestedLongEdge > longEdge {
             draftShortfall = requestedLongEdge
         } else {
@@ -231,11 +257,21 @@ struct LatencyHUDView: View {
             Text(line("input→draft", hud.inputToDraftMs, nil))
             Text(line("draft      ", hud.draftMs, hud.draftLongEdge)
                     + (hud.draftShortfall.map { " (asked \($0))" } ?? ""))
-            // Sits directly under `draft` because the two are one frame split in half,
-            // and the split is the whole diagnosis: `draft` large wants fewer pixels,
-            // which the ladder already does by itself; `after` large wants a Metal
-            // plate, which nothing in this app has yet.
-            Text(line("after      ", hud.afterRenderMs, nil))
+            // Sits under `draft`, but it is NOT the same frame — this line is sticky
+            // and that one is not, so it prints the draft it was actually measured
+            // beside.
+            //
+            // Nor is it the half of a frame it was long documented as. The arithmetic
+            // is `draftStarted(N) - landedAt(N-1)`: the gap between one frame landing
+            // and the next being REQUESTED, with the whole render and its queueing on
+            // the other side of it. A large value says the picture stopped being asked
+            // for — during a drag, that the hand paused — and it is not evidence for a
+            // Metal plate, which is what this line was previously captioned as
+            // measuring.
+            Text(line("after      ", hud.afterRenderMs, nil)
+                    + (hud.afterRenderDraftMs.map {
+                        String(format: " (its draft %.1f)", $0)
+                    } ?? ""))
             Text(line("settle     ", hud.settleMs, hud.settleLongEdge))
             Text(cacheLine("tables     ", hits: tables.hits, bakes: tables.bakes,
                            stale: tables.staleServes))

@@ -384,6 +384,23 @@ final class PhotoRenderModel: ObservableObject {
     /// `DraftLadder.costSample`. Cleared on a photo change: a new photograph's first
     /// frame continues nothing.
     private var lastDraftAt: UInt64?
+    /// WHETHER THE PREVIOUS DRAFT HAD WORK QUEUED BEHIND IT, which is the other half of
+    /// the saturation test and was missing.
+    ///
+    /// The interval the ladder is costed by runs from the PREVIOUS frame's landing to
+    /// this one's, and `Task.isCancelled` is read at the END of it. That answers "was
+    /// the loop busy when this frame landed" and says nothing about whether it was busy
+    /// when the interval opened. A hand that pauses mid-gesture with the button still
+    /// down and then resumes hard produces exactly the false positive: the interval is
+    /// mostly the pause, the first frame after the resume is cancelled by the event
+    /// behind it, and the whole pause is charged to the machine as render cost. The
+    /// owner's 285/378/399 ms samples all sit under `continuityCeilingMilliseconds`
+    /// (500) — the band a human hesitation occupies, not the band a stall does.
+    ///
+    /// Saturation has to hold at BOTH ends: if the previous frame was itself cancelled,
+    /// a newer request already existed when it landed, so this frame's render should
+    /// have started immediately and any gap before it is genuinely the machine's.
+    private var lastDraftWasSaturated = false
     /// The size the previous draft was RENDERED at, so the ladder can tell a
     /// steady-state frame from the one that paid for a fresh decode at a new size —
     /// see `DraftLadder.isRepresentative`. Cleared with `lastDraftAt` and for the same
@@ -434,6 +451,7 @@ final class PhotoRenderModel: ObservableObject {
             settledRecipe = nil
             shownRecipe = nil
             lastDraftAt = nil
+            lastDraftWasSaturated = false
             lastDraftLongEdge = nil
             revision &+= 1
             if let thumbnails,
@@ -550,20 +568,40 @@ final class PhotoRenderModel: ObservableObject {
                 // the cost was real either way.
                 let landedAt = DispatchTime.now().uptimeNanoseconds
                 let draftMs = Double(landedAt - draftStarted) / 1e6
-                // But the render's own wall time stops before the SwiftUI handoff, the
-                // body pass and the texture upload, and none of those are free — so the
-                // ladder is costed by the INTERVAL between delivered frames whenever
-                // the loop is saturated. `Task.isCancelled` is the saturation signal
-                // and it is already here: `.task(id:)` cancels this task the moment a
-                // newer event reaches the view, so a task cancelled by the time its
-                // frame lands had work queued behind it the whole way. A slow hand
-                // leaves it false and the gap is correctly read as the hand's, not the
-                // machine's. `DraftLadder.costSample` holds the rule and the argument.
+                // WHAT THE INTERVAL BETWEEN TWO FRAMES ACTUALLY CONTAINS, stated
+                // correctly here for the first time — the previous version of this
+                // comment claimed it was "the SwiftUI handoff, the body pass and the
+                // texture upload", and three rounds of investigation reasoned from
+                // that. The arithmetic says otherwise and is worth writing out, since
+                // it is not obvious from any single line:
+                //
+                //     period   = landedAt(N)    - landedAt(N-1)
+                //     draftMs  = landedAt(N)    - draftStarted(N)
+                //     period - draftMs = draftStarted(N) - landedAt(N-1)
+                //
+                // `draftStarted` is stamped BEFORE the await, so everything the
+                // coordinator does — queueing included — is inside `draftMs` and none
+                // of it is in the remainder. The remainder is the gap between one frame
+                // landing and the next render being REQUESTED. It is an input and
+                // scheduling measure, not a display-path one, and it is usually zero
+                // or negative because `.task(id:)` starts frame N+1 without waiting for
+                // frame N.
+                //
+                // That makes it a measure of the request stream STOPPING, which during
+                // a gesture with the button still down means the hand paused. Costing
+                // the ladder for that is costing it for the photographer's hesitation.
+                // `handWasWaiting` is the guard, and it has to hold at both ends of the
+                // interval — see `lastDraftWasSaturated`.
                 let period = lastDraftAt.map { Double(landedAt - $0) / 1e6 }
+                let saturated = Task.isCancelled
+                let handWasWaiting = DraftLadder.loopWasSaturated(
+                    thisFrameCancelled: saturated,
+                    previousFrameCancelled: lastDraftWasSaturated)
                 let cost = DraftLadder.costSample(renderMilliseconds: draftMs,
                                                   sincePreviousFrameMilliseconds: period,
-                                                  handWasWaiting: Task.isCancelled)
+                                                  handWasWaiting: handWasWaiting)
                 lastDraftAt = landedAt
+                lastDraftWasSaturated = saturated
                 // ONLY A FRAME THAT MEASURES THE STEADY STATE TEACHES THE LADDER.
                 //
                 // The decode is keyed by the scale factor this size implies, so the
@@ -621,7 +659,7 @@ final class PhotoRenderModel: ObservableObject {
                     afterRenderMilliseconds: DraftLadder.afterRenderMilliseconds(
                         renderMilliseconds: draftMs,
                         sincePreviousFrameMilliseconds: period,
-                        handWasWaiting: Task.isCancelled))
+                        handWasWaiting: handWasWaiting))
                 if FrameDelivery.shouldShow(frameFor: url,
                                             currentRequest: currentRequestURL,
                                             generation: draft.generation,
@@ -997,6 +1035,18 @@ struct LoupeView: View {
                                    zoomRatio: state.zoomLevel),
                                fullLongEdge: longEdge,
                                strokeSets: state.strokeSets(for: beforeRecipe))
+        // DELIBERATELY NOT GIVEN THE SETTLE GUARD the compare panes just received.
+        //
+        // The guard SKIPS a settle while a hand is down, and something has to ask for
+        // it again afterwards. For the loupe and the panes that is `settleTick` inside
+        // `ViewerRenderKey`; `BeforeKey` has no tick, so a guard here would trade a rare
+        // extra settle for a before rendition left permanently soft.
+        //
+        // And the storm the guard exists to stop is not here: `BeforeKey.recipe` is
+        // `beforeRecipe`, the recipe with the edited section reverted, which does not
+        // move while that section's sliders do. This task therefore fires on a key
+        // change rather than per event — at most once at the start of a drag, not
+        // dozens of times through it.
     }
 
     // MARK: Content

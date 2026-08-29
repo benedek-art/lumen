@@ -275,7 +275,30 @@ private struct ComparePane: View {
                          strokeSets: state.strokeSets(for: recipe),
                          // ⇧S must mean the same thing in E and C: the loupe passes
                          // the proof, so the panes do too.
-                         softProof: state.activeSoftProof)
+                         softProof: state.activeSoftProof,
+                         // THE TWO ARGUMENTS THE LOUPE PASSES AND THESE PANES DID NOT.
+                         //
+                         // `PhotoRenderModel.load` defaults them to `0` and `{ false }`,
+                         // so every event of a slider drag scheduled a FULL-RESOLUTION
+                         // settle from these panes — on the same serial coordinator the
+                         // loupe's drafts queue on, whose passes have no cancellation
+                         // points. That is verbatim the defect the loupe documents and
+                         // fixed in one place only: "once one started every event behind
+                         // it waited 100-300 ms for a lane that could not be given
+                         // back." With a pane open it lands in the loupe's own frame
+                         // interval as a scattered several-hundred-millisecond gap,
+                         // which is exactly what the owner's HUD reported.
+                         //
+                         // Passing `settleTick` is not optional alongside the guard: the
+                         // guard SKIPS a settle during the gesture, and the tick moving
+                         // at release is what asks for it again. `ViewerRenderKey`
+                         // already carries the tick, so the task re-fires and the pane
+                         // settles once, at rest — the loupe's exact bargain. It also
+                         // gives these panes' ladders their `gestureEnded()`, which they
+                         // have never once received.
+                         settleTick: state.settleTick,
+                         gestureInFlight: { state.sliderGestureActive },
+                         )
     }
 
     // MARK: Geometry
@@ -480,7 +503,13 @@ private struct SurveyCell: View {
                              zoomRatio: 0),
                          fullLongEdge: longEdge,
                          strokeSets: state.strokeSets(for: recipe),
-                         softProof: state.activeSoftProof)
+                         softProof: state.activeSoftProof,
+                         // Same two arguments, same reason — see the compare pane
+                         // above. A survey grid renders many panes, so the settle storm
+                         // this removes is multiplied by however many are on screen.
+                         settleTick: state.settleTick,
+                         gestureInFlight: { state.sliderGestureActive },
+                         )
     }
 
     private func requestedLongEdge(container: CGSize) -> Int {

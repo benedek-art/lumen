@@ -89,27 +89,57 @@ public struct DraftLadder: Sendable, Equatable {
     /// continuous gesture's frame period and far inside a human pause.
     public static let continuityCeilingMilliseconds: Double = 500
 
+    /// WHETHER THE LOOP WAS BUSY FOR THE WHOLE INTERVAL, not merely at the end of it.
+    ///
+    /// The interval a frame is costed by runs from the previous frame's landing to this
+    /// one's. The viewer's saturation signal is `Task.isCancelled`, read when a frame
+    /// lands: `.task(id:)` cancels a render the moment a newer event reaches the view,
+    /// so a task cancelled by the time its frame arrives had work queued behind it
+    /// then. That is a fact about the END of the interval and says nothing about its
+    /// beginning.
+    ///
+    /// A hand that pauses mid-gesture with the button still down and then resumes hard
+    /// passes an end-only test: the interval is mostly the pause, the first frame after
+    /// the resume is cancelled by the event behind it, and the entire pause is charged
+    /// to the machine as though it were render cost. Requiring the PREVIOUS frame to
+    /// have been cancelled too closes it — if a newer request already existed when that
+    /// frame landed, this frame's render should have begun immediately, so any gap
+    /// before it is genuinely the machine's.
+    ///
+    /// A rule rather than a line in the viewer because every rule this ladder runs on
+    /// lives here, for the reason the file header gives: a constant in a view has no
+    /// test target and nothing can notice when its assumptions stop holding.
+    public static func loopWasSaturated(thisFrameCancelled: Bool,
+                                        previousFrameCancelled: Bool) -> Bool {
+        thisFrameCancelled && previousFrameCancelled
+    }
+
     /// WHAT A FRAME ACTUALLY COST THE HAND, which is not what the renderer reports.
     ///
-    /// `record` is fed a wall time measured around the render call. That covers actor
-    /// queueing, the render and the readback — and nothing after it: handing the
-    /// CGImage to SwiftUI, the body pass, the texture upload, compositing. None of
-    /// that is small, and none of it is visible to a ladder that only times the render.
-    /// The hole matters more the more pixels a draft carries, and removing the
-    /// half-resolution cap quadrupled them: a fit draft went from about 4 MB per frame
-    /// to 17, a zoomed one from 11 to 45. A ladder blind to that would sit at the top
-    /// rung reporting cheap frames while the picture ticked.
+    /// `record` is fed a wall time measured around the render call. The interval
+    /// BETWEEN two delivered frames sees more than that, and folding it in is what
+    /// keeps a ladder from sitting at the top rung reporting cheap frames while the
+    /// picture ticks.
     ///
-    /// The interval BETWEEN two delivered frames does see all of it, because the next
-    /// render cannot start until the main actor has finished with the last one. But it
-    /// is only a measure of cost when the loop is saturated: a slow hand produces long
-    /// gaps because the app was idle, and reading those as expense would step the
-    /// ladder down for the crime of being asked for less.
+    /// BUT ONLY WHEN THE LOOP IS SATURATED, and that condition carries far more weight
+    /// than it first appears to. The viewer stamps the render's start BEFORE it awaits
+    /// the coordinator, so actor queueing is already inside the render time and the
+    /// remainder of the interval is `draftStarted(N) - landedAt(N-1)` — the gap between
+    /// one frame landing and the next being REQUESTED. During a gesture with the button
+    /// still down, a long gap there means the request stream stopped, which means the
+    /// HAND stopped. Reading it as expense costs the photographer a rung for
+    /// hesitating.
     ///
-    /// `handWasWaiting` is what separates the two, and the viewer already has the
-    /// signal: `.task(id:)` cancels the render task the moment a newer event reaches
-    /// the view, so a task that finds itself cancelled when its frame lands is one that
-    /// had work queued behind it the whole time. That is saturation, exactly.
+    /// `handWasWaiting` is the guard, and it must hold at BOTH ENDS of the interval.
+    /// `.task(id:)` cancels the render task the moment a newer event reaches the view,
+    /// so a task cancelled when its frame lands had work queued behind it then — but
+    /// that says nothing about whether work was queued when the interval OPENED. A
+    /// pause followed by a hard resume passes an end-only test and charges the whole
+    /// pause to the machine. The viewer therefore carries the previous frame's
+    /// saturation forward and requires both; measured on the owner's machine, the
+    /// samples this admitted were 285, 378 and 399 ms, all of them under
+    /// `continuityCeilingMilliseconds` and all of them in the band a human hesitation
+    /// occupies rather than the band a stall does.
     public static func costSample(renderMilliseconds: Double,
                                   sincePreviousFrameMilliseconds: Double?,
                                   handWasWaiting: Bool) -> Double {
@@ -124,27 +154,34 @@ public struct DraftLadder: Sendable, Equatable {
         return Swift.max(renderMilliseconds, period)
     }
 
-    /// EVERYTHING THE RENDER'S OWN TIMER CANNOT SEE, as a number rather than an
-    /// inference.
+    /// THE GAP BEFORE THE NEXT RENDER WAS REQUESTED — and it is worth being blunt about
+    /// that, because this function was documented for three rounds as "everything the
+    /// render's own timer cannot see: the handoff to SwiftUI, the body pass, the
+    /// texture upload, compositing", and investigations reasoned from that description.
+    /// It was wrong, and the arithmetic was always available to say so:
     ///
-    /// `costSample` above folds the display path into the ladder's input so the ladder
-    /// stops being blind to it. This exposes the same quantity SEPARATELY, because the
-    /// ladder and a person want different things from it: the ladder needs one cost to
-    /// act on, and a person needs to know WHICH of the two halves is large, since they
-    /// have opposite fixes. A slow render wants fewer pixels — which the ladder already
-    /// does by itself. A cheap render whose frames still arrive slowly means the time is
-    /// going somewhere after `createCGImage`: the handoff to SwiftUI as a fresh
-    /// `Image(decorative:)`, the body pass, the texture upload, compositing — the path
-    /// a Metal-layer viewport would replace and a resolution ladder would not.
+    ///     period - render = draftStarted(N) - landedAt(N-1)
     ///
-    /// Three rounds of this project have argued about which of those it is without ever
-    /// printing the difference, and `DragProbeTests` says in its own header that it
-    /// stops one step before the answer. This is that step, measured where it actually
-    /// happens.
+    /// because the caller stamps `draftStarted` BEFORE awaiting the coordinator. Every
+    /// cost of producing frame N — queueing, render, readback — falls inside `render`.
+    /// What is left is the time between the previous frame arriving and this frame's
+    /// work being asked for. No part of the display path is in it.
     ///
-    /// Nil unless the loop is saturated, for `costSample`'s reason: an idle gap between
-    /// two frames is the hand's, not the machine's, and subtracting a render from it
-    /// would report a hand's pause as a display cost.
+    /// So this is an INPUT AND SCHEDULING measure. It is normally zero or negative,
+    /// because `.task(id:)` starts the next frame without waiting for the last one to
+    /// land, and it goes large exactly when the request stream stops. During a gesture
+    /// that means the hand paused; between gestures it means the app was idle. Neither
+    /// is a display cost and neither is a reason to spend a rung. `max(0, ...)` below
+    /// clamps the ordinary negative case, which is why a healthy pipelined loop reads
+    /// 0.00 here — that zero is the clamp, not a free display path.
+    ///
+    /// It stays on the HUD because a large value is still worth seeing: it says the
+    /// picture stopped being asked for, which is a real thing to know. It is simply not
+    /// the number that would justify a Metal-layer viewport, and nothing here should be
+    /// read as evidence for one.
+    ///
+    /// Nil unless the loop is saturated at both ends of the interval — see
+    /// `costSample`.
     public static func afterRenderMilliseconds(renderMilliseconds: Double,
                                                sincePreviousFrameMilliseconds: Double?,
                                                handWasWaiting: Bool) -> Double? {

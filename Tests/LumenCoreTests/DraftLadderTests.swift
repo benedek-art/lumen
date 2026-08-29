@@ -693,4 +693,57 @@ final class DraftLadderTests: XCTestCase {
         XCTAssertGreaterThan(ladder.rung, 0,
                              "an unqualified 200 ms frame is a 200 ms render")
     }
+
+    // MARK: - Saturation, at both ends of the interval
+
+    /// A HAND'S HESITATION IS NOT A RENDER COST.
+    ///
+    /// The interval runs from the previous frame's landing to this one's, and the
+    /// viewer's saturation signal is read at the END of it. That alone admits the exact
+    /// shape the owner's HUD reported: a pause mid-gesture with the button still down,
+    /// then a hard resume, whose first frame is cancelled by the event behind it. The
+    /// whole pause is then charged to the machine. All three of his samples — 285, 378,
+    /// 399 ms — sit under `continuityCeilingMilliseconds`, in the band a hesitation
+    /// occupies rather than the band a stall does.
+    func testAPauseFollowedByAResumeIsNotSaturation() {
+        XCTAssertFalse(DraftLadder.loopWasSaturated(thisFrameCancelled: true,
+                                                    previousFrameCancelled: false),
+                       "work queued behind this frame says nothing about whether any "
+                           + "was queued when the interval opened")
+    }
+
+    /// The converse, which is the case the guard exists to admit: if the previous frame
+    /// was itself cancelled, a newer request already existed when it landed, so this
+    /// frame should have started immediately and the gap is the machine's.
+    func testWorkQueuedAtBothEndsIsSaturation() {
+        XCTAssertTrue(DraftLadder.loopWasSaturated(thisFrameCancelled: true,
+                                                   previousFrameCancelled: true))
+    }
+
+    /// A frame with nothing queued behind it ends the run whatever came before, so the
+    /// last frame of every gesture is never costed by its interval.
+    func testTheLastFrameOfAGestureIsNeverSaturated() {
+        XCTAssertFalse(DraftLadder.loopWasSaturated(thisFrameCancelled: false,
+                                                    previousFrameCancelled: true))
+        XCTAssertFalse(DraftLadder.loopWasSaturated(thisFrameCancelled: false,
+                                                    previousFrameCancelled: false))
+    }
+
+    /// End to end: the owner's trace, through the guard that should have rejected it.
+    /// A 399 ms hesitation reaches `costSample` as the render's own time, so the ladder
+    /// sees an 11 ms frame and holds its rung.
+    func testAHesitationReachesTheLadderAsTheRenderTimeAlone() {
+        let saturated = DraftLadder.loopWasSaturated(thisFrameCancelled: true,
+                                                     previousFrameCancelled: false)
+        let sample = DraftLadder.costSample(renderMilliseconds: 11,
+                                            sincePreviousFrameMilliseconds: 399,
+                                            handWasWaiting: saturated)
+        XCTAssertEqual(sample, 11, accuracy: 1e-9,
+                       "the photographer's pause is not the machine's expense")
+        var ladder = DraftLadder()
+        ladder.record(draftMilliseconds: sample, renderMilliseconds: 11,
+                      renderedLongEdge: ladder.longEdge(requested: 4096),
+                      requested: 4096, allowStepUp: false)
+        XCTAssertEqual(ladder.rung, 0, "and it costs no sharpness")
+    }
 }
