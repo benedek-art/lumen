@@ -1112,6 +1112,69 @@ side-by-side exports. **Exit gate: owner prefers or ties Lumen on ≥4 of 5.**
       `concurrentPerform` so the bake stops stealing every core from the render, or
       keeping the anchors out of the baked table — differ enough that guessing between
       them is how the last two wrong calls happened.
+- [x] **Round 5 — THE ONE. The decode cache cached the intention to decode, and every
+      drag frame re-demosaiced a 33 MP file.** Found in one screenshot from the owner's
+      machine, after four rounds of reasoning could not get there:
+
+          in/out      106/s    4fps
+          input→draft 368.7 ms
+          draft      457.5 ms @2048
+          settle      14.5 ms @2560
+
+      `in` at 106/s kills the input-coalescing theory outright — the app sees the hand
+      perfectly. 4 fps is the ticking, exactly: four distinct pictures a second. And the
+      decisive pair is the last two lines. **A draft at 2048 px cost 457 ms while a
+      settle at the LARGER 2560 px cost 14.5 ms** — thirty times slower at a smaller
+      size. No graph over 2.8 megapixels does that; a 33 MP demosaic does.
+      `AppleRawSource.decodeCache` stored `filter.outputImage`: a lazy `CIImage`, a
+      description of a decode rather than its pixels. Every frame that got a cache HIT
+      re-ran the full RAW demosaic on the GPU. `cacheIntermediates: true` was supposed
+      to rescue it, but that intermediate is a ~260 MB RGBAh buffer, far past what the
+      cache holds, so it was evicted and recomputed on every frame of every drag for the
+      life of the app. Fixed by rendering the decode into real pixels once per key —
+      half-float RGBA, IOSurface-backed, in the working colour space, because what
+      leaves that file is scene-referred and an 8-bit materialization would throw away
+      the highlights the pipeline exists to protect. Above 3072 px it stays lazy: an
+      export decodes once and uses it once.
+      **AND ROUND 4 MADE IT WORSE BEFORE IT MADE IT BETTER.** Turning off the coarse
+      decode meant each of those repeated demosaics became a full-quality one. That
+      change was right for sharpness and wrong while it was happening per frame; it is
+      right now, because it happens once.
+      **What the four rounds of reasoning got wrong, stated plainly**, since the pattern
+      matters more than the bug: `DragProbeTests` priced this exact defect at single
+      digits of percent and its own header said to treat that as a FLOOR because its
+      source is synthetic — a two-filter generator chain standing in for a demosaic. The
+      caveat was correct and was read as noise, and "materializing the decode is worth
+      ~10%" was recorded and then withdrawn. A probe whose SUBJECT is synthetic cannot
+      bound a cost that lives entirely in the thing it replaced. Every round after that
+      optimised around a 457 ms constant nobody had measured, which is why the ladder,
+      the tables, the resampling and the display path all looked like plausible
+      explanations: against 457 ms they were all rounding error.
+      *Expected*: `draft` from 457 ms to tens of ms; the ladder then earns its rungs back
+      at gesture end, and once it returns to the top the draft and settle request the
+      same size, share one materialized decode, and the drag pays no decode at all.
+- [x] **Round 5b — the ladder recovered from the round-5 defect at one rung per gesture,
+      so fixing the decode left every slider blurry anyway.** Owner, on the build with
+      the decode fix in it: "If I still move the sliders around, any of the sliders, they
+      are still extremely blurry. The entire image just turns very, very blurry."
+      Not a failure of the decode fix — a consequence of it. While every draft frame cost
+      457 ms the ladder did exactly its job and walked to the 576 px floor (the earlier
+      screenshot already shows it at 2048 on the way down). A 576 px frame magnified to
+      a 16-inch pane is about 4×, which is "very, very blurry" precisely. Then the decode
+      was fixed, frames became cheap — and climbing was `stepUpAfter` = 12 consecutive
+      cheap frames for ONE rung, spent once per gesture by `gestureEnded`. From the floor
+      that is eight more drags. Down fast and up slow is right for a machine that cannot
+      afford the top rung and wrong for a TRANSIENT, and a fixed defect is a transient.
+      The evidence to climb was already being measured and thrown away: every gesture
+      ends with a settle, which is a render at the full requested size timed by the same
+      clock. `recordSettle` uses it, and it is CONSERVATIVE evidence, which is what makes
+      this sound rather than hopeful — a settle pays exact table bakes where a draft
+      serves them stale, so a settle inside the budget PROVES a draft at that size is
+      inside it. An inequality, not an estimate. It only ever climbs, never claims a size
+      it did not measure (a cheap settle at 1280 says nothing about 4096), and one settle
+      is enough, so recovery is one gesture instead of eight. Four tests, including the
+      owner's exact scenario: 40 frames at 457 ms to the floor, then a single 14.5 ms
+      settle at 2560 restoring it.
 - [ ] **Deliberately NOT done in round 2: anything else to the render or display path.**
       The display path above is the leading suspect and a `CALayer`-contents or
       Metal-layer plate is the obvious next move — and shipping it now, unverified,

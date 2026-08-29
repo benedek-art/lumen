@@ -266,6 +266,39 @@ public struct DraftLadder: Sendable, Equatable {
         }
     }
 
+    /// A SETTLE IS A MEASUREMENT OF THE TOP OF THE LADDER, AND THE LADDER WAS IGNORING
+    /// IT.
+    ///
+    /// Climbing was `stepUpAfter` cheap frames for one rung, spent once per gesture. So
+    /// from the floor the ladder needed EIGHT separate drags, each with twelve
+    /// comfortable frames in it, to get back to full resolution. That is fine as a
+    /// response to a machine that genuinely cannot afford the top rung, and badly wrong
+    /// as a response to a TRANSIENT — a heavy photograph, a background task, or a defect
+    /// since fixed. When every drag frame cost 457 ms because the decode was being
+    /// re-run per frame, this ladder correctly walked to the floor; when that was fixed,
+    /// it stayed there, and every slider stayed blurry on a machine that could by then
+    /// afford anything. The owner reported precisely that, in those words.
+    ///
+    /// The evidence to climb was already being measured and thrown away. Every gesture
+    /// ends with a settle: a render at the FULL requested size, timed by the same clock.
+    /// And it is conservative evidence, which is what makes this sound rather than
+    /// hopeful — a settle pays EXACT table bakes where a draft serves them stale, so a
+    /// settle inside the budget proves a draft at that size is inside it too. An
+    /// inequality, not an estimate.
+    ///
+    /// It only ever climbs, never claims a size it did not measure, and one settle is
+    /// enough — which makes recovery immediate instead of eight gestures long.
+    public mutating func recordSettle(milliseconds ms: Double, renderedLongEdge: Int) {
+        guard ms.isFinite, ms > 0, ms < Self.budgetMilliseconds else { return }
+        guard renderedLongEdge > 0 else { return }
+        // The largest rung index whose size still covers what was measured. Naming the
+        // measured size rather than jumping to rung 0 keeps the claim exactly as big as
+        // the evidence: a cheap settle at 2560 says nothing about 4096.
+        let target = Self.rungs.lastIndex { $0 >= renderedLongEdge } ?? 0
+        rung = Swift.min(rung, target)
+        cheapStreak = 0
+    }
+
     /// The hand came up. Spend a streak banked during the gesture, where a single
     /// change of sharpness costs nothing to look at.
     ///

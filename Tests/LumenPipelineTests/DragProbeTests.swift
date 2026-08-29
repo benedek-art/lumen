@@ -374,12 +374,24 @@ final class DragProbeTests: XCTestCase {
     /// The two structural costs the drag loop pays on every frame, priced separately so
     /// the work to remove them can be ranked before it is done rather than after.
     ///
-    ///   · LAZY vs MATERIALIZED source — `AppleRawSource.decodeCache` stores
+    ///   · LAZY vs MATERIALIZED source — `AppleRawSource.decodeCache` USED TO STORE
     ///     `filter.outputImage`, a description of the decode rather than its pixels, so
-    ///     whatever it takes to produce them may be paid again on every frame of the
-    ///     drag. Here the input is a two-filter generator chain; a 45 MP RAW's demosaic
-    ///     is a great deal more than two filters, so treat the gap this prints as a
-    ///     FLOOR on what materializing a real decode is worth, not an estimate of it.
+    ///     whatever it takes to produce them was paid again on every frame of the drag.
+    ///     Here the input is a two-filter generator chain; a 45 MP RAW's demosaic is a
+    ///     great deal more than two filters, so treat the gap this prints as a FLOOR on
+    ///     what materializing a real decode is worth, not an estimate of it.
+    ///
+    ///     THE FLOOR NOW HAS A CEILING BESIDE IT, measured in the app on the owner's
+    ///     machine rather than here: a draft frame at 2048 px cost **457 ms** against a
+    ///     settle at 2560 px costing **14.5 ms** — thirty times slower at a smaller
+    ///     size, which is a 33 MP demosaic running once per frame and nothing else.
+    ///     This probe printed single-digit percentages for the same defect and the
+    ///     conclusion drawn from it was that materializing was not worth doing. The
+    ///     caveat above was right and was read as noise. The lesson is narrower than
+    ///     "measure": a probe whose SUBJECT is synthetic cannot bound a cost that lives
+    ///     entirely in the thing it replaced. `AppleRawSource` now materializes, so
+    ///     these rows measure a defect the app no longer has — keep them, because they
+    ///     are what a regression would show up in.
     ///   · READBACK vs IOSurface — the viewer ends every frame with `createCGImage`, a
     ///     synchronous GPU→CPU copy of the whole frame, which SwiftUI then uploads back
     ///     to the GPU. Rendering to an IOSurface prices the same frame without the

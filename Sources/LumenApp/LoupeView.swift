@@ -667,8 +667,20 @@ final class PhotoRenderModel: ObservableObject {
             guard !Task.isCancelled else { return }
             if let result, result.generation == generation, latestGeneration == generation {
                 apply(result, url: url, recipe: recipe)
+                let settleMs =
+                    Double(DispatchTime.now().uptimeNanoseconds - settleStarted) / 1e6
+                // THE MEASUREMENT THE LADDER WAS THROWING AWAY. A settle is a render at
+                // the full requested size, timed by this same clock, and it pays EXACT
+                // table bakes where a draft serves them stale — so a settle inside the
+                // budget proves a draft at that size is affordable. Without this the
+                // ladder climbed one rung per gesture and stayed at its floor for eight
+                // drags after any transient, which is what the owner saw as "all of the
+                // sliders are still extremely blurry" once the decode was fixed.
+                draftLadder.recordSettle(milliseconds: settleMs,
+                                         renderedLongEdge: Swift.max(
+                                             result.image.width, result.image.height))
                 LatencyHUD.shared.noteSettle(
-                    milliseconds: Double(DispatchTime.now().uptimeNanoseconds - settleStarted) / 1e6,
+                    milliseconds: settleMs,
                     longEdge: Swift.max(fullLongEdge, 64))
                 return
             }

@@ -327,6 +327,73 @@ final class DraftLadderTests: XCTestCase {
                 + "negative display cost on a HUD is worse than a zero")
     }
 
+    /// THE RECOVERY THE OWNER ACTUALLY EXPERIENCED, as a test.
+    ///
+    /// A defect made every drag frame cost 457 ms. The ladder correctly walked to its
+    /// floor. The defect was fixed — and the picture stayed blurry, because climbing was
+    /// twelve cheap frames for one rung, spent once per gesture: eight more drags to get
+    /// back. "If I move any of the sliders they are still extremely blurry" is what that
+    /// looks like from the outside.
+    func testACheapSettleRestoresTheLadderInOneGestureRatherThanEight() {
+        var ladder = DraftLadder()
+        let requested = 2560
+
+        // The bad era: sustained heat walks it to the floor.
+        for _ in 0..<40 {
+            let size = ladder.longEdge(requested: requested)
+            ladder.record(draftMilliseconds: 457, renderedLongEdge: size,
+                          requested: requested)
+        }
+        XCTAssertEqual(ladder.longEdge(requested: requested), DraftLadder.rungs.last,
+                       "the fixture must reach the floor, or there is nothing to "
+                           + "recover from")
+
+        // The fix lands. The very next gesture ends with a settle at the full size,
+        // comfortably inside the budget.
+        ladder.recordSettle(milliseconds: 14.5, renderedLongEdge: requested)
+        XCTAssertEqual(ladder.longEdge(requested: requested), requested,
+                       "a settle at \(requested) px inside the budget proves a draft at "
+                           + "that size is affordable — a settle pays exact table bakes "
+                           + "where a draft serves them stale, so the inequality only "
+                           + "runs one way and it runs in this direction")
+    }
+
+    /// The claim may never be larger than the evidence.
+    func testASettleNeverClaimsASizeItDidNotMeasure() {
+        var ladder = DraftLadder()
+        for _ in 0..<40 {
+            let size = ladder.longEdge(requested: 4096)
+            ladder.record(draftMilliseconds: 457, renderedLongEdge: size, requested: 4096)
+        }
+        ladder.recordSettle(milliseconds: 10, renderedLongEdge: 1280)
+        XCTAssertEqual(ladder.longEdge(requested: 4096), 1280,
+                       "a cheap settle at 1280 says nothing whatever about 4096")
+    }
+
+    /// A settle that blew the budget is not evidence of headroom, and must not climb.
+    func testAnExpensiveSettleDoesNotClimb() {
+        var ladder = DraftLadder()
+        for _ in 0..<40 {
+            let size = ladder.longEdge(requested: 2560)
+            ladder.record(draftMilliseconds: 457, renderedLongEdge: size, requested: 2560)
+        }
+        let floor = ladder.rung
+        ladder.recordSettle(milliseconds: DraftLadder.budgetMilliseconds + 1,
+                            renderedLongEdge: 2560)
+        XCTAssertEqual(ladder.rung, floor,
+                       "the settle did not fit the budget, so it proves nothing")
+    }
+
+    /// And it must never step DOWN — heat is the draft path's business, measured on the
+    /// frames a hand actually feels.
+    func testASettleNeverStepsTheLadderDown() {
+        var ladder = DraftLadder()
+        XCTAssertEqual(ladder.rung, 0)
+        ladder.recordSettle(milliseconds: 1, renderedLongEdge: 576)
+        XCTAssertEqual(ladder.rung, 0,
+                       "a cheap settle at a small size is not a reason to get worse")
+    }
+
     /// The rule's own edges, stated separately from the scenario above.
     func testOnlyAFrameWhoseSizeMatchesThePreviousOneIsRepresentative() {
         XCTAssertFalse(DraftLadder.isRepresentative(renderedLongEdge: 2048,
