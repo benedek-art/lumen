@@ -184,6 +184,32 @@ final class CropTool: ObservableObject {
         forgetArming()
     }
 
+    /// Throw the framing away: no crop, no angle, no flip.
+    ///
+    /// BESIDE `revert` RATHER THAN IN THE PANEL, and for the reason `revert` is here too:
+    /// a key cannot reach a view. Reset is what a double press of R means (docs/09), R
+    /// lands in `KeyDispatcher`, and this column is not mounted at all when the Crop
+    /// section is folded or when the photographer is arriving from another workspace — so
+    /// a reset that exists only as a closure inside `CropSection` is a reset only the
+    /// section header's button can reach. Today that button is the one caller, through
+    /// `CropSection.resetGeometry()`; the note on that view's `onChange` says what still
+    /// has to happen for the key to be the second.
+    ///
+    /// THE SAME THREE FIELDS `revert` writes, for the same reason: Lens Corrections lives
+    /// in this workspace too, and a reset that also un-ticked the built-in lens profile
+    /// would undo something nobody did inside the crop tool.
+    @MainActor
+    func resetGeometry(in state: AppState) {
+        // Outside the edit closure: that one mutates a recipe and may not run here, and
+        // the lock is session state rather than recipe state.
+        if let photo = state.primarySelection { setLock(nil, for: photo.id) }
+        state.updateRecipe(coalescingKey: "geometry.reset") { recipe in
+            recipe.develop.geometry.crop = Crop()
+            recipe.develop.geometry.angle = 0
+            recipe.develop.geometry.flipH = false
+        }
+    }
+
     // MARK: The double press
 
     /// How close together two presses of R have to be to mean "reset", in seconds.
@@ -275,10 +301,20 @@ struct CropSection: View {
                 aspectRow
                 if showsCustomField { customRow }
                 sizeRow
+                // The help is where the hand is taught. docs/09 makes rotation a DRAG on
+                // the photograph and this slider the same field said as a number, but
+                // nothing on the picture said so — the angle readout only ghosts beside
+                // the cursor once the drag is already under way, which teaches whoever
+                // had already guessed. This row is where somebody looking for "how do I
+                // straighten this" ends up, so it is where the gesture gets named.
                 LumenSlider(title: "Angle",
                             value: binder.value(\.develop.geometry.angle, "geometry.angle"),
                             range: -45...45, hardRange: nil, defaultValue: 0,
-                            step: 0.1, decimals: 1)
+                            step: 0.1, decimals: 1,
+                            help: "How far the picture is turned under the frame. Drag "
+                                + "anywhere outside the rectangle on the photograph to "
+                                + "set it by hand, or use the ruler below to take it off "
+                                + "a horizon.")
                 rulerRow
                 guidesRow
                 LumenToggleRow(title: "Flip horizontal",
@@ -296,16 +332,23 @@ struct CropSection: View {
             guard let photoID, viewport.showCrop else { return }
             tool.beginSession(photo: photoID, geometry: recipe.develop.geometry)
         }
-        // DOUBLE-R RESETS THE CROP (docs/09: "Return commits, Esc reverts, double-press R
-        // resets the crop entirely"). R itself is the dispatcher's, and it toggles, so
-        // what arrives here is a pair of transitions rather than a pair of presses — see
-        // `CropTool.noteArming`. Forcing the tool open afterwards is what makes the two
-        // orders mean the same thing: you reset the crop and you are still cropping.
+        // ONE JOB HERE NOW: start a framing session when the tool arms.
+        //
+        // The double-press-R reset used to live on this modifier and it has moved to
+        // `AppState.toggleCropTool`, where the key actually lands. A view's lifecycle
+        // cannot observe a key: this only sees a transition that happens while the Crop
+        // SECTION is mounted, and the section is unmounted both when the accordion is
+        // folded (`WorkspaceSectionView` constructs no body for a closed section,
+        // deliberately) and when the photographer is anywhere but the Crop workspace. So
+        // the common route — `R` from Develop — armed the tool at mount time, landed as
+        // `onAppear` plus one `onChange`, and the pair was never seen. The grammar worked
+        // from inside the workspace with the section open, and nowhere else.
+        //
+        // It cannot be counted in BOTH places. `noteArming` consumes the timestamp it
+        // reads, so a call from here would eat the transition the key's own call depends
+        // on, and the reset would go back to being intermittent for a new reason.
         .onChange(of: viewport.showCrop) { _, armed in
-            if tool.noteArming() {
-                resetGeometry()
-                viewport.showCrop = true
-            } else if armed, let photoID {
+            if armed, let photoID {
                 tool.beginSession(photo: photoID, geometry: recipe.develop.geometry)
             }
         }
@@ -363,8 +406,16 @@ struct CropSection: View {
                     .font(.system(size: 10))
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            // The second sentence is the whole hand, in the row a photographer opens
+            // first. The rectangle on the picture now teaches itself — brackets you can
+            // see, a cursor that changes, an arc out where the rotation lives — but a
+            // tooltip costs nothing and this project deleted 59 prose rows on the
+            // understanding that the sentences would move onto the controls rather than
+            // disappear.
             .help("Standard ratios, measured against this frame and fitted around the "
-                  + "crop you already have. Press R to crop on the image.")
+                  + "crop you already have. Press R to crop on the image, then drag a "
+                  + "corner or an edge to reframe, inside the rectangle to move it, and "
+                  + "outside the frame to turn the picture.")
 
             // ⇅, not X. docs/09 binds portrait ↔ landscape to X, and X is the reject
             // flag everywhere in this app with no crop-mode branch anywhere in `Keymap`
@@ -617,15 +668,10 @@ struct CropSection: View {
         return geometry.crop != Crop() || geometry.angle != 0 || geometry.flipH
     }
 
+    /// One path for the section header's Reset, the double press of R, and anything else
+    /// that has to put the framing back — see `CropTool.resetGeometry(in:)`.
     private func resetGeometry() {
-        // Outside the edit closure: that one mutates a recipe and may not run here, and
-        // the lock is session state rather than recipe state.
-        if let photoID { tool.setLock(nil, for: photoID) }
-        binder.edit("geometry.reset") { recipe in
-            recipe.develop.geometry.crop = Crop()
-            recipe.develop.geometry.angle = 0
-            recipe.develop.geometry.flipH = false
-        }
+        tool.resetGeometry(in: state)
     }
 
     /// What Revert would put back, or nil when there is nothing to put back.

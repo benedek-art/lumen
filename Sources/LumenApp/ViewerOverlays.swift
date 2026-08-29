@@ -655,6 +655,48 @@ struct MaskOverlayView: View {
 
 // MARK: - Crop overlay
 
+/// What the pointer is over, which is the same question as "what would a press here do".
+///
+/// One value rather than ten booleans, because the regions are mutually exclusive by
+/// construction and the alternative — a hover flag on each target — cannot say which of
+/// two overlapping regions won. `CropGeometry.Handle` carries all eight resize cases, so
+/// this adds exactly the two the handles do not name.
+private enum CropRegion: Equatable {
+    /// Beside the rectangle, on the picture: a drag here turns the frame.
+    case outside
+    /// Within the rectangle: a drag here slides the crop.
+    case inside
+    /// On one of the eight resize targets.
+    case handle(CropGeometry.Handle)
+}
+
+/// One corner's L, in the coordinate space of the square the corner sits at the centre of.
+///
+/// It is offset OUTWARD by half the stroke width, so the bracket's inner edge lands
+/// exactly on the rectangle's boundary and the rest of it overhangs onto the dimmed side.
+/// That is the whole reason a bracket reads as a handle: it is visibly attached to the
+/// corner and visibly not part of the picture you are keeping.
+private struct CropCornerBracket: Shape {
+    /// Only the four corner cases are ever passed; an edge would draw the bottom-right L.
+    let handle: CropGeometry.Handle
+    let leg: CGFloat
+    /// Half the light stroke's width — see the type comment.
+    let offset: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        // Which way the legs run from the corner, in this view's y-down space.
+        let sx: CGFloat = (handle == .topLeft || handle == .bottomLeft) ? 1 : -1
+        let sy: CGFloat = (handle == .topLeft || handle == .topRight) ? 1 : -1
+        let x = rect.midX - sx * offset
+        let y = rect.midY - sy * offset
+        var path = Path()
+        path.move(to: CGPoint(x: x + sx * leg, y: y))
+        path.addLine(to: CGPoint(x: x, y: y))
+        path.addLine(to: CGPoint(x: x, y: y + sy * leg))
+        return path
+    }
+}
+
 /// The crop rectangle over the drawn image: the area outside dimmed, guides inside, eight
 /// resize handles, the interior to drag it by — and, outside it, the picture itself to
 /// turn.
@@ -674,6 +716,50 @@ struct MaskOverlayView: View {
 /// outside the frame to rotate (the angle readout ghosts next to the cursor)". Before
 /// this there was no rotation affordance on the picture at all — a ±45 slider and a ruler
 /// you had to arm with a button, neither of which is a hand on the photograph.
+///
+/// AND IT ALL HAD TO BE VISIBLE, which was the half that was still missing. The owner,
+/// with every gesture below already built and correct: "Right now, I don't really know
+/// how to edit it by hand. It's a little difficult for me to see."
+///
+/// He was not wrong about any of it, and the causes are measurable rather than a matter
+/// of taste:
+///
+///   · A CORNER WAS A 7 pt WHITE SQUARE — `Lumen.primaryText`, which is white 0.92, with
+///     nothing dark under it. Against a blown highlight that is about 1.17:1, and
+///     `LumenSurface.swift` has already done the arithmetic on what the eye does with an
+///     edge at 1.1:1: it does not find one. And even where it CAN be seen, a dot reads
+///     as a blemish. Every serious crop tool — Lightroom, Capture One, Photos — draws an
+///     L-shaped bracket that OVERHANGS the corner instead, because a bracket is a shape
+///     you can imagine taking hold of and a dot is not.
+///   · AN EDGE HANDLE WAS A 2 pt BAR, at the same 1.17:1 and half the width.
+///   · NOTHING ANSWERED THE POINTER. No cursor changed anywhere in this overlay and no
+///     handle lit up — the exact defect `LumenHover.swift` opens by naming ("zero
+///     `NSCursor` changes anywhere in the application"), in the one surface of the app
+///     where the controls are invisible by construction because they sit on a
+///     photograph.
+///   · AND THE ROTATE DRAG ADVERTISED ITSELF ONLY AFTER IT HAD STARTED. The readout
+///     ghosts beside the cursor once the hand is already moving, which teaches nobody:
+///     "drag outside the frame" is not a thing you try on a picture you are afraid of
+///     damaging unless something told you first.
+///
+/// So: every mark on the picture is now drawn TWICE, a near-black stroke under a light
+/// one, which is the standard trick for chrome that has to survive both a white sky and
+/// a black shadow and costs one extra path per element. Zero chroma throughout (docs/00
+/// Law 7 — this overlay sits ON the photograph, so it may not carry a hue at all); the
+/// one exception is the transient rotation horizon, which was already `Lumen.accent` and
+/// stays that way because it is a measurement in flight rather than chrome.
+///
+/// THE POINTER IS RESOLVED ONCE, ANALYTICALLY, rather than by hanging an `onHover` on
+/// each of the ten targets. Overlapping `onHover` regions have no defined ordering
+/// between them — a corner target straddles the interior and two edge strips — so the
+/// cursor would have been whichever region happened to be told last, and the pushes and
+/// pops would interleave. `onContinuousHover` on the container gives one point, `region`
+/// turns it into one answer using the same precedence the targets are stacked in, and
+/// exactly one `NSCursor` is ever pushed. The state is view-local `@State` and changes
+/// only when the region CHANGES, not per mouse event: hover must never reach an
+/// `ObservableObject` here — `LumenHover` states that rule and names the time this
+/// application already paid for breaking it, and `PanelLayout` exists to publish as
+/// rarely as its value actually changes.
 struct CropOverlayView: View {
 
     @Binding var crop: Crop
@@ -702,12 +788,54 @@ struct CropOverlayView: View {
     @Environment(\.sliderGestureChanged) private var sliderGestureChanged
     @ObservedObject private var tool: CropTool = CropTool.shared
 
-    private static let handleSize: CGFloat = 14
+    /// The invisible square a corner press has to land in.
+    ///
+    /// 24, up from 14. A 14 pt target is one you have to aim at, and what it was drawn
+    /// around was a 7 pt dot — so a miss did not do nothing, it landed on the interior
+    /// and MOVED the crop, which is the worst kind of wrong answer because it looks
+    /// deliberate until you notice the framing has slid.
+    private static let cornerTarget: CGFloat = 24
+    /// The square a corner bracket is DRAWN inside, which is much larger than the target
+    /// because the bracket overhangs the rectangle in both directions. It carries no hit
+    /// testing of its own, so it costs nothing to make it roomy: it only has to be big
+    /// enough that a leg and its stroke are never clipped by their own frame.
+    private static let cornerBox: CGFloat = 52
+    /// How far a bracket's legs run along the two edges that meet at the corner.
+    ///
+    /// 22 pt reads as "this corner" rather than as "this side" — long enough to be a
+    /// shape at a glance, short enough that on a small crop the four brackets do not
+    /// join up into a second rectangle inside the first one.
+    private static let bracketLeg: CGFloat = 22
+    /// The light stroke's weight, for both the brackets and the edge bars. The dark
+    /// companion underneath is this plus two, so a full point of near-black shows on
+    /// either side of it whatever the picture is doing.
+    private static let markWeight: CGFloat = 3
     /// How far from an edge a drag still counts as that edge.
     private static let edgeThickness: CGFloat = 12
 
     @State private var dragOrigin: Crop?
     @State private var rotation: RotationDrag?
+    /// Which region the pointer is in, or nil when it is not over the overlay at all.
+    ///
+    /// VIEW-LOCAL AND COARSE. It drives the cursor, the handle under the pointer, and
+    /// the rotate cue, and it is written only when the answer changes — so crossing from
+    /// the interior onto a corner re-bodies this view once, and moving the mouse a
+    /// hundred points inside the rectangle re-bodies it not at all.
+    @State private var hover: CropRegion?
+    /// True while this view owns the top of the `NSCursor` stack. Push and pop have to
+    /// balance (`LumenHover`'s discipline), and the one thing that would unbalance them
+    /// is the tool being put away while the pointer is still inside — hence the pop in
+    /// `onDisappear` as well as on the way out.
+    @State private var pushedCursor: Bool = false
+
+    /// Whether the photographer has already been told what the hand can do here.
+    ///
+    /// `@AppStorage` rather than session state on purpose: this is a thing you learn
+    /// once and then find patronising, so it must not come back every launch. It is a
+    /// preference about the person, not about the photograph, which is the same test
+    /// `CropPanel`'s header applies to the guide overlay.
+    @AppStorage("crop.handHintSeen") private var hintSeen: Bool = false
+    @State private var showsHint: Bool = false
 
     /// What a rotate-drag has to remember. The pivot and the starting angle are both
     /// fixed at the press: recomputing either per event would measure each sweep against
@@ -728,6 +856,10 @@ struct CropOverlayView: View {
             // documented to be good during the body pass that produced it, and what the
             // rotate-drag needs from it is one origin.
             let windowOrigin = proxy.frame(in: .global).origin
+            // Built once and stroked twice. The dark companion and the light line are the
+            // same path, so computing it here rather than inside each `.stroke` keeps the
+            // doubling free — and guarantees the two can never be a pixel out of register.
+            let guidePath = guides(in: rect)
             ZStack(alignment: .topLeading) {
                 // FIRST, so everything below wins where they overlap: a press inside the
                 // rectangle or on a handle belongs to that, and a press anywhere else is
@@ -738,7 +870,15 @@ struct CropOverlayView: View {
                     .fill(Lumen.accent.opacity(0.001))
                     .contentShape(Rectangle())
                     .gesture(rotateGesture(in: size, windowOrigin: windowOrigin))
+                    .help("Drag out here, outside the frame, to turn the picture under "
+                          + "it. The angle shows beside the cursor while you drag.")
 
+                // STILL 0.5, and still even-odd. The brighter chrome does not want a
+                // lighter shield: the marks that had to survive the picture now carry
+                // their own dark companion, so the dim is back to doing only its own job
+                // — telling you which part of the frame you are keeping — and half a stop
+                // under is what makes that legible without pretending the discarded part
+                // is gone.
                 Path { path in
                     path.addRect(CGRect(origin: .zero, size: size))
                     path.addRect(rect)
@@ -746,15 +886,26 @@ struct CropOverlayView: View {
                 .fill(Color.black.opacity(0.5), style: FillStyle(eoFill: true))
                 .allowsHitTesting(false)
 
-                Rectangle()
-                    .strokeBorder(Lumen.primaryText.opacity(0.9), lineWidth: 1)
-                    .frame(width: rect.width, height: rect.height)
-                    .offset(x: rect.minX, y: rect.minY)
-                    .allowsHitTesting(false)
+                // THE RECTANGLE, TWICE. A 3 pt near-black line centred on the boundary
+                // with the 1 pt light line on top of it: one point of black shows on
+                // either side, which is enough to hold the edge against a blown sky. The
+                // outer half of the dark stroke lands on the dimmed side where it is
+                // redundant, and that is fine — a stroke centred on the boundary is the
+                // only version that cannot drift out of register with the light one.
+                Group {
+                    boundary(of: rect).stroke(Color.black.opacity(0.38), lineWidth: 3)
+                    boundary(of: rect).stroke(Lumen.primaryText.opacity(0.95), lineWidth: 1)
+                }
+                .allowsHitTesting(false)
 
-                guides(in: rect)
-                    .stroke(Lumen.primaryText.opacity(0.35), lineWidth: 0.5)
-                    .allowsHitTesting(false)
+                // Same treatment at half the weight. A guide is meant to be felt rather
+                // than read, so the light line stays at 0.5 pt and the companion is a
+                // soft halo rather than an outline.
+                Group {
+                    guidePath.stroke(Color.black.opacity(0.25), lineWidth: 2)
+                    guidePath.stroke(Lumen.primaryText.opacity(0.45), lineWidth: 0.5)
+                }
+                .allowsHitTesting(false)
 
                 if let rotation {
                     horizon(in: rect)
@@ -763,6 +914,8 @@ struct CropOverlayView: View {
                         .allowsHitTesting(false)
                     readout(rotation)
                 }
+
+                rotateCueLayer(in: rect)
 
                 // ONE `Group`, because a `ViewBuilder` takes ten children and nine of
                 // this overlay's are the rectangle's own targets. The failure mode is
@@ -776,9 +929,12 @@ struct CropOverlayView: View {
                         .frame(width: rect.width, height: rect.height)
                         .offset(x: rect.minX, y: rect.minY)
                         .gesture(moveGesture(in: frame))
+                        .help("Drag to slide the crop over the picture.")
 
                     // Edges before corners, so a corner's hit area wins where they
                     // overlap — the corner is the finer adjustment and the harder to hit.
+                    // `region(at:rect:)` resolves the pointer in the same order, so the
+                    // cursor can never promise a handle the press would not reach.
                     edge(.top, in: rect, frame: frame)
                     edge(.bottom, in: rect, frame: frame)
                     edge(.left, in: rect, frame: frame)
@@ -789,8 +945,29 @@ struct CropOverlayView: View {
                     corner(.bottomLeft, at: CGPoint(x: rect.minX, y: rect.maxY), frame: frame)
                     corner(.bottomRight, at: CGPoint(x: rect.maxX, y: rect.maxY), frame: frame)
                 }
+
+                if showsHint { hint(in: size) }
+            }
+            // ONE hover reader for the whole overlay — see this type's header for why ten
+            // of them could not have agreed with each other.
+            //
+            // The animations that follow a hover live on the individual pieces rather than
+            // here, deliberately: an `.animation(value: hover)` on this stack would put
+            // every change in the same transaction under an easing curve, and the change
+            // that matters most in this view is the rectangle following a drag.
+            .onContinuousHover(coordinateSpace: .local) { phase in
+                if case .active(let point) = phase {
+                    enter(region(at: point, rect: rect))
+                } else {
+                    leave()
+                }
             }
         }
+        // The tool can be put away with `⏎` while the pointer is still inside the
+        // rectangle, and a cursor pushed by a view that has gone is a cursor nothing will
+        // ever pop.
+        .onDisappear { leave() }
+        .task { await revealHint() }
     }
 
     // MARK: Geometry
@@ -844,6 +1021,17 @@ struct CropOverlayView: View {
 
     // MARK: Guides
 
+    /// The rectangle's own outline as a path, so it can be stroked twice.
+    ///
+    /// A path rather than `Rectangle().strokeBorder`, which is what this was: `strokeBorder`
+    /// insets by half its line width, so a 3 pt companion and a 1 pt line drawn that way
+    /// sit at different radii and the dark one ends up entirely INSIDE the crop, eating a
+    /// point and a half of the picture you are framing. Centred strokes on one shared path
+    /// are the only version where the two stay concentric at every weight.
+    private func boundary(of rect: CGRect) -> Path {
+        Path { $0.addRect(rect) }
+    }
+
     /// The chosen overlay, drawn inside the rectangle — and the grid regardless while a
     /// rotation is in flight, because a picture turning under a frame with nothing
     /// straight in it is a rotation you cannot judge.
@@ -894,6 +1082,97 @@ struct CropOverlayView: View {
         return path
     }
 
+    /// The rotate cue: a short arc swinging past the bottom-right corner, out in the
+    /// dimmed area, with an arrowhead at each end.
+    ///
+    /// AN ARC RATHER THAN A LABEL because the gesture is a sweep and an arc is a picture
+    /// of a sweep — and because a word on a photograph is a word the eye has to stop and
+    /// read. It is struck concentric with the rectangle's own centre, which is the pivot
+    /// `rotateGesture` actually turns about, so the cue is a diagram of the mechanism
+    /// rather than a decoration that happens to sit nearby.
+    ///
+    /// Past a CORNER rather than past an edge: a corner is the farthest point from the
+    /// pivot, so it is where the same wrist movement buys the most angle, and it is the
+    /// part of the dimmed area least likely to be under the pointer for some other reason.
+    ///
+    /// FADED IN RATHER THAN INSERTED. It stays in the hierarchy at zero opacity, which is
+    /// what lets the crossfade be a plain `.animation(value:)` rather than a transition
+    /// needing a `withAnimation` at whatever set `hover`. The cost of keeping it there is
+    /// one six-segment path per body pass, which is less than the `if` would have saved.
+    private func rotateCueLayer(in rect: CGRect) -> some View {
+        // Withdrawn once the drag is under way: the horizon and the angle readout answer
+        // "what is this doing" better than a diagram of what it was going to do.
+        let visible = hover == CropRegion.outside && rotation == nil
+        return Group {
+            rotateCue(in: rect).stroke(Color.black.opacity(0.5), lineWidth: 3.5)
+            rotateCue(in: rect).stroke(Lumen.primaryText.opacity(0.9), lineWidth: 1.5)
+        }
+        .opacity(visible ? 1 : 0)
+        .allowsHitTesting(false)
+        .animation(.easeOut(duration: 0.12), value: visible)
+    }
+
+    /// The arc itself, in this view's points — see `rotateCueLayer(in:)` above for what
+    /// it is for and why it is drawn where it is.
+    private func rotateCue(in rect: CGRect) -> Path {
+        var path = Path()
+        guard rect.width > 1, rect.height > 1 else { return path }
+        let centre = CGPoint(x: rect.midX, y: rect.midY)
+        let radius = CGFloat((rect.width * rect.width + rect.height * rect.height)
+            .squareRoot()) / 2 + 15
+        // The direction of the bottom-right corner, in this view's y-down space.
+        let middle = atan2(Double(rect.height), Double(rect.width))
+        let span = 16.0 * Double.pi / 180
+        path.addArc(center: centre, radius: radius,
+                    startAngle: Angle(radians: middle - span),
+                    endAngle: Angle(radians: middle + span),
+                    clockwise: false)
+        for end in [middle - span, middle + span] {
+            let tip = CGPoint(x: centre.x + radius * CGFloat(cos(end)),
+                              y: centre.y + radius * CGFloat(sin(end)))
+            // The tangent at this end, pointing away from the middle of the arc — which
+            // is the direction the arrowhead has to open in for the pair to read as "this
+            // turns both ways" rather than as two arrows chasing each other.
+            let away = end + (end < middle ? -Double.pi / 2 : Double.pi / 2)
+            for spread in [2.5, -2.5] {
+                path.move(to: tip)
+                path.addLine(to: CGPoint(x: tip.x + 7 * CGFloat(cos(away + spread)),
+                                         y: tip.y + 7 * CGFloat(sin(away + spread))))
+            }
+        }
+        return path
+    }
+
+    /// The one-time hint, along the bottom of the frame.
+    ///
+    /// THREE CLAUSES IN ONE SENTENCE, because the complaint was not about one gesture. A
+    /// hint that only named the rotate drag would leave "I don't really know how to edit
+    /// it by hand" two thirds unanswered, and the corner-drag and the interior-drag are
+    /// exactly as unlabelled as the rotation is — they are merely more guessable.
+    ///
+    /// It is shown once ever (`hintSeen`), fades on its own after eight seconds, and goes
+    /// the instant any of the three gestures it describes begins: the fastest way to stop
+    /// teaching somebody is to notice they already knew.
+    private func hint(in size: CGSize) -> some View {
+        Text("Drag a corner or an edge to reframe, inside the rectangle to move it, "
+             + "and outside the frame to turn the picture.")
+            .font(.system(size: 11))
+            .foregroundStyle(Lumen.primaryText)
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: Swift.max(size.width - 64, 160))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Color.black.opacity(0.72), in: RoundedRectangle(cornerRadius: 6))
+            .overlay {
+                RoundedRectangle(cornerRadius: 6)
+                    .strokeBorder(Lumen.separator, lineWidth: 0.5)
+            }
+            .position(x: size.width / 2, y: Swift.max(size.height - 34, 20))
+            .allowsHitTesting(false)
+            .transition(.opacity)
+    }
+
     /// The angle, beside the cursor, while the drag is happening — docs/09's "the angle
     /// readout ghosts next to the cursor", and the same rule the ruler's own readout
     /// follows: the tool sets a visible number rather than hiding behind one.
@@ -911,28 +1190,70 @@ struct CropOverlayView: View {
 
     // MARK: Handles
 
+    /// A corner: an L-shaped bracket overhanging the corner it names, over an invisible
+    /// square you can actually hit.
+    ///
+    /// THE BRACKET IS NOT THE TARGET, which is why it can be as big as it needs to be.
+    /// The drawn shape spans `cornerBox` so its legs are never clipped by their own
+    /// frame; the thing that takes the press is the `cornerTarget` square in the middle,
+    /// and it is the only hit-testable child — the strokes are switched out of hit
+    /// testing so a press on the far tip of a leg falls through to the edge strip or the
+    /// interior underneath, exactly as it did when the tip was not drawn at all.
+    ///
+    /// Hover BRIGHTENS AND THICKENS rather than growing. `LumenHover` argues for a
+    /// surface change over a scale because a control that grows moves the thing you were
+    /// aiming at — and there is no surface on a photograph, so weight and value are the
+    /// two channels left. The leg length is held fixed for the same reason the argument
+    /// was made: the corner of the bracket must not move out from under the pointer.
     private func corner(_ handle: CropGeometry.Handle, at point: CGPoint,
                         frame: CGRect) -> some View {
-        RoundedRectangle(cornerRadius: 1)
-            .fill(Lumen.primaryText)
-            .frame(width: CropOverlayView.handleSize / 2, height: CropOverlayView.handleSize / 2)
-            .frame(width: CropOverlayView.handleSize, height: CropOverlayView.handleSize)
-            .contentShape(Rectangle())
-            .position(point)
-            .gesture(resizeGesture(handle, in: frame))
+        let hot = hover == CropRegion.handle(handle)
+        let weight = CropOverlayView.markWeight + (hot ? 1 : 0)
+        let bracket = CropCornerBracket(handle: handle,
+                                        leg: CropOverlayView.bracketLeg,
+                                        offset: weight / 2)
+        return ZStack {
+            Group {
+                bracket.stroke(Color.black.opacity(0.55),
+                               style: StrokeStyle(lineWidth: weight + 2, lineJoin: .miter))
+                bracket.stroke(hot ? Color.white : Lumen.primaryText,
+                               style: StrokeStyle(lineWidth: weight, lineJoin: .miter))
+            }
+            .allowsHitTesting(false)
+            .animation(.easeOut(duration: 0.12), value: hot)
+
+            Rectangle()
+                .fill(Color.clear)
+                .contentShape(Rectangle())
+                .frame(width: CropOverlayView.cornerTarget,
+                       height: CropOverlayView.cornerTarget)
+                .gesture(resizeGesture(handle, in: frame))
+                .help("Drag to reframe from this corner.")
+        }
+        .frame(width: CropOverlayView.cornerBox, height: CropOverlayView.cornerBox)
+        .position(point)
     }
 
-    /// An edge handle: a thin grab strip along the side, drawn as a short bar at its
-    /// midpoint so the target is discoverable without covering the picture.
+    /// An edge handle: a thin grab strip along the whole side, drawn as a short thick bar
+    /// at its midpoint so the target is discoverable without covering the picture.
     ///
     /// The overlay offered corners only, so the adjustment every crop ends with — "a
     /// little off the top" — meant dragging a corner and then fixing the width it had
     /// also changed.
+    ///
+    /// THE BAR WAS 2 pt, which on a Retina panel is four device pixels of `primaryText`
+    /// with nothing behind it: at rest, against anything brighter than mid-grey, it was
+    /// not there. It is 3 pt now with the same near-black companion the rectangle and the
+    /// brackets carry, and a capsule rather than a 1 pt-radius rounded rectangle because
+    /// at this weight the difference between the two is the difference between a bar and
+    /// a scratch.
     private func edge(_ handle: CropGeometry.Handle, in rect: CGRect,
                       frame: CGRect) -> some View {
         let horizontal = handle == .top || handle == .bottom
         let length = horizontal ? rect.width : rect.height
-        let bar = Swift.max(Swift.min(length * 0.25, 40), 8)
+        let bar = Swift.max(Swift.min(length * 0.28, 44), 10)
+        let hot = hover == CropRegion.handle(handle)
+        let weight = CropOverlayView.markWeight + (hot ? 1 : 0)
         let centre: CGPoint
         switch handle {
         case .top: centre = CGPoint(x: rect.midX, y: rect.minY)
@@ -941,17 +1262,133 @@ struct CropOverlayView: View {
         default: centre = CGPoint(x: rect.maxX, y: rect.midY)
         }
         return ZStack {
-            RoundedRectangle(cornerRadius: 1)
-                .fill(Lumen.primaryText)
-                .frame(width: horizontal ? bar : 2, height: horizontal ? 2 : bar)
+            Group {
+                Capsule()
+                    .fill(Color.black.opacity(0.55))
+                    .frame(width: horizontal ? bar + 2 : weight + 2,
+                           height: horizontal ? weight + 2 : bar + 2)
+                Capsule()
+                    .fill(hot ? Color.white : Lumen.primaryText)
+                    .frame(width: horizontal ? bar : weight,
+                           height: horizontal ? weight : bar)
+            }
+            .allowsHitTesting(false)
+            .animation(.easeOut(duration: 0.12), value: hot)
+
             Rectangle()
                 .fill(Color.clear)
                 .contentShape(Rectangle())
                 .frame(width: horizontal ? length : CropOverlayView.edgeThickness,
                        height: horizontal ? CropOverlayView.edgeThickness : length)
+                .gesture(resizeGesture(handle, in: frame))
+                .help("Drag to move this edge on its own.")
         }
         .position(centre)
-        .gesture(resizeGesture(handle, in: frame))
+    }
+
+    // MARK: The pointer
+
+    /// Which region of the overlay a point is in.
+    ///
+    /// THE PRECEDENCE IS THE Z-ORDER'S, deliberately and by hand: corners, then edges,
+    /// then the interior, then the picture outside. The targets in `body` are stacked in
+    /// that same order — later is on top — so this function and the hit test agree about
+    /// every square point of the overlay. They are two statements of one rule, and the
+    /// day they disagree the cursor starts promising a handle the press cannot reach,
+    /// which is worse than no cursor at all.
+    private func region(at point: CGPoint, rect: CGRect) -> CropRegion {
+        let half = CropOverlayView.cornerTarget / 2
+        let corners: [(CropGeometry.Handle, CGPoint)] = [
+            (.topLeft, CGPoint(x: rect.minX, y: rect.minY)),
+            (.topRight, CGPoint(x: rect.maxX, y: rect.minY)),
+            (.bottomLeft, CGPoint(x: rect.minX, y: rect.maxY)),
+            (.bottomRight, CGPoint(x: rect.maxX, y: rect.maxY)),
+        ]
+        for (handle, centre) in corners {
+            if abs(point.x - centre.x) <= half && abs(point.y - centre.y) <= half {
+                return .handle(handle)
+            }
+        }
+        // The strips run the full length of their side and straddle it, which is what
+        // `edge(_:in:frame:)` builds.
+        let reach = CropOverlayView.edgeThickness / 2
+        if point.x >= rect.minX && point.x <= rect.maxX {
+            if abs(point.y - rect.minY) <= reach { return .handle(.top) }
+            if abs(point.y - rect.maxY) <= reach { return .handle(.bottom) }
+        }
+        if point.y >= rect.minY && point.y <= rect.maxY {
+            if abs(point.x - rect.minX) <= reach { return .handle(.left) }
+            if abs(point.x - rect.maxX) <= reach { return .handle(.right) }
+        }
+        return rect.contains(point) ? .inside : .outside
+    }
+
+    /// The cursor a region is entitled to.
+    ///
+    /// NO DIAGONAL RESIZE CURSOR EXISTS IN PUBLIC APPKIT. The four that everybody wants
+    /// here — `_windowResizeNorthWestSouthEastCursor` and its siblings — are private
+    /// selectors, and an app that ships them is an app whose corners lose their cursor in
+    /// whichever macOS release renames them. `.crosshair` is the honest substitute: it
+    /// says "this point, precisely", which is exactly what a corner drag sets.
+    private func cursor(for region: CropRegion) -> NSCursor {
+        switch region {
+        case .outside: return .crosshair
+        case .inside: return .openHand
+        case .handle(let handle):
+            switch handle {
+            case .top, .bottom: return .resizeUpDown
+            case .left, .right: return .resizeLeftRight
+            default: return .crosshair
+            }
+        }
+    }
+
+    /// Take up a region, pushing its cursor and dropping whichever one we pushed before.
+    ///
+    /// At most one push is ever outstanding, which is what keeps this balanced against
+    /// whatever the window had underneath — the push/pop discipline `LumenHover` sets out,
+    /// with the added rule that a region change is a pop AND a push rather than a second
+    /// push on top of the first.
+    private func enter(_ next: CropRegion) {
+        guard hover != next else { return }
+        hover = next
+        if pushedCursor { NSCursor.pop() }
+        cursor(for: next).push()
+        pushedCursor = true
+    }
+
+    /// The pointer left, or the tool did.
+    private func leave() {
+        hover = nil
+        guard pushedCursor else { return }
+        pushedCursor = false
+        NSCursor.pop()
+    }
+
+    // MARK: The hint
+
+    /// Show the one-time hint, then let it go.
+    ///
+    /// `@MainActor` and cancellation-checked, the same shape the two raster overlays in
+    /// this file use for their own `.task`s: the tool is closed with a keystroke, and a
+    /// task that wakes up after that must not write state into a view that has gone.
+    /// Not recording `hintSeen` on the cancelled path is deliberate — a hint the
+    /// photographer never got eight seconds to read has not been given.
+    @MainActor
+    private func revealHint() async {
+        guard !hintSeen else { return }
+        showsHint = true
+        try? await Task.sleep(nanoseconds: 8_000_000_000)
+        guard !Task.isCancelled else { return }
+        hintSeen = true
+        withAnimation(.easeOut(duration: 0.4)) { showsHint = false }
+    }
+
+    /// A hand arrived, so the sentence describing the hand has done its job.
+    private func dismissHint() {
+        guard showsHint else { return }
+        hintSeen = true
+        withAnimation(.easeOut(duration: 0.25)) { showsHint = false }
     }
 
     // MARK: Gestures
@@ -961,6 +1398,7 @@ struct CropOverlayView: View {
             .onChanged { value in
                 guard frame.width > 0, frame.height > 0 else { return }
                 sliderGestureChanged(true)
+                dismissHint()
                 let origin = dragOrigin ?? crop
                 if dragOrigin == nil { dragOrigin = origin }
                 crop = CropGeometry.move(origin,
@@ -986,6 +1424,7 @@ struct CropOverlayView: View {
             .onChanged { value in
                 guard frame.width > 0, frame.height > 0 else { return }
                 sliderGestureChanged(true)
+                dismissHint()
                 let origin = dragOrigin ?? crop
                 if dragOrigin == nil { dragOrigin = origin }
                 crop = CropGeometry.resize(
@@ -1042,6 +1481,7 @@ struct CropOverlayView: View {
                 rotation?.location = CGPoint(x: value.location.x - windowOrigin.x,
                                              y: value.location.y - windowOrigin.y)
                 sliderGestureChanged(true)
+                dismissHint()
                 onAngle(next)
             }
             .onEnded { _ in

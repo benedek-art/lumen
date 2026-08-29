@@ -368,9 +368,50 @@ bought nothing there and cost something real — these rows are what a pointer s
 on the way to the picture, and eleven of them lighting up in sequence is motion in the
 peripheral vision of a colour decision.
 
-Two larger items from the same review are recorded in §7.5 and §7.6 because they are
-rebuilds rather than adjustments: every dropdown in the application, and a symbol for every
-section.
+Three larger items from the same review are recorded in §7.4, §7.5 and §7.6, because they
+are rebuilds rather than adjustments: the crop rectangle's own legibility, every dropdown
+in the application, and a symbol for every section.
+
+### 7.4 The crop rectangle, made visible
+
+The arming bug in §7.3 was only half of "I don't really know how to edit it by hand. It's
+a little difficult for me to see." The other half is that the overlay, once it appeared,
+barely announced itself.
+
+Measured on the build he was looking at: **corner handles were 7 × 7 pt white squares**
+with a 1 pt radius and no dark companion, so on a bright sky they had no contrast at all;
+edge handles were **2 pt bars**, sub-pixel at rest on a Retina display; the rectangle's
+border was a single 1 pt light line with nothing under it; **nothing anywhere changed
+under the pointer** — no cursor, no highlight, in a file where the app's own
+`LumenHover.swift` had already named that as a defect class; and the rotate gesture, which
+is a drag *outside* the rectangle, had no affordance of any kind.
+
+What replaced it:
+
+- **Corner brackets** — an L with 22 pt legs at 3 pt, offset outward so it overhangs the
+  corner, stroked twice: near-black underneath at two points wider, light on top. That
+  double stroke is the whole trick, and it is why the chrome survives both a white sky and
+  a black shadow. The border and the guides take the same treatment at their own weights.
+  The hit target grew 14 → 24 pt, and the bracket is drawn in a separate non-hit-testing
+  box so a press on a leg tip still falls through exactly as it did when nothing was drawn
+  there.
+- **One hover reader for the whole overlay**, not ten. Ten overlapping `onHover`s have no
+  defined ordering, so the cursor would have been whichever region was told last and the
+  `NSCursor` push/pops would interleave. A single `onContinuousHover` resolves the point
+  through the same precedence as the z-order — corner, edge, interior, outside — so the
+  cursor and the hit test cannot disagree, and at most one push is ever outstanding. It is
+  popped on exit *and* on disappear, because ⏎ closes the tool with the pointer still
+  inside.
+- **Rotation made discoverable three ways**: the crosshair outside the frame, an arc struck
+  concentric with the rectangle's actual pivot that fades in on hover, and a one-time hint
+  naming all three gestures that leaves the moment any of them begins.
+
+While in there, the double-press-R reset moved out of the crop panel's `onChange` and into
+`AppState.toggleCropTool`. It had been half-working and nobody had noticed: a view's
+lifecycle cannot observe a key, and the crop column is unmounted both when the photographer
+is arriving from another workspace and when the accordion has the section folded. So the
+common route — `R` pressed from Develop — armed the tool at mount time and the pair was
+never seen. It worked from inside the workspace with the section open, and nowhere else.
 
 ### 7.5 Every dropdown in the application
 
@@ -417,7 +458,7 @@ header forbids presentational data — "no symbol names, no widths, no colours" 
 is presentation. The switch is exhaustive with no `default:`, so a fifteenth section is a
 compile error rather than a blank square.
 
-### 7.4 Still open
+### 7.7 Still open
 
 - **Cull is a one-way door for the mouse.** Cull has no sections, so it has no develop
   column, so it has no workspace strip — and the only routes back are ⌘1–⌘5 and the Go

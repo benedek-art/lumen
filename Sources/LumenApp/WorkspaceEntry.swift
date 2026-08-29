@@ -126,13 +126,39 @@ extension AppState {
     /// `enter` handles the way in, including opening the Crop section and promoting the
     /// register when the photographer is in Simple — so this stays two branches rather
     /// than growing its own copy of them.
+    ///
+    /// AND THE DOUBLE PRESS IS COUNTED HERE, which is the fix for a grammar that had been
+    /// quietly half-working. docs/09: "Return commits, Esc reverts, double-press R resets
+    /// the crop entirely." That reset used to live on `CropSection`'s `onChange`, and a
+    /// view's lifecycle cannot observe a key — the Crop column is not mounted when the
+    /// photographer is arriving from another workspace, and it is not mounted when the
+    /// accordion has the section folded, both deliberately. So the common route, `R`
+    /// pressed from Develop, armed the tool at mount time and the pair was never seen. It
+    /// worked from inside the workspace with the section open, and nowhere else.
+    ///
+    /// This is the only place `R` lands, and every path through it is exactly one arming
+    /// transition — `settle` disarms on the way OUT of the workspace, so `enter(.crop)` is
+    /// always false→true, and the other branch always flips. That is what makes counting
+    /// transitions here correct where counting them in a view was not.
+    ///
+    /// Forcing the tool open after a reset is what makes the two orders mean the same
+    /// thing: pressed from outside the pair reads open-then-closed, from inside
+    /// closed-then-open, and either way you reset the crop and you are still cropping.
     func toggleCropTool() {
         let viewport = LoupeViewport.shared
+        let doublePressed = CropTool.shared.noteArming()
+
         guard PanelLayout.shared.layout.workspace == .crop else {
             enter(.crop)
+            if doublePressed { CropTool.shared.resetGeometry(in: self) }
             return
         }
+
         viewport.showCrop.toggle()
+        if doublePressed {
+            CropTool.shared.resetGeometry(in: self)
+            viewport.showCrop = true
+        }
         if !viewport.showCrop { viewport.showStraighten = false }
         showLoupe()
     }
