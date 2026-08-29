@@ -63,21 +63,96 @@ struct BasicPanel: View {
     /// `AppState.recipes` is deliberately not published (see `EditRevision`).
     @EnvironmentObject var edits: EditRevision
 
+    /// nil renders every section this panel owns, which is what the tab did.
+    ///
+    /// docs/28 §5.1 asks the column for one section at a time, and this panel's four
+    /// sections are not one row of that column: Tone, Presence and White Balance land in
+    /// three separate places in the accordion, two of them apart from each other. Naming
+    /// the section from outside rather than cutting the file into three keeps every
+    /// section's rows and bindings in one file; what the accordion takes over is the
+    /// header, and the Reset and modified dot that live in it (see `sections(for:)`).
+    /// The tab strip, which passes nothing, sees no change at all.
+    var only: WorkspaceSection? = nil
+
     @State private var showPivot: Bool = false
     @State private var showSaturationAdvanced: Bool = false
+    /// Zones opens closed. It is the register a photographer reaches for after the six
+    /// sliders have not been enough, not one they want in the way while using them.
+    @State private var zonesExpanded = false
 
     private var binder: RecipeBinder { RecipeBinder(state: state) }
     private var recipe: Recipe { state.currentRecipe }
 
     var body: some View {
-        // Tone first: the owner edits light before colour, every session, and said so
-        // in exactly those words — the panel leads with Exposure and friends, White
-        // Balance moves below the visual controls it used to sit on top of.
         VStack(alignment: .leading, spacing: 2) {
-            toneSection
-            presenceSection
-            whiteBalanceSection
+            if let only {
+                sections(for: only)
+            } else {
+                // Tone first: the owner edits light before colour, every session, and
+                // said so in exactly those words — the panel leads with Exposure and
+                // friends, White Balance moves below the visual controls it used to sit
+                // on top of. This order is the tab's; the accordion orders itself, by
+                // `WorkspaceSection.canonicalRank`.
+                toneSection
+                presenceSection
+                whiteBalanceSection
+                saturationSection
+            }
+        }
+    }
+
+    /// What one accordion row of this panel holds.
+    ///
+    /// A section this panel does not own draws nothing rather than falling back to all
+    /// of them: the column names the section it wants, so a name this panel cannot serve
+    /// is a caller bug, and it should read as an empty row rather than as four sections
+    /// appearing under somebody else's header.
+    ///
+    /// ROWS, NOT SECTIONS, for the three whose names collide. `WorkspaceSection.title`
+    /// prints exactly the words this panel's own headers do — "Tone", "Presence",
+    /// "White Balance" — and the column has already drawn one, so keeping the wrapper
+    /// would stack two identical headings and read as two sections. What the wrapper
+    /// carried comes with the column's header instead: the modified dot, and a Reset
+    /// that has to do what this file's own reset does. Those are two statements of one
+    /// rule now (`DevelopColumn`'s reset table and `applyAsShot()` / `resetPresence()` /
+    /// the `tone.reset` edit below), and they must agree.
+    @ViewBuilder
+    private func sections(for section: WorkspaceSection) -> some View {
+        switch section {
+        case .whiteBalance:
+            whiteBalanceRows
+        case .tone:
+            toneRows
+            // Zones folds in here rather than standing as a section of its own — docs/28
+            // §5.1, and `WorkspaceSection.tone` says so at the declaration. It is the
+            // difference between Develop being six rows deep and eight, and it is the
+            // right fold: a zone set is the six sliders continued at more points, not a
+            // different subject. The register comes from `ZonesPanel` with its own header
+            // suppressed, because the disclosure above it is already that header.
+            //
+            // Its Reset is on the column's Tone header, which clears the six sliders and
+            // the zone register together — under the accordion they are one section to a
+            // photographer. Do not go looking for it in `DevelopDisclosure`, which
+            // carries no reset of its own.
+            DevelopDisclosure("Zones", isExpanded: $zonesExpanded) {
+                ZonesPanel(showsSectionHeader: false)
+            }
+        case .presence:
+            presenceRows
+            // Vibrance and Saturation ride with Presence, which is the one placement a
+            // reader will stop at. §5.1 gives Develop no Colour section at all, and
+            // `WorkspaceSection.color` is Grade's Mixer / Point Colour / B&W surface — a
+            // different job at a different point in the edit, in another workspace. These
+            // two are global punch of the same family as Texture, Clarity and Dehaze, and
+            // a photographer reaching for saturation in a first pass wants it beside
+            // Exposure rather than behind the Mixer.
+            //
+            // This one KEEPS its wrapper: "Saturation" under "Presence" is a sub-heading
+            // rather than the same heading twice, and without it two unlabelled groups of
+            // sliders would run together in one row.
             saturationSection
+        default:
+            EmptyView()
         }
     }
 
@@ -94,6 +169,13 @@ struct BasicPanel: View {
     }
 
     private var whiteBalanceSection: some View {
+        DevelopSection("White Balance", isModified: isWhiteBalanceModified,
+                       onReset: { applyAsShot() }) {
+            whiteBalanceRows
+        }
+    }
+
+    private var whiteBalanceRows: some View {
         let display = whiteBalanceDisplay
         // While the neutral is unknown the rows have nothing honest to stand in, so they
         // do not accept a drag. The window is one hop onto the render actor and it only
@@ -101,64 +183,61 @@ struct BasicPanel: View {
         // would otherwise write a fabricated Kelvin and change the picture.
         let unknown = asShotNeutral == nil && display.isAsShot
 
-        return DevelopSection("White Balance", isModified: isWhiteBalanceModified,
-                              onReset: { applyAsShot() }) {
-            VStack(alignment: .leading, spacing: 2) {
-                presetRow
-                // The Kelvin axis is perceptually even in MIREDS, not in Kelvin, which
-                // is why every camera UI steps in them underneath and why this
-                // package's own eyedropper searches in them. The slider was linear in
-                // Kelvin, so the top 72.9% of its travel carried 4.4% of its effect
-                // and the first fifth carried 93.3% — the owner reported it as
-                // "nothing even changes above like 15,000", which was an accurate
-                // reading of the control. `.reciprocal` spends the fifths
-                // 21.4 / 33.6 / 18.8 / 15.6 / 10.5 instead. The range is unchanged:
-                // 2000–50000 K is the documented span and matches the field, and what
-                // was wrong was never its width but where its travel went.
-                LumenSlider(title: "Temp",
-                            value: binder.value(\.develop.raw.temp, "wb.temp",
-                                                orAuto: display.temperature),
-                            range: 2000...50000,
-                            hardRange: 2000...50000,
-                            scale: .reciprocal,
-                            defaultValue: display.temperature,
-                            step: 10, decimals: 0, bipolar: false,
-                            // Blue below neutral, amber above, placed in Kelvin so the
-                            // grey stop lands where the mired axis actually puts 5500 K
-                            // (about two thirds along, not the middle). docs/28 Phase 2.
-                            trackStops: Lumen.temperatureStops,
-                            // Double-clicking the label CLEARS the override rather than
-                            // pinning the displayed number. `raw.temp` is optional and
-                            // nil means as-shot; pinning a number there flips the
-                            // section to "Custom" and freezes this photograph's neutral
-                            // into a recipe that may be copied onto another.
-                            onReset: { applyAsShot() })
-                LumenSlider(title: "Tint",
-                            value: binder.value(\.develop.raw.tint, "wb.tint",
-                                                orAuto: display.tint),
-                            range: -150...150,
-                            hardRange: -300...300,
-                            defaultValue: display.tint,
-                            step: 1, decimals: 0,
-                            trackStops: Lumen.tintStops,
-                            onReset: { applyAsShot() })
-                // Tint honesty (docs/23 M2): the engine bounds the magenta half so
-                // the adaptation cannot invert the picture, and on a warm frame the
-                // slider's last stretch is deliberately inert past that bound. The
-                // engine has said so through `effectiveTint` since the guard landed;
-                // this is the first place the PHOTOGRAPHER hears it — without it the
-                // stretch reads as a broken control (the Density lesson: a correct
-                // gate that looks like a dead slider).
-                if let bounded = boundedTintCaption(display: display) {
-                    Text(bounded)
-                        .font(.system(size: 10))
-                        .foregroundStyle(Lumen.secondaryText)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+        return VStack(alignment: .leading, spacing: 2) {
+            presetRow
+            // The Kelvin axis is perceptually even in MIREDS, not in Kelvin, which
+            // is why every camera UI steps in them underneath and why this
+            // package's own eyedropper searches in them. The slider was linear in
+            // Kelvin, so the top 72.9% of its travel carried 4.4% of its effect
+            // and the first fifth carried 93.3% — the owner reported it as
+            // "nothing even changes above like 15,000", which was an accurate
+            // reading of the control. `.reciprocal` spends the fifths
+            // 21.4 / 33.6 / 18.8 / 15.6 / 10.5 instead. The range is unchanged:
+            // 2000–50000 K is the documented span and matches the field, and what
+            // was wrong was never its width but where its travel went.
+            LumenSlider(title: "Temp",
+                        value: binder.value(\.develop.raw.temp, "wb.temp",
+                                            orAuto: display.temperature),
+                        range: 2000...50000,
+                        hardRange: 2000...50000,
+                        scale: .reciprocal,
+                        defaultValue: display.temperature,
+                        step: 10, decimals: 0, bipolar: false,
+                        // Blue below neutral, amber above, placed in Kelvin so the
+                        // grey stop lands where the mired axis actually puts 5500 K
+                        // (about two thirds along, not the middle). docs/28 Phase 2.
+                        trackStops: Lumen.temperatureStops,
+                        // Double-clicking the label CLEARS the override rather than
+                        // pinning the displayed number. `raw.temp` is optional and
+                        // nil means as-shot; pinning a number there flips the
+                        // section to "Custom" and freezes this photograph's neutral
+                        // into a recipe that may be copied onto another.
+                        onReset: { applyAsShot() })
+            LumenSlider(title: "Tint",
+                        value: binder.value(\.develop.raw.tint, "wb.tint",
+                                            orAuto: display.tint),
+                        range: -150...150,
+                        hardRange: -300...300,
+                        defaultValue: display.tint,
+                        step: 1, decimals: 0,
+                        trackStops: Lumen.tintStops,
+                        onReset: { applyAsShot() })
+            // Tint honesty (docs/23 M2): the engine bounds the magenta half so
+            // the adaptation cannot invert the picture, and on a warm frame the
+            // slider's last stretch is deliberately inert past that bound. The
+            // engine has said so through `effectiveTint` since the guard landed;
+            // this is the first place the PHOTOGRAPHER hears it — without it the
+            // stretch reads as a broken control (the Density lesson: a correct
+            // gate that looks like a dead slider).
+            if let bounded = boundedTintCaption(display: display) {
+                Text(bounded)
+                    .font(.system(size: 10))
+                    .foregroundStyle(Lumen.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .disabled(unknown)
-            .help(asShotHelp(unknown: unknown))
         }
+        .disabled(unknown)
+        .help(asShotHelp(unknown: unknown))
     }
 
     /// The inline line under Tint when the shown magenta exceeds what the current
@@ -278,33 +357,39 @@ struct BasicPanel: View {
     private var toneSection: some View {
         DevelopSection("Tone", isModified: recipe.develop.tone != Tone(),
                        onReset: { binder.edit("tone.reset") { $0.develop.tone = Tone() } }) {
-            VStack(alignment: .leading, spacing: 2) {
-                LumenSlider(title: "Exposure",
-                            value: binder.value(\.develop.tone.exposure, "tone.exposure"),
-                            range: -5...5, hardRange: -10...10, defaultValue: 0,
-                            step: 0.01, decimals: 2)
-                LumenSlider(title: "Contrast",
-                            value: binder.value(\.develop.tone.contrast, "tone.contrast"),
-                            range: -100...100, hardRange: nil, defaultValue: 0,
-                            step: 1, decimals: 0)
-                pivotDisclosure
-                LumenSlider(title: "Highlights",
-                            value: binder.value(\.develop.tone.highlights, "tone.highlights"),
-                            range: -100...100, hardRange: nil, defaultValue: 0,
-                            step: 1, decimals: 0)
-                LumenSlider(title: "Shadows",
-                            value: binder.value(\.develop.tone.shadows, "tone.shadows"),
-                            range: -100...100, hardRange: nil, defaultValue: 0,
-                            step: 1, decimals: 0)
-                LumenSlider(title: "Whites",
-                            value: binder.value(\.develop.tone.whites, "tone.whites"),
-                            range: -100...100, hardRange: nil, defaultValue: 0,
-                            step: 1, decimals: 0)
-                LumenSlider(title: "Blacks",
-                            value: binder.value(\.develop.tone.blacks, "tone.blacks"),
-                            range: -100...100, hardRange: nil, defaultValue: 0,
-                            step: 1, decimals: 0)
-            }
+            toneRows
+        }
+    }
+
+    /// The six sliders and Contrast's pivot, without a header of their own — the
+    /// accordion's Tone row draws one, and the tab's section wraps these in another.
+    private var toneRows: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            LumenSlider(title: "Exposure",
+                        value: binder.value(\.develop.tone.exposure, "tone.exposure"),
+                        range: -5...5, hardRange: -10...10, defaultValue: 0,
+                        step: 0.01, decimals: 2)
+            LumenSlider(title: "Contrast",
+                        value: binder.value(\.develop.tone.contrast, "tone.contrast"),
+                        range: -100...100, hardRange: nil, defaultValue: 0,
+                        step: 1, decimals: 0)
+            pivotDisclosure
+            LumenSlider(title: "Highlights",
+                        value: binder.value(\.develop.tone.highlights, "tone.highlights"),
+                        range: -100...100, hardRange: nil, defaultValue: 0,
+                        step: 1, decimals: 0)
+            LumenSlider(title: "Shadows",
+                        value: binder.value(\.develop.tone.shadows, "tone.shadows"),
+                        range: -100...100, hardRange: nil, defaultValue: 0,
+                        step: 1, decimals: 0)
+            LumenSlider(title: "Whites",
+                        value: binder.value(\.develop.tone.whites, "tone.whites"),
+                        range: -100...100, hardRange: nil, defaultValue: 0,
+                        step: 1, decimals: 0)
+            LumenSlider(title: "Blacks",
+                        value: binder.value(\.develop.tone.blacks, "tone.blacks"),
+                        range: -100...100, hardRange: nil, defaultValue: 0,
+                        step: 1, decimals: 0)
         }
     }
 
@@ -331,39 +416,44 @@ struct BasicPanel: View {
     private var presenceSection: some View {
         DevelopSection("Presence", isModified: isPresenceModified,
                        onReset: { resetPresence() }) {
-            VStack(alignment: .leading, spacing: 2) {
-                LumenSlider(title: "Texture",
-                            value: binder.value(\.develop.detail.texture, "detail.texture"),
-                            range: -100...100, hardRange: nil, defaultValue: 0,
-                            step: 1, decimals: 0)
-                LumenSlider(title: "Clarity",
-                            value: binder.value(\.develop.detail.clarity, "detail.clarity"),
-                            range: -100...100, hardRange: nil, defaultValue: 0,
-                            step: 1, decimals: 0)
-                LumenSlider(title: "Dehaze",
-                            value: binder.value(\.develop.detail.dehaze, "detail.dehaze"),
-                            range: -100...100, hardRange: nil, defaultValue: 0,
-                            step: 1, decimals: 0)
-                // This used to claim all three "recombine one cached decomposition of
-                // the frame, so dragging any of them costs a recombination, not a
-                // re-analysis". There is no such cache: `applyDetailBands` builds fresh
-                // guided filters every frame and `makeGraph` rebuilds the graph per
-                // render. A panel note is a promise to the person reading it, and that
-                // one was describing an optimisation nobody had written.
-                // "neither can halo" was the second false promise in this one note.
-                // The halo-free property belongs to the local Laplacian, which runs in
-                // `ReferenceRenderer` and renders no pixel anybody sees; the GPU ships a
-                // single guided band, and beside a clean 3 EV step it rims — Clarity by
-                // 0.127 EV at +100 against the Laplacian's 0.0049, positive Texture by
-                // 0.267 EV. Saying so costs nothing and claiming otherwise cost the
-                // reader their trust in every other note on the panel.
-                DevelopNote("Texture and Clarity work on different scales of the same "
-                            + "frame. Pushed hard they can rim a clean edge — Clarity "
-                            + "most, past about +50 — because the shipping path uses a "
-                            + "guided band rather than the halo-free decomposition the "
-                            + "engine also carries. Dehaze is a transmission estimate, "
-                            + "so it lifts contrast where the air is, not everywhere.")
-            }
+            presenceRows
+        }
+    }
+
+    /// Texture, Clarity and Dehaze bare, for the same reason as `toneRows`.
+    private var presenceRows: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            LumenSlider(title: "Texture",
+                        value: binder.value(\.develop.detail.texture, "detail.texture"),
+                        range: -100...100, hardRange: nil, defaultValue: 0,
+                        step: 1, decimals: 0)
+            LumenSlider(title: "Clarity",
+                        value: binder.value(\.develop.detail.clarity, "detail.clarity"),
+                        range: -100...100, hardRange: nil, defaultValue: 0,
+                        step: 1, decimals: 0)
+            LumenSlider(title: "Dehaze",
+                        value: binder.value(\.develop.detail.dehaze, "detail.dehaze"),
+                        range: -100...100, hardRange: nil, defaultValue: 0,
+                        step: 1, decimals: 0)
+            // This used to claim all three "recombine one cached decomposition of
+            // the frame, so dragging any of them costs a recombination, not a
+            // re-analysis". There is no such cache: `applyDetailBands` builds fresh
+            // guided filters every frame and `makeGraph` rebuilds the graph per
+            // render. A panel note is a promise to the person reading it, and that
+            // one was describing an optimisation nobody had written.
+            // "neither can halo" was the second false promise in this one note.
+            // The halo-free property belongs to the local Laplacian, which runs in
+            // `ReferenceRenderer` and renders no pixel anybody sees; the GPU ships a
+            // single guided band, and beside a clean 3 EV step it rims — Clarity by
+            // 0.127 EV at +100 against the Laplacian's 0.0049, positive Texture by
+            // 0.267 EV. Saying so costs nothing and claiming otherwise cost the
+            // reader their trust in every other note on the panel.
+            DevelopNote("Texture and Clarity work on different scales of the same "
+                        + "frame. Pushed hard they can rim a clean edge — Clarity "
+                        + "most, past about +50 — because the shipping path uses a "
+                        + "guided band rather than the halo-free decomposition the "
+                        + "engine also carries. Dehaze is a transmission estimate, "
+                        + "so it lifts contrast where the air is, not everywhere.")
         }
     }
 
@@ -383,8 +473,15 @@ struct BasicPanel: View {
 
     // MARK: Vibrance & saturation
 
+    /// Titled "Saturation", not "Colour", and that is the header the tab shows too.
+    ///
+    /// Two headings reading "Colour" would name two different jobs: this is Vibrance and
+    /// Saturation, global punch, and `WorkspaceSection.color` is Grade's Mixer / Point
+    /// Colour / B&W surface. Under `only:` this one sits INSIDE Presence, so the two
+    /// would also have been one workspace apart on screen. "Saturation" is what the two
+    /// rows are, so the header stops being a category and starts being a name.
     private var saturationSection: some View {
-        DevelopSection("Colour", isModified: recipe.develop.color != ColorAdjust(),
+        DevelopSection("Saturation", isModified: recipe.develop.color != ColorAdjust(),
                        onReset: { binder.edit("color.reset") {
                            $0.develop.color = ColorAdjust()
                        } }) {

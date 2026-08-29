@@ -5,7 +5,7 @@
 // the sections already open.
 //
 // WHY IT IS HERE AND NOT IN THE PANELS. The eight-tab strip this replaces
-// (`PanelSection`, AppState.swift) is eight cases and a symbol name; every other fact
+// (`PanelSection`, deleted with this phase) was eight cases and a symbol name; every other fact
 // about the layout — that Zones is a tab rather than a disclosure under Tone, that Masks
 // is a tab rather than a dock available everywhere, that a panel is always fully open —
 // is spread across the panel files themselves, where nothing outside macOS can read it.
@@ -106,7 +106,7 @@ public enum WorkspaceSection: String, CaseIterable, Hashable, Sendable {
     /// Mixer, Point Colour and B&W live inside this one.
     ///
     /// Spelled American here and British in `title`, matching a split the codebase
-    /// already made: `ColorEngine`, `ColorPanel` and `PanelSection.color` against panel
+    /// already made: `ColorEngine` and `ColorPanel` against panel
     /// headers that read "Colour Mixer" and "Colour Grading". Identifiers follow the
     /// identifiers; user-facing text follows the user-facing text.
     case color

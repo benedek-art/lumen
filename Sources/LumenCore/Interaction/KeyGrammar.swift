@@ -175,6 +175,10 @@ public enum KeyGrammar {
         // and every one is checked against the sources. Seven of them were in neither
         // this list nor the dispatcher until the scan went looking.
         KeyGroup(title: "Menu commands", rows: [
+            KeyRow(KeyBinding("1", command: true), "Cull workspace"),
+            KeyRow(KeyBinding("2", command: true), "Develop workspace"),
+            KeyRow(KeyBinding("3", command: true), "Grade workspace"),
+            KeyRow(KeyBinding("4", command: true), "Deliver workspace"),
             KeyRow(KeyBinding("o", command: true), "Open folder"),
             KeyRow(KeyBinding("i", command: true, shift: true), "Ingest from a card"),
             KeyRow(KeyBinding("z", command: true), "Undo"),

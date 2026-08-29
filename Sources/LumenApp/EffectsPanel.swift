@@ -18,6 +18,14 @@
 // chromatic aberration and the seven Defringe controls were live, wrote the recipe, and
 // reached no stage; the CA toggle was on by default and its tooltip described the
 // polynomial fit it does not perform. They are gone until a stage reads them.
+//
+// SIX SECTIONS, THREE WORKSPACES. docs/28 §5.1 sends the creative layers to Grade's
+// Effects, crop and lens to Develop's Optics, and the proof to Deliver — the widest
+// split in that change, because "effects" was always the tab things landed in rather
+// than a subject. The sections stay in one file: they share `binder`, the `viewport`
+// the crop tool drives, and the frame-aspect arithmetic, and splitting the file would
+// duplicate all three to make a table of contents agree with itself. `only` is how the
+// column asks for one of them.
 
 #if os(macOS)
 
@@ -79,8 +87,6 @@ struct EffectsPanel: View {
         frameAspect ?? state.primaryFrameAspect ?? assumedFrameAspect
     }
 
-    @State private var showGrain: Bool = false
-
     /// The ruler button arms an overlay that lives in the viewer, so this panel needs a
     /// handle on the same viewport the keymap drives.
     @ObservedObject private var viewport: LoupeViewport = LoupeViewport.shared
@@ -88,15 +94,36 @@ struct EffectsPanel: View {
     private var binder: RecipeBinder { RecipeBinder(state: state) }
     private var recipe: Recipe { state.currentRecipe }
 
+    /// The one section the column wants drawn. nil renders every section this panel
+    /// owns, which is what the tab did.
+    var only: WorkspaceSection?
+
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            vignetteSection
-            grainSection
-            cropSection
-            lensSection
-            retouchSection
-            proofSection
+            // Ordered as the tab ordered them rather than grouped by workspace, so that
+            // nil is still exactly the Effects tab. Retouch sat between Lens and Soft
+            // Proof there; moving it up to join the other two Grade sections would be a
+            // change to the surface this argument is meant to leave alone.
+            if shows(.effects) {
+                vignetteSection
+                grainSection
+            }
+            if shows(.optics) {
+                cropSection
+                lensSection
+            }
+            if shows(.effects) { retouchSection }
+            if shows(.softProof) {
+                // Deliver's own header prints "Soft Proof", so wrapping these in a
+                // section titled "Soft Proof" would print the name twice. The tab has
+                // no header above them and keeps the one they came with.
+                if only == nil { proofSection } else { proofRows }
+            }
         }
+    }
+
+    private func shows(_ section: WorkspaceSection) -> Bool {
+        only == nil || only == section
     }
 
     // MARK: Vignette
@@ -429,48 +456,54 @@ struct EffectsPanel: View {
     private var proofSection: some View {
         DevelopSection("Soft Proof", isModified: state.softProof.enabled,
                        onReset: { state.softProof = SoftProof() }) {
-            VStack(alignment: .leading, spacing: 2) {
-                LumenToggleRow(title: "Soft proof", isOn: $state.softProof.enabled,
-                               help: "⇧S. Renders the picture through the destination "
-                                   + "space so you can see what the delivery will hold.")
-                if state.softProof.enabled {
-                    HStack(spacing: 6) {
-                        Text("Destination")
-                            .font(.system(size: 11))
-                            .foregroundStyle(Lumen.secondaryText)
-                            .frame(width: Lumen.labelWidth, alignment: .leading)
-                        Picker("", selection: $state.softProof.space) {
-                            ForEach(ExportColorSpace.allCases, id: \.self) { space in
-                                Text(space.displayName).tag(space)
-                            }
+            proofRows
+        }
+    }
+
+    /// Split from the wrapper so there is one definition of the rows and two framings:
+    /// the section header under the tab, and the column's own header under `only`.
+    private var proofRows: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            LumenToggleRow(title: "Soft proof", isOn: $state.softProof.enabled,
+                           help: "⇧S. Renders the picture through the destination "
+                               + "space so you can see what the delivery will hold.")
+            if state.softProof.enabled {
+                HStack(spacing: 6) {
+                    Text("Destination")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Lumen.secondaryText)
+                        .frame(width: Lumen.labelWidth, alignment: .leading)
+                    Picker("", selection: $state.softProof.space) {
+                        ForEach(ExportColorSpace.allCases, id: \.self) { space in
+                            Text(space.displayName).tag(space)
                         }
-                        .labelsHidden()
-                        .pickerStyle(.menu)
-                        .controlSize(.small)
                     }
-                    .frame(height: Lumen.rowHeight)
-
-                    HStack(spacing: 6) {
-                        Text("Intent")
-                            .font(.system(size: 11))
-                            .foregroundStyle(Lumen.secondaryText)
-                            .frame(width: Lumen.labelWidth, alignment: .leading)
-                        LumenSegmented(options: intentOptions,
-                                       selection: $state.softProof.intent)
-                    }
-                    .frame(height: Lumen.rowHeight)
-
-                    LumenToggleRow(title: "Gamut warning",
-                                   isOn: $state.softProof.showGamutWarning,
-                                   help: "Flat grey over every pixel the destination "
-                                       + "cannot store.")
-                    LumenToggleRow(title: "Simulate paper & ink",
-                                   isOn: $state.softProof.simulatePaperWhite,
-                                   help: "Brings white down to a sheet's reflectance and "
-                                       + "black up to the ink's, which is the flatness a "
-                                       + "print has and a screen does not.")
-                    DevelopNote(proofNote)
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .controlSize(.small)
                 }
+                .frame(height: Lumen.rowHeight)
+
+                HStack(spacing: 6) {
+                    Text("Intent")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Lumen.secondaryText)
+                        .frame(width: Lumen.labelWidth, alignment: .leading)
+                    LumenSegmented(options: intentOptions,
+                                   selection: $state.softProof.intent)
+                }
+                .frame(height: Lumen.rowHeight)
+
+                LumenToggleRow(title: "Gamut warning",
+                               isOn: $state.softProof.showGamutWarning,
+                               help: "Flat grey over every pixel the destination "
+                                   + "cannot store.")
+                LumenToggleRow(title: "Simulate paper & ink",
+                               isOn: $state.softProof.simulatePaperWhite,
+                               help: "Brings white down to a sheet's reflectance and "
+                                   + "black up to the ink's, which is the flatness a "
+                                   + "print has and a screen does not.")
+                DevelopNote(proofNote)
             }
         }
     }

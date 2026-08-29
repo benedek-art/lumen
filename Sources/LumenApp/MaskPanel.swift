@@ -61,25 +61,28 @@ struct MaskPanel: View {
 
     // MARK: - Body
 
+    /// NO SCROLL VIEW, NO PADDING, NO BACKGROUND OF ITS OWN any more.
+    ///
+    /// Masks stopped being one of eight tabs and became a dock available in every
+    /// workspace (docs/28 Phase 4 item 14), so this is no longer the whole column and
+    /// cannot behave as though it were. A nested `ScrollView` inside the column's own is
+    /// a scroll trap: the column would stop scrolling wherever the pointer happened to
+    /// be over the dock. The column supplies all three now, and it already paints the
+    /// same `panelBackground` behind everything.
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 2) {
-                // Hairlines gone; each header's own 16 pt is the boundary now
-                // (`LumenSectionHeader.topRhythm`). Design audit §1.1.
-                maskListSection
-                if let mask = activeMask {
-                    componentSection(mask)
-                    refineSection(mask)
-                    adjustSections(mask)
-                } else {
-                    note("No masks yet. A mask is a stack of components combined with add, "
-                         + "subtract and intersect, carrying one set of local adjustments.")
-                }
+        VStack(alignment: .leading, spacing: 2) {
+            // Hairlines gone; each header's own 16 pt is the boundary now
+            // (`LumenSectionHeader.topRhythm`). Design audit §1.1.
+            maskListSection
+            if let mask = activeMask {
+                componentSection(mask)
+                refineSection(mask)
+                adjustSections(mask)
+            } else {
+                note("No masks yet. A mask is a stack of components combined with add, "
+                     + "subtract and intersect, carrying one set of local adjustments.")
             }
-            .padding(.horizontal, 10).padding(.bottom, 18)
         }
-        .background(Lumen.panelBackground)
-        .foregroundStyle(Lumen.primaryText)
     }
 
     // MARK: - Mask list

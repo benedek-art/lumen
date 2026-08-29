@@ -177,34 +177,6 @@ enum ViewMode: String, Sendable {
     case grid, loupe, compare, survey
 }
 
-/// Which panel group the develop column is showing. The simple register is the
-/// default; depth is one disclosure away (D3).
-enum PanelSection: String, CaseIterable, Identifiable, Sendable {
-    case basic = "Basic"
-    case zones = "Zones"
-    case curve = "Curve"
-    case color = "Color"
-    case detail = "Detail"
-    case effects = "Effects"
-    case masks = "Masks"
-    case look = "Look"
-
-    var id: String { rawValue }
-
-    var symbolName: String {
-        switch self {
-        case .basic: return "slider.horizontal.3"
-        case .zones: return "square.stack.3d.down.right"
-        case .curve: return "point.topleft.down.curvedto.point.bottomright.up"
-        case .color: return "paintpalette"
-        case .detail: return "wand.and.rays"
-        case .effects: return "camera.filters"
-        case .masks: return "theatermasks"
-        case .look: return "photo.stack"
-        }
-    }
-}
-
 // MARK: - Filtering
 
 /// ISO as a chip: bands rather than a free-form pair of numbers, because the question
@@ -941,7 +913,6 @@ final class AppState: ObservableObject {
     /// photograph — is not one a test in this repository would catch.
     let edits = EditRevision()
 
-    @Published var activeSection: PanelSection = .basic
     @Published var showBefore = false
     /// What the next click on the image is FOR, if anything. The picker overlay only
     /// exists while this is set, so it can never eat a pan or a click-to-zoom the rest

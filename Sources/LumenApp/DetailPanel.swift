@@ -13,6 +13,11 @@
 // frame's own greens" — a real number that only the decode knows. The override rows
 // stand in 0.80 px and 50 while the fields are nil and badge the section AUTO; the
 // first move pins a concrete value, and "Use measured values" writes nil back.
+//
+// All three belong to Develop's Detail (docs/28 §5.1), and Denoise is a fold inside it
+// rather than a section of its own — which is the difference between Develop being six
+// rows deep and being eight. `only` is how the column asks for the section; the panel
+// answers all-or-nothing, because it owns exactly one.
 
 #if os(macOS)
 
@@ -38,14 +43,24 @@ struct DetailPanel: View {
 
     @State private var showCaptureOverrides: Bool = false
 
+    /// Denoise starts closed. A fold that opens by itself gives back the depth it was
+    /// folded away to save, and these are rows a photographer sets once per ISO.
+    @State private var noiseExpanded = false
+
     private var binder: RecipeBinder { RecipeBinder(state: state) }
     private var recipe: Recipe { state.currentRecipe }
 
+    /// The one section the column wants drawn. nil renders every section this panel
+    /// owns, which is what the tab did.
+    var only: WorkspaceSection?
+
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            captureSection
-            manualSection
-            noiseSection
+            if only == nil || only == .detail {
+                captureSection
+                manualSection
+                noiseSection
+            }
         }
     }
 
@@ -313,12 +328,16 @@ struct DetailPanel: View {
         }
     }
 
+    /// A `DevelopDisclosure` rather than a `DevelopSection`, because the disclosure
+    /// supplies its own header and two stacked headings both reading "Noise Reduction"
+    /// is the one thing this fold must not produce.
+    ///
+    /// What went with the section is worth naming: the modified dot and the Reset that
+    /// put the whole of Denoise back to the ISO profile. A disclosure has nowhere to
+    /// hang either, so the coarse reset is gone and what is left is the per-slider
+    /// double-click — which lands on the same ISO-adaptive numbers, one row at a time.
     private var noiseSection: some View {
-        DevelopSection("Noise Reduction", isModified: recipe.develop.denoise != isoDefault,
-                       onReset: { binder.edit("denoise.reset") {
-                           $0.develop.denoise = ISODefaults.startingDenoise(
-                               forISO: self.captureISO)
-                       } }) {
+        DevelopDisclosure("Noise Reduction", isExpanded: $noiseExpanded) {
             VStack(alignment: .leading, spacing: 4) {
                 LumenSegmented(options: [(value: Denoise.Mode.off, label: "Off"),
                                          (value: Denoise.Mode.classic, label: "Classic"),

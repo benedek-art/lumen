@@ -6,6 +6,7 @@
 #if os(macOS)
 
 import AppKit
+import LumenCore
 import SwiftUI
 
 /// Exists for one reason: something has to run at quit.
@@ -113,6 +114,37 @@ private struct LumenCommands: Commands {
                 // unreachable from inside the app.
                 Button("Back Up Catalog") { state.backUpCatalog() }
                     .disabled(!commands.hasCatalog)
+            }
+
+            // THE WORKSPACES, AND THEY ARE IN A MENU FOR A REASON.
+            //
+            // Two reasons, and both are defects this project has already paid for.
+            // `KeyDispatcher` returns early on any command-modified key — "menu
+            // territory" — so ⌘1–⌘4 cannot go through it. And a `.keyboardShortcut`
+            // attached to a view that is not in the hierarchy is never registered: the
+            // switcher lives in the develop column, which Cull does not draw, so
+            // attaching them there would make the key that RETURNS from Cull the one key
+            // Cull cannot press. A `Scene`'s commands are always registered.
+            //
+            // ⌘ rather than the bare digits is the owner's decision (docs/29 §2.1):
+            // `1`–`5` stay star ratings, so culling keeps its Lightroom muscle memory.
+            //
+            // Written out rather than looped over `Workspace.allCases`, deliberately.
+            // `KeyGrammarTests` scans these files as TEXT for `.keyboardShortcut` call
+            // sites and asserts set-equality against `KeyGrammar` in both directions —
+            // an attached chord with no entry fails, and an entry nothing attaches
+            // fails. A computed `KeyEquivalent` is invisible to that scanner, so the
+            // elegant loop would silently opt these four keys out of the one mechanism
+            // that catches a dead shortcut.
+            CommandMenu("Workspace") {
+                Button("Cull") { PanelLayout.shared.select(.cull) }
+                    .keyboardShortcut("1", modifiers: [.command])
+                Button("Develop") { PanelLayout.shared.select(.develop) }
+                    .keyboardShortcut("2", modifiers: [.command])
+                Button("Grade") { PanelLayout.shared.select(.grade) }
+                    .keyboardShortcut("3", modifiers: [.command])
+                Button("Deliver") { PanelLayout.shared.select(.deliver) }
+                    .keyboardShortcut("4", modifiers: [.command])
             }
 
             // Instruments for a test session, not features: everything here exists

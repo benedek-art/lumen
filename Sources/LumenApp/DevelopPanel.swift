@@ -265,6 +265,23 @@ struct DevelopNote: View {
 
 struct DevelopPanel: View {
     @EnvironmentObject var state: AppState
+    /// THE ARRANGEMENT, and the only observable a section click invalidates.
+    ///
+    /// Not on `AppState`, which about twenty-six views hold: `activeSection` lived there
+    /// and one tab click re-bodied the whole window and the `Scene`'s seven menus. Four
+    /// workspaces whose sections collapse individually are clicked MORE often than eight
+    /// tabs were, and the sections are where the sliders live. See `PanelLayout`.
+    @ObservedObject private var panel = PanelLayout.shared
+
+    /// The photograph's denoise starting point, or nil for a rendered file with no ISO
+    /// profile to start from. Read here and handed down so the header's dot and the
+    /// header's Reset agree about what "default" means for this frame.
+    private var denoiseDefault: Denoise? {
+        guard let photo = state.primarySelection,
+              !PhotoFormats.isRendered(photo.id),
+              let iso = photo.iso else { return nil }
+        return ISODefaults.startingDenoise(forISO: Double(iso))
+    }
     /// This surface shows the edit, so it observes the edit signal —
     /// `AppState.recipes` is deliberately not published (see `EditRevision`).
     @EnvironmentObject var edits: EditRevision
@@ -361,56 +378,35 @@ struct DevelopPanel: View {
     // MARK: Section switcher
 
     private var sectionSwitcher: some View {
-        HStack(spacing: 0) {
-            ForEach(PanelSection.allCases) { section in
-                Button {
-                    state.activeSection = section
-                } label: {
-                    Image(systemName: section.symbolName)
-                        .font(.system(size: 12))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 6)
-                        .background(state.activeSection == section
-                                    ? Lumen.fillColor.opacity(0.30) : Color.clear)
-                        .foregroundStyle(state.activeSection == section
-                                         ? Lumen.primaryText : Lumen.secondaryText)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help(section.rawValue)
-            }
-        }
-        .padding(.horizontal, 4)
-        .padding(.vertical, 2)
+        WorkspaceSwitcher(panel: panel)
     }
 
-    /// Each section owns its own scrolling. The panels written here are plain columns
-    /// of rows, so they get the standard scroll column; the Colour and Look panels
-    /// bring their own, because a grading wheel and an eight-band ribbon need their own
-    /// layout rules.
+    /// EVERY SECTION SCROLLS TOGETHER NOW, which is the change and not a detail.
+    ///
+    /// Each panel used to own its own scrolling, and four of them owned their own
+    /// `ScrollView` — which inside an accordion is a scroll trap: the column would stop
+    /// scrolling wherever the pointer happened to be over Look, and Look is most of the
+    /// column. One scroll view around the whole accordion is what makes a workspace read
+    /// as one surface rather than as tabs that happen to be stacked.
     @ViewBuilder
     private var sectionContent: some View {
-        switch state.activeSection {
-        case .basic:
-            scrollColumn { BasicPanel() }
-        case .zones:
-            scrollColumn { ZonesPanel() }
-        case .detail:
-            scrollColumn { DetailPanel() }
-        case .effects:
-            scrollColumn { EffectsPanel() }
-        case .color:
-            ColorPanel()
-        case .look:
-            LookPanel()
-        case .curve:
-            // The scopes' histogram, so the curve is placed against the picture
-            // rather than an empty square. The parameter defaulted to nil and
-            // nothing ever passed one — the same constructed-with-no-argument
-            // shape that left the crop ratios on an assumed 3:2.
-            scrollColumn { CurveEditorView(histogram: state.scopes?.histogram) }
-        case .masks:
-            MaskPanel()
+        scrollColumn {
+            // The dock first: while it is open it is what the photographer is working
+            // in, and the sections below are the adjustments the mask is scaling.
+            if panel.layout.isMaskDockOpen {
+                MaskDock(panel: panel)
+            }
+            WorkspaceSections(panel: panel,
+                              nonDefault: WorkspaceSection.nonDefault(
+                                in: state.currentRecipe,
+                                softProofEnabled: state.softProof.enabled,
+                                // The photograph's OWN starting point, not the type's.
+                                // A high-ISO frame arrives with denoise already on, so
+                                // comparing against `Denoise()` would light Detail on
+                                // every RAW file ever opened — and a dot that is always
+                                // on says nothing, which is the argument the "Default"
+                                // badges were removed under.
+                                denoiseDefault: denoiseDefault))
         }
     }
 

@@ -33,6 +33,15 @@ struct ZonesPanel: View {
     /// `AppState.recipes` is deliberately not published (see `EditRevision`).
     @EnvironmentObject var edits: EditRevision
 
+    /// Whether the register draws its own "Zones" section header.
+    ///
+    /// False when the caller has already titled it. docs/28 §5.1 folds Zones into Tone as
+    /// a disclosure instead of giving it a section, and BasicPanel supplies that
+    /// disclosure's header — a header reading "Zones" opening onto a section reading
+    /// "Zones" announces two levels where there is one. The default is what every
+    /// standalone rendering keeps, unchanged.
+    var showsSectionHeader: Bool = true
+
     private var binder: RecipeBinder { RecipeBinder(state: state) }
     private var recipe: Recipe { state.currentRecipe }
     private var zones: Zones { recipe.develop.zones }
@@ -58,45 +67,61 @@ struct ZonesPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            DevelopSection("Zones", isModified: isModified, onReset: { reset() }) {
-                VStack(alignment: .leading, spacing: 2) {
-                    ZonePivotStrip(pivots: normalizedPivots,
-                                   levels: Self.register.map { zones[keyPath: $0.path].ev },
-                                   onPivotChanged: { index, position in
-                                       movePivot(index, to: position)
-                                   })
-
-                    DevelopNote("Each zone is an exposure in stops, applied through the "
-                                + "same edge-aware mask the six sliders use — so a zone "
-                                + "lift follows edges instead of haloing across them. "
-                                + "Drag a pivot to say where a zone sits.")
-
-                    ForEach(Self.register) { zone in
-                        LumenSlider(title: zone.name,
-                                    value: evBinding(zone.path, key: "zones.\(zone.name)"),
-                                    range: -3...3, hardRange: -5...5,
-                                    defaultValue: 0, step: 0.01, decimals: 2)
-                    }
-
-                    // Survives the hairline cull (design audit §1.1) for the same reason
-                    // the Uniformity rule in ColorPanel does: it marks a change of scope
-                    // INSIDE a section — five per-zone rows above, one flat trim across
-                    // the whole axis below — rather than fencing two sections, which is
-                    // the job space now does.
-                    Divider().overlay(Lumen.separator).padding(.vertical, 2)
-
-                    LumenSlider(title: "Global",
-                                value: evBinding(\Zones.global, key: "zones.Global"),
-                                range: -3...3, hardRange: -5...5,
-                                defaultValue: 0, step: 0.01, decimals: 2)
-
-                    DevelopNote("Global is a flat trim across the whole axis — the same "
-                                + "as Exposure, but recorded here so a zone set reads as "
-                                + "one decision. Per-zone colour, saturation and falloff "
-                                + "have a wire format and no stage reads them, so they "
-                                + "are not shown.")
+            if showsSectionHeader {
+                DevelopSection("Zones", isModified: isModified, onReset: { reset() }) {
+                    rows
                 }
+            } else {
+                // The Reset affordance goes with the header, and under the accordion
+                // that is not a loss: the column's Tone header resets the six sliders and
+                // this register together, because folded in under Tone they are one
+                // section to a photographer. `DevelopDisclosure` carries no reset of its
+                // own and does not need one — a second reset button here would be a
+                // second place for the same decision to be recorded differently.
+                rows
             }
+        }
+    }
+
+    /// The register's rows with no header of their own: exactly what the section always
+    /// wrapped, and the whole of what a caller supplying its own header wants.
+    private var rows: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ZonePivotStrip(pivots: normalizedPivots,
+                           levels: Self.register.map { zones[keyPath: $0.path].ev },
+                           onPivotChanged: { index, position in
+                               movePivot(index, to: position)
+                           })
+
+            DevelopNote("Each zone is an exposure in stops, applied through the "
+                        + "same edge-aware mask the six sliders use — so a zone "
+                        + "lift follows edges instead of haloing across them. "
+                        + "Drag a pivot to say where a zone sits.")
+
+            ForEach(Self.register) { zone in
+                LumenSlider(title: zone.name,
+                            value: evBinding(zone.path, key: "zones.\(zone.name)"),
+                            range: -3...3, hardRange: -5...5,
+                            defaultValue: 0, step: 0.01, decimals: 2)
+            }
+
+            // Survives the hairline cull (design audit §1.1) for the same reason
+            // the Uniformity rule in ColorPanel does: it marks a change of scope
+            // INSIDE a section — five per-zone rows above, one flat trim across
+            // the whole axis below — rather than fencing two sections, which is
+            // the job space now does.
+            Divider().overlay(Lumen.separator).padding(.vertical, 2)
+
+            LumenSlider(title: "Global",
+                        value: evBinding(\Zones.global, key: "zones.Global"),
+                        range: -3...3, hardRange: -5...5,
+                        defaultValue: 0, step: 0.01, decimals: 2)
+
+            DevelopNote("Global is a flat trim across the whole axis — the same "
+                        + "as Exposure, but recorded here so a zone set reads as "
+                        + "one decision. Per-zone colour, saturation and falloff "
+                        + "have a wire format and no stage reads them, so they "
+                        + "are not shown.")
         }
     }
 

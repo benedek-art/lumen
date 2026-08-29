@@ -83,7 +83,15 @@ struct ContentView: View {
     }
 
     private var showsDevelopColumn: Bool {
-        state.primarySelection != nil && (state.viewMode == .loupe || state.viewMode == .compare)
+        // CULL DRAWS NO COLUMN, and the emptiness is the feature rather than a hidden
+        // panel: docs/12 §12.1 asks for "Photo Mechanic's emptiness without an
+        // architectural wall behind it", which is why `Workspace.cull` has an empty
+        // section list instead of the column being suppressed by some separate flag.
+        // `WorkspaceLayout.showsDevelopColumn` is that list being empty, asked as a
+        // question.
+        PanelLayout.shared.layout.showsDevelopColumn
+            && state.primarySelection != nil
+            && (state.viewMode == .loupe || state.viewMode == .compare)
     }
 
     /// What is on screen while `[` or `]` is held. A momentary change to the picture

@@ -726,9 +726,16 @@ final class PhotoRenderModel: ObservableObject {
                 draftLadder.recordSettle(milliseconds: settleMs,
                                          renderedLongEdge: Swift.max(
                                              result.image.width, result.image.height))
+                // THE SIZE DELIVERED, not the size asked for — the same correction
+                // the draft line already carries, and for the reason its own comment
+                // gives: "printing only the request is how a blurry picture reported
+                // @2560 for three rounds", because a number chosen by the code cannot
+                // disagree with it. The delivered extent is already measured a few lines
+                // up, where the ladder is fed it; the HUD was reading the request
+                // beside it. On a cropped photograph the two genuinely differ.
                 LatencyHUD.shared.noteSettle(
                     milliseconds: settleMs,
-                    longEdge: Swift.max(fullLongEdge, 64))
+                    longEdge: Swift.max(result.image.width, result.image.height))
                 return
             }
             // Something newer of ours is already in flight: that request owns the frame.
@@ -806,7 +813,12 @@ struct LoupeView: View {
 
     /// Above this we stop asking for more pixels; a real 1:1 on a 45 MP frame is the
     /// tiled Metal viewport's job, and the badge says which one you are looking at.
-    static let maxRenderLongEdge: Int = 4096
+    ///
+    /// The ladder's own ceiling rather than a third copy of 4096: this used to be
+    /// written down here, in `DraftLadder.rungs[0]`, and in
+    /// `DecodeMaterializer.longEdgeLimit` — and the third one said 3072, which put every
+    /// zoomed settle above the line where a decode stops being cached as pixels.
+    static let maxRenderLongEdge: Int = DraftLadder.interactiveLongEdgeCeiling
     /// Floor for the draft pass. The draft now follows the VIEWPORT rather than being
     /// pinned here — a fixed 1024 was being blown up two to three times into a Retina
     /// loupe, so the frame under the cursor during a drag was soft as well as being a
@@ -818,6 +830,12 @@ struct LoupeView: View {
     @StateObject private var model: PhotoRenderModel = PhotoRenderModel()
     @StateObject private var beforeModel: PhotoRenderModel = PhotoRenderModel()
     @ObservedObject private var viewport: LoupeViewport = LoupeViewport.shared
+    /// THE ARRANGEMENT, because two on-image tools are gated on where the photographer
+    /// is standing in the panel — the crop rectangle and the mask canvas. Both used to
+    /// read `AppState.activeSection`; that field is gone with the tab strip, and a gate
+    /// left reading a stale idea of "which tab" would take its tool dead SILENTLY, which
+    /// is the defect class this project has been bitten by twice.
+    @ObservedObject private var panel: PanelLayout = PanelLayout.shared
 
     @State private var containerSize: CGSize = .zero
     @State private var cursor: CGPoint?
@@ -904,7 +922,7 @@ struct LoupeView: View {
             .task(id: ViewerRenderKey.current(url: photo.id, recipe: recipe,
                                               longEdge: longEdge, state: state,
                                               showingUncropped: viewport.showCrop
-                                                  && state.activeSection == .effects)) {
+                                                  && panel.layout.workspace == .develop)) {
                 await renderCurrent(longEdge: longEdge)
             }
             .task(id: BeforeKey(url: photo.id, recipe: beforeRecipe,
@@ -997,7 +1015,7 @@ struct LoupeView: View {
                          // WITHOUT its crop, so the rectangle being dragged is drawn
                          // against the frame it is expressed in.
                          showingUncropped: viewport.showCrop
-                             && state.activeSection == .effects,
+                             && panel.layout.workspace == .develop,
                          // The proof is what the photographer is looking THROUGH; the
                          // before rendition below deliberately does not get it, because
                          // a before/after of "proofed vs not" is not the comparison the
@@ -1140,7 +1158,12 @@ struct LoupeView: View {
             // frame WITHOUT its crop while this is open (`showingUncropped`), so the
             // rectangle is drawn against the frame it is expressed in rather than
             // inside a picture that has already been cut to it.
-            if viewport.showCrop && state.activeSection == .effects {
+            // THE WORKSPACE, NOT THE SECTION. Crop moved from the Effects tab to
+            // Develop's Optics section, and gating on the SECTION being expanded would
+            // make the rectangle vanish when the photographer folds the accordion to see
+            // more of the picture — which is exactly when they want it. The workspace is
+            // the place; `showCrop` is the arming, and `R` sets both.
+            if viewport.showCrop && panel.layout.workspace == .develop {
                 CropOverlayView(crop: cropBinding,
                                 lockedAspect: viewport.cropAspectLock,
                                 frameAspect: cropFrameAspect)
@@ -1169,7 +1192,11 @@ struct LoupeView: View {
             // radials and brush strokes are placed where they land. The canvas is
             // inert unless the masks section is open with a drawable component
             // selected, so it never eats a pan or a click-to-zoom.
-            if state.activeSection == .masks, let target = maskEditTarget {
+            // The dock, which is available in every workspace — that is the whole point
+            // of item 14, and it is why this is not a section test. Masks used to be one
+            // of the eight tabs, so editing a gradient meant leaving whatever else you
+            // were doing.
+            if panel.layout.isMaskDockOpen, let target = maskEditTarget {
                 // The strokes already on this component have to go IN as well as come
                 // out: the canvas appends to the set it was given, so handing it an
                 // empty one makes every stroke the only stroke.

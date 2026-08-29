@@ -750,7 +750,53 @@ for five eleven-point targets. Three things kept it honest:
 16. Same-push counting test: a workspace switch costs one publish; a 48-event drag costs
     `PanelLayout` zero.
 
-**Item 12 shipped, ahead of the rest of the phase and deliberately alone.** Items 13–16
+**Items 13–16 shipped.** Four workspaces — Cull, Develop, Grade, Deliver — replace the
+eight-icon strip, as words rather than symbols: eight glyphs with the title hidden in a
+tooltip is a row that has to be learned by position, and the owner said he had not
+("I genuinely don't get some of it"). Four fit 320 points as text with room to spare.
+
+- **The arrangement is `PanelLayout`**, a new observable read only by the column, holding
+  LumenCore's `WorkspaceLayout`. Every verb goes through one equality-guarded commit,
+  because `@Published` performs no equality check of its own and each verb recomputes a
+  whole value including a set. Eight counting tests: a switch is one publish, switching
+  to where you already are is zero, and **a 48-event drag is zero**.
+- **The column owns the section header** — title, modified dot and Reset. It had to: a
+  section assembled from several panels (Optics from Crop and Lens, Effects from
+  Vignette, Grain and Retouch) had no single Reset at all, and one folded into a
+  disclosure lost the one it had. `WorkspaceSection.reset` is in LumenCore beside
+  `nonDefault`, with a property test asserting the thing that matters — reset a section
+  and its dot goes out, and **no other section's does**. That last clause is what stops
+  `develop.detail = Detail()` quietly wiping Presence to reset Sharpening.
+- **Panels take `only:`**, so the ones that split — Effects across three workspaces, Look
+  across three sections — stay single files with their bindings and resets intact. Where
+  a panel's own header would have repeated the column's (Tone, Presence, White Balance,
+  Soft Proof, Film Lab) it renders its rows bare; where it would not, the inner headers
+  drop to `topRhythm: 8` and read as the level below.
+- **Four panels stopped owning a `ScrollView`.** Colour, Look, Masks and the column
+  itself: nested inside the accordion's scroll they are traps, and Look is most of the
+  column.
+- **Masks became a dock** (item 14), reachable from every workspace, at the top of the
+  column when open. It is deliberately not in the expanded set — it does not participate
+  in the solo rule and opening it closes nothing. `M`, the switcher's own glyph, or the
+  dock header's chevron.
+- ⚑ **Four calls made without the owner**, all reversible and all recorded here rather
+  than in a comment nobody reads: Vibrance and Saturation render under **Presence** (and
+  that inner header is renamed "Saturation", since "Colour" named two different surfaces);
+  the Display Transform is **parked in Looks** pending a section of its own, which
+  `Workspace.canonicalRank` still leaves rank 3 free for; Deliver's Export Recipes
+  section **opens the existing sheet** rather than growing a second editor for the same
+  data; and Crop moved to Develop's **Optics**, with the on-image gate becoming the
+  workspace rather than the section — folding the accordion to see more picture must not
+  take the crop rectangle with it.
+- **Item 30's keymap landed with it**: ⌘1–⌘4 in a `CommandMenu`, written out literally
+  rather than looped, because `KeyGrammarTests` scans for shortcuts as TEXT and a
+  computed `KeyEquivalent` would have opted the four keys out of the one mechanism that
+  catches a dead one. They cannot go through `KeyDispatcher` at all — it returns early on
+  any command-modified key — and they could not live in the switcher, because the
+  switcher is in the column and Cull does not draw one: the key that RETURNS from Cull
+  would have been the one key Cull could not press.
+
+**Item 12 shipped ahead of the rest of the phase and deliberately alone.** Items 13–16
 are the half that changes how many slider rows sit in scope per mouse event, so they stay
 behind the slider-smoothness verification; item 12 changes nothing on screen and answers
 the questions that half would otherwise settle by writing `if`s. `Workspace.swift` in
@@ -789,6 +835,12 @@ unchanged.
 17. Colour and Grading adjacent in Grade.
 18. One large wheel + `Shadows · Midtones · Highlights · Global` segmented.
 19. Picker-first mixer: eyedropper promoted to the primary control, band auto-selects.
+
+**Item 17 was delivered by Phase 4, not by a change of its own.** The complaint was that
+grading "is hard to understand and overall clunky", and its cause was Colour and Look
+being two of eight tabs with five others between them. In the Grade workspace they are
+`canonicalRank` 9 and 10 — adjacent, one scroll apart, in one column. Nothing further
+needs moving, and inventing a change to close the item would be motion rather than work.
 
 **Items 18 and 19 shipped ahead of item 17**, because they do not need the workspaces.
 Item 17 is adjacency inside the Grade workspace and therefore waits on Phase 4, which

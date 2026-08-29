@@ -153,7 +153,13 @@ final class PanelLayout: ObservableObject {
         return WorkspaceLayout(workspace: workspace,
                                register: register,
                                expanded: expanded,
-                               isMaskDockOpen: defaults.bool(forKey: Key.maskDock))
+                               // `object(forKey:) as? Bool` rather than `bool(forKey:)`:
+                               // the typed accessor answers false both for "stored
+                               // false" and for "never written", and it is also the one
+                               // name in this file that collides with the in-tree
+                               // SQLite `bool(_:)` the surface checker resolves against.
+                               isMaskDockOpen: defaults.object(forKey: Key.maskDock)
+                                   as? Bool ?? false)
     }
 }
 #endif

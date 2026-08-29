@@ -665,7 +665,13 @@ and against Lightroom via owner-exported references.
       - [x] cost accepted and written down: `selectedBand`/`allBands` moved from
             ColorPanel `@State` to AppState (the pick resolves on the render actor and
             must write where the panel sees it), so a band CLICK now publishes
-      - [ ] item 17, Colour and Grading adjacent — needs Phase 4's workspaces
+      - [x] item 17, Colour and Grading adjacent — DELIVERED BY PHASE 4 rather than
+            by a change of its own. The complaint was "going through functionality
+            for the grading like the colours and stuff is hard to understand", and
+            its cause was that Colour and Look were two of eight tabs with five
+            others between them. In Grade they are `canonicalRank` 9 and 10, one
+            scroll apart in one column. There is nothing further to move; inventing
+            a change to close the item would be motion rather than work
       **Phase 6 — speed (items 20 and 22 of six):**
       - [x] arithmetic typed entry, `SliderEntry` in LumenCore (19 Linux tests):
             `+= 0.3`, `-= 0.2`, `* 2`, `/ 2`, and a bare number stays ABSOLUTE
@@ -723,7 +729,7 @@ and against Lightroom via owner-exported references.
             keywording moves to `⌘⇧K`). Speed Edit turns out NOT to be blocked: docs/12
             §12.4 shares letters by tap-vs-hold on purpose, so it needs the
             discriminator built, not keys assigned
-      **Phase 4 — workspaces and accordions (item 12 shipped; 13-16 still gated ⚑):**
+      **Phase 4 — workspaces and accordions (SHIPPED, items 12-16):**
       - [x] item 12, the `Workspace` model in LumenCore, 48 Linux tests: four
             workspaces, docs/12 §12.1's canonical order carried as `canonicalRank`
             with its gaps intact, the Simple/Full register, the hidden-active count
@@ -735,9 +741,40 @@ and against Lightroom via owner-exported references.
             "floating/docked via a key, available in any workspace"
       - [x] no keys assigned: `1`-`4` for the workspaces collides with the rating
             grammar, and that is item 30's pass, not this one's
-      - [ ] ⚑ items 13-16, the UI half — four workspaces replacing the tab strip,
-            Masks docked, the register control, the same-push counting test.
-            **Still gated on the slider-smoothness verification**: they change how
+      - [x] items 13-16, the UI half. The gate opened: the owner verified the drag
+            on the round-5 build ("this is a whole lot better ... it's pretty
+            solid"), and answered item 30's keymap question in the same breath.
+      - [x] `PanelLayout` — the observable the plan named in three places and never
+            had. Holds `WorkspaceLayout`; every verb through one equality-guarded
+            commit, because `@Published` checks nothing and each verb recomputes a
+            whole value including a set. Eight counting tests: a switch is one
+            publish, switching to where you already are is zero, a 48-event drag is
+            ZERO. `activeSection` and `PanelSection` are deleted, not deprecated
+      - [x] the COLUMN owns the section header — title, dot and Reset. It had to: a
+            section assembled from several panels (Optics from Crop and Lens) had no
+            single Reset, and one folded into a disclosure lost the one it had, which
+            is what silently happened to Denoise and Zones. `WorkspaceSection.reset`
+            sits in LumenCore beside `nonDefault` with the property test that matters
+            — reset a section and its dot goes out, and NO OTHER section's does
+      - [x] the dot is ISO-aware for Detail: a high-ISO frame arrives with denoise
+            already on, so comparing against `Denoise()` would light it on every RAW
+            file ever opened, and a dot that is always on says nothing
+      - [x] panels take `only:`, so the split ones stay single files; five whose own
+            header repeated the column's render bare, the rest drop to `topRhythm: 8`
+      - [x] four panels stopped owning a `ScrollView` — nested in the accordion's own
+            they are traps, and Look is most of the column
+      - [x] ⌘1-⌘4 in a `CommandMenu`, written out literally: `KeyGrammarTests` scans
+            for shortcuts as TEXT, so a computed `KeyEquivalent` would have opted
+            them out of the one check that catches a dead key. They cannot go through
+            `KeyDispatcher` (it returns early on any ⌘ key) and could not live in the
+            switcher, because Cull draws no column — the key that RETURNS from Cull
+            would have been the one key Cull could not press
+      - [ ] KNOWN STALE, not worth a fixture churn: four `ProofRegistry` records tag
+            `panel: "Colour"` for saturation/vibrance, whose header now reads
+            "Saturation" under Presence. `ProofRecord.panel` is descriptive metadata
+            asserted by nothing, and is already loose (`tone.exposure` says "Basic")
+      - [ ] SUPERSEDED — the old gating note, kept because the reasoning still holds
+            for the next phase that changes per-event scope: they change how
             many slider rows are in scope per mouse event, so starting them before
             that verification makes a regression there and a regression here
             indistinguishable.
@@ -1460,6 +1497,31 @@ side-by-side exports. **Exit gate: owner prefers or ties Lumen on ≥4 of 5.**
       and captioned them "one frame split in half". They routinely were not, and a whole
       round of diagnosis was built on `draft 10.8 @576` sitting next to `after 399`. The
       `after` line now carries the draft it was actually measured beside.
+- [x] **Round 5h — the settle's 312 ms was one constant written down three times, and
+      the third copy said 3072.** `DecodeMaterializer` exists to stop a decode being
+      cached as a PROMISE: above its `longEdgeLimit` it returns nil and `AppleRawSource`
+      stores the lazy `CIRAWFilter.outputImage` instead, so every "hit" re-runs the full
+      RAW demosaic. Its own header named the sizes it was protecting — "every INTERACTIVE
+      size is below this: the viewer's settle, every rung of `DraftLadder`" — and the
+      claim was false. `rungs[0]` and `LoupeView.maxRenderLongEdge` are both 4096, and at
+      any zoom the viewer asks for exactly that, so the settle sat one rung above the
+      line. Owner's HUD: `draft 8.5 ms @2048` beside `settle 312.7 ms @4096`.
+      Fixed by deleting the third copy, not by changing its value:
+      `DraftLadder.interactiveLongEdgeCeiling` is the top rung and the materializer reads
+      it. **It also repairs a regression 429b403 would have shipped** — that commit's
+      goal is to reach 4096 in three gestures, so the first draft to arrive there would
+      have paid the demosaic, stepped back to 3072, refilled the streak and climbed into
+      the same cliff again: one multi-hundred-millisecond stall per zoomed gesture, worst
+      on the FASTEST machines because only they get there. Its test passed because it
+      models cost as `8.5 x (edge/2048)^2` and exits at rung 0 without ever recording a
+      frame AT 4096 — the test modelled away the one discontinuity that mattered.
+      Prediction stated so it can be wrong: the first settle per photo and scale still
+      pays one demosaic and every settle after it becomes a hit. No probe in this repo
+      has ever priced a render above 2048, so "the 312 ms is really superlinear graph
+      cost" remains open; one glance at the HUD settles it.
+      Also fixed alongside: the settle HUD line printed the REQUEST while the delivered
+      extent sat on the line above feeding the ladder — the identical defect already
+      argued and fixed on the draft line, unfixed on its sibling.
 - [x] **Round 5g — the climb stopped three rungs short because it asked one question
       for every step.** Owner on the round-5 build: "I can still see slight blur, but
       this is a whole lot better than it was before ... if we can remove it fully, that

@@ -46,27 +46,53 @@ struct ColorPanel: View {
     private var selectedBand: Int { state.mixerBand }
     private var allBands: Bool { state.mixerAllBands }
     @State private var selectedSwatch: Int = 0
+    // Folds inside the section, not the section itself: the accordion decides whether
+    // Colour is open, these three decide whether the rows under one of its headers are.
     @State private var mixerExpanded: Bool = true
     @State private var pointExpanded: Bool = true
     @State private var bwExpanded: Bool = true
 
+    /// nil renders every section this panel owns, which is what the tab did.
+    ///
+    /// Never a filter between the three groups below — `WorkspaceSection.color` holds
+    /// all of them, so this is only ever the accordion naming this panel's one section
+    /// or naming one it does not own.
+    var only: WorkspaceSection?
+
+    /// Spelled out because the synthesised memberwise initialiser is private the moment
+    /// any stored property is, and every `@State` fold above is. Without this,
+    /// `ColorPanel(only:)` would not be callable from the column that draws it.
+    init(only: WorkspaceSection? = nil) {
+        self.only = only
+    }
+
+    /// What the three headers below pass for `LumenSectionHeader.topRhythm`, which is
+    /// that parameter's own distinction: 16 is a section boundary, 8 is a fold.
+    ///
+    /// Under `only:` the column has already printed the section header above these, so a
+    /// second full boundary would make each sub-heading shout as loudly as the heading
+    /// it sits under. With `only` nil this panel IS the column and they are top-level
+    /// sections, which is the 16 they have always had.
+    private var innerRhythm: CGFloat { only == nil ? 16 : 8 }
+
     // MARK: - Body
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 2) {
-                // The rules between these three are gone: each header carries 16 pt of
-                // its own boundary now (`LumenSectionHeader.topRhythm`), which is how
-                // every reference app separates sections and how BasicPanel already
-                // did. Design audit §1.1.
+        // No ScrollView, no outer padding, no background. `DevelopPanel.scrollColumn`
+        // supplies all three around whatever a section draws, and a second ScrollView
+        // inside a scrolling column is a scroll trap: the wheel would stop moving the
+        // column wherever the pointer happened to be over these rows.
+        VStack(alignment: .leading, spacing: 2) {
+            if only == nil || only == .color {
+                // The rules between these three are gone: each header carries its own
+                // boundary now (`LumenSectionHeader.topRhythm`, sized by
+                // `innerRhythm`), which is how every reference app separates sections
+                // and how BasicPanel already did. Design audit §1.1.
                 mixerSection
                 pointColorSection
                 blackAndWhiteSection
             }
-            .padding(.horizontal, 10)
-            .padding(.bottom, 18)
         }
-        .background(Lumen.panelBackground)
     }
 
     // MARK: - Mixer
@@ -87,7 +113,8 @@ struct ColorPanel: View {
             LumenSectionHeader(title: "Colour Mixer",
                                isExpanded: $mixerExpanded,
                                isModified: modified,
-                               onReset: { state.updateRecipe { $0.develop.mixer = Mixer() } })
+                               onReset: { state.updateRecipe { $0.develop.mixer = Mixer() } },
+                               topRhythm: innerRhythm)
 
             if mixerExpanded {
                 // PICKER FIRST (docs/28 Phase 5). Before this row, using the mixer began
@@ -289,7 +316,8 @@ struct ColorPanel: View {
             LumenSectionHeader(title: "Point Colour",
                                isExpanded: $pointExpanded,
                                isModified: !swatches.isEmpty,
-                               onReset: { state.updateRecipe { $0.develop.pointColors = [] } })
+                               onReset: { state.updateRecipe { $0.develop.pointColors = [] } },
+                               topRhythm: innerRhythm)
 
             if pointExpanded {
                 HStack(spacing: 4) {
@@ -416,7 +444,8 @@ struct ColorPanel: View {
             LumenSectionHeader(title: "Black & White",
                                isExpanded: $bwExpanded,
                                isModified: bw != nil,
-                               onReset: { state.updateRecipe { $0.look.bw = nil } })
+                               onReset: { state.updateRecipe { $0.look.bw = nil } },
+                               topRhythm: innerRhythm)
 
             if bwExpanded {
                 LumenToggleRow(title: "Black & white treatment",

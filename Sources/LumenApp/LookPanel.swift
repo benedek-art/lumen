@@ -25,6 +25,9 @@ struct LookPanel: View {
     /// `AppState.recipes` is deliberately not published (see `EditRevision`).
     @EnvironmentObject var edits: EditRevision
 
+    // Folds inside a section, not the sections themselves: the accordion decides
+    // whether Grading is open, these decide whether the rows under one of its headers
+    // are. See `DevelopDisclosure`, whose job this is.
     @State private var wheelsExpanded: Bool = true
     /// Which zone the single large wheel is grading. View state and nothing else — the
     /// recipe holds all four grades whichever one is on screen.
@@ -42,6 +45,33 @@ struct LookPanel: View {
     /// The name being typed into the save field. View state, not recipe state: it
     /// belongs to nothing until the photographer presses Save.
     @State private var newLookName: String = ""
+
+    /// nil renders every section this panel owns, which is what the tab did.
+    ///
+    /// This panel's seven groups are spread over three sections — `.looks`, `.grading`
+    /// and `.filmLab` — so the column draws it three times, each time asking for one of
+    /// them. See `renders(_:)` for what belongs to which.
+    var only: WorkspaceSection?
+
+    /// Spelled out because the synthesised memberwise initialiser is private the moment
+    /// any stored property is, and every `@State` fold above is. Without this,
+    /// `LookPanel(only:)` would not be callable from the column that draws it.
+    init(only: WorkspaceSection? = nil) {
+        self.only = only
+    }
+
+    /// What this panel's own section headers pass for `LumenSectionHeader.topRhythm`,
+    /// which is that parameter's own distinction: 16 is a section boundary, 8 is a fold.
+    ///
+    /// Under `only:` the column has already printed the section header above them, so a
+    /// second full boundary would make each sub-heading shout as loudly as the heading
+    /// it sits under. With `only` nil this panel IS the column and they are top-level
+    /// sections, which is the 16 they have always had.
+    ///
+    /// The two disclosures nested deeper — Colour balance and Transform detail — are
+    /// left alone: they are folds inside a section in both framings, so nothing about
+    /// their rank changed here.
+    private var innerRhythm: CGFloat { only == nil ? 16 : 8 }
 
     /// The normalized tonal axis the pivots live on spans black anchor → white anchor,
     /// i.e. −9 EV … +5 EV (ZoneWindows' defaults). Balance is denominated in EV, so the
@@ -74,24 +104,49 @@ struct LookPanel: View {
     // MARK: - Body
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 2) {
-                // Six sections, and until now five hairlines between them. The headers
-                // carry their own 16 pt boundary (`LumenSectionHeader.topRhythm`) —
-                // design audit §1.1, and the same rhythm BasicPanel has always had.
+        // No ScrollView, no outer padding, no background. `DevelopPanel.scrollColumn`
+        // supplies all three around whatever a section draws, and a second ScrollView
+        // inside a scrolling column is a scroll trap: the wheel would stop moving the
+        // column wherever the pointer happened to be over these rows, which is most of
+        // the column's height.
+        VStack(alignment: .leading, spacing: 2) {
+            // Six groups, and until now five hairlines between them. The headers carry
+            // their own boundary instead (`LumenSectionHeader.topRhythm`, sized by
+            // `innerRhythm`) — design audit §1.1, and the rhythm BasicPanel has always
+            // had.
+            //
+            // The banner is drawn with Looks alone rather than above each section: the
+            // accordion can have all three of this panel's sections open at once, and a
+            // banner that rode along with each of them would say the same paragraph
+            // three times down one column.
+            if renders(.looks) {
                 lookBanner
                 savedLooksSection
+            }
+            if renders(.grading) {
                 wheelsSection
                 printerLightsSection
                 primariesSection
+            }
+            // PARKED IN LOOKS, NOT SETTLED THERE. `WorkspaceSection` says outright that
+            // the display transform is not in docs/28 §5.1's Develop list and leaves
+            // `canonicalRank` 3 free for the day it gets a section of its own. Until
+            // then it rides with the look, last, because it is a rendering choice
+            // attached to one — and because the alternative, rendering it nowhere,
+            // silently deletes a control the tab strip had.
+            if renders(.looks) {
                 transformSection
+            }
+            if renders(.filmLab) {
                 filmLabSection
             }
-            .padding(.horizontal, 10)
-            .padding(.bottom, 18)
         }
-        .background(Lumen.panelBackground)
-        .onAppear { state.refreshSavedLooks() }
+    }
+
+    /// Whether the column asked for this section — and true for all of them when it
+    /// asked for the whole panel, which is the tab's own behaviour.
+    private func renders(_ section: WorkspaceSection) -> Bool {
+        only == nil || only == section
     }
 
     // MARK: - Saved looks
@@ -107,7 +162,8 @@ struct LookPanel: View {
     /// on any photo in any folder afterwards.
     private var savedLooksSection: some View {
         VStack(alignment: .leading, spacing: 2) {
-            LumenSectionHeader(title: "Saved Looks", isExpanded: $looksExpanded)
+            LumenSectionHeader(title: "Saved Looks", isExpanded: $looksExpanded,
+                               topRhythm: innerRhythm)
 
             if looksExpanded {
                 HStack(spacing: 4) {
@@ -147,6 +203,12 @@ struct LookPanel: View {
                 }
             }
         }
+        // On the section that reads the list, not on the panel, which is where it used
+        // to sit. A closed accordion section never builds its rows, so a refresh hung
+        // off the panel would fire when Grading opened and never when Looks did — and
+        // the header stays built whether or not `looksExpanded` is on, so this fires
+        // once per appearance either way.
+        .onAppear { state.refreshSavedLooks() }
     }
 
     private func savedLookRow(_ look: LookRow) -> some View {
@@ -230,7 +292,8 @@ struct LookPanel: View {
             LumenSectionHeader(title: "Colour Grading",
                                isExpanded: $wheelsExpanded,
                                isModified: modified,
-                               onReset: { state.updateRecipe { $0.look.wheels = GradingWheels() } })
+                               onReset: { state.updateRecipe { $0.look.wheels = GradingWheels() } },
+                               topRhythm: innerRhythm)
 
             if wheelsExpanded {
                 ZoneWeightStrip(pivots: pivots,
@@ -463,7 +526,8 @@ struct LookPanel: View {
             LumenSectionHeader(title: "Printer Lights",
                                isExpanded: $printerExpanded,
                                isModified: modified,
-                               onReset: { state.updateRecipe { $0.look.printerLights = PrinterLights() } })
+                               onReset: { state.updateRecipe { $0.look.printerLights = PrinterLights() } },
+                               topRhythm: innerRhythm)
 
             if printerExpanded {
                 // `,` and `.` step the master; the same pair with ⌃ / ⌥ / ⇧ steps one
@@ -536,7 +600,8 @@ struct LookPanel: View {
             LumenSectionHeader(title: "Primaries",
                                isExpanded: $primariesExpanded,
                                isModified: modified,
-                               onReset: { state.updateRecipe { $0.look.primaries = Primaries() } })
+                               onReset: { state.updateRecipe { $0.look.primaries = Primaries() } },
+                               topRhythm: innerRhythm)
 
             if primariesExpanded {
                 bipolarSlider("Red Hue", \Look.primaries.rHue, "prim.rHue")
@@ -575,7 +640,8 @@ struct LookPanel: View {
                                onReset: { state.updateRecipe { photo, recipe in
                                    recipe.look.render = AppState.startingRecipe(
                                        for: photo.id, iso: photo.iso).look.render
-                               } })
+                               } },
+                               topRhythm: innerRhythm)
 
             if transformExpanded {
                 if transformIsInert {
@@ -714,85 +780,104 @@ struct LookPanel: View {
 
     // MARK: - Film Lab
 
+    /// The only header in either panel that collides with its own section's title:
+    /// `WorkspaceSection.filmLab.title` is "Film Lab" too. Under `only:` the column has
+    /// already printed that word, so printing it again immediately underneath would be
+    /// the same heading twice with nothing between them.
+    ///
+    /// Dropping the header takes `filmExpanded` with it on that path, and that is the
+    /// point rather than a side effect: the accordion's header owns whether the section
+    /// is open, and a second gate left behind with no chevron to reopen it could only
+    /// ever hide these rows for good.
+    @ViewBuilder
     private var filmLabSection: some View {
+        if only == nil {
+            let film = state.currentRecipe.look.filmLab
+            VStack(alignment: .leading, spacing: 2) {
+                LumenSectionHeader(title: "Film Lab",
+                                   isExpanded: $filmExpanded,
+                                   isModified: film != nil,
+                                   onReset: { state.updateRecipe { $0.look.filmLab = nil } })
+
+                if filmExpanded { filmLabRows }
+            }
+        } else {
+            filmLabRows
+        }
+    }
+
+    /// One definition of the rows, so the two framings above can never drift apart.
+    @ViewBuilder
+    private var filmLabRows: some View {
         let film = state.currentRecipe.look.filmLab
         let stock = film.flatMap { FilmStock.named($0.stock) }
 
-        return VStack(alignment: .leading, spacing: 2) {
-            LumenSectionHeader(title: "Film Lab",
-                               isExpanded: $filmExpanded,
-                               isModified: film != nil,
-                               onReset: { state.updateRecipe { $0.look.filmLab = nil } })
-
-            if filmExpanded {
-                pickerRow("Stock") {
-                    Picker("", selection: stockBinding) {
-                        Text("None").tag("")
-                        ForEach(FilmStock.all, id: \.id) { candidate in
-                            Text(candidate.name).tag(candidate.id)
-                        }
-                    }
-                }
-
-                if let film {
-                    LumenSlider(title: "Strength",
-                                value: bindFilm("film.amount",
-                                                get: { $0.amount },
-                                                set: { $0.amount = Num.clamp($1, 0, 100) }),
-                                range: 0...100, defaultValue: 100, step: 1, decimals: 0,
-                                bipolar: false)
-                    LumenSlider(title: "Film Exposure",
-                                value: bindFilm("film.exposure",
-                                                get: { $0.exposure },
-                                                set: { $0.exposure = Num.clamp($1, -2, 3) }),
-                                range: -2...3, defaultValue: 0, step: 0.25, decimals: 2)
-                    LumenSlider(title: "Push / Pull",
-                                value: bindFilm("film.push",
-                                                get: { $0.pushPull },
-                                                set: { $0.pushPull = Num.clamp($1, -1, 2) }),
-                                range: -1...2, defaultValue: 0, step: 0.25, decimals: 2)
-                    LumenSlider(title: "Halation",
-                                value: bindFilm("film.halation",
-                                                get: { $0.halation },
-                                                set: { $0.halation = Num.clamp($1, 0, 100) }),
-                                range: 0...100,
-                                defaultValue: stock?.halationDefault ?? 0,
-                                step: 1, decimals: 0, bipolar: false)
-                    LumenSlider(title: "Grain",
-                                value: bindFilm("film.grain.amount",
-                                                get: { $0.grain.amount },
-                                                set: { $0.grain.amount = Num.clamp($1, 0, 100) }),
-                                range: 0...100,
-                                defaultValue: stock?.grainDefault ?? 0,
-                                step: 1, decimals: 0, bipolar: false)
-                    LumenSlider(title: "Grain size",
-                                value: bindFilm("film.grain.size",
-                                                get: { $0.grain.size },
-                                                set: { $0.grain.size = Num.clamp($1, 0.5, 2.0) }),
-                                range: 0.5...2.0, defaultValue: 1.0, step: 0.05, decimals: 2,
-                                bipolar: false)
-
-                    if let stock {
-                        caption(LookPanel.stockCaption(stock)
-                                    + " While it is loaded the Display Transform "
-                                    + "section above moves nothing: a stock replaces "
-                                    + "that stage, at every Strength.")
-                    } else {
-                        // Prominent: the recipe names a stock, the picture does not
-                        // show it, and only this line says so.
-                        caption("\u{201C}\(film.stock)\u{201D} is not a stock this build "
-                                + "ships — the render falls back to the neutral "
-                                + "transform rather than to a different look.",
-                                prominent: true)
-                    }
-                } else {
-                    caption("A stock replaces the display transform rather than stacking "
-                            + "on top of it — one picture-formation stage, parameterized. "
-                            + "Exposure moves stay film-like because the curve lives in "
-                            + "log-exposure. Loading one therefore makes the Display "
-                            + "Transform section inert.")
+        pickerRow("Stock") {
+            Picker("", selection: stockBinding) {
+                Text("None").tag("")
+                ForEach(FilmStock.all, id: \.id) { candidate in
+                    Text(candidate.name).tag(candidate.id)
                 }
             }
+        }
+
+        if let film {
+            LumenSlider(title: "Strength",
+                        value: bindFilm("film.amount",
+                                        get: { $0.amount },
+                                        set: { $0.amount = Num.clamp($1, 0, 100) }),
+                        range: 0...100, defaultValue: 100, step: 1, decimals: 0,
+                        bipolar: false)
+            LumenSlider(title: "Film Exposure",
+                        value: bindFilm("film.exposure",
+                                        get: { $0.exposure },
+                                        set: { $0.exposure = Num.clamp($1, -2, 3) }),
+                        range: -2...3, defaultValue: 0, step: 0.25, decimals: 2)
+            LumenSlider(title: "Push / Pull",
+                        value: bindFilm("film.push",
+                                        get: { $0.pushPull },
+                                        set: { $0.pushPull = Num.clamp($1, -1, 2) }),
+                        range: -1...2, defaultValue: 0, step: 0.25, decimals: 2)
+            LumenSlider(title: "Halation",
+                        value: bindFilm("film.halation",
+                                        get: { $0.halation },
+                                        set: { $0.halation = Num.clamp($1, 0, 100) }),
+                        range: 0...100,
+                        defaultValue: stock?.halationDefault ?? 0,
+                        step: 1, decimals: 0, bipolar: false)
+            LumenSlider(title: "Grain",
+                        value: bindFilm("film.grain.amount",
+                                        get: { $0.grain.amount },
+                                        set: { $0.grain.amount = Num.clamp($1, 0, 100) }),
+                        range: 0...100,
+                        defaultValue: stock?.grainDefault ?? 0,
+                        step: 1, decimals: 0, bipolar: false)
+            LumenSlider(title: "Grain size",
+                        value: bindFilm("film.grain.size",
+                                        get: { $0.grain.size },
+                                        set: { $0.grain.size = Num.clamp($1, 0.5, 2.0) }),
+                        range: 0.5...2.0, defaultValue: 1.0, step: 0.05, decimals: 2,
+                        bipolar: false)
+
+            if let stock {
+                caption(LookPanel.stockCaption(stock)
+                            + " While it is loaded the Display Transform "
+                            + "section above moves nothing: a stock replaces "
+                            + "that stage, at every Strength.")
+            } else {
+                // Prominent: the recipe names a stock, the picture does not
+                // show it, and only this line says so.
+                caption("\u{201C}\(film.stock)\u{201D} is not a stock this build "
+                        + "ships — the render falls back to the neutral "
+                        + "transform rather than to a different look.",
+                        prominent: true)
+            }
+        } else {
+            caption("A stock replaces the display transform rather than stacking "
+                    + "on top of it — one picture-formation stage, parameterized. "
+                    + "Exposure moves stay film-like because the curve lives in "
+                    + "log-exposure. Loading one therefore makes the Display "
+                    + "Transform section inert.")
         }
     }
 

@@ -167,11 +167,18 @@ final class KeyDispatcher {
             // overlay's rect is normalized to the straightened frame — a second inset
             // crop inside the first, compounding on every drag. The renderer now shows
             // the uncropped frame while this is on, which is what makes it correct.
-            state.activeSection = .effects       // crop lives with the effects group
+            // Crop lives in Develop's Optics section now, not the Effects tab. Both
+            // halves are set: the workspace is what `LoupeView` gates the on-image
+            // rectangle on, and opening the section is what puts the ratio and angle
+            // rows under the photographer's hand without a second click.
+            PanelLayout.shared.select(.develop)
+            PanelLayout.shared.click(.optics, keepingOthersOpen: false)
             state.showLoupe()
             LoupeViewport.shared.showCrop.toggle()
         case "m":
-            state.activeSection = .masks
+            // A DOCK, not a section — it is reachable from every workspace, so masking
+            // no longer means leaving whatever else you were doing (docs/28 item 14).
+            PanelLayout.shared.setMaskDock(open: !PanelLayout.shared.layout.isMaskDockOpen)
             state.showLoupe()
 
         // ---- Mask overlays (docs/08 §8.6) --------------------------------------
@@ -188,19 +195,28 @@ final class KeyDispatcher {
             } else {
                 state.toggleMaskOverlay()
             }
-            state.activeSection = .masks
+            // The overlay keys open the dock rather than toggling it: pressing O to
+            // look at a mask and having it close the panel you are looking at would be
+            // the key undoing its own reason for existing.
+            PanelLayout.shared.setMaskDock(open: true)
             state.showLoupe()
         case "'":
             // Invert the selected COMPONENT, which is what this key means in LR and in
             // docs/08 §8.1. The whole-mask invert is a toggle in the panel, because a
             // second invert key would be two keys nobody could tell apart.
             state.invertActiveMaskComponent()
+        // The three panel keys now name a workspace AND a section, because a workspace
+        // alone would leave the photographer looking at whichever section was last open.
+        // Each opens the section that tab used to lead with.
         case "b":
-            state.activeSection = .basic
+            PanelLayout.shared.select(.develop)
+            PanelLayout.shared.click(.tone, keepingOthersOpen: false)
         case "l":
-            state.activeSection = .look
+            PanelLayout.shared.select(.grade)
+            PanelLayout.shared.click(.looks, keepingOthersOpen: false)
         case "d":
-            state.activeSection = .detail
+            PanelLayout.shared.select(.develop)
+            PanelLayout.shared.click(.detail, keepingOthersOpen: false)
         // H is the develop histogram, which bins the RENDERED picture — the instrument
         // docs/10 §10.5 calls the one that lies, because the render has been through
         // the tone stage and the display transform before it is counted. ⇧H is the
