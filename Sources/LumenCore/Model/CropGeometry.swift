@@ -423,6 +423,67 @@ extension CropGeometry {
     }
 }
 
+// MARK: - Carrying a rectangle through an angle change
+
+extension CropGeometry {
+
+    /// The crop the recipe should hold after the straighten angle changes, given the
+    /// crop it held before.
+    ///
+    /// The crop is stored as fractions of the USABLE frame, and the usable frame is a
+    /// different rectangle at every angle — so a crop left untouched through an angle
+    /// change is silently rescaled by the ratio of the two frames. Two people feel that:
+    /// the owner, for whom every turn of the angle re-cropped the default full-frame
+    /// rectangle to 100% of the new inscribed frame ("it automatically removes all the
+    /// stuff… I want to tilt the image and then move the square that I made"), and
+    /// anyone holding a ratio lock, whose 16:9 read 1.83:1 at 2° and 2.13:1 at 10° with
+    /// the padlock still closed (docs/31 #10) — the two usable extents shrink by
+    /// different factors, so pinned fractions cannot keep a pixel aspect.
+    ///
+    /// So the rectangle is stated in PIXELS, carried across, and restated against the
+    /// new frame: the same pixel extent on the same centre where it fits, shrunk about
+    /// its centre — both axes together, aspect preserved — by exactly the factor the new
+    /// frame forces where it does not, and slid the least distance that brings it
+    /// inside. Tilting becomes a rotation under a stable box rather than a re-crop, and
+    /// a locked ratio survives the angle. The shrink is deliberately not undone on the
+    /// way back: an angle returning toward 0° keeps whatever rectangle the excursion
+    /// left, because growing a box nobody dragged is a re-crop by another name.
+    ///
+    /// Both usable frames are centred on the rotated picture, which is what makes the
+    /// centre OFFSET the part of the position that survives the change of frame.
+    public static func reangled(_ crop: Crop, sourceWidth: Double, sourceHeight: Double,
+                                from oldDegrees: Double, to newDegrees: Double) -> Crop {
+        let before = usableSize(width: sourceWidth, height: sourceHeight,
+                                degrees: oldDegrees)
+        let after = usableSize(width: sourceWidth, height: sourceHeight,
+                               degrees: newDegrees)
+        let c = normalized(crop)
+        guard before.width > 0, before.height > 0,
+              after.width > 0, after.height > 0 else { return c }
+
+        // The rectangle in source pixels: its extent, and its centre's offset from the
+        // frame's own centre.
+        let w = c.w * before.width
+        let h = c.h * before.height
+        let cx = (c.x + c.w / 2 - 0.5) * before.width
+        let cy = (c.y + c.h / 2 - 0.5) * before.height
+        guard w > 0, h > 0 else { return c }
+
+        // One scale for both axes, and only as much as the new frame demands. Clamping
+        // each axis on its own is exactly how the aspect — and any ratio lock riding on
+        // it — would break.
+        let scale = Swift.min(1, after.width / w, after.height / h)
+        let w2 = w * scale
+        let h2 = h * scale
+        let cx2 = Num.clamp(cx, -(after.width - w2) / 2, (after.width - w2) / 2)
+        let cy2 = Num.clamp(cy, -(after.height - h2) / 2, (after.height - h2) / 2)
+        return normalized(Crop(x: (cx2 - w2 / 2) / after.width + 0.5,
+                               y: (cy2 - h2 / 2) / after.height + 0.5,
+                               w: w2 / after.width,
+                               h: h2 / after.height))
+    }
+}
+
 // MARK: - Re-shaping a rectangle that already exists
 
 extension CropGeometry {

@@ -1,7 +1,9 @@
 // CropPanel.swift
 // The Crop workspace's column: the ratio menu and its padlock, the orientation swap, the
-// angle, the ruler, the guide overlay, and the commit grammar — plus the session state
-// the on-image tool and the panel both read.
+// angle, the ruler, and the guide overlay — plus the session state the on-image tool and
+// the panel both read. The crop saves as you go (owner, pass 4): every drag writes the
+// recipe per event, so there is no commit row — R or leaving the workspace puts the tool
+// away, Escape reverts to the framing the session opened with, and Reset clears it.
 //
 // It left `EffectsPanel` because the crop stopped being a row of settings. The rectangle
 // is dragged, rotated and committed on the photograph; what is left in the column is the
@@ -160,8 +162,9 @@ final class CropTool: ObservableObject {
     /// `KeyDispatcher` installs an `NSEvent` monitor in FRONT of the responder chain and
     /// spends `0x1B` before any view sees it, so a `.keyboardShortcut(.escape)` on the
     /// crop column would be dead code wearing a shortcut — the defect this project has
-    /// shipped twice and now has a test for. The panel's Revert button calls the same
-    /// path, so the key and the button cannot drift.
+    /// shipped twice and now has a test for. Escape is the ONE caller now: the crop
+    /// saves as you go, so the Done/Revert row is gone (owner, pass 4) and this is the
+    /// whole of the way back that is not Reset.
     ///
     /// THREE FIELDS, not the whole `Geometry`: Lens Corrections lives in this same
     /// workspace, and a revert that also un-ticked the built-in lens profile would undo
@@ -231,8 +234,9 @@ final class CropTool: ObservableObject {
 
     private var lastArmingChange: Date?
 
-    /// Forget the last transition, so a press of R that follows a click on Done is a
-    /// first press rather than the second half of something the mouse started.
+    /// Forget the last transition, so a press of R that follows some other way out of
+    /// the tool — Escape, leaving the workspace, M — is a first press rather than the
+    /// second half of something else started.
     func forgetArming() { lastArmingChange = nil }
 
     /// Report that the tool was armed or disarmed, and answer whether that was the second
@@ -318,13 +322,15 @@ struct CropSection: View {
                 // had already guessed. This row is where somebody looking for "how do I
                 // straighten this" ends up, so it is where the gesture gets named.
                 LumenSlider(title: "Angle",
-                            value: binder.value(\.develop.geometry.angle, "geometry.angle"),
+                            value: angleBinding,
                             range: -45...45, hardRange: nil, defaultValue: 0,
                             step: 0.1, decimals: 1,
-                            help: "How far the picture is turned under the frame. Drag "
-                                + "anywhere outside the rectangle on the photograph to "
-                                + "set it by hand, or use the ruler below to take it off "
-                                + "a horizon.")
+                            help: "How far the picture is turned under the frame — the "
+                                + "rectangle keeps its size and its centre while the "
+                                + "picture turns. Drag anywhere outside the rectangle "
+                                + "on the photograph to set it by hand (⇧ turns "
+                                + "finely), or use the ruler below to take it off a "
+                                + "horizon.")
                 rulerRow
                 guidesRow
                 // THE CROP MIRRORS WITH THE FRAME, and until now it did not.
@@ -355,7 +361,11 @@ struct CropSection: View {
                                    + "is a mirror, not a rotation — turning the crop "
                                    + "between portrait and landscape is the ⇅ button "
                                    + "beside the ratio.")
-                if viewport.showCrop { commitRow }
+                // No Done/Revert row: the crop saves as you go (owner, pass 4). R — or
+                // leaving the workspace — puts the tool away, Escape reverts to the
+                // framing this session opened with, Reset clears everything. Return no
+                // longer means anything here; the grammar change landed in `KeyGrammar`
+                // and the help sheet with this.
                 // No perspective rows: `Upright` is a wire format with no stage behind
                 // it, and a control that reaches nothing is the defect this panel's
                 // Lens section was cut down for.
@@ -421,7 +431,13 @@ struct CropSection: View {
 
             Menu {
                 ForEach(cropAspects) { aspect in
-                    Button(aspect.name) { applyAspect(aspect.ratio ?? originalRatio) }
+                    if let ratio = aspect.ratio {
+                        Button(aspect.name) { applyAspect(ratio) }
+                    } else {
+                        // "Original" is the way BACK, not another ratio — see
+                        // `restoreOriginal()`.
+                        Button(aspect.name) { restoreOriginal() }
+                    }
                 }
                 if !tool.recentCustomAspects.isEmpty {
                     Divider()
@@ -444,10 +460,14 @@ struct CropSection: View {
             // see, a cursor that changes, an arc out where the rotation lives — but a
             // tooltip costs nothing and this project deleted 59 prose rows on the
             // understanding that the sentences would move onto the controls rather than
-            // disappear.
+            // disappear. Original's clause carries the Reset distinction too, because a
+            // menu item cannot hold its own tooltip and this row is where the choice is
+            // made.
             .help("Standard ratios, measured against this frame and fitted around the "
-                  + "crop you already have. Press R to crop on the image, then drag a "
-                  + "corner or an edge to reframe, inside the rectangle to move it, and "
+                  + "crop you already have. Original brings the whole frame back and "
+                  + "releases the ratio lock, keeping the angle and flip — Reset on the "
+                  + "section header clears those too. On the photograph: drag a corner "
+                  + "or an edge to reframe, inside the rectangle to move it, and "
                   + "outside the frame to turn the picture.")
 
             // ⇅, not X. docs/09 binds portrait ↔ landscape to X, and X is the reject
@@ -565,36 +585,6 @@ struct CropSection: View {
         .frame(height: Lumen.rowHeight)
     }
 
-    /// docs/09's commit grammar, as two buttons rather than as two keys.
-    ///
-    /// Return is here. ESCAPE IS NOT, and it is the one binding in that sentence this
-    /// panel cannot have: `KeyDispatcher` claims Escape in front of the responder chain
-    /// and spends it on "back to the grid", so a `.cancelAction` attached here would be
-    /// unreachable code wearing a shortcut. The button works; the key needs the
-    /// dispatcher to yield the way it already yields to a focused slider.
-    private var commitRow: some View {
-        HStack(spacing: 6) {
-            Spacer().frame(width: Lumen.labelWidth)
-            Button("Done") { commitCrop() }
-                .font(.system(size: 10))
-                // Withdrawn while the custom-ratio field is up. A window-wide Return
-                // takes the key out from under a field editor, so the ratio you had just
-                // typed would put the tool away instead of being applied — and the help
-                // stops promising the key in the same breath.
-                .keyboardShortcut(showsCustomField
-                                  ? nil : KeyboardShortcut(.return, modifiers: []))
-                .help(showsCustomField
-                      ? "Keep this crop and put the tool away."
-                      : "⏎. Keep this crop and put the tool away.")
-            Button("Revert") { revertCrop() }
-                .font(.system(size: 10))
-                .disabled(revertTarget == nil)
-                .help("Put the frame back the way it was when you opened the tool.")
-            Spacer()
-        }
-        .frame(height: Lumen.rowHeight)
-    }
-
     // MARK: Reading the rectangle back
 
     private var isLocked: Bool {
@@ -675,6 +665,22 @@ struct CropSection: View {
         }
     }
 
+    /// "Original" restores the full frame: the crop cleared, the lock released, the
+    /// angle and flip kept (owner, pass 4: "Original resets the crop").
+    ///
+    /// It used to REFIT the existing rectangle to the camera's ratio and arm the lock
+    /// with it — which answered "hold this crop at the camera's shape" and left no
+    /// control anywhere that answered "give me the whole picture back". The padlock
+    /// owns the first job now, so this one is the way back. Angle and flip stay
+    /// because straightening is not a crop; Reset on the section header is the one
+    /// that clears everything, and both helps say so.
+    private func restoreOriginal() {
+        if let photoID { tool.setLock(nil, for: photoID) }
+        binder.edit("geometry.crop.original") { recipe in
+            recipe.develop.geometry.crop = Crop()
+        }
+    }
+
     private func commitCustomRatio() {
         guard let ratio = CropGeometry.aspect(fromText: customRatio) else { return }
         tool.rememberCustom(ratio)
@@ -707,33 +713,31 @@ struct CropSection: View {
         tool.resetGeometry(in: state)
     }
 
-    /// What Revert would put back, or nil when there is nothing to put back.
+    /// The Angle slider writes BOTH fields: the angle, and the crop restated against
+    /// the new usable frame (`CropGeometry.reangled`) in the same recipe write — so the
+    /// rectangle keeps its pixel size and centre while the picture turns, and a locked
+    /// ratio survives the angle (docs/31 #10). The on-image rotate drag and the ruler
+    /// do the same through `LoupeView.applyRotation`; three hands, one mechanism.
     ///
-    /// THREE FIELDS, not the whole `Geometry`. Lens Corrections sits in this same
-    /// workspace, and a revert that also un-ticked the built-in profile would be undoing
-    /// something the photographer did not do inside the crop tool.
-    private var revertTarget: Geometry? {
-        guard let photoID,
-              let baseline = tool.baselineGeometry(for: photoID) else { return nil }
-        let now = recipe.develop.geometry
-        let unchanged = baseline.crop == now.crop
-            && baseline.angle == now.angle
-            && baseline.flipH == now.flipH
-        return unchanged ? nil : baseline
-    }
-
-    private func commitCrop() {
-        tool.endSession()
-        tool.forgetArming()
-        viewport.showCrop = false
-        viewport.showStraighten = false
-    }
-
-    private func revertCrop() {
-        // One path for the button and the key — see `CropTool.revert(in:)`.
-        tool.revert(in: state)
-        viewport.showCrop = false
-        viewport.showStraighten = false
+    /// The frame size is captured OUTSIDE the escaping closure so the binding does not
+    /// hold the view. Before the decode lands it is the assumed 3:2, which makes the
+    /// carried rectangle assumption-shaped in the visible way the fallback's own note
+    /// accepts — never NaN-shaped.
+    private var angleBinding: Binding<Double> {
+        let size = frameSizeForCrop
+        return binder.custom("geometry.angle",
+                             get: { $0.develop.geometry.angle },
+                             set: { recipe, angle in
+                                 if let size, size.width > 0, size.height > 0 {
+                                     recipe.develop.geometry.crop = CropGeometry.reangled(
+                                         recipe.develop.geometry.crop,
+                                         sourceWidth: size.width,
+                                         sourceHeight: size.height,
+                                         from: recipe.develop.geometry.angle,
+                                         to: angle)
+                                 }
+                                 recipe.develop.geometry.angle = angle
+                             })
     }
 }
 

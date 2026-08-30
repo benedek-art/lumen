@@ -603,3 +603,171 @@ final class CropDragTests: XCTestCase {
         }
     }
 }
+
+/// Carrying the rectangle through an angle change (`CropGeometry.reangled`).
+///
+/// The property this class pins is the owner's fourth-pass ask — "I want to tilt the
+/// image and then move the square that I made" — and docs/31 #10 with it: a crop left
+/// as bare fractions through an angle change is rescaled by the ratio of the two usable
+/// frames, which re-crops the picture and silently breaks any ratio lock.
+final class CropReangleTests: XCTestCase {
+
+    /// The rectangle in source pixels: extent, and centre offset from the usable
+    /// frame's own centre — the quantities `reangled` promises to preserve.
+    private func pixels(_ c: Crop, w: Double, h: Double, degrees: Double)
+    -> (w: Double, h: Double, cx: Double, cy: Double) {
+        let usable = CropGeometry.usableSize(width: w, height: h, degrees: degrees)
+        return (c.w * usable.width, c.h * usable.height,
+                (c.x + c.w / 2 - 0.5) * usable.width,
+                (c.y + c.h / 2 - 0.5) * usable.height)
+    }
+
+    func testAnAngleChangePreservesThePixelRectangleWhereItFits() {
+        let crop = Crop(x: 0.3, y: 0.35, w: 0.3, h: 0.25)
+        for (w, h) in [(6000.0, 4000.0), (4000.0, 6000.0), (5000.0, 5000.0)] {
+            for (from, to) in [(0.0, 5.0), (5.0, 0.0), (-3.0, 8.0), (10.0, -10.0)] {
+                let before = pixels(crop, w: w, h: h, degrees: from)
+                let out = CropGeometry.reangled(crop, sourceWidth: w, sourceHeight: h,
+                                                from: from, to: to)
+                let after = pixels(out, w: w, h: h, degrees: to)
+                XCTAssertEqual(after.w, before.w, accuracy: 1e-6,
+                               "\(w)x\(h) \(from)°→\(to)° changed the width")
+                XCTAssertEqual(after.h, before.h, accuracy: 1e-6,
+                               "\(w)x\(h) \(from)°→\(to)° changed the height")
+                XCTAssertEqual(after.cx, before.cx, accuracy: 1e-6,
+                               "\(w)x\(h) \(from)°→\(to)° moved the centre")
+                XCTAssertEqual(after.cy, before.cy, accuracy: 1e-6)
+            }
+        }
+    }
+
+    /// docs/31 #10, directly: the pixel aspect survives EVERY angle change, fitting or
+    /// not — which is the property the ratio lock rides on.
+    func testThePixelAspectSurvivesEveryAngleChange() {
+        for crop in [Crop(),
+                     Crop(x: 0.1, y: 0.2, w: 0.7, h: 0.5),
+                     Crop(x: 0.0, y: 0.0, w: 1.0, h: 0.6)] {
+            for (w, h) in [(6000.0, 4000.0), (4000.0, 6000.0)] {
+                for from in [0.0, 4.0, -12.0] {
+                    for to in stride(from: -20.0, through: 20.0, by: 2.5) {
+                        let before = pixels(crop, w: w, h: h, degrees: from)
+                        let out = CropGeometry.reangled(crop, sourceWidth: w,
+                                                        sourceHeight: h,
+                                                        from: from, to: to)
+                        let after = pixels(out, w: w, h: h, degrees: to)
+                        XCTAssertEqual(after.w / after.h, before.w / before.h,
+                                       accuracy: 1e-6,
+                                       "\(w)x\(h) \(from)°→\(to)°, \(crop): aspect "
+                                           + "drifted \(before.w / before.h) → "
+                                           + "\(after.w / after.h)")
+                    }
+                }
+            }
+        }
+    }
+
+    /// The owner's exact scenario: the default full-frame crop, then a tilt. The box
+    /// must NOT stay pinned at 100% of the new inscribed frame — it keeps the source's
+    /// own aspect, so slack appears on one axis and there is somewhere to move it.
+    func testTiltingTheFullFrameLeavesSlackToMoveInto() {
+        let out = CropGeometry.reangled(Crop(), sourceWidth: 6000, sourceHeight: 4000,
+                                        from: 0, to: 5)
+        let usable = CropGeometry.usableSize(width: 6000, height: 4000, degrees: 5)
+        let px = (w: out.w * usable.width, h: out.h * usable.height)
+        XCTAssertEqual(px.w / px.h, 1.5, accuracy: 1e-6,
+                       "the box lost the frame's own aspect")
+        XCTAssertTrue(out.w < 1 - 1e-9 || out.h < 1 - 1e-9,
+                      "100% of the new inscribed frame again — no slack anywhere")
+        // And the shrink is minimal: one axis is flush with the new frame.
+        XCTAssertTrue(abs(out.w - 1) < 1e-9 || abs(out.h - 1) < 1e-9,
+                      "shrunk more than the new frame forced: \(out)")
+    }
+
+    func testTheRectangleAlwaysLandsInsideTheNewFrame() {
+        for crop in [Crop(), Crop(x: 0.9, y: 0.9, w: 0.1, h: 0.1),
+                     Crop(x: 0.0, y: 0.4, w: 0.8, h: 0.6),
+                     Crop(x: 0.02, y: 0.02, w: 0.96, h: 0.2)] {
+            for (w, h) in [(6000.0, 4000.0), (4000.0, 6000.0), (7000.0, 1000.0)] {
+                for from in [-30.0, 0.0, 15.0] {
+                    for to in stride(from: -44.0, through: 44.0, by: 5.5) {
+                        let out = CropGeometry.reangled(crop, sourceWidth: w,
+                                                        sourceHeight: h,
+                                                        from: from, to: to)
+                        XCTAssertGreaterThanOrEqual(out.x, -1e-9, "\(crop) \(from)→\(to)")
+                        XCTAssertGreaterThanOrEqual(out.y, -1e-9, "\(crop) \(from)→\(to)")
+                        XCTAssertLessThanOrEqual(out.x + out.w, 1 + 1e-9,
+                                                 "\(crop) \(from)→\(to)")
+                        XCTAssertLessThanOrEqual(out.y + out.h, 1 + 1e-9,
+                                                 "\(crop) \(from)→\(to)")
+                        XCTAssertGreaterThanOrEqual(
+                            out.w, CropGeometry.minimumCropFraction - 1e-12)
+                        XCTAssertGreaterThanOrEqual(
+                            out.h, CropGeometry.minimumCropFraction - 1e-12)
+                    }
+                }
+            }
+        }
+    }
+
+    /// A rectangle that fits at both angles round-trips exactly: tilt and tilt back,
+    /// and the framing is untouched.
+    func testAnAngleRoundTripRestoresARectangleThatFitsBothWays() {
+        let crop = Crop(x: 0.4, y: 0.4, w: 0.2, h: 0.2)
+        for (w, h) in [(6000.0, 4000.0), (4000.0, 6000.0)] {
+            let there = CropGeometry.reangled(crop, sourceWidth: w, sourceHeight: h,
+                                              from: 0, to: 12)
+            let back = CropGeometry.reangled(there, sourceWidth: w, sourceHeight: h,
+                                             from: 12, to: 0)
+            XCTAssertEqual(back.x, crop.x, accuracy: 1e-9)
+            XCTAssertEqual(back.y, crop.y, accuracy: 1e-9)
+            XCTAssertEqual(back.w, crop.w, accuracy: 1e-9)
+            XCTAssertEqual(back.h, crop.h, accuracy: 1e-9)
+        }
+    }
+
+    /// A rotate DRAG restates the crop per event, so the chain of small steps must land
+    /// where the one big step does — otherwise the box breathes while the hand turns.
+    func testChainedStepsAgreeWithOneStepWhileTheBoxFits() {
+        let crop = Crop(x: 0.35, y: 0.3, w: 0.25, h: 0.3)
+        let w = 6000.0, h = 4000.0
+        var walked = crop
+        var angle = 0.0
+        while angle < 10 {
+            walked = CropGeometry.reangled(walked, sourceWidth: w, sourceHeight: h,
+                                           from: angle, to: angle + 0.5)
+            angle += 0.5
+        }
+        let direct = CropGeometry.reangled(crop, sourceWidth: w, sourceHeight: h,
+                                           from: 0, to: 10)
+        XCTAssertEqual(walked.x, direct.x, accuracy: 1e-6)
+        XCTAssertEqual(walked.y, direct.y, accuracy: 1e-6)
+        XCTAssertEqual(walked.w, direct.w, accuracy: 1e-6)
+        XCTAssertEqual(walked.h, direct.h, accuracy: 1e-6)
+    }
+
+    func testTheSameAngleIsTheIdentity() {
+        let crop = Crop(x: 0.2, y: 0.1, w: 0.5, h: 0.6)
+        for degrees in [0.0, 7.0, -33.0] {
+            let out = CropGeometry.reangled(crop, sourceWidth: 6000, sourceHeight: 4000,
+                                            from: degrees, to: degrees)
+            XCTAssertEqual(out.x, crop.x, accuracy: 1e-12)
+            XCTAssertEqual(out.y, crop.y, accuracy: 1e-12)
+            XCTAssertEqual(out.w, crop.w, accuracy: 1e-12)
+            XCTAssertEqual(out.h, crop.h, accuracy: 1e-12)
+        }
+    }
+
+    func testDegenerateInputsDoNotTrap() {
+        for (w, h) in [(0.0, 4000.0), (6000.0, 0.0), (Double.nan, 4000.0)] {
+            let out = CropGeometry.reangled(Crop(x: 0.1, y: 0.1, w: 0.5, h: 0.5),
+                                            sourceWidth: w, sourceHeight: h,
+                                            from: 0, to: 10)
+            XCTAssertTrue(out.x.isFinite && out.y.isFinite
+                            && out.w.isFinite && out.h.isFinite)
+        }
+        let out = CropGeometry.reangled(Crop(x: .nan, y: 0, w: .infinity, h: 1),
+                                        sourceWidth: 6000, sourceHeight: 4000,
+                                        from: 0, to: 10)
+        XCTAssertTrue(out.x.isFinite && out.w.isFinite)
+    }
+}

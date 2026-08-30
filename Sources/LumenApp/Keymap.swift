@@ -510,12 +510,13 @@ final class KeyDispatcher {
             // This monitor sits in front of the responder chain and spent 0x1B on the
             // grid unconditionally, so a `.keyboardShortcut(.escape)` on the crop panel
             // would have been dead code wearing a shortcut — the exact defect class this
-            // project has shipped twice and now tests for. The crop stream declined to
-            // print a key that does nothing and shipped a Revert button instead, which
-            // was right, and this is the line that lets the key exist.
+            // project has shipped twice and now tests for.
             //
             // Leaving reverts, because that is what Escape means everywhere else. The
-            // rectangle at arming time is `CropTool`'s to remember.
+            // rectangle at arming time is `CropTool`'s to remember — and since the crop
+            // saves as you go (the Done/Revert row is gone, owner pass 4), this key is
+            // the ONLY way back that is not Reset, which is exactly why it lives at the
+            // dispatcher where it cannot go dead.
             if LoupeViewport.shared.showCrop {
                 CropTool.shared.revert(in: state)
                 LoupeViewport.shared.showCrop = false

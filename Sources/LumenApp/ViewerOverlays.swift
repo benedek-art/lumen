@@ -813,6 +813,31 @@ struct CropOverlayView: View {
     /// How far from an edge a drag still counts as that edge.
     private static let edgeThickness: CGFloat = 12
 
+    /// The coordinate space the move and resize drags are measured in: the overlay's
+    /// own root, which holds still while a rectangle drag is under way.
+    ///
+    /// THIS IS THE EDGE-DRAG GLITCH, so it gets stated in full. A `DragGesture`'s
+    /// default `.local` space is the view the gesture is attached to — and the edge and
+    /// corner hit targets are placed with `.position(…)` computed from the LIVE crop
+    /// rect, so every `onChanged` that wrote the crop moved the gesture's own coordinate
+    /// space by the delta it had just applied. The next event's `translation`
+    /// (location − startLocation, both in that moving space) collapsed back toward
+    /// zero, the rectangle snapped back, the event after that re-applied it — an
+    /// oscillation between the press origin and the pointer at event rate, which is
+    /// the owner's "spazzing out … it doesn't follow the cursor". The interior's move
+    /// drag never glitched because its host is placed with `.offset(…)`, a render-time
+    /// translation that leaves the layout frame — and with it the `.local` space —
+    /// anchored; that asymmetry is why "moving the box is good" while the edges
+    /// misbehaved. The rotate drag's comment below documents the same trap and dodges
+    /// it with `.global`; these two now dodge it with a space that cannot move during
+    /// the drags it measures. (The root's own size changes only with the ANGLE, which
+    /// no move or resize drag touches.)
+    private static let dragSpace = "crop.overlay"
+
+    /// ⇧ gears a rotate drag down by this factor — a rotate is a slider whose track is
+    /// an arc, and this is its fine drag.
+    private static let fineRotationGear: Double = 0.2
+
     @State private var dragOrigin: Crop?
     @State private var rotation: RotationDrag?
     /// Which region the pointer is in, or nil when it is not over the overlay at all.
@@ -828,23 +853,19 @@ struct CropOverlayView: View {
     /// `onDisappear` as well as on the way out.
     @State private var pushedCursor: Bool = false
 
-    /// Whether the photographer has already been told what the hand can do here.
-    ///
-    /// `@AppStorage` rather than session state on purpose: this is a thing you learn
-    /// once and then find patronising, so it must not come back every launch. It is a
-    /// preference about the person, not about the photograph, which is the same test
-    /// `CropPanel`'s header applies to the guide overlay.
-    @AppStorage("crop.handHintSeen") private var hintSeen: Bool = false
-    @State private var showsHint: Bool = false
-
-    /// What a rotate-drag has to remember. The pivot and the starting angle are both
-    /// fixed at the press: recomputing either per event would measure each sweep against
-    /// a frame the last sweep had already moved, which integrates its own rounding.
+    /// What a rotate-drag has to remember. The pivot is fixed at the press: recomputing
+    /// it per event would measure each sweep against a frame the last sweep had already
+    /// moved, which integrates its own rounding. `sweep` is the raw sweep the last
+    /// event measured — always against the press point, so it carries no accumulation —
+    /// and it is what lets the ⇧ fine gear be applied to each event's INCREMENT:
+    /// pressing or releasing the modifier mid-drag changes the gearing without jumping
+    /// the picture, the same contract `LumenSlider`'s gearbox keeps for a straight
+    /// track.
     private struct RotationDrag {
-        var startAngle: Double
         var pivot: CGPoint
         var degrees: Double
         var location: CGPoint
+        var sweep: Double = 0
     }
 
     var body: some View {
@@ -860,6 +881,12 @@ struct CropOverlayView: View {
             // same path, so computing it here rather than inside each `.stroke` keeps the
             // doubling free — and guarantees the two can never be a pixel out of register.
             let guidePath = guides(in: rect)
+            // The loupe draws the FULL frame under this overlay while the tool is armed,
+            // turned in the view layer, and sizes the overlay to the usable frame — so
+            // the picture's tilted corners stick out past these bounds. The dim and the
+            // rotate catcher both reach that far, or the overhang would read as bright,
+            // grabbable picture that neither dims nor turns.
+            let overhang = plateOverhang(in: size)
             ZStack(alignment: .topLeading) {
                 // FIRST, so everything below wins where they overlap: a press inside the
                 // rectangle or on a handle belongs to that, and a press anywhere else is
@@ -868,10 +895,18 @@ struct CropOverlayView: View {
                     // Not `.clear`: a fully transparent shape is not hit-testable and the
                     // drag would fall through to the loupe's pan.
                     .fill(Lumen.accent.opacity(0.001))
-                    .contentShape(Rectangle())
+                    // The hit SHAPE reaches over the plate's overhang; the layout frame
+                    // does not, because a child larger than the GeometryReader's
+                    // proposal would re-place the whole stack. The inset is the larger
+                    // overhang on both axes, which over-reaches one of them slightly —
+                    // harmless, because `startsOnThePicture` already declines a press
+                    // that lands beside the picture rather than on it.
+                    .contentShape(Rectangle().inset(
+                        by: -Swift.max(overhang.width, overhang.height)))
                     .gesture(rotateGesture(in: size, windowOrigin: windowOrigin))
                     .help("Drag out here, outside the frame, to turn the picture under "
-                          + "it. The angle shows beside the cursor while you drag.")
+                          + "it — hold ⇧ to turn finely. The angle shows beside the "
+                          + "cursor while you drag.")
 
                 // STILL 0.5, and still even-odd. The brighter chrome does not want a
                 // lighter shield: the marks that had to survive the picture now carry
@@ -880,7 +915,8 @@ struct CropOverlayView: View {
                 // under is what makes that legible without pretending the discarded part
                 // is gone.
                 Path { path in
-                    path.addRect(CGRect(origin: .zero, size: size))
+                    path.addRect(CGRect(origin: .zero, size: size)
+                        .insetBy(dx: -overhang.width - 2, dy: -overhang.height - 2))
                     path.addRect(rect)
                 }
                 .fill(Color.black.opacity(0.5), style: FillStyle(eoFill: true))
@@ -945,9 +981,10 @@ struct CropOverlayView: View {
                     corner(.bottomLeft, at: CGPoint(x: rect.minX, y: rect.maxY), frame: frame)
                     corner(.bottomRight, at: CGPoint(x: rect.maxX, y: rect.maxY), frame: frame)
                 }
-
-                if showsHint { hint(in: size) }
             }
+            // The stable frame the move and resize drags are measured in — see
+            // `dragSpace` for the glitch this is the fix for.
+            .coordinateSpace(name: CropOverlayView.dragSpace)
             // ONE hover reader for the whole overlay — see this type's header for why ten
             // of them could not have agreed with each other.
             //
@@ -956,6 +993,10 @@ struct CropOverlayView: View {
             // every change in the same transaction under an easing curve, and the change
             // that matters most in this view is the rectangle following a drag.
             .onContinuousHover(coordinateSpace: .local) { phase in
+                // Frozen while a hand is down: the rectangle moves under the pointer
+                // during a drag, and re-resolving the region per event would swap the
+                // cursor mid-gesture to whatever the handle happened to slide past.
+                guard dragOrigin == nil, rotation == nil else { return }
                 if case .active(let point) = phase {
                     enter(region(at: point, rect: rect))
                 } else {
@@ -963,11 +1004,10 @@ struct CropOverlayView: View {
                 }
             }
         }
-        // The tool can be put away with `⏎` while the pointer is still inside the
-        // rectangle, and a cursor pushed by a view that has gone is a cursor nothing will
-        // ever pop.
+        // The tool can be put away with `R` — or by leaving the workspace — while the
+        // pointer is still inside the rectangle, and a cursor pushed by a view that has
+        // gone is a cursor nothing will ever pop.
         .onDisappear { leave() }
-        .task { await revealHint() }
     }
 
     // MARK: Geometry
@@ -980,6 +1020,13 @@ struct CropOverlayView: View {
     /// `displayedNormalized` against the geometry the loupe actually drew is the way into
     /// the view's. Both rectangles are axis-aligned in the same rotated space, so the
     /// composition is a scale and a translation and two corners pin it exactly.
+    ///
+    /// While the tool is armed the loupe SIZES THIS OVERLAY to the usable frame itself
+    /// (`LoupeView.cropCanvas` — the full flip-only plate turns underneath in the view
+    /// layer), so with `viewShowsCrop` false this mapping is the identity and the
+    /// answer is the whole bounds. It is kept as the general mapping rather than
+    /// shortcut to `bounds`, for the reason the header gives: the day the loupe draws
+    /// something else, the rectangle must move with it rather than stay plausibly wrong.
     private func frameRect(in size: CGSize) -> CGRect {
         let whole = CGRect(origin: .zero, size: size)
         guard size.width > 0, size.height > 0,
@@ -1017,6 +1064,31 @@ struct CropOverlayView: View {
                       y: frame.minY + CGFloat(c.y) * frame.height,
                       width: CGFloat(c.w) * frame.width,
                       height: CGFloat(c.h) * frame.height)
+    }
+
+    /// How far the picture underneath overhangs this overlay's own bounds, per axis.
+    ///
+    /// While the tool is armed the loupe draws the FULL frame — flip applied, angle
+    /// left off — turned by the display tilt in the view layer, and sizes this overlay
+    /// to the usable (inscribed) frame. The two share a centre, so the overhang is half
+    /// the difference between the rotated plate's bounding box and these bounds: how
+    /// far the dim shield and the rotate catcher have to reach past them to cover the
+    /// picture's tilted corners. Zero at angle 0, where the plate IS the usable frame.
+    private func plateOverhang(in size: CGSize) -> CGSize {
+        guard sourceSize.width > 0, sourceSize.height > 0,
+              size.width > 0, size.height > 0 else { return .zero }
+        let usable = CropGeometry.usableSize(width: Double(sourceSize.width),
+                                             height: Double(sourceSize.height),
+                                             degrees: geometry.angle)
+        guard usable.width > 0, usable.height > 0 else { return .zero }
+        let k = Double(size.width) / usable.width
+        let plateW = Double(sourceSize.width) * k
+        let plateH = Double(sourceSize.height) * k
+        let radians = geometry.angle * .pi / 180
+        let boxW = plateW * abs(cos(radians)) + plateH * abs(sin(radians))
+        let boxH = plateW * abs(sin(radians)) + plateH * abs(cos(radians))
+        return CGSize(width: CGFloat(Swift.max(0, (boxW - Double(size.width)) / 2)),
+                      height: CGFloat(Swift.max(0, (boxH - Double(size.height)) / 2)))
     }
 
     // MARK: Guides
@@ -1141,36 +1213,6 @@ struct CropOverlayView: View {
             }
         }
         return path
-    }
-
-    /// The one-time hint, along the bottom of the frame.
-    ///
-    /// THREE CLAUSES IN ONE SENTENCE, because the complaint was not about one gesture. A
-    /// hint that only named the rotate drag would leave "I don't really know how to edit
-    /// it by hand" two thirds unanswered, and the corner-drag and the interior-drag are
-    /// exactly as unlabelled as the rotation is — they are merely more guessable.
-    ///
-    /// It is shown once ever (`hintSeen`), fades on its own after eight seconds, and goes
-    /// the instant any of the three gestures it describes begins: the fastest way to stop
-    /// teaching somebody is to notice they already knew.
-    private func hint(in size: CGSize) -> some View {
-        Text("Drag a corner or an edge to reframe, inside the rectangle to move it, "
-             + "and outside the frame to turn the picture.")
-            .font(.system(size: 11))
-            .foregroundStyle(Lumen.primaryText)
-            .multilineTextAlignment(.center)
-            .fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: Swift.max(size.width - 64, 160))
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(Color.black.opacity(0.72), in: RoundedRectangle(cornerRadius: 6))
-            .overlay {
-                RoundedRectangle(cornerRadius: 6)
-                    .strokeBorder(Lumen.separator, lineWidth: 0.5)
-            }
-            .position(x: size.width / 2, y: Swift.max(size.height - 34, 20))
-            .allowsHitTesting(false)
-            .transition(.opacity)
     }
 
     /// The angle, beside the cursor, while the drag is happening — docs/09's "the angle
@@ -1365,40 +1407,17 @@ struct CropOverlayView: View {
         NSCursor.pop()
     }
 
-    // MARK: The hint
-
-    /// Show the one-time hint, then let it go.
-    ///
-    /// `@MainActor` and cancellation-checked, the same shape the two raster overlays in
-    /// this file use for their own `.task`s: the tool is closed with a keystroke, and a
-    /// task that wakes up after that must not write state into a view that has gone.
-    /// Not recording `hintSeen` on the cancelled path is deliberate — a hint the
-    /// photographer never got eight seconds to read has not been given.
-    @MainActor
-    private func revealHint() async {
-        guard !hintSeen else { return }
-        showsHint = true
-        try? await Task.sleep(nanoseconds: 8_000_000_000)
-        guard !Task.isCancelled else { return }
-        hintSeen = true
-        withAnimation(.easeOut(duration: 0.4)) { showsHint = false }
-    }
-
-    /// A hand arrived, so the sentence describing the hand has done its job.
-    private func dismissHint() {
-        guard showsHint else { return }
-        hintSeen = true
-        withAnimation(.easeOut(duration: 0.25)) { showsHint = false }
-    }
-
     // MARK: Gestures
 
+    /// Measured in the overlay's named space, NOT the default `.local` — the interior
+    /// host moves with the crop it is dragging, and `dragSpace`'s comment is the story
+    /// of what a coordinate space that moves mid-gesture does to a translation.
     private func moveGesture(in frame: CGRect) -> some Gesture {
-        DragGesture(minimumDistance: 1)
+        DragGesture(minimumDistance: 1,
+                    coordinateSpace: .named(CropOverlayView.dragSpace))
             .onChanged { value in
                 guard frame.width > 0, frame.height > 0 else { return }
                 sliderGestureChanged(true)
-                dismissHint()
                 let origin = dragOrigin ?? crop
                 if dragOrigin == nil { dragOrigin = origin }
                 crop = CropGeometry.move(origin,
@@ -1418,13 +1437,17 @@ struct CropOverlayView: View {
     /// which the menu read the rectangle back and reported "Custom". A view cannot be
     /// tested from a machine with no renderer, which is why it moved rather than being
     /// patched in place.
+    ///
+    /// Measured in the overlay's named space, and this one is the drag that was
+    /// glitching: its host views are `.position`ed off the live rect, so the default
+    /// `.local` space moved under the pointer on every event — see `dragSpace`.
     private func resizeGesture(_ handle: CropGeometry.Handle,
                                in frame: CGRect) -> some Gesture {
-        DragGesture(minimumDistance: 1)
+        DragGesture(minimumDistance: 1,
+                    coordinateSpace: .named(CropOverlayView.dragSpace))
             .onChanged { value in
                 guard frame.width > 0, frame.height > 0 else { return }
                 sliderGestureChanged(true)
-                dismissHint()
                 let origin = dragOrigin ?? crop
                 if dragOrigin == nil { dragOrigin = origin }
                 crop = CropGeometry.resize(
@@ -1462,7 +1485,6 @@ struct CropOverlayView: View {
                                         y: value.startLocation.y - windowOrigin.y)
                     guard startsOnThePicture(local, frame: frame) else { return }
                     drag = RotationDrag(
-                        startAngle: geometry.angle,
                         pivot: CGPoint(x: windowOrigin.x + rect.midX,
                                        y: windowOrigin.y + rect.midY),
                         degrees: geometry.angle,
@@ -1474,14 +1496,21 @@ struct CropOverlayView: View {
                     fromX: Double(value.startLocation.x), fromY: Double(value.startLocation.y),
                     toX: Double(value.location.x), toY: Double(value.location.y))
                 else { return }
-                let next = CropGeometry.rotationAngle(from: drag.startAngle,
-                                                      sweep: sweep,
+                // ⇧ gears the turn down, read at event time the way `LumenSlider` reads
+                // its fine drag. Applied to the sweep's INCREMENT since the last event
+                // and integrated, so the modifier can come and go mid-drag without the
+                // picture jumping; at gear 1 the integration is exactly the absolute
+                // sweep it replaced.
+                let gear = NSEvent.modifierFlags.contains(.shift)
+                    ? CropOverlayView.fineRotationGear : 1
+                let next = CropGeometry.rotationAngle(from: drag.degrees,
+                                                      sweep: (sweep - drag.sweep) * gear,
                                                       flipped: geometry.flipH)
+                rotation?.sweep = sweep
                 rotation?.degrees = next
                 rotation?.location = CGPoint(x: value.location.x - windowOrigin.x,
                                              y: value.location.y - windowOrigin.y)
                 sliderGestureChanged(true)
-                dismissHint()
                 onAngle(next)
             }
             .onEnded { _ in

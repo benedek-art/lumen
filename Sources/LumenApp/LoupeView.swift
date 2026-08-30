@@ -861,6 +861,32 @@ struct LoupeView: View {
 
     private var recipe: Recipe { state.recipe(for: photo) }
 
+    /// True while the crop tool is live on this surface: armed AND in its workspace —
+    /// the same two-part gate the overlay, the render request and the panel share.
+    private var cropArmed: Bool {
+        viewport.showCrop && panel.layout.workspace == .crop
+    }
+
+    /// What the render request carries. While the crop tool is armed, the crop AND the
+    /// straighten angle are left off (the flip stays): the pipeline delivers the full
+    /// frame once, and the angle lives in `cropCanvas`'s view-layer rotation instead.
+    ///
+    /// The angle stripping is what makes tilting smooth — it used to re-render the
+    /// whole pipeline per rotate-drag event, because the angle rode the recipe into
+    /// `ViewerRenderKey` — and it is also what puts the picture's tilted corners on
+    /// screen at all: `renderPreview` cuts to the inscribed rectangle whenever an angle
+    /// goes through it, which is exactly the "automatically removes all the stuff" the
+    /// owner reported. The crop stripping matches `showingUncropped` (the renderer
+    /// would strip it again anyway); doing it here as well keeps the render KEY still
+    /// while the rectangle is dragged, so a crop drag re-renders nothing either.
+    private var renderRecipe: Recipe {
+        guard cropArmed else { return recipe }
+        var stripped = recipe
+        stripped.develop.geometry.crop = Crop()
+        stripped.develop.geometry.angle = 0
+        return stripped
+    }
+
     /// "Before" is just another recipe through the same pipeline (docs/12 §B8): the
     /// import default, i.e. an empty recipe at this photo's pipeline version.
     private var beforeRecipe: Recipe { Recipe(pipelineVersion: recipe.pipelineVersion) }
@@ -925,10 +951,12 @@ struct LoupeView: View {
             }
             // `.task`'s action is `@Sendable`, so it touches no main-actor state
             // directly: everything goes through the `@MainActor` methods below.
-            .task(id: ViewerRenderKey.current(url: photo.id, recipe: recipe,
+            // `renderRecipe`, not `recipe`: while the crop tool is armed the framing
+            // fields are stripped, so a crop or rotate drag moves the key not at all
+            // and the session renders once instead of once per event.
+            .task(id: ViewerRenderKey.current(url: photo.id, recipe: renderRecipe,
                                               longEdge: longEdge, state: state,
-                                              showingUncropped: viewport.showCrop
-                                                  && panel.layout.workspace == .crop)) {
+                                              showingUncropped: cropArmed)) {
                 await renderCurrent(longEdge: longEdge)
             }
             .task(id: BeforeKey(url: photo.id, recipe: beforeRecipe,
@@ -1000,8 +1028,10 @@ struct LoupeView: View {
 
     @MainActor
     private func renderCurrent(longEdge: Int) async {
+        // The same framing-stripped recipe the task key carries — see `renderRecipe`.
+        let wanted = renderRecipe
         await model.load(url: photo.id,
-                         recipe: recipe,
+                         recipe: wanted,
                          coordinator: state.renderCoordinator,
                          thumbnails: state.thumbnails,
                          // Zoomed, a draft with fewer pixels than the settle is drawn
@@ -1016,12 +1046,11 @@ struct LoupeView: View {
                              fitLongEdge: LoupeView.draftLongEdge,
                              zoomRatio: state.zoomLevel),
                          fullLongEdge: longEdge,
-                         strokeSets: state.strokeSets(for: recipe),
+                         strokeSets: state.strokeSets(for: wanted),
                          // While the crop tool is open the loupe shows the frame
                          // WITHOUT its crop, so the rectangle being dragged is drawn
                          // against the frame it is expressed in.
-                         showingUncropped: viewport.showCrop
-                             && panel.layout.workspace == .crop,
+                         showingUncropped: cropArmed,
                          // The proof is what the photographer is looking THROUGH; the
                          // before rendition below deliberately does not get it, because
                          // a before/after of "proofed vs not" is not the comparison the
@@ -1078,7 +1107,11 @@ struct LoupeView: View {
     @ViewBuilder
     private func content(container: CGSize) -> some View {
         if let cg = model.image, model.imageURL == photo.id {
-            if viewport.beforeMode.isTwoPane, let before = beforeImage {
+            if cropArmed {
+                // The crop tool owns the canvas while it is armed — before/after and
+                // the ordinary zoomed canvas both wait until the framing is done.
+                cropCanvas(cg: cg, container: container)
+            } else if viewport.beforeMode.isTwoPane, let before = beforeImage {
                 // Two-pane compare fits each side in its own half: pan and zoom belong
                 // to the split view, which shares one set of tiles.
                 BeforeAfterPair(mode: viewport.beforeMode, before: before, after: cg)
@@ -1168,59 +1201,8 @@ struct LoupeView: View {
                     .frame(width: drawn.width, height: drawn.height)
             }
 
-            // The renderer is asked for the frame WITHOUT its crop while this is open
-            // (`showingUncropped`), so the rectangle is drawn against the frame it is a
-            // fraction of rather than inside a picture already cut to it.
-            //
-            // THE WORKSPACE, NOT THE SECTION. Gating on the section being expanded would
-            // make the rectangle vanish when the photographer folds the accordion to see
-            // more of the picture — which is exactly when they want it. The workspace is
-            // the place; `showCrop` is the arming, and `R` sets both.
-            if viewport.showCrop && panel.layout.workspace == .crop {
-                CropOverlayView(crop: cropBinding,
-                                geometry: recipe.develop.geometry,
-                                // The SOURCE frame, not `cg` — the same reason the mask
-                                // canvas needs it. The overlay converts through the
-                                // renderer's own inverse, which is stated in source
-                                // pixels.
-                                sourceSize: state.primaryFrameSize
-                                    ?? CGSize(width: cg.width, height: cg.height),
-                                // The render call above asks for the frame WITHOUT its
-                                // crop under exactly this condition, so inside this
-                                // branch the picture underneath is the whole inscribed
-                                // frame. Passed rather than assumed, because the day
-                                // that changes the rectangle must move with it.
-                                viewShowsCrop: false,
-                                photoID: photo.id,
-                                onAngle: { angle in
-                                    // The same coalescing key the ruler and the Angle
-                                    // slider write through, so a turn of the picture is
-                                    // one undo step however it was asked for.
-                                    state.updateRecipe(coalescingKey: "straighten") { recipe in
-                                        recipe.develop.geometry.angle = angle
-                                    }
-                                },
-                                frameAspect: cropFrameAspect)
-                    .frame(width: drawn.width, height: drawn.height)
-
-                // Above the crop rectangle, so the ruler's drag belongs to the ruler
-                // while it is armed. It lives inside the crop tool because that is the
-                // one place the loupe shows the whole straightened frame — a ruler drawn
-                // over an already-cropped picture would be measuring a frame the angle
-                // is not expressed in.
-                if viewport.showStraighten {
-                    StraightenOverlayView(
-                        currentAngle: recipe.develop.geometry.angle,
-                        isFlipped: recipe.develop.geometry.flipH,
-                        onAngle: { angle in
-                            state.updateRecipe(coalescingKey: "straighten") { recipe in
-                                recipe.develop.geometry.angle = angle
-                            }
-                        },
-                        onFinish: { viewport.showStraighten = false })
-                        .frame(width: drawn.width, height: drawn.height)
-                }
-            }
+            // No crop overlay here: while the tool is armed, `content` routes to
+            // `cropCanvas` below and this canvas is never built.
 
             // Mask geometry is edited on the image, not in the panel: gradients,
             // radials and brush strokes are placed where they land. The canvas is
@@ -1275,6 +1257,127 @@ struct LoupeView: View {
         .clipped()
     }
 
+    /// Breathing room while the crop tool is armed: the usable frame is fitted into the
+    /// container inset by this much per side, so the picture is never flush against the
+    /// panel or the window edge and the corner brackets — which overhang the rectangle
+    /// by construction — always have somewhere to be drawn.
+    private static let cropInset: CGFloat = 24
+
+    /// The canvas while the crop tool is armed: the FULL frame — rendered with its flip
+    /// but with the straighten angle and the crop left off (`renderRecipe`) — turned by
+    /// the display tilt right here in the view layer, under the crop overlay sized to
+    /// the usable (inscribed) frame. Both are centred on the container, which is what
+    /// makes the overlay's bounds exactly the inscribed rectangle of the turning plate.
+    ///
+    /// Three owner complaints land on this one arrangement (docs/32 Stream B):
+    ///   · "when I change the angle it automatically removes all the stuff… instead of
+    ///     giving me that gray top/bottom/left/right" — the renderer used to cut the
+    ///     picture to the inscribed rectangle per angle event, so tilting LOOKED like a
+    ///     re-crop: every edge stayed screen-aligned and the corners simply vanished.
+    ///     Now the whole picture visibly turns, and everything outside the rectangle —
+    ///     tilted corners included — sits under the overlay's dim.
+    ///   · Tilting was janky: the angle rode the recipe into the render key, so every
+    ///     rotate-drag event re-ran the whole pipeline. The angle now lives in a
+    ///     `rotationEffect`, and a rotate drag renders nothing at all.
+    ///   · The frame sat flush against the panel and the brackets clipped at the window
+    ///     edge — `cropInset` is the breathing room.
+    ///
+    /// Zoom and pan are deliberately not honoured here: framing is a whole-frame
+    /// judgement (Lightroom's crop tool makes the same call), and a rectangle partly
+    /// off screen is a rectangle you cannot frame with. The zoom keys work again the
+    /// moment the tool is put away, at whatever level they held.
+    @ViewBuilder
+    private func cropCanvas(cg: CGImage, container: CGSize) -> some View {
+        let source: CGSize = state.primaryFrameSize
+            ?? CGSize(width: cg.width, height: cg.height)
+        let geometry: Geometry = recipe.develop.geometry
+        let usable = CropGeometry.usableSize(width: Double(source.width),
+                                             height: Double(source.height),
+                                             degrees: geometry.angle)
+        let availW: Double = Double(Swift.max(
+            container.width - LoupeView.cropInset * 2, 64))
+        let availH: Double = Double(Swift.max(
+            container.height - LoupeView.cropInset * 2, 64))
+        // Points per source pixel. `usable` is non-degenerate whenever `source` is —
+        // and `source` falls back to the delivered image, which has pixels by
+        // construction — but the guard keeps a zero out of the division all the same.
+        let k: Double = usable.width > 0 && usable.height > 0
+            ? Swift.min(availW / usable.width, availH / usable.height)
+            : 1
+        let usableDrawn = CGSize(width: usable.width * k, height: usable.height * k)
+        let plateDrawn = CGSize(width: Double(source.width) * k,
+                                height: Double(source.height) * k)
+        // The display tilt, clockwise positive: the renderer would have turned the
+        // picture by +angle, negated under the mirror (`Straighten`'s derivation) —
+        // and the plate this canvas is handed has the flip already applied and the
+        // angle left off.
+        let tilt: Double = geometry.flipH ? -geometry.angle : geometry.angle
+        // Image pixels per device pixel, for `ProxyResampling` — the plate's drawn
+        // extent is denominated in SOURCE pixels, which the proxy merely approximates.
+        let plateRatio: Double = cg.width > 0
+            ? Double(plateDrawn.width) * Double(Swift.max(displayScale, 1)) / Double(cg.width)
+            : 1
+        ZStack {
+            plate(cg, ratio: plateRatio, drawn: plateDrawn, zoomRatio: LoupeZoom.fit)
+                .rotationEffect(.degrees(tilt))
+
+            CropOverlayView(crop: cropBinding,
+                            geometry: geometry,
+                            // The SOURCE frame, not `cg` — the same reason the mask
+                            // canvas needs it: the overlay's conversions are stated in
+                            // source pixels.
+                            sourceSize: source,
+                            // The plate above is the frame WITHOUT its crop, and the
+                            // overlay is sized to the usable frame. Passed rather than
+                            // assumed, because the day that changes the rectangle must
+                            // move with it.
+                            viewShowsCrop: false,
+                            photoID: photo.id,
+                            onAngle: { angle in applyRotation(angle) },
+                            frameAspect: cropFrameAspect)
+                .frame(width: usableDrawn.width, height: usableDrawn.height)
+
+            // Above the crop rectangle, so the ruler's drag belongs to the ruler while
+            // it is armed. It lives inside the crop tool because that is the one place
+            // the whole straightened frame is on screen — a ruler over an
+            // already-cropped picture would be measuring a frame the angle is not
+            // expressed in.
+            if viewport.showStraighten {
+                StraightenOverlayView(
+                    currentAngle: geometry.angle,
+                    isFlipped: geometry.flipH,
+                    onAngle: { angle in applyRotation(angle) },
+                    onFinish: { viewport.showStraighten = false })
+                    .frame(width: usableDrawn.width, height: usableDrawn.height)
+            }
+        }
+        .frame(width: container.width, height: container.height)
+        .clipped()
+    }
+
+    /// A turn of the picture — from the rotate drag or the ruler: one write, BOTH
+    /// fields. The crop is restated against the new frame (`CropGeometry.reangled`) in
+    /// the same recipe write as the angle, so the rectangle keeps its pixel size and
+    /// centre — tilting stops being a re-crop, and a locked ratio survives the angle
+    /// (docs/31 #10). The Angle slider's binding in `CropPanel` does the same, so all
+    /// three hands turn the same mechanism; the shared coalescing key keeps any of
+    /// them one undo step.
+    private func applyRotation(_ angle: Double) {
+        let source: CGSize = state.primaryFrameSize
+            ?? model.image.map { CGSize(width: $0.width, height: $0.height) }
+            ?? .zero
+        state.updateRecipe(coalescingKey: "straighten") { recipe in
+            if source.width > 0, source.height > 0 {
+                recipe.develop.geometry.crop = CropGeometry.reangled(
+                    recipe.develop.geometry.crop,
+                    sourceWidth: Double(source.width),
+                    sourceHeight: Double(source.height),
+                    from: recipe.develop.geometry.angle, to: angle)
+            }
+            recipe.develop.geometry.angle = angle
+        }
+    }
+
     /// The image itself, honouring the before/after presentation that shares this
     /// canvas's geometry (flip and split; the two-pane modes are handled upstream).
     @ViewBuilder
@@ -1301,9 +1404,14 @@ struct LoupeView: View {
     /// drawn ratio above 1 just as a 1:1 inspection does. See that type for the
     /// arithmetic; the short version is that a 1280 px draft in this pane was magnified
     /// 1.84× unsmoothed, and the ladder's cheaper rungs magnify 3.07× and 4.10×.
-    private func plate(_ cg: CGImage, ratio: Double, drawn: CGSize) -> some View {
+    /// `zoomRatio` overrides `state.zoomLevel` for the resampling decision alone — the
+    /// crop canvas passes fit, because it lays the plate out at fit whatever the zoom
+    /// number still holds, and a stale 1:1 would pick the unsmoothed mode for a plate
+    /// that is being scaled.
+    private func plate(_ cg: CGImage, ratio: Double, drawn: CGSize,
+                       zoomRatio: Double? = nil) -> some View {
         let resampling = ProxyResampling.mode(
-            zoomRatio: state.zoomLevel,
+            zoomRatio: zoomRatio ?? state.zoomLevel,
             drawnRatio: ratio,
             renderedLongEdge: Swift.max(cg.width, cg.height),
             fullLongEdge: model.displayFullLongEdge)
@@ -1351,7 +1459,12 @@ struct LoupeView: View {
             if let mode = state.clippingOverlay {
                 LumenBadge(text: "CLIPPING · \(mode.rawValue.uppercased())")
             }
-            if state.zoomLevel >= 1, let cg = model.image {
+            if cropArmed {
+                // The armed canvas is fit-only (`cropCanvas`), whatever `zoomLevel`
+                // still holds from before the tool came up — the badge reports what is
+                // on screen, not the number waiting for the tool to close.
+                LumenBadge(text: LoupeZoom.label(LoupeZoom.fit))
+            } else if state.zoomLevel >= 1, let cg = model.image {
                 // At 1:1 and above the pixels on screen are the render proxy's, not the
                 // sensor's — say which, rather than implying a full-resolution loupe.
                 LumenBadge(text: "\(LoupeZoom.label(state.zoomLevel)) · PROXY \(cg.width)×\(cg.height)")
@@ -1456,6 +1569,10 @@ struct LoupeView: View {
             .onChanged { value in
                 viewport.lastCursor = value.location
                 if viewport.showReadout { cursor = value.location }
+                // The crop canvas ignores zoom and pan, so a drag that fell past the
+                // overlay must not scrub `zoomLevel` invisibly — the number would sit
+                // there, unseen, until the tool was put away and the picture jumped.
+                guard !cropArmed else { return }
                 guard let cg = model.image else { return }
                 if scrubFromFit == nil {
                     scrubFromFit = ZoomLadder.isFit(state.zoomLevel)
@@ -1497,6 +1614,8 @@ struct LoupeView: View {
     private func magnifyGesture(container: CGSize) -> some Gesture {
         MagnifyGesture()
             .onChanged { value in
+                // Same guard as the scrub above: the armed canvas is fit-only.
+                guard !cropArmed else { return }
                 guard let cg = model.image else { return }
                 let start = pinchStartZoom ?? state.zoomLevel
                 if pinchStartZoom == nil { pinchStartZoom = start }
@@ -1513,7 +1632,10 @@ struct LoupeView: View {
     /// thing you are looking at, which is the keymap's scope rule (docs/12 §B3).
     private func handleMove(_ direction: MoveCommandDirection) {
         let step: CGFloat = 80
-        if state.zoomLevel > 0 {
+        // While the crop tool is armed the canvas ignores zoom and pan, so the arrows
+        // page the roll whatever `zoomLevel` happens to hold — panning a pan nothing
+        // draws would make the keys read as dead.
+        if state.zoomLevel > 0 && !cropArmed {
             switch direction {
             case .left: viewport.panBy(CGSize(width: step, height: 0))
             case .right: viewport.panBy(CGSize(width: -step, height: 0))
@@ -1562,7 +1684,12 @@ struct LoupeView: View {
     /// an overlay on (or the cursor arriving with the readout enabled) builds it then,
     /// at the cost of the readout appearing one build later instead of instantly.
     private var samplerNeeded: Bool {
-        (viewport.showReadout && cursor != nil)
+        // Not while the crop tool is armed: the armed canvas draws neither the readout
+        // nor the raster overlays (the plate is rotated in the view layer, which none
+        // of their geometry accounts for), so a sampler built from it would only feed
+        // misplaced answers.
+        guard !cropArmed else { return false }
+        return (viewport.showReadout && cursor != nil)
             || state.clippingOverlay != nil
             || state.soloMaskOverlay != nil
     }
@@ -1586,6 +1713,10 @@ struct LoupeView: View {
     }
 
     private func readout(at point: CGPoint, container: CGSize) -> ReadoutSample? {
+        // The armed canvas lays the picture out its own way (`cropCanvas`), which this
+        // arithmetic does not describe — and `samplerNeeded` has already declined to
+        // build a sampler for it.
+        guard !cropArmed else { return nil }
         guard viewport.showReadout, let cg = model.image, let sampler else { return nil }
         let ratio = effectiveRatio(image: cg, container: container)
         let drawn = LoupeGeometry.drawnSize(imageWidth: cg.width, imageHeight: cg.height,
