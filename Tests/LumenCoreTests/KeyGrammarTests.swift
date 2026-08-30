@@ -419,4 +419,69 @@ extension KeyGrammarTests {
                                      + "one. The compiler will only tell you that some "
                                      + "expression does not conform to Commands.")
     }
+
+    /// THE SAME LIMIT, ONE LEVEL IN — docs/31 smaller-items #28. The test above scans
+    /// the outer `Commands` group at one known indentation, and the View menu's first
+    /// inner `Group` sat at EXACTLY ten children with nothing watching it: the next
+    /// honest button added there would have broken three CI lanes with the same
+    /// unreadable error, one storey below the tripwire built for it.
+    ///
+    /// So this one walks every builder block in the file — `Group {`,
+    /// `CommandMenu(…) {`, `CommandGroup(…) {` — and counts DIRECT children by
+    /// indentation: a line one level (4 spaces) inside the block whose first character
+    /// is not a modifier's `.`, a closing `}`/`)`, a comment or a compiler directive.
+    /// Continuation lines of a multi-line call sit deeper and are never counted; a
+    /// modifier at child indent (`.keyboardShortcut` after a multi-line Button) starts
+    /// with `.` and is skipped. Still not a parser — a text rule that matches how this
+    /// file is actually indented, with a floor assertion so silent non-scanning fails.
+    func testEveryMenuBuilderBlockStaysUnderTenChildren() throws {
+        let file = Self.repositoryRoot
+            .appendingPathComponent("Sources/LumenApp/LumenApp.swift")
+        let text = try String(contentsOf: file, encoding: .utf8)
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+            .map(String.init)
+
+        func indent(of line: String) -> Int {
+            line.prefix(while: { $0 == " " }).count
+        }
+        let opener = try NSRegularExpression(
+            pattern: #"^\s*(Group|CommandMenu\(.*\)|CommandGroup\(.*\))\s*\{\s*$"#)
+
+        var blocks: [(line: Int, children: Int)] = []
+        for (i, line) in lines.enumerated() {
+            let range = NSRange(line.startIndex..., in: line)
+            guard opener.firstMatch(in: line, range: range) != nil else { continue }
+            let base = indent(of: line)
+            var children = 0
+            for follower in lines[(i + 1)...] {
+                let trimmed = follower.trimmingCharacters(in: .whitespaces)
+                if trimmed.isEmpty { continue }
+                let level = indent(of: follower)
+                if level <= base {
+                    break                       // the block closed (its `}` or beyond)
+                }
+                guard level == base + 4 else { continue }
+                guard let first = trimmed.first else { continue }
+                if first == "." || first == "}" || first == ")" || first == "#" { continue }
+                if trimmed.hasPrefix("//") { continue }
+                children += 1
+            }
+            blocks.append((i + 1, children))
+        }
+
+        XCTAssertGreaterThanOrEqual(blocks.count, 5,
+                                    "the scanner found almost no builder blocks, so it "
+                                        + "is not scanning")
+        XCTAssertGreaterThanOrEqual(blocks.map(\.children).max() ?? 0, 8,
+                                    "no block has even eight children, so the child "
+                                        + "counter is under-counting")
+        for block in blocks {
+            XCTAssertLessThanOrEqual(block.children, 10,
+                                     "the builder block at LumenApp.swift:\(block.line) "
+                                         + "has \(block.children) children; the limit "
+                                         + "is ten and the compiler will only say "
+                                         + "'buildExpression' is unavailable. Split it "
+                                         + "into a nested Group.")
+        }
+    }
 }
