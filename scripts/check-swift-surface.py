@@ -142,7 +142,7 @@ def strip_all_keep_quotes(text):
 
 
 def strip_all(text):
-    """Comments AND string bodies out, so prose cannot invent symbols.
+    r"""Comments AND string bodies out, so prose cannot invent symbols.
 
     Known limit: a string literal NESTED inside an interpolation, as in
     `"\(flag ? "yes" : "no")"`, defeats the quote tracking — the scanner closes the
@@ -205,7 +205,8 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     "FileManager", "FileHandle", "ProcessInfo", "FileWrapper", "Bundle", "JSONEncoder", "JSONDecoder",
     "JSONSerialization", "PropertyListEncoder", "PropertyListDecoder",
     "PropertyListSerialization", "NSError", "NSString", "NSNumber", "NSObject",
-    "NSLock", "NSRecursiveLock", "NSRegularExpression", "NSLog", "NSAttributedString",
+    "NSLock", "NSRecursiveLock", "NSRegularExpression", "NSRange",
+    "NSLog", "NSAttributedString",
     "NSItemProvider", "NSSize", "NSPoint", "Notification", "NotificationCenter", "Locale",
     "Calendar", "TimeZone", "ISO8601DateFormatter", "NumberFormatter",
     "ByteCountFormatter", "CharacterSet", "IndexSet", "Scanner", "Timer", "Process",
