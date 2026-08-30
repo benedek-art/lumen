@@ -191,9 +191,39 @@ final class LoupeViewport: ObservableObject {
 
     func resetPan() { pan = .zero }
 
-    /// Called when the photo changes: a new frame starts centred.
-    func resetForNewPhoto() {
-        pan = .zero
+    /// Called when the photo changes: a new frame starts at fit, centred.
+    ///
+    /// THE ZOOM GOES TOO, and it did not before. Pan was reset and `zoomLevel` was
+    /// left, which is not a policy — it is half of each of the two coherent ones. Keep
+    /// both and you have Lightroom's behaviour, where staying at 1:1 across a burst is
+    /// how you check focus; keep neither and every photograph opens whole. Keeping the
+    /// magnification while throwing away the place it was pointed at is the one
+    /// combination that serves nobody: you arrive at 1142% on a new photograph, looking
+    /// at its centre, which is not where you were looking and not the picture either.
+    ///
+    /// It was also expensive, which is what brought it to attention. The owner: "if I
+    /// press a picture, I get put into the preview page of the image for around a
+    /// minute." Entering the loupe already zoomed means `zoomedFullBasis` has no native
+    /// size yet — `primaryFrameSize` is cleared by the selection and the model's own
+    /// answer arrives with the first result — so it falls back to the fit cap and asks
+    /// for a WHOLE-FRAME 4096 draft and settle on a 33 MP file. There is no region ask
+    /// to save it either, because a region needs a frame on screen to be a region OF.
+    /// Then the native size lands, the render key moves, and both of those renders are
+    /// thrown away and paid again at 7008. Two discarded whole-frame passes and a
+    /// full-sensor demosaic, per grid click, for a magnification the photographer did
+    /// not choose for this photograph.
+    ///
+    /// Restoring the Lightroom behaviour deliberately is a fine thing to want later.
+    /// It means keeping the pan as well, and seeding the zoomed basis synchronously so
+    /// the first pass asks the right question — the catalog already stores EXIF
+    /// dimensions, with the caveat that they need not equal `CIRAWFilter.nativeSize`.
+    /// That is a change worth measuring on a Mac; this one is worth making now.
+    @MainActor
+    func resetForNewPhoto(in state: AppState) {
+        // Through the verb, not by assignment: `setZoom` is where fit clears the pan
+        // and where every other zoom source in the app already goes. `ZoomLadder`'s own
+        // header is the story of what two ladders cost this project.
+        setZoom(LoupeZoom.fit, at: nil, in: state)
         lastCursor = nil
     }
 }
@@ -1151,7 +1181,7 @@ struct LoupeView: View {
         .focusEffectDisabled()
         .onMoveCommand { direction in handleMove(direction) }
         .onChange(of: photo.id) { _, _ in
-            viewport.resetForNewPhoto()
+            viewport.resetForNewPhoto(in: state)
             sampler = nil
             warmNeighbours()
         }
