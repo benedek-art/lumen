@@ -550,6 +550,9 @@ final class AppState: ObservableObject {
             // the second unlatch beside the watchdog).
             sliderGesture(active: false)
             primaryFrameSize = nil
+            // Which way up is a fact about THIS photograph: the next one starts without
+            // an answer rather than inheriting the previous one's.
+            primaryFrameTransposed = false
             primaryAsShotNeutral = nil
             refreshPrimaryFrameSize()
             refreshPrimaryAsShotNeutral()
@@ -578,8 +581,47 @@ final class AppState: ObservableObject {
     /// shape.
     @Published private(set) var primaryFrameSize: CGSize?
 
+    /// Whether `primaryFrameSize` is the delivered frame seen SIDEWAYS.
+    ///
+    /// A camera sensor is landscape. A portrait exposure is a landscape readout plus an
+    /// EXIF orientation; the decode applies that orientation and the reported native
+    /// size does not — so on a vertical photograph the number above is horizontal while
+    /// the picture is not. The owner met it as the crop tool "stretching my entire image
+    /// out into a horizontal landscape photo, not a vertical photo like it is". The
+    /// comment just above had already recorded another face of the same defect — "on a
+    /// portrait-orientation frame every ratio came out roughly half of what the menu
+    /// said" — and put it down to the assumed 3:2 instead.
+    ///
+    /// Learned by the loupe from the first WHOLE-FRAME delivery for the photograph
+    /// (`FrameOrientation` in LumenCore, with tests) rather than decided here, because
+    /// only a delivery can settle it and only an uncropped one is admissible: a crop can
+    /// turn a landscape frame portrait honestly. False until something knows better,
+    /// which makes every landscape photograph — and every photograph at all, the day the
+    /// source reports an oriented size — take exactly the path it took before.
+    @Published private(set) var primaryFrameTransposed: Bool = false
+
+    /// What the reported size MEANS, once reconciled: the frame the overlays, the crop
+    /// arithmetic and the mask conversions all place themselves against.
+    ///
+    /// Every consumer reads this rather than `primaryFrameSize`, and that is the whole
+    /// point. Two call sites disagreeing about which of the two they hold is precisely
+    /// the class of defect `RenderRequest.swift`'s header was written about — "a correct
+    /// rule that lives in one view is a defect with a delay".
+    var sourceFrameSize: CGSize? {
+        guard let size = primaryFrameSize else { return nil }
+        return FrameOrientation.sourceSize(reported: size,
+                                           transposed: primaryFrameTransposed)
+    }
+
+    /// Told by the loupe when a whole-frame delivery has answered the question.
+    /// Idempotent: writing the same answer publishes nothing.
+    func noteFrameTransposed(_ transposed: Bool) {
+        guard primaryFrameTransposed != transposed else { return }
+        primaryFrameTransposed = transposed
+    }
+
     var primaryFrameAspect: Double? {
-        guard let size = primaryFrameSize, size.height > 0 else { return nil }
+        guard let size = sourceFrameSize, size.height > 0 else { return nil }
         return Double(size.width / size.height)
     }
 

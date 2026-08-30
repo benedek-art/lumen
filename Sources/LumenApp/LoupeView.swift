@@ -954,6 +954,37 @@ struct LoupeView: View {
 
     private var recipe: Recipe { state.recipe(for: photo) }
 
+    /// The SOURCE frame every overlay places itself against — the crop rectangle, the
+    /// mask handles, the eyedropper. Reconciled in `AppState`, so the crop PANEL's
+    /// arithmetic and this canvas's cannot hold different answers.
+    private var sourceFrameSize: CGSize? { state.sourceFrameSize }
+
+    /// Learn the reconciliation from a delivery the renderer made of the WHOLE frame.
+    ///
+    /// Only a whole-frame delivery can answer it: a crop legitimately turns a landscape
+    /// frame portrait, and transposing on that would be the same defect wearing the
+    /// other hat. The crop tool renders uncropped by construction, so opening it always
+    /// supplies one — which is the surface the owner reported the stretch on.
+    @MainActor
+    private func learnSourceOrientation(fullPixel: CGSize?, uncropped: Bool) {
+        guard uncropped,
+              let delivered = fullPixel ?? model.image.map({
+                  CGSize(width: $0.width, height: $0.height) }),
+              let reported = state.primaryFrameSize else { return }
+        state.noteFrameTransposed(
+            FrameOrientation.isTransposed(reported: reported, delivered: delivered))
+    }
+
+    /// True when the frame the renderer is delivering is the whole photograph, so its
+    /// extent may be compared with the reported size. `cropArmed` strips the crop AND
+    /// the angle (`renderRecipe`); otherwise an identity crop with no straighten is the
+    /// same guarantee.
+    private var deliveringWholeFrame: Bool {
+        if cropArmed { return true }
+        let geometry = recipe.develop.geometry
+        return geometry.crop == Crop() && geometry.angle == 0
+    }
+
     /// True while the crop tool is live on this surface: armed AND in its workspace —
     /// the same two-part gate the overlay, the render request and the panel share.
     private var cropArmed: Bool {
@@ -1081,6 +1112,19 @@ struct LoupeView: View {
             }
             .task(id: SamplerKey(revision: model.revision, needed: samplerNeeded)) {
                 await rebuildSampler()
+            }
+            // Every delivered frame is a chance to learn which way up this photograph
+            // is; the first WHOLE-FRAME one answers it and the rest are a nil check.
+            .onChange(of: model.revision) { _, _ in
+                learnSourceOrientation(fullPixel: model.regionFullPixel,
+                                       uncropped: deliveringWholeFrame)
+            }
+            // …and the reported size arrives asynchronously — `refreshPrimaryFrameSize`
+            // opens the file off the selection path — so it can land after the frame it
+            // has to be compared against.
+            .onChange(of: state.primaryFrameSize) { _, _ in
+                learnSourceOrientation(fullPixel: model.regionFullPixel,
+                                       uncropped: deliveringWholeFrame)
             }
         }
         .background(Lumen.viewerBackground)
@@ -1332,7 +1376,7 @@ struct LoupeView: View {
             if state.soloMaskOverlay != nil, let alpha = state.maskOverlayAlpha {
                 MaskOverlayView(alpha: alpha, sampler: sampler,
                                 geometry: recipe.develop.geometry,
-                                sourceSize: state.primaryFrameSize
+                                sourceSize: sourceFrameSize
                                     ?? CGSize(width: cg.width, height: cg.height),
                                 mode: state.maskOverlayMode, tint: state.maskOverlayTint,
                                 strength: LoupeViewport.maskOverlayOpacity)
@@ -1362,7 +1406,7 @@ struct LoupeView: View {
                 // The geometry goes in alongside it so the canvas can invert exactly
                 // what the renderer applied.
                 MaskCanvas(imageRect: CGRect(origin: .zero, size: drawn),
-                           sourceSize: state.primaryFrameSize
+                           sourceSize: sourceFrameSize
                                ?? CGSize(width: cg.width, height: cg.height),
                            geometry: recipe.develop.geometry,
                            maskID: target.maskID,
@@ -1380,7 +1424,7 @@ struct LoupeView: View {
             // canvas needs it — `cg` has already been cropped and straightened.
             if state.pickTarget != nil {
                 NeutralPickerOverlay(
-                    sourceSize: state.primaryFrameSize
+                    sourceSize: sourceFrameSize
                         ?? CGSize(width: cg.width, height: cg.height),
                     geometry: recipe.develop.geometry
                 ) { sourceX, sourceY in
@@ -1426,7 +1470,7 @@ struct LoupeView: View {
     /// moment the tool is put away, at whatever level they held.
     @ViewBuilder
     private func cropCanvas(cg: CGImage, container: CGSize) -> some View {
-        let source: CGSize = state.primaryFrameSize
+        let source: CGSize = sourceFrameSize
             ?? CGSize(width: cg.width, height: cg.height)
         let geometry: Geometry = recipe.develop.geometry
         let usable = CropGeometry.usableSize(width: Double(source.width),
@@ -1501,7 +1545,7 @@ struct LoupeView: View {
     /// three hands turn the same mechanism; the shared coalescing key keeps any of
     /// them one undo step.
     private func applyRotation(_ angle: Double) {
-        let source: CGSize = state.primaryFrameSize
+        let source: CGSize = sourceFrameSize
             ?? model.image.map { CGSize(width: $0.width, height: $0.height) }
             ?? .zero
         state.updateRecipe(coalescingKey: "straighten") { recipe in
@@ -2092,7 +2136,7 @@ struct LoupeView: View {
     /// instead is the same class of error that once made "1:1" produce an 8:9 rectangle
     /// on a 4:3 body; it just needs a straighten angle rather than an unusual sensor.
     private var cropFrameAspect: Double {
-        guard let size = state.primaryFrameSize, size.width > 0, size.height > 0 else {
+        guard let size = sourceFrameSize, size.width > 0, size.height > 0 else {
             return 1
         }
         let usable = CropGeometry.usableSize(width: Double(size.width),

@@ -281,7 +281,7 @@ private let cropAspects: [CropAspect] = [
 /// The frame aspect the ratio menu falls back to before the real one is known.
 ///
 /// The crop is stored as a fraction of the usable frame, so turning "3:2" into a
-/// rectangle needs that frame's own size. `AppState.primaryFrameSize` supplies it from
+/// rectangle needs that frame's own size. `AppState.sourceFrameSize` supplies it from
 /// the decoded dimensions; this covers the moment before that lands, and the case where
 /// there is no selection at all. It is right for most of the corpus and wrong in a
 /// visible way — not the silent way it was wrong when it was the ONLY path.
@@ -525,7 +525,7 @@ struct CropSection: View {
         // ratio arithmetic has something to measure against before the decode lands, and
         // a pixel count derived from that would read "2 × 1 px" — a number that is not
         // an assumption but a lie.
-        if let frame = state.primaryFrameSize, frame.width > 0, frame.height > 0 {
+        if let frame = state.sourceFrameSize, frame.width > 0, frame.height > 0 {
             let resolved = CropGeometry.resolve(sourceWidth: Double(frame.width),
                                                 sourceHeight: Double(frame.height),
                                                 geometry: recipe.develop.geometry)
@@ -642,7 +642,7 @@ struct CropSection: View {
     /// not enough once a straighten angle is involved, because the inscribed rectangle
     /// depends on both edges.
     private var frameSizeForCrop: (width: Double, height: Double)? {
-        if let size = state.primaryFrameSize, size.width > 0, size.height > 0 {
+        if let size = state.sourceFrameSize, size.width > 0, size.height > 0 {
             return (Double(size.width), Double(size.height))
         }
         return (assumedFrameAspect, 1)
