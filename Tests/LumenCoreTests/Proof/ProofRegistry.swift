@@ -1287,10 +1287,22 @@ enum ProofRegistry {
 
     /// The Effects panel's vignette: EV at the corner, applied on scene-linear data
     /// before the display transform (the panel's own caption), ellipse from the crop.
+    ///
+    /// The travel is READ from the engine rather than restated, and it has moved —
+    /// −3…+1 to −4…+2, with the measurement on `DetailEngine.vignetteAmountRange`. A
+    /// registry holding its own copy of a range is the failure this harness's own
+    /// assertion message warns about in as many words ("a large dead count is far more
+    /// often a probe driven past a control's own bounds"); the mirror of it is a probe
+    /// driven only part way along the bounds, which reports an authority the control
+    /// exceeds and a front-loading measured over the wrong interval. The committed
+    /// record moves with the range, which is the whole point of committing records: a
+    /// deliberate widening shows up as a changed travel and a risen authority, where an
+    /// accidental one would show up as neither.
     static let effects: [ControlSpec] = [
         ControlSpec(
             id: "look.vignette", panel: "Effects", displayName: "Vignette",
-            low: -3.0, high: 1.0,
+            low: DetailEngine.vignetteAmountRange.lowerBound,
+            high: DetailEngine.vignetteAmountRange.upperBound,
             frameName: "neutralRamp", frame: { ProofFrames.neutralRamp() },
             authorityFloor: 84,
             apply: { r, v in r.look.vignette = v }),

@@ -11,7 +11,12 @@ public struct Look: Codable, Equatable, Sendable {
     public var filmLab: FilmLab?
     public var primaries: Primaries
     public var bw: BlackAndWhite?
-    public var vignette: Double         // EV, −3.00…+1.00 (docs/06); 0 = off
+    /// EV at the frame's corner; 0 = off. −4.00…+2.00, widened from docs/06 §12's
+    /// −3.00…+1.00 by the measurement on `DetailEngine.vignetteAmountRange` — the old
+    /// bounds cut the control off while it was still delivering 73% (negative) and 81%
+    /// (positive) of its rate at zero. Every stored recipe is inside the old range, so
+    /// the widening moves no existing pixel.
+    public var vignette: Double
     /// Vignette feather, 0…100. How gradually the burn arrives: 0 is a tight ring at
     /// the frame's outer quarter, 100 a falloff spanning the whole frame from the
     /// centre. The DEFAULT is the geometry the engine always had — the docs/06 §12
@@ -20,6 +25,28 @@ public struct Look: Codable, Equatable, Sendable {
     /// (`DetailEngine.vignetteInnerRadius(feather:)` holds the mapping, and
     /// `VignetteFeatherTests` pins the identity).
     public var vignetteFeather: Double
+    /// Creative grain — the grain stage for a photograph carrying no film stock. It is
+    /// in `look` and not in `develop` because it is an expression of intent about a set
+    /// of frames rather than a fact about this one, which is the D4 test and the reason
+    /// `LookSubset` carries it with no change: a saved look that dropped its grain would
+    /// apply a different picture than it saved. See `CreativeGrain` for the whole
+    /// mapping and for why it is not a second grain implementation.
+    ///
+    /// It does NOT replace `filmLab.grain`. A loaded stock's grain is the stock's, and
+    /// while the film chain is live that is what renders; this is what renders when
+    /// there is no chain — which includes the case a photographer actually hits, Film
+    /// Lab Strength pulled to 0 for the texture without the palette, where the answer
+    /// used to be no grain at all and a caption apologizing for it.
+    ///
+    /// OPTIONAL, like `filmLab`, `bw` and `lut` beside it, and nil means "this
+    /// photograph has never had creative grain on it". A photograph that has never seen
+    /// the control should not carry three numbers, and a non-optional field would put a
+    /// `grain` block into the canonical form of the DEFAULT recipe — which is a wire
+    /// format change for every photograph in every catalog rather than for the ones a
+    /// photographer grained. `CreativeGrain.normalized` is what keeps nil the only
+    /// spelling of "off", so two recipes that render the same picture still hash the
+    /// same.
+    public var grain: CreativeGrain?
     public var render: RenderParams
     /// A creative LUT. **Stored and never applied** — see `LUTReference`.
     public var lut: LUTReference?
@@ -36,6 +63,7 @@ public struct Look: Codable, Equatable, Sendable {
                 bw: BlackAndWhite? = nil,
                 vignette: Double = 0,
                 vignetteFeather: Double = Look.vignetteFeatherDefault,
+                grain: CreativeGrain? = nil,
                 render: RenderParams = RenderParams(),
                 lut: LUTReference? = nil) {
         self.wheels = wheels
@@ -45,6 +73,7 @@ public struct Look: Codable, Equatable, Sendable {
         self.bw = bw
         self.vignette = vignette
         self.vignetteFeather = vignetteFeather
+        self.grain = grain
         self.render = render
         self.lut = lut
     }
@@ -59,7 +88,7 @@ public struct Look: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case wheels, printerLights, filmLab, primaries, bw, vignette, vignetteFeather,
-             render, lut
+             grain, render, lut
     }
 
     /// Tolerant of a recipe written before any of these keys existed: each falls
@@ -79,6 +108,11 @@ public struct Look: Codable, Equatable, Sendable {
         self.vignette = try c.decodeIfPresent(Double.self, forKey: .vignette) ?? 0
         self.vignetteFeather = try c.decodeIfPresent(Double.self, forKey: .vignetteFeather)
             ?? Look.vignetteFeatherDefault
+        // Absent means no creative grain, so every sidecar written before this key
+        // existed renders byte-identically. `CreativeGrain`'s own decoder is what makes
+        // a PARTIAL block (a hand-edited `{"amount":40}`) land on the middle of the
+        // other two axes rather than on zero.
+        self.grain = try c.decodeIfPresent(CreativeGrain.self, forKey: .grain)
         self.render = try c.decodeIfPresent(RenderParams.self, forKey: .render)
             ?? RenderParams()
         self.lut = try c.decodeIfPresent(LUTReference.self, forKey: .lut)

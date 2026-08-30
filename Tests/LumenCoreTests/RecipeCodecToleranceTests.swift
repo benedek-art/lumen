@@ -481,6 +481,10 @@ final class RecipeCodecToleranceTests: XCTestCase {
             bw: BlackAndWhite(bands: [1, 2, 3, 4, 5, 6, 7, 8], enabled: false),
             vignette: -0.75,
             vignetteFeather: 80,
+            // Every field off its default, including the two that have a non-zero one:
+            // a sample agreeing with a default cannot tell a decoder that read the key
+            // from one that did not, which is this fixture's whole premise.
+            grain: CreativeGrain(amount: 42, size: 66, roughness: 24),
             render: RenderParams(preset: "Punchy", contrast: 1.4, skew: 0.2,
                                  huePreservation: 60, blackTarget: 2, whiteTarget: 105),
             lut: LUTReference(ref: "blob:xxh64:000000000000000a", name: "Kodachrome",

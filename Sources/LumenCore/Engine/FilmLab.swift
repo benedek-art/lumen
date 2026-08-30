@@ -634,6 +634,102 @@ public struct FilmGrainProfile: Sendable {
     /// channels must share a single noise field — three independent ones would put
     /// coloured speckle on a black-and-white photograph.
     public let monochrome: Bool
+    /// The plate's octave persistence — the amplitude ratio between successive octaves
+    /// of the value noise the plate sums. 0.5 for every film stock, which is the number
+    /// `plate(size:seed:sigma:persistence:)` defaults to, so a stock's plate is
+    /// bit-for-bit what it always was. The creative grain's Roughness moves it.
+    public let persistence: Double
+
+    /// The gate a CREATIVE grain's pitch is denominated on: 35 mm, long edge 36 mm.
+    ///
+    /// `plateScale` reaches pixels through pixels-per-gate-millimetre, so a pitch in
+    /// micrometres is meaningless without a negative to sit on. There is no negative
+    /// here, so one is named: 35 mm is the format the word "grain" means to most
+    /// photographers, it is the gate of four of the six shipped stocks, and it makes the
+    /// Size slider's numbers directly comparable with theirs. Anchoring at the gate
+    /// rather than in pixels is what keeps a creative grain the same fraction of the
+    /// picture on a 2560 px preview and a 6000 px export — the property
+    /// `testGrainFollowsTheGateAndTheRenderSizeNotThePrintSize` pins for the film path
+    /// and which a pixel-denominated grain would have thrown away.
+    public static let creativeGateLongEdgeMM: Double = 36.0
+
+    /// The finest and coarsest pitch the Size slider reaches, µm at the gate.
+    ///
+    /// 7 µm at the bottom is about the finest grain in the shipped stocks — Velvia 50 is
+    /// 6, Ektar 100 is 7 — so Size 0 is "as fine as a real emulsion gets" rather than an
+    /// arbitrary small number. It also lands, not by accident but worth knowing, exactly
+    /// on `plateScale`'s half-pixel floor at `RenderGraph.workingLongEdge`: 0.5 × 36000 ÷
+    /// 2560 = 7.03 µm. Below that there is nothing for a preview to draw, and a slider
+    /// whose bottom third rendered one identical picture would be the dead travel docs/19
+    /// found three times.
+    ///
+    /// 56 µm at the top is coarser than any emulsion, deliberately. This is a creative
+    /// control and Lightroom's Size 100 is chunky; a range that stopped at a real film's
+    /// coarsest grain would be a physics lesson rather than a tool.
+    public static let creativePitchMinMicrons: Double = 7.0
+    public static let creativePitchMaxMicrons: Double = 56.0
+
+    /// Size 0…100 → pitch in µm, geometric: `7 · 2^(3·size/100)`. The pitch doubles
+    /// every 33 points, which is what makes the slider feel even — a pitch axis is a
+    /// ratio axis, and a linear one would spend most of its travel between 7 and 10 µm
+    /// where nothing separates and cross the whole visible range in its last quarter.
+    /// The same argument `SliderScale.reciprocal` makes for Temp, one control over.
+    public static func creativePitchMicrons(size: Double) -> Double {
+        let s = Num.clamp(size, 0, 100) / 100
+        return creativePitchMinMicrons
+            * pow(creativePitchMaxMicrons / creativePitchMinMicrons, s)
+    }
+
+    /// Roughness 0…100 → the plate's octave persistence, `0.25 + 0.005·roughness`.
+    ///
+    /// 50 is 0.5, which is EXACTLY the persistence `plate(size:seed:sigma:)` has always
+    /// used and therefore exactly the plate every film stock has always been given. That
+    /// is not a coincidence to be tidied up later: it is what lets Roughness exist
+    /// without changing one pixel of any film-grained photograph, and it is what makes
+    /// the neutral of a new control a real neutral rather than a number somebody liked.
+    public static func creativePersistence(roughness: Double) -> Double {
+        0.25 + 0.005 * Num.clamp(roughness, 0, 100)
+    }
+
+    /// A creative grain's profile — the SAME struct the film path builds, filled from
+    /// the three sliders instead of from an emulsion.
+    ///
+    /// Everything the stage reads is here: a normalized amount in the film path's own
+    /// denomination, a pitch, a per-channel crystal size, a Dmax and a monochrome flag.
+    /// The two that need an argument rather than a number:
+    ///
+    ///   · `sizeScale` is the colour stock's (0.8, 1.0, 2.0). Three physically separate
+    ///     dye layers with their own crystals is most of what makes grain read as film
+    ///     rather than as a noise overlay (`plateSeed(channel:)` says why at length), and
+    ///     a creative grain that threw that away would be exactly the "luminance overlay
+    ///     wearing film's amplitude envelope" this file already convicted itself of once.
+    ///   · `monochrome` is the CALLER's, and the caller passes the recipe's
+    ///     black-and-white treatment. Three decorrelated layers on a black-and-white
+    ///     photograph is coloured speckle on a picture that has no colour — the same
+    ///     defect Tri-X's `monochrome` flag exists to prevent, arriving through a
+    ///     different door. There is no control for it because there is no question:
+    ///     `look.bw.enabled` already says whether this photograph has dye layers to be
+    ///     grainy independently.
+    ///
+    /// `dMax` is flat 4.0 across the three channels — `FilmChain.grainDMax`'s own
+    /// stockless fallback, which is where the number comes from rather than from taste.
+    /// It is the denominator of `p = D/Dmax` in the amplitude envelope, so it sets where
+    /// the grain peaks: D = 2.0, one part in a hundred of display white, with the
+    /// envelope vanishing at Dmin and at Dmax exactly as it does on film.
+    public init(creative: CreativeGrain, monochrome: Bool) {
+        self.amount = Num.clamp(creative.amount, 0, 100) / 100.0
+        self.sizeScale = monochrome ? RGB(1, 1, 1) : RGB(0.8, 1.0, 2.0)
+        self.pitchMicrons = Swift.max(
+            FilmGrainProfile.creativePitchMicrons(size: creative.size), 0.1)
+        self.dMax = RGB(gray: FilmGrainProfile.creativeDMax)
+        self.gateLongEdgeMM = FilmGrainProfile.creativeGateLongEdgeMM
+        self.monochrome = monochrome
+        self.persistence = FilmGrainProfile.creativePersistence(
+            roughness: creative.roughness)
+    }
+
+    /// The stockless Dmax, kept where `FilmChain.grainDMax` can be read beside it.
+    public static let creativeDMax: Double = 4.0
 
     public init(stock: FilmStock, size: Double, amount: Double, pushPull: Double) {
         let push: Double = Num.clamp(pushPull, -1, 2)
@@ -647,6 +743,10 @@ public struct FilmGrainProfile: Sendable {
         self.dMax = stock.negative.dMax
         self.gateLongEdgeMM = Swift.max(stock.gateLongEdgeMM, 1e-3)
         self.monochrome = stock.monochrome
+        // The plate a stock has always been given. Written as the named default rather
+        // than as 0.5 so that if the plate's own default ever moves, the emulsions move
+        // with it instead of silently keeping a number that used to be the default.
+        self.persistence = FilmGrainProfile.defaultPersistence
     }
 
     /// The seed for one emulsion layer's plate.
@@ -760,27 +860,49 @@ public struct FilmGrainProfile: Sendable {
     /// major, standard deviation `sigma`, mean 0.
     ///
     /// Value noise (a hashed integer lattice with C¹ Hermite interpolation) summed over
-    /// four octaves at persistence 0.5, then rescaled to exact zero mean and the
+    /// four octaves at the given persistence, then rescaled to exact zero mean and the
     /// requested standard deviation. Every lattice index is taken modulo its octave's
     /// frequency, so the plate wraps seamlessly and can be tiled across an image of any
-    /// size. The generator is a pure function of `(size, seed, sigma)` — no
+    /// size. The generator is a pure function of `(size, seed, sigma, persistence)` — no
     /// `arc4random`, no `Double.random`, no global state — so a render is reproducible
     /// bit-for-bit on any machine, which is what makes grain part of the recipe rather
     /// than part of the weather.
-    public static func plate(size: Int, seed: UInt64, sigma: Double) -> [Float] {
+    ///
+    /// `persistence` is the amplitude ratio between successive octaves, and it is the
+    /// creative grain's Roughness. It DEFAULTS to the 0.5 that was hard-coded here for
+    /// the plate's whole life, so every existing caller — the reference renderer's film
+    /// path, the GPU plate builder, every golden that compares them — produces the same
+    /// bytes it always did. That is the point of adding a parameter rather than a second
+    /// generator: one plate, one set of goldens, and a new control that cannot drift from
+    /// the old one because there is nothing for it to drift from.
+    ///
+    /// The renormalization at the end is what makes Roughness a character control rather
+    /// than a second strength: the summed octaves are rescaled to the requested standard
+    /// deviation whatever the persistence was, so moving Roughness redistributes the
+    /// energy across scales and leaves the amplitude alone.
+    public static let defaultPersistence: Double = 0.5
+
+    public static func plate(size: Int, seed: UInt64, sigma: Double,
+                             persistence: Double = FilmGrainProfile.defaultPersistence)
+        -> [Float] {
         let n: Int = Swift.max(size, 2)
         let count: Int = n * n
         guard sigma.isFinite, sigma > 0 else { return [Float](repeating: 0, count: count) }
         var acc: [Double] = [Double](repeating: 0, count: count)
 
         let octaves: Int = 4
+        // Clamped, not trusted: this is a recipe-derived number, and a persistence of 0
+        // would leave one octave standing while a negative one would alternate the sign
+        // of every other octave — neither is a grain, and a hand-edited sidecar can say
+        // either. The bounds are the Roughness slider's own ends.
+        let p: Double = Num.clamp(persistence.isFinite ? persistence : 0.5, 0.05, 0.95)
         let baseFrequency: Int = Swift.max(1, n / 16)
         var octave: Int = 0
         while octave < octaves {
             var freq: Int = baseFrequency << octave
             if freq > n { freq = n }
             if freq < 1 { freq = 1 }
-            let amp: Double = pow(0.5, Double(octave))
+            let amp: Double = pow(p, Double(octave))
             let step: Double = Double(freq) / Double(n)
 
             var y: Int = 0
@@ -871,6 +993,153 @@ public struct FilmGrainProfile: Sendable {
         z = z ^ (z >> 31)
         let unit: Double = Double(z >> 11) * (1.0 / 9007199254740992.0)
         return unit * 2.0 - 1.0
+    }
+}
+
+// MARK: - The grain stage, resolved
+
+/// Everything the grain stage needs, resolved once by the plan, so that neither renderer
+/// has to know where the grain came from.
+///
+/// THIS TYPE IS THE FIX FOR A SHAPE, not just a place to hang three numbers. Grain used
+/// to be gated on `plan.filmChain` in four places — `ReferenceRenderer.render`,
+/// `RenderGraph.build`, and both of `PipelineRenderer`'s plate call sites — so "is there
+/// grain on this photograph" was a question four files answered independently by asking
+/// about a film chain. Adding a second source of grain to that shape means adding a
+/// second condition to four places and hoping they stay in step, which is the exact
+/// arrangement `plateSeed`, `plateEncodeScale` and `defaultPlateSeed` each have a
+/// paragraph in this file about surviving. So the question is answered once, here, and
+/// both renderers read the answer.
+///
+/// The precedence is deliberate and it is stated in one line of `RenderPlan`: **a live
+/// film chain's grain wins.** A stock's grain is a property of the emulsion the
+/// photographer chose, it is already exposed in two panels, and every recipe in every
+/// catalog renders through it — so making the new field able to override it would change
+/// existing pictures, and making the two STACK would put two independent noise fields on
+/// one photograph at twice the cost. The creative grain is what renders when there is no
+/// chain, which is every photograph without a stock and also the one case that used to be
+/// a dead end: Film Lab Strength at 0, where the chain is not built, the stock's grain
+/// could not be laid down, and the Effects panel's only move was a caption apologizing.
+public struct GrainPlan: Sendable, Equatable {
+
+    /// The particle model — pitch, per-channel crystal size, Dmax, plate persistence.
+    public let profile: FilmGrainProfile
+    /// Amplitude in density units at the envelope's peak: `profile.amount ×
+    /// FilmGrainProfile.densityScale`. The scalar the kernel multiplies √(p(1−p)) by.
+    public let amount: Double
+    /// The denominator of `p = D / Dmax`.
+    public let dMax: Double
+    /// The print the plate's footprint is anchored to. Print size cancels out of
+    /// `plateScale` algebraically (see its comment), so this only ever matters as the
+    /// same number on both paths.
+    public let printLongEdgeInches: Double
+    /// True when this grain came from `look.grain` rather than from a stock. The GPU
+    /// graph reads it to decide whether it may build its own plate — see
+    /// `RenderGraph.build`, where getting that wrong would grain an export twice.
+    public let isCreative: Bool
+
+    public init(profile: FilmGrainProfile, amount: Double, dMax: Double,
+                printLongEdgeInches: Double, isCreative: Bool) {
+        self.profile = profile
+        self.amount = amount
+        self.dMax = Swift.max(dMax, 0.1)
+        self.printLongEdgeInches = printLongEdgeInches
+        self.isCreative = isCreative
+    }
+
+    /// The stage does nothing, so the plan can drop it before a plate is built.
+    public var isIdentity: Bool { !(amount > 0) }
+
+    /// One emulsion layer's plate, at this plan's own persistence and seed.
+    ///
+    /// Both renderers call THIS rather than `FilmGrainProfile.plate` directly, which is
+    /// what makes Roughness reach the GPU: the persistence lives on the profile, and a
+    /// caller that assembled the arguments itself would have had to remember it. The GPU
+    /// builder in `PipelineRenderer` predates this and still assembles its own; it
+    /// produces the same bytes for a film profile by construction (persistence 0.5,
+    /// `defaultPlateSeed`) and `GrainPlateTests` pins that it does.
+    public func plate(channel: Int, size: Int = GrainPlan.plateSize,
+                      seed: UInt64 = FilmGrainProfile.defaultPlateSeed) -> [Float] {
+        FilmGrainProfile.plate(size: size,
+                               seed: profile.plateSeed(channel: channel, base: seed),
+                               sigma: 1.0,
+                               persistence: profile.persistence)
+    }
+
+    /// The plate's cell size in pixels for one layer, at a render's long edge.
+    public func plateScale(longEdgePixels: Int, channel: Int) -> Double {
+        Swift.max(profile.plateScale(longEdgePixels: longEdgePixels,
+                                     printSizeInches: printLongEdgeInches,
+                                     channel: channel), 0.5)
+    }
+
+    /// 128, the plate edge both renderers have always used. Named because the GPU
+    /// builder and the reference renderer each had their own literal `128` and a plate
+    /// of a different size is a different grain.
+    public static let plateSize: Int = 128
+
+    /// The film path's plan: exactly the four values `ReferenceRenderer.applyGrain` and
+    /// `RenderGraph.applyGrain` used to read off `FilmChain`, so routing them through
+    /// this type is byte-identical by construction.
+    public static func film(_ chain: FilmChain) -> GrainPlan {
+        GrainPlan(profile: chain.grain, amount: chain.grainAmount,
+                  dMax: chain.grainDMax,
+                  printLongEdgeInches: chain.printLongEdgeInches, isCreative: false)
+    }
+
+    /// Whether the FILM CHAIN owns the grain stage on this recipe — the three conditions
+    /// `RenderPlan` builds a chain under, asked without building one.
+    ///
+    /// The Effects panel has to draw either the stock's two rows or the creative three,
+    /// and a panel that guessed differently from the renderer would be offering controls
+    /// that reach no pixel — the shape of the trap this whole change exists to close. So
+    /// the question is asked once, here, and the panel and the plan both read it.
+    ///
+    /// IT DELIBERATELY DOES NOT ASK WHETHER THE STOCK'S GRAIN AMOUNT IS ABOVE ZERO, and
+    /// that is a UI constraint reaching back into the model rather than an oversight. It
+    /// did ask, briefly, and the consequence was a slider that deletes itself: drag the
+    /// stock's grain Amount down to 0 and the two rows you are dragging vanish, replaced
+    /// by three different ones, mid-gesture. A control that disappears at the bottom of
+    /// its own travel is worse than one that does nothing there. So ownership is decided
+    /// by the CHAIN — an emulsion is loaded and rendering — and a stock whose grain is
+    /// at 0 simply lays down no grain, which is what its own slider says it will do.
+    ///
+    /// The photographer who wants creative grain over a film rendering has the move the
+    /// owner himself described: pull Film Lab's Strength to 0 and keep the texture
+    /// without the palette. That case used to render nothing at all.
+    ///
+    /// `testThePanelAndThePlanAgreeAboutWhichGrainRenders` walks the matrix.
+    public static func filmOwnsTheGrain(_ look: Look) -> Bool {
+        guard let film = look.filmLab, film.amount > 0,
+              FilmStock.named(film.stock) != nil else { return false }
+        return true
+    }
+
+    /// The creative plan. `monochrome` is the recipe's black-and-white treatment — see
+    /// `FilmGrainProfile.init(creative:monochrome:)` for why it is not a control.
+    ///
+    /// The print anchor is `FilmGrainProfile.defaultPrintLongEdgeInches`, the same 10″ a
+    /// film recipe with no print size chosen uses. It cancels out of `plateScale`, so
+    /// this is a statement about nothing observable; it is written as the named constant
+    /// anyway, because the day print size stops cancelling, two grains anchored to two
+    /// different invisible numbers would be a very bad afternoon.
+    public static func creative(_ grain: CreativeGrain, monochrome: Bool) -> GrainPlan {
+        let profile = FilmGrainProfile(creative: grain, monochrome: monochrome)
+        return GrainPlan(profile: profile,
+                         amount: profile.amount * FilmGrainProfile.densityScale,
+                         dMax: FilmGrainProfile.creativeDMax,
+                         printLongEdgeInches:
+                            FilmGrainProfile.defaultPrintLongEdgeInches,
+                         isCreative: true)
+    }
+}
+
+extension FilmGrainProfile: Equatable {
+    public static func == (a: FilmGrainProfile, b: FilmGrainProfile) -> Bool {
+        a.amount == b.amount && a.sizeScale == b.sizeScale
+            && a.pitchMicrons == b.pitchMicrons && a.dMax == b.dMax
+            && a.gateLongEdgeMM == b.gateLongEdgeMM && a.monochrome == b.monochrome
+            && a.persistence == b.persistence
     }
 }
 

@@ -12,11 +12,20 @@
 //     rather than the pipeline. Crop, straighten, perspective and lens distortion
 //     compose into a single resample.
 //
-// Optional-field policy: `Look.filmLab` nil means no stock is loaded, so the grain
-// rows are absent rather than dead — grain belongs to a stock, not to the frame. What
-// stands in their place is the one move that leads anywhere from here: a button into
-// Film Lab. A sentence explaining the emptiness leaves the photographer exactly where
-// it found them, and the one that was here named a panel that no longer exists.
+// GRAIN USED TO BE ABSENT HERE WITHOUT A FILM STOCK, and this file argued for it: the
+// note that stood in this paragraph said "grain belongs to a stock, not to the frame",
+// and the section's whole content on a stockless photograph was a button into Film Lab.
+// That was true of the WIRING — every grain reader on both render paths was gated on
+// `plan.filmChain` — and false about photography, which is a bad way for a panel to be
+// right. The owner's report closed it: *"a grain that we can only use when we load a
+// film stock … no ability to make creative kinds of grain on the image."* `look.grain`
+// is now a first-class creative stage with Amount, Size and Roughness, on any frame,
+// through the same density-domain model the emulsions use. See `grainSection`.
+//
+// Optional-field policy still applies to what is left of it: the STOCK's two rows are
+// absent rather than dead whenever the stock's grain is not what renders, and the
+// creative three stand in their place — which is a control, not a sentence explaining an
+// emptiness.
 //
 // The same rule, applied harder, is why Lens Corrections shows one control. Remove
 // chromatic aberration and the seven Defringe controls were live, wrote the recipe, and
@@ -104,15 +113,33 @@ struct EffectsPanel: View {
                            $0.look.vignetteFeather = Look.vignetteFeatherDefault
                        } }) {
             VStack(alignment: .leading, spacing: 2) {
+                // The range is the ENGINE's, read rather than restated: it moved from
+                // −3…+1 to −4…+2 and a slider carrying its own copy of a bound is how a
+                // control ends up refusing to reach a value the renderer accepts. The
+                // measurement behind the move is on `DetailEngine.vignetteAmountRange`;
+                // the short version is that at −3 the control was still delivering 73%
+                // of its rate at zero and at +1 it was delivering 81%, so both ends were
+                // stops rather than limits — the owner's "a little bit soft at both
+                // ends", which was never about the mapping.
                 LumenSlider(title: "Amount",
                             value: binder.value(\.look.vignette, "look.vignette"),
-                            range: -3.0...1.0, hardRange: nil, defaultValue: 0,
+                            range: DetailEngine.vignetteAmountRange, hardRange: nil,
+                            defaultValue: 0,
                             step: 0.01, decimals: 2,
+                            // Second sentence is the honest one and it is new. The
+                            // number is a CORNER number: r = 1 is the four corner
+                            // points, and the frame receives a fraction of the stated
+                            // EV set by Feather — measured over a 3:2 frame, 0.04 of it
+                            // at Feather 0, 0.29 at 50, 0.56 at 100. A photographer
+                            // reading "−3.00 EV" and seeing a mean of 0.87 EV of
+                            // darkening is entitled to know which of the two the slider
+                            // is promising.
                             help: "Darkens the corners below zero and lifts them "
-                                + "above, in stops at the corner — applied on "
+                                + "above, in stops AT THE CORNER — applied on "
                                 + "scene-linear data before the display transform, "
                                 + "so a burn keeps its colour and bright speculars "
-                                + "punch through.")
+                                + "punch through. How much of that reaches the rest "
+                                + "of the frame is Feather's job below.")
                 // Reads the engine's own geometry (docs/32 Stream E item 4): the
                 // renderers derive the falloff's start from this via
                 // `DetailEngine.vignetteInnerRadius(feather:)`, and 50 is the fixed
@@ -123,11 +150,20 @@ struct EffectsPanel: View {
                             range: 0...100, hardRange: nil,
                             defaultValue: Look.vignetteFeatherDefault,
                             step: 1, decimals: 0, bipolar: false,
+                            // "How much of Amount the frame gets" is the sentence this
+                            // row was missing, and it is the one that makes the pair
+                            // usable: measured over a 3:2 frame the mean falloff is
+                            // 0.04 at Feather 0, 0.29 at the default 50 and 0.56 at
+                            // 100, so this control moves the delivered strength by
+                            // twelve times while Amount is the one that reads like the
+                            // strength. Saying so costs a clause.
                             help: "How gradually the burn arrives — 0 keeps it a "
                                 + "tight ring near the corners, 100 lets it fall off "
-                                + "across the whole frame from the centre. It shapes "
-                                + "the Amount above, so it changes nothing at "
-                                + "Amount 0.")
+                                + "across the whole frame from the centre. It is also "
+                                + "how much of Amount the frame actually receives: "
+                                + "about a twelfth of it at 0, a third at 50, over "
+                                + "half at 100. It shapes the Amount above, so it "
+                                + "changes nothing at Amount 0.")
             }
         }
     }
@@ -140,105 +176,188 @@ struct EffectsPanel: View {
             || recipe.look.vignetteFeather != Look.vignetteFeatherDefault
     }
 
-    // MARK: Film grain
+    // MARK: Grain
 
+    /// GRAIN IS NO LONGER A PROPERTY OF A FILM STOCK, and this section is where that
+    /// stopped being true.
+    ///
+    /// What was here: an `if let film = recipe.look.filmLab` whose else-branch was a
+    /// button reading "Load a film stock", above a comment asserting that "grain is a
+    /// property of a stock, so the only move that leads anywhere from here is loading
+    /// one". That was a statement about the ENGINE's wiring — every grain reader on both
+    /// paths was gated on `plan.filmChain` — dressed as a statement about photography,
+    /// and the owner named it exactly: *"a grain that we can only use when we load a film
+    /// stock … there's no ability to make creative kinds of grain on the image, which is
+    /// kind of sad."* Grain is a darkroom instinct. Buying a colour rendering to get it
+    /// is a wiring accident.
+    ///
+    /// So the section now always has controls, and which set it shows is decided by
+    /// `GrainPlan.filmOwnsTheGrain` — the same three conditions `RenderPlan` resolves the
+    /// stage with, called rather than restated, because a panel that guessed differently
+    /// from the renderer would be drawing sliders that reach no pixel. That is the defect
+    /// this section was ALREADY convicted of once: with Film Lab Strength at 0 the two
+    /// rows below wrote the recipe and rendered nothing, and the panel's answer was a
+    /// caption apologizing and a button to another workspace. That case is now the
+    /// creative grain's, and it renders.
+    ///
+    /// The predicate does not ask whether the STOCK's grain Amount is above zero, and
+    /// the reason is this panel's: it did, and the result was two rows that deleted
+    /// themselves when the top one was dragged to the bottom of its travel. The
+    /// argument is on `filmOwnsTheGrain`.
+    ///
+    /// The precedence, said once here and once in `GrainPlan`: a live stock's grain
+    /// wins. It is what every existing recipe renders through, it is already exposed in
+    /// Film Lab, and stacking two independent noise fields on one photograph would be
+    /// two grains at twice the cost for one intent.
     @ViewBuilder
     private var grainSection: some View {
         DevelopSection("Grain", isModified: isGrainModified, onReset: grainReset) {
-            if let film = recipe.look.filmLab {
-                VStack(alignment: .leading, spacing: 2) {
-                    // The badge is not clickable, so it answers the pointer with an
-                    // explanation rather than an affordance — the capture-sharpening
-                    // badge's rule.
-                    HStack(spacing: 6) {
-                        Text("Stock")
-                            .font(.system(size: 10))
-                            .foregroundStyle(Lumen.secondaryText)
-                        Spacer()
-                        LumenBadge(text: FilmStock.named(film.stock)?.name ?? film.stock)
-                    }
-                    .frame(height: Lumen.rowHeight)
-                    .help("The grain is this stock's — its pitch and character come "
-                          + "with the emulsion chosen in Film Lab.")
-
-                    // THE GRAIN IS GATED ON THE FILM CHAIN EXISTING, and the chain is
-                    // built only when Film Lab's STRENGTH is above zero
-                    // (`RenderPlan`: `if let film = look.filmLab, film.amount > 0`).
-                    // Every render path then reads the grain through that chain — so with
-                    // Strength at 0 these two sliders wrote the recipe and produced
-                    // nothing, with the control that explains it in a different workspace
-                    // section. The trap is a real workflow: pick Portra, decide the
-                    // colour rendering is too strong, pull Strength to 0, come here for
-                    // the texture without the palette.
-                    if film.amount <= 0 {
-                        HStack(spacing: 6) {
-                            Text("Film Lab strength is 0, so no grain is laid down.")
-                                .font(.lumenCaption)
-                                .foregroundStyle(Lumen.secondaryText)
-                                .fixedSize(horizontal: false, vertical: true)
-                            Spacer(minLength: 0)
-                            Button("Film Lab") { state.jump(to: .filmLab) }
-                                .buttonStyle(.plain)
-                                .font(.lumenCaption)
-                                .foregroundStyle(Lumen.accent)
-                                .help("Opens Film Lab, where Strength lives")
-                        }
-                        .padding(.vertical, 2)
-                    }
-
-                    LumenSlider(title: "Amount",
-                                value: binder.custom("look.grain.amount",
-                                                     get: { r in r.look.filmLab?.grain.amount ?? 0 },
-                                                     set: { r, v in r.look.filmLab?.grain.amount = v }),
-                                // The stock's own grain, matching LookPanel — the
-                                // two panels bind the SAME field and disagreed about
-                                // its default, so after picking Portra 400 one read
-                                // "modified" and the other "default", and
-                                // double-clicking reset it to two different numbers.
-                                range: 0...100, hardRange: nil,
-                                defaultValue: grainDefault,
-                                step: 1, decimals: 0, bipolar: false,
-                                // Computed out of the argument — the surface
-                                // checker's argument-order pass has a verified blind
-                                // spot on multi-line ternary arguments (docs/31
-                                // postscript).
-                                help: grainAmountHelp)
-                    // Size is the pitch at the gate relative to the stock's own. The
-                    // footprint is denominated at the GATE and scales with the render's
-                    // pixel count, so it is the same fraction of the picture at every
-                    // delivery size — print size cancels algebraically out of
-                    // `plateScale`, pinned to 1e-12 by
-                    // `testGrainFollowsTheGateAndTheRenderSizeNotThePrintSize`. Kept as
-                    // a comment because `LookPanel` binds this same field, and two
-                    // panels binding one value must not tell opposite stories about it.
-                    LumenSlider(title: "Size",
-                                value: binder.custom("look.grain.size",
-                                                     get: { r in r.look.filmLab?.grain.size ?? 1 },
-                                                     set: { r, v in r.look.filmLab?.grain.size = v }),
-                                range: 0.5...2.0, hardRange: nil, defaultValue: 1.0,
-                                step: 0.05, decimals: 2, bipolar: true,
-                                help: "The grain's pitch against the stock's own — "
-                                    + "1.0 is the emulsion's measured pitch at the "
-                                    + "film gate, and it stays the same fraction of "
-                                    + "the picture at every delivery size.")
-                }
+            if let film = recipe.look.filmLab, GrainPlan.filmOwnsTheGrain(recipe.look) {
+                stockGrainRows(film)
             } else {
-                // The empty state is the way out of the empty state. Grain is a
-                // property of a stock, so the only move that leads anywhere from here
-                // is loading one, and `jump` promotes the register if Film Lab is
-                // hiding in Simple.
-                HStack(spacing: 6) {
-                    Button("Load a film stock") { state.jump(to: .filmLab) }
-                        .buttonStyle(.plain)
-                        .font(.system(size: 10))
-                        .foregroundStyle(Lumen.accent)
-                        .help("Opens Film Lab — grain belongs to a stock, and a "
-                              + "loaded one brings its own along")
-                    Spacer()
-                }
-                .frame(height: Lumen.rowHeight)
+                creativeGrainRows
             }
         }
+    }
+
+    /// The stock's own grain — unchanged rows, unchanged bindings, unchanged defaults.
+    /// Drawn only while the stock's grain is the grain that renders, so neither row can
+    /// be dragged into a picture that ignores it.
+    @ViewBuilder
+    private func stockGrainRows(_ film: FilmLab) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            // The badge is not clickable, so it answers the pointer with an
+            // explanation rather than an affordance — the capture-sharpening
+            // badge's rule.
+            HStack(spacing: 6) {
+                Text("Stock")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Lumen.secondaryText)
+                Spacer()
+                LumenBadge(text: FilmStock.named(film.stock)?.name ?? film.stock)
+            }
+            .frame(height: Lumen.rowHeight)
+            .help("The grain is this stock's — its pitch and character come "
+                  + "with the emulsion chosen in Film Lab. Pull Film Lab's "
+                  + "Strength to 0 and these rows are replaced by a creative "
+                  + "grain you shape by hand.")
+
+            LumenSlider(title: "Amount",
+                        value: binder.custom("look.grain.amount",
+                                             get: { r in r.look.filmLab?.grain.amount ?? 0 },
+                                             set: { r, v in r.look.filmLab?.grain.amount = v }),
+                        // The stock's own grain, matching LookPanel — the
+                        // two panels bind the SAME field and disagreed about
+                        // its default, so after picking Portra 400 one read
+                        // "modified" and the other "default", and
+                        // double-clicking reset it to two different numbers.
+                        range: 0...100, hardRange: nil,
+                        defaultValue: grainDefault,
+                        step: 1, decimals: 0, bipolar: false,
+                        help: "How much grain is laid down — in density, like the "
+                            + "stock itself: strongest through the midtones, "
+                            + "vanishing at pure black and white.")
+            // Size is the pitch at the gate relative to the stock's own. The
+            // footprint is denominated at the GATE and scales with the render's
+            // pixel count, so it is the same fraction of the picture at every
+            // delivery size — print size cancels algebraically out of
+            // `plateScale`, pinned to 1e-12 by
+            // `testGrainFollowsTheGateAndTheRenderSizeNotThePrintSize`. Kept as
+            // a comment because `LookPanel` binds this same field, and two
+            // panels binding one value must not tell opposite stories about it.
+            LumenSlider(title: "Size",
+                        value: binder.custom("look.grain.size",
+                                             get: { r in r.look.filmLab?.grain.size ?? 1 },
+                                             set: { r, v in r.look.filmLab?.grain.size = v }),
+                        range: 0.5...2.0, hardRange: nil, defaultValue: 1.0,
+                        step: 0.05, decimals: 2, bipolar: true,
+                        help: "The grain's pitch against the stock's own — "
+                            + "1.0 is the emulsion's measured pitch at the "
+                            + "film gate, and it stays the same fraction of "
+                            + "the picture at every delivery size.")
+        }
+    }
+
+    /// The creative grain: three rows, on any photograph, with or without a stock.
+    ///
+    /// Lightroom's three names, and each is used only where it is true —
+    /// `CreativeGrain` carries the whole mapping and the help below is the short form of
+    /// it. Roughness is the one a photographer will not have seen behave honestly
+    /// elsewhere: it redistributes the plate's energy across its four octaves and the
+    /// plate is renormalized afterwards, so it changes the grain's character and cannot
+    /// secretly change its strength.
+    @ViewBuilder
+    private var creativeGrainRows: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            LumenSlider(title: "Amount",
+                        value: creativeBinding("look.grain.amount",
+                                               get: { $0.amount },
+                                               set: { $0.amount = $1 }),
+                        range: 0...100, hardRange: nil, defaultValue: 0,
+                        step: 1, decimals: 0, bipolar: false,
+                        help: "How much grain is laid down, in density — strongest "
+                            + "through the midtones and vanishing at pure black and "
+                            + "white, which is what makes it read as film rather than "
+                            + "as noise laid over the picture. 0 is off, and off "
+                            + "costs nothing.")
+            LumenSlider(title: "Size",
+                        value: creativeBinding("look.grain.size",
+                                               get: { $0.size },
+                                               set: { $0.size = $1 }),
+                        range: 0...100, hardRange: nil, defaultValue: 50,
+                        step: 1, decimals: 0, bipolar: false,
+                        help: "The grain's pitch, measured at the gate of a 35 mm "
+                            + "frame: 7 µm at 0 — about Ektar's — around 20 µm at 50 "
+                            + "and 56 µm at 100, doubling every 33 points. Anchored to "
+                            + "the gate, so the grain is the same fraction of the "
+                            + "picture on a preview and on a full-size export.")
+            LumenSlider(title: "Roughness",
+                        value: creativeBinding("look.grain.roughness",
+                                               get: { $0.roughness },
+                                               set: { $0.roughness = $1 }),
+                        range: 0...100, hardRange: nil, defaultValue: 50,
+                        step: 1, decimals: 0, bipolar: false,
+                        help: "How irregular the grain is. Low puts the energy into "
+                            + "the coarsest structure — an even, regular field; high "
+                            + "feeds the fine octaves for a gritty, clumpy one. 50 is "
+                            + "the plate every film stock in the Film Lab uses. It "
+                            + "changes the character only: the amplitude is Amount's.")
+            // The one sentence a photographer needs when a stock is loaded but its
+            // grain is switched off — otherwise these three rows look like they are
+            // fighting the Film Lab. No button: this is a statement about what renders,
+            // not a place to go.
+            if recipe.look.filmLab != nil {
+                Text("The loaded stock is not rendering, so this is the grain "
+                     + "on the picture.")
+                    .font(.lumenCaption)
+                    .foregroundStyle(Lumen.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.vertical, 2)
+            }
+        }
+    }
+
+    /// One field of the creative grain, through the OPTIONAL slot.
+    ///
+    /// `look.grain` is nil until a photograph has had grain on it, so a plain key-path
+    /// binding cannot reach through it. Two rules live here rather than at three call
+    /// sites: reading an absent slot reads the defaults, and writing one back to its
+    /// defaults writes nil rather than a block of them. The second is the one that
+    /// matters — `CreativeGrain.normalized` is what keeps "off" to a single spelling, so
+    /// that dragging Amount up and back down leaves a recipe with the same fingerprint
+    /// it started with instead of one that renders identically and busts every cached
+    /// preview of the photograph.
+    private func creativeBinding(_ key: String,
+                                 get: @escaping (CreativeGrain) -> Double,
+                                 set: @escaping (inout CreativeGrain, Double) -> Void)
+        -> Binding<Double> {
+        binder.custom(key,
+                      get: { get($0.look.grain ?? CreativeGrain()) },
+                      set: { recipe, value in
+                          var grain = recipe.look.grain ?? CreativeGrain()
+                          set(&grain, value)
+                          recipe.look.grain = CreativeGrain.normalized(grain)
+                      })
     }
 
     /// The loaded stock's own grain amount — the same default `LookPanel` uses for the
@@ -248,34 +367,34 @@ struct EffectsPanel: View {
         FilmStock.named(recipe.look.filmLab?.stock ?? "")?.grainDefault ?? 0
     }
 
-    /// Amount's tooltip. The gate sentence is the one this row has carried since the
-    /// Strength-0 trap was found; the live branch says what the slider is when the
-    /// chain runs.
-    private var grainAmountHelp: String {
-        if let film = recipe.look.filmLab, film.amount <= 0 {
-            return "Grain rides the film chain, and the chain is only built while "
-                + "Film Lab's Strength is above zero."
-        }
-        return "How much grain is laid down — in density, like the stock itself: "
-            + "strongest through the midtones, vanishing at pure black and white."
-    }
-
+    /// Both grains count, and the section's dot has to admit to whichever one the
+    /// photographer moved — including the creative one on a photograph that has never
+    /// seen a film stock, which is now the common case. `WorkspaceModification`'s
+    /// `.effects` clause states the same rule for the accordion header and the two must
+    /// agree; that file's own header records what happened the last time they did not.
     private var isGrainModified: Bool {
+        if CreativeGrain.normalized(recipe.look.grain) != nil { return true }
         guard let film = recipe.look.filmLab else { return false }
         return film.grain != FilmGrain(size: 1.0, amount: grainDefault)
     }
 
+    /// Reset puts BOTH grains back, because the section draws whichever one renders and
+    /// a Reset that cleared only the visible half would leave the other set behind a
+    /// switch the photographer cannot see — load a stock, and yesterday's creative grain
+    /// is waiting under it.
+    ///
+    /// The stock's half lands on the STOCK's grain rather than on zero: this section's
+    /// Reset means "put back what I found", and what a photographer found after loading
+    /// Portra was Portra's grain. It wrote `FilmGrain()` once, so the section stayed
+    /// marked modified after its own Reset and the two reset affordances in one section
+    /// landed on two different numbers.
     private var grainReset: (() -> Void)? {
-        guard recipe.look.filmLab != nil else { return nil }
-        // Reset lands on the STOCK's grain, the same number `isGrainModified`
-        // compares against and the Amount slider calls default. It wrote FilmGrain()
-        // (amount 0) — so the section stayed marked modified after its own Reset,
-        // and the two reset affordances in one section landed on two different
-        // numbers.
+        guard isGrainModified else { return nil }
         let neutral = FilmGrain(size: 1.0, amount: grainDefault)
         return {
             binder.edit("look.grain.reset") { recipe in
-                recipe.look.filmLab?.grain = neutral
+                recipe.look.grain = nil
+                if recipe.look.filmLab != nil { recipe.look.filmLab?.grain = neutral }
             }
         }
     }

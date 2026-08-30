@@ -159,8 +159,14 @@ public struct ControlIndex: Sendable {
         // Grade — Effects
         Control(id: "look.vignette", title: "Vignette", section: .effects,
                 aliases: ["vignetting", "corners", "edge darkening", "feather"]),
-        Control(id: "look.filmLab.grain", title: "Grain", section: .effects,
-                aliases: ["noise", "film grain"]),
+        // `look.grain`, not `look.filmLab.grain`. The Effects section's Grain is the
+        // CREATIVE grain now — Amount, Size, Roughness, on any photograph — and the
+        // stock's two rows are the special case it stands aside for. The id is a recipe
+        // path and neither spelling has a `ProofRegistry` entry, so nothing is keyed off
+        // the old one; what changes is that somebody typing "grain" is sent to the
+        // control that works without a film stock, which is the one they meant.
+        Control(id: "look.grain", title: "Grain", section: .effects,
+                aliases: ["noise", "film grain", "roughness", "grain size"]),
         // Retouch is deliberately absent. Its section was deleted with the rest of
         // docs/30 Phase A: heal and clone are not implemented, and a named section whose
         // entire content was 43 words about its own absence cost a header, a paragraph

@@ -215,8 +215,44 @@ public struct RenderGraph {
         }
 
         // Grain lives inside picture formation, in the density domain.
-        if let film = plan.filmChain, film.grainAmount > 0, let plate = grainPlate {
-            image = applyGrain(image, plate: plate, film: film)
+        //
+        // Off `plan.grain` now, not off `plan.filmChain` — the plan answers "what grain
+        // is on this photograph" once (`GrainPlan`), so a creative grain reaches the GPU
+        // through the same kernel, the same plate generator and the same stage position
+        // as a stock's.
+        //
+        // THE PLATE COMES FROM THE CALLER WHEN THE CALLER HAS ONE, and that ordering is
+        // load-bearing rather than a preference. `PipelineRenderer` supplies the plate
+        // for the film path, and on the EXPORT path it deliberately withholds it
+        // (`deferGrain: true`) so that it can apply grain itself after the resize, on
+        // the grid that is actually delivered. If this stage built its own plate
+        // whenever none was handed to it, an export of a film recipe would be grained
+        // here AND again there — two independent noise fields at √2 the amplitude, on
+        // the delivered file only. So the fallback is gated on `isCreative`, which is
+        // false for exactly the case that defers.
+        //
+        // The cost of that gate, stated rather than hidden: a creative grain on an
+        // EXPORT is laid down here, at the decode's resolution, and then resampled by
+        // the export's resize. `plateScale` already anchors the footprint to the render's
+        // own long edge so the pattern lands at the same relative size either way, and
+        // `testFilmGrainHasTheSameAmplitudeAtEveryRenderSize` measures the amplitude cost
+        // of a 3x downsample at about 4% of σ — but the half-pixel floor
+        // `plateScale` enforces is divided straight past by a resample, so a heavily
+        // downsized delivery carries a pattern finer than the model allows. The fix is
+        // one line in `PipelineRenderer.exportedImage` — the same deferral the film path
+        // already has, reading `plan.grain` instead of `plan.filmChain` — and it belongs
+        // in that file, which is not this change's to edit. Until then this is where a
+        // creative grain lands, and it is right for every preview and every 1:1 view.
+        if let grain = plan.grain, grain.amount > 0 {
+            if let plate = grainPlate {
+                image = applyGrain(image, plate: plate, amount: grain.amount,
+                                   dMax: grain.dMax)
+            } else if grain.isCreative,
+                      let plate = Self.creativeGrainPlate(grain, extent: image.extent,
+                                                          longEdge: options.longEdge) {
+                image = applyGrain(image, plate: plate, amount: grain.amount,
+                                   dMax: grain.dMax)
+            }
         }
 
         return image
@@ -1184,13 +1220,17 @@ public struct RenderGraph {
                        crop: Crop, dithered: Bool = true) -> CIImage {
         let full = image.extent
         guard full.width > 0, full.height > 0 else { return image }
-        // The reference's clamp, verbatim: `DetailEngine.vignette` starts with
-        // `Num.clamp(ev, -3.0, 1.0)` and this kernel took the raw value — so a
+        // The reference's clamp, and now literally the reference's OWN clamp rather
+        // than a transcription of it: this kernel took the raw value once, so a
         // foreign or hand-edited recipe carrying, say, −5 rendered a 2^-2 deeper
         // corner here than on the reference path (docs/31 round two §15 adjacency).
-        // The slider never leaves −3…+1, which is why nobody saw it; parity is why
-        // it matters anyway.
-        let ev = Num.clamp(ev, -3.0, 1.0)
+        // The transcription was fixed then; the second copy of the two bounds stayed,
+        // and the bounds have since MOVED (−3…+1 → −4…+2, the measurement is on
+        // `DetailEngine.vignetteAmountRange`). A widened range on one path and not the
+        // other is the same defect wearing a new number, so the range is read from the
+        // one place that defines it and there is nothing left here to keep in step.
+        let ev = Num.clamp(ev, DetailEngine.vignetteAmountRange.lowerBound,
+                           DetailEngine.vignetteAmountRange.upperBound)
         guard ev != 0 else { return image }
 
         var e = full
@@ -1204,9 +1244,12 @@ public struct RenderGraph {
         }
         guard e.width > 0, e.height > 0 else { return image }
         let centre = CIVector(x: e.midX, y: e.midY)
-        // PER AXIS, then scaled so the corner lands at r = 1 — the ellipse inscribed in
-        // the crop rectangle, which is what docs/06's Roundness 0 means and what
-        // `DetailEngine.vignette` draws.
+        // PER AXIS, then scaled so the corner lands at r = 1 — level sets elliptical on
+        // the crop's own proportions, which is what docs/06's Roundness 0 means and what
+        // `DetailEngine.vignette` draws. (r = 1 is the ellipse through the CORNERS, not
+        // the one inscribed in the rectangle; both this comment and the reference's said
+        // "inscribed", and the inscribed ellipse is at r = 0.7071 where the default
+        // feather delivers 0.547 of the Amount — see `DetailEngine.vignetteFalloff`.)
         //
         // Normalizing both axes by the half-DIAGONAL, as this did, draws a CIRCLE. On a
         // 3:2 frame that put the long-edge midpoint at r = 0.832 where the reference
@@ -1301,10 +1344,116 @@ public struct RenderGraph {
             ?? image
     }
 
+    /// The film path's spelling, kept verbatim because `PipelineRenderer` calls it on
+    /// the export path with a `FilmChain` in hand and that file is not this change's to
+    /// edit. It delegates to the two scalars the kernel actually takes, so there is one
+    /// implementation and the export path's grain is bit-for-bit what it was.
     func applyGrain(_ image: CIImage, plate: CIImage, film: FilmChain) -> CIImage {
+        applyGrain(image, plate: plate, amount: film.grainAmount, dMax: film.grainDMax)
+    }
+
+    /// The grain kernel, in the two scalars it has always taken: the peak amplitude in
+    /// density units and the Dmax that normalizes the density into `p`. Whether they
+    /// came from an emulsion or from three sliders is settled before this line.
+    func applyGrain(_ image: CIImage, plate: CIImage, amount: Double,
+                    dMax: Double) -> CIImage {
         KernelLibrary.apply(KernelLibrary.grain, extent: image.extent,
-                            [image, plate, Float(film.grainAmount), Float(film.grainDMax)])
+                            [image, plate, Float(amount), Float(dMax)])
             ?? image
+    }
+
+    /// A tiled plate for a CREATIVE grain, packed the way `lumenGrain` reads it.
+    ///
+    /// This is the same construction `PipelineRenderer.grainPlate` performs for a film
+    /// stock, and the duplication is deliberate and bounded rather than accidental: the
+    /// film builder lives in a file this change does not own, and the alternative was
+    /// either to ship a creative grain that renders on the CPU reference and silently
+    /// does nothing on the shipping path — the exact "built but unwired" defect this
+    /// codebase keeps convicting itself of — or to leave the GPU without a plate at all.
+    /// What is NOT duplicated is anything that could disagree about the grain itself:
+    /// the noise comes from `GrainPlan.plate`, which is `FilmGrainProfile.plate` with the
+    /// profile's own seed and persistence; the packing constant is
+    /// `FilmGrainProfile.plateEncodeScale`, the one the kernel divides back out; the cell
+    /// size is `GrainPlan.plateScale`. Those four are the whole of what a plate IS, and
+    /// each of them has a paragraph in `FilmLab.swift` about the day it was written twice
+    /// with two values.
+    ///
+    /// WHEN `PipelineRenderer` IS NEXT OPEN, this should become the one builder and its
+    /// twin should call it with `GrainPlan.film(chain)`. The two produce identical bytes
+    /// for a film profile by construction — same generator, same seeds, same encode
+    /// scale, same 128 — and `GrainPlateTests` in LumenCore pins the pixel packing so
+    /// that a merge of the two cannot quietly change one.
+    ///
+    /// No `saturate` on the stored value, for the reason the film builder gives: the
+    /// texture is RGBAf and a clamp to 0…1 would flatten the 3.4% of the plate beyond
+    /// ±2σ, which is precisely the strongest grains.
+    static func creativeGrainPlate(_ grain: GrainPlan, extent: CGRect,
+                                   longEdge: Int) -> CIImage? {
+        let size = GrainPlan.plateSize
+        guard extent.width > 0, extent.height > 0 else { return nil }
+
+        /// One layer's tile: its noise in `channel`, zero elsewhere, so the three sum to
+        /// a packed RGB plate. Alpha rides on the red tile alone — addition compositing
+        /// adds alpha too, and three opaque tiles would sum to 3.
+        func tile(channel: Int) -> CIImage? {
+            let values = grain.plate(channel: channel)
+            var pixels = [Float](repeating: 0, count: size * size * 4)
+            for i in 0..<(size * size) {
+                pixels[i * 4 + channel] =
+                    Float(Double(values[i]) / FilmGrainProfile.plateEncodeScale + 0.5)
+                pixels[i * 4 + 3] = channel == 0 ? 1 : 0
+            }
+            let data = pixels.withUnsafeBufferPointer { Data(buffer: $0) }
+            let image = CIImage(bitmapData: data, bytesPerRow: size * 16,
+                                size: CGSize(width: size, height: size),
+                                format: .RGBAf, colorSpace: nil)
+            let scale = grain.plateScale(longEdgePixels: longEdge, channel: channel)
+            let scaled = image.transformed(
+                by: CGAffineTransform(scaleX: CGFloat(scale), y: CGFloat(scale)))
+            let tiler = CIFilter.affineTile()
+            tiler.inputImage = scaled
+            tiler.transform = .identity
+            return tiler.outputImage ?? scaled
+        }
+
+        if grain.profile.monochrome {
+            // One field written to all three channels. A black-and-white photograph has
+            // no dye layers to grain independently, and three decorrelated fields on one
+            // would be coloured speckle on a picture with no colour in it.
+            let values = grain.plate(channel: 0)
+            var pixels = [Float](repeating: 1, count: size * size * 4)
+            for i in 0..<(size * size) {
+                let v = Float(Double(values[i]) / FilmGrainProfile.plateEncodeScale + 0.5)
+                pixels[i * 4] = v
+                pixels[i * 4 + 1] = v
+                pixels[i * 4 + 2] = v
+            }
+            let data = pixels.withUnsafeBufferPointer { Data(buffer: $0) }
+            let image = CIImage(bitmapData: data, bytesPerRow: size * 16,
+                                size: CGSize(width: size, height: size),
+                                format: .RGBAf, colorSpace: nil)
+            let scale = grain.plateScale(longEdgePixels: longEdge, channel: 0)
+            let scaled = image.transformed(
+                by: CGAffineTransform(scaleX: CGFloat(scale), y: CGFloat(scale)))
+            let tiler = CIFilter.affineTile()
+            tiler.inputImage = scaled
+            tiler.transform = .identity
+            return (tiler.outputImage ?? scaled).cropped(to: extent)
+        }
+
+        guard let red = tile(channel: 0), let green = tile(channel: 1),
+              let blue = tile(channel: 2) else { return nil }
+        // Addition compositing is exact rather than approximate here: it works on
+        // premultiplied colour, and premultiplying by an alpha of 1 or 0 leaves the one
+        // contributing channel of each tile untouched.
+        func add(_ a: CIImage, _ b: CIImage) -> CIImage? {
+            let filter = CIFilter.additionCompositing()
+            filter.inputImage = a
+            filter.backgroundImage = b
+            return filter.outputImage
+        }
+        guard let rg = add(red, green), let packed = add(rg, blue) else { return nil }
+        return packed.cropped(to: extent)
     }
 
     // MARK: - Shaper helpers

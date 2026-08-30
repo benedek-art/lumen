@@ -83,6 +83,14 @@ public struct RenderPlan: Sendable {
     public let displayTransform: DisplayTransform
     public let filmChain: FilmChain?
 
+    /// The grain stage, resolved — nil when nothing grains.
+    ///
+    /// Both renderers read THIS and neither asks about a film chain any more. Grain used
+    /// to be four independent `if let film = plan.filmChain, film.grainAmount > 0` tests
+    /// in three files, which is a shape that cannot survive a second source of grain;
+    /// `GrainPlan`'s header carries the argument and the precedence.
+    public let grain: GrainPlan?
+
     // MARK: Spatial parameters carried through for the image stages
     public let detail: Detail
     public let denoise: Denoise
@@ -228,6 +236,34 @@ public struct RenderPlan: Sendable {
             chain = nil
         }
         self.filmChain = chain
+
+        // ---- the grain stage -------------------------------------------------
+        //
+        // ONE question, answered once. A LIVE film chain OWNS the stage: its grain is
+        // what every recipe in every catalog already renders through, and changing that
+        // would move pixels on photographs nobody edited. Otherwise the creative grain
+        // renders — which covers every frame with no stock on it AND the case that used
+        // to be a dead end, Film Lab Strength at 0, where the chain is not built and the
+        // Effects panel's only remaining move was a sentence apologizing for the absence.
+        //
+        // Ownership is the CHAIN's existence, not `grainAmount > 0`, and the reason is on
+        // `GrainPlan.filmOwnsTheGrain`: the panel draws one set of rows or the other off
+        // this same predicate, and deciding it on the stock's grain Amount made that
+        // slider delete itself at the bottom of its own travel. A loaded stock with its
+        // grain at 0 therefore lays down no grain at all, which is exactly what its
+        // slider promises.
+        if let chain {
+            self.grain = chain.grainAmount > 0 ? GrainPlan.film(chain) : nil
+        } else if let creative = look.grain, !creative.isIdentity {
+            // `blackAndWhiteIsOn`, not `bw != nil`: a mix kept while the treatment is
+            // switched off is a colour picture, and it must get the colour grain. The
+            // two spellings diverged once already, which is why `Look` states the test
+            // in one property rather than leaving every reader to test the slot.
+            self.grain = GrainPlan.creative(creative,
+                                            monochrome: look.blackAndWhiteIsOn)
+        } else {
+            self.grain = nil
+        }
 
         let curve = CurveStack(develop.curve)
         let boundary = RenderPlan.sharedGamutBoundary

@@ -115,7 +115,17 @@ extension WorkspaceSection {
         // nothing has not made an edit here. That is the same rule `denoiseDefault`
         // follows one clause down, and it is what `EffectsPanel.isGrainModified` already
         // uses — this is the two of them agreeing rather than a new judgement.
+        //
+        // BOTH grains, because there are two now: a stock's, and `look.grain` — the
+        // creative grain that renders on any photograph with no live film chain, which
+        // is most photographs. A dot that knew only about the stock's would be this
+        // clause's own conviction repeated one field over: the section draws three
+        // creative sliders, the photographer moves one, and the accordion header says
+        // "nothing changed here" directly above it.
         let grainIsModified: Bool = {
+            // `normalized` rather than `!= nil`: a present-but-default block renders
+            // nothing and is not an edit, and a sidecar can carry one.
+            if CreativeGrain.normalized(look.grain) != nil { return true }
             guard let film = look.filmLab else { return false }
             let stockDefault = FilmStock.named(film.stock)?.grainDefault ?? 0
             return film.grain != FilmGrain(size: 1.0, amount: stockDefault)
@@ -246,6 +256,13 @@ extension WorkspaceSection {
             recipe.look.vignette = 0
             recipe.look.vignetteFeather = Look.vignetteFeatherDefault
             recipe.develop.heal = Heal()
+            // The creative grain goes back to its own defaults — Amount 0, Size and
+            // Roughness at their middles — and it goes back whether or not it is the
+            // grain currently on screen. A Reset that cleared only the visible half
+            // would leave the other set behind a switch the photographer cannot see:
+            // load a stock afterwards, and yesterday's creative grain is still waiting
+            // under it. `EffectsPanel.grainReset` clears both for the same reason.
+            recipe.look.grain = nil
             // Grain back to the stock's own, not to zero: this section's Reset means
             // "put back what I found", and what a photographer found after loading
             // Portra was Portra's grain. Leaving the film chain otherwise alone — the

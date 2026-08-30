@@ -77,6 +77,14 @@ public struct Recipe: Codable, Equatable, Sendable {
             return stripped
         }
         if copy.look.bw?.enabled == false { copy.look.bw = nil }
+        // A creative grain at Amount 0 goes the same way, and for the same reason the
+        // line above exists: it is three numbers no pixel reads. `CreativeGrain
+        // .normalized` keeps every writer in the app from producing one, so this is here
+        // for the sidecars that were not written by this app — a hand-edited
+        // `{"grain":{"size":90}}` renders exactly like a recipe with no grain key and
+        // must not be handed a different `recipe_fp`, which would throw away every
+        // cached preview of that photograph to produce identical bytes.
+        if copy.look.grain?.isIdentity == true { copy.look.grain = nil }
         // `look.lut` goes the same way, for a blunter reason: NO STAGE READS IT.
         // `LUTReference` round-trips through the recipe, the sidecar and the catalog,
         // and there is no reader on any path — not `RenderGraph`, not `export`, not the
@@ -839,6 +847,112 @@ public struct ManualSharpen: Codable, Equatable, Sendable {
         self.masking = try c.decodeIfPresent(Double.self, forKey: .masking) ?? 0
         self.haloSuppression = try c.decodeIfPresent(Double.self, forKey: .haloSuppression)
             ?? 0
+    }
+}
+
+/// Creative grain: the grain stage's parameters for a photograph with no film stock on
+/// it (`look.grain`).
+///
+/// WHY THIS EXISTS AT ALL, since the app already has a grain: the model was reachable
+/// only through the Film Lab. `RenderPlan` builds a `FilmChain` under
+/// `if let film = look.filmLab, film.amount > 0, FilmStock.named(film.stock) != nil`,
+/// and every grain reader on both paths was gated on that chain — so grain on a
+/// photograph meant "load an emulsion, keep its colour rendering at some strength above
+/// zero, and take that stock's crystal size". The owner's words: *"there's no ability to
+/// make creative kinds of grain on the image, which is kind of sad."* Grain is a
+/// darkroom-and-print instinct, not a property of an emulsion you happen to be
+/// emulating, and a photographer who wants texture on a digital frame should not have to
+/// buy a colour rendering to get it.
+///
+/// NOTHING HERE IS A SECOND GRAIN. Every one of these three numbers lands on
+/// `FilmGrainProfile`, the density-domain model `docs/14 §5.7` specifies and the Film Lab
+/// already uses: amplitude ∝ √(p(1−p)) so it peaks at mid densities and vanishes at both
+/// Dmin and Dmax, three decorrelated layers on a colour picture, one plate on a
+/// monochrome one, the same deterministic value-noise generator and the same kernel on
+/// the GPU. What is new is a way to state the profile without a stock, which is
+/// `FilmGrainProfile.init(creative:monochrome:)` and nothing else.
+///
+/// THE NAMES ARE LIGHTROOM'S — Amount, Size, Roughness — because that is the vocabulary
+/// a photographer already has for this control, and where a name would have been a lie
+/// it is not used. What each one really moves, stated here so the panel's help and the
+/// engine cannot drift apart:
+///
+///   · **Amount** is the film path's Amount, unchanged: 0…100 scaled to the profile's
+///     normalized `amount`, which the stage multiplies by
+///     `FilmGrainProfile.densityScale` (0.12 density units at peak). Identical
+///     denomination to `FilmGrain.amount`, so a stock at grain 45 and a creative grain
+///     at 45 lay down the same amplitude.
+///   · **Size** is the grain's PITCH AT THE GATE in micrometres, mapped geometrically —
+///     `7 · 2^(3·size/100)`, so 0 → 7 µm, 50 → 19.8 µm, 100 → 56 µm, and the pitch
+///     doubles every 33 points. It is denominated on a 35 mm gate
+///     (`FilmGrainProfile.creativeGateLongEdgeMM`), which is the only honest reading
+///     when there is no negative: the shipped stocks run 6 µm (Velvia) to 18 µm
+///     (Tri-X), so the slider's lower half sits among real emulsions and its top reaches
+///     past all of them, which is what a creative control is for. Like the film path's
+///     Size it is anchored at the gate, so the grain is the same fraction of the picture
+///     at every delivery size.
+///   · **Roughness** is the plate's octave PERSISTENCE — the amplitude ratio between
+///     successive octaves of the value noise `FilmGrainProfile.plate` sums — mapped
+///     `0.25 + 0.005·roughness`, so 0 → 0.25, **50 → 0.5, which is exactly the plate
+///     every film stock has always been given**, and 100 → 0.75. Low persistence puts
+///     the energy in the coarsest octave: an even, regular, almost dithered field. High
+///     persistence feeds the fine octaves: an irregular, clumpy, gritty one. The plate
+///     is renormalized to exact unit variance after the octaves are summed, so
+///     Roughness changes the CHARACTER and never secretly changes the Amount — which is
+///     the property that makes it a third control rather than a second strength.
+///
+/// Defaults are Amount 0 (off), Size 50, Roughness 50 — so an untouched recipe is
+/// byte-identical to one written before this struct existed, the sparse serializer
+/// prunes the whole subtree, and no fingerprint in any catalog moves.
+public struct CreativeGrain: Codable, Equatable, Sendable {
+    public var amount: Double      // 0…100, 0 = off
+    public var size: Double        // 0…100 → 4…32 µm pitch at a 35 mm gate
+    public var roughness: Double   // 0…100 → 0.25…0.75 octave persistence
+
+    public init(amount: Double = 0, size: Double = 50, roughness: Double = 50) {
+        self.amount = amount
+        self.size = size
+        self.roughness = roughness
+    }
+
+    /// True when this grain lays nothing down, so the plan can skip the stage and the
+    /// plate before either costs anything.
+    public var isIdentity: Bool { !(amount > 0) }
+
+    /// The slot after an edit: nil whenever the value is back at its defaults.
+    ///
+    /// "No creative grain" has to have ONE spelling on the wire. `Look.grain` is
+    /// optional, so nil and a present-but-default `CreativeGrain()` would render the
+    /// same picture and hash differently — and `recipe_fp` keys every preview and
+    /// artifact in the catalog, so the second spelling throws away a 45-megapixel
+    /// render to produce identical bytes and then reports the photograph as edited.
+    /// That is the `look.lut` defect exactly, and `Recipe.renderIdentity` carries the
+    /// argument at length. Every writer of this field goes through here, and
+    /// `renderIdentity` strips an amount-0 grain as a backstop for the sidecars that
+    /// did not.
+    public static func normalized(_ grain: CreativeGrain?) -> CreativeGrain? {
+        guard let grain, grain != CreativeGrain() else { return nil }
+        return grain
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case amount, size, roughness
+    }
+
+    /// Tolerant of a recipe written before any of these keys existed: each falls back to
+    /// the default in the memberwise initializer above. See RecipeDecoding.swift.
+    ///
+    /// `size` and `roughness` fall back to 50 rather than to 0, for the reason
+    /// `Look.vignetteFeather` falls back to 50 rather than to 0: a middle is what the
+    /// control means by neutral, and an absent key must decode to the rendering an older
+    /// sidecar had — which, with `amount` at 0, is no grain at all whatever these two
+    /// say, and with `amount` set by hand in a foreign sidecar is the middle of both
+    /// axes rather than the finest possible grain with the smoothest possible plate.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.amount = try c.decodeIfPresent(Double.self, forKey: .amount) ?? 0
+        self.size = try c.decodeIfPresent(Double.self, forKey: .size) ?? 50
+        self.roughness = try c.decodeIfPresent(Double.self, forKey: .roughness) ?? 50
     }
 }
 

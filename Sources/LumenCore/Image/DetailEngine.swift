@@ -654,10 +654,117 @@ public struct DetailEngine: Sendable {
         vignetteInnerRadius(feather: Look.vignetteFeatherDefault)
     }
 
+    /// The falloff itself: a Hermite smoothstep from the inner radius to the corner,
+    /// on a radius normalized so that r = 1 is the frame's CORNER.
+    ///
+    /// Named and kept rather than changed, and the reason is worth writing down because
+    /// the obvious reading of the owner's report points the other way. The Hermite is
+    /// flat at BOTH ends by construction — zero derivative at r = inner and at r = 1 —
+    /// and on a 3:2 frame at the default feather that measures as:
+    ///
+    ///   · 38.81% of the frame receives 10% or less of the stated Amount;
+    ///   · 3.15% receives 90% or more of it — the stated EV lands on almost nothing;
+    ///   · the frame MEAN falloff is 0.2916, so "−3.00 EV" darkens the picture by a
+    ///     mean of 0.87 EV;
+    ///   · the outer tenth of the radius, which is where the eye reads "the corners",
+    ///     carries 6.86% of the burn (2.80% at feather 100). The burn stops deepening
+    ///     exactly where a vignette should be deepest.
+    ///
+    /// So the shape genuinely is soft at both ends. It is kept anyway, because the
+    /// alternatives were measured and every one of them makes the vignette WEAKER,
+    /// which is the opposite of what was asked for. Frame mean at inner = 0.375, and at
+    /// inner = 0 (feather 100), for shapes that all satisfy f(0)=0, f(1)=1 and monotone:
+    ///
+    ///       shape                 mean @0.375   mean @0     outer tenth @0.375
+    ///       3t²−2t³ (this one)      0.2916       0.5565           0.069
+    ///       t²                      0.1612       0.3333           0.294
+    ///       t^1.5                   0.2188       0.4197           0.230
+    ///       5t²−8t³+4t⁴             0.2882       0.5150           0.222
+    ///       (3t²−2t³)^0.7           0.3636       0.6428           0.049
+    ///
+    /// The trade is forced, not incidental: with the support fixed at [inner, 1] and the
+    /// corner pinned at exactly the stated Amount, any shape that arrives at r = 1 with a
+    /// live slope is below the Hermite EVERYWHERE — for the cubic family with f'(1) = s
+    /// the difference is exactly s·t²(1−t) ≥ 0. Buying a live corner costs 20–45% of the
+    /// delivered strength, and `t²` cannot reach the Hermite's frame mean even with the
+    /// falloff started at the picture's centre (0.3333 against 0.5565). Trading intensity
+    /// for corner gradient is the wrong direction for a photographer who says the
+    /// vignette is not strong enough, so the shape stays and the RANGE moved instead
+    /// (`vignetteAmountRange`).
+    ///
+    /// What this does mean, and what the Amount row's help now says out loud, is that
+    /// the number on the slider is a CORNER number: the frame receives a fraction of it,
+    /// and that fraction is what Feather sets — 0.041 of the Amount at feather 0, 0.292
+    /// at 50, 0.557 at 100. Feather is the strength control and Amount is its ceiling.
+    /// `VignetteResponseTests` pins every number above.
+    public static func vignetteFalloff(radius: Double, inner: Double) -> Double {
+        Num.smoothstep(inner, 1.0, radius)
+    }
+
+    /// The Amount clamp, named once so the GPU kernel's call site cannot pick a
+    /// different pair — it already had to be told this once (docs/31 round two §15: the
+    /// kernel took the raw value and rendered a deeper corner than the reference for any
+    /// out-of-range recipe).
+    ///
+    /// −4.00 … +2.00 EV, WIDENED FROM −3.00 … +1.00, and the widening is docs/32 Stream E
+    /// item 4(c) — "reassess strength range only after banding is fixed" — coming due,
+    /// against the owner's report that the vignette "is a little bit soft at both ends".
+    ///
+    /// It is soft at both ends because the control STOPS while it is still working, and
+    /// that is a measurement rather than a judgement. Swept on a flat 0.18 frame through
+    /// the whole reference pipeline, in sRGB code values at the display (the unit
+    /// `ProofMetrics` insists on, because a scene-referred delta says nothing about what
+    /// the eye gets), the mean separation the last 0.2 EV of travel buys:
+    ///
+    ///       ev      −0.2   −1.0   −2.0   −3.0   −4.0   −5.0   −6.0
+    ///       Δmean   2.40   2.80   2.17   1.75   1.39   1.09   0.87
+    ///       Δpeak   8.39  10.46   5.15   4.21   1.42   0.82   0.42
+    ///
+    ///       ev      +0.2   +1.0   +2.0   +3.0
+    ///       Δmean   3.59   2.91   2.52   2.13
+    ///       Δpeak  11.99   9.30   6.82   4.91
+    ///
+    /// At the OLD floor of −3 the control was still delivering 1.75 code values per 0.2 EV
+    /// — 73% of its rate at zero — and at the old ceiling of +1 it was delivering 2.91,
+    /// 81% of its rate at zero and the steepest live end of the whole control. Neither
+    /// end had run out of effect; the travel had run out of range. The cumulative mean
+    /// separation over the frame goes 35.05 code values at −3 → 42.67 at −4 (+22%), and
+    /// 16.02 at +1 → 29.41 at +2 (+84%). That is the "soft at both ends" the owner
+    /// reported, and it is the only part of the amount axis that was wrong.
+    ///
+    /// Why it stops HERE and not further out, both ends measured rather than chosen:
+    ///
+    ///   · −4.00 is where a step of travel stops paying for itself. The peak separation
+    ///     per 0.2 EV falls 4.21 → 1.42 across the fourth stop and 1.42 → 0.82 across the
+    ///     fifth; a step worth under a code value is a step nobody can see, and docs/20's
+    ///     P2 calls a control that still moves and no longer shows "dead". The corner
+    ///     lands at 2⁻⁴ = 6.25% of its own value, which is a burn, not a hole.
+    ///   · +2.00 is where the corner would start CLIPPING on a correctly exposed frame.
+    ///     Mid-grey is 0.18 scene-linear, so +2 EV puts a corner at 0.72 — inside display
+    ///     white — and +3 EV puts it at 1.44, which is white with the picture in it gone.
+    ///     The measured peak at +3 (116.8 code values against +2's 89.5) is that clip,
+    ///     not an effect.
+    ///
+    /// WHAT THIS DELIBERATELY DOES NOT CHANGE, because the same sweep exonerated it: the
+    /// amount MAPPING. The response is strictly monotone over 401 settings (worst
+    /// reversal 0.0 code values), it reaches its stated extreme exactly at the corner
+    /// (measured gain 0.12521 against 2⁻³ = 0.125, and 1.99886 against 2⁺¹ = 2), and in
+    /// display code values its increments across the negative half run 2.40 → 2.90 →
+    /// 1.75, a spread of 1.7:1. A control whose worst and best steps are within 1.7:1 is
+    /// not "flat at the ends", and re-denominating this axis away from EV would cost the
+    /// property the whole feature is built on — that −0.7 EV means the same burn on every
+    /// exposure.
+    ///
+    /// Every recipe ever written is inside the old range, so widening the clamp cannot
+    /// change one pixel of one existing photograph. That is the whole reason this is the
+    /// fix and a change to the falloff SHAPE is not — see `vignetteFalloff`.
+    public static let vignetteAmountRange: ClosedRange<Double> = -4.0...2.0
+
     public static func vignette(_ image: ImageBuffer, ev: Double,
                                 feather: Double = Look.vignetteFeatherDefault)
         -> ImageBuffer {
-        let amount = Num.clamp(ev, -3.0, 1.0)
+        let amount = Num.clamp(ev, vignetteAmountRange.lowerBound,
+                               vignetteAmountRange.upperBound)
         guard amount != 0 else { return image }
         let w = image.width
         let h = image.height
@@ -667,14 +774,26 @@ public struct DetailEngine: Sendable {
         // Feather from the recipe, defaulted to the geometry the engine always had.
         let protection = DetailEngine.vignetteHighlightProtection
         let inner = DetailEngine.vignetteInnerRadius(feather: feather)
-        let outer = 1.0
+        // The outer edge is the frame CORNER, r = 1, at every feather — it is baked into
+        // `vignetteFalloff` rather than carried as a local, which is what lets the GPU
+        // kernel keep describing the geometry with the single scalar `1 − inner`.
         // Default scene white is mid-grey + 5 stops (ToneEngine.defaultWhiteAnchorEV).
         let highlightThreshold = 0.18 * pow(2.0, 5.0) / 2.0
 
         let halfW = Double(w) * 0.5
         let halfH = Double(h) * 0.5
-        // Normalize so the frame corner sits at r = 1 regardless of aspect: Roundness 0 is
-        // the ellipse inscribed in the crop rectangle.
+        // Normalize per axis, then scale so the frame CORNER sits at r = 1 regardless of
+        // aspect — which is what makes "−1 EV" a statement about the corner and what
+        // keeps the falloff's level sets elliptical on the crop's own proportions
+        // (docs/06's Roundness 0).
+        //
+        // The comment here used to call r = 1 "the ellipse INSCRIBED in the crop
+        // rectangle", and it is the circumscribed one: with u and v each spanning ±1,
+        // r = 1 is u² + v² = 2, the ellipse through the four corners. The inscribed one
+        // — the one that touches the edge midpoints — sits at r = 0.7071, where the
+        // default feather delivers 0.547 of the Amount. The distinction is the whole of
+        // why the stated EV lands on 3.15% of a 3:2 frame (see `vignetteFalloff`), so a
+        // note naming the wrong ellipse was hiding the audit's own finding.
         let norm = 1.0 / (2.0 as Double).squareRoot()
 
         var out = image
@@ -683,7 +802,9 @@ public struct DetailEngine: Sendable {
             for x in 0..<w {
                 let u = (Double(x) + 0.5 - halfW) / Swift.max(halfW, 1e-6)
                 let r = (u * u + v * v).squareRoot() * norm
-                let falloff = Num.smoothstep(inner, outer, r)
+                // Through the named function, so the shape has one definition and the
+                // GPU kernel's comment has something to point at.
+                let falloff = DetailEngine.vignetteFalloff(radius: r, inner: inner)
                 if falloff <= 0 { continue }
                 let c = image[x, y]
                 let lum = space.luminance(c)

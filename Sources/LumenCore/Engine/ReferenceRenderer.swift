@@ -138,8 +138,14 @@ public enum ReferenceRenderer {
         }
 
         // Grain lives inside picture formation, in the density domain.
-        if let film = plan.filmChain, film.grainAmount > 0 {
-            image = applyGrain(image, film: film, seed: inputs.grainSeed,
+        //
+        // Off `plan.grain` rather than off `plan.filmChain`: the plan answers "is there
+        // grain here, and what is it" once, so this stage does not have to know that a
+        // photograph can now be grained without an emulsion (`GrainPlan`). For a film
+        // recipe the four numbers are the four this line used to read off the chain, so
+        // the change is byte-identical there by construction.
+        if let grain = plan.grain, grain.amount > 0 {
+            image = applyGrain(image, grain: grain, seed: inputs.grainSeed,
                                longEdge: longEdge)
         }
 
@@ -430,9 +436,25 @@ public enum ReferenceRenderer {
         return out
     }
 
+    /// The film path's spelling, delegating. Kept because `FilmChain` is what the
+    /// goldens hold and what `PipelineRenderer` passes: a test that had to assemble a
+    /// `GrainPlan` in order to ask a question about an emulsion would be measuring the
+    /// plan rather than the stock. One implementation, two front doors.
     static func applyGrain(_ image: ImageBuffer, film: FilmChain, seed: UInt64,
                            longEdge: Int) -> ImageBuffer {
-        let plateSize = 128
+        applyGrain(image, grain: GrainPlan.film(film), seed: seed, longEdge: longEdge)
+    }
+
+    /// The density-domain grain stage, for whichever grain the plan resolved.
+    ///
+    /// Unchanged in every arithmetic detail from the version that took a `FilmChain`;
+    /// what moved is where the four scalars come from. A creative grain differs from a
+    /// stock's only in the profile it was built from — a 35 mm gate, a pitch off the Size
+    /// slider, a flat Dmax and a plate persistence off Roughness — so there is one grain
+    /// implementation on this path and there always was.
+    static func applyGrain(_ image: ImageBuffer, grain: GrainPlan, seed: UInt64,
+                           longEdge: Int) -> ImageBuffer {
+        let plateSize = GrainPlan.plateSize
         // One plate per emulsion layer, at that layer's own crystal size.
         //
         // The amplitude envelope √(p(1−p)) was already per-channel, but a single noise
@@ -444,19 +466,19 @@ public enum ReferenceRenderer {
         //
         // `plateSeed(channel:)` collapses to one seed on a monochrome stock, so Tri-X
         // keeps a single field and cannot acquire coloured speckle.
-        let plates = (0..<3).map {
-            FilmGrainProfile.plate(size: plateSize,
-                                   seed: film.grain.plateSeed(channel: $0, base: seed),
-                                   sigma: 1.0)
-        }
+        //
+        // Through `GrainPlan.plate` rather than `FilmGrainProfile.plate`, because the
+        // plate's PERSISTENCE now lives on the profile and a caller that assembled the
+        // arguments itself would have had to remember to pass it — which is precisely
+        // how the GPU plate ended up with a different seed from this one, back when both
+        // spelled the seed themselves.
+        let plates = (0..<3).map { grain.plate(channel: $0, size: plateSize, seed: seed) }
         let scales = (0..<3).map {
-            Swift.max(film.grain.plateScale(longEdgePixels: longEdge,
-                                            printSizeInches: film.printLongEdgeInches,
-                                            channel: $0), 0.5)
+            grain.plateScale(longEdgePixels: longEdge, channel: $0)
         }
         var out = image
-        let dmax = Swift.max(film.grainDMax, 0.1)
-        let amount = film.grainAmount
+        let dmax = Swift.max(grain.dMax, 0.1)
+        let amount = grain.amount
         for y in 0..<image.height {
             for x in 0..<image.width {
                 let c = image[x, y]

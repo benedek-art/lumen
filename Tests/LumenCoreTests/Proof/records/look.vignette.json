@@ -1,14 +1,14 @@
 {
-  "authority" : 121.22888107805639,
+  "authority" : 167.6625914083818,
   "deadSteps" : 0,
   "frame" : "neutralRamp",
-  "frontLoading" : 0.641458388801117,
+  "frontLoading" : 0.7242502101966186,
   "givenBack" : 0,
   "id" : "look.vignette",
   "isMonotone" : true,
-  "meanSeparation" : 15.983803930426369,
+  "meanSeparation" : 24.08300112327629,
   "panel" : "Effects",
-  "smallestLiveStep" : 6.0852997979845185,
-  "travelHigh" : 1,
-  "travelLow" : -3
+  "smallestLiveStep" : 8.667869082059084,
+  "travelHigh" : 2,
+  "travelLow" : -4
 }

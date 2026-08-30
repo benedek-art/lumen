@@ -50,6 +50,11 @@ final class SavedLookTests: XCTestCase {
             bw: BlackAndWhite(bands: [10, -20, 30, -40, 5, 15, -25, 35], enabled: false),
             vignette: -0.8,
             vignetteFeather: 72,
+            // The creative grain, set to something no default could be mistaken for.
+            // It travels for the same reason the vignette does: it is an expression of
+            // intent about a set of frames, and a saved look that dropped it would apply
+            // a different picture than it saved.
+            grain: CreativeGrain(amount: 38, size: 64, roughness: 22),
             render: RenderParams(preset: "Punchy", contrast: 1.4, skew: -0.2,
                                  huePreservation: 65, blackTarget: 2.5, whiteTarget: 90),
             lut: LUTReference(ref: "blob:xxh64:9f2adc41", name: "Kodachrome 64",
