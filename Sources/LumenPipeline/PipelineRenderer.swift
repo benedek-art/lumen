@@ -455,7 +455,12 @@ public final class PipelineRenderer {
         let fullExtent = image.extent
         var rasterRect = fullExtent
         var deliveredUnit: CGRect?
-        if let region, fullExtent.width >= 1, fullExtent.height >= 1 {
+        // `isFinite` as well as non-degenerate: a Core Image extent can be infinite
+        // (a generator that has not been cropped), and the arithmetic below would turn
+        // that into a NaN rect rather than into the whole-frame render it should be.
+        if let region, fullExtent.isFinite,
+           fullExtent.width >= 1, fullExtent.height >= 1,
+           region.width > 0, region.height > 0 {
             let asked = CGRect(
                 x: fullExtent.minX + region.minX * fullExtent.width,
                 y: fullExtent.minY + (1 - region.maxY) * fullExtent.height,
@@ -482,9 +487,16 @@ public final class PipelineRenderer {
         guard let cgImage else {
             throw RenderError.renderFailed
         }
+        // The full frame's extent when it is a usable one, else the pixels actually
+        // delivered — which for any nil-region render IS the full frame. The viewer
+        // denominates its whole geometry against this, so it must never be an
+        // infinity that came from an uncropped generator.
+        let fullPixelSize: CGSize = fullExtent.isFinite
+            && fullExtent.width >= 1 && fullExtent.height >= 1
+            ? CGSize(width: fullExtent.width, height: fullExtent.height)
+            : CGSize(width: cgImage.width, height: cgImage.height)
         return PreviewDelivery(image: cgImage, regionUnit: deliveredUnit,
-                               fullPixelSize: CGSize(width: fullExtent.width,
-                                                     height: fullExtent.height))
+                               fullPixelSize: fullPixelSize)
     }
 
     // MARK: - Export

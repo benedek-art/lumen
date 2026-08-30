@@ -1961,9 +1961,19 @@ struct LoupeView: View {
     private func effectiveRenderedLongEdge(_ cg: CGImage) -> Int {
         let long = Swift.max(cg.width, cg.height)
         guard let region = model.regionUnit else { return long }
-        let fraction = Double(cg.width >= cg.height ? region.width : region.height)
-        guard fraction > 0 else { return long }
-        return Int((Double(long) / fraction).rounded())
+        // BOTH axes, and the larger answer — not "the region image's long edge over
+        // its own fraction". A region has its own aspect: a tall strip of a landscape
+        // frame is a portrait image, so picking the axis by the IMAGE's orientation
+        // reconstructs the frame's SHORT edge and badges a native-sharp inspection
+        // PROXY. Each axis independently reconstructs the full frame's extent on that
+        // axis; the frame's long edge is the larger of the two.
+        var estimate = 0.0
+        if region.width > 0 { estimate = Double(cg.width) / Double(region.width) }
+        if region.height > 0 {
+            estimate = Swift.max(estimate, Double(cg.height) / Double(region.height))
+        }
+        guard estimate.isFinite, estimate > 0 else { return long }
+        return Int(estimate.rounded())
     }
 
     // MARK: Readout
