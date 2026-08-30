@@ -1169,6 +1169,14 @@ struct LoupeView: View {
                 // signal `DecodeWarming` is gated on — no timer guesses at it. A task
                 // that was superseded never gets here, which is exactly the paging case
                 // that must not warm.
+                // The settled frame feeds the instruments before it warms a neighbour:
+                // the scopes used to render their own 512 px proxy, which was a second
+                // full read of the RAW per photograph and a second occupant of the
+                // render actor (docs/34). Measuring what is on screen is cheaper and
+                // describes the picture the photographer is actually looking at.
+                if let cg = model.image, !model.isDraft, model.imageURL == photo.id {
+                    state.measureScopes(fromViewerFrame: cg, url: photo.id)
+                }
                 await warmNextPhoto(longEdge: longEdge)
             }
             .task(id: BeforeKey(url: photo.id, recipe: beforeRecipe,

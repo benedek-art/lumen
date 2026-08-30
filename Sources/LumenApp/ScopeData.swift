@@ -39,12 +39,64 @@ extension AppState {
     static let scopeDebounce: Duration = .milliseconds(180)
     static let scopeProxyLongEdge: Int = 512
 
+    /// Measure the scopes off the frame the viewer already has.
+    ///
+    /// This is the fast path and, once the loupe is showing a photograph, the only one.
+    /// It costs a downsample and some binning — no decode, no render, and no time on the
+    /// serial render actor, which is what the proxy path was really spending.
+    ///
+    /// It also makes the instrument more truthful, which is the part worth arguing
+    /// rather than asserting. The proxy was a SEPARATE render at 512 px: the same recipe
+    /// through the same graph, but at a scale where every local operator — clarity,
+    /// texture, the sharpening mask — behaves differently from the frame on screen. The
+    /// histogram therefore described a picture nobody was looking at, and could disagree
+    /// with the pixel under the readout. Measuring the delivered frame cannot.
+    ///
+    /// Bumping the generation is what stands the pending proxy task down: it is already
+    /// gated on `scopeGeneration`, so a frame arriving before its debounce expires
+    /// cancels it for free.
+    @MainActor
+    func measureScopes(fromViewerFrame image: CGImage, url: URL) {
+        guard showHistogram || showScopes else { return }
+        guard primarySelection?.id == url else { return }
+        scopeGeneration &+= 1
+        let generation = scopeGeneration
+        let wantsScopes = showScopes
+        Task { [weak self] in
+            let data = await Task.detached(priority: .utility) { () -> ScopeData? in
+                guard let buffer = AppState.buffer(
+                    from: image, targetLongEdge: AppState.scopeProxyLongEdge)
+                else { return nil }
+                var measured = AppState.measure(buffer, includeScopes: wantsScopes)
+                if let waveform = measured.waveform {
+                    measured.waveformImage = ScopeRaster.waveform(
+                        waveform, peak: waveform.peak, tint: ScopeTint.neutral)
+                }
+                if let parade = measured.parade {
+                    measured.paradeImages = ScopeRaster.parade(parade)
+                }
+                if let vectorscope = measured.vectorscope {
+                    measured.vectorscopeImage = ScopeRaster.vectorscope(vectorscope)
+                }
+                return measured
+            }.value
+            guard let self, let data, self.scopeGeneration == generation else { return }
+            self.scopes = data
+        }
+    }
+
     func scheduleScopeRefresh() {
         guard showHistogram || showScopes else { return }
         guard let photo = primarySelection else {
             scopes = nil
             return
         }
+        // THE LOUPE FEEDS ITSELF. When a photograph is on screen its settled frame is
+        // both cheaper and more truthful than a proxy rendered beside it
+        // (`measureScopes(fromViewerFrame:)`), so this path is left to the surfaces
+        // that have no frame to offer — the grid, and the moment before the first one
+        // lands.
+        if viewMode == .loupe { return }
         scopeGeneration &+= 1
         let generation = scopeGeneration
         let recipe = recipe(for: photo)
@@ -120,10 +172,33 @@ extension AppState {
 
     /// The rendered proxy arrives as an sRGB-encoded CGImage; linearize it so the
     /// scopes measure light rather than code values.
-    nonisolated static func buffer(from image: CGImage) -> ImageBuffer? {
-        let width = image.width
-        let height = image.height
+    /// `targetLongEdge` downsamples on the way in, so the binner always walks about the
+    /// same number of samples whatever it was handed.
+    ///
+    /// It exists because the scopes stopped rendering their own proxy. They used to ask
+    /// the coordinator for a fresh 512 px render, which — because `DecodeKey` carries
+    /// the scale factor — was a SECOND FULL READ of the RAW for every photograph, on
+    /// top of the one the picture needed. On the owner's offload drive that is about
+    /// 2.4 seconds; on his SD card about 0.65. It also occupied the serial render actor,
+    /// so it could delay the NEXT photograph as well as this one.
+    ///
+    /// Now they measure the frame already on screen. Downsampling it here to the same
+    /// long edge the proxy used keeps the sample count — and therefore the bin
+    /// populations and the clipping percentages — comparable with what the instrument
+    /// reported before, which matters more than the few milliseconds a stride would
+    /// have saved: `CGContext.draw` into a smaller context AVERAGES, exactly as
+    /// rendering at 512 did, where a stride would have sampled and quietly changed
+    /// every number the panel prints.
+    nonisolated static func buffer(from image: CGImage,
+                                   targetLongEdge: Int = 0) -> ImageBuffer? {
+        var width = image.width
+        var height = image.height
         guard width > 0, height > 0 else { return nil }
+        if targetLongEdge > 0, Swift.max(width, height) > targetLongEdge {
+            let k = Double(targetLongEdge) / Double(Swift.max(width, height))
+            width = Swift.max(Int((Double(width) * k).rounded()), 1)
+            height = Swift.max(Int((Double(height) * k).rounded()), 1)
+        }
         var bytes = [UInt8](repeating: 0, count: width * height * 4)
         guard let space = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
         let info = CGImageAlphaInfo.premultipliedLast.rawValue
