@@ -1139,6 +1139,24 @@ final class EngineTests: XCTestCase {
                              OutputSharpen(medium: .glossy, amount: .standard).baseRadius())
     }
 
+    /// The export sheet prints `appliedRadius` and the renderer runs it, so it must be
+    /// `baseRadius` through the renderer's own clamp — inside the bounds they are the
+    /// same number, past them the sheet must claim the clamp and not the formula
+    /// (matte at the Resolution field's typed ceiling of 2400 ppi derives 24 px; the
+    /// renderer runs 12), and Off must stay exactly zero because the renderer skips
+    /// the filter entirely rather than sharpening at the clamp's floor.
+    func testAppliedRadiusIsTheRadiusTheRendererRuns() {
+        let matte = OutputSharpen(medium: .matte, amount: .standard)
+        XCTAssertEqual(matte.appliedRadius(printPPI: 300), matte.baseRadius(printPPI: 300),
+                       accuracy: 1e-12, "inside the clamp nothing changes")
+        XCTAssertEqual(matte.appliedRadius(printPPI: 2_400),
+                       OutputSharpen.appliedRadiusBounds.upperBound,
+                       accuracy: 1e-12,
+                       "past the clamp the readout must claim the clamp")
+        XCTAssertEqual(OutputSharpen().appliedRadius(printPPI: 300), 0,
+                       "Off sharpens nothing, not 0.3 px")
+    }
+
     func testSoftProofFlagsOutOfGamutColours() {
         // A saturated Rec.2020 green is well outside sRGB.
         XCTAssertTrue(SoftProof.isOutOfGamut(RGB(0, 1, 0), working: .rec2020, proof: .srgb))

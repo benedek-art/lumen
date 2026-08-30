@@ -20,6 +20,9 @@
 import AppKit
 import Foundation
 import LumenCore
+// For `PipelineRenderer.canWriteTenBitHEIC` — the bit-depth row must not offer a
+// depth this machine's encoder would then throw on, and only the pipeline can ask.
+import LumenPipeline
 import SwiftUI
 
 // MARK: - Segmented option tables
@@ -44,6 +47,11 @@ private let watermarkPositionOptions: [(value: Watermark.Position, label: String
 
 private let bitDepthOptions: [(value: Int, label: String)] =
     [(value: 8, label: "8-bit"), (value: 16, label: "16-bit")]
+
+/// HEIC's pair: HEVC has a Main 10 profile and nothing deeper, and the row only shows
+/// this control at all when `PipelineRenderer.canWriteTenBitHEIC` probed true.
+private let heifBitDepthOptions: [(value: Int, label: String)] =
+    [(value: 8, label: "8-bit"), (value: 10, label: "10-bit")]
 
 private let mapScaleOptions: [(value: Double, label: String)] =
     [(value: 1.0, label: "Full"), (value: 0.5, label: "Half"),
@@ -165,8 +173,16 @@ struct ExportSheet: View {
         var parts: [String] = [recipe.format.rawValue.uppercased()]
         if recipe.format.supportsQuality {
             parts.append("q\(Int(recipe.quality.rounded()))")
-        } else if recipe.format.supportsSixteenBit {
-            parts.append("\(recipe.bitDepth)-bit")
+        }
+        // `effectiveBitDepth`, never the stored number: `bitDepth` can hold a value
+        // this format cannot write (a 10-bit HEIC recipe switched to TIFF still
+        // stores 10), and a summary claiming "10-bit TIFF" would be the lie the
+        // depth-folding exists to prevent. A 10-bit HEIC is worth a word; an 8-bit
+        // lossy file is the norm and says nothing.
+        if recipe.format.supportsSixteenBit {
+            parts.append("\(recipe.effectiveBitDepth)-bit")
+        } else if recipe.effectiveBitDepth == 10 {
+            parts.append("10-bit")
         }
         parts.append(recipe.colorSpace.displayName)
         if recipe.resizeMode != .none {
@@ -415,18 +431,16 @@ private struct ExportRecipeEditor: View {
             }
             if recipe.format.supportsQuality {
                 LumenSlider(title: "Quality", value: $recipe.quality, range: 0...100,
-                            defaultValue: recipe.format == .heif ? 85 : 90,
-                            step: 1, decimals: 0, bipolar: false)
+                            defaultValue: 100,
+                            step: 1, decimals: 0, bipolar: false,
+                            help: "Encoder quality — 100 by default, because a "
+                                + "delivery should not lose to compression unasked. "
+                                + "The stock web preset stays at 90 deliberately: at "
+                                + "2048 px for screens it reads identically and "
+                                + "roughly halves the file.")
             }
             ExportFieldRow("Bit depth") {
-                if recipe.format.supportsSixteenBit {
-                    LumenSegmented(options: bitDepthOptions, selection: $recipe.bitDepth)
-                        .frame(maxWidth: 140)
-                } else {
-                    Text("8-bit — fixed for \(recipe.format.rawValue.uppercased())")
-                        .font(.system(size: 10))
-                        .foregroundStyle(Lumen.secondaryText)
-                }
+                bitDepthControl
             }
             // NO GLYPHS HERE, deliberately, and `LumenMenu` says why in its own file:
             // a colour space has no shape. sRGB is not rounder than ProPhoto, and a
@@ -448,7 +462,7 @@ private struct ExportRecipeEditor: View {
             // until the ordered dither landed; the second half is still true and still
             // worth saying, because the space picker does not move where the gamut clip
             // happens — soft proofing (⇧S) is what shows you that clip.
-            ExportNote(dither8BitNote
+            ExportNote(depthNote
                        + " Out-of-gamut colour is soft-clipped to Rec.2020 at the "
                        + "display transform and then converted by ColorSync; the space "
                        + "picker does not change where that clip happens. Press ⇧S in "
@@ -457,16 +471,67 @@ private struct ExportRecipeEditor: View {
         }
     }
 
+    /// The bit-depth row, one honest branch per format (docs/32 Stream G item 2a).
+    ///
+    /// TIFF/PNG choose 8 or 16. HEIC chooses 8 or 10 — but only on a machine whose
+    /// encoder accepted the one-time Main-10 probe; where it declined, the row SAYS
+    /// it declined rather than offering a segment the export would throw on. JPEG
+    /// states its own limit in words: 8-bit is the format, not a Lumen decision.
+    @ViewBuilder
+    private var bitDepthControl: some View {
+        if recipe.format.supportsSixteenBit {
+            LumenSegmented(options: bitDepthOptions, selection: sixteenBitDepthBinding)
+                .frame(maxWidth: 140)
+        } else if recipe.format.supportsTenBit, PipelineRenderer.canWriteTenBitHEIC {
+            LumenSegmented(options: heifBitDepthOptions, selection: tenBitDepthBinding)
+                .frame(maxWidth: 140)
+        } else if recipe.format.supportsTenBit {
+            Text("8-bit — this Mac's HEVC encoder declined a 10-bit probe")
+                .font(.system(size: 10))
+                .foregroundStyle(Lumen.secondaryText)
+        } else {
+            Text("8-bit — all the JPEG format can carry; the dither below is what "
+                 + "stands between an 8-bit sky and banding")
+                .font(.system(size: 10))
+                .foregroundStyle(Lumen.secondaryText)
+        }
+    }
+
+    /// The stored `bitDepth` can hold a value the current format cannot write (switch
+    /// a 10-bit HEIC recipe to TIFF and 10 is still stored). These write the tapped
+    /// value straight through but READ through the same folding `effectiveBitDepth`
+    /// applies, so the selected segment is always the depth the encoder will use and
+    /// never an unselectable orphan number.
+    private var sixteenBitDepthBinding: Binding<Int> {
+        let recipe = self.$recipe
+        return Binding(get: { recipe.wrappedValue.bitDepth >= 16 ? 16 : 8 },
+                       set: { recipe.wrappedValue.bitDepth = $0 })
+    }
+
+    private var tenBitDepthBinding: Binding<Int> {
+        let recipe = self.$recipe
+        return Binding(get: { recipe.wrappedValue.bitDepth >= 10 ? 10 : 8 },
+                       set: { recipe.wrappedValue.bitDepth = $0 })
+    }
+
     /// Says what the encode actually does with the depth this recipe will use — which
-    /// is not always the depth the field holds, since JPEG and HEIF are 8-bit whatever
-    /// it says.
-    private var dither8BitNote: String {
-        recipe.effectiveBitDepth >= 16
-            ? "16-bit encodes carry codes 257× finer than an 8-bit one, so they are "
-                + "written straight through with no dithering."
-            : "8-bit encodes are dithered with an ordered 8×8 pattern of at most half "
-                + "an output code, measured against this space's own transfer curve, "
-                + "so a long smooth gradient keeps its local mean instead of banding."
+    /// is not always the depth the field holds, since `effectiveBitDepth` folds the
+    /// stored number to what the format can carry.
+    private var depthNote: String {
+        switch recipe.effectiveBitDepth {
+        case 16:
+            return "16-bit encodes carry codes 257× finer than an 8-bit one, so they "
+                + "are written straight through with no dithering."
+        case 10:
+            return "10-bit HEIC carries four times the codes of an 8-bit file — "
+                + "headroom that keeps a long sky gradient from stepping — and is "
+                + "still dithered, at its own four-times-finer code width."
+        default:
+            return "8-bit encodes are dithered with an ordered 8×8 pattern of at most "
+                + "half an output code, measured against this space's own transfer "
+                + "curve, so a long smooth gradient keeps its local mean instead of "
+                + "banding."
+        }
     }
 
     // MARK: Size
@@ -501,6 +566,14 @@ private struct ExportRecipeEditor: View {
                                 }),
                             help: "Which measurement of the picture the number below "
                                 + "sets")
+            if recipe.resizeMode == .none {
+                // True since the docs/31 round one §11 fix and worth a sentence
+                // BECAUSE it used to be false: the old tail resampled every cropped
+                // or straightened photograph at ~0.9999× under this very setting.
+                ExportNote("Don't resize means the resampler does not run: the "
+                           + "delivery is the cropped frame's own pixels, not a "
+                           + "1.0× resample of them.")
+            }
             if recipe.resizeMode == .megapixels {
                 LumenSlider(title: "Megapixels", value: $recipe.resizeValue,
                             range: 0.5...100, hardRange: 0.1...500, defaultValue: 24,
@@ -553,14 +626,29 @@ private struct ExportRecipeEditor: View {
         }
     }
 
+    /// The radius printed is `appliedRadius` — the formula's answer through the SAME
+    /// clamp the renderer runs (0.3…12 px, shared as `OutputSharpen.appliedRadiusBounds`)
+    /// — so a matte print at a typed-in 2400 ppi reads the 12 px that will be applied,
+    /// not the 24 the formula derives. And the ppi clause only appears for the print
+    /// media: Screen's radius is the display's own sampling width and does not move
+    /// with Resolution, so naming a ppi there would claim a dependency that is not
+    /// in the arithmetic. Both radii are in DELIVERED pixels — the sharpen runs after
+    /// the resize.
     private var sharpenExplanation: String {
         if recipe.sharpen.isIdentity {
             return "Off — for files headed to further retouching."
         }
-        return String(format: "Halo radius %.2f px at %.0f ppi, energy %.2f. Medium × amount "
-                      + "is the whole surface — no radius slider, by design.",
-                      recipe.sharpen.baseRadius(printPPI: recipe.resolutionPPI),
-                      recipe.resolutionPPI, recipe.sharpen.energy())
+        let radius = recipe.sharpen.appliedRadius(printPPI: recipe.resolutionPPI)
+        let tail = "Medium × amount is the whole surface — no radius slider, by design."
+        if recipe.sharpen.medium == .screen {
+            return String(format: "Halo radius %.2f px of the delivered pixels — a "
+                          + "screen's own sampling width, unmoved by Resolution — "
+                          + "energy %.2f. " + tail,
+                          radius, recipe.sharpen.energy())
+        }
+        return String(format: "Halo radius %.2f px of the delivered pixels at %.0f "
+                      + "ppi, energy %.2f. " + tail,
+                      radius, recipe.resolutionPPI, recipe.sharpen.energy())
     }
 
     // MARK: Naming
@@ -620,8 +708,9 @@ private struct ExportRecipeEditor: View {
             LumenToggleRow(title: "Strip GPS", isOn: invertedFlag(\.metadata.includeGPS),
                            help: "Client-safe by default, independent of everything else here.")
             LumenToggleRow(title: "EXIF", isOn: $recipe.metadata.includeEXIF,
-                           help: "Camera, lens, exposure. Off removes them; on keeps "
-                               + "whatever the decode carried, which is not a promise "
+                           help: "Camera, lens, exposure — read from the original "
+                               + "file, not the render. Off removes them; on keeps "
+                               + "what the original carried, which is not a promise "
                                + "that every field is present.")
             LumenToggleRow(title: "Camera serial", isOn: $recipe.metadata.includeCameraSerial,
                            help: "Off by default — a serial number identifies the body "
@@ -641,18 +730,23 @@ private struct ExportRecipeEditor: View {
             // The switches above REMOVE metadata, and that is reliable whichever way
             // Core Image treats the property dictionary: either the encoder honours it
             // and the keys are gone, or it ignores it and they were never going to be
-            // written. Copyright and Contact are now ADDED — the note used to say they
-            // were not written at all, which stopped being true when
-            // `applyMetadataPolicy` gained the `put` calls — but the additive direction
-            // is only sound under one of those two readings, and nobody has opened a
-            // delivered file on a Mac and checked. Telling the user it is written and
-            // unconfirmed is the only caption that is true today; promising it outright
-            // would be a guess wearing a fact's clothes, and saying nothing at all would
-            // hand a photographer a client delivery they believe is protected.
-            ExportNote("These switches remove metadata, which is reliable. Copyright "
-                       + "and Contact are written into the file — not yet verified by "
+            // written. Since the source-dictionary fix (docs/31 round one §13), the
+            // policy's base is the ORIGINAL file's properties read through ImageIO —
+            // so "EXIF: on" now has real camera data to keep, and the delivery's
+            // orientation and pixel dimensions are rewritten to match the rendered
+            // pixels. But everything the file is meant to CARRY — the kept EXIF, the
+            // added Copyright, Contact and DPI — rides the same `settingProperties`
+            // seam, and nobody has opened a delivered file on a Mac and read it back.
+            // Telling the user it is written and unconfirmed is the only caption that
+            // is true today; promising it outright would be a guess wearing a fact's
+            // clothes, and saying nothing at all would hand a photographer a client
+            // delivery they believe is protected.
+            ExportNote("The switches that remove metadata are reliable. What the file "
+                       + "keeps and gains — camera data with EXIF on, Copyright, "
+                       + "Contact, the DPI — is written but not yet verified by "
                        + "reading a delivered file back, so check one before you rely "
-                       + "on it.")
+                       + "on it. Size and orientation are corrected to the delivered "
+                       + "pixels either way.")
         }
     }
 
@@ -684,7 +778,10 @@ private struct ExportRecipeEditor: View {
                 ExportNote("Drawn into the exported pixels, not into the metadata — an "
                            + "exported file carries the mark wherever it goes, and the "
                            + "original is untouched. Size is a percentage of the long "
-                           + "edge, so one setting looks the same on every crop.")
+                           + "edge, so one setting looks the same on every crop; a "
+                           + "mark too wide for its frame is shrunk to fit rather "
+                           + "than cropped, and the file is always the size the Size "
+                           + "section promised.")
             }
         }
     }

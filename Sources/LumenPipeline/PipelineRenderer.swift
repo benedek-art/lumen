@@ -536,8 +536,14 @@ public final class PipelineRenderer {
             // orientation and crop, no scale — so it IS the `.none` delivery.
             image = cropped
         } else {
-            let target = exportRecipe.targetSize(sourceWidth: Int(extent.width),
-                                                 sourceHeight: Int(extent.height))
+            // The UN-TRUNCATED crop extent (docs/32 Stream G item 3, the `.none`
+            // fix's sibling): `Int(extent.width)` truncated a fractional crop
+            // extent before the scale was derived from it, which near a rounding
+            // boundary promised a short edge one pixel off the size the resample
+            // below actually delivers. `targetSize(Double, Double)` rounds from
+            // the extent exactly as this function holds it.
+            let target = exportRecipe.targetSize(sourceWidth: Double(extent.width),
+                                                 sourceHeight: Double(extent.height))
             image = Self.applyGeometry(image, recipe: recipe,
                                        scaleTo: Swift.max(target.width, target.height),
                                        allowUpscale: exportRecipe.allowUpscale)
@@ -629,8 +635,10 @@ public final class PipelineRenderer {
               extent.width.isFinite, extent.height.isFinite else { return image }
 
         let transfer = colorSpace.transfer
+        let levels = Dither.levels(bitDepth: bitDepth)
         guard let plate = Self.ditherPlate(extent: extent),
-              let steps = ColorCube.filter(DitherStepCube.forTransfer(transfer),
+              let steps = ColorCube.filter(DitherStepCube.forTransfer(transfer,
+                                                                      levels: levels),
                                            image: image),
               let offsets = KernelLibrary.apply(KernelLibrary.multiply, extent: extent,
                                                 [plate, steps])
@@ -901,10 +909,27 @@ public final class PipelineRenderer {
                                                     colorSpace: colorSpace,
                                                     options: options)
             case .heif:
-                try context.writeHEIFRepresentation(of: prepared, to: destination,
-                                                    format: .RGBA8,
-                                                    colorSpace: colorSpace,
-                                                    options: options)
+                // 10-bit through `writeHEIF10Representation` (HEVC Main 10, the
+                // format's answer to an 8-bit sky banding; docs/32 Stream G item 2).
+                // No format parameter — the 10-bit call takes none; depth is the call.
+                //
+                // NO SILENT FALLBACK, deliberately. On a machine whose encoder cannot
+                // do Main 10, this throws and the export FAILS with the destination
+                // named, because a file quietly written at 8 bits when the recipe says
+                // 10 is the exact class of lie this codebase keeps having to dig out.
+                // The sheet only offers the 10-bit option when `canWriteTenBitHEIC`
+                // probed true, so the failing path is a recipe carried over from
+                // another machine — rare, and worth a loud error over a wrong file.
+                if recipe.effectiveBitDepth >= 10 {
+                    try context.writeHEIF10Representation(of: prepared, to: destination,
+                                                          colorSpace: colorSpace,
+                                                          options: options)
+                } else {
+                    try context.writeHEIFRepresentation(of: prepared, to: destination,
+                                                        format: .RGBA8,
+                                                        colorSpace: colorSpace,
+                                                        options: options)
+                }
             case .png:
                 try context.writePNGRepresentation(
                     of: prepared, to: destination,
@@ -930,6 +955,30 @@ public final class PipelineRenderer {
         case .proPhoto: return CGColorSpace(name: CGColorSpace.rommrgb)
         }
     }
+
+    /// Whether THIS machine can author a 10-bit HEIC — settled by asking it to, once.
+    ///
+    /// The API (`writeHEIF10Representation`/`heif10Representation`, macOS 12+) exists
+    /// at compile time on every OS this app runs on; whether the encoder behind it
+    /// accepts Main 10 is a runtime property of the machine, and the only honest
+    /// answer is a probe, not an assumption — the sheet must not offer a depth the
+    /// export would then throw on. An 8×8 grey patch through the in-memory variant is
+    /// the whole cost, a few milliseconds paid at most once per launch, and only if
+    /// something asks (the bit-depth row of the export sheet is the one reader today).
+    ///
+    /// What the probe proves is "the encoder accepted the request"; that the bytes it
+    /// returns really carry 10 bits per channel is asserted where it can be measured —
+    /// `testTenBitHEICWritesTenDeepOrRefusesLoudly` writes a file through the real
+    /// export path and reads its depth back through ImageIO on the macOS lane.
+    public static let canWriteTenBitHEIC: Bool = {
+        guard let space = CGColorSpace(name: CGColorSpace.displayP3) else { return false }
+        let context = CIContext(options: [.workingFormat: CIFormat.RGBAh])
+        let patch = CIImage(color: CIColor(red: 0.5, green: 0.5, blue: 0.5))
+            .cropped(to: CGRect(x: 0, y: 0, width: 8, height: 8))
+        let encoded = try? context.heif10Representation(of: patch, colorSpace: space,
+                                                        options: [:])
+        return encoded != nil
+    }()
 
     // MARK: - Graph assembly
 
@@ -1742,8 +1791,10 @@ public final class PipelineRenderer {
         guard !sharpen.isIdentity else { return image }
         let filter = CIFilter.unsharpMask()
         filter.inputImage = image.clampedToExtent()
-        filter.radius = Float(Num.clamp(sharpen.baseRadius(printPPI: resolutionPPI),
-                                        0.3, 12))
+        // `appliedRadius` IS the clamp — it lives on `OutputSharpen` so the export
+        // sheet's readout prints this exact number instead of the unclamped formula.
+        // A literal here and a different literal there is how the two would drift.
+        filter.radius = Float(sharpen.appliedRadius(printPPI: resolutionPPI))
         filter.intensity = Float(Num.clamp(sharpen.energy(), 0, 2))
         return filter.outputImage?.cropped(to: image.extent) ?? image
     }
@@ -1967,12 +2018,34 @@ public final class PipelineRenderer {
 /// released as soon as the copy is taken.
 enum DitherStepCube {
 
-    static let srgb = ColorCube.Baked(cube(.srgb))
-    static let gamma22 = ColorCube.Baked(cube(.gamma22))
-    static let gamma18 = ColorCube.Baked(cube(.gamma18))
-    static let rec709 = ColorCube.Baked(cube(.rec709))
+    static let srgb = ColorCube.Baked(cube(.srgb, levels: 256))
+    static let gamma22 = ColorCube.Baked(cube(.gamma22, levels: 256))
+    static let gamma18 = ColorCube.Baked(cube(.gamma18, levels: 256))
+    static let rec709 = ColorCube.Baked(cube(.rec709, levels: 256))
 
-    static func forTransfer(_ transfer: TransferFunction) -> ColorCube.Baked {
+    // The 10-bit set, for HEVC Main-10 HEIC deliveries. Its own `static let`s rather
+    // than a keyed cache for the same reason as the row above: Swift bakes each lazily
+    // on first read, so a session that never writes a 10-bit file never pays for these,
+    // and the preview path (which dithers at 8) keeps the exact tables it had.
+    static let srgb10 = ColorCube.Baked(cube(.srgb, levels: 1_024))
+    static let gamma22At10 = ColorCube.Baked(cube(.gamma22, levels: 1_024))
+    static let gamma18At10 = ColorCube.Baked(cube(.gamma18, levels: 1_024))
+    static let rec709At10 = ColorCube.Baked(cube(.rec709, levels: 1_024))
+
+    /// `levels` is `Dither.levels(bitDepth:)` for the depth being encoded — the table
+    /// used to be baked for 256 codes regardless, which was the right amplitude for
+    /// every file Lumen could write until the 10-bit HEIC path landed: on a 1024-code
+    /// encode a 256-code offset is four codes of noise, not the half-code the ordered
+    /// dither is specified to add.
+    static func forTransfer(_ transfer: TransferFunction, levels: Int) -> ColorCube.Baked {
+        if levels >= 1_024 {
+            switch transfer {
+            case .gamma22: return gamma22At10
+            case .gamma18: return gamma18At10
+            case .rec709: return rec709At10
+            default: return srgb10
+            }
+        }
         switch transfer {
         case .gamma22: return gamma22
         case .gamma18: return gamma18
@@ -1981,11 +2054,11 @@ enum DitherStepCube {
         }
     }
 
-    private static func cube(_ transfer: TransferFunction) -> LUT3D {
+    private static func cube(_ transfer: TransferFunction, levels: Int) -> LUT3D {
         LUT3D(size: 64) { value in
-            RGB(Dither.codeStep(value.r, transfer: transfer, levels: 256),
-                Dither.codeStep(value.g, transfer: transfer, levels: 256),
-                Dither.codeStep(value.b, transfer: transfer, levels: 256))
+            RGB(Dither.codeStep(value.r, transfer: transfer, levels: levels),
+                Dither.codeStep(value.g, transfer: transfer, levels: levels),
+                Dither.codeStep(value.b, transfer: transfer, levels: levels))
         }
     }
 }

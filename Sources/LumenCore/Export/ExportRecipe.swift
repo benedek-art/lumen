@@ -40,6 +40,15 @@ public enum ExportFormat: String, Codable, Sendable, CaseIterable {
         self == .tiff || self == .png
     }
 
+    /// HEIC is the one lossy container with a deeper option: HEVC has a Main 10
+    /// profile, and Core Image can author it (`writeHEIF10Representation`, macOS 12+).
+    /// Whether THIS machine's encoder accepts it is a runtime question the pipeline
+    /// probes (`PipelineRenderer.canWriteTenBitHEIC`); this flag is only the format's
+    /// side of the answer. JPEG has no such option — 8-bit is the format.
+    public var supportsTenBit: Bool {
+        self == .heif
+    }
+
     /// Only the two modern container formats can carry a gain map (docs/11 §HDR).
     public var supportsGainMap: Bool {
         self == .heif || self == .jpeg
@@ -167,6 +176,23 @@ public struct OutputSharpen: Codable, Equatable, Sendable {
         }
     }
 
+    /// The bounds `PipelineRenderer.applyOutputSharpen` clamps its radius to. Here,
+    /// beside the formula, so the export sheet's readout and the renderer share one
+    /// number: matte at the Resolution slider's typed-entry ceiling (2400 ppi) derives
+    /// a 24 px radius, the renderer runs 12, and a readout printing the formula's
+    /// answer would be claiming a halo twice as wide as the one delivered.
+    public static let appliedRadiusBounds: ClosedRange<Double> = 0.3...12
+
+    /// The radius the renderer actually runs: `baseRadius` through the shared clamp,
+    /// and exactly zero when the medium is Off — the renderer skips the filter
+    /// entirely then, and a clamp that turned "off" into 0.3 px would undo that.
+    public func appliedRadius(printPPI: Double = 300) -> Double {
+        guard !isIdentity else { return 0 }
+        return Num.clamp(baseRadius(printPPI: printPPI),
+                         Self.appliedRadiusBounds.lowerBound,
+                         Self.appliedRadiusBounds.upperBound)
+    }
+
     /// Sharpening energy — the master amount, and the only amount.
     ///
     /// This used to say that "asymmetric dark:light weighting (dark halos read as
@@ -230,7 +256,12 @@ public struct ExportRecipe: Codable, Equatable, Sendable, Identifiable {
 
     public var format: ExportFormat
     public var quality: Double          // 0…100, JPEG/HEIF only
-    public var bitDepth: Int            // 8 or 16, TIFF/PNG only
+    /// 8 or 16 for TIFF/PNG; 8 or 10 for HEIC; ignored for JPEG, which is 8-bit by
+    /// format. One stored number for every format ON PURPOSE: a new field here would
+    /// have to survive the strict `try?` preset decode (docs/31 carried-forward #2),
+    /// and an Int a given format cannot write is already handled by
+    /// `effectiveBitDepth` folding it to what the encoder will actually do.
+    public var bitDepth: Int
     public var colorSpace: ExportColorSpace
 
     public var resizeMode: ResizeMode
@@ -243,16 +274,24 @@ public struct ExportRecipe: Codable, Equatable, Sendable, Identifiable {
     public var metadata: MetadataPolicy
     public var watermark: Watermark?
 
-    /// Token grammar shared with the ingest renamer: {name} {seq:N} {date} {time}
-    /// {camera} {lens} {iso} {recipe} {ext}.
+    /// Tokens implemented today, by `AppState.renderFilename`: {name} {date} {recipe}
+    /// {ext} — and the sheet's Naming note lists exactly these. This used to claim a
+    /// grammar "shared with the ingest renamer" including {seq:N} {time} {camera}
+    /// {lens} {iso}; the ingest renamer (`RenameTemplate`) is a separate
+    /// implementation with its own token set, and none of those five is read by the
+    /// export path. An unknown token stays visible in the delivered name rather than
+    /// being silently dropped.
     public var filenameTemplate: String
     public var subfolder: String?
 
     /// HDR: emit a gain map alongside the SDR base rendition.
     public var hdr: HDRSettings?
 
+    /// `quality` defaults to 100 (docs/32 Stream G): a delivery should not pay
+    /// compression's price unasked. The one preset that deliberately trades quality
+    /// for web-sized files says so in its own name ("q90").
     public init(id: String = UUID().uuidString, name: String, enabled: Bool = true,
-                format: ExportFormat = .jpeg, quality: Double = 90, bitDepth: Int = 8,
+                format: ExportFormat = .jpeg, quality: Double = 100, bitDepth: Int = 8,
                 colorSpace: ExportColorSpace = .srgb,
                 resizeMode: ResizeMode = .none, resizeValue: Double = 2048,
                 allowUpscale: Bool = false, resolutionPPI: Double = 300,
@@ -282,23 +321,49 @@ public struct ExportRecipe: Codable, Equatable, Sendable, Identifiable {
 
     /// The depth the encoder will actually use.
     ///
-    /// `bitDepth` is only meaningful for the two lossless formats — JPEG and HEIF are
-    /// 8-bit whatever the field says, and the sheet says so — so anything that has to
-    /// reason about the real quantization (the dither, above all) has to ask this rather
-    /// than the stored number.
+    /// The stored `bitDepth` can hold a value the current format cannot write (switch
+    /// a 16-bit TIFF recipe to HEIC and 16 is still stored), so anything that has to
+    /// reason about the real quantization — the dither's amplitude above all — asks
+    /// this rather than the stored number. JPEG is 8 whatever the field says; TIFF and
+    /// PNG fold to 16 or 8; HEIC folds any deeper request to 10, the most its HEVC
+    /// Main-10 profile carries. Whether this machine's encoder ACCEPTS a 10-bit HEIC
+    /// is the pipeline's runtime question (`PipelineRenderer.canWriteTenBitHEIC`) —
+    /// this is the depth the recipe is asking for, and a writer that cannot honour it
+    /// must refuse loudly rather than quietly deliver 8.
     public var effectiveBitDepth: Int {
-        format.supportsSixteenBit && bitDepth >= 16 ? 16 : 8
+        if format.supportsSixteenBit && bitDepth >= 16 { return 16 }
+        if format.supportsTenBit && bitDepth >= 10 { return 10 }
+        return 8
     }
 
     /// Target pixel size for a source of the given dimensions, honouring the
     /// no-upscale rule.
     public func targetSize(sourceWidth: Int, sourceHeight: Int) -> (width: Int, height: Int) {
-        let w = Double(sourceWidth), h = Double(sourceHeight)
-        guard w > 0, h > 0 else { return (sourceWidth, sourceHeight) }
+        targetSize(sourceWidth: Double(sourceWidth), sourceHeight: Double(sourceHeight))
+    }
+
+    /// The same, from the extent EXACTLY as the renderer holds it — fractional after
+    /// any crop or straighten (docs/32 Stream G item 3, handed off by the `.none` fix).
+    ///
+    /// The export path used to truncate the crop extent to `Int` before asking, which
+    /// moved the scale by up to a part in two thousand — enough, near a rounding
+    /// boundary, to promise a short edge one pixel off the size the resampler then
+    /// actually delivers (2000.5 × 1333.5 at long edge 1600 promises 1066 truncated,
+    /// delivers 1067). The target is rounded from the un-truncated extent, so the
+    /// promise and the delivery are the same arithmetic.
+    public func targetSize(sourceWidth: Double,
+                           sourceHeight: Double) -> (width: Int, height: Int) {
+        let w = sourceWidth, h = sourceHeight
+        guard w.isFinite, h.isFinite, w > 0, h > 0 else {
+            // The degenerate answer the Int overload always gave: the source echoed
+            // back, with a non-finite axis folded to zero rather than trapped on.
+            return (Swift.max(Int(w.isFinite ? w.rounded() : 0), 0),
+                    Swift.max(Int(h.isFinite ? h.rounded() : 0), 0))
+        }
         var scale = 1.0
         switch resizeMode {
         case .none:
-            return (sourceWidth, sourceHeight)
+            return (Swift.max(Int(w.rounded()), 1), Swift.max(Int(h.rounded()), 1))
         case .longEdge:
             scale = resizeValue / Swift.max(w, h)
         case .shortEdge:
@@ -312,15 +377,21 @@ public struct ExportRecipe: Codable, Equatable, Sendable, Identifiable {
             scale = (targetPixels / (w * h)).squareRoot()
         }
         if !allowUpscale { scale = Swift.min(scale, 1.0) }
-        guard scale.isFinite, scale > 0 else { return (sourceWidth, sourceHeight) }
+        guard scale.isFinite, scale > 0 else {
+            return (Swift.max(Int(w.rounded()), 1), Swift.max(Int(h.rounded()), 1))
+        }
         return (Swift.max(Int((w * scale).rounded()), 1),
                 Swift.max(Int((h * scale).rounded()), 1))
     }
 
     // MARK: Stock recipes
 
+    /// The one preset that keeps quality below 100, deliberately, and the name says
+    /// so: at 2048 px for screens, q90 reads identically and roughly halves the file
+    /// — the point of a web preset. Every other recipe defaults to 100 (docs/32
+    /// Stream G): a delivery should not lose to compression unasked.
     public static var webJPEG: ExportRecipe {
-        ExportRecipe(name: "Web sRGB 2048", format: .jpeg, quality: 90,
+        ExportRecipe(name: "Web sRGB 2048 q90", format: .jpeg, quality: 90,
                      colorSpace: .srgb, resizeMode: .longEdge, resizeValue: 2048,
                      sharpen: OutputSharpen(medium: .screen, amount: .standard),
                      filenameTemplate: "{name}")
@@ -334,15 +405,15 @@ public struct ExportRecipe: Codable, Equatable, Sendable, Identifiable {
     }
 
     public static var hdrHEIC: ExportRecipe {
-        ExportRecipe(name: "HDR HEIC", enabled: false, format: .heif, quality: 85,
+        ExportRecipe(name: "HDR HEIC", enabled: false, format: .heif, quality: 100,
                      colorSpace: .displayP3, resizeMode: .none,
                      filenameTemplate: "{name}-hdr", subfolder: "hdr",
                      hdr: HDRSettings())
     }
 
     public static var archiveOriginalSize: ExportRecipe {
-        ExportRecipe(name: "Full-size JPEG", enabled: false, format: .jpeg, quality: 95,
-                     colorSpace: .displayP3, resizeMode: .none)
+        ExportRecipe(name: "Full-size JPEG", enabled: false, format: .jpeg,
+                     quality: 100, colorSpace: .displayP3, resizeMode: .none)
     }
 
     public static var defaults: [ExportRecipe] {

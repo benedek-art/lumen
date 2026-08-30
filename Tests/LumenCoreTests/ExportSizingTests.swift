@@ -147,4 +147,124 @@ final class ExportSizingTests: XCTestCase {
             XCTAssertEqual(size.height, Int(h))
         }
     }
+
+    // MARK: The target is rounded from the un-truncated crop extent (docs/32 G3)
+
+    /// Any cropped or straightened photograph has a FRACTIONAL crop extent, and the
+    /// export path used to truncate it to `Int` before asking for the target — moving
+    /// the derived scale by up to a part in two thousand, which near a rounding
+    /// boundary promises a short edge one pixel off what the resampler (whose scale
+    /// comes from the true extent) then delivers. Both pinned cases flip under
+    /// truncation, one in each direction; both were verified red against the
+    /// truncating arithmetic before the fix.
+    func testTheTargetIsRoundedFromTheUnTruncatedCropExtent() {
+        // 1333.5 × (1600 / 2000.5) = 1066.53… → 1067. Truncated first:
+        // 1333 × (1600 / 2000) = 1066.4 → 1066, one short of the delivery.
+        let up = recipe(.longEdge, 1600).targetSize(sourceWidth: 2000.5,
+                                                    sourceHeight: 1333.5)
+        XCTAssertEqual(up.width, 1600)
+        XCTAssertEqual(up.height, 1067,
+                       "the short edge was computed from a truncated extent")
+
+        // And the other direction: 1334.2 × (1600 / 2001.7) = 1066.45… → 1066,
+        // where the truncated extent promises 1067 — one MORE than delivered.
+        let down = recipe(.longEdge, 1600).targetSize(sourceWidth: 2001.7,
+                                                      sourceHeight: 1334.2)
+        XCTAssertEqual(down.width, 1600)
+        XCTAssertEqual(down.height, 1066,
+                       "the short edge was computed from a truncated extent")
+
+        // The general property, on the axis each mode drives and on the derived one:
+        // the promise is round(true extent × the mode's own scale), never a rounded
+        // copy's arithmetic.
+        for (w, h) in [(2000.5, 1333.5), (5999.4, 3999.6), (1365.4, 2048.3)] {
+            for mode in [ResizeMode.longEdge, .shortEdge, .width, .height] {
+                let value = 1500.0
+                let size = recipe(mode, value).targetSize(sourceWidth: w,
+                                                          sourceHeight: h)
+                let axis: Double
+                switch mode {
+                case .longEdge: axis = Swift.max(w, h)
+                case .shortEdge: axis = Swift.min(w, h)
+                case .width: axis = w
+                default: axis = h
+                }
+                let scale = Swift.min(value / axis, 1.0)
+                XCTAssertEqual(size.width, Int((w * scale).rounded()),
+                               "\(mode) on \(w)×\(h)")
+                XCTAssertEqual(size.height, Int((h * scale).rounded()),
+                               "\(mode) on \(w)×\(h)")
+            }
+        }
+
+        // The Int overload is the same arithmetic through a conversion, not a second
+        // implementation that can drift.
+        let viaInt = recipe(.longEdge, 2048).targetSize(sourceWidth: 6000,
+                                                        sourceHeight: 4000)
+        let viaDouble = recipe(.longEdge, 2048).targetSize(sourceWidth: 6000.0,
+                                                           sourceHeight: 4000.0)
+        XCTAssertEqual(viaInt.width, viaDouble.width)
+        XCTAssertEqual(viaInt.height, viaDouble.height)
+
+        // Degenerate doubles stay degenerate, not fatal: the old Int overload echoed
+        // a zero source back, and a non-finite axis must fold rather than trap.
+        let zero = recipe(.longEdge, 2048).targetSize(sourceWidth: 0.0,
+                                                      sourceHeight: 0.0)
+        XCTAssertEqual(zero.width, 0)
+        let nan = recipe(.longEdge, 2048).targetSize(sourceWidth: Double.nan,
+                                                     sourceHeight: 4000.0)
+        XCTAssertEqual(nan.width, 0)
+        XCTAssertEqual(nan.height, 4000)
+    }
+}
+
+/// The recipe's other promises — the ones the sheet's captions repeat (docs/32
+/// Stream G items 1 and 2). Same file as the sizing suite because they are all
+/// claims about what the exported file measures.
+final class ExportRecipeHonestyTests: XCTestCase {
+
+    /// Quality defaults to 100 everywhere a recipe is born: a delivery should not
+    /// pay compression's price unasked.
+    func testQualityDefaultsToOneHundred() {
+        XCTAssertEqual(ExportRecipe(name: "fresh").quality, 100,
+                       "a new recipe must not quietly compress")
+        XCTAssertEqual(ExportRecipe.hdrHEIC.quality, 100)
+        XCTAssertEqual(ExportRecipe.archiveOriginalSize.quality, 100)
+    }
+
+    /// The one stock recipe below 100 is the web preset, deliberately — and its NAME
+    /// carries the number, so the trade is visible in the recipe list without opening
+    /// the editor. If somebody retunes the preset, the name must move with it or this
+    /// stays red.
+    func testTheWebPresetSaysItsOwnQualityOut() {
+        let web = ExportRecipe.webJPEG
+        XCTAssertEqual(web.quality, 90, "the web preset trades quality for size on purpose")
+        XCTAssertTrue(web.name.contains("q90"),
+                      "a preset kept below the 100 default must say so in its name; "
+                          + "it is called \"\(web.name)\"")
+    }
+
+    /// `effectiveBitDepth` is the depth the encoder will use, whatever the stored
+    /// number says: JPEG folds everything to 8, HEIC folds any deeper request to its
+    /// Main-10 ceiling, TIFF/PNG honour 16 — and a stored depth the format cannot
+    /// write (a 10-bit HEIC recipe switched to TIFF) folds instead of leaking into
+    /// the summary line or the dither's amplitude.
+    func testEffectiveBitDepthFoldsToWhatTheFormatCanWrite() {
+        func depth(_ format: ExportFormat, _ stored: Int) -> Int {
+            ExportRecipe(name: "d", format: format, bitDepth: stored).effectiveBitDepth
+        }
+        XCTAssertEqual(depth(.jpeg, 8), 8)
+        XCTAssertEqual(depth(.jpeg, 16), 8, "JPEG is 8-bit by format")
+        XCTAssertEqual(depth(.heif, 8), 8)
+        XCTAssertEqual(depth(.heif, 10), 10)
+        XCTAssertEqual(depth(.heif, 16), 10, "HEVC Main 10 is HEIC's ceiling")
+        XCTAssertEqual(depth(.tiff, 16), 16)
+        XCTAssertEqual(depth(.png, 16), 16)
+        XCTAssertEqual(depth(.tiff, 10), 8,
+                       "TIFF has no 10-bit rung here — a HEIC depth must not leak")
+        XCTAssertTrue(ExportFormat.heif.supportsTenBit)
+        for other in ExportFormat.allCases where other != .heif {
+            XCTAssertFalse(other.supportsTenBit, "\(other)")
+        }
+    }
 }

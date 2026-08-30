@@ -369,6 +369,39 @@ final class GeometryAndOutputTests: XCTestCase {
                              "sRGB's toe against a pure gamma: \(srgb) vs \(adobe)")
     }
 
+    /// The dither's amplitude is denominated in the DELIVERED depth's own code
+    /// (docs/32 Stream G item 2): half an 8-bit code on a 10-bit HEIC encode would be
+    /// two full codes of noise, four times what the encode needs to stop banding.
+    func testDitherAmplitudeIsDenominatedInTheDeliveredDepth() {
+        XCTAssertEqual(Dither.levels(bitDepth: 8), 256)
+        XCTAssertEqual(Dither.levels(bitDepth: 10), 1_024,
+                       "10-bit HEIC dithered at 8-bit amplitude is 4 codes of noise")
+        XCTAssertEqual(Dither.levels(bitDepth: 16), 65_536)
+        XCTAssertTrue(Dither.isWorthwhile(bitDepth: 10),
+                      "1024 codes can still step on a long sky ramp")
+        XCTAssertFalse(Dither.isWorthwhile(bitDepth: 16))
+        // Mid-grey, smooth part of the curve: a 10-bit code is (2⁸−1)/(2¹⁰−1) of an
+        // 8-bit one, and the step function must say so rather than reuse 256.
+        let eight = Dither.codeStep(0.18, transfer: .srgb, levels: 256)
+        let ten = Dither.codeStep(0.18, transfer: .srgb, levels: 1_024)
+        XCTAssertEqual(ten / eight, 255.0 / 1_023.0, accuracy: 0.01,
+                       "a 10-bit code step is not a quarter of an 8-bit one: "
+                           + "\(ten) vs \(eight)")
+    }
+
+    // MARK: - The proof never reaches an export
+
+    /// `PipelineRenderer.exportedImage` builds its `RenderPlan` with no `softProof`
+    /// argument — the audit verified the delivered pixels are proof-free, and this is
+    /// the half of that contract visible from a machine with no renderer: the plan's
+    /// DEFAULT is no proof, which is what makes the export call site's silence mean
+    /// "none" rather than "whatever the viewer had on".
+    func testAPlanBuiltTheWayExportBuildsItCarriesNoProof() {
+        XCTAssertNil(RenderPlan(recipe: Recipe()).softProof,
+                     "a plan built without a softProof argument must carry none — "
+                         + "the export path relies on this default")
+    }
+
     // MARK: - Straighten ruler
 
     /// The ruler's whole job: after it writes an angle, the line that was dragged is
