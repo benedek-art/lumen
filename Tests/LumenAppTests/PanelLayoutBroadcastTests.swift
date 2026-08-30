@@ -100,9 +100,6 @@ final class PanelLayoutBroadcastTests: XCTestCase {
     /// the same publish rather than a second one, because the whole arrangement is one
     /// value.
     func testOpeningASectionAndSoloingItsSiblingIsOnePublish() {
-        // `.presence`, not `.curve`: the app opens in the Simple register and Curve is
-        // not in it, so clicking Curve is correctly a no-op. Using it here asserted the
-        // register's guard by accident and called it a publish count.
         let panel = layout(WorkspaceLayout(workspace: .develop, expanded: [.tone]))
         var publishes = 0
         panel.objectWillChange.sink { _ in publishes += 1 }.store(in: &cancellables)
@@ -135,7 +132,7 @@ final class PanelLayoutBroadcastTests: XCTestCase {
     /// so it would have been easy to make entering masking collapse the accordion —
     /// nothing is drawing it, after all. It must not: the expanded set is the column a
     /// photographer arranged, and leaving masking has to hand it back unchanged rather
-    /// than rebuild it from the register's defaults.
+    /// than rebuild it from the opening defaults.
     func testEnteringMaskingDoesNotDisturbTheAccordion() {
         let panel = layout(WorkspaceLayout(workspace: .develop, expanded: [.tone]))
         panel.setMasking(true)
@@ -189,53 +186,28 @@ final class PanelLayoutBroadcastTests: XCTestCase {
         XCTAssertEqual(panel.layout.expanded, [.tone])
     }
 
-    /// The register is one publish and it changes what is DRAWN, never what applies.
-    /// A hidden section keeps its adjustments — that is `DisclosureRegister`'s contract
-    /// and this asserts the wrapper does not quietly acquire a different one.
-    func testTheRegisterTogglesInOnePublishAndHidesWithoutReverting() {
-        let panel = layout(WorkspaceLayout(workspace: .develop,
-                                           register: .simple,
-                                           expanded: [.tone, .curve]))
+    /// THE REGISTER'S TESTS USED TO SIT HERE, and this is their replacement rather than
+    /// a silent deletion. The Simple/Full register was retired in the fourth pass
+    /// (docs/32, the owner's call), so `toggleRegister` no longer exists to count — the
+    /// property left to pin is the guard that survives it: a click on a section of
+    /// ANOTHER workspace is a caller bug, refused by the model, and a refusal must cost
+    /// zero publishes or the guard itself becomes a broadcast.
+    func testClickingAnotherWorkspacesSectionIsANoOp() {
+        let panel = layout(WorkspaceLayout(workspace: .develop, expanded: [.tone]))
         var publishes = 0
         panel.objectWillChange.sink { _ in publishes += 1 }.store(in: &cancellables)
 
-        panel.toggleRegister()
-
-        XCTAssertEqual(publishes, 1)
-        XCTAssertEqual(panel.layout.register, .full)
-        XCTAssertEqual(panel.layout.expanded, [.tone, .curve],
-                       "changing the register must not silently close anything")
-    }
-
-    /// THE GUARD THAT MADE THE TWO TESTS ABOVE WRONG, asserted deliberately this time.
-    ///
-    /// The app opens in the Simple register, which draws six sections; Curve, Detail and
-    /// Optics are not among them. `WorkspaceLayout.click` refuses a section the register
-    /// is hiding, which is right for a header click — a hidden header cannot be clicked
-    /// — and it silently swallowed my first two tests.
-    func testClickingASectionTheRegisterHidesIsANoOp() {
-        let panel = layout(WorkspaceLayout(workspace: .develop,
-                                           register: .simple,
-                                           expanded: [.tone]))
-        var publishes = 0
-        panel.objectWillChange.sink { _ in publishes += 1 }.store(in: &cancellables)
-
-        panel.click(.curve, keepingOthersOpen: false)
+        panel.click(.grading, keepingOthersOpen: false)
 
         XCTAssertEqual(publishes, 0)
-        XCTAssertFalse(panel.layout.expanded.contains(.curve))
+        XCTAssertFalse(panel.layout.expanded.contains(.grading))
     }
 
-    /// A KEY IS NOT A HEADER CLICK, and this is the distinction that bug taught.
-    ///
-    /// `D` names Detail and `R` names Optics, and neither is in the Simple register the
-    /// app opens in — so routed through `click` both keys did nothing at all. A key that
-    /// does nothing is worse than a key that does not exist: it teaches that the app is
-    /// broken rather than that the feature is missing. `reveal` promotes the register,
-    /// because Simple is a default rather than a mode and the photographer has just
-    /// demonstrated they want what it was hiding.
-    func testAKeyRevealsASectionTheRegisterWasHiding() {
-        let panel = layout(WorkspaceLayout(workspace: .grade, register: .simple))
+    /// A KEY IS NOT A HEADER CLICK. `D` names Detail from anywhere, so `reveal` has to
+    /// change workspace on the way to the section — one value, one publish — where
+    /// `click` would have refused a section that is not the current workspace's.
+    func testAKeyRevealsASectionFromAnotherWorkspace() {
+        let panel = layout(WorkspaceLayout(workspace: .grade))
         var publishes = 0
         panel.objectWillChange.sink { _ in publishes += 1 }.store(in: &cancellables)
 
@@ -244,17 +216,16 @@ final class PanelLayoutBroadcastTests: XCTestCase {
         XCTAssertEqual(publishes, 1, "still one value, still one publish")
         XCTAssertEqual(panel.layout.workspace, .develop,
                        "revealing a section must go to the workspace that owns it")
-        XCTAssertEqual(panel.layout.register, .full)
         XCTAssertTrue(panel.layout.expanded.contains(.detail))
     }
 
-    /// And it does NOT promote when the section was visible all along — a photographer
-    /// who presses B should not silently lose the Simple register they chose.
-    func testRevealingAVisibleSectionLeavesTheRegisterAlone() {
-        let panel = layout(WorkspaceLayout(workspace: .develop, register: .simple))
-        panel.reveal(.tone)
-        XCTAssertEqual(panel.layout.register, .simple)
-        XCTAssertTrue(panel.layout.expanded.contains(.tone))
+    /// And `reveal` is a jump, so it solos: "take me to Detail" means Detail, not
+    /// Detail plus whatever was open.
+    func testRevealSolosTheSectionItNames() {
+        let panel = layout(WorkspaceLayout(workspace: .develop,
+                                           expanded: [.tone, .presence]))
+        panel.reveal(.detail)
+        XCTAssertEqual(panel.layout.expandedSections, [.detail])
     }
 }
 
@@ -282,7 +253,7 @@ extension PanelLayoutBroadcastTests {
     /// Three in a row, because "all of the chevrons at the same time" is the ask and one
     /// extra section is not it.
     func testEverySectionInAWorkspaceCanBeOpenAtOnce() {
-        let panel = layout(WorkspaceLayout(workspace: .develop, register: .full))
+        let panel = layout(WorkspaceLayout(workspace: .develop))
         let sections = Workspace.develop.sections
         for section in sections {
             panel.headerClicked(section, optionHeld: false)
@@ -304,7 +275,6 @@ extension PanelLayoutBroadcastTests {
     /// default should not delete a behaviour.
     func testOptionClickStillSolosTheSection() {
         let panel = layout(WorkspaceLayout(workspace: .develop,
-                                           register: .full,
                                            expanded: [.tone, .presence, .curve]))
         panel.headerClicked(.curve, optionHeld: true)
         XCTAssertEqual(panel.layout.expanded, [.curve],
@@ -315,7 +285,6 @@ extension PanelLayoutBroadcastTests {
     /// many sections it closes.
     func testSoloingSeveralSectionsIsStillOnePublish() {
         let panel = layout(WorkspaceLayout(workspace: .develop,
-                                           register: .full,
                                            expanded: [.tone, .presence, .curve]))
         var publishes = 0
         panel.objectWillChange.sink { _ in publishes += 1 }.store(in: &cancellables)

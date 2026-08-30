@@ -461,11 +461,29 @@ it **spatial** (two workspaces) rather than two tabs among eight.
 **Solo mode is the default**, ⌥-click to keep multiple open. Lightroom's most-recommended
 setting, and here it is also a performance feature (§5.5).
 
+**SUPERSEDED, 2026-08-30 (docs/32 Stream A).** The Simple register below shipped and the
+owner retired it after using it: *"I don't know why we have show fewer sections. That's
+kind of unnecessary, as well as the one hidden section active."* Every workspace now
+always draws every section it holds — the table above is the whole story — and the
+"Show all/fewer sections" control, the hidden-active indicator and `DisclosureRegister`
+are gone. What folds is each section's own chevron. The stored `develop.register` key is
+deliberately never read again (the `develop.masking` precedent). The paragraph is kept
+because it records why the register was tried.
+
 **Simple register by default**: Develop shows WB, Tone, Presence; Grade shows Looks and
 Colour. Everything else is one visible "Show all" click away, with a "4 hidden sections
 active" indicator so nothing is ever secret. This is verbatim docs/12 §12.12, and its
 own text names the failure Lumen has today: *"dt defaults to the full set — defaults, not
 options, set perceived complexity."*
+
+**Navigation, amended in the same pass (docs/32 Stream A):** the workspace switcher is a
+persistent **vertical rail on the window's right edge** — the five workspaces as icon
+over short label, plus the masks door — visible in every view mode and every workspace,
+Cull included. The owner asked for it in those terms (*"I'd rather have a vertical area
+on the side of the page like Lightroom has it"*), and it permanently closes the
+stranding trap docs/30 §7.7 recorded: navigation used to live inside the develop column,
+so the one workspace with no column took the tabs away with it. ⌘1–⌘5 and
+`AppState.enter` are unchanged; the develop column sits left of the rail.
 
 ### 5.2 Colour: the Law 7 amendment, stated narrowly
 
@@ -757,7 +775,8 @@ for five eleven-point targets. Three things kept it honest:
 13. Four workspaces replacing the tab strip; `1`–`4` keys; accordion sections with
     solo-by-default; expansion in `@AppStorage`/`PanelLayout`.
 14. Masks out of the tab strip → docked panel on `M`, available in every workspace.
-15. Simple/Full register with the hidden-sections indicator.
+15. Simple/Full register with the hidden-sections indicator. *[Shipped, then retired
+    2026-08-30 by the owner's fourth-pass decision — see the SUPERSEDED note in §5.1.]*
 16. Same-push counting test: a workspace switch costs one publish; a 48-event drag costs
     `PanelLayout` zero.
 

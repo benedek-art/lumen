@@ -104,23 +104,23 @@ final class PanelLayout: ObservableObject {
         commit(next)
     }
 
-    /// OPEN A SECTION BY NAME, from a key — and promote the register if it is hiding.
+    /// OPEN A SECTION BY NAME, from a key — the jump `D`, `B`, `L` and the ⌘K palette
+    /// make.
     ///
-    /// `click` is a header being clicked, so the section is visible by construction and
-    /// the guard inside `WorkspaceLayout.click` never fires. A KEY is different: `D`
-    /// names Detail and `R` names Optics, and neither is in the Simple register the app
-    /// opens in, so routing a key through `click` answers a photographer who asked for a
-    /// section by name with silence. A key that does nothing is worse than a key that
-    /// does not exist, because it teaches that the app is broken rather than that the
-    /// feature is missing.
+    /// `click` is a header being clicked, so the section's workspace is current by
+    /// construction and the guard inside `WorkspaceLayout.click` never fires. A KEY is
+    /// different: `D` names Detail from anywhere, so the workspace has to come first or
+    /// the click is refused and the key answers a photographer who asked for a section
+    /// by name with silence. A key that does nothing is worse than a key that does not
+    /// exist, because it teaches that the app is broken rather than that the feature is
+    /// missing. Still one publish — the whole arrangement is one value.
     ///
-    /// Promoting rather than refusing is the right trade: Simple is a default, not a
-    /// mode, and the photographer just demonstrated they want the thing it was hiding.
-    /// Still one publish — the whole arrangement is one value.
+    /// (This used to also promote the Simple register when it hid the section. The
+    /// register is gone — docs/32, the owner's call — so a jump is select-and-solo and
+    /// nothing else.)
     func reveal(_ section: WorkspaceSection) {
         var next = layout
         next.select(section.workspace)
-        if !section.isVisible(in: next.register) { next.register = .full }
         next.click(section, keepingOthersOpen: false)
         commit(next)
     }
@@ -139,17 +139,9 @@ final class PanelLayout: ObservableObject {
     func expose(_ section: WorkspaceSection) {
         var next = layout
         next.select(section.workspace)
-        if !section.isVisible(in: next.register) { next.register = .full }
         if !next.expanded.contains(section) {
             next.click(section, keepingOthersOpen: true)
         }
-        commit(next)
-    }
-
-    /// Simple ⇄ Full.
-    func toggleRegister() {
-        var next = layout
-        next.toggleRegister()
         commit(next)
     }
 
@@ -208,7 +200,11 @@ final class PanelLayout: ObservableObject {
     // are spelled out there rather than derived.
     private enum Key {
         static let workspace = "develop.workspace"
-        static let register = "develop.register"
+        // `develop.register` is deliberately no longer read OR written. It stored the
+        // Simple/Full register, which the owner retired in the fourth pass (docs/32);
+        // whatever a previous build left under it stays where it is, unread, on the
+        // same precedent as `develop.maskDock` below — the correct migration for state
+        // whose feature no longer exists.
         static let expanded = "develop.expanded"
         // A NEW KEY, not the old `develop.maskDock`, and the discontinuity is the point.
         // What that key stored was "the mask list is docked above your sections", which
@@ -223,7 +219,6 @@ final class PanelLayout: ObservableObject {
     private func persist(_ value: WorkspaceLayout) {
         guard let defaults else { return }
         defaults.set(value.workspace.rawValue, forKey: Key.workspace)
-        defaults.set(value.register.rawValue, forKey: Key.register)
         // Sorted, so the stored array does not churn on every write for a set whose
         // iteration order is not stable. A defaults write is cheap and a diff-free one
         // is cheaper.
@@ -246,12 +241,9 @@ final class PanelLayout: ObservableObject {
                 || defaults.object(forKey: Key.expanded) != nil else { return nil }
         let workspace = (defaults.string(forKey: Key.workspace))
             .flatMap(Workspace.init(rawValue:)) ?? .initial
-        let register = (defaults.string(forKey: Key.register))
-            .flatMap(DisclosureRegister.init(rawValue:)) ?? .initial
         let expanded = Set((defaults.stringArray(forKey: Key.expanded) ?? [])
             .compactMap(WorkspaceSection.init(rawValue:)))
         return WorkspaceLayout(workspace: workspace,
-                               register: register,
                                expanded: expanded,
                                // `object(forKey:) as? Bool` rather than `bool(forKey:)`:
                                // the typed accessor answers false both for "stored

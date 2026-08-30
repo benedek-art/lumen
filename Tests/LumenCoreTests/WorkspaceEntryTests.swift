@@ -136,18 +136,35 @@ final class WorkspaceEntryTests: XCTestCase {
                       + "tool come with it:\n" + offenders.joined(separator: "\n"))
     }
 
-    /// The tab strip goes through the verb.
+    /// The workspace rail goes through the verb.
     ///
-    /// This is the one that would have caught the bug the owner reported. The strip is
-    /// the control a photographer actually uses and it was the only route with no pairing
-    /// written into it, because the two fixes before it were written into the menu.
-    func testTheWorkspaceStripEntersRatherThanSelects() {
-        let strip = Self.source(named: "DevelopColumn.swift")
-        XCTAssertFalse(strip.isEmpty, "DevelopColumn.swift not found")
-        XCTAssertTrue(strip.contains("state.enter("),
-                      "The workspace tab strip must call AppState.enter — clicking a tab "
+    /// This is the one that would have caught the bug the owner reported. The rail
+    /// (`WorkspaceRail`, which replaced the horizontal strip in the fourth pass) is the
+    /// control a photographer actually uses, and the strip it replaced was once the
+    /// only route with no pairing written into it, because the two fixes before it were
+    /// written into the menu.
+    func testTheWorkspaceRailEntersRatherThanSelects() {
+        let rail = Self.source(named: "DevelopColumn.swift")
+        XCTAssertFalse(rail.isEmpty, "DevelopColumn.swift not found")
+        XCTAssertTrue(rail.contains("state.enter("),
+                      "The workspace rail must call AppState.enter — clicking a tab "
                       + "is how a photographer changes workspace, and `select` alone "
                       + "leaves Cull in the loupe and Crop without its rectangle.")
+    }
+
+    /// The rail's mask door goes through its verb too.
+    ///
+    /// Masking is a place like the workspaces are: the way IN pairs the flag with the
+    /// loupe and with disarming the crop tool (`AppState.toggleMasking`), and a door
+    /// that set the flag alone would be the same defect in new clothes — a mask editor
+    /// opened over a contact sheet, or over a live crop rectangle it cannot reach.
+    /// (`panel.setMasking(false)` alone remains correct for a pure way OUT, which is
+    /// what the masking bar's back button is.)
+    func testTheMaskDoorTogglesMaskingThroughTheVerb() {
+        let rail = Self.source(named: "DevelopColumn.swift")
+        XCTAssertTrue(rail.contains("state.toggleMasking("),
+                      "The rail's mask door must call AppState.toggleMasking so the "
+                      + "loupe and the crop tool are settled with the flag.")
     }
 
     /// Every ⌘-digit names the same verb.

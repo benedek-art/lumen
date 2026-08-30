@@ -85,14 +85,45 @@ extension AppState {
     /// GO TO A NAMED SECTION — the ⌘K palette, and the B / L / D keys.
     ///
     /// The same journey as `enter`, arranged differently: `reveal` solos the section
-    /// asked for and promotes the register if it is hidden, which is what "take me to
-    /// Detail" means and is not what clicking a tab means. Everything AFTER the
-    /// arrangement is identical, and that is the part that kept going missing — the
-    /// palette set the view mode and forgot the crop tool, the three keys forgot both, so
-    /// pressing B from the grid opened Tone behind a contact sheet.
+    /// asked for, which is what "take me to Detail" means and is not what clicking a tab
+    /// means. Everything AFTER the arrangement is identical, and that is the part that
+    /// kept going missing — the palette set the view mode and forgot the crop tool, the
+    /// three keys forgot both, so pressing B from the grid opened Tone behind a contact
+    /// sheet.
     func jump(to section: WorkspaceSection) {
         PanelLayout.shared.reveal(section)
         settle(in: section.workspace)
+    }
+
+    /// ENTER OR LEAVE MASKING — `M`, and the rail's mask door. One verb, because masking
+    /// is a place too and this file exists so that no caller pairs a destination with
+    /// its side effects by hand.
+    ///
+    /// The way IN needs two things beyond the flag, and both went missing once when they
+    /// lived only at the key's own call site:
+    ///
+    ///   · **The loupe** — masks are painted on a photograph, not a contact sheet. Only
+    ///     on the way in: `showLoupe()` on both edges broke the round trip, because M
+    ///     from the Cull grid and M again landed you in the loupe with no column.
+    ///   · **The crop tool goes away** — `setMasking` moves the flag and nothing else,
+    ///     and masking does not pass through `settle`. Without this, entering masking
+    ///     while framing left the rectangle and its handles drawn under `MaskCanvas`:
+    ///     unreachable, because the canvas takes the drags, and the renderer still
+    ///     showing the UNCROPPED frame because that is what `showCrop` asks it for.
+    ///
+    /// The way OUT is only the flag: the workspace underneath was never overwritten, so
+    /// the column comes back exactly as it was left.
+    func toggleMasking() {
+        let entering = !PanelLayout.shared.layout.isMasking
+        PanelLayout.shared.setMasking(entering)
+        guard entering else { return }
+        showLoupe()
+        let viewport = LoupeViewport.shared
+        if viewport.showCrop {
+            viewport.showCrop = false
+            viewport.showStraighten = false
+            CropTool.shared.forgetArming()
+        }
     }
 
     /// What arriving in a workspace means once the column has been arranged: the view
@@ -123,9 +154,8 @@ extension AppState {
     /// photograph redraws cropped and the ratio, angle and guide rows stay under the
     /// hand. Pressing it again puts the rectangle back.
     ///
-    /// `enter` handles the way in, including opening the Crop section and promoting the
-    /// register when the photographer is in Simple — so this stays two branches rather
-    /// than growing its own copy of them.
+    /// `enter` handles the way in, including opening the Crop section — so this stays
+    /// two branches rather than growing its own copy of it.
     ///
     /// AND THE DOUBLE PRESS IS COUNTED HERE, which is the fix for a grammar that had been
     /// quietly half-working. docs/09: "Return commits, Esc reverts, double-press R resets

@@ -1,27 +1,34 @@
 // Workspace.swift
 // The develop column's information architecture as data: which sections a workspace
-// holds and in what order, which of them the Simple register shows, how many of the
-// hidden ones are still carrying an edit, and what a click on a section header does to
-// the sections already open.
+// holds and in what order, and what a click on a section header does to the sections
+// already open.
 //
 // WHY IT IS HERE AND NOT IN THE PANELS. The eight-tab strip this replaces
 // (`PanelSection`, deleted with this phase) was eight cases and a symbol name; every other fact
 // about the layout — that Zones is a tab rather than a disclosure under Tone, that Masks
 // is a tab rather than a dock available everywhere, that a panel is always fully open —
 // is spread across the panel files themselves, where nothing outside macOS can read it.
-// docs/28 §5.1 replaces the strip with four workspaces and docs/12 §12.12 puts two
-// registers behind them, so what was one rule becomes three that interact: membership,
-// register, expansion. Three interacting rules living in a SwiftUI body is the shape
-// `InspectionHolds` and `KeyGrammar` were both extracted out of, and for the same reason
-// — a rule nobody can run is a rule nobody can check.
+// docs/28 §5.1 replaces the strip with four workspaces, so what was one rule becomes two
+// that interact: membership and expansion. Interacting rules living in a SwiftUI body is
+// the shape `InspectionHolds` and `KeyGrammar` were both extracted out of, and for the
+// same reason — a rule nobody can run is a rule nobody can check.
+//
+// THE REGISTER IS GONE, DELIBERATELY. docs/12 §12.12 specified a Simple/Full register —
+// a subset of sections drawn by default, the rest one visible click away — and it
+// shipped. The owner used it and ruled against it in the fourth pass (docs/32): "I don't
+// know why we have show fewer sections. That's kind of unnecessary, as well as the one
+// hidden section active." Every workspace now always draws every section it holds; what
+// folds is the section's own chevron, which is the disclosure a photographer actually
+// reads. `DisclosureRegister`, the hidden-active indicator and the register half of the
+// old `isVisible` rule were deleted with the decision rather than left as dead weight.
 //
 // THE ONE THING WORTH SAYING TWICE. `WorkspaceSection.workspace` is a total switch and
-// everything else — the per-workspace lists, the canonical order, the Simple register's
-// subset — is derived from it. There is deliberately no second, hand-written table of
-// "what is in Develop" for that switch to drift from. docs/12's §12.1 panel order and
-// docs/28's §5.1 membership are the same fact stated twice in prose; stating it a third
-// time in code is how nine of the app's nineteen chords came to sit in neither the
-// dispatcher nor the reference that documents it (`KeyGrammar`).
+// everything else — the per-workspace lists, the canonical order — is derived from it.
+// There is deliberately no second, hand-written table of "what is in Develop" for that
+// switch to drift from. docs/12's §12.1 panel order and docs/28's §5.1 membership are
+// the same fact stated twice in prose; stating it a third time in code is how nine of
+// the app's nineteen chords came to sit in neither the dispatcher nor the reference that
+// documents it (`KeyGrammar`).
 //
 // WHAT IS DELIBERATELY NOT HERE.
 //
@@ -215,84 +222,16 @@ public enum WorkspaceSection: String, CaseIterable, Hashable, Sendable {
         }
     }
 
-    /// True for the six sections the Simple register keeps on screen.
-    ///
-    /// Develop's three and Grade's two are docs/28 §5.1 verbatim. Deliver's is read from
-    /// docs/12 §12.12, whose Simple set is "WB, Tone's six sliders, Looks, Crop, Masks,
-    /// Export" — Export is named in it and soft proof is not, which is the right way
-    /// round: a soft proof is a check against a specific destination profile, and a
-    /// photographer who has not chosen one has nothing to check against.
-    ///
-    /// Cull contributes nothing to either register because it has no sections; the Simple
-    /// register is not what empties it.
-    public var isInSimpleRegister: Bool {
-        switch self {
-        case .whiteBalance, .tone, .presence, .looks, .color, .exportRecipes,
-             .frame, .optics:
-            return true
-        case .curve, .detail, .grading, .filmLab, .effects, .softProof:
-            return false
-        }
-    }
-
-    /// Whether this register shows the section. Full shows everything, which is what
-    /// makes "Show all" a single visible control rather than a preference.
-    public func isVisible(in register: DisclosureRegister) -> Bool {
-        register == .full || isInSimpleRegister
-    }
-}
-
-// MARK: - Registers
-
-/// docs/12 §12.12's two registers, one tool.
-///
-/// A register is not a preference and not a mode: hidden sections keep applying their
-/// adjustments, and the count of the hidden ones that are doing so is on the screen
-/// (`WorkspaceLayout.hiddenActiveIndicator`). Switching registers changes what is drawn
-/// and nothing else, which is what lets `WorkspaceLayout` treat expansion as a set that
-/// outlives both registers.
-public enum DisclosureRegister: String, CaseIterable, Hashable, Sendable {
-
-    /// The default, and §12.12 names what the other way round costs: darktable built the
-    /// deepest disclosure system in any editor and then defaulted to the deep end,
-    /// because "defaults, not options, set perceived complexity".
-    case simple
-
-    /// Every section of the workspace.
-    case full
-
-    public static let initial: DisclosureRegister = .simple
-
-    /// The other one, for the control that toggles between them.
-    public var toggled: DisclosureRegister {
-        self == .simple ? .full : .simple
-    }
 }
 
 // MARK: - Membership
 
 extension Workspace {
 
-    /// The workspace's sections, in docs/12 §12.1's canonical order.
+    /// The workspace's sections, in docs/12 §12.1's canonical order. Always all of them:
+    /// the Simple register that used to filter this list is gone (see the header).
     public var sections: [WorkspaceSection] {
         Workspace.sectionsByWorkspace[self] ?? []
-    }
-
-    /// The sections this register draws, in the same order.
-    public func sections(in register: DisclosureRegister) -> [WorkspaceSection] {
-        switch register {
-        case .full: return sections
-        case .simple: return Workspace.simpleSectionsByWorkspace[self] ?? []
-        }
-    }
-
-    /// The sections the register is holding back — what "Show all" would reveal, and
-    /// therefore what the hidden-active indicator has to be counted against.
-    public func hiddenSections(in register: DisclosureRegister) -> [WorkspaceSection] {
-        switch register {
-        case .full: return []
-        case .simple: return Workspace.hiddenSectionsByWorkspace[self] ?? []
-        }
     }
 
     public func contains(_ section: WorkspaceSection) -> Bool {
@@ -314,12 +253,6 @@ extension Workspace {
     private static let sectionsByWorkspace: [Workspace: [WorkspaceSection]] =
         Dictionary(grouping: WorkspaceSection.allCases, by: \.workspace)
             .mapValues { $0.sorted { $0.canonicalRank < $1.canonicalRank } }
-
-    private static let simpleSectionsByWorkspace: [Workspace: [WorkspaceSection]] =
-        sectionsByWorkspace.mapValues { $0.filter(\.isInSimpleRegister) }
-
-    private static let hiddenSectionsByWorkspace: [Workspace: [WorkspaceSection]] =
-        sectionsByWorkspace.mapValues { $0.filter { !$0.isInSimpleRegister } }
 }
 
 // MARK: - The solo rule
@@ -381,12 +314,11 @@ public enum SectionExpansion {
 public struct WorkspaceLayout: Equatable, Sendable {
 
     public var workspace: Workspace
-    public var register: DisclosureRegister
 
     /// Every section the user has opened, across all four workspaces — not only the
-    /// current one, and not filtered by the register. Storing the superset is what makes
-    /// both a workspace switch and a register toggle non-destructive, which docs/12
-    /// §12.12 requires of the register in as many words. Read `expandedSections` to draw.
+    /// current one. Storing the superset is what makes a workspace switch
+    /// non-destructive: leave Develop with Tone open, grade, come back to Tone open.
+    /// Read `expandedSections` to draw.
     public var expanded: Set<WorkspaceSection>
 
     /// MASKING TAKES THE COLUMN OVER, and this is the flag that says so.
@@ -416,47 +348,29 @@ public struct WorkspaceLayout: Equatable, Sendable {
     public var isMasking: Bool
 
     public init(workspace: Workspace = .initial,
-                register: DisclosureRegister = .initial,
                 expanded: Set<WorkspaceSection> = [],
                 isMasking: Bool = false) {
         self.workspace = workspace
-        self.register = register
         self.expanded = expanded
         self.isMasking = isMasking
     }
 
-    /// What a fresh install opens with.
+    /// What a fresh install opens with: a first pass's three sections, open.
     ///
-    /// Tone rather than White Balance is the one invention here, and it is docs/12
-    /// §12.1's own amendment applied one level up: the Basic panel already orders its
-    /// rows Tone → Presence → WB, "tone first because it is what the hand reaches for
-    /// first in practice, white balance demoted below it because most frames' as-shot
-    /// neutral is close and the row is a correction, not an opening move". The rail's
-    /// order stays canonical; what is *open* on launch follows the hand.
-    /// EVERY SIMPLE SECTION OF THE OPENING WORKSPACE, not one of them.
-    ///
-    /// It was `[.tone]` while a click SOLOED, where opening one section closed another
-    /// and starting with more than one would have been a state the photographer could
-    /// not get back to. A plain click now toggles only what it names, so the opening
-    /// state is free to be the useful one — and Develop's three Simple sections are
-    /// White Balance, Tone and Presence, which is a first pass.
-    ///
-    /// A column that opens with one section of six visible reads as mostly empty, and
-    /// the fix for that should not be a photographer clicking twice before they can
-    /// start.
+    /// White Balance, Tone and Presence — the set the retired Simple register used to
+    /// draw for Develop, kept as the opening arrangement now that every section is
+    /// always listed: a column that opens with nothing unfolded reads as mostly empty,
+    /// and the fix for that should not be a photographer clicking before they can start.
+    /// Curve and Detail start folded because they are the deep half of a first pass, not
+    /// because anything hides them — their headers are right there.
     public static let initial = WorkspaceLayout(
         workspace: .initial,
-        register: .initial,
-        expanded: Set(Workspace.initial.sections.filter(\.isInSimpleRegister)))
+        expanded: [.whiteBalance, .tone, .presence])
 
     // MARK: What to draw
 
     /// Whether there is a develop column at all — false only in Cull, and only when
     /// nothing has taken the column over.
-    ///
-    /// Deliberately not `visibleSections.isEmpty`: a workspace whose sections are all
-    /// hidden by the Simple register still needs its column, or the control that would
-    /// bring them back goes with them.
     ///
     /// THE `isMasking` CLAUSE IS NOT A SPECIAL CASE, it is the sentence above applied
     /// to a column that no longer draws sections at all. `isMasking`'s own contract has
@@ -469,61 +383,31 @@ public struct WorkspaceLayout: Equatable, Sendable {
         !workspace.sections.isEmpty || isMasking
     }
 
-    /// The sections the column draws, in canonical order.
+    /// The sections the column draws, in canonical order — the workspace's whole list.
+    ///
+    /// Kept as a named property rather than folded into call sites: it is the one
+    /// question the column asks, and while the register existed this was where the
+    /// filtering lived. It filters nothing now, on the owner's decision (see the
+    /// header), and a caller cannot tell the difference — which is the point.
     public var visibleSections: [WorkspaceSection] {
-        workspace.sections(in: register)
+        workspace.sections
     }
 
     /// The visible sections that are open, in canonical order.
     ///
     /// Filtering the drawn list rather than reading `expanded` directly is what stops a
-    /// set that holds entries for every workspace and both registers from ever opening a
-    /// section this workspace does not have or this register is hiding.
+    /// set that holds entries for every workspace from ever opening a section this
+    /// workspace does not have.
     public var expandedSections: [WorkspaceSection] {
         visibleSections.filter(expanded.contains)
-    }
-
-    // MARK: The hidden-active indicator
-
-    /// The sections that are hidden by the register *and* holding a non-default value, in
-    /// canonical order. docs/12 §12.12: hidden panels keep applying, "with a '3 hidden
-    /// panels active' indicator so state never becomes secret".
-    ///
-    /// - `nonDefault`: every section whose controls differ from their defaults. The
-    ///   caller derives it from the recipe; it may name sections from any workspace and
-    ///   visible ones too, and both are filtered out here.
-    ///
-    /// Scoped to the current workspace on purpose. The indicator sits beside the control
-    /// that reveals these sections, so it has to count exactly what that control would
-    /// reveal — a badge reading five beside a click that produces two is worse than no
-    /// badge. A non-default section in another workspace is hidden by a move the user
-    /// made, not by a default they never chose, which is the state §12.12 is about.
-    public func hiddenActiveSections(nonDefault: Set<WorkspaceSection>)
-            -> [WorkspaceSection] {
-        workspace.hiddenSections(in: register).filter(nonDefault.contains)
-    }
-
-    public func hiddenActiveCount(nonDefault: Set<WorkspaceSection>) -> Int {
-        hiddenActiveSections(nonDefault: nonDefault).count
-    }
-
-    /// The indicator's text, or nil when there is nothing to disclose.
-    ///
-    /// Composed here rather than in the view because the singular is the half that gets
-    /// shipped wrong, and here a test can read it.
-    public func hiddenActiveIndicator(nonDefault: Set<WorkspaceSection>) -> String? {
-        let count = hiddenActiveCount(nonDefault: nonDefault)
-        guard count > 0 else { return nil }
-        return "\(count) hidden section\(count == 1 ? "" : "s") active"
     }
 
     // MARK: Transitions
 
     /// Switch workspaces, WHICH IS ALSO HOW YOU LEAVE MASKING.
     ///
-    /// Expansion and the register survive untouched — a switch changes which sections
-    /// are on screen and nothing about how they are arranged, so the round trip back is
-    /// exact.
+    /// Expansion survives untouched — a switch changes which sections are on screen and
+    /// nothing about how they are arranged, so the round trip back is exact.
     ///
     /// Masking does not survive, and that is the one behaviour this verb gained with the
     /// takeover. Naming a workspace is naming what the column shows, and while masking
@@ -536,21 +420,15 @@ public struct WorkspaceLayout: Equatable, Sendable {
         isMasking = false
     }
 
-    /// The visible "Show all" control of docs/12 §12.12 — visible, and therefore a verb
-    /// rather than a preference.
-    public mutating func toggleRegister() {
-        register = register.toggled
-    }
-
     /// A click on a section header. See `SectionExpansion.afterClick`.
     ///
-    /// A click on a section the current register is hiding is ignored rather than
-    /// silently opening something the user cannot see: there is no header to click, so a
-    /// call that says otherwise is a caller bug, and honouring it would leave `expanded`
-    /// carrying a section that only reappears on a later register toggle.
+    /// A click on a section of another workspace is ignored rather than silently opening
+    /// something the user cannot see: there is no header on screen to click, so a call
+    /// that says otherwise is a caller bug, and honouring it would leave `expanded`
+    /// carrying a change nothing drew.
     public mutating func click(_ section: WorkspaceSection,
                                keepingOthersOpen: Bool = false) {
-        guard section.isVisible(in: register), workspace.contains(section) else { return }
+        guard workspace.contains(section) else { return }
         expanded = SectionExpansion.afterClick(on: section,
                                                expanded: expanded,
                                                keepingOthersOpen: keepingOthersOpen)

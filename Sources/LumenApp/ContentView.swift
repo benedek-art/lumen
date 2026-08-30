@@ -83,25 +83,6 @@ struct ContentView: View {
                 // themselves (design audit §1.1, and Phase 1's rule for the develop
                 // column's own bands).
                 FilterBar()
-                // THE WAY BACK, when the thing that normally holds it is not drawn.
-                //
-                // The workspace strip lives inside `DevelopPanel`, and Cull has no
-                // sections — so choosing Cull takes the column away and takes all five
-                // tabs with it. Opening another photograph does not bring them back,
-                // because the workspace is still Cull. The owner hit this within minutes
-                // of testing: "I clicked Cull, it kicked me out to the select a picture
-                // screen, and then when I clicked into another picture the edit area is
-                // completely gone." There was no way back except ⌘1–⌘5 or the Go menu —
-                // a tab strip that disappears when you use one of its tabs.
-                //
-                // docs/30 §7.4 recorded this and left it open as a decision about where
-                // navigation lives. Hitting it in the first minutes settles the decision:
-                // navigation has to survive every state it can reach.
-                //
-                // Trailing-aligned at the column's own width, so the strip appears in the
-                // same place on screen it occupies when the column is there — the tabs do
-                // not jump across the window as you move between workspaces.
-                WorkspaceReturnBar(columnWidth: state.developPanelWidth)
                 HStack(spacing: 0) {
                     centre
                         // The clipping panel and the hold badge ride the centre pane
@@ -120,12 +101,24 @@ struct ContentView: View {
                         DevelopPanel()
                             .frame(width: state.developPanelWidth)
                     }
+                    // THE RAIL, on the window's right edge, outside the `if` above —
+                    // which is the whole point. Navigation used to live inside the
+                    // develop column, so Cull (no column) took the tabs with it, and
+                    // `WorkspaceReturnBar` had to re-draw them over the grid (docs/30
+                    // §7.7's stranding trap, patched at 538eb08). The rail belongs to
+                    // the window: it is on screen in every view mode and every
+                    // workspace, masking included, so no state of the app lacks visible
+                    // navigation. It observes `PanelLayout` itself — this view still
+                    // deliberately does not.
+                    Divider().overlay(Lumen.separator).frame(width: 1)
+                    WorkspaceRail()
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 if state.showFilmstrip && !state.photos.isEmpty {
                     Divider().overlay(Lumen.separator)
+                    // No fixed frame here any more: the strip sizes itself from its
+                    // own persisted height step (see `FilmstripView`).
                     FilmstripView()
-                        .frame(height: 96)
                 }
                 StatusBar()
             }
@@ -189,13 +182,10 @@ struct ContentView: View {
 
     /// Whether the column is on screen RIGHT NOW — workspace, view mode and selection.
     ///
-    /// Deliberately NOT the question `WorkspaceReturnBar` asks. That one asks whether the
-    /// chosen workspace has a column *at all*, which is narrower and is the one that
-    /// matters for being stranded: in the grid with Develop chosen this is false, but
-    /// opening a photograph brings the column and its tabs straight back, so there is
-    /// nothing to rescue. In Cull it is false in every view mode, and no gesture reaches
-    /// the tabs again. Collapsing the two would put a redundant strip over the contact
-    /// sheet during an ordinary cull, which is the one screen this app most wants empty.
+    /// This used to be one of two questions, the other belonging to a
+    /// `WorkspaceReturnBar` that re-drew the tab strip over the grid whenever the column
+    /// was gone. The rail retired that bar — navigation sits on the window's edge in
+    /// every state — so this is the only question left, and it is only about the column.
     ///
     /// CULL DRAWS NO COLUMN, and the emptiness is the feature rather than a hidden panel:
     /// docs/12 §12.1 asks for "Photo Mechanic's emptiness without an architectural wall
@@ -778,6 +768,25 @@ private struct StatusBar: View {
                     .font(.system(size: 10))
                     .foregroundStyle(Lumen.accent)
             }
+            // THE FILMSTRIP'S SWITCH, and it lives here rather than only on the strip
+            // because a hide control that exists only on the thing it hides strands the
+            // way back the moment it works — the Cull lesson, one storey down. The
+            // status bar is persistent chrome directly under the strip, so the toggle
+            // is beside what it governs and survives it in both directions. `F` and
+            // the View menu drive the same flag.
+            Button {
+                state.showFilmstrip.toggle()
+            } label: {
+                Image(systemName: "film")
+                    .font(.system(size: 10))
+                    .foregroundStyle(state.showFilmstrip
+                                     ? Lumen.primaryText : Lumen.secondaryText)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .lumenClickCursor()
+            .help(state.showFilmstrip
+                  ? "Hide the filmstrip (F)" : "Show the filmstrip (F)")
         }
         .padding(.horizontal, 10)
         .frame(height: 22)
@@ -872,34 +881,11 @@ private struct KeyReferenceSheet: View {
     }
 }
 
-
-/// The workspace strip, shown only when the develop column that normally carries it is
-/// not on screen.
-///
-/// A view of its own rather than an `if` inside `ContentView`, and that is the point:
-/// `ContentView` reads `PanelLayout` WITHOUT observing it, so the column's presence has
-/// been depending on a value the window does not subscribe to. It has worked so far only
-/// because `viewMode` and `primarySelection` are published and happen to change at the
-/// same moment. Making `ContentView` an observer would fix that and undo what
-/// `PanelLayout` was extracted for — one section opening would re-body the whole window
-/// and the `Scene` with it. So the subscription lives here, in the one small view that
-/// needs it, and a workspace change invalidates a strip rather than a window.
-private struct WorkspaceReturnBar: View {
-    @ObservedObject private var panel = PanelLayout.shared
-    let columnWidth: CGFloat
-
-    var body: some View {
-        // THE WORKSPACE'S OWN ANSWER, not the window's. See `ContentView
-        // .showsDevelopColumn` for why these are two questions rather than one.
-        if !panel.layout.showsDevelopColumn {
-            HStack(spacing: 0) {
-                Spacer(minLength: 0)
-                WorkspaceSwitcher(panel: panel)
-                    .frame(width: columnWidth)
-            }
-            .background(Lumen.panel)
-        }
-    }
-}
+// `WorkspaceReturnBar` is gone: it existed to re-draw the workspace strip over the grid
+// whenever the column that carried the strip was not on screen. The strip itself is
+// gone — `WorkspaceRail` sits on the window's right edge in every state — so there is
+// nothing left to return. The lesson it taught survives in the rail's placement: the
+// subscription to `PanelLayout` lives in the small view that needs it, never on this
+// window.
 
 #endif

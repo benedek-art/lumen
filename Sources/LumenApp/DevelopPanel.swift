@@ -384,20 +384,18 @@ struct DevelopPanel: View {
                     .padding(.horizontal, 4)
                     .padding(.bottom, 6)
             }
-            // The column's two chrome bands, and they are bands rather than the three
-            // hairlines that used to fence them (design audit §1.1: hairline-partitioned
-            // flat grey IS the pre-Yosemite AppKit read). The switcher and the footer sit
-            // on `windowBase` 0.18 — the same recessed-chrome step the status bar and the
-            // filmstrip already use, so depth comes from surface value the way the rest
-            // of the ladder does.
-            //
-            // They no longer need to paint it themselves: the whole column dropped to
-            // `windowBase` when the sections became cards, so chrome is simply the part
-            // of the column with no card on it. Left in place because it costs nothing
-            // and states the intent where a reader is looking for it.
-            sectionSwitcher
-                .frame(maxWidth: .infinity)
-                .background(Lumen.windowBase)
+            // NO SWITCHER BAND ANY MORE. The workspace strip that opened the column
+            // moved to the window's right edge as `WorkspaceRail` (docs/32 Stream A, the
+            // owner's ask), so the column starts at its instruments. What remains of
+            // that band is the one job the rail cannot do from the window's edge: while
+            // masking has the column, the way back and the word "Masks" sit at the top
+            // of the surface being worked in — `MaskPanel` renders headerless on the
+            // promise that this bar is its header.
+            if panel.layout.isMasking {
+                MaskingReturnBar(panel: panel)
+                    .frame(maxWidth: .infinity)
+                    .background(Lumen.windowBase)
+            }
             if state.editTargets.isEmpty {
                 emptyState
             } else {
@@ -436,12 +434,6 @@ struct DevelopPanel: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
-    }
-
-    // MARK: Section switcher
-
-    private var sectionSwitcher: some View {
-        WorkspaceSwitcher(panel: panel)
     }
 
     /// EVERY SECTION SCROLLS TOGETHER NOW, which is the change and not a detail.

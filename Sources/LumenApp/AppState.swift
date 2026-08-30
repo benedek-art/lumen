@@ -922,7 +922,17 @@ final class AppState: ObservableObject {
 
     @Published var sidebarVisible = true
 
-    @Published var showFilmstrip = true
+    /// Persisted (docs/32 Stream A): the strip's visibility is furniture the
+    /// photographer arranged, and an editor that forgets it makes them arrange it every
+    /// launch. A `didSet` write costs one defaults write per toggle — this is flipped
+    /// by `F`, the View menu and the status bar's switch, never per event.
+    /// `object(forKey:) as? Bool` rather than `bool(forKey:)` for the reason
+    /// `PanelLayout.restore` records: the typed accessor answers false both for
+    /// "stored false" and for "never written", and this flag defaults to true.
+    @Published var showFilmstrip = UserDefaults.standard.object(
+        forKey: "filmstrip.visible") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(showFilmstrip, forKey: "filmstrip.visible") }
+    }
     /// Published by the grid as it lays out, so ↑/↓ move by a real row rather than by
     /// a guess. Never zero — a divide-by-row-count would be a crash in the key path.
     @Published var gridColumns: Int = 6

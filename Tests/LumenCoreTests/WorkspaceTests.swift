@@ -8,14 +8,20 @@
 // had that divergence and it was invisible — Zones was a tab and docs/12 called it a
 // disclosure under Tone, Masks was a tab and docs/12 called it a dock — because nothing
 // compared them. Every wrong arrangement here still renders: a rail that puts colour
-// before tone is a rail, a Simple register missing Presence looks deliberate, and a
-// section counted in the hidden-active badge that "Show all" does not reveal reads as a
-// badge.
+// before tone is still a rail.
 //
 // So most of what follows is properties rather than examples — every section in exactly
 // one workspace, canonical order re-derived from the ranks rather than assumed, solo
 // checked over all sixty-four subsets of Develop's stack — plus one test that reads
 // docs/28's own table and fails when the model and the document stop agreeing.
+//
+// THE SIMPLE/FULL REGISTER IS GONE, and about a third of this file went with it —
+// rewritten, not silently weakened. docs/12 §12.12 specified it, it shipped, and the
+// owner ruled against it in the fourth pass (docs/32): "I don't know why we have show
+// fewer sections. That's kind of unnecessary, as well as the one hidden section
+// active." The tests that pinned the register's filtering, its honesty badge and its
+// round trip are replaced by the one property that now holds instead: every workspace
+// always draws every section it holds (`testEveryWorkspaceAlwaysDrawsAllOfItsSections`).
 
 import XCTest
 @testable import LumenCore
@@ -97,18 +103,6 @@ final class WorkspaceTests: XCTestCase {
             XCTAssertEqual(ranks, ranks.sorted(),
                            "\(workspace.rawValue) presents its sections out of docs/12 "
                                + "§12.1's order")
-        }
-    }
-
-    func testTheRegisterNeverReordersWhatItShows() {
-        // Hiding is a filter, so the survivors keep their relative order. A register that
-        // reordered would move a section under the pointer on the way to another one.
-        for workspace in Workspace.allCases {
-            for register in DisclosureRegister.allCases {
-                let shown = workspace.sections(in: register)
-                XCTAssertEqual(shown, workspace.sections.filter(shown.contains),
-                               "\(workspace.rawValue) / \(register.rawValue)")
-            }
         }
     }
 
@@ -201,7 +195,7 @@ final class WorkspaceTests: XCTestCase {
     /// And the return trip is exact, which is what makes masking a detour rather than a
     /// place you have to rebuild the column after visiting.
     func testLeavingMaskingRestoresTheColumnItTookOver() {
-        let before = WorkspaceLayout(workspace: .grade, register: .full,
+        let before = WorkspaceLayout(workspace: .grade,
                                      expanded: [.tone, .grading, .filmLab])
         var layout = before
         layout.isMasking = true
@@ -213,184 +207,42 @@ final class WorkspaceTests: XCTestCase {
         XCTAssertEqual(layout, before)
     }
 
-    /// The register is orthogonal and stays that way. It decides which of a WORKSPACE's
-    /// sections are drawn; masking decides whether that column is on screen at all, so
-    /// neither has anything to say about the other — and the register a photographer
-    /// chose has to be waiting for them when they come back.
-    func testMaskingIsUnaffectedByTheRegister() {
-        var layout = WorkspaceLayout(workspace: .develop, isMasking: true)
-        layout.toggleRegister()
-        XCTAssertTrue(layout.isMasking)
-        XCTAssertEqual(layout.register, .full)
-        layout.toggleRegister()
-        XCTAssertTrue(layout.isMasking)
-        XCTAssertEqual(layout.register, .simple)
-    }
+    // MARK: The register is gone
 
-    // MARK: The two registers
-
-    func testTheSimpleRegisterIsTheDefault() {
-        XCTAssertEqual(DisclosureRegister.initial, .simple)
-        XCTAssertEqual(WorkspaceLayout().register, .simple)
-        XCTAssertEqual(WorkspaceLayout.initial.register, .simple)
-        XCTAssertEqual(Workspace.initial, .develop)
-    }
-
-    func testTheSimpleRegisterShowsWhatDocs28Section51Names() {
-        XCTAssertEqual(Workspace.develop.sections(in: .simple),
-                       [.whiteBalance, .tone, .presence])
-        XCTAssertEqual(Workspace.grade.sections(in: .simple), [.looks, .color])
-    }
-
-    func testTheFullRegisterHidesNothing() {
+    /// THE TRIPWIRE, REWRITTEN. This section of the file used to pin the Simple/Full
+    /// register — its default, its filtering, its honesty badge and its non-destructive
+    /// round trip. The owner retired the register in the fourth pass (docs/32): "I
+    /// don't know why we have show fewer sections. That's kind of unnecessary, as well
+    /// as the one hidden section active." What replaces all of it is one stronger
+    /// property, pinned here so the register cannot quietly grow back as a filter on
+    /// `visibleSections`: a workspace ALWAYS draws every section it holds, in canonical
+    /// order, with nothing counted as concealed. Depth still folds — at the section's
+    /// own chevron, which is the disclosure a photographer can see.
+    func testEveryWorkspaceAlwaysDrawsAllOfItsSections() {
         for workspace in Workspace.allCases {
-            XCTAssertEqual(workspace.sections(in: .full), workspace.sections)
-            XCTAssertEqual(workspace.hiddenSections(in: .full), [])
+            let layout = WorkspaceLayout(workspace: workspace)
+            XCTAssertEqual(layout.visibleSections, workspace.sections,
+                           "\(workspace.rawValue) filters what it draws — the register "
+                               + "was deleted deliberately and must not grow back")
         }
     }
 
-    func testShownAndHiddenPartitionTheWorkspaceInBothRegisters() {
-        for workspace in Workspace.allCases {
-            for register in DisclosureRegister.allCases {
-                let shown = workspace.sections(in: register)
-                let hidden = workspace.hiddenSections(in: register)
-                XCTAssertTrue(Set(shown).isDisjoint(with: Set(hidden)),
-                              "\(workspace.rawValue) / \(register.rawValue): a section "
-                                  + "both drawn and counted as hidden")
-                XCTAssertEqual(Set(shown).union(hidden), Set(workspace.sections))
-            }
-        }
-    }
-
+    /// docs/12 §12.12's bargain — depth is visibly reachable, the FCPX 2011 revolt is
+    /// the named failure — now holds with no control at all: every section's header is
+    /// always on screen in its workspace.
     func testEverySectionIsReachableWithoutAPreference() {
-        // docs/12 §12.12's whole bargain is that depth is visibly reachable — the FCPX
-        // 2011 revolt is the named failure. One toolbar control has to be enough to see
-        // any section, so no section may be hidden in both registers.
         for section in WorkspaceSection.allCases {
-            XCTAssertTrue(section.isVisible(in: .full), section.rawValue)
-            XCTAssertTrue(section.workspace.sections(in: .full).contains(section))
+            XCTAssertTrue(
+                WorkspaceLayout(workspace: section.workspace).visibleSections
+                    .contains(section),
+                "\(section.rawValue) is not drawn by its own workspace")
         }
     }
 
-    func testIsVisibleAgreesWithTheListsTheRegisterProduces() {
-        for workspace in Workspace.allCases {
-            for register in DisclosureRegister.allCases {
-                for section in workspace.sections {
-                    XCTAssertEqual(workspace.sections(in: register).contains(section),
-                                   section.isVisible(in: register),
-                                   "\(section.rawValue) in \(register.rawValue)")
-                }
-            }
-        }
-    }
-
-    func testTheRegisterToggleIsItsOwnInverse() {
-        for register in DisclosureRegister.allCases {
-            XCTAssertEqual(register.toggled.toggled, register)
-            XCTAssertNotEqual(register.toggled, register)
-        }
-    }
-
-    func testShowingAllAndHidingAgainRestoresExactlyTheSameOpenSections() {
-        // docs/12 §12.12: switching is "instant and non-destructive". Destructive here
-        // would mean clearing the expansion of a section the Simple register hides, so
-        // that a look at the full stack costs the user their arrangement.
-        var layout = WorkspaceLayout(workspace: .develop, register: .simple,
-                                     expanded: [.tone, .curve, .detail])
-        let before = layout.expandedSections
-        layout.toggleRegister()
-        XCTAssertEqual(layout.expandedSections, [.tone, .curve, .detail])
-        layout.toggleRegister()
-        XCTAssertEqual(layout.expandedSections, before)
-        XCTAssertEqual(before, [.tone])
-    }
-
-    // MARK: The hidden-active indicator
-
-    func testAHiddenSectionCarryingAnEditIsCounted() {
-        let layout = WorkspaceLayout(workspace: .develop, register: .simple)
-        // Two, not three: `.optics` moved to Crop and joined the Simple register, so
-        // Develop's only Simple-hidden sections are Curve and Detail. A section of
-        // another workspace can never be counted here — `hiddenSections(in:)` is
-        // workspace-scoped.
-        XCTAssertEqual(layout.hiddenActiveCount(nonDefault: [.curve, .detail, .optics]), 2)
-        XCTAssertEqual(layout.hiddenActiveIndicator(nonDefault: [.curve, .detail, .optics]),
-                       "2 hidden sections active")
-    }
-
-    func testASectionOnScreenIsNeverCountedAsHidden() {
-        let layout = WorkspaceLayout(workspace: .develop, register: .simple)
-        XCTAssertEqual(layout.hiddenActiveCount(nonDefault: [.whiteBalance, .tone,
-                                                            .presence]), 0)
-        XCTAssertNil(layout.hiddenActiveIndicator(nonDefault: [.tone]))
-    }
-
-    func testTheCountIsExactlyWhatShowAllWouldReveal() {
-        // The property that makes the badge honest: whatever it claims is hidden must
-        // appear when the register flips. A badge reading five beside a click that
-        // produces two is worse than no badge.
-        let nonDefault: Set<WorkspaceSection> = [.tone, .curve, .optics, .grading]
-        for workspace in Workspace.allCases {
-            var layout = WorkspaceLayout(workspace: workspace, register: .simple)
-            let claimed = Set(layout.hiddenActiveSections(nonDefault: nonDefault))
-            let beforeShowAll = Set(layout.visibleSections)
-            layout.toggleRegister()
-            let revealed = Set(layout.visibleSections).subtracting(beforeShowAll)
-            XCTAssertEqual(claimed, revealed.intersection(nonDefault),
-                           workspace.rawValue)
-        }
-    }
-
-    func testTheFullRegisterHasNothingToDisclose() {
-        for workspace in Workspace.allCases {
-            let layout = WorkspaceLayout(workspace: workspace, register: .full)
-            XCTAssertEqual(layout.hiddenActiveCount(
-                nonDefault: Set(WorkspaceSection.allCases)), 0)
-            XCTAssertNil(layout.hiddenActiveIndicator(
-                nonDefault: Set(WorkspaceSection.allCases)))
-        }
-    }
-
-    func testTheCountCanNeverExceedTheNumberOfSectionsHoldingAnEdit() {
-        // Over every subset of every workspace's sections, in both registers. The bound
-        // is the one thing a reader of the badge assumes without checking.
-        for workspace in Workspace.allCases {
-            for register in DisclosureRegister.allCases {
-                let layout = WorkspaceLayout(workspace: workspace, register: register)
-                for subset in Self.subsets(of: WorkspaceSection.allCases.filter {
-                    $0.workspace == workspace
-                }) {
-                    let count = layout.hiddenActiveCount(nonDefault: subset)
-                    XCTAssertLessThanOrEqual(count, subset.count)
-                    XCTAssertGreaterThanOrEqual(count, 0)
-                }
-            }
-        }
-    }
-
-    func testASectionOfAnotherWorkspaceIsNotCountedHere() {
-        // Grading is non-default and invisible from Develop, but it is hidden by a move
-        // the user made rather than by a default they never chose, and "Show all" in
-        // Develop will not produce it.
-        let layout = WorkspaceLayout(workspace: .develop, register: .simple)
-        XCTAssertEqual(layout.hiddenActiveCount(nonDefault: [.grading, .filmLab]), 0)
-        XCTAssertEqual(layout.hiddenActiveCount(nonDefault: [.grading, .curve]), 1)
-    }
-
-    func testTheIndicatorSaysSectionRatherThanSectionsForOne() {
-        let layout = WorkspaceLayout(workspace: .develop, register: .simple)
-        XCTAssertEqual(layout.hiddenActiveIndicator(nonDefault: [.curve]),
-                       "1 hidden section active")
-        XCTAssertEqual(layout.hiddenActiveIndicator(nonDefault: [.curve, .detail]),
-                       "2 hidden sections active")
-    }
-
-    func testTheIndicatorListsItsSectionsInCanonicalOrder() {
-        let layout = WorkspaceLayout(workspace: .develop, register: .simple)
-        // `.optics` is deliberately in the input and deliberately absent from the
-        // output: it belongs to Crop now, and this indicator is workspace-scoped.
-        XCTAssertEqual(layout.hiddenActiveSections(nonDefault: [.optics, .curve, .detail]),
-                       [.curve, .detail])
+    func testTheAppOpensInDevelop() {
+        XCTAssertEqual(Workspace.initial, .develop)
+        XCTAssertEqual(WorkspaceLayout().workspace, .develop)
+        XCTAssertEqual(WorkspaceLayout.initial.workspace, .develop)
     }
 
     // MARK: Solo
@@ -504,33 +356,23 @@ final class WorkspaceTests: XCTestCase {
     func testALayoutDrawsOnlyTheSectionsOfItsOwnWorkspace() {
         let everything = Set(WorkspaceSection.allCases)
         for workspace in Workspace.allCases {
-            let layout = WorkspaceLayout(workspace: workspace, register: .full,
-                                         expanded: everything)
+            let layout = WorkspaceLayout(workspace: workspace, expanded: everything)
             XCTAssertEqual(layout.expandedSections, workspace.sections,
                            workspace.rawValue)
         }
     }
 
-    func testASectionTheRegisterHidesIsNeverDrawnOpen() {
-        let layout = WorkspaceLayout(workspace: .develop, register: .simple,
-                                     expanded: [.tone, .curve])
+    /// The arrangement is remembered even while it is not drawn: an expanded entry for
+    /// another workspace survives, invisible, until its workspace is current again.
+    func testAnotherWorkspacesExpandedSectionIsRememberedNotDrawn() {
+        let layout = WorkspaceLayout(workspace: .develop, expanded: [.tone, .grading])
         XCTAssertEqual(layout.expandedSections, [.tone])
-        XCTAssertTrue(layout.expanded.contains(.curve),
+        XCTAssertTrue(layout.expanded.contains(.grading),
                       "the arrangement is remembered even while it is not drawn")
     }
 
-    func testClickingASectionTheRegisterHidesDoesNothing() {
-        // There is no header to click, so the call is a caller bug; honouring it would
-        // leave Curve expanded and only visible after a later register toggle.
-        var layout = WorkspaceLayout(workspace: .develop, register: .simple,
-                                     expanded: [.tone])
-        layout.click(.curve)
-        XCTAssertEqual(layout.expanded, [.tone])
-    }
-
     func testClickingASectionOfAnotherWorkspaceDoesNothing() {
-        var layout = WorkspaceLayout(workspace: .develop, register: .full,
-                                     expanded: [.tone])
+        var layout = WorkspaceLayout(workspace: .develop, expanded: [.tone])
         layout.click(.grading)
         XCTAssertEqual(layout.expanded, [.tone])
     }
@@ -539,55 +381,47 @@ final class WorkspaceTests: XCTestCase {
     /// `testNamingAWorkspaceIsHowYouLeaveMasking`. This layout is not masking, so the
     /// round trip here is the plain one.
     func testSwitchingWorkspaceChangesNothingButTheWorkspace() {
-        var layout = WorkspaceLayout(workspace: .develop, register: .full,
+        var layout = WorkspaceLayout(workspace: .develop,
                                      expanded: [.tone, .grading])
         let before = layout
         layout.select(.grade)
         XCTAssertEqual(layout.expanded, before.expanded)
-        XCTAssertEqual(layout.register, before.register)
         XCTAssertEqual(layout.expandedSections, [.grading])
         layout.select(.develop)
         XCTAssertEqual(layout, before, "the round trip must be exact, or a workspace is "
                            + "a place you cannot return to")
     }
 
-    /// THE OPENING STATE IS EVERY SECTION THE SIMPLE REGISTER DRAWS, not one of them.
+    /// THE OPENING STATE IS A FIRST PASS'S THREE SECTIONS — White Balance, Tone,
+    /// Presence — open, with the deeper two folded at their own chevrons.
     ///
-    /// It was a single section while a click SOLOED: opening more than one would have
-    /// been a state the photographer could not return to, so one was the only honest
-    /// answer. A plain click now toggles only what it names — the owner asked for that
-    /// within minutes of using the alternative — so the opening state is free to be the
-    /// useful one. A column showing one section of six reads as mostly empty, and the
-    /// fix for that should not be two clicks before you can start.
-    func testTheLayoutStartsWithEverySimpleSectionOpenInDevelop() {
+    /// The set is what the retired Simple register used to draw for Develop, kept as
+    /// the opening arrangement: a column that opens with nothing unfolded reads as
+    /// mostly empty, and the fix for that should not be a photographer clicking before
+    /// they can start. Nothing is hidden any more — Curve's and Detail's headers are on
+    /// screen — so this pins an opening arrangement, not a filter.
+    func testTheLayoutStartsWithTheFirstPassSectionsOpenInDevelop() {
         let layout = WorkspaceLayout.initial
         XCTAssertEqual(layout.workspace, .develop)
-        XCTAssertEqual(Set(layout.expandedSections),
-                       Set(Workspace.develop.sections.filter(\.isInSimpleRegister)))
-        XCTAssertEqual(layout.expandedSections, layout.visibleSections,
-                       "nothing the opening column draws should start closed")
+        XCTAssertEqual(layout.expandedSections, [.whiteBalance, .tone, .presence])
+        XCTAssertEqual(layout.visibleSections, Workspace.develop.sections,
+                       "every section's header is on the opening screen, folded or not")
         XCTAssertFalse(layout.isMasking)
         XCTAssertTrue(layout.showsDevelopColumn)
     }
 
     // MARK: Cull, the workspace with no sections
 
-    func testCullHasNoDevelopColumnInEitherRegister() {
-        for register in DisclosureRegister.allCases {
-            let layout = WorkspaceLayout(workspace: .cull, register: register,
-                                         expanded: Set(WorkspaceSection.allCases))
-            XCTAssertFalse(layout.showsDevelopColumn)
-            XCTAssertEqual(layout.visibleSections, [])
-            XCTAssertEqual(layout.expandedSections, [])
-            XCTAssertEqual(layout.hiddenActiveCount(
-                nonDefault: Set(WorkspaceSection.allCases)), 0)
-            XCTAssertNil(layout.hiddenActiveIndicator(
-                nonDefault: Set(WorkspaceSection.allCases)))
-        }
+    func testCullHasNoDevelopColumn() {
+        let layout = WorkspaceLayout(workspace: .cull,
+                                     expanded: Set(WorkspaceSection.allCases))
+        XCTAssertFalse(layout.showsDevelopColumn)
+        XCTAssertEqual(layout.visibleSections, [])
+        XCTAssertEqual(layout.expandedSections, [])
     }
 
     func testCullCannotBeClickedIntoHavingASection() {
-        var layout = WorkspaceLayout(workspace: .cull, register: .full)
+        var layout = WorkspaceLayout(workspace: .cull)
         for section in WorkspaceSection.allCases {
             layout.click(section)
             layout.click(section, keepingOthersOpen: true)
@@ -596,8 +430,7 @@ final class WorkspaceTests: XCTestCase {
     }
 
     func testAWorkspaceWithNoSectionsStillKeepsTheOtherWorkspacesArrangement() {
-        var layout = WorkspaceLayout(workspace: .develop, register: .simple,
-                                     expanded: [.tone])
+        var layout = WorkspaceLayout(workspace: .develop, expanded: [.tone])
         layout.select(.cull)
         XCTAssertEqual(layout.expandedSections, [])
         layout.select(.develop)

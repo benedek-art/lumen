@@ -28,6 +28,10 @@ import SwiftUI
 struct GridView: View {
     @EnvironmentObject var state: AppState
 
+    /// The photo the last CLICK selected, read by the auto-centering below. See the
+    /// `onChange` for why a click must not centre and a keystroke must.
+    @State private var lastClickedID: URL?
+
     private static let cellSpacing: CGFloat = 10
 
     var body: some View {
@@ -54,13 +58,14 @@ struct GridView: View {
                                       // fresh identity per cell per body.
                                       onRate: state.ratingSink,
                                       loader: state.thumbnails)
-                                .onTapGesture(count: 2) {
-                                    state.select(photo)
-                                    state.showLoupe()
+                                // ONE tap handler, not a count-2 gesture racing a
+                                // simultaneous count-1. See `handleCellClick` for the
+                                // trace of why the pair "sometimes" lost the second
+                                // click.
+                                .onTapGesture {
+                                    lastClickedID = photo.id
+                                    handleCellClick(photo, state: state)
                                 }
-                                .simultaneousGesture(TapGesture().onEnded {
-                                    selectFromClick(photo, state: state)
-                                })
                         }
                     }
                     .padding(spacing)
@@ -84,7 +89,20 @@ struct GridView: View {
                 }
                 .onChange(of: state.primarySelection?.id) { _, id in
                     guard let id else { return }
-                    proxy.scrollTo(id, anchor: .center)
+                    // CENTRE ON KEYSTROKES, NEVER ON CLICKS — and this is half of the
+                    // double-click fix, not a taste call. A clicked cell is already
+                    // under the pointer, so centring it moves the whole sheet BETWEEN
+                    // the two clicks of a double-click: the second click lands on
+                    // whatever thumbnail slid under the cursor, selecting a photograph
+                    // nobody aimed at instead of opening the one they did. Arrow keys
+                    // are the case this scroll exists for — they walk selection off
+                    // screen and the sheet must follow.
+                    if id == lastClickedID {
+                        lastClickedID = nil
+                    } else {
+                        lastClickedID = nil
+                        proxy.scrollTo(id, anchor: .center)
+                    }
                     state.thumbnails.prefetch(around: id, in: photos.map(\.id),
                                               size: pixels, surface: .grid)
                 }
@@ -127,6 +145,49 @@ struct GridView: View {
 }
 
 // MARK: - Click grammar
+
+/// EVERY CLICK ON A CELL LANDS HERE — single, double, modified — shared by the grid and
+/// the filmstrip so the two cannot drift apart.
+///
+/// It replaces an `.onTapGesture(count: 2)` stacked with a `.simultaneousGesture(`
+/// `TapGesture())`, which is the pair the owner reported as "sometimes doesn't work",
+/// and the failure was mechanical, not timing luck:
+///
+///   1. The single tap ran SIMULTANEOUSLY — deliberately, so selection is instant
+///      rather than waiting out a double-click interval — which means it fires on the
+///      FIRST click of every double-click.
+///   2. That first click's selection publish made the grid re-body AND, worse, ran
+///      `proxy.scrollTo(id, anchor: .center)` in the selection `onChange` — an
+///      unanimated jump that recentres the sheet on the clicked cell.
+///   3. So between the two clicks of a double-click on any not-already-centred cell,
+///      the content MOVED under a stationary pointer. The second click landed on a
+///      different thumbnail: SwiftUI's count-2 recogniser never completed, and the
+///      stray click selected a photograph nobody aimed at. Double-click on the
+///      already-primary cell worked every time — no selection change, no scroll, no
+///      re-body — which is exactly the "sometimes" in the report.
+///
+/// The fix has two halves. The grid/strip suppress the recentring for click-driven
+/// selection (see their `onChange`s), so nothing moves between the clicks. And the
+/// double-click stops being a second SwiftUI recogniser at all: this one handler reads
+/// `clickCount` off the `NSEvent`, the way `selectFromClick` already reads modifiers.
+/// AppKit counts clicks by time and pointer travel alone, so the count survives any
+/// re-body — the first click selects, the second click of the same physical
+/// double-click arrives with `clickCount == 2` and opens the loupe. Instant selection
+/// is kept; no recogniser holds state that an update can reset.
+///
+/// A modified click never opens: ⌘ toggles membership and ⇧ extends, and two fast
+/// ⌘-clicks are a selection gesture, not a request to leave the grid.
+@MainActor
+func handleCellClick(_ photo: PhotoItem, state: AppState) {
+    let flags = NSEvent.modifierFlags
+    let clicks = NSApp.currentEvent?.clickCount ?? 1
+    if clicks >= 2 && !flags.contains(.command) && !flags.contains(.shift) {
+        state.select(photo)
+        state.showLoupe()
+    } else {
+        selectFromClick(photo, state: state)
+    }
+}
 
 /// Click, ⇧-click, ⌘-click — shared by the grid and the filmstrip so the two cannot
 /// drift apart. Modifiers are read from the current event rather than from separate
