@@ -195,12 +195,47 @@ Stated so nobody claims these are fine:
 
 ---
 
+## 5b. WHAT SHIPPED, AND THE OWNER'S VERDICT ON DENOISE
+
+Both fixes below landed together.
+
+**§3 — the visible ceiling on the settle.** `LoupeView` now computes the drawn device
+extent ONCE in `body` and gives it to both passes, so the settle can no longer ask a
+different size from the draft. Free by construction: the pixels it stops rendering were
+never displayed. The second consequence is the valuable one — one `DecodeKey` instead of
+two, so a photograph pays one RAW demosaic on open rather than two.
+
+**§2 — the scale gate on S3.** `ClassicalDenoise.scaled(noiseScale:)` now zeroes both
+amounts at or below `contributingNoiseScale` (0.5, i.e. linear scale ≈ 0.71). Placed in
+that function deliberately: the GPU stage and the CPU reference both reach the engine
+through it, so a rule applied in either renderer alone would be a gpu-parity failure by
+construction. `DenoiseScaleGateTests` pins that 1:1, export and zoomed region renders are
+untouched.
+
+**The evidence that authorised it.** The owner was asked whether he could see Off from
+Classic at fit, on a noisy frame, and answered: *"I literally couldn't even realize… I
+did not realize that noise reduction was on."* That is the expected answer rather than a
+broken stage — at fit a 33 MP frame is downsampled about 2.2× per axis, and averaging
+four samples has already halved sigma before S3 runs. What was being paid for was the
+removal of noise the decode had removed.
+
+**DEFERRED, at the owner's request:** *"I don't feel like we've worked enough in the
+denoise area to actually have outputs that work correctly… let's fix the speed, and then
+once everything there is done, then we can actually work on a denoise, like an actual
+denoise. Maybe get an open source one that works well, or create our own, something like
+an AI denoise."* So the classical engine is not being tuned further now. When there is a
+denoiser worth showing at preview scale, `contributingNoiseScale` is the one number to
+move, and it is named and documented for exactly that.
+
+---
+
 ## 6. ORDER OF WORK
 
-1. **§3, the visible ceiling on the settle.** Smallest change, helps both frame time and
-   load time, cannot alter a pixel.
-2. **§2, denoise levels scaled by decode scale.** The big one. Gated on the pixel
-   comparison.
+1. ~~**§3, the visible ceiling on the settle.**~~ Shipped — see §5b.
+2. ~~**§2, denoise scaled by decode scale.**~~ Shipped as a scale GATE rather than a level
+   reduction: the thresholds are in units of sigma and do not fall with scale, so cutting
+   levels would have removed real denoising. The owner's own comparison authorised
+   skipping the stage outright below the contributing scale.
 3. Re-measure on the owner's machine with the HUD. Targets: settle under 30 ms at
    viewport size, draft under 16 ms, `in/out` approaching 1:1.
 4. Only then look at §4, and at the unmeasured paths in §5.

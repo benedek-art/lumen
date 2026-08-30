@@ -433,6 +433,18 @@ public struct ClassicalDenoise: Sendable {
     /// Hardest level count the engine will honour, so a bad caller cannot blow the halo.
     public static let maximumLevels: Int = 6
 
+    /// The `noiseScale` (= s² for a decode at linear scale s) at or below which the
+    /// classical bands stop running — see `scaled(noiseScale:)` for the argument and
+    /// the measurement. 0.5 is s ≈ 0.71: the downsample has already removed about a
+    /// third of sigma, which is more than these bands remove at their default strength,
+    /// and what is left is finer than the sample grid the viewer is drawing onto.
+    ///
+    /// Deliberately a named constant rather than a literal, because it is the number to
+    /// move if the owner ever CAN see the difference at fit. Raising it toward 1 buys
+    /// denoising back at the cost of the interactive frame; lowering it toward 0 spends
+    /// the frame on noise nobody can see.
+    public static let contributingNoiseScale: Double = 0.5
+
     /// Luma master scale at Luminance 100, in σ — the ceiling the RESIDUAL-ERROR
     /// measurement supports, not the one soft thresholding arithmetically allows.
     /// See `lumaK` for the numbers.
@@ -1188,6 +1200,44 @@ public struct ClassicalDenoise: Sendable {
     public func scaled(noiseScale: Double) -> ClassicalDenoise {
         let k = (noiseScale.isFinite && noiseScale > 0) ? Swift.min(noiseScale, 1) : 1
         guard k < 1 else { return self }
+        // BELOW THE CONTRIBUTING SCALE, S3 DOES NOT RUN AT ALL.
+        //
+        // The paragraph above says a preview carries about a tenth the variance and
+        // scales the profile to match. What it left in place was the WORK: `levels`
+        // came through unchanged, so a preview paid all five à-trous bands — around
+        // thirty GPU passes, the deepest reading pixels eighty apart — to remove noise
+        // the decode's own downsample had already averaged away. Cost flat, benefit
+        // falling with scale.
+        //
+        // The owner measured what that costs: same photograph, same 4096 px settle,
+        // noise reduction off 30 ms and on 375.7 ms. Denoise was ninety-two percent of
+        // his settle. Then he looked for what it was buying at fit, on a noisy frame,
+        // and could not see any difference at all between Off, Classic and the AI
+        // stand-in — which is the expected answer rather than a broken stage: at fit a
+        // 33 MP frame is downsampled about 2.2x per axis, and averaging four samples
+        // has already halved sigma before this engine is asked for anything.
+        //
+        // So the rule is the honest form of the approximation this function already
+        // makes. `noiseScale` is s^2 for a decode at linear scale s; at s <= ~0.71 the
+        // downsample has taken more of the noise than these bands would, and the
+        // remaining structure is sub-pixel. Zeroing both amounts here (rather than in
+        // either renderer) is what keeps the GPU stage and the CPU reference agreeing,
+        // since both reach the engine through this one funnel — a rule applied in one
+        // of them would be a gpu-parity failure by construction.
+        //
+        // At 1:1 and on export the scale is 1, this branch never runs, and the
+        // photograph is denoised exactly as before. Zoomed region renders ask the
+        // sensor's own scale, so inspection keeps its noise reduction too. What is
+        // given up is denoising a view too small to show noise.
+        if k <= ClassicalDenoise.contributingNoiseScale {
+            return ClassicalDenoise(luma: 0, chroma: 0, hotPixels: hotPixels,
+                                    lumaDetail: lumaDetail, lumaContrast: lumaContrast,
+                                    colorDetail: colorDetail,
+                                    colorSmoothness: colorSmoothness,
+                                    profile: NoiseProfile(a: profile.a * k,
+                                                          b: profile.b * k),
+                                    levels: levels)
+        }
         return ClassicalDenoise(luma: luma, chroma: chroma, hotPixels: hotPixels,
                                 lumaDetail: lumaDetail, lumaContrast: lumaContrast,
                                 colorDetail: colorDetail,

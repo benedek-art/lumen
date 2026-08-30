@@ -1052,7 +1052,6 @@ struct LoupeView: View {
     var body: some View {
         GeometryReader { geometry in
             let container: CGSize = geometry.size
-            let longEdge: Int = requestedLongEdge(container: container)
             // The zoomed region ask — held STILL through both continuous zoom
             // gestures. A pinch reads the rectangle captured at its first event; the
             // scrub always began at fit, so its whole gesture is whole-frame. Panning
@@ -1064,6 +1063,34 @@ struct LoupeView: View {
                 if scrubFromFit == true { return nil }
                 return requestedRegion(container: container)
             }()
+            // WHAT THE PANEL ACTUALLY DRAWS, in device pixels, computed ONCE and given
+            // to both passes. It used to be computed here for the draft and not at all
+            // for the settle, and the two consequences were both expensive:
+            //
+            //   · the settle rendered the CONTAINER's bucketed long edge, which for a
+            //     portrait photograph in a landscape pane is far more pixels than the
+            //     panel shows — the owner's HUD read `draft @3212` beside
+            //     `settle @4096` on one frame, a third of them discarded by the
+            //     downsample that follows;
+            //   · and because `AppleRawSource.DecodeKey` carries the scale factor, two
+            //     asks are TWO CACHE ENTRIES and two full demosaics of a 33 MP file per
+            //     photograph — one of them purely to be thrown away. That is a load-time
+            //     cost wearing a frame-time costume, and it is the best current
+            //     explanation for "five to ten seconds to open a photo" (docs/34 §3).
+            //
+            // One value, both passes, one decode. Stable under a resize because a fit
+            // ratio is derived from the ASPECT: the drawn extent does not move when the
+            // pixel count does, so this cannot chase its own tail through the render.
+            let drawnDevice: Double? = region == nil
+                ? model.image.map { cg in
+                    let d = drawnFull(forZoom: state.zoomLevel, image: cg,
+                                      container: container)
+                    return Double(Swift.max(d.width, d.height))
+                        * Double(Swift.max(displayScale, 1))
+                }
+                : nil
+            let longEdge: Int = requestedLongEdge(container: container,
+                                                  drawnDeviceLongEdge: drawnDevice)
             ZStack(alignment: .bottomLeading) {
                 Lumen.viewerBackground
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1133,7 +1160,8 @@ struct LoupeView: View {
                                               longEdge: longEdge, state: state,
                                               showingUncropped: cropArmed,
                                               regionUnit: region)) {
-                await renderCurrent(longEdge: longEdge, region: region)
+                await renderCurrent(longEdge: longEdge, region: region,
+                                    drawnDevice: drawnDevice)
             }
             .task(id: BeforeKey(url: photo.id, recipe: beforeRecipe,
                                 wanted: needsBeforeRender, longEdge: longEdge,
@@ -1216,22 +1244,13 @@ struct LoupeView: View {
     // MARK: Render entry points
 
     @MainActor
-    private func renderCurrent(longEdge: Int, region: CGRect?) async {
+    private func renderCurrent(longEdge: Int, region: CGRect?,
+                               drawnDevice: Double?) async {
         // The same framing-stripped recipe the task key carries — see `renderRecipe`.
         let wanted = renderRecipe
-        // What the frame actually occupies on the panel, in device pixels — the
-        // geometric ceiling on a WHOLE-FRAME draft (`DraftResolution.visibleCeiling`,
-        // where the band it closes is written out). Left off for a region render,
-        // which is already sized by the viewport and must stay at the sensor's
-        // sharpness inside its rectangle.
-        let drawnDevice: Double? = region == nil
-            ? model.image.map { cg in
-                let d = drawnFull(forZoom: state.zoomLevel, image: cg,
-                                  container: containerSize)
-                return Double(Swift.max(d.width, d.height))
-                    * Double(Swift.max(displayScale, 1))
-            }
-            : nil
+        // `drawnDevice` arrives from `body` rather than being recomputed here: it read
+        // `containerSize` (the @State) where the ask read the geometry's own container,
+        // and two values that disagree for one layout pass are two decode keys.
         await model.load(url: photo.id,
                          recipe: wanted,
                          coordinator: state.renderCoordinator,
@@ -1977,7 +1996,8 @@ struct LoupeView: View {
     /// size is known (the first result carries it) the fit cap stands in, and the
     /// key moving re-asks. The ladder still sizes DRAFTS below the rung ceiling;
     /// only the settle pays the native price, at rest.
-    private func requestedLongEdge(container: CGSize) -> Int {
+    private func requestedLongEdge(container: CGSize,
+                                   drawnDeviceLongEdge: Double? = nil) -> Int {
         if state.zoomLevel > 0 {
             // THE ASK IS THE DENOMINATION BASIS, one value — `zoomedFullBasis` also
             // feeds the pinch math and the fit-snap, so asking for anything else
@@ -1988,7 +2008,22 @@ struct LoupeView: View {
         let longEdge = Double(Swift.max(container.width, container.height)) * scale
         guard longEdge.isFinite, longEdge > 0 else { return 1024 }
         let bucket = Int((longEdge / 256).rounded(.up)) * 256
-        return Swift.min(Swift.max(bucket, 640), LoupeView.maxRenderLongEdge)
+        let asked = Swift.min(Swift.max(bucket, 640), LoupeView.maxRenderLongEdge)
+        // AND NOT ONE PIXEL MORE THAN THE PANEL DRAWS. The bucket is the CONTAINER's
+        // long edge; a portrait photograph in a landscape pane is fitted by its height
+        // and occupies far less. Rendering the difference is rendering pixels that the
+        // downsample to the panel discards — invisible by construction, which is what
+        // makes this free.
+        //
+        // The same ceiling already bounded the DRAFT (`DraftResolution.draftLongEdge`),
+        // and applying it to only one of the two passes was the expensive half of the
+        // mistake: the settle then asked a different size, and a different size is a
+        // different `DecodeKey`, so every photograph paid two full RAW demosaics — the
+        // one it shows and one it discards (docs/34 §3).
+        guard let ceiling = DraftResolution.visibleCeiling(drawnDeviceLongEdge) else {
+            return asked
+        }
+        return Swift.max(Swift.min(asked, ceiling), 64)
     }
 
     // MARK: Region rendering

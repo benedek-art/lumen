@@ -72,3 +72,58 @@ final class SpeedBenchTests: XCTestCase {
         }
     }
 }
+
+/// The scale gate on S3 (docs/34 §2): the classical bands stop running once the decode's
+/// own downsample has taken more of the noise than they would.
+final class DenoiseScaleGateTests: XCTestCase {
+
+    private let nr = ClassicalDenoise(ClassicNR(), profile: NoiseProfile.forISO(1600))
+
+    /// At 1:1 and on export nothing changes — this is the promise the gate rests on.
+    func testFullScaleIsUntouched() {
+        let full = nr.scaled(noiseScale: 1)
+        XCTAssertEqual(full.luma, nr.luma)
+        XCTAssertEqual(full.chroma, nr.chroma)
+        let plan = full.gpuPlan(width: 7008, height: 4672, noiseScale: 1)
+        XCTAssertTrue(plan.chromaThresholds.contains { $0 > 0 },
+                      "an inspection render must still be denoised")
+    }
+
+    /// A fit view of a 33 MP frame on a laptop: scale ≈ 0.46, noiseScale ≈ 0.21. The
+    /// owner could not see Off from Classic here, and the downsample is why.
+    func testAFitViewDoesNotRunTheBands() {
+        let s = 3212.0 / 7008.0
+        let scaled = nr.scaled(noiseScale: s * s)
+        XCTAssertEqual(scaled.luma, 0)
+        XCTAssertEqual(scaled.chroma, 0)
+        let plan = nr.gpuPlan(width: 3212, height: 2141, noiseScale: s * s)
+        XCTAssertFalse(plan.lumaThresholds.contains { $0 > 0 },
+                       "a zero threshold is what makes RenderGraph skip the stage")
+        XCTAssertFalse(plan.chromaThresholds.contains { $0 > 0 })
+    }
+
+    /// The gate is a scale rule, not a resolution rule: the same pixel count denoises or
+    /// does not depending on how much of the sensor it represents.
+    func testTheGateFollowsScaleNotPixelCount() {
+        let big = nr.scaled(noiseScale: 0.9)      // a near-1:1 crop
+        XCTAssertGreaterThan(big.chroma, 0)
+        let small = nr.scaled(noiseScale: 0.2)    // the same pixels, whole frame
+        XCTAssertEqual(small.chroma, 0)
+    }
+
+    /// Hot pixels are single-sample defects, not a band, and they survive the gate.
+    func testHotPixelsSurvive() {
+        var params = ClassicNR()
+        params.hotPixels = 60
+        let engine = ClassicalDenoise(params, profile: NoiseProfile.forISO(1600))
+        XCTAssertEqual(engine.scaled(noiseScale: 0.2).hotPixels, 60)
+    }
+
+    /// The boundary is the named constant, and it is inclusive on the skipping side.
+    func testTheBoundaryIsTheNamedConstant() {
+        XCTAssertEqual(nr.scaled(
+            noiseScale: ClassicalDenoise.contributingNoiseScale).chroma, 0)
+        XCTAssertGreaterThan(nr.scaled(
+            noiseScale: ClassicalDenoise.contributingNoiseScale + 0.01).chroma, 0)
+    }
+}
