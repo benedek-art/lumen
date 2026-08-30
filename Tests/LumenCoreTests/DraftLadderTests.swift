@@ -1018,4 +1018,72 @@ final class DraftLadderTests: XCTestCase {
                                + "draft ladder anything")
         }
     }
+
+    // MARK: The sharpness floor — the assumption the owner keeps refuting
+
+    /// The ladder may descend on measured heat, but not past a 2x magnification of
+    /// what is actually on screen. The owner's report is the evidence: "anything I try
+    /// to edit turns super blurry while editing until I let go", raised to his highest
+    /// priority — which is a photographer refuting `rungs`' claim that a moving image
+    /// cannot show detail.
+    func testTheLadderMayNotDescendPastTwiceTheDrawnExtent() {
+        var ladder = DraftLadder()
+        // Drive it to the floor with hot frames.
+        for _ in 0..<40 {
+            ladder.record(draftMilliseconds: DraftLadder.stepDownOver + 40,
+                          renderedLongEdge: ladder.longEdge(requested: 4096),
+                          requested: 4096)
+        }
+        XCTAssertEqual(ladder.longEdge(requested: 4096), DraftLadder.rungs.last,
+                       "hot frames must still reach the floor without a floor argument")
+        // A 16-inch centre pane: about 2360 device pixels. The floor rung there is a
+        // 4.1x upscale, which is the mush in the screenshots.
+        let floor = DraftLadder.sharpnessFloor(drawnDeviceLongEdge: 2360)
+        let bounded = ladder.longEdge(requested: 4096, notBelow: floor)
+        XCTAssertEqual(bounded, 1180)
+        XCTAssertLessThanOrEqual(2360.0 / Double(bounded), DraftLadder.maxUpscale + 1e-9,
+                                 "the whole point is the magnification, not the rung")
+    }
+
+    /// A floor never raises the answer above what was asked for — this method's oldest
+    /// promise, and the one a settle at 1024 depends on.
+    func testTheFloorNeverExceedsTheAsk() {
+        let ladder = DraftLadder()
+        XCTAssertEqual(ladder.longEdge(requested: 1024,
+                                       notBelow: DraftLadder.sharpnessFloor(
+                                           drawnDeviceLongEdge: 8000)),
+                       1024)
+    }
+
+    /// A machine with headroom is untouched: the floor binds only below it.
+    func testAFastMachineNeverNoticesTheFloor() {
+        let ladder = DraftLadder()
+        XCTAssertEqual(ladder.longEdge(requested: 2560,
+                                       notBelow: DraftLadder.sharpnessFloor(
+                                           drawnDeviceLongEdge: 2360)),
+                       2560,
+                       "the top rung already beats the floor; nothing should change")
+    }
+
+    /// Every caller that passes nothing gets exactly the old answer.
+    func testNoFloorIsTheOldLadderExactly() {
+        var ladder = DraftLadder()
+        for _ in 0..<40 {
+            ladder.record(draftMilliseconds: DraftLadder.stepDownOver + 40,
+                          renderedLongEdge: ladder.longEdge(requested: 4096),
+                          requested: 4096)
+        }
+        XCTAssertEqual(ladder.longEdge(requested: 4096),
+                       ladder.longEdge(requested: 4096, notBelow: nil))
+        XCTAssertNil(DraftLadder.sharpnessFloor(drawnDeviceLongEdge: nil))
+    }
+
+    func testTheFloorRefusesNonsense() {
+        XCTAssertNil(DraftLadder.sharpnessFloor(drawnDeviceLongEdge: .nan))
+        XCTAssertNil(DraftLadder.sharpnessFloor(drawnDeviceLongEdge: .infinity))
+        XCTAssertNil(DraftLadder.sharpnessFloor(drawnDeviceLongEdge: 0))
+        XCTAssertNil(DraftLadder.sharpnessFloor(drawnDeviceLongEdge: -10))
+        // Never below the same 64 px guard the ask carries.
+        XCTAssertEqual(DraftLadder.sharpnessFloor(drawnDeviceLongEdge: 2), 64)
+    }
 }

@@ -310,8 +310,49 @@ public struct DraftLadder: Sendable, Equatable {
     public init() {}
 
     /// The long edge the next draft should render at, given what the caller wants.
-    public func longEdge(requested: Int) -> Int {
-        Swift.min(Self.rungs[rung], Swift.max(requested, 64))
+    public func longEdge(requested: Int, notBelow floor: Int? = nil) -> Int {
+        let ask = Swift.max(requested, 64)
+        let stepped = Swift.min(Self.rungs[rung], ask)
+        // The floor never raises the answer above the ask: a settle at 1024 still
+        // wants a draft at 1024, which is this method's oldest promise.
+        guard let floor, floor > 0 else { return stepped }
+        return Swift.min(ask, Swift.max(stepped, floor))
+    }
+
+    /// The coarsest a draft may get, expressed as the magnification it would be drawn
+    /// at rather than as a rung.
+    ///
+    /// THE ASSUMPTION THIS OVERRULES is written into `rungs` above: "a draft exists for
+    /// the duration of a hand's movement, and a moving image cannot show detail". That
+    /// is the standard argument for a low floor and it is why 576 is one. The owner has
+    /// refuted it empirically, three rounds running and in his own words — *"anything I
+    /// try to edit turns super blurry while editing until I let go"*, raised to the
+    /// highest priority he has given anything. He can see it, it bothers him, and a
+    /// comment asserting that he cannot is not evidence against a photographer looking
+    /// at his own picture.
+    ///
+    /// So the trade is restated rather than removed. The ladder still measures and still
+    /// descends — a machine that cannot afford the top rung is still not asked to pay
+    /// for it — but it may not descend past the point where the draft is more than a
+    /// `maxUpscale` magnification of what is actually on screen. Below that the picture
+    /// stops reading as "resolving" and starts reading as broken, which is the whole of
+    /// the complaint.
+    ///
+    /// 2× is the number. A 2× upscale of a linear-filtered proxy is visibly soft and
+    /// unmistakably the same photograph; the floor rung's 4.1× at a 16-inch centre pane
+    /// is the mush in his screenshots. It costs frame rate only on a machine that had
+    /// already descended that far, and then only down to a bound rather than all the way
+    /// to the budget — his stated preference, made explicit here instead of assumed the
+    /// other way round.
+    public static let maxUpscale: Double = 2
+
+    /// The floor for `longEdge(requested:notBelow:)`, given what the frame occupies on
+    /// the panel in device pixels. Nil when the caller cannot say, which leaves the
+    /// ladder exactly as it was — every caller that passes nothing gets the old answer.
+    public static func sharpnessFloor(drawnDeviceLongEdge: Double?) -> Int? {
+        guard let drawn = drawnDeviceLongEdge, drawn.isFinite, drawn >= 1,
+              maxUpscale >= 1 else { return nil }
+        return Swift.max(Int((drawn / maxUpscale).rounded(.up)), 64)
     }
 
     /// Record what a draft cost. `renderedLongEdge` is the long edge the renderer

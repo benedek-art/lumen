@@ -446,6 +446,10 @@ final class PhotoRenderModel: ObservableObject {
               softProof: SoftProof? = nil,
               settleTick: Int = 0,
               region: CGRect? = nil,
+              /// What the frame occupies on the panel, in device pixels — the ladder's
+              /// sharpness floor (`DraftLadder.sharpnessFloor`). Nil where the caller
+              /// cannot say, which leaves the ladder exactly as it was.
+              drawnDeviceLongEdge: Double? = nil,
               gestureInFlight: () -> Bool = { false }) async {
 
         currentRequestURL = url
@@ -578,7 +582,14 @@ final class PhotoRenderModel: ObservableObject {
             // sizes to be affordable.
             let draftTarget = region != nil
                 ? draftRequested
-                : draftLadder.longEdge(requested: draftRequested)
+                : draftLadder.longEdge(
+                    requested: draftRequested,
+                    // …and the ladder may not descend past a 2× magnification of what
+                    // is on screen. `DraftLadder.maxUpscale` argues it; the short
+                    // version is that the low rungs' justification — a moving image
+                    // cannot show detail — is the assumption the owner keeps refuting.
+                    notBelow: DraftLadder.sharpnessFloor(
+                        drawnDeviceLongEdge: drawnDeviceLongEdge))
             let draftStarted = DispatchTime.now().uptimeNanoseconds
             let draft = await coordinator.render(url: url, recipe: recipe,
                                                  maxLongEdge: Swift.max(draftTarget, 64),
@@ -1134,6 +1145,19 @@ struct LoupeView: View {
     private func renderCurrent(longEdge: Int, region: CGRect?) async {
         // The same framing-stripped recipe the task key carries — see `renderRecipe`.
         let wanted = renderRecipe
+        // What the frame actually occupies on the panel, in device pixels — the
+        // geometric ceiling on a WHOLE-FRAME draft (`DraftResolution.visibleCeiling`,
+        // where the band it closes is written out). Left off for a region render,
+        // which is already sized by the viewport and must stay at the sensor's
+        // sharpness inside its rectangle.
+        let drawnDevice: Double? = region == nil
+            ? model.image.map { cg in
+                let d = drawnFull(forZoom: state.zoomLevel, image: cg,
+                                  container: containerSize)
+                return Double(Swift.max(d.width, d.height))
+                    * Double(Swift.max(displayScale, 1))
+            }
+            : nil
         await model.load(url: photo.id,
                          recipe: wanted,
                          coordinator: state.renderCoordinator,
@@ -1148,7 +1172,8 @@ struct LoupeView: View {
                          draftLongEdge: DraftResolution.draftLongEdge(
                              settledLongEdge: longEdge,
                              fitLongEdge: LoupeView.draftLongEdge,
-                             zoomRatio: state.zoomLevel),
+                             zoomRatio: state.zoomLevel,
+                             drawnDeviceLongEdge: drawnDevice),
                          fullLongEdge: longEdge,
                          strokeSets: state.strokeSets(for: wanted),
                          // While the crop tool is open the loupe shows the frame
@@ -1168,6 +1193,7 @@ struct LoupeView: View {
                          // computed once in `body` so the key and the render always
                          // agree on it.
                          region: region,
+                         drawnDeviceLongEdge: drawnDevice,
                          // Asked at the moment the settle would start rather than at
                          // load time, so a release landing mid-draft settles at once
                          // instead of waiting for the tick's fresh task.

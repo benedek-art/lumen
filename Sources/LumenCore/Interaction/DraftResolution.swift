@@ -65,8 +65,42 @@ public enum DraftResolution {
     /// The floor still matters: it keeps a tiny window from asking for a draft so small
     /// that the ladder has nothing to give back.
     public static func draftLongEdge(settledLongEdge: Int, fitLongEdge: Int,
-                                     zoomRatio: Double) -> Int {
-        Swift.max(fitLongEdge, settledLongEdge)
+                                     zoomRatio: Double,
+                                     drawnDeviceLongEdge: Double? = nil) -> Int {
+        Swift.max(fitLongEdge,
+                  Swift.min(settledLongEdge,
+                            visibleCeiling(drawnDeviceLongEdge) ?? settledLongEdge))
+    }
+
+    /// The most pixels a draft can be WORTH: the ones the frame actually occupies on
+    /// the panel, in device pixels. Nil when the caller cannot say.
+    ///
+    /// The band this closes is between fit and roughly 1:1, and it is the last place a
+    /// slider drag still went soft after the region ask landed (`ZoomRegion`). There,
+    /// the whole frame is on screen, so a region render has nothing to skip — and the
+    /// ASK is the sensor's own long edge, because the zoom is denominated against it
+    /// (`requestedLongEdge`). At 50% on a 7008 px file that asks for 7008 pixels to
+    /// draw 3504 of them: half the render, thrown away, per drag event. The ladder
+    /// then measures the whole 33 MP frame as unaffordable — correctly — and steps
+    /// down to a rung far below what the screen was already showing.
+    ///
+    /// So the geometric truth goes in first and the measured one second: never render
+    /// more than can be shown, then let `DraftLadder` take back whatever this machine
+    /// still cannot afford. The cap costs nothing visible by construction — a frame
+    /// rendered at exactly its drawn extent is 1:1 with the panel — and it is a CAP,
+    /// not a target, so a machine with headroom is not pushed below it.
+    ///
+    /// The settle is deliberately NOT capped by this. It has to deliver the sensor's
+    /// own pixels: that is what "1:1 means the photograph's pixels" rests on, what
+    /// `settledActualLongEdge` normalizes every draw against, and what lets the PROXY
+    /// badge tell the truth.
+    public static func visibleCeiling(_ drawnDeviceLongEdge: Double?) -> Int? {
+        guard let drawn = drawnDeviceLongEdge, drawn.isFinite, drawn >= 1 else {
+            return nil
+        }
+        // Rounded UP, so a fractional drawn extent never asks for a pixel less than
+        // the panel will put on screen.
+        return Int(drawn.rounded(.up))
     }
 
     /// The on-screen long edge, in points, of a proxy drawn at `zoomRatio`.

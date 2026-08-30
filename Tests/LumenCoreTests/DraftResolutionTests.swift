@@ -139,4 +139,66 @@ final class DraftResolutionTests: XCTestCase {
                                                      zoomRatio: .nan),
                        4096)
     }
+
+    // MARK: The visible ceiling — the band between fit and 1:1
+
+    /// The case that stayed soft after the region ask landed: the whole frame is on
+    /// screen, so a region render has nothing to skip, and the ASK is the sensor's own
+    /// long edge because the zoom is denominated against it. At 50% on a 7008 px file
+    /// that is 7008 pixels rendered to draw 3504 — half the work thrown away per drag
+    /// event, and a whole 33 MP frame for the ladder to correctly call unaffordable.
+    func testAWholeFrameDraftIsCappedByWhatThePanelCanShow() {
+        XCTAssertEqual(DraftResolution.draftLongEdge(settledLongEdge: 7008,
+                                                     fitLongEdge: 1024,
+                                                     zoomRatio: 0.5,
+                                                     drawnDeviceLongEdge: 3504),
+                       3504,
+                       "rendering pixels the panel cannot show is the ladder's whole "
+                           + "budget spent on nothing")
+    }
+
+    /// A CAP, not a target: it never asks for MORE than the settle, and never pushes a
+    /// machine with headroom below the resolution it was already affording.
+    func testTheCeilingNeverRaisesTheAsk() {
+        // Drawn larger than the settle — a magnified frame — asks for the settle.
+        XCTAssertEqual(DraftResolution.draftLongEdge(settledLongEdge: 4096,
+                                                     fitLongEdge: 1024,
+                                                     zoomRatio: 2,
+                                                     drawnDeviceLongEdge: 16384),
+                       4096)
+        // And the fit floor still wins over a tiny window.
+        XCTAssertEqual(DraftResolution.draftLongEdge(settledLongEdge: 4096,
+                                                     fitLongEdge: 1024,
+                                                     zoomRatio: 0.2,
+                                                     drawnDeviceLongEdge: 200),
+                       1024,
+                       "a draft so small the ladder has nothing to give back is the "
+                           + "reason the floor exists")
+    }
+
+    /// Every existing caller passes nothing, and must get exactly what it got before —
+    /// the compare panes and the before rendition among them.
+    func testNoCeilingMeansTheOldAnswerExactly() {
+        XCTAssertEqual(DraftResolution.draftLongEdge(settledLongEdge: 4096,
+                                                     fitLongEdge: 1024,
+                                                     zoomRatio: 1),
+                       4096)
+        XCTAssertNil(DraftResolution.visibleCeiling(nil))
+    }
+
+    func testTheCeilingRefusesNonsenseRatherThanShrinkingAFrameToNothing() {
+        XCTAssertNil(DraftResolution.visibleCeiling(.nan))
+        XCTAssertNil(DraftResolution.visibleCeiling(.infinity))
+        XCTAssertNil(DraftResolution.visibleCeiling(0))
+        XCTAssertNil(DraftResolution.visibleCeiling(-100))
+        // Rounded UP: a fractional drawn extent must never ask for a pixel less than
+        // the panel will put on screen.
+        XCTAssertEqual(DraftResolution.visibleCeiling(3503.2), 3504)
+        // And a nonsense ceiling leaves the ask exactly where it was.
+        XCTAssertEqual(DraftResolution.draftLongEdge(settledLongEdge: 4096,
+                                                     fitLongEdge: 1024,
+                                                     zoomRatio: 0.5,
+                                                     drawnDeviceLongEdge: .nan),
+                       4096)
+    }
 }
