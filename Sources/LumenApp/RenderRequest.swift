@@ -82,18 +82,27 @@ struct ViewerRenderKey: Equatable {
     /// forever.
     let settleTick: Int
 
+    /// The zoomed region ask (`ZoomRegion.requestUnit`), quantized — nil for
+    /// whole-frame renders, which is every fit render and every compare pane. In the
+    /// key because a pan past the rendered margin must re-render; quantization is what
+    /// keeps that from being every pan point, and the loupe holds it STICKY while a
+    /// pinch is in flight so a continuous zoom does not mint a request per quantum.
+    let regionUnit: CGRect?
+
     /// The current key for a surface showing `url` with `recipe` at `longEdge`.
     /// Reads the beside-the-recipe inputs from the one place they live.
     @MainActor
     static func current(url: URL, recipe: Recipe, longEdge: Int,
                         state: AppState,
-                        showingUncropped: Bool = false) -> ViewerRenderKey {
+                        showingUncropped: Bool = false,
+                        regionUnit: CGRect? = nil) -> ViewerRenderKey {
         ViewerRenderKey(url: url, recipe: recipe, longEdge: longEdge,
                         strokeRefs: Set(state.strokeSets(for: recipe).keys),
                         softProof: state.activeSoftProof,
                         matteKinds: state.maskMatteKinds(for: url),
                         showingUncropped: showingUncropped,
-                        settleTick: state.settleTick)
+                        settleTick: state.settleTick,
+                        regionUnit: regionUnit)
     }
 }
 

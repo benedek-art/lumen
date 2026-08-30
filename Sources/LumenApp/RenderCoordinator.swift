@@ -31,6 +31,15 @@ struct RenderResult: @unchecked Sendable {
     /// was both the cap and the number the zoom was denominated in). Zero when the
     /// source could not be opened at all.
     let nativeLongEdge: Int
+    /// The unit rectangle of the delivered frame these pixels cover, top-left origin —
+    /// nil for a whole-frame render. Region renders are what make a zoomed draft
+    /// sharp for viewport cost (docs/32 fifth round); the viewer places the
+    /// sub-image inside the full drawn geometry, which `fullPixelSize` describes.
+    let regionUnit: CGRect?
+    /// The FULL delivered frame's pixel size for this render — the geometry basis the
+    /// viewer draws, clamps and samples against, whether or not the pixels are a
+    /// region of it. Nil only on the embedded-preview fallback.
+    let fullPixelSize: CGSize?
 }
 
 /// What the renderer knows about one file's AI mattes after a pass, plus the files its
@@ -85,7 +94,8 @@ actor RenderCoordinator {
                 generation: UInt64,
                 strokeSets: [String: BrushStrokeSet] = [:],
                 showingUncropped: Bool = false,
-                softProof: SoftProof? = nil) async -> RenderResult? {
+                softProof: SoftProof? = nil,
+                region: CGRect? = nil) async -> RenderResult? {
         latestGeneration = max(latestGeneration, generation)
         // Drop work that is already stale before paying for a decode.
         guard generation >= latestGeneration else { return nil }
@@ -102,7 +112,8 @@ actor RenderCoordinator {
                              generation: generation, coalesced: true,
                              strokeSets: strokeSets,
                              showingUncropped: showingUncropped,
-                             softProof: softProof)
+                             softProof: softProof,
+                             region: region)
     }
 
     /// A render nobody else is waiting on — the scope proxy, the Auto-tone probe. It
@@ -139,7 +150,8 @@ actor RenderCoordinator {
                          generation: UInt64, coalesced: Bool,
                          strokeSets: [String: BrushStrokeSet],
                          showingUncropped: Bool = false,
-                         softProof: SoftProof? = nil) async -> RenderResult? {
+                         softProof: SoftProof? = nil,
+                         region: CGRect? = nil) async -> RenderResult? {
         // Stale by TICKET, or stale because the caller has gone away.
         //
         // The ticket alone could not drop a backlog. `latestGeneration` is claimed when
@@ -181,13 +193,20 @@ actor RenderCoordinator {
             // presented as a photograph.
             let image: CGImage
             let note: String?
+            var regionUnit: CGRect?
+            var fullPixelSize: CGSize?
             if KernelLibrary.coreAvailable {
-                image = try renderer.renderPreview(source: source, recipe: recipe,
-                                                   maxLongEdge: maxLongEdge, draft: draft,
-                                                   coarseDecode: coarseDecode,
-                                                   showingUncropped: showingUncropped,
-                                                   strokeSets: strokeSets,
-                                                   softProof: softProof)
+                let delivery = try renderer.renderPreviewDelivery(
+                    source: source, recipe: recipe,
+                    maxLongEdge: maxLongEdge, draft: draft,
+                    coarseDecode: coarseDecode,
+                    showingUncropped: showingUncropped,
+                    strokeSets: strokeSets,
+                    softProof: softProof,
+                    region: region)
+                image = delivery.image
+                regionUnit = delivery.regionUnit
+                fullPixelSize = delivery.fullPixelSize
                 // Core kernels present but something else missing: the picture is real,
                 // and some stage of it silently did nothing. Say which.
                 let missing = KernelLibrary.unavailableKernels
@@ -197,10 +216,14 @@ actor RenderCoordinator {
                         + (missing.count == 1 ? "kernel" : "kernels")
                         + " unavailable: " + missing.joined(separator: ", ")
             } else {
+                // No region on the CPU fallback: it is rare, whole-frame by
+                // construction, and a region contract it half-honoured would be
+                // worse than the full frame it already delivers.
                 image = try renderer.renderReference(source: source, recipe: recipe,
                                                      maxLongEdge: maxLongEdge,
                                                      strokeSets: strokeSets,
                                                      softProof: softProof)
+                fullPixelSize = CGSize(width: image.width, height: image.height)
                 // The framing caveat is not decoration. `renderReference` never
                 // calls `applyGeometry`, so this path returns the WHOLE frame:
                 // no crop, no straighten, no flip. Everything else about the picture
@@ -230,7 +253,9 @@ actor RenderCoordinator {
             return RenderResult(image: image, generation: generation, isDraft: draft,
                                 usedEmbeddedPreview: false,
                                 note: note,
-                                nativeLongEdge: Int(source.nativeLongEdge.rounded()))
+                                nativeLongEdge: Int(source.nativeLongEdge.rounded()),
+                                regionUnit: regionUnit,
+                                fullPixelSize: fullPixelSize)
         } catch {
             // Never leave the viewer empty: fall back to the embedded preview and
             // label it honestly.
@@ -239,7 +264,9 @@ actor RenderCoordinator {
                                     usedEmbeddedPreview: true,
                                     note: "Embedded preview — \(Self.describe(error))",
                                     nativeLongEdge: Int((try? self.source(for: url))
-                                        .map(\.nativeLongEdge)?.rounded() ?? 0))
+                                        .map(\.nativeLongEdge)?.rounded() ?? 0),
+                                    regionUnit: nil,
+                                    fullPixelSize: nil)
             }
             return nil
         }

@@ -334,6 +334,13 @@ final class PhotoRenderModel: ObservableObject {
     /// known, and learning it must re-body the view so the render key moves and the
     /// native ask follows. It changes once per photograph, not per frame.
     @Published private(set) var nativeLongEdge: Int?
+
+    /// What the pixels on screen COVER: nil for a whole-frame image, else the unit
+    /// rectangle of the full frame (top-left origin) the current `image` is a region
+    /// of, with the full frame's own pixel size beside it. Plain vars, deliberately:
+    /// they change only when `image` does, and `revision` publishes that.
+    private(set) var regionUnit: CGRect?
+    private(set) var regionFullPixel: CGSize?
     @Published private(set) var isDraft: Bool = false
     @Published private(set) var usedEmbeddedPreview: Bool = false
     /// Whatever the coordinator wants said out loud — "kernel library unavailable",
@@ -438,6 +445,7 @@ final class PhotoRenderModel: ObservableObject {
               showingUncropped: Bool = false,
               softProof: SoftProof? = nil,
               settleTick: Int = 0,
+              region: CGRect? = nil,
               gestureInFlight: () -> Bool = { false }) async {
 
         currentRequestURL = url
@@ -467,6 +475,8 @@ final class PhotoRenderModel: ObservableObject {
             lastDraftWasSaturated = false
             lastDraftLongEdge = nil
             nativeLongEdge = nil
+            regionUnit = nil
+            regionFullPixel = nil
             revision &+= 1
             if let thumbnails,
                let preview = await thumbnails.load(
@@ -559,14 +569,24 @@ final class PhotoRenderModel: ObservableObject {
             // honest request is the whole thing; a machine with headroom keeps it and
             // the drag is simply sharp.
             let draftRequested = draftLongEdge
-            let draftTarget = draftLadder.longEdge(requested: draftRequested)
+            // A REGION draft does not consult the ladder: the rungs price a WHOLE
+            // frame against the drag budget, and a region render's cost is the
+            // viewport's, whatever the ask — which is the entire point (docs/32
+            // fifth round: the ladder stepped to 1024 exactly when the magnification
+            // made 1024 unwatchable, because it was pricing 33 MP nobody could see).
+            // Sharp region drafts are what the margin arithmetic in `ZoomRegion`
+            // sizes to be affordable.
+            let draftTarget = region != nil
+                ? draftRequested
+                : draftLadder.longEdge(requested: draftRequested)
             let draftStarted = DispatchTime.now().uptimeNanoseconds
             let draft = await coordinator.render(url: url, recipe: recipe,
                                                  maxLongEdge: Swift.max(draftTarget, 64),
                                                  draft: true, generation: draftGeneration,
                                                  strokeSets: strokeSets,
                                                  showingUncropped: showingUncropped,
-                                                 softProof: softProof)
+                                                 softProof: softProof,
+                                                 region: region)
             // Delivery BEFORE the cancellation check, deliberately — FrameDelivery in
             // LumenCore is the law and holds the arithmetic. During a drag every event
             // cancels this task and starts the next one, so "apply only if still
@@ -638,7 +658,11 @@ final class PhotoRenderModel: ObservableObject {
                 // cropped.
                 let renderedLongEdge =
                     Swift.max(Swift.max(draft.image.width, draft.image.height), 64)
-                if DraftLadder.isRepresentative(
+                // A region draft's delivered edge is the REGION's pixels — a size in
+                // a different denomination from the whole-frame rungs. The ladder
+                // learns nothing from it (same reason `learnsFromSettle` refuses the
+                // native settle: evidence in the wrong denominator reads as heat).
+                if region == nil, DraftLadder.isRepresentative(
                     renderedLongEdge: renderedLongEdge,
                     previousRenderedLongEdge: lastDraftLongEdge) {
                     draftLadder.record(draftMilliseconds: cost,
@@ -736,7 +760,8 @@ final class PhotoRenderModel: ObservableObject {
                                                   draft: false, generation: generation,
                                                   strokeSets: strokeSets,
                                                   showingUncropped: showingUncropped,
-                                                  softProof: softProof)
+                                                  softProof: softProof,
+                                                  region: region)
             guard !Task.isCancelled else { return }
             if let result, result.generation == generation, latestGeneration == generation {
                 apply(result, url: url, recipe: recipe)
@@ -817,12 +842,21 @@ final class PhotoRenderModel: ObservableObject {
         if result.nativeLongEdge > 0 {
             nativeLongEdge = result.nativeLongEdge
         }
+        regionUnit = result.regionUnit
+        regionFullPixel = result.fullPixelSize
         if result.isDraft {
             // What is on screen is no longer a settled frame, so the next request may
             // not skip its draft on the strength of it.
             settledRecipe = nil
         } else {
-            settledActualLongEdge = Swift.max(result.image.width, result.image.height)
+            // For a REGION settle the frame equivalent is the full frame the region
+            // belongs to — the delivered image's own extent is the region's, a size
+            // in a different denomination from everything this value normalizes.
+            if result.regionUnit != nil, let full = result.fullPixelSize {
+                settledActualLongEdge = Int(Swift.max(full.width, full.height).rounded())
+            } else {
+                settledActualLongEdge = Swift.max(result.image.width, result.image.height)
+            }
             settledRecipe = recipe
         }
         revision &+= 1
@@ -896,6 +930,12 @@ struct LoupeView: View {
     /// multiplies one start value instead of compounding per event. Nil between
     /// gestures.
     @State private var pinchStartZoom: Double?
+    /// The region ask captured at the pinch's first event and held for the whole
+    /// gesture — nil is a REAL value here (a pinch begun at fit holds whole-frame),
+    /// which is why this is read only while `pinchStartZoom` is non-nil. Without the
+    /// hold, a continuous zoom re-quantizes the region per event and mints a render
+    /// key per grid line — the request storm `ZoomRegion.grid` exists to prevent.
+    @State private var pinchRegion: CGRect?
     @State private var sampler: PixelSampler?
 
     @Environment(\.displayScale) private var displayScale: CGFloat
@@ -941,6 +981,17 @@ struct LoupeView: View {
         GeometryReader { geometry in
             let container: CGSize = geometry.size
             let longEdge: Int = requestedLongEdge(container: container)
+            // The zoomed region ask — held STILL through both continuous zoom
+            // gestures. A pinch reads the rectangle captured at its first event; the
+            // scrub always began at fit, so its whole gesture is whole-frame. Panning
+            // is deliberately NOT held: a pan past the margin is exactly the moment a
+            // new region must be rendered, and `ZoomRegion.grid` keeps that from
+            // being every pan point.
+            let region: CGRect? = {
+                if pinchStartZoom != nil { return pinchRegion }
+                if scrubFromFit == true { return nil }
+                return requestedRegion(container: container)
+            }()
             ZStack(alignment: .bottomLeading) {
                 Lumen.viewerBackground
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -998,8 +1049,9 @@ struct LoupeView: View {
             // and the session renders once instead of once per event.
             .task(id: ViewerRenderKey.current(url: photo.id, recipe: renderRecipe,
                                               longEdge: longEdge, state: state,
-                                              showingUncropped: cropArmed)) {
-                await renderCurrent(longEdge: longEdge)
+                                              showingUncropped: cropArmed,
+                                              regionUnit: region)) {
+                await renderCurrent(longEdge: longEdge, region: region)
             }
             .task(id: BeforeKey(url: photo.id, recipe: beforeRecipe,
                                 wanted: needsBeforeRender, longEdge: longEdge,
@@ -1069,7 +1121,7 @@ struct LoupeView: View {
     // MARK: Render entry points
 
     @MainActor
-    private func renderCurrent(longEdge: Int) async {
+    private func renderCurrent(longEdge: Int, region: CGRect?) async {
         // The same framing-stripped recipe the task key carries — see `renderRecipe`.
         let wanted = renderRecipe
         await model.load(url: photo.id,
@@ -1102,6 +1154,10 @@ struct LoupeView: View {
                          // deferred settle being asked for, so it can skip the draft
                          // and the debounce it does not need.
                          settleTick: state.settleTick,
+                         // The zoomed viewport's rectangle, or nil for whole-frame —
+                         // computed once in `body` so the key and the render always
+                         // agree on it.
+                         region: region,
                          // Asked at the moment the settle would start rather than at
                          // load time, so a release landing mid-draft settles at once
                          // instead of waiting for the tick's fresh task.
@@ -1212,16 +1268,20 @@ struct LoupeView: View {
 
     @ViewBuilder
     private func canvas(cg: CGImage, container: CGSize) -> some View {
+        // What the pixels on screen cover — nil for a whole-frame image. Everything
+        // BUT the image layer is laid out against the FULL frame's drawn extent
+        // (`drawnFull`): the overlays' geometry, the pan clamp and this ZStack's
+        // frame all describe the photograph, not the patch of it that happens to be
+        // rendered, so they need no region arithmetic at all.
+        let region: CGRect? = model.regionUnit
         let ratio: Double = effectiveRatio(image: cg, container: container)
-        let drawn: CGSize = LoupeGeometry.drawnSize(imageWidth: cg.width,
-                                                    imageHeight: cg.height,
-                                                    ratio: ratio,
-                                                    displayScale: displayScale)
+        let drawn: CGSize = drawnFull(forZoom: state.zoomLevel, image: cg,
+                                      container: container)
         let offset: CGSize = LoupeGeometry.clampPan(viewport.pan,
                                                     container: container, drawn: drawn)
 
         ZStack {
-            imageLayer(cg: cg, ratio: ratio, drawn: drawn)
+            imageLayer(cg: cg, ratio: ratio, drawn: drawn, region: region)
 
             if let mode = state.clippingOverlay, let sampler {
                 ClippingOverlayView(sampler: sampler, mode: mode)
@@ -1423,16 +1483,50 @@ struct LoupeView: View {
     /// The image itself, honouring the before/after presentation that shares this
     /// canvas's geometry (flip and split; the two-pane modes are handled upstream).
     @ViewBuilder
-    private func imageLayer(cg: CGImage, ratio: Double, drawn: CGSize) -> some View {
+    private func imageLayer(cg: CGImage, ratio: Double, drawn: CGSize,
+                            region: CGRect? = nil) -> some View {
+        // The BEFORE plates are always whole-frame — `regionActive` turns the region
+        // ask off with any before mode up, and `beforeModel` is never handed one —
+        // so they draw at the full extent directly. Only the EDIT's plate can be a
+        // region, and it can be one here transiently: a before mode entered while a
+        // region is still on screen must flip at once rather than wait out the
+        // whole-frame re-render its key change just started.
         if viewport.beforeMode == .split, let before = beforeImage {
             BeforeAfterSplit(split: $viewport.splitPosition) {
                 plate(before, ratio: ratio, drawn: drawn)
             } after: {
-                plate(cg, ratio: ratio, drawn: drawn)
+                afterPlate(cg, ratio: ratio, drawn: drawn, region: region)
             }
             .frame(width: drawn.width, height: drawn.height)
         } else if state.showBefore, let before = beforeImage {
             plate(before, ratio: ratio, drawn: drawn)
+        } else {
+            afterPlate(cg, ratio: ratio, drawn: drawn, region: region)
+        }
+    }
+
+    /// The edit's plate, region-aware: whole-frame pixels fill the drawn extent as
+    /// ever; region pixels get the region's share of it, centred where the region
+    /// sits. The unit rect is top-left origin and SwiftUI's y grows downward, so the
+    /// offset is the region centre's departure from the frame centre in both axes
+    /// directly. The resampling rule reads the full-frame-EQUIVALENT extent: a
+    /// native-sharp region at 1:1 IS the photograph's pixels, and judging it by its
+    /// own small extent would smooth exactly the inspection the region was rendered
+    /// sharp for.
+    @ViewBuilder
+    private func afterPlate(_ cg: CGImage, ratio: Double, drawn: CGSize,
+                            region: CGRect?) -> some View {
+        if let region {
+            plate(cg,
+                  ratio: Double(Swift.max(drawn.width * region.width,
+                                          drawn.height * region.height))
+                      * Double(Swift.max(displayScale, 1))
+                      / Double(Swift.max(Swift.max(cg.width, cg.height), 1)),
+                  drawn: CGSize(width: drawn.width * region.width,
+                                height: drawn.height * region.height),
+                  resamplingLongEdge: effectiveRenderedLongEdge(cg))
+                .offset(x: (region.midX - 0.5) * drawn.width,
+                        y: (region.midY - 0.5) * drawn.height)
         } else {
             plate(cg, ratio: ratio, drawn: drawn)
         }
@@ -1450,12 +1544,16 @@ struct LoupeView: View {
     /// crop canvas passes fit, because it lays the plate out at fit whatever the zoom
     /// number still holds, and a stale 1:1 would pick the unsmoothed mode for a plate
     /// that is being scaled.
+    /// `resamplingLongEdge` overrides the extent the resampling rule judges — a
+    /// region image passes its full-frame equivalent, because its own pixel count is
+    /// denominated in the wrong frame (see `effectiveRenderedLongEdge`).
     private func plate(_ cg: CGImage, ratio: Double, drawn: CGSize,
-                       zoomRatio: Double? = nil) -> some View {
+                       zoomRatio: Double? = nil,
+                       resamplingLongEdge: Int? = nil) -> some View {
         let resampling = ProxyResampling.mode(
             zoomRatio: zoomRatio ?? state.zoomLevel,
             drawnRatio: ratio,
-            renderedLongEdge: Swift.max(cg.width, cg.height),
+            renderedLongEdge: resamplingLongEdge ?? Swift.max(cg.width, cg.height),
             fullLongEdge: model.displayFullLongEdge)
         // `[` / `]` are a display gain over the frame already on screen (docs/10 §10.5)
         // — held, never applied. With no hold down this returns `cg` unchanged, so the
@@ -1507,12 +1605,14 @@ struct LoupeView: View {
                 // on screen, not the number waiting for the tool to close.
                 LumenBadge(text: LoupeZoom.label(LoupeZoom.fit))
             } else if state.zoomLevel >= 1, let cg = model.image,
-                      Swift.max(cg.width, cg.height)
+                      effectiveRenderedLongEdge(cg)
                           < (model.displayFullLongEdge ?? Int.max) {
                 // The frame on screen has fewer pixels than the settle will deliver —
                 // a draft mid-gesture, or the first pass before the native ask lands.
                 // Say so. Once the native settle is up the suffix goes, because the
-                // pixels ARE the sensor's and "1:1" is the whole claim.
+                // pixels ARE the sensor's and "1:1" is the whole claim. Judged by the
+                // full-frame EQUIVALENT extent: a native-sharp region is not a proxy,
+                // however few pixels its rectangle holds.
                 LumenBadge(text: "\(LoupeZoom.label(state.zoomLevel)) · PROXY \(cg.width)×\(cg.height)")
             } else {
                 LumenBadge(text: LoupeZoom.label(state.zoomLevel))
@@ -1559,12 +1659,12 @@ struct LoupeView: View {
             viewport.pan = .zero
             return
         }
-        let oldRatio = ratio(forZoom: oldValue, image: cg, container: container)
-        let newRatio = ratio(forZoom: newValue, image: cg, container: container)
-        let oldDrawn = LoupeGeometry.drawnSize(imageWidth: cg.width, imageHeight: cg.height,
-                                               ratio: oldRatio, displayScale: displayScale)
-        let newDrawn = LoupeGeometry.drawnSize(imageWidth: cg.width, imageHeight: cg.height,
-                                               ratio: newRatio, displayScale: displayScale)
+        // Full-frame drawn extents (`drawnFull`), not the delivered image's: while a
+        // REGION is on screen the image's own dims describe the patch, and clamping
+        // the kept pan against the patch's short edge would yank the picture toward
+        // centre on every pinch event.
+        let oldDrawn = drawnFull(forZoom: oldValue, image: cg, container: container)
+        let newDrawn = drawnFull(forZoom: newValue, image: cg, container: container)
         let anchor: CGPoint? = viewport.anchorNextZoomAtCursor ? viewport.lastCursor : nil
         let target: CGPoint = anchor
             ?? CGPoint(x: container.width / 2, y: container.height / 2)
@@ -1603,12 +1703,19 @@ struct LoupeView: View {
     /// size corrects by that shortfall when the first zoomed settle lands. The
     /// uncropped case — every photograph until someone crops it — is exact.
     private func trueFitZoom(image cg: CGImage, container: CGSize) -> Double {
-        ContinuousZoom.fitZoom(
-            proxyFitRatio: LoupeGeometry.fitRatio(imageWidth: cg.width,
-                                                  imageHeight: cg.height,
+        // The FULL frame's extent, not the delivered image's: a region image's own
+        // dims would compute the zoom at which the PATCH fills the viewport, and the
+        // pinch-out snap would land there instead of at fit.
+        let fullPx: CGSize = model.regionFullPixel
+            ?? CGSize(width: cg.width, height: cg.height)
+        let w = Int(fullPx.width.rounded())
+        let h = Int(fullPx.height.rounded())
+        return ContinuousZoom.fitZoom(
+            proxyFitRatio: LoupeGeometry.fitRatio(imageWidth: w,
+                                                  imageHeight: h,
                                                   container: container,
                                                   displayScale: displayScale),
-            proxyLongEdge: Swift.max(cg.width, cg.height),
+            proxyLongEdge: Swift.max(w, h),
             zoomedFullLongEdge: zoomedFullBasis)
     }
 
@@ -1640,11 +1747,8 @@ struct LoupeView: View {
                     viewport.setZoom(target, at: value.startLocation, in: state)
                     return
                 }
-                let ratio = effectiveRatio(image: cg, container: container)
-                let drawn = LoupeGeometry.drawnSize(imageWidth: cg.width,
-                                                    imageHeight: cg.height,
-                                                    ratio: ratio,
-                                                    displayScale: displayScale)
+                let drawn = drawnFull(forZoom: state.zoomLevel, image: cg,
+                                      container: container)
                 guard drawn.width > container.width || drawn.height > container.height else {
                     return
                 }
@@ -1671,14 +1775,23 @@ struct LoupeView: View {
                 guard !cropArmed else { return }
                 guard let cg = model.image else { return }
                 let start = pinchStartZoom ?? state.zoomLevel
-                if pinchStartZoom == nil { pinchStartZoom = start }
+                if pinchStartZoom == nil {
+                    // Capture the region ask BEFORE this event moves the zoom, so
+                    // it matches the key already rendered and the gesture's first
+                    // frame re-renders nothing. Held until `onEnded` — see `body`.
+                    pinchRegion = requestedRegion(container: container)
+                    pinchStartZoom = start
+                }
                 let target = ContinuousZoom.pinched(
                     startZoom: start,
                     fitRatio: trueFitZoom(image: cg, container: container),
                     magnification: Double(value.magnification))
                 viewport.setZoom(target, at: value.startLocation, in: state)
             }
-            .onEnded { _ in pinchStartZoom = nil }
+            .onEnded { _ in
+                pinchStartZoom = nil
+                pinchRegion = nil
+            }
     }
 
     /// Arrows page the selection at fit, and pan when zoomed in — the key means the
@@ -1697,11 +1810,7 @@ struct LoupeView: View {
             @unknown default: break
             }
             let drawn: CGSize = model.image.map {
-                LoupeGeometry.drawnSize(
-                    imageWidth: $0.width, imageHeight: $0.height,
-                    ratio: ratio(forZoom: state.zoomLevel, image: $0,
-                                 container: containerSize),
-                    displayScale: displayScale)
+                drawnFull(forZoom: state.zoomLevel, image: $0, container: containerSize)
             } ?? containerSize
             viewport.pan = LoupeGeometry.clampPan(viewport.pan,
                                                   container: containerSize, drawn: drawn)
@@ -1738,6 +1847,81 @@ struct LoupeView: View {
         guard longEdge.isFinite, longEdge > 0 else { return 1024 }
         let bucket = Int((longEdge / 256).rounded(.up)) * 256
         return Swift.min(Swift.max(bucket, 640), LoupeView.maxRenderLongEdge)
+    }
+
+    // MARK: Region rendering
+
+    /// Whether the current render may ask for a REGION of the frame rather than all
+    /// of it — the fifth-round mechanism (`ZoomRegion`'s header): zoomed, a
+    /// whole-frame render pays for pixels nobody can see, and the draft ladder
+    /// steps to its coarse rungs exactly when the magnification makes them
+    /// unwatchable.
+    ///
+    /// Zoomed only — fit is whole-frame by definition. Every consumer that reads
+    /// the on-screen raster AS the whole frame forces whole-frame rendering: the
+    /// clipping and mask overlays draw from a sampler whose pixels they take to
+    /// cover the full extent, the before modes put frames beside each other that
+    /// must match, the mask canvas is gated conservatively with them, and the crop
+    /// tool lays the canvas out its own way entirely.
+    private var regionActive: Bool {
+        state.zoomLevel > 0
+            && !cropArmed
+            && state.clippingOverlay == nil
+            && state.soloMaskOverlay == nil
+            && !panel.layout.isMasking
+            && !needsBeforeRender
+    }
+
+    /// The zoomed region ask for the current viewport, or nil for whole-frame.
+    /// Pure arithmetic over the same drawn frame and clamped pan the canvas lays
+    /// out with — `ZoomRegion` (LumenCore, tested) holds the rectangle rule.
+    private func requestedRegion(container: CGSize) -> CGRect? {
+        guard regionActive, let cg = model.image, model.imageURL == photo.id else {
+            return nil
+        }
+        let drawn = drawnFull(forZoom: state.zoomLevel, image: cg, container: container)
+        let pan = LoupeGeometry.clampPan(viewport.pan, container: container, drawn: drawn)
+        return ZoomRegion.requestUnit(container: container, drawnFull: drawn, pan: pan)
+    }
+
+    /// The FULL delivered frame's drawn extent at `zoom` — what every layout
+    /// quantity (the canvas frame, the pan clamp, the region ask, the readout's
+    /// unit conversion) is denominated in, whether the pixels on screen cover the
+    /// whole frame or a region of it.
+    ///
+    /// For a whole-frame image this is exactly the old `drawnSize(effectiveRatio)`
+    /// arithmetic — the delivery's `fullPixelSize` IS the image's extent there. For
+    /// a region image the full extent comes from the same delivery, normalized by
+    /// the same rule (`zoomedRatio`), so the drawn frame does not change size when
+    /// a region result replaces a whole-frame one or the other way round.
+    private func drawnFull(forZoom zoom: Double, image cg: CGImage,
+                           container: CGSize) -> CGSize {
+        let fullPx: CGSize = model.regionFullPixel
+            ?? CGSize(width: cg.width, height: cg.height)
+        let w = Int(fullPx.width.rounded())
+        let h = Int(fullPx.height.rounded())
+        let ratio: Double = zoom > 0
+            ? LoupeGeometry.zoomedRatio(zoomLevel: zoom,
+                                        fullLongEdge: model.displayFullLongEdge
+                                            ?? Swift.max(w, h),
+                                        renderedLongEdge: Swift.max(w, h))
+            : LoupeGeometry.fitRatio(imageWidth: w, imageHeight: h,
+                                     container: container, displayScale: displayScale)
+        return LoupeGeometry.drawnSize(imageWidth: w, imageHeight: h,
+                                       ratio: ratio, displayScale: displayScale)
+    }
+
+    /// The full-frame-EQUIVALENT long edge of the frame on screen — for a region
+    /// image, what a whole-frame render at the same sharpness would have measured.
+    /// The badge and the resampling rule both compare against the settle's full
+    /// extent, and a region's own pixel count is denominated in the wrong frame:
+    /// a native-sharp 1900 px region of a 7008 px photograph is not a proxy.
+    private func effectiveRenderedLongEdge(_ cg: CGImage) -> Int {
+        let long = Swift.max(cg.width, cg.height)
+        guard let region = model.regionUnit else { return long }
+        let fraction = Double(cg.width >= cg.height ? region.width : region.height)
+        guard fraction > 0 else { return long }
+        return Int((Double(long) / fraction).rounded())
     }
 
     // MARK: Readout
@@ -1783,16 +1967,27 @@ struct LoupeView: View {
         // build a sampler for it.
         guard !cropArmed else { return nil }
         guard viewport.showReadout, let cg = model.image, let sampler else { return nil }
-        let ratio = effectiveRatio(image: cg, container: container)
-        let drawn = LoupeGeometry.drawnSize(imageWidth: cg.width, imageHeight: cg.height,
-                                            ratio: ratio, displayScale: displayScale)
+        // The FULL frame's drawn extent — the same one the canvas laid out with —
+        // so the cursor's unit point is denominated in the photograph.
+        let drawn = drawnFull(forZoom: state.zoomLevel, image: cg, container: container)
         let pan = LoupeGeometry.clampPan(viewport.pan, container: container, drawn: drawn)
         guard let unit = LoupeGeometry.imageUnitPoint(point, container: container,
                                                       drawn: drawn, pan: pan) else {
             return nil
         }
-        return sampler.readout(u: Double(unit.x), v: Double(unit.y),
-                               space: state.readoutSpace)
+        var u = Double(unit.x)
+        var v = Double(unit.y)
+        // The sampler holds the REGION's pixels when one is up: map the full-frame
+        // unit into the region's own space, and decline points outside it — the
+        // margin means the visible frame is inside by construction, so this only
+        // refuses the sliver a pan can expose before its re-render lands.
+        if let region = model.regionUnit {
+            guard region.width > 0, region.height > 0 else { return nil }
+            u = (u - Double(region.minX)) / Double(region.width)
+            v = (v - Double(region.minY)) / Double(region.height)
+            guard u >= 0, u <= 1, v >= 0, v <= 1 else { return nil }
+        }
+        return sampler.readout(u: u, v: v, space: state.readoutSpace)
     }
 
     /// Keeps the pill on screen: it rides above-right of the cursor unless that would

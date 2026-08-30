@@ -279,6 +279,17 @@ public final class PipelineRenderer {
 
     // MARK: - Preview
 
+    /// What a preview render hands back when the caller may have asked for a REGION:
+    /// the pixels, the unit rectangle they actually cover (integralized — it can grow
+    /// a hair beyond the ask), and the full delivered frame's pixel size, which is
+    /// what the viewer draws its geometry against. Whole-frame renders carry a nil
+    /// region and the image's own size.
+    public struct PreviewDelivery {
+        public let image: CGImage
+        public let regionUnit: CGRect?
+        public let fullPixelSize: CGSize
+    }
+
     /// `showingUncropped` is set while the crop tool is open, so the tool draws its
     /// rectangle against the frame that rectangle is expressed in.
     ///
@@ -328,6 +339,26 @@ public final class PipelineRenderer {
                               showingUncropped: Bool = false,
                               strokeSets: [String: BrushStrokeSet] = [:],
                               softProof: SoftProof? = nil) throws -> CGImage {
+        try renderPreviewDelivery(source: source, recipe: recipe,
+                                  maxLongEdge: maxLongEdge, draft: draft,
+                                  coarseDecode: coarseDecode,
+                                  showingUncropped: showingUncropped,
+                                  strokeSets: strokeSets,
+                                  softProof: softProof,
+                                  region: nil).image
+    }
+
+    /// The region-capable preview. `region` is a unit rectangle of the DELIVERED
+    /// frame, origin top-left (`ZoomRegion`'s convention); the graph is lazy, so
+    /// rasterizing the sub-rect is what makes a zoomed render cost the viewport
+    /// rather than the sensor — the whole of docs/32's fifth-round fix.
+    public func renderPreviewDelivery(source: any ImageSource, recipe: Recipe,
+                                      maxLongEdge: Int, draft: Bool,
+                                      coarseDecode: Bool,
+                                      showingUncropped: Bool = false,
+                                      strokeSets: [String: BrushStrokeSet] = [:],
+                                      softProof: SoftProof? = nil,
+                                      region: CGRect? = nil) throws -> PreviewDelivery {
         // Decode at the target resolution, not the sensor's: a 2560 px preview of a
         // 7000 px raw decodes roughly seven times less data.
         let native = source.nativeLongEdge
@@ -415,16 +446,45 @@ public final class PipelineRenderer {
         // same amplitude table, same everything as the export's.
         image = Self.applyDither(image, colorSpace: .srgb, bitDepth: 8)
 
-        // The graph is lazy, so THIS is where the GPU actually evaluates it.
+        // The graph is lazy, so THIS is where the GPU actually evaluates it — and
+        // where a region ask changes what a zoomed render costs: only the sub-rect's
+        // pixels (plus each kernel's own neighbourhood) are ever computed. The unit
+        // rect arrives top-left-origin; Core Image extents are bottom-up, so the flip
+        // happens here, once, at the same line the row-order comments in
+        // KernelGoldenTests warn about.
+        let fullExtent = image.extent
+        var rasterRect = fullExtent
+        var deliveredUnit: CGRect?
+        if let region, fullExtent.width >= 1, fullExtent.height >= 1 {
+            let asked = CGRect(
+                x: fullExtent.minX + region.minX * fullExtent.width,
+                y: fullExtent.minY + (1 - region.maxY) * fullExtent.height,
+                width: region.width * fullExtent.width,
+                height: region.height * fullExtent.height)
+            let integral = asked.integral.intersection(fullExtent)
+            if integral.width >= 1, integral.height >= 1,
+               integral != fullExtent.integral {
+                rasterRect = integral
+                // Back to the top-left unit convention, from the rect that will
+                // actually be delivered — integralization can move edges a pixel.
+                deliveredUnit = CGRect(
+                    x: (integral.minX - fullExtent.minX) / fullExtent.width,
+                    y: 1 - (integral.maxY - fullExtent.minY) / fullExtent.height,
+                    width: integral.width / fullExtent.width,
+                    height: integral.height / fullExtent.height)
+            }
+        }
         let renderInterval = Self.signposter.beginInterval("render")
         let cgImage = context.createCGImage(
-            image, from: image.extent, format: .RGBA8,
+            image, from: rasterRect, format: .RGBA8,
             colorSpace: CGColorSpace(name: CGColorSpace.sRGB))
         Self.signposter.endInterval("render", renderInterval)
         guard let cgImage else {
             throw RenderError.renderFailed
         }
-        return cgImage
+        return PreviewDelivery(image: cgImage, regionUnit: deliveredUnit,
+                               fullPixelSize: CGSize(width: fullExtent.width,
+                                                     height: fullExtent.height))
     }
 
     // MARK: - Export
