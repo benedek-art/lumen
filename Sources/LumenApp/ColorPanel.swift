@@ -161,13 +161,20 @@ struct ColorPanel: View {
                 // ordinary deviation fill. See `mixerStops`.
                 LumenSlider(title: "Hue", value: mixerBinding(.hue),
                             range: -100...100, defaultValue: 0, step: 1, decimals: 0,
-                            trackStops: mixerStops(ColorPanel.mixerHueStops, index))
+                            trackStops: mixerStops(ColorPanel.mixerHueStops, index),
+                            help: "Turns the band's colours toward a neighbour — the "
+                                + "track shows which way, and ±100 lands exactly on "
+                                + "the next band's hue.")
                 LumenSlider(title: "Saturation", value: mixerBinding(.sat),
                             range: -100...100, defaultValue: 0, step: 1, decimals: 0,
-                            trackStops: mixerStops(ColorPanel.mixerSaturationStops, index))
+                            trackStops: mixerStops(ColorPanel.mixerSaturationStops, index),
+                            help: "Strengthens or mutes just this band's colours; "
+                                + "−100 takes them to grey.")
                 LumenSlider(title: "Luminance", value: mixerBinding(.lum),
                             range: -100...100, defaultValue: 0, step: 1, decimals: 0,
-                            trackStops: mixerStops(ColorPanel.mixerLuminanceStops, index))
+                            trackStops: mixerStops(ColorPanel.mixerLuminanceStops, index),
+                            help: "Lightens or darkens this band's colours without "
+                                + "draining them — a darkened sky stays blue.")
 
                 // Not inside the band block above, and named for what it is. There is
                 // one `Mixer.uniformity` on the wire and the engine applies it to all
@@ -194,7 +201,11 @@ struct ColorPanel: View {
                                         get: { $0.develop.mixer.uniformity },
                                         set: { $0.develop.mixer.uniformity = $1 }),
                             range: 0...100, defaultValue: 0, step: 1, decimals: 0,
-                            bipolar: false)
+                            bipolar: false,
+                            help: "Gathers scattered hues in toward each band's own "
+                                + "centre — calms mottled colour like patchy skin or a "
+                                + "streaky sky. Works on all eight bands at once, "
+                                + "whatever is selected above.")
             }
         }
     }
@@ -277,35 +288,42 @@ struct ColorPanel: View {
         }
     }
 
+    /// NOT BUTTONS ANY MORE, and that is the fix rather than a regression. A `.plain`
+    /// button still paints its own pressed state over the label, and on a strip of
+    /// full-bleed colour chips that read as a flash with no padding — the owner named
+    /// it: "when I press on them, they highlight… it doesn't have any padding so it
+    /// looks kind of weird" (docs/32 Stream D item 2, removal preferred). A tap gesture
+    /// selects identically and draws nothing; the selection RING is the state, and the
+    /// pointing hand is what says the chips are click targets.
     private func bandSwatches(_ bands: [MixerBand]) -> some View {
         HStack(spacing: 3) {
             ForEach(Array(0..<ColorEngine.bandCount), id: \.self) { index in
                 let isSelected = !allBands && index == selectedBand
                 let touched = index < bands.count
                     && (bands[index].hue != 0 || bands[index].sat != 0 || bands[index].lum != 0)
-                Button {
-                    state.mixerAllBands = false
-                    state.mixerBand = index
-                } label: {
-                    ZStack(alignment: .topTrailing) {
-                        RoundedRectangle(cornerRadius: Lumen.radiusChip, style: .continuous)
-                            .fill(ColorPanel.swatch(index))
-                            .frame(height: 16)
-                            .opacity(allBands ? 0.55 : 1)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: Lumen.radiusChip, style: .continuous)
-                                    .strokeBorder(isSelected ? Lumen.primaryText : Lumen.separator,
-                                                  lineWidth: isSelected ? 1.5 : 0.5)
-                            )
-                        if touched {
-                            Circle()
-                                .fill(Lumen.primaryText)
-                                .frame(width: 3, height: 3)
-                                .padding(2)
-                        }
+                ZStack(alignment: .topTrailing) {
+                    RoundedRectangle(cornerRadius: Lumen.radiusChip, style: .continuous)
+                        .fill(ColorPanel.swatch(index))
+                        .frame(height: 16)
+                        .opacity(allBands ? 0.55 : 1)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: Lumen.radiusChip, style: .continuous)
+                                .strokeBorder(isSelected ? Lumen.primaryText : Lumen.separator,
+                                              lineWidth: isSelected ? 1.5 : 0.5)
+                        )
+                    if touched {
+                        Circle()
+                            .fill(Lumen.primaryText)
+                            .frame(width: 3, height: 3)
+                            .padding(2)
                     }
                 }
-                .buttonStyle(.plain)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    state.mixerAllBands = false
+                    state.mixerBand = index
+                }
+                .lumenClickCursor()
                 .help(ColorPanel.bandName(index))
             }
         }
@@ -318,6 +336,25 @@ struct ColorPanel: View {
         let swatches = state.currentRecipe.develop.pointColors
         let index: Int? = swatches.isEmpty
             ? nil : min(max(selectedSwatch, 0), swatches.count - 1)
+        // Branched in locals rather than as ternaries in the argument lists below —
+        // a multi-line ternary in an argument list is the one shape
+        // `check-swift-surface.py` is known to mis-read (docs/32 ground rule 4).
+        let pickHelp: String
+        if pickIsArmed {
+            pickHelp = "Click the colour in the photograph to add it as a swatch — "
+                + "or click here again to cancel the pick"
+        } else {
+            pickHelp = "Add a swatch: pick it from the photo. Click this, then click "
+                + "the colour in the photograph (up to \(ColorPanel.maxSwatches))."
+        }
+        let pickTint: Color
+        if pickIsArmed {
+            pickTint = Lumen.accent
+        } else if swatches.count < ColorPanel.maxSwatches {
+            pickTint = Lumen.primaryText
+        } else {
+            pickTint = Lumen.secondaryText
+        }
 
         return VStack(alignment: .leading, spacing: 2) {
             LumenSectionHeader(title: "Point Colour",
@@ -328,62 +365,117 @@ struct ColorPanel: View {
 
             if pointExpanded {
                 HStack(spacing: 4) {
+                    // Tap targets, not `Button`s — the same press-flash removal as the
+                    // mixer's band strip above, and for the same owner sentence. The
+                    // ring is the selection state; the hand is the affordance.
                     ForEach(Array(swatches.indices), id: \.self) { i in
-                        Button {
-                            selectedSwatch = i
-                        } label: {
-                            RoundedRectangle(cornerRadius: Lumen.radiusChip, style: .continuous)
-                                .fill(ColorPanel.chipColor(swatches[i]))
-                                .frame(width: 22, height: 16)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: Lumen.radiusChip,
-                                                     style: .continuous)
-                                        .strokeBorder(i == index ? Lumen.primaryText : Lumen.separator,
-                                                      lineWidth: i == index ? 1.5 : 0.5)
-                                )
-                        }
-                        .buttonStyle(.plain)
-                        .help("Swatch \(i + 1)")
+                        RoundedRectangle(cornerRadius: Lumen.radiusChip, style: .continuous)
+                            .fill(ColorPanel.chipColor(swatches[i]))
+                            .frame(width: 22, height: 16)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: Lumen.radiusChip,
+                                                 style: .continuous)
+                                    .strokeBorder(i == index ? Lumen.primaryText : Lumen.separator,
+                                                  lineWidth: i == index ? 1.5 : 0.5)
+                            )
+                            .contentShape(Rectangle())
+                            .onTapGesture { selectedSwatch = i }
+                            .lumenClickCursor()
+                            .help("Swatch \(i + 1) — a colour picked from the photo. "
+                                  + "Click it to edit this one; the ring marks the "
+                                  + "swatch the sliders and the − button act on.")
                     }
                     Spacer(minLength: 0)
+                    // THE EYEDROPPER IT ALWAYS WAS. This button never appended a
+                    // swatch; it arms a pick and the swatch is born from the click on
+                    // the photograph — but it wore a bare `+`, so nothing said "now go
+                    // click the picture". The glyph now names the gesture, the armed
+                    // state shows (fill, accent), and pressing again disarms — the
+                    // same contract as the band eyedropper above and the white-balance
+                    // picker in BasicPanel.
                     Button(action: addSwatch) {
-                        Image(systemName: "plus").font(.system(size: 9, weight: .semibold))
+                        Image(systemName: "eyedropper")
+                            .font(.system(size: 10, weight: .semibold))
+                            // The glyph's own bounds are no hit target. The printer
+                            // rows measured this exact defect (docs/30 §2.3): 24 points
+                            // by the row's height, paid for out of the Spacer.
+                            .frame(width: 24, height: Lumen.rowHeight)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .foregroundStyle(swatches.count < ColorPanel.maxSwatches
-                                     ? Lumen.primaryText : Lumen.secondaryText)
-                    .disabled(swatches.count >= ColorPanel.maxSwatches)
-                    .help("Add a swatch (up to \(ColorPanel.maxSwatches))")
+                    .foregroundStyle(pickTint)
+                    .background(
+                        RoundedRectangle(cornerRadius: Lumen.radiusChip, style: .continuous)
+                            .fill(pickIsArmed ? Lumen.fillColor.opacity(0.35) : Color.clear))
+                    .disabled(!pickIsArmed && swatches.count >= ColorPanel.maxSwatches)
+                    .lumenClickCursor()
+                    .help(pickHelp)
 
                     Button(action: removeSwatch) {
-                        Image(systemName: "minus").font(.system(size: 9, weight: .semibold))
+                        Image(systemName: "minus")
+                            .font(.system(size: 9, weight: .semibold))
+                            // The old hit area was the glyph itself — a bar a couple of
+                            // points tall, the least hittable target in the app, which
+                            // is most of why this button "did nothing".
+                            .frame(width: 24, height: Lumen.rowHeight)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(index == nil ? Lumen.secondaryText : Lumen.primaryText)
                     .disabled(index == nil)
-                    .help("Remove the selected swatch")
+                    .lumenClickCursor()
+                    .help("Remove the ringed swatch and its edit")
                 }
                 .frame(height: Lumen.rowHeight)
 
-                // Nothing when the list is empty. `+` in the row above is the whole
-                // message; a sentence defining what a swatch would do is answering a
-                // question nobody asks with an empty row in front of them.
+                // Nothing when the list is empty. The eyedropper in the row above is
+                // the whole message; a sentence defining what a swatch would do is
+                // answering a question nobody asks with an empty row in front of them.
                 if let index {
                     LumenSlider(title: "Hue", value: pointBinding(index, .hue),
-                                range: -60...60, defaultValue: 0, step: 1, decimals: 0)
+                                range: -60...60, defaultValue: 0, step: 1, decimals: 0,
+                                help: "Turns the picked colour toward a neighbouring "
+                                    + "hue, up to 60° either way — only pixels near the "
+                                    + "swatch follow.")
                     LumenSlider(title: "Saturation", value: pointBinding(index, .sat),
-                                range: -100...100, defaultValue: 0, step: 1, decimals: 0)
+                                range: -100...100, defaultValue: 0, step: 1, decimals: 0,
+                                help: "Strengthens or mutes just the picked colour — "
+                                    + "the rest of the photograph is untouched.")
                     LumenSlider(title: "Luminance", value: pointBinding(index, .lum),
-                                range: -100...100, defaultValue: 0, step: 1, decimals: 0)
+                                range: -100...100, defaultValue: 0, step: 1, decimals: 0,
+                                help: "Lightens or darkens the picked colour without "
+                                    + "washing it out.")
                     LumenSlider(title: "Range", value: pointBinding(index, .range),
                                 range: 0...100, defaultValue: 50, step: 1, decimals: 0,
-                                bipolar: false)
+                                bipolar: false,
+                                help: "How far around the picked colour the edit "
+                                    + "reaches — low is surgical, high feathers into "
+                                    + "the neighbours.")
                     LumenSlider(title: "Variance", value: pointBinding(index, .variance),
-                                range: -100...100, defaultValue: 0, step: 1, decimals: 0)
+                                range: -100...100, defaultValue: 0, step: 1, decimals: 0,
+                                help: "Negative gathers the nearby hues in toward the "
+                                    + "swatch, evening them out; positive spreads them "
+                                    + "apart.")
                 }
             }
         }
+        // A NEW SWATCH IS THE SELECTED SWATCH. The eyedropper's pick resolves on
+        // `AppState` and appends to the tail — it cannot reach this panel's `@State`,
+        // so the ring used to stay on the old chip and the sliders went on editing a
+        // swatch the photographer had just moved past. Watching the count is the one
+        // signal that reaches here: growth means an arrival (a pick, or an undo giving
+        // one back), and the tail is the arrival. Shrinkage is left alone —
+        // `removeSwatch` already re-aims the ring, and a photo switch's display path
+        // clamps.
+        .onChange(of: swatches.count) { old, new in
+            if new > old { selectedSwatch = new - 1 }
+        }
     }
+
+    /// Whether the point-colour eyedropper is armed — the button reads its state from
+    /// the pick machinery itself, so the two cannot disagree about whose click the
+    /// next click on the photograph is.
+    private var pickIsArmed: Bool { state.pickTarget == .newPointColor }
 
     /// Arms a pick rather than appending a grey swatch and hoping.
     ///
@@ -392,7 +484,15 @@ struct ColorPanel: View {
     /// unconfigured, it was a "low-chroma mid-tones" selector wearing five sliders. The
     /// swatch now comes into existence carrying a colour, so there is no state in which
     /// it looks live and selects nothing.
+    ///
+    /// Pressing the armed eyedropper again disarms it instead of stacking a second
+    /// pick — the contract `pickBandButton` and BasicPanel's white-balance picker
+    /// already keep, and the way out for someone who armed it by accident.
     private func addSwatch() {
+        if pickIsArmed {
+            state.cancelPick()
+            return
+        }
         guard state.currentRecipe.develop.pointColors.count < ColorPanel.maxSwatches
         else { return }
         state.beginPick(.newPointColor)
@@ -428,14 +528,43 @@ struct ColorPanel: View {
         .help("Click a colour in the photograph and the band grading it selects itself")
     }
 
+    /// Remove the swatch the RING marks, not the one a stale `@State` remembers.
+    ///
+    /// The defect this replaces (docs/32 Stream D item 3, "the minus button does
+    /// nothing"): `selectedSwatch` is view state and photos are not, so after a photo
+    /// switch — or after deleting the tail swatch — it can point past the current
+    /// list's end. Every reader on screen clamps it (`pointColorSection`'s `index`
+    /// drives the ring, the sliders and the button's enabled state), but this function
+    /// read it RAW, and the mutation's own bounds guard then turned the click into a
+    /// silent no-op: the button looked enabled, the ring marked a chip, and nothing
+    /// happened. The clamp is `removalTarget` below — one pure function shared with
+    /// the regression test, so the index removed is provably the index displayed.
     private func removeSwatch() {
-        let target = selectedSwatch
+        guard let target = ColorPanel.removalTarget(
+            selected: selectedSwatch,
+            count: state.currentRecipe.develop.pointColors.count) else { return }
         state.updateRecipe { recipe in
+            // Re-guarded per recipe: a multi-selection edit visits photos whose lists
+            // can be shorter than the primary's, and those keep the old skip.
             guard recipe.develop.pointColors.indices.contains(target) else { return }
             recipe.develop.pointColors.remove(at: target)
         }
-        let count = state.currentRecipe.develop.pointColors.count
-        selectedSwatch = max(0, min(target, count - 1))
+        selectedSwatch = ColorPanel.selectionAfterRemoval(
+            of: target, newCount: state.currentRecipe.develop.pointColors.count)
+    }
+
+    /// The index the minus button removes: the displayed (clamped) selection, or nil
+    /// when there is nothing to remove. Static and pure so
+    /// `PointColorSwatchTests` can pin it without an `AppState`.
+    static func removalTarget(selected: Int, count: Int) -> Int? {
+        guard count > 0 else { return nil }
+        return min(max(selected, 0), count - 1)
+    }
+
+    /// Where the ring lands after a removal: the same slot if one moved up into it,
+    /// else the new tail, floored at zero for the empty list.
+    static func selectionAfterRemoval(of target: Int, newCount: Int) -> Int {
+        max(0, min(target, newCount - 1))
     }
 
     // MARK: - Black & white
@@ -477,10 +606,21 @@ struct ColorPanel: View {
             // living in `develop.mixer` where this never reaches; a sentence was never
             // what kept it.
             if isOn, bwExpanded {
+                // The help names the band and states the one rule (docs/24 §8: the
+                // per-band luminance contribution of the classic channel mixer):
+                // what was that colour prints lighter or darker, greys cannot move.
+                // The two worked examples are the moves every darkroom text teaches —
+                // the red filter's dark sky, the orange filter's open skin.
                 ForEach(Array(0..<ColorEngine.bandCount), id: \.self) { i in
                     LumenSlider(title: ColorPanel.bandName(i),
                                 value: bwBinding(i),
-                                range: -100...100, defaultValue: 0, step: 1, decimals: 0)
+                                range: -100...100, defaultValue: 0, step: 1, decimals: 0,
+                                help: "How bright what was "
+                                    + ColorPanel.bandName(i).lowercased()
+                                    + " prints in the black-and-white mix — up "
+                                    + "lightens it, down darkens it, greys stay put. "
+                                    + "The classic moves: drop Blue for a dramatic "
+                                    + "sky, lift Red and Orange to open up skin.")
                 }
             }
         }
@@ -811,7 +951,15 @@ struct ColorPanel: View {
     /// space rather than through SwiftUI's HSB, whose hue angle is a different number
     /// entirely. A ring that put "29°" somewhere other than where the engine's red band
     /// sits would be a diagram of a different tool.
-    static func hueColor(_ degrees: Double, L: Double = 0.72, C: Double = 0.13) -> Color {
+    ///
+    /// C 0.16, up from the 0.13 that shipped — the owner flagged the ring alongside the
+    /// grading wheels as pastel, and the two took the raise together (docs/32 Stream D
+    /// item 4; `LumenColorWheel.wheelColors` is the other half). The ceiling is real:
+    /// at L 0.72 the sRGB gamut runs out of chroma near cyan (~200°) at about C 0.122,
+    /// so that span was clipping even at 0.13 and now clips to the most saturated cyan
+    /// the display has — which is the richest true answer available, and the per-channel
+    /// saturate below is what keeps the clip from leaving the gamut rather than the hue.
+    static func hueColor(_ degrees: Double, L: Double = 0.72, C: Double = 0.16) -> Color {
         let working = OKLabTransform.working.toRGB(OKLCh(L: L, C: C, h: degrees))
         let display = ColorPanel.workingToSRGB.apply(working)
         let encoded = TransferFunction.srgb.encode(RGB(Num.saturate(display.r),

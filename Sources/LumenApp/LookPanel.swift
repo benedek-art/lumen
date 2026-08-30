@@ -169,51 +169,68 @@ struct LookPanel: View {
     /// and it needs a ≤100 ms proxy path that does not exist yet). What is here is the
     /// whole of docs/19's sentence and no more: name the look on this frame, and it is
     /// on any photo in any folder afterwards.
+    ///
+    /// ONE CHEVRON PER SECTION (docs/32 Stream D item 1, the owner's stated rule).
+    /// Under `only:` the accordion has already printed the Looks header directly above
+    /// this, so the "Saved Looks" fold was a second chevron over the first rows of the
+    /// card — Looks → Saved Looks, two hinges for one drawer. The rows render plain
+    /// there; the legacy whole-panel path keeps the fold it always had, the same split
+    /// `wheelsSection` and `filmLabSection` already make.
+    @ViewBuilder
     private var savedLooksSection: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            LumenSectionHeader(title: "Saved Looks", isExpanded: $looksExpanded,
-                               topRhythm: innerRhythm)
+        if only == nil {
+            VStack(alignment: .leading, spacing: 2) {
+                LumenSectionHeader(title: "Saved Looks", isExpanded: $looksExpanded,
+                                   topRhythm: innerRhythm)
 
-            if looksExpanded {
-                HStack(spacing: 4) {
-                    TextField("Name this look", text: $newLookName)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 11))
-                        .onSubmit { saveCurrentLook() }
-                    Button {
-                        saveCurrentLook()
-                    } label: {
-                        Text("Save")
-                            .font(.system(size: 10, weight: .semibold))
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(canSaveLook ? Lumen.accent : Lumen.secondaryText)
-                    .disabled(!canSaveLook)
-                    .help("Store this photo's grade, film stock and transform under "
-                          + "that name. Its exposure, white balance and crop stay with "
-                          + "the photo.")
-                }
-                .padding(.horizontal, 5)
-                .padding(.vertical, 3)
-                .background(Lumen.controlBackground)
-                .clipShape(RoundedRectangle(cornerRadius: 4))
-
-                // An empty list draws nothing at all, deliberately. The field and
-                // the Save button above it are the affordance; a sentence announcing
-                // that a list is empty is a caption on absence. The paragraph that used
-                // to close the list said what the banner said and what Save's tooltip
-                // says — three statements of one sentence in one section.
-                ForEach(state.savedLooks, id: \.id) { look in
-                    savedLookRow(look)
-                }
+                if looksExpanded { savedLooksRows }
             }
+            // On the section that reads the list, not on the panel, which is where it
+            // used to sit. A closed accordion section never builds its rows, so a
+            // refresh hung off the panel would fire when Grading opened and never when
+            // Looks did — and the header stays built whether or not `looksExpanded` is
+            // on, so this fires once per appearance either way.
+            .onAppear { state.refreshSavedLooks() }
+        } else {
+            VStack(alignment: .leading, spacing: 2) { savedLooksRows }
+                .onAppear { state.refreshSavedLooks() }
         }
-        // On the section that reads the list, not on the panel, which is where it used
-        // to sit. A closed accordion section never builds its rows, so a refresh hung
-        // off the panel would fire when Grading opened and never when Looks did — and
-        // the header stays built whether or not `looksExpanded` is on, so this fires
-        // once per appearance either way.
-        .onAppear { state.refreshSavedLooks() }
+    }
+
+    /// One definition of the rows, so the two framings above can never drift apart.
+    @ViewBuilder
+    private var savedLooksRows: some View {
+        HStack(spacing: 4) {
+            TextField("Name this look", text: $newLookName)
+                .textFieldStyle(.plain)
+                .font(.system(size: 11))
+                .onSubmit { saveCurrentLook() }
+            Button {
+                saveCurrentLook()
+            } label: {
+                Text("Save")
+                    .font(.system(size: 10, weight: .semibold))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(canSaveLook ? Lumen.accent : Lumen.secondaryText)
+            .disabled(!canSaveLook)
+            .help("Store this photo's grade, film stock and transform under "
+                  + "that name. Its exposure, white balance and crop stay with "
+                  + "the photo.")
+        }
+        .padding(.horizontal, 5)
+        .padding(.vertical, 3)
+        .background(Lumen.controlBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 4))
+
+        // An empty list draws nothing at all, deliberately. The field and
+        // the Save button above it are the affordance; a sentence announcing
+        // that a list is empty is a caption on absence. The paragraph that used
+        // to close the list said what the banner said and what Save's tooltip
+        // says — three statements of one sentence in one section.
+        ForEach(state.savedLooks, id: \.id) { look in
+            savedLookRow(look)
+        }
     }
 
     private func savedLookRow(_ look: LookRow) -> some View {
@@ -359,6 +376,28 @@ struct LookPanel: View {
     /// There is one formula.
     private var colorBalanceDisclosure: some View {
         let grid = state.currentRecipe.look.wheels.colorBalance
+        // THE SCIENCE MOVED OFF THE SCREEN AND ONTO THE HOVER (docs/32 Stream D item
+        // 6). The captions under these groups read "the colourfulness/lightness ratio,
+        // at constant H-K corrected brightness" — accurate, and exactly what the owner
+        // called leaked jargon: a photographer scanning the panel is choosing a
+        // slider, not sitting an exam. So the visible caption now says the plain thing
+        // each axis is FOR, and the formal statement — which is real information, for
+        // the hand that stops to ask — is the `help:` on every row of the group and on
+        // the group's own label.
+        //
+        // The Brilliance warning stays visible and computed, not hoisted into help: a
+        // caption that changes when the control enters artifact territory is an
+        // instrument, and hiding it behind a hover would disarm it. Branched in a
+        // local `let` rather than inline — a multi-line ternary in an argument list is
+        // the exact shape `check-swift-surface.py` is known to mis-read.
+        let brilliancePushed = LookPanel.brillianceIsPushed(grid.brilliance)
+        let brillianceNote: String
+        if brilliancePushed {
+            brillianceNote = "Past ±20 is artifact territory — highlights start to "
+                + "flatten and shadows to plug."
+        } else {
+            brillianceNote = "Perceived brightness without changing colourfulness."
+        }
 
         return VStack(alignment: .leading, spacing: 2) {
             LumenSectionHeader(title: "Colour balance",
@@ -375,43 +414,67 @@ struct LookPanel: View {
                 LumenSlider(title: "Hue shift",
                             value: bindLook(\Look.wheels.colorBalance.hueShift,
                                             key: "cb.hueShift"),
-                            range: -180...180, defaultValue: 0, step: 1, decimals: 0)
+                            range: -180...180, defaultValue: 0, step: 1, decimals: 0,
+                            help: "Rotates every colour around the wheel by up to a "
+                                + "half turn, holding lightness and colourfulness — "
+                                + "the whole palette turns together.")
                 LumenSlider(title: "Vibrance",
                             value: bindLook(\Look.wheels.colorBalance.vibrance,
                                             key: "cb.vibrance"),
-                            range: -100...100, defaultValue: 0, step: 1, decimals: 0)
+                            range: -100...100, defaultValue: 0, step: 1, decimals: 0,
+                            help: "Boosts the muted colours more than the already-"
+                                + "vivid ones, so the frame richens without the loud "
+                                + "parts clipping.")
 
                 balanceAxis("Chroma", \Look.wheels.colorBalance.chroma, "cb.chroma",
-                            note: "Colourfulness at constant lightness and hue.")
+                            note: "More or less colour, at the same lightness.",
+                            help: LookPanel.chromaHelp)
 
                 balanceAxis("Saturation", \Look.wheels.colorBalance.saturation,
                             "cb.saturation",
-                            note: "The colourfulness/lightness ratio, at constant H-K "
-                                + "corrected brightness — the move that does not make a "
-                                + "pushed blue read as if it dimmed.")
+                            note: "Saturation without changing perceived brightness.",
+                            help: LookPanel.saturationHelp)
 
                 // A soft warning, not a clamp. darktable's own documentation calls past
                 // ±20 artifact territory, and the honest thing is to say so while still
                 // letting the slider go there.
                 balanceAxis("Brilliance", \Look.wheels.colorBalance.brilliance,
                             "cb.brilliance",
-                            note: LookPanel.brillianceIsPushed(grid.brilliance)
-                                ? "Past ±20 is artifact territory — highlights start to "
-                                    + "flatten and shadows to plug."
-                                : "H-K corrected brightness at constant ratio: "
-                                    + "exposure-like, perceptually scaled.",
-                            warn: LookPanel.brillianceIsPushed(grid.brilliance))
+                            note: brillianceNote,
+                            help: LookPanel.brillianceHelp,
+                            warn: brilliancePushed)
             }
         }
     }
 
+    // The formal statements, once each — on the group label and all four of its rows,
+    // so the science is one hover away wherever the pointer happens to be.
+    private static let chromaHelp =
+        "Scales colourfulness at constant lightness and hue — the plain \u{201C}more "
+        + "colour\u{201D} multiply. Global acts on the whole frame; the zone rows "
+        + "follow the strip above the wheel."
+    private static let saturationHelp =
+        "Scales the colourfulness-to-lightness ratio at constant perceived brightness "
+        + "(H-K corrected), so a pushed blue never reads as if it dimmed. Global acts "
+        + "on the whole frame; the zone rows follow the strip above the wheel."
+    private static let brillianceHelp =
+        "Scales perceived brightness (H-K corrected) at constant colourfulness ratio "
+        + "— exposure-like, perceptually even across hues. Past ±20 highlights flatten "
+        + "and shadows plug. Global acts on the whole frame; the zone rows follow the "
+        + "strip above the wheel."
+
     /// One axis of the grid: Global on top, then the three zones, in the same order the
     /// wheels are laid out so the two halves of the panel read the same way. The axis
     /// carries its own note so the disclosure's builder stays inside its ten-child limit.
+    ///
+    /// `note` is the plain sentence on screen; `help` is the formal one on hover, on
+    /// the group label and all four rows alike (docs/32 Stream D item 6 — the science
+    /// belongs to the hand that asks, not to every pass of the eye).
     private func balanceAxis(_ title: String,
                              _ axis: WritableKeyPath<Look, ColorBalanceAxis>,
                              _ key: String,
                              note: String,
+                             help: String,
                              warn: Bool = false) -> some View {
         // Spelled out with explicit types rather than inline `appending(path:)`:
         // `appending` is overloaded on key-path writability, and letting the result type
@@ -427,23 +490,31 @@ struct LookPanel: View {
             axis.appending(path: \ColorBalanceAxis.high)
 
         return VStack(alignment: .leading, spacing: 2) {
-            Text(title.uppercased())
-                .font(.system(size: 9, weight: .semibold))
-                .tracking(0.6)
-                .foregroundStyle(Lumen.secondaryText)
-                .padding(.top, 4)
+            // A GROUP HEADER, NOT A STRAY WORD. "CHROMA" stood here at 9pt — below
+            // `LumenType`'s own 10pt floor, in a sixth hand-rolled caps style — and
+            // read as a divider that had wandered in (docs/32 Stream D item 6). It
+            // goes through `LumenCapsLabel` like every other caps heading, one step
+            // under the section headers' 12, with the group's formal statement on
+            // hover so the label itself can answer "what is this axis".
+            LumenCapsLabel(text: title, size: 10)
+                .padding(.top, 6)
+                .help(help)
             LumenSlider(title: "Global",
                         value: bindLook(global, key: key + ".global"),
-                        range: -100...100, defaultValue: 0, step: 1, decimals: 0)
+                        range: -100...100, defaultValue: 0, step: 1, decimals: 0,
+                        help: help)
             LumenSlider(title: "Shadows",
                         value: bindLook(shadows, key: key + ".shadows"),
-                        range: -100...100, defaultValue: 0, step: 1, decimals: 0)
+                        range: -100...100, defaultValue: 0, step: 1, decimals: 0,
+                        help: help)
             LumenSlider(title: "Midtones",
                         value: bindLook(mid, key: key + ".mid"),
-                        range: -100...100, defaultValue: 0, step: 1, decimals: 0)
+                        range: -100...100, defaultValue: 0, step: 1, decimals: 0,
+                        help: help)
             LumenSlider(title: "Highlights",
                         value: bindLook(high, key: key + ".high"),
-                        range: -100...100, defaultValue: 0, step: 1, decimals: 0)
+                        range: -100...100, defaultValue: 0, step: 1, decimals: 0,
+                        help: help)
             Text(note)
                 .font(.system(size: 10))
                 .foregroundStyle(warn ? Lumen.accent : Lumen.secondaryText)
@@ -469,7 +540,12 @@ struct LookPanel: View {
                         hue: bindWheel(path, \Wheel.hue, key: "wheel.\(title).hue"),
                         sat: bindWheel(path, \Wheel.sat, key: "wheel.\(title).sat"),
                         lum: bindWheel(path, \Wheel.lum, key: "wheel.\(title).lum"),
-                        diameter: diameter)
+                        diameter: diameter,
+                        // The owner could not tell what the bar under the wheel was:
+                        // centre it on the wheel and caption it (docs/32 Stream D
+                        // item 5). Only here — the mask panel's 68-point pairs cannot
+                        // pay the centring's counterweight; see `captionedBar`.
+                        captionedBar: true)
     }
 
     /// Which zones hold a grade, for the segmented control's dots.
@@ -525,19 +601,44 @@ struct LookPanel: View {
             if printerExpanded {
                 // `,` and `.` step the master; the same pair with ⌃ / ⌥ / ⇧ steps one
                 // channel. The real interface here is the keyboard, watching the image.
-                printerRow("Master", "master", lights.master, masterLimit, [])
-                printerRow("Red / Cyan", "r", lights.r, trimLimit, .control)
-                printerRow("Green / Mag", "g", lights.g, trimLimit, .option)
-                printerRow("Blue / Yellow", "b", lights.b, trimLimit, .shift)
+                //
+                // THE HOVER SAYS WHAT PRINTER LIGHTS ARE. The owner guessed the
+                // darkroom reference right and the panel never confirmed it (docs/32
+                // Stream D item 7); the help now leads with the lab, then the unit
+                // (docs/24 §10: one point = exactly 1/12 stop, the Kodak/Resolve
+                // convention), then the keys — because the concept is what a first
+                // hover is asking for and the arithmetic is what the tenth one is.
+                printerRow("Master", "master", lights.master, masterLimit, [],
+                           help: "Master — printer lights, the film lab's exposure "
+                               + "dial: exposure into the grade, counted in the lab's "
+                               + "own points. One point is exactly 1/12 stop, so "
+                               + "twelve points is one full stop. Step it with , and "
+                               + ". while watching the picture. Double-click to reset.")
+                printerRow("Red / Cyan", "r", lights.r, trimLimit, .control,
+                           help: "Red / Cyan — a printer's colour-timing trim: more "
+                               + "red light one way, more cyan the other, 1/12 stop "
+                               + "per point. Step it with ⌃, and ⌃. Double-click to "
+                               + "reset.")
+                printerRow("Green / Mag", "g", lights.g, trimLimit, .option,
+                           help: "Green / Mag — a printer's colour-timing trim: more "
+                               + "green light one way, more magenta the other, 1/12 "
+                               + "stop per point. Step it with ⌥, and ⌥. Double-click "
+                               + "to reset.")
+                printerRow("Blue / Yellow", "b", lights.b, trimLimit, .shift,
+                           help: "Blue / Yellow — a printer's colour-timing trim: "
+                               + "more blue light one way, more yellow the other, "
+                               + "1/12 stop per point. Step it with ⇧, and ⇧. "
+                               + "Double-click to reset.")
             }
         }
     }
 
     private func printerRow(_ title: String, _ channel: String, _ points: Int,
-                            _ limit: Int, _ modifiers: EventModifiers) -> some View {
+                            _ limit: Int, _ modifiers: EventModifiers,
+                            help: String) -> some View {
         PrinterLightRow(title: title, points: points, limit: limit,
                         decrement: KeyEquivalent(","), increment: KeyEquivalent("."),
-                        modifiers: modifiers,
+                        modifiers: modifiers, help: help,
                         onStep: { delta in step(channel, by: delta) },
                         onReset: { setPoints(channel, to: 0) })
     }
@@ -592,16 +693,28 @@ struct LookPanel: View {
                                topRhythm: innerRhythm)
 
             if primariesExpanded {
-                // The paragraph that used to close this group is the tooltip on all
-                // eight rows — see `bipolarSlider`, which carries it.
-                bipolarSlider("Red Hue", \Look.primaries.rHue, "prim.rHue")
-                bipolarSlider("Red Purity", \Look.primaries.rPurity, "prim.rPurity")
-                bipolarSlider("Green Hue", \Look.primaries.gHue, "prim.gHue")
-                bipolarSlider("Green Purity", \Look.primaries.gPurity, "prim.gPurity")
-                bipolarSlider("Blue Hue", \Look.primaries.bHue, "prim.bHue")
-                bipolarSlider("Blue Purity", \Look.primaries.bPurity, "prim.bPurity")
-                bipolarSlider("Shadow Tint", \Look.primaries.tintHue, "prim.tintHue")
-                bipolarSlider("Tint Purity", \Look.primaries.tintPurity, "prim.tintPurity")
+                // Four help texts for four kinds of row (docs/24 §11): a Hue row
+                // rotates a primary, a Purity row scales its distance from grey, and
+                // the two tint rows are a different tool — a shadow-windowed cast that
+                // is ALLOWED to move neutrals. The old single paragraph answered "how
+                // is this not the mixer" for all eight and nothing else; that clause
+                // survives inside the hue/purity texts, where it belongs.
+                bipolarSlider("Red Hue", \Look.primaries.rHue, "prim.rHue",
+                              LookPanel.primaryHueHelp("red"))
+                bipolarSlider("Red Purity", \Look.primaries.rPurity, "prim.rPurity",
+                              LookPanel.primaryPurityHelp("red"))
+                bipolarSlider("Green Hue", \Look.primaries.gHue, "prim.gHue",
+                              LookPanel.primaryHueHelp("green"))
+                bipolarSlider("Green Purity", \Look.primaries.gPurity, "prim.gPurity",
+                              LookPanel.primaryPurityHelp("green"))
+                bipolarSlider("Blue Hue", \Look.primaries.bHue, "prim.bHue",
+                              LookPanel.primaryHueHelp("blue"))
+                bipolarSlider("Blue Purity", \Look.primaries.bPurity, "prim.bPurity",
+                              LookPanel.primaryPurityHelp("blue"))
+                bipolarSlider("Shadow Tint", \Look.primaries.tintHue, "prim.tintHue",
+                              LookPanel.shadowTintHelp)
+                bipolarSlider("Tint Purity", \Look.primaries.tintPurity,
+                              "prim.tintPurity", LookPanel.tintPurityHelp)
             }
         }
     }
@@ -611,6 +724,16 @@ struct LookPanel: View {
     private var transformSection: some View {
         let render = state.currentRecipe.look.render
         let base = DisplayTransformParams.preset(named: render.preset)
+        // NO CHEVRON UNDER `only:` (docs/32 Stream D item 1). Inside the Looks card
+        // this fold was the card's second hinge — the owner's rule is one chevron per
+        // section, and five rows is not enough to hide behind a second one. The header
+        // itself stays either way: its title carries the replaced-by-stock honesty,
+        // the modified dot and Reset, none of which a bare label could. `isExpanded:
+        // nil` is `LumenSectionHeader`'s own word for "nothing folds here", the same
+        // one the B&W header uses while the treatment is off — and the header draws no
+        // hover fill and no pointing hand in that state, so a label that answers no
+        // click no longer lights up like one.
+        let fold: Binding<Bool>? = only == nil ? $transformExpanded : nil
 
         return VStack(alignment: .leading, spacing: 2) {
             // The baseline is the PHOTO's, not the type's: a rendered file starts on
@@ -633,7 +756,7 @@ struct LookPanel: View {
             // would read as a bug rather than as emphasis, and one that truncated would
             // eat the stock's name, which is the whole point of the line.
             LumenSectionHeader(title: transformTitle,
-                               isExpanded: $transformExpanded,
+                               isExpanded: fold,
                                isModified: render != state.currentStartingRecipe.look.render,
                                onReset: { state.updateRecipe { photo, recipe in
                                    recipe.look.render = AppState.startingRecipe(
@@ -643,7 +766,7 @@ struct LookPanel: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.65)
 
-            if transformExpanded {
+            if only != nil || transformExpanded {
                 // Ghosted, not hidden. The values are still the recipe's, they still
                 // travel in the sidecar, and they render the moment the stock comes off
                 // — but a control the user can drag while it cannot reach a pixel is
@@ -981,26 +1104,46 @@ struct LookPanel: View {
         return stock.monochrome ? "B&W " + base.lowercased() : base
     }
 
-    /// The −100…+100, default-0 row this panel is mostly made of.
-    ///
-    /// Every caller is a Primaries row, so the clause those eight rows need is the
-    /// default rather than the same long string written eight times. It is the one
-    /// question all eight raise — how is this not the mixer — and it used to be a
-    /// paragraph under the group. A caller from anywhere else passes its own.
+    /// The −100…+100, default-0 row this panel is mostly made of. Every caller is a
+    /// Primaries row and each passes the help for its kind — see the four texts below.
     private func bipolarSlider(_ title: String,
                                _ path: WritableKeyPath<Look, Double>,
                                _ key: String,
-                               _ help: String = LookPanel.primariesHelp) -> some View {
+                               _ help: String) -> some View {
         LumenSlider(title: title, value: bindLook(path, key: key),
                     range: -100...100, defaultValue: 0, step: 1, decimals: 0,
                     help: help)
     }
 
-    private static let primariesHelp =
-        "Redefines what red, green and blue mean for this image. The mixer targets "
-        + "pixels that look blue; a primary moves every pixel containing blue — "
-        + "global, smooth, and unable to posterize. Greys are preserved by "
-        + "construction."
+    // The primaries' help, per kind of row (docs/24 §11 is the source: rotation up to
+    // ±20° and purity ±50% at full throw, greys preserved by the matrix construction;
+    // the shadow tint is an opponent-axis offset windowed to about −3 EV). Functions
+    // rather than one string, because "how is this not the mixer" is the question all
+    // six matrix rows raise and the colour name is the only thing that varies.
+
+    private static func primaryHueHelp(_ colour: String) -> String {
+        "Redefines what \(colour) means for this image by turning the \(colour) "
+        + "primary itself around the wheel — up to 20° at full throw. The mixer "
+        + "targets pixels that look \(colour); this moves every pixel containing "
+        + "\(colour) — global, smooth, unable to posterize. Greys cannot move."
+    }
+
+    private static func primaryPurityHelp(_ colour: String) -> String {
+        "Pulls the \(colour) primary toward grey or half again further from it, "
+        + "gently and globally — every pixel containing \(colour) follows, where the "
+        + "mixer only reaches pixels that look \(colour). Greys cannot move."
+    }
+
+    private static let shadowTintHelp =
+        "Tips just the shadows between green and magenta — the classic print-toning "
+        + "move, centred about three stops down and fading out by the midtones. The "
+        + "one row here that is MEANT to move neutrals: tinting a neutral shadow is "
+        + "its job."
+
+    private static let tintPurityHelp =
+        "The shadow tint's second axis — tips the same shadow window between amber "
+        + "and blue, so the two tint rows together can aim the cast anywhere on the "
+        + "wheel."
 
 
     private func bindLook(_ path: WritableKeyPath<Look, Double>, key: String) -> Binding<Double> {
@@ -1179,6 +1322,9 @@ struct PrinterLightRow: View {
     let decrement: KeyEquivalent
     let increment: KeyEquivalent
     let modifiers: EventModifiers
+    /// The label's whole tooltip, composed by the caller: the panel knows what a
+    /// channel means and which modifier steps it; this row only knows it has a label.
+    let help: String
     let onStep: (Int) -> Void
     let onReset: () -> Void
 
@@ -1190,8 +1336,7 @@ struct PrinterLightRow: View {
                 .frame(width: Lumen.labelWidth, alignment: .leading)
                 .lineLimit(1)
                 .onTapGesture(count: 2) { onReset() }
-                .help("\(title) — one point is one twelfth of a stop exactly, so "
-                      + "twelve of them is a doubling. Double-click to reset.")
+                .help(help)
 
             stepper("minus.circle", enabled: points > -limit, key: decrement,
                     help: "One point down (1/12 stop)") { onStep(-1) }

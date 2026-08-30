@@ -1190,6 +1190,13 @@ struct LumenSectionHeader: View {
     /// costs a drag.
     @State private var hovering = false
 
+    /// Whether a click on this header means anything. False for a header that is only
+    /// a group label — no chevron, no accordion callback — in which case the hover fill
+    /// and the pointing hand stay off: the pointer treatment is the row's claim to be a
+    /// control, and this row is not one. Reset still fades in on hover regardless,
+    /// because the Reset BUTTON is a control whichever kind of header carries it.
+    private var isInteractive: Bool { isExpanded != nil || onToggle != nil }
+
     var body: some View {
         HStack(spacing: 4) {
             if let isExpanded {
@@ -1315,9 +1322,15 @@ struct LumenSectionHeader: View {
         // sitting at the top of the same column, and that one rounds to 12. Six points
         // on a 28-point row inside a card whose corner is now 14 reads as a rectangle
         // that appeared rather than as a button that lit.
+        // …AND ONLY WHEN THE HEADER IS A CONTROL. A header with no chevron and no
+        // `onToggle` — the B&W header while the treatment is off, the flattened Display
+        // Transform group — does nothing on click, and a label that lights up while
+        // doing nothing is the exact affordance lie the owner's hover cull named
+        // ("section-ish labels that are not clickable"). `hovering` itself still
+        // tracks, because Reset fades in on it either way.
         .background(
             RoundedRectangle(cornerRadius: Lumen.radiusControl, style: .continuous)
-                .fill(hovering ? Lumen.controlHover : Color.clear))
+                .fill(hovering && isInteractive ? Lumen.controlHover : Color.clear))
         // The four points come straight back out. The fill wants to bleed past the words
         // so it reads as a row rather than as a label with a box drawn round it, but the
         // TITLE has to stay on the same left edge as the slider names beneath it — a
@@ -1329,8 +1342,9 @@ struct LumenSectionHeader: View {
         .onTapGesture { toggle() }
         // One cursor region for the whole header rather than one on the chevron: the
         // row and the arrow do the same thing, so the pointing hand should not appear
-        // over 20 points of a 300-point target.
-        .lumenClickCursor()
+        // over 20 points of a 300-point target. Gated the same way the hover fill is —
+        // a pointing hand over a label that answers no click is a promise broken.
+        .lumenClickCursor(isInteractive)
         .animation(.easeOut(duration: 0.12), value: hovering)
         .padding(.top, topRhythm)
     }
@@ -1382,9 +1396,8 @@ struct LumenSegmented<T: Hashable>: View {
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 4)
-                    .background(fill(for: option.value))
-                    .foregroundStyle(selection == option.value
-                                     ? Lumen.primaryText : Lumen.secondaryText)
+                    .background(selectionChip(for: option.value))
+                    .foregroundStyle(labelColor(for: option.value))
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -1398,6 +1411,15 @@ struct LumenSegmented<T: Hashable>: View {
                 .lumenClickCursor()
             }
         }
+        // The interior is ONE carved well, and only the chosen segment stands up out of
+        // it as a chip. The previous form filled every segment edge to edge — a rest
+        // fill, a hover fill and a selection fill all running flush to the well's lip —
+        // which is the "highlights with no padding" the owner named on exactly this
+        // control (docs/32 Stream D item 2). The hover fill is gone outright, removal
+        // being his stated preference; hover now answers in the label's colour and the
+        // pointing hand, which move no surface. The selection fill stays — it is state,
+        // not a hover — and it wears the chip inset instead of the full bleed.
+        .background(Lumen.insetWell)
         // A WELL, not a clip. `lumenWell` does the same rounding and adds the carved lip
         // — dark along the top edge, faintly lit along the bottom — which is what tells
         // the eye that the segments sit DOWN in the panel rather than being three
@@ -1406,20 +1428,21 @@ struct LumenSegmented<T: Hashable>: View {
         .animation(.easeOut(duration: 0.12), value: hovered)
     }
 
-    /// THREE STATES IN ONE COLOUR, because they cannot be layered here.
-    ///
-    /// `lumenHoverable()` paints its fill as a `.background`, BEHIND the content — and
-    /// each segment already paints an opaque rest fill of its own, so a stacked hover
-    /// would have been perfectly invisible under the very control that most needed to
-    /// show one. Anything with its own background has to compute the state instead.
-    ///
-    /// Hover deliberately climbs to `controlActive` rather than `controlHover`: against
-    /// a rest fill of `controlSurface` the next rung up is a 1.05:1 step, which is below
-    /// what an eye resolves. Selection keeps its brighter fill above both.
-    private func fill(for value: T) -> Color {
-        if selection == value { return Lumen.fillColor.opacity(0.35) }
-        if hovered == value { return Lumen.controlActive }
-        return Lumen.controlBackground
+    /// The selected segment's chip: inset two points on every side so the fill reads as
+    /// an object sitting IN the well rather than a slab of it changing colour. The
+    /// radius steps down with the inset the same way `LumenSwitch`'s thumb does, so the
+    /// chip's corner stays concentric with the well's.
+    private func selectionChip(for value: T) -> some View {
+        RoundedRectangle(cornerRadius: Lumen.radiusChip - 2, style: .continuous)
+            .fill(selection == value ? Lumen.fillColor.opacity(0.35) : Color.clear)
+            .padding(2)
+    }
+
+    /// Hover lives here now — the one channel left that moves no surface. Selection
+    /// outranks it only in that the chip is already carrying the state.
+    private func labelColor(for value: T) -> Color {
+        if selection == value || hovered == value { return Lumen.primaryText }
+        return Lumen.secondaryText
     }
 }
 
@@ -1440,6 +1463,15 @@ struct LumenColorWheel: View {
     /// movement — four wheels this small was the reason grading felt fiddly rather than
     /// the reason it felt complete.
     var diameter: CGFloat = 68
+    /// Centre the lightness bar on the wheel's axis and caption it "Luminance".
+    ///
+    /// The grade's single large wheel turns this on: the owner could not tell what the
+    /// bar was, and an untitled `LumenSlider` has no label to hang a tooltip on — the
+    /// bar shipped with no way to ask. Centring costs a counterweight equal to the
+    /// readout column on the leading side, which a 150-point wheel can pay and the mask
+    /// panel's 68-point two-up cannot (two captioned bars would overrun the column), so
+    /// the compact callers keep the old form by default.
+    var captionedBar: Bool = false
     var onEditingChanged: ((Bool) -> Void)?
     /// Injected once at the root (ContentView) and fired by EVERY slider in the app —
     /// which is the point: `onEditingChanged` sat unconsumed for the app's whole life
@@ -1464,7 +1496,13 @@ struct LumenColorWheel: View {
                                        center: .center, startRadius: 0,
                                        endRadius: diameter / 2)
                     )
-                    .opacity(0.75)
+                    // 0.85, up from 0.75 in the same pass that richened `wheelColors`:
+                    // the wash toward the panel grey was the other half of "pastel",
+                    // and a saturation raise under a quarter-strength grey veil would
+                    // have been half an answer. Not 1.0 — the wheel still sits beside
+                    // the photograph, and some restraint is what keeps the Law 7
+                    // exception an exception.
+                    .opacity(0.85)
                 // A LIT RIM, not a drawn outline. `LumenSurface` makes the argument in
                 // full: a uniform 1px line reads as pre-Yosemite chrome, while a stroke
                 // that is bright along the top and near-invisible along the bottom reads
@@ -1523,21 +1561,47 @@ struct LumenColorWheel: View {
                     .foregroundStyle(Lumen.secondaryText)
             }
 
-            LumenSlider(title: "", value: $lum, range: -1...1, defaultValue: 0,
-                        step: 0.01, decimals: 2,
-                        // Dark to light — the one VALUE ramp the Law 7 amendment
-                        // permits, and worth separating from the exposure ramp it
-                        // refuses. This bar is the L of an H/S/L triple, inside a
-                        // bordered colour instrument, 50 points wide; Exposure is a full
-                        // row in a column of tonal sliders beside the photograph being
-                        // judged for exposure. Lightroom draws exactly this distinction
-                        // and so does Resolve. It also makes the caption under these
-                        // wheels true — it has been claiming "the bar under each wheel
-                        // is the zone's own lightness" over an undifferentiated grey.
-                        trackStops: Lumen.wheelLightnessStops,
-                        onEditingChanged: onEditingChanged)
-                .frame(width: diameter + 40)
+            if captionedBar {
+                // CENTRED ON THE WHEEL, NOT ON THE ROW. An untitled slider is a track
+                // plus a 44-point readout, so the groove's midpoint sits 25 points left
+                // of the row's — under a 150-point wheel that read as a bar hanging off
+                // one shoulder. The leading padding is the readout's exact counterweight
+                // (valueWidth + the row's 6-point gap), which puts the groove's centre
+                // on the wheel's centre by construction rather than by eye.
+                lightnessBar
+                    .padding(.leading, Lumen.valueWidth + 6)
+                    .frame(width: diameter + 2 * (Lumen.valueWidth + 6))
+                // The caption the owner asked this bar for: he could not tell what it
+                // was, and the empty title means the slider itself has no label to
+                // carry a tooltip. The caption is the label, and the tooltip rides it.
+                Text("Luminance")
+                    .font(.lumenCaption)
+                    .foregroundStyle(Lumen.secondaryText)
+                    .help("Luminance — the zone's own brightness, up to half a stop "
+                          + "each way, holding its colour rather than washing it out. "
+                          + "Drag the bar, or double-click it to reset.")
+            } else {
+                lightnessBar
+                    .frame(width: diameter + 40)
+            }
         }
+    }
+
+    /// The lightness bar, one definition for both framings above.
+    private var lightnessBar: some View {
+        LumenSlider(title: "", value: $lum, range: -1...1, defaultValue: 0,
+                    step: 0.01, decimals: 2,
+                    // Dark to light — the one VALUE ramp the Law 7 amendment
+                    // permits, and worth separating from the exposure ramp it
+                    // refuses. This bar is the L of an H/S/L triple, inside a
+                    // bordered colour instrument, 50 points wide; Exposure is a full
+                    // row in a column of tonal sliders beside the photograph being
+                    // judged for exposure. Lightroom draws exactly this distinction
+                    // and so does Resolve. It also makes the caption under these
+                    // wheels true — it has been claiming "the bar under each wheel
+                    // is the zone's own lightness" over an undifferentiated grey.
+                    trackStops: Lumen.wheelLightnessStops,
+                    onEditingChanged: onEditingChanged)
     }
 
     private var puck: some View {
@@ -1552,8 +1616,16 @@ struct LumenColorWheel: View {
 
     /// The wheel's own colours are the one deliberate exception to zero-chroma
     /// chrome: a grading wheel that cannot show hue is not a grading wheel.
+    ///
+    /// Saturation 0.72, up from the 0.55 that shipped: the owner called the wheels
+    /// pastel, and Law 7's stated exception is exactly this instrument — richer is
+    /// allowed, garish is not (docs/32 Stream D item 4). Brightness stays at 0.8, and
+    /// the raise is on one axis on purpose: pushing both is how a wheel goes from
+    /// instrument to neon. The mixer's hue ring took the matching step in its own
+    /// colour system (`ColorPanel.hueColor`), so the two colour instruments read as
+    /// siblings rather than one rich and one washed.
     static let wheelColors: [Color] = (0..<13).map {
-        Color(hue: Double($0) / 12, saturation: 0.55, brightness: 0.8)
+        Color(hue: Double($0) / 12, saturation: 0.72, brightness: 0.8)
     }
 }
 
