@@ -106,7 +106,12 @@ struct EffectsPanel: View {
                 LumenSlider(title: "Amount",
                             value: binder.value(\.look.vignette, "look.vignette"),
                             range: -3.0...1.0, hardRange: nil, defaultValue: 0,
-                            step: 0.01, decimals: 2)
+                            step: 0.01, decimals: 2,
+                            help: "Darkens the corners below zero and lifts them "
+                                + "above, in stops at the corner — applied on "
+                                + "scene-linear data before the display transform, "
+                                + "so a burn keeps its colour and bright speculars "
+                                + "punch through.")
             }
         }
     }
@@ -118,6 +123,9 @@ struct EffectsPanel: View {
         DevelopSection("Grain", isModified: isGrainModified, onReset: grainReset) {
             if let film = recipe.look.filmLab {
                 VStack(alignment: .leading, spacing: 2) {
+                    // The badge is not clickable, so it answers the pointer with an
+                    // explanation rather than an affordance — the capture-sharpening
+                    // badge's rule.
                     HStack(spacing: 6) {
                         Text("Stock")
                             .font(.system(size: 10))
@@ -126,6 +134,8 @@ struct EffectsPanel: View {
                         LumenBadge(text: FilmStock.named(film.stock)?.name ?? film.stock)
                     }
                     .frame(height: Lumen.rowHeight)
+                    .help("The grain is this stock's — its pitch and character come "
+                          + "with the emulsion chosen in Film Lab.")
 
                     // THE GRAIN IS GATED ON THE FILM CHAIN EXISTING, and the chain is
                     // built only when Film Lab's STRENGTH is above zero
@@ -147,6 +157,7 @@ struct EffectsPanel: View {
                                 .buttonStyle(.plain)
                                 .font(.lumenCaption)
                                 .foregroundStyle(Lumen.accent)
+                                .help("Opens Film Lab, where Strength lives")
                         }
                         .padding(.vertical, 2)
                     }
@@ -163,10 +174,11 @@ struct EffectsPanel: View {
                                 range: 0...100, hardRange: nil,
                                 defaultValue: grainDefault,
                                 step: 1, decimals: 0, bipolar: false,
-                                help: film.amount <= 0
-                                    ? "Grain rides the film chain, and the chain is only "
-                                        + "built while Film Lab's Strength is above zero."
-                                    : nil)
+                                // Computed out of the argument — the surface
+                                // checker's argument-order pass has a verified blind
+                                // spot on multi-line ternary arguments (docs/31
+                                // postscript).
+                                help: grainAmountHelp)
                     // Size is the pitch at the gate relative to the stock's own. The
                     // footprint is denominated at the GATE and scales with the render's
                     // pixel count, so it is the same fraction of the picture at every
@@ -180,7 +192,11 @@ struct EffectsPanel: View {
                                                      get: { r in r.look.filmLab?.grain.size ?? 1 },
                                                      set: { r, v in r.look.filmLab?.grain.size = v }),
                                 range: 0.5...2.0, hardRange: nil, defaultValue: 1.0,
-                                step: 0.05, decimals: 2, bipolar: true)
+                                step: 0.05, decimals: 2, bipolar: true,
+                                help: "The grain's pitch against the stock's own — "
+                                    + "1.0 is the emulsion's measured pitch at the "
+                                    + "film gate, and it stays the same fraction of "
+                                    + "the picture at every delivery size.")
                 }
             } else {
                 // The empty state is the way out of the empty state. Grain is a
@@ -192,6 +208,8 @@ struct EffectsPanel: View {
                         .buttonStyle(.plain)
                         .font(.system(size: 10))
                         .foregroundStyle(Lumen.accent)
+                        .help("Opens Film Lab — grain belongs to a stock, and a "
+                              + "loaded one brings its own along")
                     Spacer()
                 }
                 .frame(height: Lumen.rowHeight)
@@ -204,6 +222,18 @@ struct EffectsPanel: View {
     /// one of them shows "modified" while the other shows "default" for one number.
     private var grainDefault: Double {
         FilmStock.named(recipe.look.filmLab?.stock ?? "")?.grainDefault ?? 0
+    }
+
+    /// Amount's tooltip. The gate sentence is the one this row has carried since the
+    /// Strength-0 trap was found; the live branch says what the slider is when the
+    /// chain runs.
+    private var grainAmountHelp: String {
+        if let film = recipe.look.filmLab, film.amount <= 0 {
+            return "Grain rides the film chain, and the chain is only built while "
+                + "Film Lab's Strength is above zero."
+        }
+        return "How much grain is laid down — in density, like the stock itself: "
+            + "strongest through the midtones, vanishing at pure black and white."
     }
 
     private var isGrainModified: Bool {
@@ -321,16 +351,29 @@ struct EffectsPanel: View {
                                 selection: $state.softProof.space,
                                 help: "The space the picture is rendered through while "
                                     + "the proof is on")
+                    // The picker's own help sits on its trigger; this outer copy is
+                    // what the "Destination" LABEL answers with, since an outer
+                    // `.help` shows wherever no inner one covers.
+                    .help("The space the picture is rendered through while the proof "
+                          + "is on")
 
+                // `.lumenBody` and the picker's own row pitch, not a hand-rolled 11pt
+                // with no vertical padding: this label sits directly under
+                // Destination's, on the same 94-point column, and the two were one
+                // point of type size and two points of rhythm apart for no reason.
                 HStack(spacing: 6) {
                     Text("Intent")
-                        .font(.system(size: 11))
+                        .font(.lumenBody)
                         .foregroundStyle(Lumen.secondaryText)
                         .frame(width: Lumen.labelWidth, alignment: .leading)
                     LumenSegmented(options: intentOptions,
                                    selection: $state.softProof.intent)
                 }
                 .frame(height: Lumen.rowHeight)
+                .padding(.vertical, 2)
+                .help("What happens to colours the destination cannot hold: "
+                      + "Perceptual eases the whole range in smoothly, Relative "
+                      + "keeps in-gamut colours exact and clips the rest.")
 
                 LumenToggleRow(title: "Gamut warning",
                                isOn: $state.softProof.showGamutWarning,

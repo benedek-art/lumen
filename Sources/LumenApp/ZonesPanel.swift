@@ -100,10 +100,17 @@ struct ZonesPanel: View {
             // the strip is a picture of the crossfade, which is a better account of
             // what a zone is than a sentence about it.
             ForEach(Self.register) { zone in
+                // One help for all five rows: the mechanics are shared, the tooltip's
+                // composed title names the zone, and the strip above draws where each
+                // one sits.
                 LumenSlider(title: zone.name,
                             value: evBinding(zone.path, key: "zones.\(zone.name)"),
                             range: -3...3, hardRange: -5...5,
-                            defaultValue: 0, step: 0.01, decimals: 2)
+                            defaultValue: 0, step: 0.01, decimals: 2,
+                            help: "Exposure for this zone alone, in stops. Its pull "
+                                + "is strongest at the zone's own pivot and fades to "
+                                + "nothing at its neighbours', so zones blend instead "
+                                + "of stepping.")
             }
 
             // Survives the hairline cull (design audit §1.1) for the same reason
@@ -121,7 +128,10 @@ struct ZonesPanel: View {
             LumenSlider(title: "Global",
                         value: evBinding(\Zones.global, key: "zones.Global"),
                         range: -3...3, hardRange: -5...5,
-                        defaultValue: 0, step: 0.01, decimals: 2)
+                        defaultValue: 0, step: 0.01, decimals: 2,
+                        help: "A flat exposure trim across the whole axis, in stops — "
+                            + "the same at every tone, so a finished zone set can be "
+                            + "brightened or darkened as one.")
         }
     }
 

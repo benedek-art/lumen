@@ -255,6 +255,10 @@ struct CurveEditorView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             LumenSegmented(options: channelOptions, selection: $channel)
+                .help("Which curve to edit: the four parametric region sliders, the "
+                      + "master point curve, one RGB channel, or luma alone. Param "
+                      + "and Point draw the same master trace, because the render "
+                      + "applies them composed.")
             // The rail belongs to the plot's bottom edge, not to the column's rhythm,
             // so it is spaced against the graph rather than against the readout.
             VStack(spacing: 2) {

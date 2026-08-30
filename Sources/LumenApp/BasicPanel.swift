@@ -231,6 +231,10 @@ struct BasicPanel: View {
                         // grey stop lands where the mired axis actually puts 5500 K
                         // (about two thirds along, not the middle). docs/28 Phase 2.
                         trackStops: Lumen.temperatureStops,
+                        help: "Sets the light the picture is balanced for, in Kelvin "
+                            + "— drag right of the as-shot tick to warm it, left to "
+                            + "cool. Travel is spaced in mireds, so a move counts the "
+                            + "same everywhere on the scale. Reset is as shot.",
                         // Double-clicking the label CLEARS the override rather than
                         // pinning the displayed number. `raw.temp` is optional and
                         // nil means as-shot; pinning a number there flips the
@@ -249,6 +253,10 @@ struct BasicPanel: View {
                         // row with nothing on its track saying where that neutral is.
                         step: 1, decimals: 0,
                         trackStops: Lumen.tintStops,
+                        help: "Balances the green–magenta axis the Kelvin scale "
+                            + "cannot reach: positive is magenta, negative green — "
+                            + "the fix for fluorescent and mixed light. Reset is as "
+                            + "shot.",
                         onReset: { applyAsShot() })
             // Tint honesty (docs/23 M2): the engine bounds the magenta half so
             // the adaptation cannot invert the picture, and on a warm frame the
@@ -429,12 +437,20 @@ struct BasicPanel: View {
                         value: binder.value(\.develop.tone.exposure, "tone.exposure"),
                         range: -5...5, hardRange: -10...10, defaultValue: 0,
                         step: 0.01, decimals: 2,
-                        trackStops: Lumen.exposureStops)
+                        trackStops: Lumen.exposureStops,
+                        help: "Overall brightness as true scene gain, in stops: +1 "
+                            + "doubles the light, exactly like opening the aperture a "
+                            + "stop. Set it first — every other tonal control works "
+                            + "around it.")
             LumenSlider(title: "Contrast",
                         value: binder.value(\.develop.tone.contrast, "tone.contrast"),
                         range: -100...100, hardRange: nil, defaultValue: 0,
                         step: 1, decimals: 0,
-                        trackStops: Lumen.contrastStops)
+                        trackStops: Lumen.contrastStops,
+                        help: "Steepens or flattens the picture around the Pivot "
+                            + "below — midtones spread apart or gather while the ends "
+                            + "of the scale stay pinned, so it cannot clip a "
+                            + "highlight.")
             // Under Contrast, not behind a chevron of its own. The pivot is the thing
             // Lightroom hides — its Contrast is a fixed S-curve anchored near L≈50 and
             // never documented, ours is a slope around a number the photographer can
@@ -444,7 +460,11 @@ struct BasicPanel: View {
                         value: binder.value(\.develop.tone.contrastPivot,
                                             "tone.contrastPivot"),
                         range: -4...4, hardRange: nil, defaultValue: 0,
-                        step: 0.01, decimals: 2)
+                        step: 0.01, decimals: 2,
+                        help: "Where Contrast hinges, in stops from mid-grey — the "
+                            + "tone it holds still. Raise it to anchor the brights "
+                            + "and let contrast work the shadows; lower it for the "
+                            + "reverse.")
             // AND THE OTHER FIVE STAY PLAIN, which is a decision rather than an
             // omission, so here is both sides of it.
             //
@@ -471,19 +491,32 @@ struct BasicPanel: View {
             LumenSlider(title: "Highlights",
                         value: binder.value(\.develop.tone.highlights, "tone.highlights"),
                         range: -100...100, hardRange: nil, defaultValue: 0,
-                        step: 1, decimals: 0)
+                        step: 1, decimals: 0,
+                        help: "Darkens or lifts the bright zone alone — pull it down "
+                            + "to bring a blown sky back. Mid-grey and below never "
+                            + "move, so it can never fight Shadows.")
             LumenSlider(title: "Shadows",
                         value: binder.value(\.develop.tone.shadows, "tone.shadows"),
                         range: -100...100, hardRange: nil, defaultValue: 0,
-                        step: 1, decimals: 0)
+                        step: 1, decimals: 0,
+                        help: "Lifts or darkens the dark zone alone, through an "
+                            + "edge-aware mask that will not halo a backlit edge. "
+                            + "Mid-grey and above never move.")
             LumenSlider(title: "Whites",
                         value: binder.value(\.develop.tone.whites, "tone.whites"),
                         range: -100...100, hardRange: nil, defaultValue: 0,
-                        step: 1, decimals: 0)
+                        step: 1, decimals: 0,
+                        help: "Sets the white clipping point — where scene brights "
+                            + "start rendering as pure white. Pull it down to hold "
+                            + "texture in the brightest tones, push it up to let "
+                            + "speculars clip.")
             LumenSlider(title: "Blacks",
                         value: binder.value(\.develop.tone.blacks, "tone.blacks"),
                         range: -100...100, hardRange: nil, defaultValue: 0,
-                        step: 1, decimals: 0)
+                        step: 1, decimals: 0,
+                        help: "Sets the black clipping point — how deep a shadow goes "
+                            + "before it renders as pure black. Push it up to open "
+                            + "the deepest shadows, pull it down to crush them.")
         }
     }
 
@@ -502,7 +535,10 @@ struct BasicPanel: View {
             LumenSlider(title: "Texture",
                         value: binder.value(\.develop.detail.texture, "detail.texture"),
                         range: -100...100, hardRange: nil, defaultValue: 0,
-                        step: 1, decimals: 0)
+                        step: 1, decimals: 0,
+                        help: "Boosts or smooths mid-sized detail — pores, bark, "
+                            + "weave — while leaving hard edges and soft bokeh "
+                            + "alone. Negative is the gentle skin smoother.")
             // THE TOOLTIP IS A MEASUREMENT, which is why it is worth its words. The
             // halo-free property belongs to the local Laplacian, which runs in
             // `ReferenceRenderer` and renders no pixel anybody sees; the GPU ships a
@@ -515,12 +551,17 @@ struct BasicPanel: View {
             LumenSlider(title: "Clarity",
                         value: binder.value(\.develop.detail.clarity, "detail.clarity"),
                         range: -100...100, hardRange: nil, defaultValue: 0,
-                        step: 1, decimals: 0)
-                .help("Pushed hard, Clarity rims a clean edge — most past about +50.")
+                        step: 1, decimals: 0,
+                        help: "Local contrast, weighted toward the midtones — punch "
+                            + "that fades off before the extremes. Pushed hard it "
+                            + "rims a clean edge, most past about +50.")
             LumenSlider(title: "Dehaze",
                         value: binder.value(\.develop.detail.dehaze, "detail.dehaze"),
                         range: -100...100, hardRange: nil, defaultValue: 0,
-                        step: 1, decimals: 0)
+                        step: 1, decimals: 0,
+                        help: "Estimates the atmospheric veil and removes it, "
+                            + "restoring contrast and colour to flat, hazy distance. "
+                            + "Negative lays haze back down for atmosphere.")
         }
     }
 
@@ -590,20 +631,30 @@ struct BasicPanel: View {
             LumenSlider(title: "Vibrance",
                         value: binder.value(\.develop.color.vibrance, "color.vibrance"),
                         range: -100...100, hardRange: nil, defaultValue: 0,
-                        step: 1, decimals: 0)
+                        step: 1, decimals: 0,
+                        help: "Saturation weighted toward the muted colours — what is "
+                            + "already rich resists, and skin is protected — so it is "
+                            + "the safer everyday boost.")
             LumenSlider(title: "Saturation",
                         value: binder.value(\.develop.color.saturation, "color.saturation"),
                         range: -100...100, hardRange: nil, defaultValue: 0,
-                        step: 1, decimals: 0)
+                        step: 1, decimals: 0,
+                        help: "Scales every colour's intensity while holding its "
+                            + "perceived brightness; −100 is true black and white. "
+                            + "Pushes compress as colours near full saturation, "
+                            + "instead of clipping.")
             if densityIsLive {
+                // The live half of what this row used to say in a `.help` modifier —
+                // on the `help:` parameter now, so the NAME answers the hover. The
+                // other half — "raise Saturation above zero and this comes live" —
+                // is what the row's own arrival says.
                 LumenSlider(title: "Density",
                             value: binder.value(\.develop.color.density, "color.density"),
                             range: 0...100, hardRange: nil, defaultValue: 50,
-                            step: 1, decimals: 0, bipolar: true)
-                    // Verbatim the live half of what this row already said. The other
-                    // half — "raise Saturation above zero and this comes live" — is
-                    // what the row's own arrival now says.
-                    .help("How much of a Saturation push is subtractive.")
+                            step: 1, decimals: 0, bipolar: true,
+                            help: "How much of a Saturation push is subtractive — "
+                                + "colours deepening as they saturate, the way film "
+                                + "dyes do, instead of brightening.")
                     // The same transition a section body uses, because to a
                     // photographer this is the same event.
                     .transition(.opacity.combined(with: .move(edge: .top)))
@@ -612,7 +663,11 @@ struct BasicPanel: View {
                         value: binder.value(\.develop.color.protectSkin,
                                             "color.protectSkin"),
                         range: 0...100, hardRange: nil, defaultValue: 70,
-                        step: 1, decimals: 0, bipolar: true)
+                        step: 1, decimals: 0, bipolar: true,
+                        help: "How firmly skin hues are shielded from Vibrance and "
+                            + "Saturation pushes, so a colour move does not turn a "
+                            + "complexion. A pull to −100 still reaches true black "
+                            + "and white.")
         }
         // Declared against the value rather than wrapped around the write: the write is
         // a drag sample inside `RecipeBinder`, which no panel reaches. Same curve as
