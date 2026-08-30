@@ -1339,6 +1339,46 @@ USE = re.compile(r"(?<![\w.])([a-z_]\w*)\??\.([a-zA-Z_]\w*)")
 INFERRED = re.compile(r"(?:^|[^\w.])(?:let|var)\s+([a-z_]\w*)\s*=")
 CLOSURE_ARG = re.compile(r"[{(]\s*((?:[a-z_]\w*\s*,\s*)*[a-z_]\w*)\s+in\b")
 
+# The platform value types this pass knows the whole surface of.
+#
+# `_type_index` indexes IN-TREE types only, so a value annotated with a platform type
+# was skipped entirely — and `CGRect.isFinite`, which does not exist, parsed cleanly on
+# this Linux box, passed every pass here, and failed on the first Mac that compiled
+# LumenPipeline. That target is not built or tested on the free lane at all, so this
+# checker plus `swiftc -parse` are the ONLY guards it gets, and `-parse` does not
+# type-check. This table is what makes the geometry structs a real check rather than a
+# skipped one.
+#
+# Only these four, and deliberately: they are small, closed, and stable across OS
+# releases, they are the platform types this codebase's geometry is actually written
+# in, and every member below is verifiable from the CoreGraphics headers rather than
+# remembered. A type whose surface this file cannot enumerate confidently does not
+# belong here — a checker with false positives gets ignored, which is the argument the
+# unbound-receiver pass already makes about itself.
+#
+# In-tree extensions still contribute: `_type_index` collects `extension CGRect` bodies
+# under the same name, and the lookup below unions the two.
+CG_COMMON = {
+    # Equatable/Hashable/Codable/CustomStringConvertible, and the bridging surface
+    # every CG struct carries.
+    "hashValue", "hash", "encode", "description", "debugDescription",
+    "dictionaryRepresentation", "applying", "init", "self",
+}
+
+PLATFORM_MEMBERS = {
+    "CGPoint": CG_COMMON | {"x", "y", "zero"},
+    "CGSize": CG_COMMON | {"width", "height", "zero"},
+    "CGVector": CG_COMMON | {"dx", "dy", "zero"},
+    "CGRect": CG_COMMON | {
+        "origin", "size", "width", "height",
+        "minX", "midX", "maxX", "minY", "midY", "maxY",
+        "standardized", "integral", "isEmpty", "isNull", "isInfinite",
+        "zero", "null", "infinite",
+        "insetBy", "offsetBy", "union", "intersection", "intersects", "contains",
+        "divided", "standardize", "makeIntegral", "formUnion", "formIntersection",
+    },
+}
+
 # Members every value effectively has, or that are not member lookups at all.
 VALUE_UNIVERSAL = {
     "self", "init", "map", "flatMap", "compactMap", "filter", "reduce", "forEach",
@@ -1447,7 +1487,14 @@ def pass_value_members():
                 if len(names) != 1 or name in ambiguous:
                     continue
                 tname = next(iter(names))
-                if "." in tname or tname not in members or tname not in kinds:
+                if "." in tname:
+                    continue
+                # A platform geometry type is checked against its own table rather
+                # than against the in-tree index, which does not have it.
+                if tname in PLATFORM_MEMBERS:
+                    typed[name] = tname
+                    continue
+                if tname not in members or tname not in kinds:
                     continue
                 if kinds[tname] == "protocol":
                     continue
@@ -1460,10 +1507,24 @@ def pass_value_members():
             for m in USE.finditer(scope):
                 name, member = m.group(1), m.group(2)
                 tname = typed.get(name)
-                if tname is None or member in VALUE_UNIVERSAL:
+                if tname is None:
                     continue
-                if member in members.get(tname, set()):
-                    continue
+                if tname in PLATFORM_MEMBERS:
+                    # NOT exempted by VALUE_UNIVERSAL: that set exists because an
+                    # in-tree member list is incomplete for anything a protocol
+                    # extension supplies, and these tables are complete. Letting it
+                    # through here is exactly what would have waved `CGRect.isFinite`
+                    # past — `isFinite` is in VALUE_UNIVERSAL, for the Doubles that
+                    # really do have it.
+                    if member in PLATFORM_MEMBERS[tname]:
+                        continue
+                    if member in members.get(tname, set()):
+                        continue  # an in-tree `extension CGRect` added it
+                else:
+                    if member in VALUE_UNIVERSAL:
+                        continue
+                    if member in members.get(tname, set()):
+                        continue
                 line = text.count("\n", 0, offset + m.start()) + 1
                 problems.append((path.relative_to(ROOT).as_posix(), line,
                                  name, tname, member))

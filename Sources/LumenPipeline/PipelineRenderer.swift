@@ -452,15 +452,27 @@ public final class PipelineRenderer {
         // rect arrives top-left-origin; Core Image extents are bottom-up, so the flip
         // happens here, once, at the same line the row-order comments in
         // KernelGoldenTests warn about.
-        let fullExtent = image.extent
-        var rasterRect = fullExtent
+        let fullExtent: CGRect = image.extent
+        var rasterRect: CGRect = fullExtent
         var deliveredUnit: CGRect?
-        // `isFinite` as well as non-degenerate: a Core Image extent can be infinite
-        // (a generator that has not been cropped), and the arithmetic below would turn
-        // that into a NaN rect rather than into the whole-frame render it should be.
-        if let region, fullExtent.isFinite,
-           fullExtent.width >= 1, fullExtent.height >= 1,
-           region.width > 0, region.height > 0 {
+        // `!isInfinite` — `DecodeMaterializer.materialize`'s idiom, three files away,
+        // guarding the same thing on the same kind of value. A Core Image extent can
+        // legitimately be infinite (a generator nothing has cropped), and the
+        // arithmetic below would turn that into a nonsense rect rather than into the
+        // whole-frame render it should fall back to. The component checks beside it
+        // cover a NaN edge, which `isInfinite` alone does not.
+        //
+        // Written as `CGRect.isFinite` first, which does not exist on Apple's
+        // CoreGraphics and cost a CI round: `swiftc -parse` on the Linux box does not
+        // type-check, and LumenPipeline is not built there at all, so a member that is
+        // not there parses cleanly and fails on the first Mac that compiles it. The
+        // checker's `values` pass learned the CG geometry types in the same commit;
+        // the cheaper lesson is that the idiom was already in the package.
+        let extentUsable: Bool = !fullExtent.isInfinite
+            && fullExtent.minX.isFinite && fullExtent.minY.isFinite
+            && fullExtent.width.isFinite && fullExtent.height.isFinite
+            && fullExtent.width >= 1 && fullExtent.height >= 1
+        if let region, extentUsable, region.width > 0, region.height > 0 {
             let asked = CGRect(
                 x: fullExtent.minX + region.minX * fullExtent.width,
                 y: fullExtent.minY + (1 - region.maxY) * fullExtent.height,
@@ -491,8 +503,7 @@ public final class PipelineRenderer {
         // delivered — which for any nil-region render IS the full frame. The viewer
         // denominates its whole geometry against this, so it must never be an
         // infinity that came from an uncropped generator.
-        let fullPixelSize: CGSize = fullExtent.isFinite
-            && fullExtent.width >= 1 && fullExtent.height >= 1
+        let fullPixelSize: CGSize = extentUsable
             ? CGSize(width: fullExtent.width, height: fullExtent.height)
             : CGSize(width: cgImage.width, height: cgImage.height)
         return PreviewDelivery(image: cgImage, regionUnit: deliveredUnit,
