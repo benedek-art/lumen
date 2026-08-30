@@ -287,7 +287,20 @@ public struct DraftLadder: Sendable, Equatable {
         Swift.min(Self.rungs[rung], Swift.max(requested, 64))
     }
 
-    /// Record what a draft cost.
+    /// Record what a draft cost. `renderedLongEdge` is the long edge the renderer
+    /// DELIVERED — `draft.image`'s own extent — never the size that was asked for.
+    ///
+    /// That distinction is docs/31 §23, and it is why the guard below is an inequality.
+    /// The render path legitimately delivers fewer pixels than the ask: `applyGeometry`
+    /// clamps to `min(1, wanted)` and never upscales, so every CROPPED photograph
+    /// comes back short by its crop fraction, and a decoder can decline a scale
+    /// factor. The viewer used to hand this function the ask instead — so the
+    /// own-answer guard compared the ask with itself, a tautology that could never
+    /// reject anything, and every sample was filed under a size that was not the
+    /// picture's. The delivered edge is the honest label; a frame LARGER than the
+    /// ladder's answer is the only thing that provably was not its answer, and that is
+    /// what the guard now rejects (with a couple of pixels of slack, because a decode
+    /// scale is a ratio and the delivered extent rounds).
     ///
     /// The two directions take DIFFERENT evidence, and conflating them is what left
     /// this ladder deaf on every window the app actually runs in.
@@ -306,11 +319,14 @@ public struct DraftLadder: Sendable, Equatable {
     /// only when ZOOMED, which is the one place a drag does not normally happen.
     ///
     /// Cheapness is NOT transferable, and that half of the old guard was right: 1 ms at
-    /// 512 px says nothing about whether 2048 is affordable, so a step UP still requires
-    /// a run of frames rendered at the rung itself.
-    ///
-    /// Both directions still require the frame to have been this ladder's OWN answer —
-    /// a caller that rendered some other size measured something else.
+    /// 512 px says nothing about whether 2048 is affordable, so a step UP still
+    /// requires frames from asks at the rung itself. The climb therefore tests the
+    /// ladder's ANSWER against the rung rather than the delivered size — on a cropped
+    /// photograph the delivered edge never equals any rung, and testing it directly
+    /// made the streak unearnable on exactly the photographs the owner was dragging
+    /// when he reported "I get the blurry effect until I let go". The answer is what
+    /// the decode scale (and so the cost) follows; the crop only trims pixels off the
+    /// far side of the graph.
     ///
     /// `allowStepUp` is false while a hand is on a control. Stepping DOWN mid-drag is a
     /// machine giving back what it cannot afford, and the hand feels it as the picture
@@ -327,7 +343,11 @@ public struct DraftLadder: Sendable, Equatable {
                                 renderedLongEdge: Int,
                                 requested: Int, allowStepUp: Bool = true) {
         guard ms.isFinite, ms > 0 else { return }
-        guard renderedLongEdge == longEdge(requested: requested) else { return }
+        let answer = longEdge(requested: requested)
+        // A delivered frame can round a pixel or two past the ask; a frame that was
+        // genuinely someone else's differs by a rung, not a pixel.
+        guard renderedLongEdge > 0,
+              renderedLongEdge <= answer + Swift.max(2, answer / 100) else { return }
         // With no separate render measurement the cost sample IS the render
         // measurement, which is what every caller meant before `costSample` existed.
         let render: Double = {
@@ -356,16 +376,22 @@ public struct DraftLadder: Sendable, Equatable {
             // lever has no authority over. So delivery heat has to REPEAT before it
             // counts: sustained, it is a real cost that fewer pixels can relieve; once,
             // it is a stall, and the answer to a stall is to find the stall.
+            // Below the ASK, not the delivered edge. The rung caps the ask and the
+            // decode scale follows the ask, so one rung below it is the guaranteed
+            // one-visible-step of relief. Stepping below the DELIVERED edge of a
+            // cropped photograph — half the ask on a half-frame crop — would leap
+            // several rungs from a single hot frame and hand back far more sharpness
+            // than the evidence asked for.
             if render > Self.stepDownOver {
                 deliveryHotStreak = 0
-                stepDown(below: renderedLongEdge)
+                stepDown(below: answer)
                 return
             }
             deliveryHotStreak += 1
             cheapStreak = 0
             guard deliveryHotStreak >= Self.stepDownRunOnDelivery else { return }
             deliveryHotStreak = 0
-            stepDown(below: renderedLongEdge)
+            stepDown(below: answer)
             return
         }
         deliveryHotStreak = 0
@@ -384,11 +410,14 @@ public struct DraftLadder: Sendable, Equatable {
         // between the budget and `stepDownOver` where the ladder holds still, which is
         // the right move when neither direction would help.
         //
-        // Anything short of that clears the streak, including a cheap frame rendered
-        // below the rung: it is not evidence FOR the rung, and letting it merely be
-        // neutral would let a run of tiny frames sit inside a streak that a hot one
-        // should have broken.
-        guard renderedLongEdge == Self.rungs[rung],
+        // Anything short of that clears the streak, including a cheap frame from an
+        // ask below the rung: it is not evidence FOR the rung, and letting it merely
+        // be neutral would let a run of tiny frames sit inside a streak that a hot one
+        // should have broken. The ANSWER is what has to sit at the rung — the rung was
+        // the binding cap on the ask, so the frame's cost is the rung's own cost on
+        // this photograph — because the delivered edge on a cropped photograph never
+        // equals any rung at all, and requiring it to made the climb unreachable there.
+        guard answer == Self.rungs[rung],
               Self.stepUpFits(renderMilliseconds: render, at: rung),
               ms < Self.budgetMilliseconds else {
             cheapStreak = 0
@@ -411,20 +440,22 @@ public struct DraftLadder: Sendable, Equatable {
         }
     }
 
-    /// Down to the first rung strictly CHEAPER THAN WHAT WAS JUST MEASURED, not merely
-    /// one index down.
+    /// Down to the first rung strictly CHEAPER THAN THE ASK THAT WAS JUST MEASURED,
+    /// not merely one index down.
     ///
-    /// The rung index and the size delivered are two different things whenever the
+    /// The rung index and the measured ask are two different things whenever the
     /// caller's request is the binding constraint, which at fit it always is: `longEdge`
     /// answers `min(rungs[rung], requested)`. A loupe asking for 1280 with the ladder at
     /// rung 0 renders 1280, and stepping 2048 → 1600 changes the answer to
     /// `min(1600, 1280)` — 1280 again. The frame that was too expensive would be
     /// rendered at exactly the same size it was too expensive at, for as many hot frames
-    /// as it takes to walk the index past the request. Naming the measured size instead
+    /// as it takes to walk the index past the request. Naming the measured ask instead
     /// makes one hot frame mean one visible step down, which is the "down fast" this
-    /// ladder promises.
-    private mutating func stepDown(below renderedLongEdge: Int) {
-        let target = Self.rungs.firstIndex { $0 < renderedLongEdge }
+    /// ladder promises — and it is the ASK rather than the delivered edge, because the
+    /// ask is the lever's own domain: on a cropped photograph the delivered edge sits
+    /// a crop fraction lower, and stepping below IT would leap several rungs at once.
+    private mutating func stepDown(below measuredAsk: Int) {
+        let target = Self.rungs.firstIndex { $0 < measuredAsk }
             ?? (Self.rungs.count - 1)
         rung = Swift.max(rung, target)
         cheapStreak = 0
@@ -462,13 +493,31 @@ public struct DraftLadder: Sendable, Equatable {
     /// there and the climb is entirely the cheap-frame streak's job. That is the correct
     /// answer rather than a gap — 2560 genuinely is not a draft size on that machine —
     /// but it does mean this is a fast path on strong machines, not a general one.
-    public mutating func recordSettle(milliseconds ms: Double, renderedLongEdge: Int) {
+    ///
+    /// THE CLAIM COVERS THE ASK, gated on the delivered evidence — both sizes, because
+    /// on a cropped photograph they are different numbers and using the delivered one
+    /// for the claim made this recovery a NO-OP there (docs/31 §23). The settle's cost
+    /// contains the whole pipeline at the ask's decode scale; the crop only trims the
+    /// delivered extent afterwards. So a cheap settle asked at 2560 that delivered
+    /// 1500 has measured exactly what a 2560 draft of this photograph costs — while
+    /// claiming only rungs down to 1500 left the ask capped below what was just
+    /// proven affordable, and on an aggressive crop claimed nothing above the rung the
+    /// ladder was already stuck on. The photographer saw that as sliders that stayed
+    /// blurry on cropped photographs after a single transient, on a machine whose own
+    /// settles were landing inside the drag budget.
+    public mutating func recordSettle(milliseconds ms: Double, renderedLongEdge: Int,
+                                      requestedLongEdge: Int) {
         guard ms.isFinite, ms > 0, ms < Self.budgetMilliseconds else { return }
-        guard renderedLongEdge > 0 else { return }
-        // The largest rung index whose size still covers what was measured. Naming the
-        // measured size rather than jumping to rung 0 keeps the claim exactly as big as
-        // the evidence: a cheap settle at 2560 says nothing about 4096.
-        let target = Self.rungs.lastIndex { $0 >= renderedLongEdge } ?? 0
+        // A frame larger than its own ask was not this request's answer — the same
+        // rounding slack as `record`'s guard, for the same reason.
+        guard renderedLongEdge > 0, requestedLongEdge > 0,
+              renderedLongEdge <= requestedLongEdge
+                + Swift.max(2, requestedLongEdge / 100) else { return }
+        // The largest rung index whose size still covers the ASK that was measured.
+        // Naming the measured ask rather than jumping to rung 0 keeps the claim
+        // exactly as big as the evidence: a cheap settle asked at 2560 says nothing
+        // about 4096.
+        let target = Self.rungs.lastIndex { $0 >= requestedLongEdge } ?? 0
         rung = Swift.min(rung, target)
         cheapStreak = 0
     }

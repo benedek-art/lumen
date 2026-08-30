@@ -49,6 +49,7 @@ final class SavedLookTests: XCTestCase {
                                  bHue: 7, bPurity: -2, tintHue: 120, tintPurity: 5),
             bw: BlackAndWhite(bands: [10, -20, 30, -40, 5, 15, -25, 35], enabled: false),
             vignette: -0.8,
+            vignetteFeather: 72,
             render: RenderParams(preset: "Punchy", contrast: 1.4, skew: -0.2,
                                  huePreservation: 65, blackTarget: 2.5, whiteTarget: 90),
             lut: LUTReference(ref: "blob:xxh64:9f2adc41", name: "Kodachrome 64",

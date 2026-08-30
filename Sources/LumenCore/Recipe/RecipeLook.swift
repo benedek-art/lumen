@@ -12,9 +12,22 @@ public struct Look: Codable, Equatable, Sendable {
     public var primaries: Primaries
     public var bw: BlackAndWhite?
     public var vignette: Double         // EV, −3.00…+1.00 (docs/06); 0 = off
+    /// Vignette feather, 0…100. How gradually the burn arrives: 0 is a tight ring at
+    /// the frame's outer quarter, 100 a falloff spanning the whole frame from the
+    /// centre. The DEFAULT is the geometry the engine always had — the docs/06 §12
+    /// disclosure default the renderers carried as a constant — so every recipe
+    /// written before the field existed renders byte-identically
+    /// (`DetailEngine.vignetteInnerRadius(feather:)` holds the mapping, and
+    /// `VignetteFeatherTests` pins the identity).
+    public var vignetteFeather: Double
     public var render: RenderParams
     /// A creative LUT. **Stored and never applied** — see `LUTReference`.
     public var lut: LUTReference?
+
+    /// The feather value that reproduces the fixed geometry recipes have always
+    /// rendered with. Named once, here, because the decoder, the panel's default, the
+    /// section's Reset and the engine's constant fallback all have to agree on it.
+    public static let vignetteFeatherDefault: Double = 50
 
     public init(wheels: GradingWheels = GradingWheels(),
                 printerLights: PrinterLights = PrinterLights(),
@@ -22,6 +35,7 @@ public struct Look: Codable, Equatable, Sendable {
                 primaries: Primaries = Primaries(),
                 bw: BlackAndWhite? = nil,
                 vignette: Double = 0,
+                vignetteFeather: Double = Look.vignetteFeatherDefault,
                 render: RenderParams = RenderParams(),
                 lut: LUTReference? = nil) {
         self.wheels = wheels
@@ -30,6 +44,7 @@ public struct Look: Codable, Equatable, Sendable {
         self.primaries = primaries
         self.bw = bw
         self.vignette = vignette
+        self.vignetteFeather = vignetteFeather
         self.render = render
         self.lut = lut
     }
@@ -43,11 +58,14 @@ public struct Look: Codable, Equatable, Sendable {
     public var blackAndWhiteIsOn: Bool { bw?.enabled == true }
 
     private enum CodingKeys: String, CodingKey {
-        case wheels, printerLights, filmLab, primaries, bw, vignette, render, lut
+        case wheels, printerLights, filmLab, primaries, bw, vignette, vignetteFeather,
+             render, lut
     }
 
     /// Tolerant of a recipe written before any of these keys existed: each falls
     /// back to the default in the memberwise initializer above. See RecipeDecoding.swift.
+    /// `vignetteFeather`'s default is NOT zero — it is the fixed geometry every older
+    /// sidecar was rendered with, so an absent key keeps yesterday's pixels.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.wheels = try c.decodeIfPresent(GradingWheels.self, forKey: .wheels)
@@ -59,6 +77,8 @@ public struct Look: Codable, Equatable, Sendable {
             ?? Primaries()
         self.bw = try c.decodeIfPresent(BlackAndWhite.self, forKey: .bw)
         self.vignette = try c.decodeIfPresent(Double.self, forKey: .vignette) ?? 0
+        self.vignetteFeather = try c.decodeIfPresent(Double.self, forKey: .vignetteFeather)
+            ?? Look.vignetteFeatherDefault
         self.render = try c.decodeIfPresent(RenderParams.self, forKey: .render)
             ?? RenderParams()
         self.lut = try c.decodeIfPresent(LUTReference.self, forKey: .lut)

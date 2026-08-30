@@ -480,6 +480,7 @@ final class RecipeCodecToleranceTests: XCTestCase {
                                  bHue: 5, bPurity: 6, tintHue: 7, tintPurity: 8),
             bw: BlackAndWhite(bands: [1, 2, 3, 4, 5, 6, 7, 8], enabled: false),
             vignette: -0.75,
+            vignetteFeather: 80,
             render: RenderParams(preset: "Punchy", contrast: 1.4, skew: 0.2,
                                  huePreservation: 60, blackTarget: 2, whiteTarget: 105),
             lut: LUTReference(ref: "blob:xxh64:000000000000000a", name: "Kodachrome",

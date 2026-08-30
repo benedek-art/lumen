@@ -120,7 +120,12 @@ extension WorkspaceSection {
             let stockDefault = FilmStock.named(film.stock)?.grainDefault ?? 0
             return film.grain != FilmGrain(size: 1.0, amount: stockDefault)
         }()
-        if look.vignette != 0 || develop.heal != Heal() || grainIsModified {
+        // Feather counts even while Amount is 0: it renders nothing then, but the
+        // recipe differs from its defaults, and a dot that ignored it would leave the
+        // section's Reset unoffered with a moved slider on screen — the sibling of the
+        // grain omission this clause was already convicted of.
+        if look.vignette != 0 || look.vignetteFeather != Look.vignetteFeatherDefault
+            || develop.heal != Heal() || grainIsModified {
             out.insert(.effects)
         }
 
@@ -239,6 +244,7 @@ extension WorkspaceSection {
 
         case .effects:
             recipe.look.vignette = 0
+            recipe.look.vignetteFeather = Look.vignetteFeatherDefault
             recipe.develop.heal = Heal()
             // Grain back to the stock's own, not to zero: this section's Reset means
             // "put back what I found", and what a photographer found after loading

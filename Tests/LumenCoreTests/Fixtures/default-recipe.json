@@ -274,6 +274,7 @@
    "preset": "Neutral"
   },
   "vignette": 0,
+  "vignetteFeather": 50,
   "wheels": {
    "balance": 0,
    "blending": 50,

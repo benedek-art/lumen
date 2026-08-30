@@ -96,8 +96,11 @@ public enum ReferenceRenderer {
 
         // S13 — vignette in scene-linear, then halation: the lens vignettes the light
         // before it strikes the film, and the film base reflects what arrives.
+        // Feather rides the plan with the EV (docs/32 Stream E item 4); at the
+        // default it reproduces the fixed geometry bit-for-bit.
         if plan.vignetteEV != 0 {
-            image = DetailEngine.vignette(image, ev: plan.vignetteEV)
+            image = DetailEngine.vignette(image, ev: plan.vignetteEV,
+                                          feather: plan.vignetteFeather)
         }
         // Halation was in the GPU graph and MISSING here, so the Halation slider did
         // nothing on the reference path — every headless render, every machine whose

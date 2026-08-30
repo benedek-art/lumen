@@ -98,9 +98,10 @@ struct EffectsPanel: View {
     // MARK: Vignette
 
     private var vignetteSection: some View {
-        DevelopSection("Vignette", isModified: recipe.look.vignette != 0,
+        DevelopSection("Vignette", isModified: isVignetteModified,
                        onReset: { binder.edit("look.vignette.reset") {
                            $0.look.vignette = 0
+                           $0.look.vignetteFeather = Look.vignetteFeatherDefault
                        } }) {
             VStack(alignment: .leading, spacing: 2) {
                 LumenSlider(title: "Amount",
@@ -112,8 +113,31 @@ struct EffectsPanel: View {
                                 + "scene-linear data before the display transform, "
                                 + "so a burn keeps its colour and bright speculars "
                                 + "punch through.")
+                // Reads the engine's own geometry (docs/32 Stream E item 4): the
+                // renderers derive the falloff's start from this via
+                // `DetailEngine.vignetteInnerRadius(feather:)`, and 50 is the fixed
+                // shape every recipe rendered with before the field existed.
+                LumenSlider(title: "Feather",
+                            value: binder.value(\.look.vignetteFeather,
+                                                "look.vignetteFeather"),
+                            range: 0...100, hardRange: nil,
+                            defaultValue: Look.vignetteFeatherDefault,
+                            step: 1, decimals: 0, bipolar: false,
+                            help: "How gradually the burn arrives — 0 keeps it a "
+                                + "tight ring near the corners, 100 lets it fall off "
+                                + "across the whole frame from the centre. It shapes "
+                                + "the Amount above, so it changes nothing at "
+                                + "Amount 0.")
             }
         }
+    }
+
+    /// Feather counts while Amount is 0 — it renders nothing then, but the recipe
+    /// differs from its defaults and the header's Reset has to offer itself. Same rule
+    /// as `WorkspaceSection.nonDefault`'s `.effects` clause, and the two must agree.
+    private var isVignetteModified: Bool {
+        recipe.look.vignette != 0
+            || recipe.look.vignetteFeather != Look.vignetteFeatherDefault
     }
 
     // MARK: Film grain

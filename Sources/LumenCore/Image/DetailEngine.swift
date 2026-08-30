@@ -613,39 +613,60 @@ public struct DetailEngine: Sendable {
     /// shoulder — LR's "Highlight Priority" behaviour emerging from pipeline position rather
     /// than from a mode dropdown.
     ///
-    /// The falloff is radial on the frame's own aspect (docs/06's Roundness 0), with the
-    /// Midpoint/Feather/Highlight-protection disclosures at their documented defaults of
-    /// 50/50/50 — the recipe stores only the amount, so those are constants here rather than
-    /// parameters. Highlight protection blends the multiply back toward identity above half
-    /// the default scene white (0.18 · 2^5 ÷ 2), which is what keeps a burn off a bright sky
-    /// while it still shapes the corners.
+    /// The falloff is radial on the frame's own aspect (docs/06's Roundness 0). The
+    /// Midpoint and Highlight-protection disclosures stay at their documented defaults
+    /// of 50/50 — constants here rather than parameters — while FEATHER is the one
+    /// knob the recipe now carries (`Look.vignetteFeather`, docs/32 Stream E item 4):
+    /// engine geometry was fixed for the vignette's whole life, and the owner asked
+    /// for the shape to be adjustable. Highlight protection blends the multiply back
+    /// toward identity above half the default scene white (0.18 · 2^5 ÷ 2), which is
+    /// what keeps a burn off a bright sky while it still shapes the corners.
     /// Disclosure defaults, named so the GPU stand-in can use the same numbers. It did
     /// not: the kernel was handed `feather = 0.7`, giving an inner radius of 0.3
     /// against this path's 0.375.
     public static let vignetteMidpoint: Double = 0.5
-    public static let vignetteFeather: Double = 0.5
-    /// Highlights disclosure default (docs/06 §12), named for the same reason the two
-    /// above are: the GPU kernel has to use the same number. It did not use one at all
+    /// Highlights disclosure default (docs/06 §12), named for the same reason the one
+    /// above is: the GPU kernel has to use the same number. It did not use one at all
     /// — bright corners took the full burn there and half of it here.
     public static let vignetteHighlightProtection: Double = 0.5
-    /// Where the falloff starts, on the normalized radius whose 1 is the frame corner.
-    public static var vignetteInnerRadius: Double {
-        Num.clamp(vignetteMidpoint * (1 - 0.5 * vignetteFeather), 0, 0.98)
+
+    /// Where the falloff starts, on the normalized radius whose 1 is the frame corner,
+    /// for a recipe feather in 0…100.
+    ///
+    /// The mapping: `inner = clamp(3 · midpoint · (1 − feather/100) / 2, 0, 0.98)`.
+    /// At the default feather of 50 this is `0.75 · 0.5 = 0.375` — EXACTLY the number
+    /// both renderers used while the geometry was fixed (then spelt
+    /// `midpoint · (1 − 0.5 · featherConstant)` with the constant at 0.5), so every
+    /// recipe without the field renders byte-identically. Feather 0 starts the burn at
+    /// r = 0.75 — a tight ring against the corner — and feather 100 at the centre, a
+    /// falloff spanning the whole frame. The outer edge stays pinned at the corner
+    /// (r = 1) at every feather, which is what lets the GPU kernel keep its single
+    /// `feather = 1 − inner` scalar unchanged.
+    public static func vignetteInnerRadius(feather: Double) -> Double {
+        let f = Num.clamp(feather, 0, 100) / 100
+        return Num.clamp(1.5 * vignetteMidpoint * (1 - f), 0, 0.98)
     }
 
-    public static func vignette(_ image: ImageBuffer, ev: Double) -> ImageBuffer {
+    /// The fixed geometry, for readers that carry no recipe feather — the GPU graph
+    /// reads this until its half of docs/32 Stream E item 4 lands, and it is the
+    /// default-feather answer by construction.
+    public static var vignetteInnerRadius: Double {
+        vignetteInnerRadius(feather: Look.vignetteFeatherDefault)
+    }
+
+    public static func vignette(_ image: ImageBuffer, ev: Double,
+                                feather: Double = Look.vignetteFeatherDefault)
+        -> ImageBuffer {
         let amount = Num.clamp(ev, -3.0, 1.0)
         guard amount != 0 else { return image }
         let w = image.width
         let h = image.height
         let space = RGBColorSpace.rec2020
 
-        // Disclosure defaults (docs/06 §12): Midpoint 50, Feather 50, Highlight 50.
-        // Midpoint and Feather now live on the type as named constants, because the
-        // GPU stand-in has to start its falloff in the same place; `vignetteInnerRadius`
-        // is what they combine to.
+        // Midpoint and Highlight protection at the docs/06 §12 disclosure defaults;
+        // Feather from the recipe, defaulted to the geometry the engine always had.
         let protection = DetailEngine.vignetteHighlightProtection
-        let inner = DetailEngine.vignetteInnerRadius
+        let inner = DetailEngine.vignetteInnerRadius(feather: feather)
         let outer = 1.0
         // Default scene white is mid-grey + 5 stops (ToneEngine.defaultWhiteAnchorEV).
         let highlightThreshold = 0.18 * pow(2.0, 5.0) / 2.0

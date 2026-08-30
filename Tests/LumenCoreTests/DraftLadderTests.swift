@@ -352,7 +352,8 @@ final class DraftLadderTests: XCTestCase {
 
         // The fix lands. The very next gesture ends with a settle at the full size,
         // comfortably inside the budget.
-        ladder.recordSettle(milliseconds: 14.5, renderedLongEdge: requested)
+        ladder.recordSettle(milliseconds: 14.5, renderedLongEdge: requested,
+                            requestedLongEdge: requested)
         XCTAssertEqual(ladder.longEdge(requested: requested), requested,
                        "a settle at \(requested) px inside the budget proves a draft at "
                            + "that size is affordable — a settle pays exact table bakes "
@@ -360,16 +361,19 @@ final class DraftLadderTests: XCTestCase {
                            + "runs one way and it runs in this direction")
     }
 
-    /// The claim may never be larger than the evidence.
+    /// The claim may never be larger than the evidence — and the evidence is the ASK
+    /// the settle was rendered from, not the request some other surface might make.
+    /// A fit-view settle asked at 1280 says nothing whatever about a 4096 zoom.
     func testASettleNeverClaimsASizeItDidNotMeasure() {
         var ladder = DraftLadder()
         for _ in 0..<40 {
             let size = ladder.longEdge(requested: 4096)
             ladder.record(draftMilliseconds: 457, renderedLongEdge: size, requested: 4096)
         }
-        ladder.recordSettle(milliseconds: 10, renderedLongEdge: 1280)
+        ladder.recordSettle(milliseconds: 10, renderedLongEdge: 1280,
+                            requestedLongEdge: 1280)
         XCTAssertEqual(ladder.longEdge(requested: 4096), 1280,
-                       "a cheap settle at 1280 says nothing whatever about 4096")
+                       "a cheap settle asked at 1280 says nothing whatever about 4096")
     }
 
     /// A settle that blew the budget is not evidence of headroom, and must not climb.
@@ -381,7 +385,7 @@ final class DraftLadderTests: XCTestCase {
         }
         let floor = ladder.rung
         ladder.recordSettle(milliseconds: DraftLadder.budgetMilliseconds + 1,
-                            renderedLongEdge: 2560)
+                            renderedLongEdge: 2560, requestedLongEdge: 2560)
         XCTAssertEqual(ladder.rung, floor,
                        "the settle did not fit the budget, so it proves nothing")
     }
@@ -391,9 +395,122 @@ final class DraftLadderTests: XCTestCase {
     func testASettleNeverStepsTheLadderDown() {
         var ladder = DraftLadder()
         XCTAssertEqual(ladder.rung, 0)
-        ladder.recordSettle(milliseconds: 1, renderedLongEdge: 576)
+        ladder.recordSettle(milliseconds: 1, renderedLongEdge: 576,
+                            requestedLongEdge: 576)
         XCTAssertEqual(ladder.rung, 0,
                        "a cheap settle at a small size is not a reason to get worse")
+    }
+
+    // MARK: - The size the renderer DELIVERED, on a cropped photograph
+
+    /// THE FEED FIX, docs/31 §23: the ladder is taught the size it GOT. On a cropped
+    /// photograph `applyGeometry` never upscales, so the delivered long edge is the
+    /// ask times the crop fraction — a number that equals no rung and never equals the
+    /// ask. The old feed passed the ASK, which made the own-answer guard a tautology;
+    /// passing the delivered edge against the OLD guard (`==` the ladder's answer)
+    /// would instead reject every frame of every cropped photograph, deafening the
+    /// ladder exactly where the owner reported the blur. So: heat from a short-fall
+    /// frame must be HEARD.
+    ///
+    /// Fails on the pre-fix ladder: the equality guard rejects the 640 px frame and
+    /// the rung never moves.
+    func testACroppedPhotographsHotFramesAreHeard() {
+        var ladder = DraftLadder()
+        // Fit view asks 1280; the crop delivers half of it.
+        ladder.record(draftMilliseconds: 200, renderedLongEdge: 640, requested: 1280)
+        XCTAssertGreaterThan(ladder.rung, 0,
+                             "a 200 ms frame is a dropped frame whatever the crop "
+                                 + "trimmed off its edges; the ladder must hear it")
+        // One visible step in the ASK's own domain — not a leap below the delivered
+        // edge, which would give back four rungs for one frame.
+        XCTAssertEqual(ladder.longEdge(requested: 1280), 1024,
+                       "the step is one rung below the measured ASK — the lever's "
+                           + "domain — not below the crop-shrunk delivered edge")
+    }
+
+    /// And the climb: cheap frames whose ASK sits at the rung earn the streak even
+    /// though the delivered edge — the crop's — equals no rung. Requiring the
+    /// delivered edge to equal the rung is what made the streak unearnable on cropped
+    /// photographs, which the owner felt as sliders that stayed blurry until release.
+    ///
+    /// Fails on the pre-fix ladder both ways: fed the ask it never rejects a foreign
+    /// frame, fed the delivered edge it never banks a streak.
+    func testACroppedPhotographsCheapFramesEarnTheClimb() {
+        var ladder = DraftLadder()
+        let requested = 4096
+        // Off the top, so there is a rung to climb back to.
+        ladder.record(draftMilliseconds: 200,
+                      renderedLongEdge: ladder.longEdge(requested: requested),
+                      requested: requested, allowStepUp: false)
+        let afterHeat = ladder.rung
+        XCTAssertGreaterThan(afterHeat, 0)
+
+        // A comfortable drag on a 60% crop: every delivered edge is 0.6 × the ask.
+        for _ in 0..<DraftLadder.stepUpAfter {
+            let ask = ladder.longEdge(requested: requested)
+            ladder.record(draftMilliseconds: 1, renderMilliseconds: 1,
+                          renderedLongEdge: Int(Double(ask) * 0.6),
+                          requested: requested, allowStepUp: false)
+        }
+        ladder.gestureEnded()
+        XCTAssertLessThan(ladder.rung, afterHeat,
+                          "twelve comfortable frames at the rung's own ask are the "
+                              + "streak, whatever the crop delivered")
+    }
+
+    /// The guard the tautology replaced, now real: a frame LARGER than the ladder's
+    /// answer was provably not its answer, and teaches nothing.
+    func testAFrameLargerThanTheAnswerIsNotHeard() {
+        var ladder = DraftLadder()
+        ladder.record(draftMilliseconds: 500, renderedLongEdge: 4096, requested: 1280)
+        XCTAssertEqual(ladder.rung, 0,
+                       "a 4096 px frame against a 1280 px answer is some other "
+                           + "surface's render; its heat is not this ladder's evidence")
+    }
+
+    /// SETTLE RECOVERY ON A CROPPED PHOTOGRAPH — the half of docs/31 §23 the owner
+    /// felt most. The settle's cost contains the whole graph at the ASK's decode
+    /// scale; the crop only trims the delivered extent. Claiming rungs from the
+    /// delivered edge left the recovery capped a crop fraction below the ask — and on
+    /// an aggressive crop it claimed nothing at all, a no-op with the ladder at its
+    /// floor.
+    ///
+    /// Fails with the pre-fix claim (delivered-edge target): the ladder recovers only
+    /// to 576 for the 640 px delivered settle and the next ask stays at the floor.
+    func testACheapSettleOnACroppedPhotographRestoresTheFullAsk() {
+        var ladder = DraftLadder()
+        let requested = 2560
+        // A transient walks it to the floor.
+        for _ in 0..<40 {
+            let size = ladder.longEdge(requested: requested)
+            ladder.record(draftMilliseconds: 457, renderedLongEdge: size,
+                          requested: requested)
+        }
+        XCTAssertEqual(ladder.longEdge(requested: requested), DraftLadder.rungs.last)
+
+        // The fix lands; the next settle asks 2560 and the 25% crop delivers 640 —
+        // comfortably inside the budget, having paid the 2560-scale decode.
+        ladder.recordSettle(milliseconds: 14.5, renderedLongEdge: 640,
+                            requestedLongEdge: requested)
+        XCTAssertEqual(ladder.longEdge(requested: requested), requested,
+                       "the settle measured the full ask on this photograph; the "
+                           + "recovery must hand the whole ask back, not the crop "
+                           + "fraction of it")
+    }
+
+    /// A settle whose delivered frame is LARGER than its own ask is not that ask's
+    /// evidence — the same rounding-slack inequality as `record`'s guard.
+    func testASettleLargerThanItsOwnAskClaimsNothing() {
+        var ladder = DraftLadder()
+        for _ in 0..<40 {
+            let size = ladder.longEdge(requested: 4096)
+            ladder.record(draftMilliseconds: 457, renderedLongEdge: size, requested: 4096)
+        }
+        let floor = ladder.rung
+        ladder.recordSettle(milliseconds: 5, renderedLongEdge: 2560,
+                            requestedLongEdge: 1280)
+        XCTAssertEqual(ladder.rung, floor,
+                       "a 2560 px frame did not come from a 1280 px ask")
     }
 
     /// The rule's own edges, stated separately from the scenario above.

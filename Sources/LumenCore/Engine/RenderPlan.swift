@@ -87,6 +87,10 @@ public struct RenderPlan: Sendable {
     public let detail: Detail
     public let denoise: Denoise
     public let vignetteEV: Double
+    /// `Look.vignetteFeather`, 0…100 — how gradually the burn arrives. Carried beside
+    /// the EV so both renderers read one resolved pair;
+    /// `DetailEngine.vignetteInnerRadius(feather:)` turns it into geometry.
+    public let vignetteFeather: Double
     public let masks: [Mask]
 
     // MARK: Stage S3 — profiled classical noise reduction
@@ -209,8 +213,17 @@ public struct RenderPlan: Sendable {
             // zero on every render in the app: the engine honours the value, clamps it
             // to −2…+3 and threads it through the whole chain, and nothing outside a
             // test ever passed one.
+            //
+            // `base: transform` is docs/31 round two §2. Without it the chain rebuilt
+            // a Neutral transform, copied only `whiteTarget`, and blended the film
+            // against THAT — so with the gate above being `amount > 0`, Strength 0
+            // rendered through the user's transform and Strength 1 rendered 99%
+            // Neutral: a 51-code discontinuity on the "Linear" preset, and Black
+            // target dropped outright. The blend base is the recipe's solved
+            // transform, the same object the `else` branch of `display` below applies,
+            // so Strength walks between the two renderings with no jump at either end.
             chain = FilmChain(film, filmExposure: film.exposure,
-                              displayWhite: transform.white)
+                              displayWhite: transform.white, base: transform)
         } else {
             chain = nil
         }
@@ -379,6 +392,7 @@ public struct RenderPlan: Sendable {
         self.detail = develop.detail
         self.denoise = develop.denoise
         self.vignetteEV = look.vignette
+        self.vignetteFeather = look.vignetteFeather
         self.masks = recipe.masks.filter { $0.enabled }
 
         // Baked once, here, and only when the tone stage will actually read it. At

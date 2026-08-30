@@ -963,7 +963,19 @@ public struct FilmChain: Sendable {
     public let pushPull: Double
     /// Strength, normalized to 0…1 (`FilmLab.amount`).
     public let strength: Double
-    /// The rendering the chain blends against.
+    /// The rendering the chain blends against: the recipe's own SOLVED display
+    /// transform when the caller provides one, and the Neutral fallback otherwise.
+    ///
+    /// This used to be BUILT here, always, as `DisplayTransformParams.neutral` with
+    /// only `whiteTarget` copied across — which discarded the user's transform whole:
+    /// preset, contrast, skew, hue preservation, Black target, and the scene anchors
+    /// Whites and Blacks had moved (docs/31 round two §2). Because `RenderPlan`'s gate
+    /// is `amount > 0`, that was a discontinuity, not a blend: Strength 0 rendered
+    /// through your transform and Strength 1 rendered 99% Neutral. On the "Linear"
+    /// preset — the show-me-the-data control — one point of Strength moved the picture
+    /// 51 code values, and Black target was dropped outright. The base is now the
+    /// recipe's solved transform, so Strength walks from YOUR rendering to the film's
+    /// with no jump at either end.
     public let neutral: DisplayTransform
     /// Grain parameters for this recipe; the plate sampling belongs to the image module.
     public let grain: FilmGrainProfile
@@ -980,7 +992,12 @@ public struct FilmChain: Sendable {
         self.init(recipe, filmExposure: 0, displayWhite: displayWhite)
     }
 
-    public init(_ recipe: FilmLab, filmExposure: Double, displayWhite: Double = 1.0) {
+    /// `base` is the display transform the chain blends against — pass the recipe's
+    /// SOLVED transform (`RenderPlan` does; see `neutral`). nil keeps the historical
+    /// Neutral-at-this-white fallback for callers that have no recipe transform in
+    /// hand, which is also what every pre-fix test was written against.
+    public init(_ recipe: FilmLab, filmExposure: Double, displayWhite: Double = 1.0,
+                base: DisplayTransform? = nil) {
         let white: Double = Swift.max(displayWhite, 0.01)
         let push: Double = Num.clamp(recipe.pushPull, -1, 2)
         let blend: Double = Num.clamp(recipe.amount / 100.0, 0, 1)
@@ -993,9 +1010,13 @@ public struct FilmChain: Sendable {
         self.pushPull = push
         self.strength = blend
 
-        var np: DisplayTransformParams = DisplayTransformParams.neutral
-        np.whiteTarget = white * 100.0
-        self.neutral = DisplayTransform(np, space: .rec2020)
+        if let base {
+            self.neutral = base
+        } else {
+            var np: DisplayTransformParams = DisplayTransformParams.neutral
+            np.whiteTarget = white * 100.0
+            self.neutral = DisplayTransform(np, space: .rec2020)
+        }
 
         let grainStock: FilmStock = found ?? FilmStock.portra400
         let profile: FilmGrainProfile = FilmGrainProfile(stock: grainStock,

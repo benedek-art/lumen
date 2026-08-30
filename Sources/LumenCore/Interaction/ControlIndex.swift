@@ -158,7 +158,7 @@ public struct ControlIndex: Sendable {
 
         // Grade — Effects
         Control(id: "look.vignette", title: "Vignette", section: .effects,
-                aliases: ["vignetting", "corners", "edge darkening"]),
+                aliases: ["vignetting", "corners", "edge darkening", "feather"]),
         Control(id: "look.filmLab.grain", title: "Grain", section: .effects,
                 aliases: ["noise", "film grain"]),
         // Retouch is deliberately absent. Its section was deleted with the rest of

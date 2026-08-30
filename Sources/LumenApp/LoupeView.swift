@@ -617,7 +617,19 @@ final class PhotoRenderModel: ObservableObject {
                 // blurrier the longer it is held. `DraftLadder.isRepresentative` holds
                 // the rule and the argument; `DraftLadderTests` shows the cascade it
                 // prevents, eight rungs of it.
-                let renderedLongEdge = Swift.max(draftTarget, 64)
+                //
+                // THE SIZE DELIVERED, not the size asked for — the same correction the
+                // HUD line below already carried, now applied where it is load-bearing
+                // (docs/31 §23). This used to pass `draftTarget`, the ask, so the
+                // ladder's own-answer guard compared the ask with itself — a check that
+                // could never fire — and every sample was filed under a size the
+                // picture did not have. On a cropped photograph the delivered edge is
+                // the crop's, and feeding the ask instead is what made the ladder's
+                // climb and the settle recovery misfire exactly there: the owner's
+                // "I get the blurry effect until I let go", on the photographs he had
+                // cropped.
+                let renderedLongEdge =
+                    Swift.max(Swift.max(draft.image.width, draft.image.height), 64)
                 if DraftLadder.isRepresentative(
                     renderedLongEdge: renderedLongEdge,
                     previousRenderedLongEdge: lastDraftLongEdge) {
@@ -729,9 +741,16 @@ final class PhotoRenderModel: ObservableObject {
                 // ladder climbed one rung per gesture and stayed at its floor for eight
                 // drags after any transient, which is what the owner saw as "all of the
                 // sliders are still extremely blurry" once the decode was fixed.
+                //
+                // BOTH sizes: the delivered edge gates the sample, the ASK carries the
+                // claim. On a cropped photograph the delivered edge is a crop fraction
+                // below the ask, and claiming only up to it made this recovery a no-op
+                // there (docs/31 §23) — the settle's cost already contains the whole
+                // graph at the ask's decode scale, so the ask is what it proved.
                 draftLadder.recordSettle(milliseconds: settleMs,
                                          renderedLongEdge: Swift.max(
-                                             result.image.width, result.image.height))
+                                             result.image.width, result.image.height),
+                                         requestedLongEdge: Swift.max(fullLongEdge, 64))
                 // THE SIZE DELIVERED, not the size asked for — the same correction
                 // the draft line already carries, and for the reason its own comment
                 // gives: "printing only the request is how a blurry picture reported

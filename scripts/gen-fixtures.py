@@ -369,6 +369,10 @@ DEFAULT_RECIPE = {
         "primaries": {"rHue": 0, "rPurity": 0, "gHue": 0, "gPurity": 0,
                       "bHue": 0, "bPurity": 0, "tintHue": 0, "tintPurity": 0},
         "vignette": 0,
+        # 50 is the fixed geometry the engine always had (docs/32 Stream E item 4):
+        # the default is NOT zero, so an absent key keeps yesterday's pixels. Mirrors
+        # Look.vignetteFeatherDefault.
+        "vignetteFeather": 50,
         "render": {"preset": "Neutral"},
     },
     "masks": [],
@@ -3118,6 +3122,11 @@ def gen_colour_stage_checks():
 # ---------------------------------------------------------------------------
 
 LUM_RANGE_STOPS = 0.5
+# Stops of scene luminance realised per stop of requested perceptual brightness.
+# The wheels' Luminance scales UCS brightness J; J tracks OKLab L, and L is the cube
+# root of linear luminance, so the realised tone response is `1 + 3·scale·slope` —
+# GradeEngine.realisedStopsPerJStop, mirrored (docs/31 round two §1).
+REALISED_STOPS_PER_J_STOP = 3.0
 NOMINAL_HALF_WIDTH_EV = 1.5
 MINIMUM_HALF_WIDTH_EV = 0.05
 BLENDING_KNEE = 0.8
@@ -3176,7 +3185,11 @@ def solve_lum_scale(windows, shadows, mid, high):
     x = 0.0
     while x < 1:
         a = min(x + step, 1.0)
-        slope = (stops(a) - stops(x)) / ((a - x) * span)
+        # REALISED, not requested: the J-stops the wheels ask for come out of the
+        # picture three times over (L cubes back to light), so the monotonicity bound
+        # applies to three times the measured slope.
+        slope = ((stops(a) - stops(x)) / ((a - x) * span)
+                 * REALISED_STOPS_PER_J_STOP)
         if slope < 0:
             scale = min(scale, max((1 - margin) / -slope, 0.0))
         x = a
@@ -3234,10 +3247,16 @@ def gen_grade_checks():
           f"the hard-crossover case did not need scaling ({unscaled:.3f}) — "
           "the test no longer covers what it was written for")
 
-    # With the scale applied, the composed response is monotone at every setting.
+    # With the scale applied, the REALISED response is monotone at every setting. The
+    # response the photograph shows is `t + 3·(zone stops)·scale` — the wheels' stops
+    # are gains on UCS brightness J and L cubes back to light — and checking the
+    # requested stops instead is exactly the blind spot that let 345 of 810 sampled
+    # combinations invert behind a green check (docs/31 round two §1). Midtones against
+    # Highlights is in the set because it is the audit's own reproduction.
     for blending in (0.0, 10.0, 50.0, 100.0):
         for sh_lum, mid_lum, hi_lum in ((1.0, 0.0, -1.0), (-1.0, 0.0, 1.0),
-                                        (1.0, -1.0, 1.0), (0.6, 0.0, -0.6)):
+                                        (1.0, -1.0, 1.0), (0.6, 0.0, -0.6),
+                                        (0.0, 1.0, -1.0)):
             w = ZoneWindows(blending=blending)
             sh, md, hi = (LUM_RANGE_STOPS * sh_lum, LUM_RANGE_STOPS * mid_lum,
                           LUM_RANGE_STOPS * hi_lum)
@@ -3246,21 +3265,28 @@ def gen_grade_checks():
             while x <= 1.0:
                 t = -9.0 + x * w.span_ev
                 s_w, m_w, h_w = w.weights(x)
-                out = t + (s_w * sh + m_w * md + h_w * hi) * scale
+                out = t + REALISED_STOPS_PER_J_STOP * (
+                    s_w * sh + m_w * md + h_w * hi) * scale
                 check(out >= prev - 1e-9,
                       f"grade inverted at x={x:.3f} (blend {blending}, "
                       f"wheels {sh_lum}/{mid_lum}/{hi_lum}, scale {scale:.3f})")
                 prev = out
                 x += 0.002
 
-    # And the default settings must not be scaled at all, or the fix has quietly
-    # weakened the control everywhere instead of only where it had to.
+    # And the default settings keep effectively all of their strength, or the fix has
+    # quietly weakened the control everywhere instead of only where it had to. Not
+    # `> 0.999` any more: under the realised (3×) slope a FULL-deflection wheel at the
+    # default Blending genuinely sits just past the knee — the eased limit takes about
+    # a quarter of one percent, which no display can show — while gentle settings stay
+    # exactly at 1.
     default = ZoneWindows()
     for sh_lum, hi_lum in ((0.5, -0.5), (1.0, 0.0), (0.0, -1.0)):
         scale = solve_lum_scale(default, LUM_RANGE_STOPS * sh_lum, 0.0,
                                 LUM_RANGE_STOPS * hi_lum)
-        check(scale > 0.999,
+        check(scale > 0.99,
               f"default blending scaled wheels {sh_lum}/{hi_lum} to {scale:.3f}")
+    check(solve_lum_scale(default, LUM_RANGE_STOPS * 0.3, 0.0, 0.0) == 1.0,
+          "a gentle lone wheel at default blending must be exactly unlimited")
 
     # --- the Luminance ring must keep doing more, at every Blending ----------
     #
@@ -3269,6 +3295,11 @@ def gen_grade_checks():
     # +-0.50 and +-1.00 all produced 0.060681385, equal to 1e-12. Eighty percent
     # of the control, dead. The check above tests `scale > 0.999` at DEFAULT
     # blending only — the one setting where nothing was wrong.
+    # The tolerance is 1e-12, down from 1e-9: under the realised (3×) slope the
+    # blending-0 cap sits three times lower, so a full-deflection ring runs ~48× past
+    # it and the knee's power tail gains ~1e-9 per step out there — still strictly
+    # increasing, exactly representable in a double, and all the geometry can afford
+    # when the whole crossfade is a tenth of a stop wide.
     for blending in (0.0, 5.0, 10.0, 20.0, 50.0, 100.0):
         w = ZoneWindows(blending=blending)
         previous = None
@@ -3278,7 +3309,7 @@ def gen_grade_checks():
                                     -LUM_RANGE_STOPS * lum)
             applied = LUM_RANGE_STOPS * lum * scale
             if previous is not None:
-                check(applied > previous + 1e-9,
+                check(applied > previous + 1e-12,
                       f"the Luminance ring at {lum:.3f} (blending {blending}) applied "
                       f"{applied:.9f}, no more than {previous:.9f} at "
                       f"{(step_index - 1) / 40:.3f} — the control is dead here")

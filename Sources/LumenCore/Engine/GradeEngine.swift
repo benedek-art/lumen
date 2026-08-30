@@ -230,8 +230,22 @@ public struct GradeEngine: Sendable {
     /// 0.15 is roughly the chroma of a saturated surface colour — a full-deflection
     /// wheel is a strong grade, not a broken image.
     public static let maxABOffset: Double = 0.15
-    /// ±1 on a wheel's Luminance = ±this many stops of perceptual lightness.
+    /// ±1 on a wheel's Luminance = ±this many stops of PERCEPTUAL BRIGHTNESS — the
+    /// H-K brightness J that `LumenUCS.scaleBrightness` scales — NOT stops of light.
+    ///
+    /// The distinction is load-bearing (docs/31 round two §1). J tracks OKLab L, and on
+    /// the neutral axis L is the CUBE ROOT of linear luminance, so a gain of `2^stops`
+    /// on J realises `2^(3·stops)` on the light: a full wheel is ±1.5 stops of
+    /// luminance. The realised tone response is therefore `1 + 3·scale·slope`, and
+    /// `solveLumScale` solves against that 3× slope — solving against the requested
+    /// stops alone made the limiter 2.85× too permissive, and Midtones +1 against
+    /// Highlights −1 folded the curve while it reported nothing to limit.
     public static let lumRangeStops: Double = 0.5
+    /// Stops of scene luminance realised per stop of requested perceptual brightness —
+    /// the exponent between J and light on the neutral axis. One name, read by the
+    /// wheels' solve and the Colour Balance grid's, so the two limiters cannot disagree
+    /// about what a stop is.
+    public static let realisedStopsPerJStop: Double = 3.0
     /// One printer-light point = one twelfth-stop, exactly. No hidden negative gamma:
     /// 12 points is 2.0×, bit-comparably (docs/05 §D16).
     public static let pointsPerStop: Double = 12
@@ -312,6 +326,15 @@ public struct GradeEngine: Sendable {
     /// pass over the axis gives the largest safe multiplier in closed form. Blending 0
     /// keeps meaning "as hard a crossover as the tone response allows" rather than
     /// "hard enough to fold".
+    ///
+    /// SOLVED AGAINST THE REALISED SLOPE, `3·slope`, not the requested one — see
+    /// `lumRangeStops`. The stops here are gains on UCS brightness J, J tracks OKLab
+    /// L, and L cubes back to light, so the tone response the photograph shows is
+    /// `1 + 3·scale·slope`. This solve measured `1 + scale·slope` for the wheels'
+    /// whole life — 2.85× too permissive — and 345 of 810 sampled wheel combinations
+    /// inverted behind its "nothing to limit" (docs/31 round two §1; measured here:
+    /// Midtones +1 / Highlights −1 handed back 0.63 EV — about 27 sRGB code values —
+    /// across 1.7 stops of midtone).
     static func solveLumScale(windows: ZoneWindows, shadows: Double, mid: Double,
                               high: Double) -> Double {
         guard shadows != 0 || mid != 0 || high != 0 else { return 1 }
@@ -337,7 +360,11 @@ public struct GradeEngine: Sendable {
                 return w.shadows * shadows + w.mid * mid + w.high * high
             }
             // Per EV: the axis is normalized, so one unit of x is `span` stops.
+            // REALISED, not requested: the J-stops the wheels ask for come out of the
+            // picture three times over (L³ — see `lumRangeStops`), so the slope the
+            // monotonicity bound applies to is three times this measurement.
             let slope = (stops(a) - stops(x)) / ((a - x) * span)
+                * GradeEngine.realisedStopsPerJStop
             if slope < 0 {
                 scale = Swift.min(scale, Swift.max((1 - margin) / -slope, 0))
             }
@@ -655,12 +682,17 @@ public struct ColorBalanceGrid: Sendable {
     public let context: OKLabTransform.Context
 
 
+    /// See `solveBrillianceScale`.
+    public let brillianceScale: Double
+
     public init(params: ColorBalanceParams = ColorBalanceParams(),
                 windows: ZoneWindows = ZoneWindows(),
                 context: OKLabTransform.Context = OKLabTransform.working) {
         self.params = params
         self.windows = windows
         self.context = context
+        self.brillianceScale = ColorBalanceGrid.solveBrillianceScale(
+            axis: params.brilliance, windows: windows)
     }
 
     /// True when every control in the disclosure is at rest.
@@ -674,15 +706,105 @@ public struct ColorBalanceGrid: Sendable {
                + 0.0872 * HelmholtzKohlrausch.kBr)
     }
 
-    /// Per-zone gain: `1 + (global + Σ w_z · v_z)/100`, floored at 0 so −100 lands on a
-    /// true neutral and cannot go through it into negative chroma.
+    /// Per-zone gain: `1 + (global + zoneScale · Σ w_z · v_z)/100`, floored at 0 so
+    /// −100 lands on a true neutral and cannot go through it into negative chroma.
+    ///
+    /// `zoneScale` is the Brilliance monotonicity limit — 1 for every other axis, and
+    /// applied to the ZONE components only: global rides on top of the partition and
+    /// contributes no slope, exactly as the Global wheel sits outside `lumScale`.
     private static func gain(_ axis: ColorBalanceAxis,
-                             _ w: (shadows: Double, mid: Double, high: Double)) -> Double {
-        let sum: Double = Num.clamp(axis.global, -100, 100)
-            + w.shadows * Num.clamp(axis.shadows, -100, 100)
+                             _ w: (shadows: Double, mid: Double, high: Double),
+                             zoneScale: Double = 1) -> Double {
+        let zoned: Double = w.shadows * Num.clamp(axis.shadows, -100, 100)
             + w.mid * Num.clamp(axis.mid, -100, 100)
             + w.high * Num.clamp(axis.high, -100, 100)
+        let sum: Double = Num.clamp(axis.global, -100, 100) + zoneScale * zoned
         return Swift.max(0, 1 + sum / 100)
+    }
+
+    /// What Brilliance's ZONE components are multiplied by so the grid cannot invert
+    /// the tone response — the grid's own copy of `GradeEngine.solveLumScale`'s rule,
+    /// which the wheels have had since the Blending-0 fold and this disclosure never
+    /// did (docs/31 round two §1: "`ColorBalanceGrid` has no limiter at all").
+    ///
+    /// Brilliance scales the H-K brightness `B`, and B — like the wheels' J — cubes
+    /// back to light, so the realised tone response of a per-zone gain `G(x)` is
+    /// `1 + 3·d(log2 G)/dEV`. Unlike the wheels' the response is not linear in the
+    /// scale (`G` sits inside the log), so the largest safe multiplier is found by
+    /// bisection over the same sampled axis instead of in closed form: ~40 samples at
+    /// the default Blending, once per engine build, never per pixel.
+    ///
+    /// Measured before the limiter existed, at the shipped defaults: Brilliance
+    /// Highlights −100 walks its gain to zero across the crossfade — 87 sRGB code
+    /// values of reversal over 2.6 EV — and Midtones +100 / Highlights −100 reverses
+    /// by 227 code values. Chroma and Saturation are untouched: both hold perceived
+    /// brightness by construction, so neither can fold the curve.
+    ///
+    /// Same knee as the wheels': the cap is eased onto, not clipped at, so the axis
+    /// keeps doing more over its whole travel; below the knee ordinary settings (the
+    /// panel's documented ±20 working range included) are exactly unlimited.
+    static func solveBrillianceScale(axis: ColorBalanceAxis,
+                                     windows: ZoneWindows) -> Double {
+        guard axis.shadows != 0 || axis.mid != 0 || axis.high != 0 else { return 1 }
+        let span: Double = windows.spanEV
+        let global: Double = Num.clamp(axis.global, -100, 100) / 100
+        // Step from the narrowest feature, for `solveLumScale`'s reason: a fixed step
+        // walks straight over a hard crossfade and reports a slope far gentler than
+        // the real peak.
+        let narrowest: Double = Swift.min(windows.shadowHalfWidth,
+                                          windows.highlightHalfWidth)
+        let step: Double = Num.clamp(narrowest / 8, 1e-4, 0.01)
+        // The zone-weighted term, sampled once; the bisection re-reads the samples.
+        var zoned: [Double] = []
+        var x: Double = 0
+        while x < 1 {
+            let w = windows.weights(atNormalized: x)
+            zoned.append((w.shadows * Num.clamp(axis.shadows, -100, 100)
+                + w.mid * Num.clamp(axis.mid, -100, 100)
+                + w.high * Num.clamp(axis.high, -100, 100)) / 100)
+            x += step
+        }
+        let wEnd = windows.weights(atNormalized: 1)
+        zoned.append((wEnd.shadows * Num.clamp(axis.shadows, -100, 100)
+            + wEnd.mid * Num.clamp(axis.mid, -100, 100)
+            + wEnd.high * Num.clamp(axis.high, -100, 100)) / 100)
+
+        let margin: Double = 0.05
+        // Composed slope `1 + 3·Δlog2(G)/ΔEV ≥ margin` at every sampled interval.
+        // The gain floor keeps a legitimate crush (G → 0 on a plateau) a flat black
+        // rather than a −∞ that would refuse every scale.
+        func isMonotone(at s: Double) -> Bool {
+            var previous: Double = Num.safeLog2(Swift.max(1 + global + s * zoned[0], 0))
+            for i in 1..<zoned.count {
+                let g: Double = Num.safeLog2(Swift.max(1 + global + s * zoned[i], 0))
+                let slope: Double = GradeEngine.realisedStopsPerJStop
+                    * (g - previous) / (step * span)
+                if 1 + slope < margin { return false }
+                previous = g
+            }
+            return true
+        }
+
+        // The largest safe multiplier, unbounded above (`solveLumScale`'s reason: the
+        // knee needs to know how far below the cap a gentle setting sits, or every
+        // unlimited setting lands exactly at the knee's engagement point). 64× the
+        // request is far past anything the knee can distinguish from infinity.
+        let ceiling: Double = 64
+        guard !isMonotone(at: ceiling) else { return 1 }
+        var lo: Double = 0
+        var hi: Double = ceiling
+        var i: Int = 0
+        while i < 40 {
+            let mid: Double = 0.5 * (lo + hi)
+            if isMonotone(at: mid) { lo = mid } else { hi = mid }
+            i += 1
+        }
+        let cap: Double = lo
+        guard cap.isFinite, cap > 0 else { return 1 }
+        // Ease onto the cap exactly as `solveLumScale` does, so the axis's realised
+        // strength keeps growing over its travel instead of clipping into a dead band.
+        let normalized: Double = 1 / cap
+        return Swift.min(Num.softKnee(normalized) / normalized, 1)
     }
 
     /// The disclosure, at one pixel, at tonal position `t = log2(lum/0.18)`.
@@ -743,9 +865,14 @@ public struct ColorBalanceGrid: Sendable {
 
         // Brilliance: scale the H-K brightness at constant ratio — L and C ride the same
         // ray. (m·L·C)·k² + L·k − B·g = 0 in the common scale factor k.
+        // The zone components ride `brillianceScale` so a per-zone brightness gain
+        // cannot fold the tone response across a crossfade — see
+        // `solveBrillianceScale`. Chroma and Saturation above hold perceived
+        // brightness by construction and need no limiter.
         if !params.brilliance.isZero, L > 1e-6 {
             let brightness: Double = L * (1 + m * C)
-            let target: Double = brightness * ColorBalanceGrid.gain(params.brilliance, w)
+            let target: Double = brightness * ColorBalanceGrid.gain(
+                params.brilliance, w, zoneScale: brillianceScale)
             let quad: Double = m * L * C
             var k: Double = target / L
             if abs(quad) > 1e-12 {
