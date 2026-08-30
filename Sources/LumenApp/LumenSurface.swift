@@ -163,13 +163,14 @@ extension Lumen {
     static let radiusControl: CGFloat = 9
     static let radiusChip: CGFloat = 6
 
-    /// The workspace strip's own, and the only radius that is nearly a capsule.
+    /// The workspace rail's own, and the only radius that is nearly a capsule.
     ///
-    /// A tab is 28 points tall, so 12 leaves four points of straight edge at the top and
-    /// bottom of each corner — round enough to read as a pill at a glance, square enough
-    /// that five of them in a row still read as a segmented strip rather than as five
-    /// loose lozenges. It is a separate number from `radiusChip` because a chip is 16
-    /// points tall and 12 on one of those is a circle.
+    /// Sized against the horizontal strip's 28-point tab, where 12 left four points of
+    /// straight edge per corner — pill at a glance, square enough in a row. The rail's
+    /// icon-over-label tabs are taller, which only moves the read FURTHER from a
+    /// circle, so the number survives the geometry that renamed it. It is a separate
+    /// number from `radiusChip` because a chip is 16 points tall and 12 on one of
+    /// those is a circle.
     static let radiusTab: CGFloat = 12
 }
 #endif

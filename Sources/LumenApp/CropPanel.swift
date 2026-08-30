@@ -310,7 +310,10 @@ struct CropSection: View {
 
     var body: some View {
         DevelopSection("Crop", isModified: isGeometryModified,
-                       onReset: { resetGeometry() }) {
+                       onReset: { resetGeometry() },
+                       resetHelp: "Clears the whole framing — crop, angle and flip. "
+                           + "Original in the ratio menu brings just the frame back, "
+                           + "keeping the angle.") {
             VStack(alignment: .leading, spacing: 2) {
                 aspectRow
                 if showsCustomField { customRow }

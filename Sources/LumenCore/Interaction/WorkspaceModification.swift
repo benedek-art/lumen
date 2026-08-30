@@ -3,11 +3,11 @@
 //
 // The accordion needs this twice, for two different jobs. The header dot answers "what
 // did I change?" down a whole workspace at a glance — the question docs/00 says this app
-// exists to answer. And the Simple register needs it for something stronger than
-// convenience: hiding a section does NOT revert it, so Simple can be concealing live
-// adjustments, and a photographer looking at a picture that does not match the controls
-// in front of them has no way to find out why. `WorkspaceLayout.hiddenActiveIndicator`
-// is the disclosure, and this is what feeds it.
+// exists to answer. And each section's Reset needs it to know when to offer itself: a
+// Reset that appears on a clean section is chrome, and one that misses a live edit is
+// the "nothing changed here" lie the grain clause below was convicted of. (It once also
+// fed the Simple register's hidden-active disclosure; the register died with docs/32
+// Stream A, and the predicate's two surviving readers are the dot and Reset.)
 //
 // SEPARATE FROM `Workspace.swift` ON PURPOSE. That file is the arrangement — membership,
 // order, the solo rule — and it states that it does not know how to read a recipe. This
@@ -105,9 +105,10 @@ extension WorkspaceSection {
         // Grain raised, the accordion header said "nothing changed here" directly above
         // a sub-header saying "changed", the header's Reset was not offered, and when
         // Vignette WAS modified that Reset cleared the vignette and left the grain rows
-        // it sits above untouched. The same predicate feeds `hiddenActiveIndicator`, so a
-        // grain edit concealed by the Simple register was not disclosed either — the
-        // exact failure this function's header says it exists to prevent.
+        // it sits above untouched. At the time the same predicate fed the Simple
+        // register's hidden-active disclosure, so a concealed grain edit went
+        // undisclosed too — the register is gone now (docs/32 Stream A), but that was
+        // the exact failure this function's header says it exists to prevent.
         //
         // Against the STOCK's own default rather than `FilmGrain()`: loading Portra
         // brings its grain with it, and a photographer who loaded a stock and touched

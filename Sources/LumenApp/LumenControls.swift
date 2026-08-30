@@ -1136,6 +1136,12 @@ struct LumenSectionHeader: View {
     var isExpanded: Binding<Bool>?
     var isModified: Bool = false
     var onReset: (() -> Void)?
+    /// What this header's Reset CLEARS, for the hover — because "Reset" alone is not
+    /// an answer when a section holds two decisions. The Crop header's Reset clears
+    /// crop, angle and flip together while Original in the ratio menu brings only the
+    /// frame back; a photographer deciding which to press is exactly who is hovering.
+    /// Nil for the sections where Reset's scope is the obvious one.
+    var resetHelp: String? = nil
     /// The space that says "a new section begins here" — and it is what replaced the
     /// hairline that used to say it.
     ///
@@ -1287,6 +1293,9 @@ struct LumenSectionHeader: View {
                     .foregroundStyle(Lumen.secondaryText)
                     .opacity(hovering ? 1 : 0)
                     .animation(.easeOut(duration: 0.1), value: hovering)
+                    // An empty string is SwiftUI's own "no tooltip", so the nil case
+                    // costs nothing and the modifier does not need a branch.
+                    .help(resetHelp ?? "")
             }
         }
         .padding(.horizontal, 4)
@@ -1318,10 +1327,10 @@ struct LumenSectionHeader: View {
         // the instant it appears, and `radiusChip` no longer does. That token's own note
         // sizes it against a chip 16 points tall; this row is 28 wherever it carries a
         // chevron — a 20-point target with four points of padding above and below —
-        // which is exactly the height `Lumen.radiusTab`'s note gives the workspace tab
-        // sitting at the top of the same column, and that one rounds to 12. Six points
-        // on a 28-point row inside a card whose corner is now 14 reads as a rectangle
-        // that appeared rather than as a button that lit.
+        // which is exactly the 28-point tab `Lumen.radiusTab` was originally sized
+        // against, and that one rounds to 12. Six points on a 28-point row inside a
+        // card whose corner is now 14 reads as a rectangle that appeared rather than
+        // as a button that lit.
         // …AND ONLY WHEN THE HEADER IS A CONTROL. A header with no chevron and no
         // `onToggle` — the B&W header while the treatment is off, the flattened Display
         // Transform group — does nothing on click, and a label that lights up while

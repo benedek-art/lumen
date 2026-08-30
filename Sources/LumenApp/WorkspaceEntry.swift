@@ -59,7 +59,7 @@ extension AppState {
     /// entering a room with the lights off. So the invariant is now the simple one —
     /// **you are in the Crop workspace, therefore the tool is live** — and the flag is
     /// left to say the one thing the workspace cannot, which is whether the photographer
-    /// has pressed Done to look at the result without leaving.
+    /// has toggled the rectangle away with R to look at the result without leaving.
     ///
     /// LEAVING DISARMS, for the same reason in reverse: a crop rectangle drawn over a
     /// Grade workspace is a control from a room you walked out of. It does NOT end the

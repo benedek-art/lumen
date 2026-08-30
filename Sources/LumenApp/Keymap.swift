@@ -218,31 +218,16 @@ final class KeyDispatcher {
             // underneath is remembered, so pressing M twice puts a photographer back
             // exactly where they were — which is the property that lets a mask be a
             // detour rather than a destination.
-            let enteringMasking = !PanelLayout.shared.layout.isMasking
-            PanelLayout.shared.setMasking(enteringMasking)
-            // ONLY ON THE WAY IN. `showLoupe()` ran on both edges, which broke the round
-            // trip the comment above promises: press M while culling in the grid and M
-            // again to come back, and you landed in the loupe looking at one photograph
-            // — Cull has no sections, so the column vanished too and there was nothing on
-            // screen to press. Escape's exit (below) never had this, so the two ways out
-            // disagreed.
-            if enteringMasking {
-                state.showLoupe()
-                // AND THE CROP TOOL GOES AWAY. `setMasking` moves the flag and nothing
-                // else — `AppState.enter` disarms crop when it leaves the workspace, and
-                // masking is on the same axis but does not go through it. Without this,
-                // pressing M while framing left the crop rectangle and its eight handles
-                // drawn under `MaskCanvas`: unreachable, because the canvas is above them
-                // and takes the drags, and the renderer still showing the UNCROPPED frame
-                // because that is what `showCrop` asks it for. You would be brushing a
-                // mask onto a frame the panel says you are not looking at.
-                let viewport = LoupeViewport.shared
-                if viewport.showCrop {
-                    viewport.showCrop = false
-                    viewport.showStraighten = false
-                    CropTool.shared.forgetArming()
-                }
-            }
+            //
+            // One verb, shared with the rail's mask door. `toggleMasking` carries the
+            // whole entry contract — the loupe only on the way in (Cull's round trip
+            // broke when it ran on both edges), the crop tool disarmed so its rectangle
+            // is never stranded under `MaskCanvas` — and the history of both rules now
+            // lives on the verb in WorkspaceEntry.swift. This key held its own copy of
+            // that body for one commit; two copies of an entry contract is how the tab
+            // became the one route that did not arm the crop tool, so neither the key
+            // nor the door keeps one.
+            state.toggleMasking()
 
         // ---- Mask overlays (docs/08 §8.6) --------------------------------------
         //
@@ -280,8 +265,9 @@ final class KeyDispatcher {
         case "l":
             state.jump(to: .looks)
         case "d":
-            // Detail is not in the Simple register, so this one genuinely needs the
-            // promotion `reveal` performs — through `click` the key was silent.
+            // Through `click` this key was silent from any other workspace — `jump`
+            // (reveal, plus everything arriving somewhere means) opens the section
+            // from anywhere.
             state.jump(to: .detail)
         // H is the develop histogram, which bins the RENDERED picture — the instrument
         // docs/10 §10.5 calls the one that lies, because the render has been through

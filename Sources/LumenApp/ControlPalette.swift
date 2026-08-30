@@ -12,8 +12,8 @@
 // app should answer rather than ask back.
 //
 // WHAT IT DOES, STATED HONESTLY, because the plan asked for more. It finds the control
-// and opens the section it lives in — promoting the Simple register if that section is
-// hidden, via `PanelLayout.reveal`. It does NOT yet scroll to and focus the individual
+// and opens the section it lives in from any workspace, via `PanelLayout.reveal`. It
+// does NOT yet scroll to and focus the individual
 // row: every slider would need an identity the column could scroll to, which is a change
 // to every panel rather than to this file, and it is worth doing separately where it can
 // be seen. Typing "dehaze" and landing on an open Presence with Dehaze in it is the
@@ -169,8 +169,8 @@ struct ControlPalette: View {
         let control = results[selection]
         // `jump`, which is `reveal` plus everything arriving somewhere means — the view
         // mode, and the crop tool if the named control lives in Crop. `reveal` alone
-        // moves the column and nothing else, and half these sections are hidden by the
-        // Simple register the app opens in, so a palette that answered a named request
+        // moves the column and nothing else: pressed from the grid it would open the
+        // section behind a contact sheet, and a palette that answered a named request
         // with silence would be worse than no palette at all.
         state.jump(to: control.section)
         state.showControlPalette = false

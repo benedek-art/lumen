@@ -1674,6 +1674,12 @@ struct NeutralPickerOverlay: View {
                         .allowsHitTesting(false)
                 )
                 .contentShape(Rectangle())
+                // The pointer is the instrument while a pick is armed, and the cursor
+                // is how the picture says so (docs/32 Stream D item 3's "cursor
+                // feedback while armed"). `lumenPickCursor` pops on disappear, which
+                // matters here specifically: this overlay unmounts the moment the
+                // pick resolves, with the pointer still inside it.
+                .lumenPickCursor()
                 .gesture(
                     // minimumDistance 0 so a plain click registers; `onEnded` rather
                     // than `onChanged` so a press that turns into a drag still resolves

@@ -113,6 +113,9 @@ struct DevelopSection<Content: View>: View {
     private let title: String
     private let isModified: Bool
     private let onReset: (() -> Void)?
+    /// Passed through to the header's Reset button — see `LumenSectionHeader.resetHelp`
+    /// for when a Reset's scope needs saying. Crop is the caller that needed it.
+    private let resetHelp: String?
     /// Whether this section draws its rows. `true` for every section that has no
     /// accordion above it, which is what the memberwise default preserves.
     private let isExpanded: Bool
@@ -135,11 +138,13 @@ struct DevelopSection<Content: View>: View {
     private let content: () -> Content
 
     init(_ title: String, isModified: Bool, onReset: (() -> Void)? = nil,
+         resetHelp: String? = nil,
          isExpanded: Bool = true, onToggle: ((Bool) -> Void)? = nil,
          @ViewBuilder content: @escaping () -> Content) {
         self.title = title
         self.isModified = isModified
         self.onReset = onReset
+        self.resetHelp = resetHelp
         self.isExpanded = isExpanded
         self.onToggle = onToggle
         self.content = content
@@ -160,6 +165,7 @@ struct DevelopSection<Content: View>: View {
             LumenSectionHeader(title: title,
                                isExpanded: onToggle == nil ? nil : .constant(isExpanded),
                                isModified: isModified, onReset: onReset,
+                               resetHelp: resetHelp,
                                onToggle: onToggle)
             if isExpanded {
                 content()

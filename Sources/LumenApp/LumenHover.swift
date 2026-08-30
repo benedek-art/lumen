@@ -56,7 +56,7 @@ extension View {
     }
 
     /// The pointing hand, for things that are buttons but do not look like buttons —
-    /// chevrons, text links, the register door.
+    /// chevrons, text links, the filmstrip's grid button.
     func lumenClickCursor(_ enabled: Bool = true) -> some View {
         onHover { inside in
             guard enabled else { return }
@@ -66,6 +66,42 @@ extension View {
                 NSCursor.pop()
             }
         }
+    }
+
+    /// The crosshair, for an armed pick surface — the WB eyedropper, a point-colour
+    /// pick — where the pointer IS the instrument and "click lands a sample" is the
+    /// promise the cursor makes.
+    func lumenPickCursor() -> some View {
+        modifier(LumenPickCursorModifier())
+    }
+}
+
+/// Balanced against DISAPPEARANCE, which the two helpers above are not (docs/31 #26):
+/// a pick overlay unmounts the instant the pick resolves, `onHover(false)` never fires
+/// for a view that is gone, and a push with no pop leaves the whole app wearing a
+/// crosshair. So the push is tracked and the pop has a second route out.
+private struct LumenPickCursorModifier: ViewModifier {
+    /// View-local, same rule as `LumenHoverModifier.hovering`: cursor state must never
+    /// reach an `ObservableObject`.
+    @State private var pushed = false
+
+    func body(content: Content) -> some View {
+        content
+            .onHover { inside in
+                if inside, !pushed {
+                    NSCursor.crosshair.push()
+                    pushed = true
+                } else if !inside, pushed {
+                    NSCursor.pop()
+                    pushed = false
+                }
+            }
+            .onDisappear {
+                if pushed {
+                    NSCursor.pop()
+                    pushed = false
+                }
+            }
     }
 }
 
