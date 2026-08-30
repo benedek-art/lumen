@@ -3001,8 +3001,8 @@ final class KernelGoldenTests: XCTestCase {
     /// so a revert — `forTransfer` handing back a `LUT3D` again — fails here rather than
     /// in a drag nobody is profiling.
     func testDitherStepTableIsCopiedOnceAndReusedAcrossFrames() {
-        let first = DitherStepCube.forTransfer(.srgb)
-        let second = DitherStepCube.forTransfer(.srgb)
+        let first = DitherStepCube.forTransfer(.srgb, levels: 256)
+        let second = DitherStepCube.forTransfer(.srgb, levels: 256)
         XCTAssertEqual(first.size, 64, "the step table's size is part of its accuracy")
         XCTAssertEqual(first.data.count, 64 * 64 * 64 * 4 * MemoryLayout<Float>.size)
         // `Data` compares equal by CONTENT, so equality would pass on two fresh copies
@@ -3224,20 +3224,26 @@ final class KernelGoldenTests: XCTestCase {
     /// at that node is Core Image's scheduling decision — the golden pins the
     /// property that must hold whenever it does.
     ///
-    /// The fixture and both bars are CALIBRATED, not guessed: the exact kernel
-    /// arithmetic (LumenLog, the smoothstep falloff, IEEE fp16 round-to-nearest,
-    /// Lumen's own Bayer matrix) was simulated in double for this very frame.
-    /// Base grey 1.44 parks the burn's whole travel in encoded [0.5, 1), where the
-    /// fp16 quantum is the full 0.0117 EV; each measurement point averages one
-    /// Bayer period of rows about the midline (rows there share a radius, so a
-    /// quantised staircase stays in phase — a full-height mean would average
-    /// differently-phased staircases smooth and hide the defect) and the column's
-    /// mirror twin (whose Bayer column is a DIFFERENT subset of the cell, which is
-    /// what makes the dithered mean converge). Simulated numbers: worst
-    /// adjacent-column step — quantised 0.0117 EV, dithered 0.0044, ideal ramp
-    /// 0.0033; worst deviation from the f64 reference — quantised 0.0059,
-    /// dithered 0.0013. The bars sit between the two populations with ≥1.5×
-    /// margin each way.
+    /// The fixture is CALIBRATED, not guessed: the exact kernel arithmetic
+    /// (LumenLog, the smoothstep falloff, IEEE fp16 round-to-nearest, Lumen's own
+    /// Bayer matrix) was simulated in double for this very frame. Base grey 1.44
+    /// parks the burn's whole travel in encoded [0.5, 1), where the fp16 quantum is
+    /// the full 0.0117 EV; each measurement point averages one Bayer period of rows
+    /// about the midline (rows there share a radius, so a quantised staircase stays
+    /// in phase) and the column's mirror twin (whose Bayer column is a DIFFERENT
+    /// subset of the cell, which is what makes the dithered mean converge).
+    ///
+    /// WHY THE MEAN IS JUDGED AGAINST A SAME-RUN UNDITHERED CONTROL rather than an
+    /// absolute bar: the first version pinned worst-deviation-from-f64 at 0.003
+    /// (simulated: quantised 0.0059, dithered 0.0013) and the real driver measured
+    /// 0.0072 — deterministically, in both macOS lanes — while the STEP metric,
+    /// which is the rings the owner actually reported, passed its bar. The forced
+    /// materialization carries a constant bias the idealized fp16 model does not,
+    /// and a constant offset is not banding. So the step bar stays absolute (rings
+    /// are rings on any driver), the zero-mean claim became comparative (the dither
+    /// must beat the staircase's step and never worsen the mean, measured against
+    /// the undithered render of the same frame on the same driver), and the
+    /// absolute mean keeps one full quantum as its insanity ceiling.
     func testAStrongVignetteKeepsItsMeanThroughAHalfFloatEncodedPlane() throws {
         try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
         let width = 3072, height = 512
@@ -3245,6 +3251,13 @@ final class KernelGoldenTests: XCTestCase {
         let source = ImageBuffer(width: width, height: height) { _, _ in
             RGB(gray: baseGrey)
         }
+        // The graceful-degradation path (plate build fails → undithered render)
+        // must not quietly turn this golden into staircase-versus-staircase.
+        _ = try XCTUnwrap(
+            PipelineRenderer.ditherPlate(extent: CGRect(x: 0, y: 0,
+                                                        width: width, height: height)),
+            "the dither plate could not be built in this harness — the shipping "
+                + "fallback renders undithered and this golden cannot judge the fix")
         // The SHIPPING context's precision, not the test context's: this file's
         // `context` works in RGBAf precisely so goldens measure arithmetic, and
         // this one test exists to measure the fp16 plane the app renders on.
@@ -3255,78 +3268,102 @@ final class KernelGoldenTests: XCTestCase {
             .cacheIntermediates: true,
         ])
 
-        let vignetted = RenderGraph().applyVignette(ciImage(from: source), ev: -3,
-                                                    feather: Look.vignetteFeatherDefault,
-                                                    crop: Crop())
-        guard let encoded = KernelLibrary.apply(KernelLibrary.logEncode,
-                                                extent: vignetted.extent, [vignetted])
-        else { return XCTFail("encode failed") }
-        let materialized = encoded.insertingIntermediate()
-        guard let decoded = KernelLibrary.apply(KernelLibrary.logDecode,
-                                                extent: vignetted.extent,
-                                                [materialized])
-        else { return XCTFail("decode failed") }
-
-        var pixels = [Float](repeating: 0, count: width * height * 4)
-        pixels.withUnsafeMutableBytes { raw in
-            guard let base = raw.baseAddress else { return }
-            fp16.render(decoded, toBitmap: base, rowBytes: width * 16,
-                        bounds: CGRect(x: 0, y: 0, width: width, height: height),
-                        format: .RGBAf, colorSpace: nil)
-        }
-
-        /// Mean EV at column `x`: one Bayer period of rows about the midline, in
-        /// this column and its mirror twin (the vignette is symmetric, so the
-        /// ideal values are identical and only the dither phase differs).
-        func columnMeanEV(_ x: Int) -> Double {
-            var sum = 0.0
-            let mid = height / 2
-            for y in (mid - 4)..<(mid + 4) {
-                sum += Double(pixels[(y * width + x) * 4 + 1])
-                sum += Double(pixels[(y * width + (width - 1 - x)) * 4 + 1])
-            }
-            return log2(Swift.max(sum / 16.0, 1e-9) / 0.18)
-        }
-
-        // The falloff region along the midline: from where the burn starts to the
-        // frame's edge, staying 16 px off the border.
-        let inner = Int(Double(width / 2)
-                        * (1 + DetailEngine.vignetteInnerRadius * 2.0.squareRoot()))
         let reference = DetailEngine.vignette(source, ev: -3)
         func idealEV(_ x: Int) -> Double {
             log2(Swift.max(Double(reference[x, height / 2].g), 1e-9) / 0.18)
         }
+        // The falloff region along the midline: from where the burn starts to the
+        // frame's edge, staying 16 px off the border.
+        let inner = Int(Double(width / 2)
+                        * (1 + DetailEngine.vignetteInnerRadius * 2.0.squareRoot()))
 
-        var worstStep = 0.0
-        var worstDeviation = 0.0
+        /// Render the burn through the materialized fp16 encode and measure the
+        /// midline: worst adjacent-column step of the local mean, and its worst
+        /// deviation from the f64 reference.
+        func measure(dithered: Bool) throws -> (step: Double, deviation: Double) {
+            let vignetted = RenderGraph().applyVignette(
+                ciImage(from: source), ev: -3,
+                feather: Look.vignetteFeatherDefault,
+                crop: Crop(), dithered: dithered)
+            guard let encoded = KernelLibrary.apply(KernelLibrary.logEncode,
+                                                    extent: vignetted.extent,
+                                                    [vignetted]),
+                  let decoded = KernelLibrary.apply(
+                      KernelLibrary.logDecode, extent: vignetted.extent,
+                      [encoded.insertingIntermediate()])
+            else { throw XCTSkip("encode/decode kernels failed to apply") }
+
+            var pixels = [Float](repeating: 0, count: width * height * 4)
+            pixels.withUnsafeMutableBytes { raw in
+                guard let base = raw.baseAddress else { return }
+                fp16.render(decoded, toBitmap: base, rowBytes: width * 16,
+                            bounds: CGRect(x: 0, y: 0,
+                                           width: width, height: height),
+                            format: .RGBAf, colorSpace: nil)
+            }
+            // Mean EV at column x: one Bayer period of rows about the midline, in
+            // this column and its mirror twin (the vignette is symmetric, so the
+            // ideal values are identical and only the dither phase differs).
+            func columnMeanEV(_ x: Int) -> Double {
+                var sum = 0.0
+                let mid = height / 2
+                for y in (mid - 4)..<(mid + 4) {
+                    sum += Double(pixels[(y * width + x) * 4 + 1])
+                    sum += Double(pixels[(y * width + (width - 1 - x)) * 4 + 1])
+                }
+                return log2(Swift.max(sum / 16.0, 1e-9) / 0.18)
+            }
+            var worstStep = 0.0
+            var worstDeviation = 0.0
+            var previous = columnMeanEV(inner)
+            for x in (inner + 1)..<(width - 16) {
+                let ev = columnMeanEV(x)
+                worstStep = Swift.max(worstStep, abs(ev - previous))
+                worstDeviation = Swift.max(worstDeviation, abs(ev - idealEV(x)))
+                previous = ev
+            }
+            return (worstStep, worstDeviation)
+        }
+
         var idealStep = 0.0
-        var previous = columnMeanEV(inner)
         var previousIdeal = idealEV(inner)
         for x in (inner + 1)..<(width - 16) {
-            let ev = columnMeanEV(x)
             let ideal = idealEV(x)
-            worstStep = Swift.max(worstStep, abs(ev - previous))
-            worstDeviation = Swift.max(worstDeviation, abs(ev - ideal))
             idealStep = Swift.max(idealStep, abs(ideal - previousIdeal))
-            previous = ev
             previousIdeal = ideal
         }
-        print(String(format: "VIGNETTE BANDING worst step %.5f EV, worst deviation "
-                         + "%.5f EV (ideal ramp step %.5f, fp16 quantum %.5f)",
-                     worstStep, worstDeviation, idealStep,
-                     RenderGraph.encodedFP16QuantumEV))
+
+        let dithered = try measure(dithered: true)
+        let staircase = try measure(dithered: false)
+        print(String(format: "VIGNETTE BANDING dithered step %.5f dev %.5f | "
+                         + "undithered step %.5f dev %.5f | ideal step %.5f, "
+                         + "quantum %.5f",
+                     dithered.step, dithered.deviation,
+                     staircase.step, staircase.deviation,
+                     idealStep, RenderGraph.encodedFP16QuantumEV))
+
         XCTAssertLessThan(idealStep, 0.005,
                           "the fixture's ideal ramp steps \(idealStep) EV per "
                               + "column — too steep to tell a band from the ramp")
-        XCTAssertLessThan(worstStep, 0.0065,
-                          "the −3 EV burn steps \(worstStep) EV between adjacent "
-                              + "columns (a quantised band edge costs the full "
-                              + "0.0117) — the encoded plane is quantising the "
-                              + "ramp into the rings the owner reported")
-        XCTAssertLessThan(worstDeviation, 0.003,
-                          "the burn's local mean sits \(worstDeviation) EV off the "
-                              + "f64 reference — the staircase parks half a "
-                              + "quantum (0.0059) away between band edges")
+        XCTAssertLessThan(dithered.step, 0.0065,
+                          "the −3 EV burn steps \(dithered.step) EV between "
+                              + "adjacent columns (a quantised band edge costs the "
+                              + "full 0.0117) — the encoded plane is quantising "
+                              + "the ramp into the rings the owner reported")
+        XCTAssertLessThan(dithered.step, staircase.step * 0.75,
+                          "dithered steps \(dithered.step) EV against the "
+                              + "staircase's \(staircase.step) — the dither is "
+                              + "not breaking the bands (equal numbers mean the "
+                              + "plate never reached the kernel)")
+        XCTAssertLessThan(dithered.deviation, staircase.deviation * 1.15 + 1e-4,
+                          "dithered local mean sits \(dithered.deviation) EV off "
+                              + "the reference against the staircase's "
+                              + "\(staircase.deviation) — a zero-mean dither must "
+                              + "never worsen the mean it exists to preserve")
+        XCTAssertLessThan(dithered.deviation, RenderGraph.encodedFP16QuantumEV,
+                          "dithered local mean sits \(dithered.deviation) EV off "
+                              + "the reference — more than one full fp16 quantum, "
+                              + "which no materialization bias explains")
     }
 
     // MARK: - The gamut flag sits where the reference puts it: before grain
@@ -3647,6 +3684,73 @@ final class KernelGoldenTests: XCTestCase {
                        "the delivered file claims the source's pixel width")
         XCTAssertEqual(exif?[kCGImagePropertyExifPixelXDimension as String] as? Int,
                        20, "EXIF still claims the source's pixel dimensions")
+    }
+
+    // MARK: - 10-bit HEIC: written 10 deep, or refused loudly (docs/32 Stream G §2)
+
+    /// Whether this machine can author a Main-10 HEIC is a runtime property, so the
+    /// assertion follows the probe instead of assuming: where the encoder accepted
+    /// `canWriteTenBitHEIC`'s one-time probe, a 10-bit export must deliver a file
+    /// whose own container reports more than 8 bits per sample; where it declined,
+    /// the export must THROW rather than quietly deliver an 8-bit file under a recipe
+    /// that says 10 — the silent-lie class the write path refuses by design. Either
+    /// way the run prints the answer, which is the honest record docs/32 asked for.
+    func testTenBitHEICWritesTenDeepOrRefusesLoudly() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+        let ramp = ImageBuffer(width: 96, height: 64) { u, _ in
+            RGB(gray: 0.1 + 0.8 * u)
+        }
+        let exportRecipe = ExportRecipe(name: "ten", format: .heif, quality: 100,
+                                        bitDepth: 10, colorSpace: .displayP3,
+                                        resizeMode: .none)
+        XCTAssertEqual(exportRecipe.effectiveBitDepth, 10)
+        let renderer = PipelineRenderer()
+        let destination = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lumen-heif10-\(UUID().uuidString).heic")
+        defer { try? FileManager.default.removeItem(at: destination) }
+
+        print("HEIF10 canWriteTenBitHEIC = \(PipelineRenderer.canWriteTenBitHEIC)")
+        guard PipelineRenderer.canWriteTenBitHEIC else {
+            XCTAssertThrowsError(
+                try renderer.export(source: StubSource(ciImage(from: ramp)),
+                                    recipe: Recipe(), to: destination,
+                                    using: exportRecipe),
+                "an encoder that declined the probe must refuse, not deliver 8 bits")
+            return
+        }
+        _ = try renderer.export(source: StubSource(ciImage(from: ramp)),
+                                recipe: Recipe(), to: destination,
+                                using: exportRecipe)
+        guard let container = CGImageSourceCreateWithURL(destination as CFURL, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(container, 0, nil)
+                as? [String: Any],
+              let depth = properties[kCGImagePropertyDepth as String] as? Int
+        else {
+            return XCTFail("the delivered 10-bit HEIC could not be read back")
+        }
+        print("HEIF10 delivered depth = \(depth) bits per sample")
+        XCTAssertGreaterThan(depth, 8,
+                             "the recipe said 10 and the container reports \(depth) "
+                                 + "— the 10-bit path delivered an 8-bit file")
+    }
+
+    // MARK: - A watermark never changes the delivered extent
+
+    /// The bounds fix, pinned in one assertion: a mark rasterized wider than its
+    /// frame is shrunk to fit, clamped inside, and the composite is cropped back —
+    /// so the delivered file is the size the Size section promised. Before the fix,
+    /// `composited(over:)` took the UNION of the extents and a long notice at Size
+    /// 20% on a portrait frame delivered wrong dimensions with a transparent band.
+    func testAWatermarkNeverChangesTheDeliveredExtent() throws {
+        let image = ciImage(from: ImageBuffer(width: 200, height: 300) { _, _ in
+            RGB(gray: 0.4)
+        })
+        let mark = Watermark(text: "© A Very Long Studio Name And Then Some",
+                             position: .centre, opacity: 80, sizePercent: 20,
+                             insetPercent: 2)
+        let out = PipelineRenderer.applyWatermark(image, mark)
+        XCTAssertEqual(out.extent, image.extent,
+                       "the mark leaked past the frame: \(out.extent)")
     }
 }
 

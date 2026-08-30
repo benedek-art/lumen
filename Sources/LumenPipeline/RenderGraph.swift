@@ -1175,8 +1175,13 @@ public struct RenderGraph {
     /// two coincide only at angle 0. A rotated frame therefore still places the ellipse
     /// slightly off. That is a much smaller error than the one being fixed, and it is
     /// listed in BUILDING.md rather than approximated with maths I cannot check here.
+    /// `dithered: false` exists for ONE caller: the banding golden renders an
+    /// undithered control in the same run and asserts the dither's improvement as a
+    /// RATIO, because an absolute bar calibrated by simulating fp16 died on the real
+    /// driver's materialization (both macOS lanes, same 0.0072 EV, deterministic).
+    /// The shipping path never passes it.
     func applyVignette(_ image: CIImage, ev: Double, feather recipeFeather: Double,
-                       crop: Crop) -> CIImage {
+                       crop: Crop, dithered: Bool = true) -> CIImage {
         let full = image.extent
         guard full.width > 0, full.height > 0 else { return image }
         // The reference's clamp, verbatim: `DetailEngine.vignette` starts with
@@ -1235,7 +1240,7 @@ public struct RenderGraph {
         // picture.
         let plate = PipelineRenderer.ditherPlate(extent: full)
         let noise = plate ?? image
-        let ditherEV = plate == nil ? 0.0 : Self.encodedFP16QuantumEV
+        let ditherEV = (plate == nil || !dithered) ? 0.0 : Self.encodedFP16QuantumEV
         return KernelLibrary.apply(KernelLibrary.vignette, extent: full,
                                    [image, noise, centre, inv, Float(ev), Float(feather),
                                     CIVector(x: weights.r, y: weights.g, z: weights.b),
