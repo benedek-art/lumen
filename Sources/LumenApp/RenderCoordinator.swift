@@ -467,6 +467,38 @@ actor RenderCoordinator {
                          evicted: Array(dropped))
     }
 
+    /// Decode a photograph nobody has asked for yet, so that when they do, the file is
+    /// already read.
+    ///
+    /// This is the whole read-ahead: it does not render, it does not produce an image,
+    /// and it returns nothing. It puts the DECODE in `AppleRawSource`'s cache under the
+    /// exact key the real render will look for — same scale, same draft flag, same
+    /// recipe fields — so the render that follows finds it and skips the two and a half
+    /// seconds the owner measured for a read off his offload drive.
+    ///
+    /// Matching that key is the entire correctness requirement, and it is why the
+    /// caller passes the recipe rather than a neutral one: `DecodeKey` carries the noise
+    /// amounts, the capture sharpening and the lens profile, so a warm under the wrong
+    /// recipe is a second cache entry — twice the memory and no hit, which is worse
+    /// than not warming at all.
+    ///
+    /// Runs on this actor like everything else, and that is a deliberate constraint
+    /// rather than an oversight: a decode has no cancellation points, so a warm in
+    /// flight cannot yield to a photographer who has moved on. `DecodeWarming.mayWarm`
+    /// is what keeps that from mattering — it offers a warm only once the current
+    /// photograph has SETTLED, which happens when someone stops to work and never
+    /// happens while they page.
+    func warmDecode(url: URL, recipe: Recipe, longEdge: Int) {
+        guard let source = try? self.source(for: url) else { return }
+        let native = source.nativeLongEdge
+        guard native > 0, longEdge > 0 else { return }
+        let scale = Swift.min(1.0, Double(longEdge) / native)
+        // The result is deliberately discarded. The value is the cache entry it leaves
+        // behind, which is also why a hit costs nothing: `decode` answers from the
+        // cache before it considers going to the file.
+        _ = source.decode(recipe: recipe, draft: false, scaleFactor: scale)
+    }
+
     func nativeSize(for url: URL) -> (width: Int, height: Int)? {
         guard let source = try? self.source(for: url) else { return nil }
         return source.nativePixelSize

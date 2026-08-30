@@ -1164,6 +1164,12 @@ struct LoupeView: View {
                                               regionUnit: region)) {
                 await renderCurrent(longEdge: longEdge, region: region,
                                     drawnDevice: drawnDevice)
+                // `load` returns when the settle has landed (or been deliberately
+                // skipped), so this line IS the "photographer has stopped to work"
+                // signal `DecodeWarming` is gated on — no timer guesses at it. A task
+                // that was superseded never gets here, which is exactly the paging case
+                // that must not warm.
+                await warmNextPhoto(longEdge: longEdge)
             }
             .task(id: BeforeKey(url: photo.id, recipe: beforeRecipe,
                                 wanted: needsBeforeRender, longEdge: longEdge,
@@ -1214,6 +1220,35 @@ struct LoupeView: View {
             viewport.resetForNewPhoto(in: state)
             sampler = nil
             warmNeighbours()
+        }
+    }
+
+    /// Decode the photograph the owner is most likely to open next, while he is still
+    /// working on this one.
+    ///
+    /// The point is not to decode faster — a read off his offload drive measured 2.4 s
+    /// against 0.4 s from the internal SSD, and no code here changes a bus. The point is
+    /// to spend that time BEFORE it is felt. `DecodeWarming` (LumenCore, tested) holds
+    /// both halves of the rule: which neighbour, and the gate that keeps a warm from
+    /// landing in front of a photographer who is paging rather than editing.
+    @MainActor
+    private func warmNextPhoto(longEdge: Int) async {
+        guard !Task.isCancelled else { return }
+        guard DecodeWarming.mayWarm(currentIsSettled: !model.isDraft,
+                                    viewerHasPhoto: model.imageURL == photo.id,
+                                    gestureInFlight: state.sliderGestureActive)
+        else { return }
+        let ids = state.photos.map(\.id)
+        guard let cursor = ids.firstIndex(of: photo.id) else { return }
+        // Forward unless the last move was backward — a photographer who just pressed
+        // left is going left again.
+        let targets = DecodeWarming.indices(cursor: cursor, count: ids.count,
+                                            movingForward: state.movingForward)
+        for i in targets {
+            guard !Task.isCancelled else { return }
+            let url = ids[i]
+            await state.renderCoordinator.warmDecode(
+                url: url, recipe: state.recipe(for: state.photos[i]), longEdge: longEdge)
         }
     }
 

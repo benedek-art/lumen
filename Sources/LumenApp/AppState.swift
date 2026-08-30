@@ -2198,6 +2198,11 @@ final class AppState: ObservableObject {
         refreshMaskOverlay()
     }
 
+    /// The direction the photographer last travelled, for `DecodeWarming`: forward
+    /// unless an arrow said otherwise. Starts forward because a shoot is opened at its
+    /// beginning and worked through, and because auto-advance only goes one way.
+    private(set) var movingForward: Bool = true
+
     func selectNext() { moveSelection(by: 1) }
     func selectPrevious() { moveSelection(by: -1) }
 
@@ -2205,6 +2210,10 @@ final class AppState: ObservableObject {
     /// compared — is `ArrowNavigation.step`, in LumenCore, where it has tests; this
     /// method supplies the indices and carries out the answer.
     func moveSelection(by delta: Int) {
+        // Which way the read-ahead should look. Set here rather than inferred from two
+        // consecutive selections, because a jump (a filmstrip click, a filter change)
+        // has no direction and must not flip the guess for the next arrow press.
+        if delta != 0 { movingForward = delta > 0 }
         let list = photos
         // The photos actually chosen, in the order the panes draw them — the same
         // branch `comparisonSet` takes, so the set the key walks and the set on screen
