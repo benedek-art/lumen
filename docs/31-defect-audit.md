@@ -347,3 +347,21 @@ earlier in the session, and it is the more dangerous direction.
 
 **Next action:** a fixture suite for `check-swift-surface.py` whose known-bad set includes
 an out-of-order argument on a call with a multi-line ternary, then fix whatever it exposes.
+
+**Resolved (fourth pass, Stream H) — and the hole was not where the paragraph above
+guessed.** `split_top` and `LABEL.match` handle the multi-line ternary fine. The site was
+never parsed at all: `LumenSlider` declares no explicit `init`, Swift synthesizes it a
+memberwise one, and `collect_inits` recorded only explicit declarations — so `LumenSlider`
+had no entry, `pass_inits` hit `name not in inits` and moved on, uncounted. Measured: **170
+of the app layer's 195 types declared no init, so every call to them was unchecked, for the
+whole life of the pass**, under a confident-looking total. The checker now synthesizes
+memberwise initializers from stored properties (bailing, counted and printed, on structs it
+cannot model), and building the fixtures found two more holes the same shape: an
+`@ViewBuilder`-attributed parameter made an explicit init unparseable and silently DROPPED
+(thirteen `ExportFieldRow` sites unchecked — and worse, before suppression was split from
+parsing, a wrong memberwise signature was synthesized over the real one), and pass 2
+scanned with string bodies intact, so prose like `print("… Exposure (draft path) …")` could
+be judged as a call site. The suite is `scripts/test-check-swift-surface.py` +
+`scripts/check-swift-surface-fixtures/` — fourteen trees, each known-bad asserted to be
+reported BY NAME — run on every push in the same lane as the checker; against the
+pre-fix checker it correctly reports both memberwise known-bads as MISSED.

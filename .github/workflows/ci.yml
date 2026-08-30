@@ -176,13 +176,24 @@ jobs:
 
       # Six mechanical passes over the Swift, on the lane that has no Swift. Not a
       # type checker and no substitute for the macOS build — it catches undeclared
-      # identifiers, call sites whose labels match no declared initializer, actor
+      # identifiers, call sites whose labels match no declared or MEMBERWISE
+      # initializer (the synthesized half arrived with docs/31's postscript: 170 app
+      # types declare no init, and every call to them went unchecked), actor
       # members called without await, TypeName.member references naming nothing, and
       # platform symbols used in a file that does not import their module, and members
       # read off a value whose declared type does not have them. It costs seconds and it
       # is the only feedback on the Swift at all when the macOS runner cannot start.
       - name: Swift surface — symbols, inits, await, members, imports, targets, values, scopes
         run: python3 scripts/check-swift-surface.py
+
+      # The guard on the guard (docs/31 postscript). Known-good and known-bad fixture
+      # trees run through the checker above, and the known-bad set includes the exact
+      # false negative it shipped — a memberwise call with its labels out of order and
+      # a multi-line ternary argument. The runner asserts each planted defect is
+      # reported BY NAME, so a fixture cannot fail for the wrong reason and read as
+      # caught; a reopened hole fails this step even while the step above stays green.
+      - name: Swift surface — the checker's own fixture suite
+        run: python3 scripts/test-check-swift-surface.py
 
 
   # The engine suite, on the lane that costs nothing. LumenCore is pure Swift — colour

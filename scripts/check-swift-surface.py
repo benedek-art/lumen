@@ -7,9 +7,12 @@ of error, all of which a tree that has not been compiled in a while is likely to
   1. a capitalized identifier that is declared nowhere in-tree and is not a known
      platform name — a typo, a rename that missed a site, a type from a module that is
      not imported;
-  2. a `Type(...)` call whose argument labels match none of that type's declared
-     initializers — the error class that reshaping a struct's `init` produces at every
-     call site the change forgot;
+  2. a `Type(...)` call whose argument labels match none of that type's initializers —
+     the DECLARED ones, and for a struct with no `init` of its own the MEMBERWISE one
+     Swift synthesizes. The memberwise half arrived late and mattered most: 170 of the
+     app layer's 195 types declare no init, so every call to them — every
+     `LumenSlider(...)` included — was silently unchecked, which is how a `help:`
+     passed before `step:` shipped under a green run (docs/31 postscript);
   3. a call to an actor-isolated member with no `await` — written because exactly that
      was found by hand in this codebase, in code that passes 1 and 2 both accept;
   4. a `TypeName.member` reference naming nothing that type has — a rename that updated
@@ -20,7 +23,10 @@ label, extra argument, reordered labels, missing required argument, a renamed ty
 type from an unimported module, a stripped `await`, and two renamed statics — are
 caught nine times out of nine, and the unmutated tree stays silent. A check that has
 never failed proves nothing, which is the rule the rest of this project's verification
-is built on.
+is built on. That verification is now PERMANENT rather than anecdotal:
+`scripts/test-check-swift-surface.py` runs a fixture suite of known-good and known-bad
+trees on every CI push, and the known-bad set includes the exact false negative this
+script shipped (the memberwise call with a multi-line ternary argument, out of order).
 
 WHAT IT STILL CANNOT SEE, so that a clean run is not read as more than it is: types.
 Every argument here is checked by label and never by type, so passing a Double where an
@@ -118,6 +124,21 @@ def _scan(text, blank_strings):
 def strip_comments(text):
     """Comments out; string literals left in place as delimiters."""
     return _scan(text, blank_strings=False)
+
+
+def strip_all_keep_quotes(text):
+    """String bodies blanked, delimiter quotes kept.
+
+    Pass 2 needs both halves: prose inside a string must not read as a call (so bodies
+    go), but a positional string ARGUMENT must still count as an argument (so the
+    quotes stay, and the argument walk sees a non-empty part where `"Tone"` was).
+    Blanking the quotes too made `DevelopSection("Tone", isModified: …)` read as a
+    call missing its first argument — 70 false reports in one run. `_scan` preserves
+    length, so the two variants recombine by position.
+    """
+    bodies = strip_all(text)
+    delims = strip_comments(text)
+    return "".join('"' if q == '"' else c for c, q in zip(bodies, delims))
 
 
 def strip_all(text):
@@ -326,6 +347,16 @@ def pass_symbols():
 # ==========================================================================
 
 LABEL = re.compile(r"^\s*(?:([a-zA-Z_]\w*)\s+)?([a-zA-Z_]\w*)\s*:")
+# A parameter can open with attributes — `@ViewBuilder content: () -> Content` — which
+# LABEL cannot see past. Stripping them before the match is what kept `ExportFieldRow`'s
+# real `init(_:content:)` on the books; losing it both hid the declaration AND (before
+# suppression was split from parsing) let a wrong memberwise signature be synthesized
+# over it, which reported thirteen perfectly good call sites.
+PARAM_ATTRS = re.compile(r"^\s*(?:@\w+(?:\([^()]*\))?\s+)+")
+
+
+def strip_param_attrs(param):
+    return PARAM_ATTRS.sub("", param, count=1)
 TYPE_DECL = re.compile(r"\b(?:struct|class|enum|actor)\s+([A-Z]\w*)")
 INIT_DECL = re.compile(r"\binit\s*(?:\?|!)?\s*\(")
 EXT_DECL = re.compile(r"\bextension\s+([A-Z][\w.]*)")
@@ -393,10 +424,20 @@ def split_top(text):
 
 
 def collect_inits():
-    """type name -> [(parameter labels, required labels)]."""
+    """type name -> [(parameter labels, required labels)].
+
+    Returns (inits, main_body_init_names): the second set records which type names
+    declare an explicit `init` in a MAIN type body (not an extension), because that —
+    and only that — is what suppresses Swift's memberwise initializer.
+    """
     inits = {}
+    main_body_init_names = set()
     for path in FILES:
-        text = strip_comments(path.read_text())
+        # Strings blanked, not just comments: `print("… Exposure (draft path) …")`
+        # reads as a call to the test fixture's `Exposure` the moment that struct has
+        # a synthesized signature, and prose must not be judged as code. Labels and
+        # defaults survive blanking — only string BODIES go.
+        text = strip_all_keep_quotes(path.read_text())
         scopes, depth, i, n = [], 0, 0, len(text)
         while i < n:
             ch = text[i]
@@ -410,19 +451,29 @@ def collect_inits():
                     scopes.pop()
                 i += 1
                 continue
-            m = TYPE_DECL.match(text, i) or EXT_DECL.match(text, i)
+            m = TYPE_DECL.match(text, i)
+            kind = "type" if m else "ext"
+            if not m:
+                m = EXT_DECL.match(text, i)
             if m:
                 if text.find("{", m.end()) != -1:
-                    scopes.append((m.group(1).split(".")[-1], depth + 1))
+                    scopes.append((m.group(1).split(".")[-1], depth + 1, kind))
                 i = m.end()
                 continue
             m = INIT_DECL.match(text, i)
             if m and scopes:
+                # ANY init in a main type body suppresses the memberwise initializer,
+                # whether or not its parameters parse below — Swift suppresses on the
+                # declaration's existence, so synthesis must too, or an unparseable
+                # init leaves a wrong synthesized signature standing in for a real one.
+                if scopes[-1][2] == "type":
+                    main_body_init_names.add(scopes[-1][0])
                 open_i = m.end() - 1
                 close = match_paren(text, open_i)
                 if close:
                     labels, required, ok = [], [], True
                     for param in split_top(text[open_i + 1:close - 1]):
+                        param = strip_param_attrs(param)
                         lm = LABEL.match(param)
                         if not lm:
                             ok = False
@@ -437,15 +488,169 @@ def collect_inits():
                     i = close
                     continue
             i += 1
-    return inits
+    return inits, main_body_init_names
+
+
+# --------------------------------------------------------------------------
+# Memberwise synthesis, for pass 2.
+#
+# The hole this closes was live and measured: 170 of the app layer's 195 types declare
+# no explicit `init`, so every call to them — `LumenSlider(...)` at ~90 sites included —
+# was invisible to pass 2, silently, with no entry in the skip count. That is how a
+# `help:` passed before `step:` sailed under "2797 call sites match a declared
+# initializer, 0 unparseable" and cost a macOS CI round. docs/31's postscript blamed
+# `split_top`; the truth was that the site was never looked at.
+#
+# Swift synthesizes a memberwise initializer for a struct with no init in its MAIN
+# body (an init in an extension does not suppress it), taking the stored properties in
+# declaration order. The synthesis below models the rules that matter for label
+# checking, and BAILS (per struct, counted and printed) on anything it cannot model
+# with confidence, because a wrong signature here manufactures false reports:
+#   - `let` with a value is not a parameter; `let` without one is required
+#   - `var` with a value is defaulted; a plain optional `var` defaults to nil (SE-0242)
+#   - a wrapped property whose attribute carries arguments (@Environment(\.x),
+#     @AppStorage("k")) is initialized by the attribute and is not a parameter
+#   - a private/fileprivate stored property WITH a value is not a parameter and does
+#     not restrict the initializer (this is what lets `@State private var` views be
+#     built from other files); one WITHOUT a value makes the whole signature
+#     unmodelable from here, so the struct is bailed
+#   - computed properties (body without willSet/didSet) are not parameters
+#   - `lazy`, `#if` in the body, or an unparseable property → bail the struct
+# --------------------------------------------------------------------------
+
+STRUCT_DECL = re.compile(r"\bstruct\s+([A-Z]\w*)")
+# Wrappers whose no-argument `init()` the compiler reaches for, so the property is no
+# parameter at all. Only wrappers KNOWN to self-initialize belong here; an unknown
+# wrapper is kept in the labels un-required instead, which cannot false-report.
+SELF_INITIALIZING_WRAPPERS = {"EnvironmentObject", "Namespace", "GestureState",
+                              "FocusState"}
+PROP_ATTR = r"@\w+(?:\([^()]*(?:\([^()]*\)[^()]*)*\))?"
+PROP_MOD = (r"(?:public|internal|open|final|static|lazy|weak|nonisolated|override|"
+            r"indirect|dynamic|package|private(?:\(set\))?|fileprivate(?:\(set\))?|"
+            r"internal\(set\)|unowned(?:\(safe\)|\(unsafe\))?)")
+PROP_DECL = re.compile(
+    r"(?:^|\n)[ \t]*((?:(?:" + PROP_ATTR + r")\s+|" + PROP_MOD + r"\s+)*)"
+    r"(let|var)\s+([a-zA-Z_]\w*)\s*([:=])")
+
+
+def _depth0_mask(body):
+    """The body with everything inside nested braces blanked, offsets preserved."""
+    out, depth = list(body), 0
+    for i, ch in enumerate(body):
+        if ch == "{":
+            depth += 1
+            continue
+        if ch == "}":
+            depth -= 1
+            continue
+        if depth > 0 and ch != "\n":
+            out[i] = " "
+    return "".join(out)
+
+
+def synthesize_memberwise(suppressed):
+    """struct name -> (labels, required) for structs with no main-body init."""
+    out, bailed = {}, set()
+    for path in FILES:
+        # strip_all for the same reason as collect_inits: a multi-line string at a
+        # struct body's top level (an SQL literal, a help paragraph) must not donate
+        # phantom properties to the signature.
+        text = strip_all_keep_quotes(path.read_text())
+        for m in STRUCT_DECL.finditer(text):
+            name = m.group(1)
+            if name in suppressed:
+                continue
+            brace = text.find("{", m.end())
+            if brace == -1:
+                continue
+            body = brace_body(text, brace)
+            if "#if" in _depth0_mask(body):
+                bailed.add(name)
+                continue
+            mask = _depth0_mask(body)
+            labels, required, ok = [], [], True
+            for pm in PROP_DECL.finditer(mask):
+                mods, keyword, pname, sep = pm.groups()
+                if re.search(r"\bstatic\b", mods):
+                    continue
+                if re.search(r"\blazy\b", mods):
+                    ok = False
+                    break
+                attrs = re.findall(r"@(\w+)(\()?", mods)
+                wrapped = [a for a, _ in attrs if a[0].isupper()]
+                attr_initialized = any(p for a, p in attrs if a[0].isupper())
+                private = re.search(r"\b(?:private|fileprivate)\b(?!\(set\))", mods)
+                has_default, is_computed, type_text = sep == "=", False, ""
+                if sep == ":":
+                    i, depth, n = pm.end(), 0, len(mask)
+                    while i < n:
+                        ch = mask[i]
+                        if ch in "([":
+                            depth += 1
+                        elif ch in ")]":
+                            depth -= 1
+                        elif depth == 0 and ch == "=":
+                            has_default = True
+                            break
+                        elif depth == 0 and ch == "{":
+                            inner = brace_body(body, i)
+                            is_computed = not re.match(r"\s*(?:willSet|didSet)\b",
+                                                       inner)
+                            break
+                        elif depth == 0 and ch == "\n":
+                            break
+                        type_text += ch
+                        i += 1
+                if is_computed:
+                    continue
+                if attr_initialized:
+                    continue                       # the attribute built the wrapper
+                if any(w in SELF_INITIALIZING_WRAPPERS for w in wrapped):
+                    continue                       # the wrapper builds itself
+                if private:
+                    if has_default:
+                        continue                   # not a parameter, and not a veto
+                    ok = False                     # signature unknowable from here
+                    break
+                if wrapped:
+                    # In the labels, so a reordered call is still caught — but never
+                    # REQUIRED, because whether a wrapper self-initializes is the
+                    # wrapper's knowledge, not this script's, and a wrong "required"
+                    # here reports working calls. `@Binding` omitted at a call site is
+                    # the price, and the macOS lanes still catch that.
+                    labels.append(pname)
+                    continue
+                optional_plain = type_text.rstrip().endswith(("?", "!"))
+                if keyword == "let":
+                    if has_default:
+                        continue
+                    labels.append(pname)
+                    required.append(pname)
+                else:
+                    labels.append(pname)
+                    if not (has_default or optional_plain):
+                        required.append(pname)
+            if ok:
+                out.setdefault(name, []).append((labels, required))
+            else:
+                bailed.add(name)
+    for name in bailed:
+        out.pop(name, None)
+    return out, bailed
+
+
+MULTI_TRAILING = re.compile(r"\s*\w+\s*:\s*\{")
 
 
 def pass_inits():
-    inits = collect_inits()
+    inits, suppressed = collect_inits()
+    synthesized, bailed = synthesize_memberwise(suppressed)
+    for name, sigs in synthesized.items():
+        inits.setdefault(name, []).extend(sigs)
     problems, checked, skipped = [], 0, 0
 
     for path in FILES:
-        text = strip_comments(path.read_text())
+        text = strip_all_keep_quotes(path.read_text())
         for m in CALL.finditer(text):
             name = m.group(1)
             if name not in inits:
@@ -456,6 +661,18 @@ def pass_inits():
                 skipped += 1
                 continue
             trailing = text[close:close + 40].lstrip().startswith("{")
+            if trailing:
+                # A second, LABELED trailing closure (`} label: {`) carries its label
+                # outside the parentheses, where the argument walk below cannot see
+                # it — judging the site on the parenthesized labels alone manufactures
+                # a missing-argument report. Skip it, counted, rather than guess.
+                brace_i = text.find("{", close)
+                inner = brace_body(text, brace_i)
+                end = brace_i + len(inner) + 2
+                if (end <= len(text) and text[end - 1] == "}"
+                        and MULTI_TRAILING.match(text, end)):
+                    skipped += 1
+                    continue
 
             call_labels, parse_ok = [], True
             for arg in split_top(text[open_i + 1:close - 1]):
@@ -490,13 +707,15 @@ def pass_inits():
                 problems.append((path.relative_to(ROOT).as_posix(), line, name,
                                  call_labels, inits[name]))
 
+    tally = (f"({skipped} unparseable, skipped; {len(synthesized)} memberwise "
+             f"signatures synthesized, {len(bailed)} structs too odd to synthesize)")
     if not problems:
-        print(f"inits:    {checked} call sites match a declared initializer "
-              f"({skipped} unparseable, skipped)")
+        print(f"inits:    {checked} call sites match a declared or memberwise "
+              f"initializer {tally}")
         return True
 
     print(f"inits:    {len(problems)} of {checked} call sites match NO declared "
-          f"initializer ({skipped} unparseable, skipped)\n")
+          f"or memberwise initializer {tally}\n")
     for path, line, name, labels, sigs in problems:
         shown = [l if l else "_" for l in labels]
         print(f"  {path}:{line}  {name}({', '.join(shown)})")
@@ -614,6 +833,7 @@ def collect_methods():
             for param in split_top(text[open_i + 1:close - 1]):
                 if not param.strip():
                     continue
+                param = strip_param_attrs(param)
                 lm = LABEL.match(param)
                 if not lm:
                     ok = False
