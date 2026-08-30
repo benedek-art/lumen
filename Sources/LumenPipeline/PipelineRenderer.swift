@@ -425,7 +425,9 @@ public final class PipelineRenderer {
                               // and blocks on the exact tables, so the picture at rest
                               // never shows a stale one.
                               allowStaleTables: draft,
-                              bandMeanHues: measuredBandMeanHues(source: source))
+                              bandMeanHues: ColorEngine.needsMeasuredBandHues(
+                                  recipe.develop.mixer)
+                                  ? measuredBandMeanHues(source: source) : nil)
         Self.signposter.endInterval("plan", planInterval)
         let rasterInterval = Self.signposter.beginInterval("rasterize")
         let graph = makeGraph(plan: plan, decoded: decoded,
@@ -589,7 +591,9 @@ public final class PipelineRenderer {
                               displayWhiteTarget: exportRecipe.renderWhiteTargetPercent,
                               lutSize: LUT3D.exportSize,
                               captureISO: source.captureMetadata.iso,
-                              bandMeanHues: measuredBandMeanHues(source: source))
+                              bandMeanHues: ColorEngine.needsMeasuredBandHues(
+                                  recipe.develop.mixer)
+                                  ? measuredBandMeanHues(source: source) : nil)
 
         let graph = makeGraph(plan: plan, decoded: decoded,
                               sourceURL: source.url,
@@ -1239,7 +1243,9 @@ public final class PipelineRenderer {
                               // The overlay's stage input must be the render's: a
                               // Uniformity-moved hue is part of what a colour-range
                               // mask samples.
-                              bandMeanHues: measuredBandMeanHues(source: source))
+                              bandMeanHues: ColorEngine.needsMeasuredBandHues(
+                                  recipe.develop.mixer)
+                                  ? measuredBandMeanHues(source: source) : nil)
         guard let mask = plan.masks.first(where: { $0.id == maskID }) else { return nil }
 
         let native = source.nativeLongEdge
@@ -1617,7 +1623,9 @@ public final class PipelineRenderer {
         let plan = RenderPlan(recipe: recipe,
                               asShotKelvin: source.asShotTemperature,
                               asShotTint: source.asShotTint,
-                              bandMeanHues: measuredBandMeanHues(source: source))
+                              bandMeanHues: ColorEngine.needsMeasuredBandHues(
+                                  recipe.develop.mixer)
+                                  ? measuredBandMeanHues(source: source) : nil)
         let longEdge = Int(Swift.max(decoded.extent.width, decoded.extent.height))
         let staged = RenderGraph().localStageInput(
             decoded, plan: plan,
@@ -1649,7 +1657,9 @@ public final class PipelineRenderer {
         let plan = RenderPlan(recipe: recipe,
                               asShotKelvin: source.asShotTemperature,
                               asShotTint: source.asShotTint,
-                              bandMeanHues: measuredBandMeanHues(source: source))
+                              bandMeanHues: ColorEngine.needsMeasuredBandHues(
+                                  recipe.develop.mixer)
+                                  ? measuredBandMeanHues(source: source) : nil)
         let longEdge = Int(Swift.max(decoded.extent.width, decoded.extent.height))
         let staged = RenderGraph().colorStageInput(
             decoded, plan: plan,
@@ -2026,7 +2036,9 @@ public final class PipelineRenderer {
                               asShotTint: source.asShotTint,
                               captureISO: source.captureMetadata.iso,
                               softProof: softProof,
-                              bandMeanHues: measuredBandMeanHues(source: source))
+                              bandMeanHues: ColorEngine.needsMeasuredBandHues(
+                                  recipe.develop.mixer)
+                                  ? measuredBandMeanHues(source: source) : nil)
         // S3 runs here rather than inside `ReferenceRenderer.render`, which starts at
         // S6 and is what several dozen goldens compare against. The stage belongs on
         // this path — a fallback that skips the denoise the GPU path applies is a

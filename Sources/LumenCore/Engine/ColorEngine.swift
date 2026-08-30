@@ -644,6 +644,29 @@ public struct ColorEngine: Sendable {
         }
     }
 
+    /// WHETHER A MEASUREMENT OFF THE IMAGE IS NEEDED AT ALL.
+    ///
+    /// `bandMeanHues` is consulted from exactly one place — `bandTargetHue`, under
+    /// `if q != 0`, where `q` is Uniformity. Uniformity defaults to 0, so on every
+    /// photograph nobody has moved that slider on, the measurement is computed and
+    /// never read.
+    ///
+    /// That would be a harmless waste if it were cheap, and it is the opposite of
+    /// cheap. The renderer measures it by DECODING THE RAW AGAIN at 512 px under a
+    /// neutral recipe, and a RAW decode at any scale reads the WHOLE FILE — a 512 px
+    /// measurement costs what a full-size one costs on the bus. The owner's HUD, on a
+    /// 33 MP ARW on an external drive: one decode 2578 ms, and the first draft of a
+    /// newly opened photograph 5580 ms. Two file reads, one of them for eight numbers
+    /// nothing was going to look at.
+    ///
+    /// So the renderer asks first. The predicate lives here, beside its one consumer,
+    /// so "does this recipe read the measurement" has a single answer that the GPU path
+    /// and the CPU reference cannot disagree about — and so that the day Uniformity
+    /// stops being the only reader, this function is what fails to compile.
+    public static func needsMeasuredBandHues(_ mixer: Mixer) -> Bool {
+        mixer.uniformity != 0
+    }
+
     /// Uniformity's convergence target for band `i`: the measured chroma-weighted mean
     /// hue when the renderer supplied one, otherwise the midpoint of the band's own core
     /// arc — the hue the user's two inner ring handles bracket.
