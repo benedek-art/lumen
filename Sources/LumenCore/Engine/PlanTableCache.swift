@@ -67,9 +67,43 @@ public enum PlanTableCache {
     /// halves of the frame it is actually serving, which is what "one mouse event
     /// behind" was always supposed to mean.
     ///
+    /// `identity` is the PHOTOGRAPH the entry last rendered (docs/31 round two §4).
+    /// The key describes the RECIPE completely, so an exact key hit is the right
+    /// table for any photograph — but the stale door's whole contract is "the
+    /// picture from one mouse event ago", and across a photo change the newest
+    /// entry in the slot is a different photograph's picture formation: step from a
+    /// black-and-white edit to a colour frame and the colour frame rendered
+    /// monochrome for a frame. So each entry carries the identity of the photograph
+    /// that last used it, and a stale serve may only borrow within that identity —
+    /// see `pairedTableAllowingStale`.
+    ///
     /// Slots whose tables have no companion scalar (`colorGrade`) store 1 and ignore it.
     private static var entries: [Slot: [(key: String, table: LUT3D,
-                                         pairedValue: Double)]] = [:]
+                                         pairedValue: Double,
+                                         identity: String)]] = [:]
+
+    /// The photograph the render being planned is for — the identity prefix every
+    /// entry is stamped with (docs/31 round two §4).
+    ///
+    /// Ambient rather than a parameter, because the calls into this cache are made
+    /// from `RenderPlan.init`, which owns no photograph — a plan is a compiled
+    /// recipe. The renderer stamps the identity before building the plan
+    /// (`PipelineRenderer` does, at every entry point that owns a source), and the
+    /// app's renders are serialised through one render actor, so the stamp cannot
+    /// be overwritten mid-plan. A caller that never stamps (tests, headless plan
+    /// builds) runs under the empty identity, which is an identity like any other:
+    /// such callers keep the pre-identity behaviour among themselves and can never
+    /// borrow a stamped photograph's table through the stale door, nor lend theirs.
+    private static var activeIdentity: String = ""
+
+    /// Stamp the photograph identity for the plans built next. See `activeIdentity`
+    /// for why this is ambient. Public because the renderer that knows the
+    /// photograph lives in LumenPipeline.
+    public static func setRenderIdentity(_ identity: String) {
+        lock.lock()
+        activeIdentity = identity
+        lock.unlock()
+    }
 
     /// One background bake at a time per slot, newest request wins.
     ///
@@ -79,6 +113,7 @@ public enum PlanTableCache {
     /// hand. Only the newest can ever be shown, so only the newest is kept.
     private static var inFlight: Set<Slot> = []
     private static var pending: [Slot: (key: String, pairedValue: Double,
+                                        identity: String,
                                         bakeExact: () -> LUT3D)] = [:]
     private static let bakeQueue = DispatchQueue(label: "lumen.plantable.bake",
                                                  qos: .userInitiated)
@@ -138,7 +173,20 @@ public enum PlanTableCache {
         guard size <= LUT3D.interactiveSize else { return build() }
 
         lock.lock()
-        let hit = entries[slot]?.first { $0.key == key }?.table
+        var hit: LUT3D?
+        if var slotEntries = entries[slot],
+           let index = slotEntries.firstIndex(where: { $0.key == key }) {
+            hit = slotEntries[index].table
+            // An exact hit means THIS photograph just rendered with this very
+            // table, so the entry adopts this photograph: the next draft frame's
+            // stale borrow then finds the picture this photo was showing a moment
+            // ago, instead of paying a blocking bake at the start of every drag
+            // that follows a photo switch. Adopting on hit is what keeps exact
+            // hits shared across photographs (the key describes the table
+            // completely) while the STALE door stays per-photograph.
+            slotEntries[index].identity = activeIdentity
+            entries[slot] = slotEntries
+        }
         if hit != nil {
             stats.hits += 1
             slotTraffic[slot, default: Stats()].hits += 1
@@ -154,7 +202,8 @@ public enum PlanTableCache {
         lock.lock()
         var slotEntries = entries[slot] ?? []
         slotEntries.removeAll { $0.key == key }
-        slotEntries.insert((key: key, table: built, pairedValue: value), at: 0)
+        slotEntries.insert((key: key, table: built, pairedValue: value,
+                            identity: activeIdentity), at: 0)
         if slotEntries.count > capacity { slotEntries.removeLast(slotEntries.count - capacity) }
         entries[slot] = slotEntries
         lock.unlock()
@@ -212,10 +261,15 @@ public enum PlanTableCache {
         guard size <= LUT3D.interactiveSize else { return (build(), value) }
 
         lock.lock()
-        let slotEntries = entries[slot] ?? []
-        if let hit = slotEntries.first(where: { $0.key == key }) {
+        var slotEntries = entries[slot] ?? []
+        if let index = slotEntries.firstIndex(where: { $0.key == key }) {
             stats.hits += 1
             slotTraffic[slot, default: Stats()].hits += 1
+            // Adopt on hit, exactly as `table` does — an exact hit IS this
+            // photograph's picture, whoever baked it.
+            slotEntries[index].identity = activeIdentity
+            entries[slot] = slotEntries
+            let hit = slotEntries[index]
             lock.unlock()
             // The STORED scalar, not the caller's, even on an exact hit. They agree
             // whenever the key covers the scalar, which is the invariant this cache
@@ -223,7 +277,15 @@ public enum PlanTableCache {
             // the pair stays a pair rather than silently becoming a hybrid again.
             return (hit.table, hit.pairedValue)
         }
-        guard let newest = slotEntries.first else {
+        // The stale borrow NEVER crosses photographs (docs/31 round two §4). "One
+        // mouse event behind" is a statement about THIS photograph's previous
+        // frame; the newest entry in the slot, unqualified, is whatever photograph
+        // was edited last — stepping from a B&W edit to a colour frame served the
+        // colour frame a monochrome picture formation for a frame. A miss with
+        // nothing of this photograph's to be stale from renders fresh instead:
+        // the blocking bake below is the same one a cold slot pays.
+        guard let newest = slotEntries.first(where: { $0.identity == activeIdentity })
+        else {
             lock.unlock()
             return (table(slot, key: key, size: size, pairedWith: value, build: build),
                     value)
@@ -231,7 +293,8 @@ public enum PlanTableCache {
         stats.staleServes += 1
         slotTraffic[slot, default: Stats()].staleServes += 1
         // Replace, never append: only the newest deferred bake can ever be shown.
-        pending[slot] = (key: key, pairedValue: value, bakeExact: build)
+        pending[slot] = (key: key, pairedValue: value, identity: activeIdentity,
+                         bakeExact: build)
         let mustStart = !inFlight.contains(slot)
         if mustStart { inFlight.insert(slot) }
         lock.unlock()
@@ -258,7 +321,8 @@ public enum PlanTableCache {
             var slotEntries = entries[slot] ?? []
             slotEntries.removeAll { $0.key == next.key }
             slotEntries.insert((key: next.key, table: built,
-                                pairedValue: next.pairedValue), at: 0)
+                                pairedValue: next.pairedValue,
+                                identity: next.identity), at: 0)
             if slotEntries.count > capacity {
                 slotEntries.removeLast(slotEntries.count - capacity)
             }

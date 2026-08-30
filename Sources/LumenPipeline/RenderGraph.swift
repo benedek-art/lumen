@@ -156,6 +156,7 @@ public struct RenderGraph {
         // strikes the film, and the film base reflects what arrives.
         if plan.vignetteEV != 0 {
             image = applyVignette(image, ev: plan.vignetteEV,
+                                  feather: plan.vignetteFeather,
                                   crop: plan.recipe.develop.geometry.crop)
         }
         if let film = plan.filmChain, film.halationAmount > 0 {
@@ -189,6 +190,22 @@ public struct RenderGraph {
             beforeProof = nil
         }
 
+        // The gamut flag, HERE — inside picture formation, before the local curves
+        // and the grain — because that is where the reference computes it (docs/31
+        // round two §15). `ReferenceRenderer.render` paints the flag through
+        // `plan.finishedColor` at S14/S15 and then runs S15b and grain over it, so
+        // a flagged pixel is grained like any other; this graph used to paint it
+        // LAST instead, and the two renderers disagreed about every flagged pixel
+        // under grain or a local curve. The reference is the contract — the old
+        // comment's argument ("a warning grain could modulate reads as a colour")
+        // was a reasonable design the reference does not implement, and parity
+        // beats it.
+        if let proof = plan.softProof, proof.settings.showGamutWarning,
+           let beforeProof {
+            image = Self.applyGamutWarning(image, beforeProof: beforeProof, proof: proof,
+                                           finishScale: plan.finishScale)
+        }
+
         // S15b — the local point curve, the second tap (docs/08 §8.4, docs/14). The
         // rest of a mask's sub-recipe is a scene-referred delta at S11; a curve is a
         // picture-domain instinct and has to see the formed picture, so it composites
@@ -200,14 +217,6 @@ public struct RenderGraph {
         // Grain lives inside picture formation, in the density domain.
         if let film = plan.filmChain, film.grainAmount > 0, let plate = grainPlate {
             image = applyGrain(image, plate: plate, film: film)
-        }
-
-        // The gamut flag, last, so nothing paints over it — a warning that grain or a
-        // later stage could modulate would read as a colour rather than as a flag.
-        if let proof = plan.softProof, proof.settings.showGamutWarning,
-           let beforeProof {
-            image = Self.applyGamutWarning(image, beforeProof: beforeProof, proof: proof,
-                                           finishScale: plan.finishScale)
         }
 
         return image
@@ -1166,9 +1175,18 @@ public struct RenderGraph {
     /// two coincide only at angle 0. A rotated frame therefore still places the ellipse
     /// slightly off. That is a much smaller error than the one being fixed, and it is
     /// listed in BUILDING.md rather than approximated with maths I cannot check here.
-    func applyVignette(_ image: CIImage, ev: Double, crop: Crop) -> CIImage {
+    func applyVignette(_ image: CIImage, ev: Double, feather recipeFeather: Double,
+                       crop: Crop) -> CIImage {
         let full = image.extent
         guard full.width > 0, full.height > 0 else { return image }
+        // The reference's clamp, verbatim: `DetailEngine.vignette` starts with
+        // `Num.clamp(ev, -3.0, 1.0)` and this kernel took the raw value — so a
+        // foreign or hand-edited recipe carrying, say, −5 rendered a 2^-2 deeper
+        // corner here than on the reference path (docs/31 round two §15 adjacency).
+        // The slider never leaves −3…+1, which is why nobody saw it; parity is why
+        // it matters anyway.
+        let ev = Num.clamp(ev, -3.0, 1.0)
+        guard ev != 0 else { return image }
 
         var e = full
         if crop.x != 0 || crop.y != 0 || crop.w != 1 || crop.h != 1,
@@ -1191,8 +1209,13 @@ public struct RenderGraph {
         // vignette from the same slider, and a 24% gain difference at the edge.
         let norm = 1.0 / (2.0 as CGFloat).squareRoot()
         let inv = CIVector(x: norm / (e.width / 2), y: norm / (e.height / 2))
-        // The kernel's `feather` is `1 − inner`, so it starts where the reference does.
-        let feather = 1 - DetailEngine.vignetteInnerRadius
+        // The kernel's `feather` is `1 − inner`, so it starts where the reference
+        // does. The inner radius comes from the recipe's feather through the SAME
+        // function the reference calls (`DetailEngine.vignetteInnerRadius(feather:)`,
+        // never re-derived here), and the outer edge is pinned at the corner (r = 1)
+        // at every feather by construction — which is why this single scalar still
+        // fully describes the geometry and the kernel needs no new parameter.
+        let feather = 1 - DetailEngine.vignetteInnerRadius(feather: recipeFeather)
         // Rendered over the FULL extent — the crop only defines the ellipse. Cropping
         // the output here would throw away the pixels applyGeometry is about to select.
         // Highlight protection, at the same disclosure default the reference uses.
@@ -1202,13 +1225,34 @@ public struct RenderGraph {
         // different numbers.
         let weights = RGBColorSpace.rec2020.luminanceWeights
         let threshold = 0.18 * pow(2.0, 5.0) / 2.0
+        // The burn's exponent is dithered by half an fp16 quantum of the encoded
+        // plane (see the kernel's comment — this is the banding-at-−3 fix, docs/31
+        // round two §7). The plate is the export dither's own Bayer cell, tiled.
+        // If it cannot be built the vignette still renders, UNDITHERED: the image
+        // itself stands in as the noise argument with a zero amplitude, so no
+        // failure of the plate can silently drop the whole stage — a burn without
+        // its dither is the previous behaviour; no burn at all is a different
+        // picture.
+        let plate = PipelineRenderer.ditherPlate(extent: full)
+        let noise = plate ?? image
+        let ditherEV = plate == nil ? 0.0 : Self.encodedFP16QuantumEV
         return KernelLibrary.apply(KernelLibrary.vignette, extent: full,
-                                   [image, centre, inv, Float(ev), Float(feather),
+                                   [image, noise, centre, inv, Float(ev), Float(feather),
                                     CIVector(x: weights.r, y: weights.g, z: weights.b),
                                     Float(threshold),
-                                    Float(DetailEngine.vignetteHighlightProtection)])
+                                    Float(DetailEngine.vignetteHighlightProtection),
+                                    Float(ditherEV)])
             ?? image
     }
+
+    /// One half-float ULP of the LOG-ENCODED plane, converted to EV — the units
+    /// rule (BUILDING.md): write the conversion, not the number. The encoded plane
+    /// parks real pictures in [0.29, 0.71]; for values in [0.5, 1) an fp16 mantissa
+    /// step is 2⁻¹¹ of the encoded unit, and one encoded unit spans
+    /// `LumenLog.range` EV, so one quantum is 2⁻¹¹ · 24 ≈ 0.0117 EV — docs/31
+    /// round two §7's measured number. The vignette kernel dithers its exponent by
+    /// ±half of this.
+    static let encodedFP16QuantumEV: Double = pow(2.0, -11.0) * LumenLog.range
 
     func applyHalation(_ image: CIImage, film: FilmChain, longEdge: Int) -> CIImage {
         let profile = film.halation(longEdgePixels: longEdge)
@@ -1285,12 +1329,28 @@ public struct RenderGraph {
 
     /// Log luminance broadcast to all channels, in the shaper's bounded domain — the
     /// coordinate every edge-aware stage works in.
+    ///
+    /// FLOORED AT ZERO before the encode, matching the reference exactly
+    /// (`ReferenceRenderer.applyTone` guides on `LumenLog.encode(max(lum, 0))`;
+    /// docs/31 round two §5). Scene-linear luminance goes negative routinely after
+    /// white balance — a saturated blue's red channel comes out below zero and the
+    /// weighted sum follows it — and the shaper's toe is linear and UNBOUNDED
+    /// below: −0.01 encoded to −4.83 where the reference gives +0.0024. One such
+    /// pixel is enough to blow up the guided filter this plane guides — measured,
+    /// it drove the filter's `a` from 0.087 to 0.917 across a 103×103 patch, the
+    /// edge-aware tone mask degenerating into the raw luminance. The floor is a
+    /// `highlightEnergy` at threshold 0, boost 1, which is `max(v, 0)` per channel
+    /// and no new kernel.
     static func logLuminance(_ image: CIImage) -> CIImage? {
         let w = RGBColorSpace.rec2020.luminanceWeights
         guard let lum = KernelLibrary.apply(KernelLibrary.luminance, extent: image.extent,
-                                            [image, CIVector(x: w.r, y: w.g, z: w.b)])
+                                            [image, CIVector(x: w.r, y: w.g, z: w.b)]),
+              let floored = KernelLibrary.apply(KernelLibrary.highlightEnergy,
+                                                extent: image.extent,
+                                                [lum, Float(0.0), Float(1.0)])
         else { return nil }
-        return KernelLibrary.apply(KernelLibrary.logEncode, extent: image.extent, [lum])
+        return KernelLibrary.apply(KernelLibrary.logEncode, extent: image.extent,
+                                   [floored])
     }
 
     /// `CIBoxBlur` with the parameter passed straight through, for the one test whose

@@ -29,7 +29,7 @@ final class MaskRasterCacheTests: XCTestCase {
     func testTheFirstSightOfAMaskBakesSynchronously() {
         let cache = MaskRasterCache()
         var bakes = 0
-        let out = cache.plane(maskID: "m", key: "A", allowStale: true) {
+        let out = cache.plane(maskID: "m", key: "A", identity: "photo", allowStale: true) {
             bakes += 1
             return self.marked(1)
         }
@@ -39,9 +39,9 @@ final class MaskRasterCacheTests: XCTestCase {
 
     func testADraftServesThePreviousRasterAndThenConverges() {
         let cache = MaskRasterCache()
-        _ = cache.plane(maskID: "m", key: "A", allowStale: true) { self.marked(1) }
+        _ = cache.plane(maskID: "m", key: "A", identity: "photo", allowStale: true) { self.marked(1) }
 
-        let immediate = cache.plane(maskID: "m", key: "B", allowStale: true) {
+        let immediate = cache.plane(maskID: "m", key: "B", identity: "photo", allowStale: true) {
             self.marked(2)
         }
         XCTAssertEqual(immediate.values, marked(1).values,
@@ -49,7 +49,7 @@ final class MaskRasterCacheTests: XCTestCase {
 
         waitForBakes(cache, maskID: "m")
         var rebaked = false
-        let after = cache.plane(maskID: "m", key: "B", allowStale: true) {
+        let after = cache.plane(maskID: "m", key: "B", identity: "photo", allowStale: true) {
             rebaked = true
             return self.marked(2)
         }
@@ -59,8 +59,8 @@ final class MaskRasterCacheTests: XCTestCase {
 
     func testASettleFrameNeverGetsAStaleRaster() {
         let cache = MaskRasterCache()
-        _ = cache.plane(maskID: "m", key: "A", allowStale: true) { self.marked(1) }
-        let settled = cache.plane(maskID: "m", key: "C", allowStale: false) {
+        _ = cache.plane(maskID: "m", key: "A", identity: "photo", allowStale: true) { self.marked(1) }
+        let settled = cache.plane(maskID: "m", key: "C", identity: "photo", allowStale: false) {
             self.marked(3)
         }
         XCTAssertEqual(settled.values, marked(3).values,
@@ -69,12 +69,12 @@ final class MaskRasterCacheTests: XCTestCase {
 
     func testABurstOfMaskEditsCoalescesToTheNewestRaster() {
         let cache = MaskRasterCache()
-        _ = cache.plane(maskID: "m", key: "k0", allowStale: true) { self.marked(0) }
+        _ = cache.plane(maskID: "m", key: "k0", identity: "photo", allowStale: true) { self.marked(0) }
 
         let counterLock = NSLock()
         var bakes = 0
         for i in 1...40 {
-            _ = cache.plane(maskID: "m", key: "k\(i)", allowStale: true) {
+            _ = cache.plane(maskID: "m", key: "k\(i)", identity: "photo", allowStale: true) {
                 counterLock.lock(); bakes += 1; counterLock.unlock()
                 Thread.sleep(forTimeInterval: 0.005)
                 return self.marked(Float(i))
@@ -88,12 +88,35 @@ final class MaskRasterCacheTests: XCTestCase {
                 + "should keep only the newest, not replay the drag")
 
         var rebaked = false
-        let newest = cache.plane(maskID: "m", key: "k40", allowStale: false) {
+        let newest = cache.plane(maskID: "m", key: "k40", identity: "photo", allowStale: false) {
             rebaked = true
             return self.marked(40)
         }
         XCTAssertFalse(rebaked, "k40 should already be held from the drain")
         XCTAssertEqual(newest.values, marked(40).values)
+    }
+
+    /// The stale door never crosses photographs — the same discipline
+    /// `PlanTableCacheTests.testAStaleServeNeverCrossesPhotographs` pins for the
+    /// colour tables (docs/31 round two §4), here because mask ids travel verbatim
+    /// across photographs via Paste Settings: "this mask id's previous raster" can
+    /// be a DIFFERENT photograph's rasterized selection, and a draft frame right
+    /// after a photo switch must render its masks fresh rather than wear it.
+    func testADraftNeverWearsAnotherPhotographsRaster() {
+        let cache = MaskRasterCache()
+        _ = cache.plane(maskID: "m", key: "A", identity: "photo-1", allowStale: true) {
+            self.marked(1)
+        }
+
+        var baked = false
+        let served = cache.plane(maskID: "m", key: "B", identity: "photo-2",
+                                 allowStale: true) {
+            baked = true
+            return self.marked(2)
+        }
+        XCTAssertTrue(baked, "a cross-photo miss must rasterize fresh, not borrow")
+        XCTAssertEqual(served.values, marked(2).values,
+                       "photo 2's draft was served photo 1's selection")
     }
 }
 #endif

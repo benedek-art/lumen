@@ -102,9 +102,17 @@ public enum KernelLibrary {
     /// difference is a band of detail and the gain is halo-free by construction —
     /// the guided filter has no gradient reversal, which is the whole reason it beats
     /// a bilateral base for this job.
+    ///
+    /// The exponent is CLAMPED at ±4 EV — the twin of the reference's
+    /// `DetailEngine.applyLumaRatio(limit: 4)`, which bounds every presence tool's
+    /// excursion "so a pathological coefficient cannot turn into an infinity
+    /// downstream" (docs/31 round two §15). This kernel had no limit at all: `k` at
+    /// Texture ±100 is 21.6 per encoded unit, so a pathological band drove
+    /// `exp2(unbounded)` while the reference stopped at 2^±4.
     static let detailGainSource = """
     kernel vec4 lumenDetailGain(__sample hi, __sample lo, float k) {
-        float g = exp2(k * (hi.r - lo.r));
+        float e = clamp(k * (hi.r - lo.r), -4.0, 4.0);
+        float g = exp2(e);
         return vec4(g, g, g, 1.0);
     }
     """
@@ -326,6 +334,8 @@ public enum KernelLibrary {
     /// instead would have flattened hair and fabric weave — measured at 0.19 coherence
     /// where a hard step measures 1.00 — which are the subjects the positive control
     /// exists for, so the gate only starts closing above them.
+    /// The exponent carries the same ±4 EV clamp as `detailGain` — the twin of the
+    /// reference's `applyLumaRatio(limit: 4)`; see that kernel's comment.
     static let detailGainGatedSource = """
     kernel vec4 lumenDetailGainGated(__sample hi, __sample lo, __sample gate,
                                      float k, float negative,
@@ -333,7 +343,8 @@ public enum KernelLibrary {
         float c = clamp(gate.r, 0.0, 1.0);
         float closed = mix(smoothstep(gateLo, gateHi, c), c, negative);
         float open = 1.0 - closed;
-        float g = exp2(k * open * (hi.r - lo.r));
+        float e = clamp(k * open * (hi.r - lo.r), -4.0, 4.0);
+        float g = exp2(e);
         return vec4(g, g, g, 1.0);
     }
     """
@@ -683,16 +694,33 @@ public enum KernelLibrary {
     /// against the reference's −0.500, and at the slider's −3.0 floor that is a 2.8x
     /// difference in gain between the picture the user sees and the one the reference
     /// renders. The panel note quotes the protection as if it were applied.
+    /// `noise` is a tiled dither plate carrying (−0.5, +0.5) in its red channel and
+    /// `ditherEV` is one half-float quantum of the LOG-ENCODED plane, expressed in
+    /// EV — together they add ±half a quantum of ordered noise to the burn's
+    /// exponent wherever the vignette is active (docs/31 round two §7's
+    /// change-of-denomination arithmetic, applied as a dither). Why: the working
+    /// format is RGBAh, and the log-encoded plane the finish table samples parks
+    /// the picture where one fp16 step is 0.0117 EV. A strong burn is a slow,
+    /// noise-free synthetic ramp — exactly the signal that quantum turns into
+    /// visible rings at −3 EV, which the owner reported. Randomising the exponent
+    /// by half a quantum makes the encoded plane's rounding land on the code above
+    /// or below in the proportion the true value asks for, so the local MEAN of
+    /// the ramp survives fp16 the way the output dither preserves it through
+    /// 8-bit. Gated on `t > 0` so the untouched centre stays bit-identical, and
+    /// zero-mean so the reference — which quantises nowhere — is approached, not
+    /// left.
     static let vignetteSource = """
-    kernel vec4 lumenVignette(__sample image, vec2 centre, vec2 invRadius, float ev,
-                              float feather, vec3 lumaWeights, float threshold,
-                              float protection) {
+    kernel vec4 lumenVignette(__sample image, __sample noise, vec2 centre,
+                              vec2 invRadius, float ev, float feather,
+                              vec3 lumaWeights, float threshold,
+                              float protection, float ditherEV) {
         vec2 d = (destCoord() - centre) * invRadius;
         float r = length(d);
         float t = smoothstep(1.0 - feather, 1.0, r);
         float lum = dot(image.rgb, lumaWeights);
         float protect = protection * smoothstep(threshold, threshold * 2.0, lum);
-        float gain = exp2(ev * t * (1.0 - protect));
+        float dith = noise.r * ditherEV * step(1e-6, t);
+        float gain = exp2(ev * t * (1.0 - protect) + dith);
         return vec4(image.rgb * gain, image.a);
     }
     """

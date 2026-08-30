@@ -264,6 +264,19 @@ public final class PipelineRenderer {
 
     public var unavailableKernels: [String] { availability.unavailable }
 
+    /// Stamp `PlanTableCache`'s photograph identity before building a plan.
+    ///
+    /// Every entry point that owns an `ImageSource` calls this ahead of
+    /// `RenderPlan(...)`, so the tables the plan bakes are recorded as THIS
+    /// photograph's — the identity the cache's stale door refuses to cross. Only
+    /// the draft path (`renderPreview` with `draft: true`) ever reaches that door,
+    /// but stamping on every path keeps the ledger truthful for whichever render
+    /// runs next. The identity is the file URL: it names the photograph, and it is
+    /// already the identity the mask-raster keys use.
+    private static func stampRenderIdentity(_ source: any ImageSource) {
+        PlanTableCache.setRenderIdentity(source.url.absoluteString)
+    }
+
     // MARK: - Preview
 
     /// `showingUncropped` is set while the crop tool is open, so the tool draws its
@@ -329,6 +342,13 @@ public final class PipelineRenderer {
 
         let longEdge = Int(Swift.max(decoded.extent.width, decoded.extent.height))
         let planInterval = Self.signposter.beginInterval("plan")
+        // The photograph's identity, stamped BEFORE the plan is built: the plan's
+        // stale-table door (`PlanTableCache.pairedTableAllowingStale`) may only
+        // borrow a table this photograph rendered with — the newest entry in the
+        // slot, unqualified, is whatever photograph was edited last, which is how
+        // stepping from a B&W edit flashed the next colour frame monochrome
+        // (docs/31 round two §4).
+        Self.stampRenderIdentity(source)
         let plan = RenderPlan(recipe: recipe,
                               asShotKelvin: source.asShotTemperature,
                               asShotTint: source.asShotTint,
@@ -416,8 +436,21 @@ public final class PipelineRenderer {
                        strokeSets: [String: BrushStrokeSet] = [:]) throws -> [String] {
         let image = try exportedImage(source: source, recipe: recipe,
                                       using: exportRecipe, strokeSets: strokeSets)
-        try write(image, to: destination, using: exportRecipe)
+        try write(image, to: destination, using: exportRecipe,
+                  sourceProperties: Self.sourceImageProperties(source.url))
         return availability.unavailable
+    }
+
+    /// The ORIGINAL file's property dictionary, through ImageIO — the base the
+    /// metadata policy edits (docs/31 round one §13). Nil for a file no
+    /// CGImageSource can open (a stub, a moved original); the policy then falls
+    /// back to the rendered image's own dictionary.
+    static func sourceImageProperties(_ url: URL) -> [String: Any]? {
+        guard let container = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(container, 0, nil)
+                as? [String: Any]
+        else { return nil }
+        return properties
     }
 
     /// The delivered pixels, one step before the encoder.
@@ -450,6 +483,7 @@ public final class PipelineRenderer {
             throw RenderError.decodeFailed
         }
         let longEdge = Int(Swift.max(decoded.extent.width, decoded.extent.height))
+        Self.stampRenderIdentity(source)
         let plan = RenderPlan(recipe: recipe,
                               asShotKelvin: source.asShotTemperature,
                               asShotTint: source.asShotTint,
@@ -491,11 +525,23 @@ public final class PipelineRenderer {
         // anyone claims a number for it.
         let cropped = Self.applyGeometry(image, recipe: recipe)
         let extent = cropped.extent
-        let target = exportRecipe.targetSize(sourceWidth: Int(extent.width),
-                                             sourceHeight: Int(extent.height))
-        image = Self.applyGeometry(image, recipe: recipe,
-                                   scaleTo: Swift.max(target.width, target.height),
-                                   allowUpscale: exportRecipe.allowUpscale)
+        if exportRecipe.resizeMode == .none {
+            // "Don't resize" means the resampler DOES NOT RUN — scale is exactly 1
+            // by construction, not by arithmetic (docs/31 round one §11). The old
+            // path fed `targetSize` the crop extent TRUNCATED to Int, then asked
+            // `applyGeometry` to scale to it: any cropped or straightened
+            // photograph has a fractional crop extent, so `.none` resampled the
+            // whole frame through Lanczos at ~0.9999× and delivered it one pixel
+            // short per axis. `cropped` above is already the un-resized geometry —
+            // orientation and crop, no scale — so it IS the `.none` delivery.
+            image = cropped
+        } else {
+            let target = exportRecipe.targetSize(sourceWidth: Int(extent.width),
+                                                 sourceHeight: Int(extent.height))
+            image = Self.applyGeometry(image, recipe: recipe,
+                                       scaleTo: Swift.max(target.width, target.height),
+                                       allowUpscale: exportRecipe.allowUpscale)
+        }
         // Grain, on the grid that is DELIVERED — which is why `makeGraph` was asked to
         // withhold the plate above.
         //
@@ -646,6 +692,7 @@ public final class PipelineRenderer {
                                           lutSize: LUT3D.exportSize)
 
         let hues = measuredBandMeanHues(source: source)
+        Self.stampRenderIdentity(source)
         let sdrPlan = RenderPlan(recipe: recipe, asShotKelvin: source.asShotTemperature,
                                  asShotTint: source.asShotTint,
                                  displayWhiteTarget: 100, lutSize: LUT3D.exportSize,
@@ -713,10 +760,24 @@ public final class PipelineRenderer {
     /// One thing the additive half is NOT: a way to guarantee EXIF is present when the
     /// switch is on. Nothing here fabricates camera fields the decode did not carry, and
     /// the sheet's EXIF row says so in those words.
+    /// `sourceProperties` is the ORIGINAL FILE's property dictionary, read through
+    /// ImageIO — not the rendered image's (docs/31 round one §13). `image` here has
+    /// been through ~40 custom kernels, and `CIImage.properties` across a filter
+    /// chain is one of two wrong things: empty, in which case the whole policy was
+    /// a no-op and "EXIF: on" delivered files with no camera data at all; or the
+    /// decode's dictionary carried forward verbatim, in which case the SOURCE's
+    /// orientation and pixel dimensions survived onto a rotated, cropped, resized
+    /// delivery — a file that lies about its own geometry. Reading the source
+    /// dictionary makes the policy's subject real, and `reconcile` below overwrites
+    /// the geometry fields with what was actually written. Nil (a source with no
+    /// readable container, or a test stub) falls back to the rendered image's own
+    /// dictionary, which preserves the old behaviour for callers with nothing
+    /// better.
     static func applyMetadataPolicy(_ image: CIImage,
                                     _ policy: MetadataPolicy,
-                                    resolutionPPI: Double) -> CIImage {
-        var properties = image.properties
+                                    resolutionPPI: Double,
+                                    sourceProperties: [String: Any]? = nil) -> CIImage {
+        var properties = sourceProperties ?? image.properties
 
         func drop(_ key: CFString) {
             properties.removeValue(forKey: key as String)
@@ -783,18 +844,49 @@ public final class PipelineRenderer {
             properties[kCGImagePropertyDPIHeight as String] = resolutionPPI
         }
 
+        // RECONCILE the geometry fields with the pixels being written. The source
+        // dictionary describes the source: a RAW's EXIF orientation says "rotate me
+        // on display" about pixels this pipeline has already rendered upright, and
+        // its pixel dimensions are the sensor's, not this delivery's. Carrying
+        // either forward makes a resized file that claims the original's size and a
+        // straightened file that viewers rotate a second time. The render is the
+        // authority here, so these fields are overwritten last, after every policy
+        // decision above.
+        let deliveredWidth = Int(image.extent.width.rounded())
+        let deliveredHeight = Int(image.extent.height.rounded())
+        if deliveredWidth > 0, deliveredHeight > 0 {
+            properties[kCGImagePropertyPixelWidth as String] = deliveredWidth
+            properties[kCGImagePropertyPixelHeight as String] = deliveredHeight
+            let exifKey = kCGImagePropertyExifDictionary as String
+            if var exif = properties[exifKey] as? [String: Any] {
+                exif[kCGImagePropertyExifPixelXDimension as String] = deliveredWidth
+                exif[kCGImagePropertyExifPixelYDimension as String] = deliveredHeight
+                properties[exifKey] = exif
+            }
+        }
+        // Orientation 1: "the pixels are already the right way up", which is what
+        // this renderer delivers by construction.
+        properties[kCGImagePropertyOrientation as String] = 1
+        let tiffKey = kCGImagePropertyTIFFDictionary as String
+        if var tiff = properties[tiffKey] as? [String: Any] {
+            tiff[kCGImagePropertyTIFFOrientation as String] = 1
+            properties[tiffKey] = tiff
+        }
+
         // Explicit upcast: `properties` is [String: Any] and the API takes
         // [AnyHashable: Any].
         return image.settingProperties(properties as [AnyHashable: Any])
     }
 
     private func write(_ image: CIImage, to destination: URL,
-                       using recipe: ExportRecipe) throws {
+                       using recipe: ExportRecipe,
+                       sourceProperties: [String: Any]? = nil) throws {
         guard let colorSpace = Self.cgColorSpace(recipe.colorSpace) else {
             throw RenderError.unsupportedFormat(recipe.colorSpace.rawValue)
         }
         let prepared = Self.applyMetadataPolicy(image, recipe.metadata,
-                                                resolutionPPI: recipe.resolutionPPI)
+                                                resolutionPPI: recipe.resolutionPPI,
+                                                sourceProperties: sourceProperties)
         let quality = Num.clamp(recipe.quality / 100.0, 0, 1)
         let qualityKey = CIImageRepresentationOption(
             rawValue: kCGImageDestinationLossyCompressionQuality as String)
@@ -867,10 +959,18 @@ public final class PipelineRenderer {
         // `MaskRasterCache` below, which lets a draft frame reuse a raster instead of
         // paying probe (b)'s 12–190 ms per mask per event.
         if !plan.masks.isEmpty {
-            // Mask rasters are smooth by construction, so they cost a fraction of the
-            // frame at proxy resolution and upsample without visible error.
+            // The raster resolution SCALES WITH THE RENDER (docs/31 round two §3).
+            // Only a draft frame rasterizes at the 1024 proxy — that is the price a
+            // moving hand pays, bounded by MaskRasterCache so it is paid once per
+            // gesture, not per event. A settle or export frame rasterizes at the
+            // render target's own resolution: every path used to cap at 1024 and
+            // bilinearly upsample, which delivered every masked EXPORT a mask edge
+            // resolved to 1/1024 of the frame — an 8 px ramp on a 45 MP file with
+            // the boundary quantised to 8 px — while the CPU reference rasterizes
+            // at full resolution, so the two renderers could not agree either.
             let long = Swift.max(extent.width, extent.height)
-            let scale = long > 0 ? Swift.min(1.0, CGFloat(Self.maskRasterLongEdge) / long) : 1
+            let cap = allowStaleRasters ? CGFloat(Self.maskRasterLongEdge) : long
+            let scale = long > 0 ? Swift.min(1.0, cap / long) : 1
             let width = Swift.max(Int(extent.width * scale), 8)
             let height = Swift.max(Int(extent.height * scale), 8)
 
@@ -935,6 +1035,7 @@ public final class PipelineRenderer {
                     let key = [maskJSON, "\(width)x\(height)", strokesKey, mattesKey,
                                sourceKey].joined(separator: "|")
                     alpha = maskRasters.plane(maskID: mask.id, key: key,
+                                              identity: sourceURL.absoluteString,
                                               allowStale: allowStaleRasters,
                                               bakeExact: bake)
                 } else {
@@ -976,6 +1077,7 @@ public final class PipelineRenderer {
     /// numbers anyway: `MaskOverlay.composite` mixes the picture with it per pixel.
     public func renderMaskAlpha(source: any ImageSource, recipe: Recipe, maskID: String,
                                 strokeSets: [String: BrushStrokeSet] = [:]) -> Plane? {
+        Self.stampRenderIdentity(source)
         let plan = RenderPlan(recipe: recipe,
                               asShotKelvin: source.asShotTemperature,
                               asShotTint: source.asShotTint,
@@ -1073,9 +1175,15 @@ public final class PipelineRenderer {
         return parts.joined(separator: "|")
     }
 
-    /// Long edge a mask raster is computed at. Masks are low-frequency fields; the
-    /// guided-filter refinement that makes their edges sharp runs at full resolution
-    /// in the graph, not here.
+    /// Long edge a DRAFT frame's mask raster is computed at — and only a draft's.
+    /// Settle and export rasterize at the render target's own resolution
+    /// (`makeGraph`, docs/31 round two §3).
+    ///
+    /// The previous comment here claimed a full-resolution guided-filter
+    /// refinement stage "in the graph" made the proxy harmless everywhere. No such
+    /// stage exists, and it never did: the raster — refinement included — was
+    /// computed at this size on every path and bilinearly upsampled, which is an
+    /// 8 px ramp with an 8 px-quantised boundary on a 45 MP export.
     ///
     /// Public because it is also the resolution an AI matte is generated at, and
     /// `matteSourceImage` takes it as a default argument.
@@ -1350,6 +1458,7 @@ public final class PipelineRenderer {
                                      radius: Int = 2) -> RGB? {
         guard let decoded = source.decode(recipe: recipe, draft: false, scaleFactor: 1.0)
         else { return nil }
+        Self.stampRenderIdentity(source)
         let plan = RenderPlan(recipe: recipe,
                               asShotKelvin: source.asShotTemperature,
                               asShotTint: source.asShotTint,
@@ -1381,6 +1490,7 @@ public final class PipelineRenderer {
                                       radius: Int = 2) -> RGB? {
         guard let decoded = source.decode(recipe: recipe, draft: false, scaleFactor: 1.0)
         else { return nil }
+        Self.stampRenderIdentity(source)
         let plan = RenderPlan(recipe: recipe,
                               asShotKelvin: source.asShotTemperature,
                               asShotTint: source.asShotTint,
@@ -1589,13 +1699,25 @@ public final class PipelineRenderer {
 
     /// Lanczos-3, in linear light. Resampling gamma-encoded data is the classic
     /// downscale-darkening bug; the working space here means we cannot make it.
+    ///
+    /// CLAMPED at the edges, then cropped back (docs/31 round one §12). A Lanczos
+    /// tap reaches three source pixels past the pixel it produces, and beyond the
+    /// extent an unclamped image is transparent black — so the outermost rows of
+    /// every resized export averaged real pixels with nothing and delivered a
+    /// darkened, semi-transparent rim. `clampedToExtent` extends the edge pixels
+    /// outward (the same fix `applyOutputSharpen` and every blur in `RenderGraph`
+    /// already carry), and the crop pins the result to the geometry the unclamped
+    /// filter would have produced, so callers see the same extent as before —
+    /// with pixels in it.
     static func scaled(_ image: CIImage, by scale: CGFloat) -> CIImage {
         guard scale > 0, abs(scale - 1) > 0.0001 else { return image }
         let filter = CIFilter.lanczosScaleTransform()
-        filter.inputImage = image
+        filter.inputImage = image.clampedToExtent()
         filter.scale = Float(scale)
         filter.aspectRatio = 1
-        return filter.outputImage ?? image
+        guard let out = filter.outputImage else { return image }
+        let target = image.extent.applying(CGAffineTransform(scaleX: scale, y: scale))
+        return out.cropped(to: target)
     }
 
     // MARK: - Output sharpening
@@ -1742,6 +1864,7 @@ public final class PipelineRenderer {
         guard let buffer = Self.buffer(from: decoded, context: context) else {
             throw RenderError.renderFailed
         }
+        Self.stampRenderIdentity(source)
         let plan = RenderPlan(recipe: recipe, asShotKelvin: source.asShotTemperature,
                               asShotTint: source.asShotTint,
                               captureISO: source.captureMetadata.iso,

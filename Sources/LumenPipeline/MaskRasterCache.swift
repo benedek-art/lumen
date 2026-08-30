@@ -39,6 +39,13 @@ public final class MaskRasterCache {
     private struct Entry {
         var key: String
         var plane: Plane
+        /// The photograph this raster last rendered — the same identity discipline
+        /// `PlanTableCache` carries (docs/31 round two §4), because this cache has
+        /// the same door: mask ids travel verbatim across photographs via Paste
+        /// Settings, so "this mask id's previous raster" can be a DIFFERENT
+        /// photograph's rasterized selection. A draft frame may ride a stale raster
+        /// of its own photograph; it must never wear another photograph's.
+        var identity: String
     }
 
     // MARK: Counters (docs/23 M1b: cache-hit counters on the HUD)
@@ -68,39 +75,48 @@ public final class MaskRasterCache {
     private let lock = NSLock()
     private var entries: [(maskID: String, entry: Entry)] = []
     private var inFlight: Set<String> = []
-    private var pending: [String: (key: String, bakeExact: () -> Plane)] = [:]
+    private var pending: [String: (key: String, identity: String,
+                                   bakeExact: () -> Plane)] = [:]
     private let bakeQueue = DispatchQueue(label: "lumen.maskraster.bake",
                                           qos: .userInitiated)
 
     /// The raster for `maskID`, exact when the key matches or nothing is held;
-    /// otherwise — on a draft frame only — the previous raster while the exact one
-    /// bakes in the background.
-    func plane(maskID: String, key: String, allowStale: Bool,
+    /// otherwise — on a draft frame only, and only for the SAME photograph — the
+    /// previous raster while the exact one bakes in the background.
+    ///
+    /// `identity` is the photograph being rendered. An exact key hit is served to
+    /// any photograph (the key contains the file url wherever pixels are read, so
+    /// an exact hit cannot lie) and the entry adopts the identity; the stale
+    /// borrow requires it to MATCH, so a photo switch renders its masks fresh
+    /// rather than wearing the previous photograph's selection for a frame.
+    func plane(maskID: String, key: String, identity: String, allowStale: Bool,
                bakeExact: @escaping () -> Plane) -> Plane {
         lock.lock()
-        if let held = entries.first(where: { $0.maskID == maskID })?.entry,
-           held.key == key {
+        if let index = entries.firstIndex(where: { $0.maskID == maskID }),
+           entries[index].entry.key == key {
+            entries[index].entry.identity = identity
+            let held = entries[index].entry
             lock.unlock()
             Self.count { $0.hits += 1 }
             return held.plane
         }
-        let previous = entries.first(where: { $0.maskID == maskID })?.entry.plane
-        guard allowStale, let previous else {
+        let previous = entries.first { $0.maskID == maskID }?.entry
+        guard allowStale, let previous, previous.identity == identity else {
             lock.unlock()
             Self.count { $0.bakes += 1 }
             let built = bakeExact()
-            store(maskID: maskID, key: key, plane: built)
+            store(maskID: maskID, key: key, identity: identity, plane: built)
             return built
         }
         Self.count { $0.staleServes += 1 }
         // Replace, never append: only the newest deferred raster can ever be shown.
-        pending[maskID] = (key: key, bakeExact: bakeExact)
+        pending[maskID] = (key: key, identity: identity, bakeExact: bakeExact)
         let mustStart = !inFlight.contains(maskID)
         if mustStart { inFlight.insert(maskID) }
         lock.unlock()
 
         if mustStart { bakeQueue.async { [weak self] in self?.drainPending(maskID) } }
-        return previous
+        return previous.plane
     }
 
     /// True while a background raster (or a queued one) is outstanding for `maskID`.
@@ -128,14 +144,24 @@ public final class MaskRasterCache {
             lock.unlock()
 
             let built = next.bakeExact()
-            store(maskID: maskID, key: next.key, plane: built)
+            store(maskID: maskID, key: next.key, identity: next.identity, plane: built)
         }
     }
 
-    private func store(maskID: String, key: String, plane: Plane) {
+    private func store(maskID: String, key: String, identity: String, plane: Plane) {
+        // Rasters above the draft proxy are not held, the same rule
+        // `PlanTableCache` applies to export-size bakes: settle and export rasters
+        // now come at the RENDER's resolution (docs/31 round two §3), and a single
+        // 45 MP export raster is ~180 MB of Float plane — sixteen of those is not a
+        // cache, it is a leak. The proxy-sized draft rasters are the ones a drag
+        // actually revisits, and they still land here.
+        guard Swift.max(plane.width, plane.height) <= PipelineRenderer.maskRasterLongEdge
+        else { return }
         lock.lock()
         entries.removeAll { $0.maskID == maskID }
-        entries.insert((maskID: maskID, entry: Entry(key: key, plane: plane)), at: 0)
+        entries.insert((maskID: maskID,
+                        entry: Entry(key: key, plane: plane, identity: identity)),
+                       at: 0)
         if entries.count > capacity { entries.removeLast(entries.count - capacity) }
         lock.unlock()
     }

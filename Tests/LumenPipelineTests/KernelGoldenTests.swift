@@ -15,6 +15,7 @@
 
 import CoreImage
 import Foundation
+import ImageIO
 import XCTest
 @testable import LumenCore
 @testable import LumenPipeline
@@ -1200,9 +1201,15 @@ final class KernelGoldenTests: XCTestCase {
         // Downsized: the same picture, three times larger, delivered at the same size.
         let downsized = try delivery(sourceLongEdge: delivered * 3)
 
-        // Inset, because Lanczos at the border of the larger frame legitimately differs
-        // from no resampling at all.
-        let inset = 6
+        // Inset by two pixels, down from six. Six existed to dodge the darkened
+        // Lanczos rim `scaled()` used to produce on every resized export (docs/31
+        // round one §12) — a defect this comparison was stepping around instead of
+        // failing on. With the edge clamp in `scaled()` the borders of a flat
+        // field survive the resample, and `testAResizedExportHasNoDarkenedRim`
+        // pins that directly; what remains is the honest half-pixel phase
+        // difference of resampled-vs-native at the outermost rows, which two
+        // pixels covers.
+        let inset = 2
         var sum = 0.0, sumSquares = 0.0, difference = 0.0, count = 0.0
         for y in inset..<(native.height - inset) {
             for x in inset..<(native.width - inset) {
@@ -3020,6 +3027,626 @@ final class KernelGoldenTests: XCTestCase {
                 XCTAssertEqual(result[x, y].g, 0.18, accuracy: 1e-4)
             }
         }
+    }
+
+    // MARK: - The log-luminance guide floors at zero (docs/31 round two §5)
+
+    /// A negative-luminance pixel must encode the way the reference encodes it:
+    /// floored at zero FIRST, so it lands at `LumenLog.encode(0)` ≈ +0.0024.
+    ///
+    /// Scene-linear luminance goes negative routinely after white balance, and the
+    /// shaper's toe is linear and UNBOUNDED below — the GPU guide encoded −0.01 to
+    /// −4.83 where `ReferenceRenderer.applyTone` (which guides on
+    /// `LumenLog.encode(max(lum, 0))`) gives +0.0024. One such pixel drives the
+    /// guided filter's `a` from 0.087 to 0.917 across a 103×103 patch: the
+    /// edge-aware tone mask degenerates into the raw luminance around every deep
+    /// saturated shadow. This pins the encode itself, which is the number
+    /// everything downstream inherits.
+    func testLogLuminanceFloorsANegativeLuminancePixelAtZero() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+        let width = 8, height = 4
+        // Left half: the audit's own probe value, −0.01 in every channel — a pixel
+        // whose luminance is unambiguously negative. Right half: mid-grey, so the
+        // floor provably does not touch positive luminance.
+        let source = ImageBuffer(width: width, height: height) { u, _ in
+            u < 0.5 ? RGB(-0.01, -0.01, -0.01) : RGB(gray: 0.18)
+        }
+        guard let lum = RenderGraph.logLuminance(ciImage(from: source)),
+              let result = readBack(lum, width: width, height: height)
+        else { return XCTFail("logLuminance render failed") }
+
+        let floored = LumenLog.encode(0)
+        let grey = LumenLog.encode(0.18)
+        XCTAssertEqual(Double(result[1, 1].g), floored, accuracy: 2e-4,
+                       "a −0.01 luminance encoded to \(result[1, 1].g) — the "
+                           + "reference floors at zero first and gives \(floored); "
+                           + "the unbounded toe gives −4.83, which is the "
+                           + "guided-filter blowup of docs/31 round two §5")
+        XCTAssertEqual(Double(result[6, 1].g), grey, accuracy: 2e-4,
+                       "the floor moved a positive-luminance pixel")
+    }
+
+    // MARK: - Texture's gain carries the reference's ±4 EV limit (docs/31 R2 §15)
+
+    /// The texture kernels' exponent clamps at ±4 EV, exactly where the reference
+    /// clamps every presence excursion (`DetailEngine.applyLumaRatio(limit: 4)`).
+    ///
+    /// Driven at the kernel level, because that is where the limit lives: a band
+    /// of 0.5 encoded units (12 EV) under Texture +100's own coefficient
+    /// (0.9 · range = 21.6 per encoded unit) asks for 2^10.8 ≈ 1783× — the
+    /// unbounded gain the GPU used to apply — and must get 2^4 = 16.
+    func testTextureGainClampsAtFourEVLikeTheReference() throws {
+        try XCTSkipUnless(KernelLibrary.detailGain != nil
+                              && KernelLibrary.detailGainGated != nil,
+                          "kernels unavailable")
+        let width = 8, height = 4
+        let hi = ciImage(from: ImageBuffer(width: width, height: height) { _, _ in
+            RGB(gray: 0.75)
+        })
+        let lo = ciImage(from: ImageBuffer(width: width, height: height) { _, _ in
+            RGB(gray: 0.25)
+        })
+        // A gate plane of zero coherence: fully open for both signs, so the clamp
+        // — not the gate — is what bounds the result.
+        let gate = ciImage(from: ImageBuffer(width: width, height: height) { _, _ in
+            RGB(gray: 0)
+        })
+        let k = 100.0 / 100.0 * 0.9 * LumenLog.range
+
+        guard let up = KernelLibrary.apply(KernelLibrary.detailGain,
+                                           extent: hi.extent, [hi, lo, Float(k)]),
+              let upPixels = readBack(up, width: width, height: height)
+        else { return XCTFail("detailGain render failed") }
+        XCTAssertEqual(Double(upPixels[2, 2].g), 16.0, accuracy: 0.5,
+                       "a 12 EV band at Texture +100 produced a gain of "
+                           + "\(upPixels[2, 2].g) — the reference clamps the "
+                           + "excursion at +4 EV (gain 16); unbounded it is 2^10.8")
+
+        guard let down = KernelLibrary.apply(KernelLibrary.detailGain,
+                                             extent: hi.extent, [hi, lo, Float(-k)]),
+              let downPixels = readBack(down, width: width, height: height)
+        else { return XCTFail("detailGain render failed") }
+        XCTAssertEqual(Double(downPixels[2, 2].g), 0.0625, accuracy: 0.002,
+                       "the negative direction must clamp at −4 EV (gain 1/16), "
+                           + "got \(downPixels[2, 2].g)")
+
+        guard let gated = KernelLibrary.apply(
+                KernelLibrary.detailGainGated, extent: hi.extent,
+                [hi, lo, gate, Float(k), Float(0.0),
+                 Float(DetailEngine.texturePositiveGateLo),
+                 Float(DetailEngine.texturePositiveGateHi)]),
+              let gatedPixels = readBack(gated, width: width, height: height)
+        else { return XCTFail("detailGainGated render failed") }
+        XCTAssertEqual(Double(gatedPixels[2, 2].g), 16.0, accuracy: 0.5,
+                       "the gated kernel must carry the same ±4 EV clamp, got "
+                           + "\(gatedPixels[2, 2].g)")
+    }
+
+    // MARK: - The vignette clamps its amount like the reference (docs/31 R2 §15)
+
+    /// An out-of-range vignette amount renders the reference's picture, not a
+    /// deeper one: `DetailEngine.vignette` opens with `clamp(ev, −3, +1)` and the
+    /// GPU stage took the raw value, so a recipe carrying −5 (a foreign sidecar, a
+    /// hand-edited file — the slider never leaves −3…+1) burned its corners 2^2
+    /// darker on the GPU than on the reference path.
+    func testTheVignetteClampsItsAmountLikeTheReference() throws {
+        try XCTSkipUnless(KernelLibrary.vignette != nil, "kernel unavailable")
+        let width = 64, height = 32
+        // Uniform mid-grey: the vignette is then the only structure, and the frame
+        // is symmetric about both axes, so the row-order convention cannot bite.
+        let source = ImageBuffer(width: width, height: height) { _, _ in
+            RGB(gray: 0.18)
+        }
+        let gpuImage = RenderGraph().applyVignette(ciImage(from: source), ev: -5,
+                                                   feather: Look.vignetteFeatherDefault,
+                                                   crop: Crop())
+        guard let gpu = readBack(gpuImage, width: width, height: height) else {
+            return XCTFail("vignette render failed")
+        }
+        let reference = DetailEngine.vignette(source, ev: -5)
+
+        var worst = 0.0
+        var worstAt = (0, 0)
+        for y in 0..<height {
+            for x in 0..<width {
+                let d = reference[x, y].maxAbsDifference(gpu[x, y])
+                if d > worst { worst = d; worstAt = (x, y) }
+            }
+        }
+        // The corner at −3 (clamped) is 0.0225; unclamped −5 delivers 0.0056 — a
+        // 0.017 gap this bar sits well under, while the kernel's own f16/f32 error
+        // plus the exponent dither (±0.006 EV ≈ 0.4% of gain) sit an order of
+        // magnitude below it.
+        XCTAssertLessThan(worst, 0.005,
+                          "vignette at −5 diverged from the reference by \(worst) "
+                              + "at \(worstAt) — the GPU stage is missing the "
+                              + "reference's clamp(ev, −3, +1)")
+    }
+
+    // MARK: - The vignette's feather agrees between the renderers (docs/32 E4)
+
+    /// One recipe feather, two renderers, the same geometry — at every stop of the
+    /// range. Both paths derive the inner radius through the ONE function
+    /// (`DetailEngine.vignetteInnerRadius(feather:)`), and this golden is what makes
+    /// re-deriving it in either place a red build instead of a drifted picture. The
+    /// default-feather case doubles as the compatibility anchor: recipes without the
+    /// field must render the geometry both renderers always drew (LumenCore pins
+    /// `vignetteInnerRadius(feather: 50) == vignetteInnerRadius` on its side).
+    func testTheVignetteFeatherAgreesBetweenTheRenderers() throws {
+        try XCTSkipUnless(KernelLibrary.vignette != nil, "kernel unavailable")
+        let width = 64, height = 32
+        let source = ImageBuffer(width: width, height: height) { _, _ in
+            RGB(gray: 0.18)
+        }
+        for feather in [0.0, 25.0, 50.0, 75.0, 100.0] {
+            let gpuImage = RenderGraph().applyVignette(ciImage(from: source), ev: -2,
+                                                       feather: feather, crop: Crop())
+            guard let gpu = readBack(gpuImage, width: width, height: height) else {
+                return XCTFail("vignette render failed at feather \(feather)")
+            }
+            let reference = DetailEngine.vignette(source, ev: -2, feather: feather)
+            var worst = 0.0
+            var worstAt = (0, 0)
+            for y in 0..<height {
+                for x in 0..<width {
+                    let d = reference[x, y].maxAbsDifference(gpu[x, y])
+                    if d > worst { worst = d; worstAt = (x, y) }
+                }
+            }
+            // Same bar as the clamp golden above, and for the same reason: the
+            // kernel's f16/f32 error plus the exponent dither sit an order of
+            // magnitude under it, while a wrong inner radius moves mid-frame gain
+            // by whole percents of 0.18.
+            XCTAssertLessThan(worst, 0.005,
+                              "vignette at feather \(feather) diverged from the "
+                                  + "reference by \(worst) at \(worstAt) — the two "
+                                  + "renderers are not deriving the inner radius "
+                                  + "from the same function")
+        }
+    }
+
+    // MARK: - A strong vignette must not band on the half-float plane (docs/31 R2 §7)
+
+    /// The banding the owner reported at −3, as a NUMBER: when the log-encoded
+    /// plane is materialized at the shipping context's working precision (RGBAh),
+    /// the vignette's ramp must keep its local mean instead of stepping.
+    ///
+    /// Mechanism: the finish stage samples its cube on the log-encoded plane,
+    /// which parks real pictures where one fp16 step is 2⁻¹¹ · 24 ≈ 0.0117 EV
+    /// (`RenderGraph.encodedFP16QuantumEV`). A strong burn is a slow, noise-free
+    /// synthetic gradient — exactly the signal that quantum turns into visible
+    /// rings, and the 8-bit output dither cannot break bands born upstream of it.
+    /// The fix dithers the vignette's own exponent by ±half a quantum, so the
+    /// encoded plane's rounding preserves the ramp's local mean.
+    ///
+    /// The harness materializes the encoded plane EXPLICITLY (`insertingIntermediate`
+    /// under an RGBAh working format), because whether the shipping graph buffers
+    /// at that node is Core Image's scheduling decision — the golden pins the
+    /// property that must hold whenever it does.
+    ///
+    /// The fixture and both bars are CALIBRATED, not guessed: the exact kernel
+    /// arithmetic (LumenLog, the smoothstep falloff, IEEE fp16 round-to-nearest,
+    /// Lumen's own Bayer matrix) was simulated in double for this very frame.
+    /// Base grey 1.44 parks the burn's whole travel in encoded [0.5, 1), where the
+    /// fp16 quantum is the full 0.0117 EV; each measurement point averages one
+    /// Bayer period of rows about the midline (rows there share a radius, so a
+    /// quantised staircase stays in phase — a full-height mean would average
+    /// differently-phased staircases smooth and hide the defect) and the column's
+    /// mirror twin (whose Bayer column is a DIFFERENT subset of the cell, which is
+    /// what makes the dithered mean converge). Simulated numbers: worst
+    /// adjacent-column step — quantised 0.0117 EV, dithered 0.0044, ideal ramp
+    /// 0.0033; worst deviation from the f64 reference — quantised 0.0059,
+    /// dithered 0.0013. The bars sit between the two populations with ≥1.5×
+    /// margin each way.
+    func testAStrongVignetteKeepsItsMeanThroughAHalfFloatEncodedPlane() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+        let width = 3072, height = 512
+        let baseGrey = 1.44
+        let source = ImageBuffer(width: width, height: height) { _, _ in
+            RGB(gray: baseGrey)
+        }
+        // The SHIPPING context's precision, not the test context's: this file's
+        // `context` works in RGBAf precisely so goldens measure arithmetic, and
+        // this one test exists to measure the fp16 plane the app renders on.
+        let fp16 = CIContext(options: [
+            .workingColorSpace: CGColorSpace(
+                name: CGColorSpace.extendedLinearITUR_2020) as Any,
+            .workingFormat: CIFormat.RGBAh,
+            .cacheIntermediates: true,
+        ])
+
+        let vignetted = RenderGraph().applyVignette(ciImage(from: source), ev: -3,
+                                                    feather: Look.vignetteFeatherDefault,
+                                                    crop: Crop())
+        guard let encoded = KernelLibrary.apply(KernelLibrary.logEncode,
+                                                extent: vignetted.extent, [vignetted])
+        else { return XCTFail("encode failed") }
+        let materialized = encoded.insertingIntermediate()
+        guard let decoded = KernelLibrary.apply(KernelLibrary.logDecode,
+                                                extent: vignetted.extent,
+                                                [materialized])
+        else { return XCTFail("decode failed") }
+
+        var pixels = [Float](repeating: 0, count: width * height * 4)
+        pixels.withUnsafeMutableBytes { raw in
+            guard let base = raw.baseAddress else { return }
+            fp16.render(decoded, toBitmap: base, rowBytes: width * 16,
+                        bounds: CGRect(x: 0, y: 0, width: width, height: height),
+                        format: .RGBAf, colorSpace: nil)
+        }
+
+        /// Mean EV at column `x`: one Bayer period of rows about the midline, in
+        /// this column and its mirror twin (the vignette is symmetric, so the
+        /// ideal values are identical and only the dither phase differs).
+        func columnMeanEV(_ x: Int) -> Double {
+            var sum = 0.0
+            let mid = height / 2
+            for y in (mid - 4)..<(mid + 4) {
+                sum += Double(pixels[(y * width + x) * 4 + 1])
+                sum += Double(pixels[(y * width + (width - 1 - x)) * 4 + 1])
+            }
+            return log2(Swift.max(sum / 16.0, 1e-9) / 0.18)
+        }
+
+        // The falloff region along the midline: from where the burn starts to the
+        // frame's edge, staying 16 px off the border.
+        let inner = Int(Double(width / 2)
+                        * (1 + DetailEngine.vignetteInnerRadius * 2.0.squareRoot()))
+        let reference = DetailEngine.vignette(source, ev: -3)
+        func idealEV(_ x: Int) -> Double {
+            log2(Swift.max(Double(reference[x, height / 2].g), 1e-9) / 0.18)
+        }
+
+        var worstStep = 0.0
+        var worstDeviation = 0.0
+        var idealStep = 0.0
+        var previous = columnMeanEV(inner)
+        var previousIdeal = idealEV(inner)
+        for x in (inner + 1)..<(width - 16) {
+            let ev = columnMeanEV(x)
+            let ideal = idealEV(x)
+            worstStep = Swift.max(worstStep, abs(ev - previous))
+            worstDeviation = Swift.max(worstDeviation, abs(ev - ideal))
+            idealStep = Swift.max(idealStep, abs(ideal - previousIdeal))
+            previous = ev
+            previousIdeal = ideal
+        }
+        print(String(format: "VIGNETTE BANDING worst step %.5f EV, worst deviation "
+                         + "%.5f EV (ideal ramp step %.5f, fp16 quantum %.5f)",
+                     worstStep, worstDeviation, idealStep,
+                     RenderGraph.encodedFP16QuantumEV))
+        XCTAssertLessThan(idealStep, 0.005,
+                          "the fixture's ideal ramp steps \(idealStep) EV per "
+                              + "column — too steep to tell a band from the ramp")
+        XCTAssertLessThan(worstStep, 0.0065,
+                          "the −3 EV burn steps \(worstStep) EV between adjacent "
+                              + "columns (a quantised band edge costs the full "
+                              + "0.0117) — the encoded plane is quantising the "
+                              + "ramp into the rings the owner reported")
+        XCTAssertLessThan(worstDeviation, 0.003,
+                          "the burn's local mean sits \(worstDeviation) EV off the "
+                              + "f64 reference — the staircase parks half a "
+                              + "quantum (0.0059) away between band edges")
+    }
+
+    // MARK: - The gamut flag sits where the reference puts it: before grain
+
+    /// A flagged pixel is GRAINED, because that is what the reference renders:
+    /// `ReferenceRenderer.render` computes the flag inside `finishedColor` at
+    /// S14/S15 and then runs the local curves and grain over it. The graph used to
+    /// paint the flag LAST — a deliberate design the reference does not implement
+    /// — so every flagged pixel under grain disagreed between the two renderers
+    /// (docs/31 round two §15). The discriminator is variance: painted last, the
+    /// flagged region is EXACTLY the constant warning colour; painted where the
+    /// reference paints it, the grain modulates it like any other pixel.
+    func testTheGamutFlagIsGrainedLikeTheReference() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+        let width = 64, height = 32
+        // Left half: the Rec.2020 green sRGB cannot hold (the proof suite's own
+        // fixture). Right half: mid-grey control.
+        let source = ImageBuffer(width: width, height: height) { u, _ in
+            u < 0.5 ? RGB(0.02, 1.1, 0.02) : RGB(gray: 0.18)
+        }
+        var recipe = Recipe()
+        recipe.develop.denoise.mode = .off
+        recipe.look.filmLab = FilmLab(stock: "lumen/portra400", amount: 100,
+                                      grain: FilmGrain(size: 1, amount: 100))
+        let proof = SoftProof(enabled: true, space: .srgb,
+                              intent: .relativeColorimetric, showGamutWarning: true)
+        let plan = RenderPlan(recipe: recipe, lutSize: LUT3D.exportSize,
+                              softProof: proof)
+        guard let film = plan.filmChain else {
+            return XCTFail("the film lab did not build a chain")
+        }
+        let extent = CGRect(x: 0, y: 0, width: width, height: height)
+        let options = RenderGraph.Options(longEdge: width)
+
+        // Control first, with NO plate, so `build` skips the grain stage: the
+        // flagged half must be the exact warning colour. This is the self-check
+        // that the film-formed green still leaves sRGB — if a stock change ever
+        // pulls the fixture into gamut, the failure names the fixture instead of
+        // the variance assertion passing on an unflagged region.
+        guard let control = readBack(RenderGraph().build(ciImage(from: source),
+                                                         plan: plan,
+                                                         options: options),
+                                     width: width, height: height) else {
+            return XCTFail("control render failed")
+        }
+        let flag = SoftProof.warningColor
+        let probe = control[width / 4, height / 2]
+        XCTAssertLessThan(probe.maxAbsDifference(flag), 0.02,
+                          "the fixture's green is no longer flagged through the "
+                              + "film chain (\(probe) vs \(flag)) — grain over "
+                              + "the flag cannot be judged on it")
+
+        var graph = RenderGraph()
+        graph.grainPlate = PipelineRenderer.grainPlate(film: film, extent: extent)
+        XCTAssertNotNil(graph.grainPlate, "no grain plate — this test needs grain")
+        let output = graph.build(ciImage(from: source), plan: plan, options: options)
+        guard let gpu = readBack(output, width: width, height: height) else {
+            return XCTFail("render failed")
+        }
+
+        // Grained, the same region must still read as the flag on average — and
+        // must VARY, because the reference grains its flagged pixels like any
+        // others.
+        var mean = RGB(0, 0, 0)
+        var lo = Double.infinity, hi = -Double.infinity
+        var count = 0.0
+        for y in 4..<(height - 4) {
+            for x in 4..<(width / 2 - 4) {
+                let c = gpu[x, y]
+                mean = mean + c
+                lo = Swift.min(lo, Double(c.g))
+                hi = Swift.max(hi, Double(c.g))
+                count += 1
+            }
+        }
+        mean = mean / count
+        XCTAssertLessThan(mean.maxAbsDifference(flag), 0.1,
+                          "the grained flag drifted from the warning colour "
+                              + "(\(mean) vs \(flag))")
+        XCTAssertGreaterThan(hi - lo, 0.002,
+                             "the flagged region is EXACTLY constant under grain "
+                                 + "— the flag is painted after grain again, "
+                                 + "which is the opposite of the reference's "
+                                 + "placement")
+    }
+
+    // MARK: - A settle mask edge is resolved at the render, not at 1024 (R2 §3)
+
+    /// The mask raster's resolution must track the render target on the settle
+    /// path: a hard mask edge stays a couple of delivered pixels wide at EVERY
+    /// render size, instead of widening with renderSize/1024.
+    ///
+    /// Every path used to rasterize at the 1024 proxy and upsample — on this
+    /// fixture's 4096 px render that is a 4 px ramp; on a 45 MP export it is 8 px
+    /// with the boundary quantised to 8 px (docs/31 round two §3). The mask is a
+    /// linear ramp collapsed to a hard step by the levels remap (`hi ≤ lo` is the
+    /// documented hard-step form), under a +2 EV exposure, so the delivered edge
+    /// is unmissable; the transition count is measured in the delivered pixels.
+    func testASettleMaskEdgeIsResolvedAtTheRendersOwnResolution() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+        var mask = Mask(id: "m-edge", name: "step")
+        var component = MaskComponent(op: .add, kind: .linear)
+        component.line = [0.5, 0, 0.5, 1]
+        mask.components = [component]
+        mask.refine.levelsLo = 50
+        mask.refine.levelsHi = 50
+        mask.adjust.exposure = 2.0
+        var recipe = Recipe()
+        recipe.masks = [mask]
+        recipe.develop.denoise.mode = .off
+        let renderer = PipelineRenderer()
+
+        func transitionRows(renderLongEdge: Int) throws -> Int {
+            let w = renderLongEdge, h = renderLongEdge / 8
+            let flat = ImageBuffer(width: w, height: h) { _, _ in RGB(gray: 0.18) }
+            let cg = try renderer.renderPreview(source: StubSource(ciImage(from: flat)),
+                                                recipe: recipe, maxLongEdge: w,
+                                                draft: false, coarseDecode: false)
+            guard let delivered = readBack(CIImage(cgImage: cg), width: w, height: h)
+            else { throw RenderError.renderFailed }
+            // Down one column: the step is horizontal, so rows strictly between
+            // the two plateaus are the edge's ramp. The margin clears the output
+            // dither by an order of magnitude.
+            let x = w / 4
+            let top = Double(delivered[x, 2].g)
+            let bottom = Double(delivered[x, h - 3].g)
+            let lo = Swift.min(top, bottom), hi = Swift.max(top, bottom)
+            let margin = 0.12 * (hi - lo)
+            var between = 0
+            for y in 0..<h {
+                let v = Double(delivered[x, y].g)
+                if v > lo + margin && v < hi - margin { between += 1 }
+            }
+            XCTAssertGreaterThan(hi - lo, 0.05,
+                                 "the masked +2 EV moved the plateaus by "
+                                     + "\(hi - lo) — the mask is not reaching "
+                                     + "pixels, so the edge width means nothing")
+            return between
+        }
+
+        let small = try transitionRows(renderLongEdge: 1024)
+        let large = try transitionRows(renderLongEdge: 4096)
+        print("MASK EDGE transition rows: 1024 px \(small), 4096 px \(large)")
+        XCTAssertLessThanOrEqual(small, 2,
+                                 "a hard mask edge spans \(small) rows at a "
+                                     + "1024 px render")
+        XCTAssertLessThanOrEqual(large, 2,
+                                 "a hard mask edge spans \(large) rows at a "
+                                     + "4096 px render — the raster is still the "
+                                     + "1024 proxy, upsampled, on the settle path")
+    }
+
+    // MARK: - "Don't resize" does not resample (docs/31 round one §11)
+
+    /// `.none` must mean the resampler DOES NOT RUN — scale exactly 1 — even when
+    /// the crop extent is fractional. The old path computed a target from the
+    /// TRUNCATED crop extent and resampled the whole frame through Lanczos at
+    /// ~0.9997×, landing a pixel short per axis and blending every pixel with its
+    /// neighbours on the way.
+    ///
+    /// A one-pixel checkerboard is the instrument: with no resample the delivered
+    /// values are bimodal; a 0.9977× Lanczos drifts up to ~0.7 px of phase across
+    /// this frame and fills the gap between the modes with blends.
+    func testDontResizeDoesNotResampleACroppedPhotograph() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+        let w = 300, h = 200
+        let checker = ImageBuffer(width: w, height: h) { u, v in
+            let x = Int((u * Double(w)).rounded(.down))
+            let y = Int((v * Double(h)).rounded(.down))
+            return RGB(gray: (x + y) % 2 == 0 ? 0.5 : 0.05)
+        }
+        var recipe = Recipe()
+        recipe.develop.denoise.mode = .off
+        // A fractional crop extent: 0.999 × 300 = 299.7 px.
+        recipe.develop.geometry.crop.w = 0.999
+        let exportRecipe = ExportRecipe(name: "noresize", format: .png, bitDepth: 16,
+                                        colorSpace: .srgb, resizeMode: .none)
+        let renderer = PipelineRenderer()
+        let image = try renderer.exportedImage(source: StubSource(ciImage(from: checker)),
+                                               recipe: recipe, using: exportRecipe)
+
+        let ow = Int(image.extent.width.rounded())
+        let oh = Int(image.extent.height.rounded())
+        guard let pixels = readBack(image, width: ow, height: oh) else {
+            return XCTFail("export render failed")
+        }
+        // Interior only: the fractional crop's own last column is legitimately
+        // partial, and the phase drift that betrays a resample is largest
+        // mid-frame anyway.
+        var lo = Double.infinity, hi = -Double.infinity
+        for y in 20..<(oh - 20) {
+            for x in 20..<(ow - 20) {
+                let v = Double(pixels[x, y].g)
+                lo = Swift.min(lo, v); hi = Swift.max(hi, v)
+            }
+        }
+        let third = (hi - lo) / 3
+        var blended = 0, counted = 0
+        for y in 20..<(oh - 20) {
+            for x in 20..<(ow - 20) {
+                let v = Double(pixels[x, y].g)
+                if v > lo + third && v < hi - third { blended += 1 }
+                counted += 1
+            }
+        }
+        print("DONT-RESIZE blended pixels \(blended) of \(counted), "
+              + "delivered \(ow)×\(oh)")
+        XCTAssertGreaterThan(hi - lo, 0.01,
+                             "the checkerboard survived with no contrast — this "
+                                 + "fixture proves nothing")
+        XCTAssertLessThan(Double(blended), 0.01 * Double(counted),
+                          "\(blended) of \(counted) delivered pixels sit between "
+                              + "the checkerboard's modes — \"Don't resize\" ran "
+                              + "the resampler anyway")
+    }
+
+    // MARK: - A resized export has no darkened rim (docs/31 round one §12)
+
+    /// Every border pixel of a resized flat-field export matches the centre:
+    /// Lanczos taps reach past the extent, and without the edge clamp they
+    /// averaged real pixels with transparent black — a darkened, semi-transparent
+    /// rim on every resized delivery.
+    func testAResizedExportHasNoDarkenedRim() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+        let flat = ImageBuffer(width: 900, height: 600) { _, _ in RGB(gray: 0.5) }
+        var recipe = Recipe()
+        recipe.develop.denoise.mode = .off
+        let exportRecipe = ExportRecipe(name: "rim", format: .png, bitDepth: 16,
+                                        colorSpace: .srgb, resizeMode: .longEdge,
+                                        resizeValue: 300)
+        let renderer = PipelineRenderer()
+        let image = try renderer.exportedImage(source: StubSource(ciImage(from: flat)),
+                                               recipe: recipe, using: exportRecipe)
+        guard let pixels = readBack(image, width: 300, height: 200) else {
+            return XCTFail("export render failed")
+        }
+        let centre = Double(pixels[150, 100].g)
+        var worst = centre
+        var worstAt = (0, 0)
+        for y in 0..<200 {
+            for x in 0..<300 where y < 3 || y >= 197 || x < 3 || x >= 297 {
+                let v = Double(pixels[x, y].g)
+                if v < worst { worst = v; worstAt = (x, y) }
+            }
+        }
+        XCTAssertGreaterThan(centre, 0.05, "the flat field rendered black — "
+                                 + "this fixture proves nothing")
+        XCTAssertGreaterThan(worst, centre * 0.98,
+                             "border pixel \(worstAt) delivered \(worst) against "
+                                 + "a centre of \(centre) — the Lanczos rim is "
+                                 + "back; `scaled()` has lost its edge clamp")
+    }
+
+    // MARK: - The metadata policy edits the SOURCE dictionary (docs/31 §13)
+
+    /// The policy's base is the ORIGINAL file's properties, and the geometry
+    /// fields are reconciled with the delivered pixels.
+    ///
+    /// The old code read `image.properties` off the RENDERED image — after ~40
+    /// kernels — which is either empty (the whole policy a no-op: "EXIF: on"
+    /// delivered no camera data at all) or the decode's dictionary verbatim (the
+    /// source's orientation and pixel dimensions surviving onto a rotated,
+    /// resized file). This drives the new seam directly with a fixture dictionary
+    /// standing in for the source file's.
+    func testTheMetadataPolicyEditsTheSourceDictionaryAndReconcilesGeometry() throws {
+        let delivered = ciImage(from: ImageBuffer(width: 20, height: 10) { _, _ in
+            RGB(gray: 0.18)
+        })
+        let fixture: [String: Any] = [
+            kCGImagePropertyExifDictionary as String: [
+                kCGImagePropertyExifISOSpeedRatings as String: [400],
+                kCGImagePropertyExifPixelXDimension as String: 6000,
+                kCGImagePropertyExifPixelYDimension as String: 4000,
+            ],
+            kCGImagePropertyGPSDictionary as String: [
+                kCGImagePropertyGPSLatitude as String: 37.33,
+            ],
+            kCGImagePropertyTIFFDictionary as String: [
+                kCGImagePropertyTIFFModel as String: "ILCE-7M4",
+                kCGImagePropertyTIFFOrientation as String: 6,
+            ],
+            kCGImagePropertyOrientation as String: 6,
+            kCGImagePropertyPixelWidth as String: 6000,
+            kCGImagePropertyPixelHeight as String: 4000,
+        ]
+        let policy = MetadataPolicy(includeEXIF: true, includeCameraSerial: false,
+                                    includeGPS: false, includeKeywords: true)
+        let out = PipelineRenderer.applyMetadataPolicy(delivered, policy,
+                                                       resolutionPPI: 300,
+                                                       sourceProperties: fixture)
+        let props = out.properties
+
+        // The whole point: with "EXIF: on", the camera data REACHES the output —
+        // the rendered image's own dictionary is empty, so the old code delivered
+        // nothing here.
+        let exif = props[kCGImagePropertyExifDictionary as String] as? [String: Any]
+        XCTAssertNotNil(exif, "EXIF on delivered no EXIF dictionary — the policy "
+                            + "is editing the rendered image's empty properties, "
+                            + "not the source's")
+        XCTAssertNotNil(exif?[kCGImagePropertyExifISOSpeedRatings as String],
+                        "the source's ISO did not survive an EXIF-on export")
+        let tiff = props[kCGImagePropertyTIFFDictionary as String] as? [String: Any]
+        XCTAssertEqual(tiff?[kCGImagePropertyTIFFModel as String] as? String,
+                       "ILCE-7M4", "the camera model did not survive")
+
+        // Strip GPS means stripped, from the dictionary that actually has it.
+        XCTAssertNil(props[kCGImagePropertyGPSDictionary as String],
+                     "Strip GPS left the source's coordinates in the output")
+
+        // And the geometry is the DELIVERY's, not the source's: orientation 1
+        // (the pixels are rendered upright) and this render's pixel dimensions.
+        XCTAssertEqual(props[kCGImagePropertyOrientation as String] as? Int, 1,
+                       "the source's orientation 6 survived onto rendered-upright "
+                           + "pixels — viewers will rotate the delivery again")
+        XCTAssertEqual(tiff?[kCGImagePropertyTIFFOrientation as String] as? Int, 1,
+                       "the TIFF dictionary still carries the source's rotation")
+        XCTAssertEqual(props[kCGImagePropertyPixelWidth as String] as? Int, 20,
+                       "the delivered file claims the source's pixel width")
+        XCTAssertEqual(exif?[kCGImagePropertyExifPixelXDimension as String] as? Int,
+                       20, "EXIF still claims the source's pixel dimensions")
     }
 }
 

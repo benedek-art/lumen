@@ -366,4 +366,105 @@ final class PlanTableCacheTests: XCTestCase {
         XCTAssertFalse(rebaked, "k40 should already be in the cache from the drain")
         XCTAssertEqual(newest, markedLUT(40))
     }
+
+    // MARK: - The stale door never crosses photographs (docs/31 round two §4)
+    //
+    // The key describes the RECIPE completely, so an exact hit is correct for any
+    // photograph. The STALE serve is different: it is a claim about time — "the
+    // picture from one mouse event ago" — and across a photo change the newest
+    // entry in the slot is a different photograph's picture formation. Stepping
+    // from a black-and-white edit to a colour frame rendered the colour frame
+    // monochrome for a frame. These tests pin the identity discipline that ends
+    // it. Every other test in this file runs under the default (empty) identity,
+    // which is an identity like any other, so the pre-identity contract tests
+    // above are unchanged — including AccuracyProbeTests'
+    // `testTheFinishTableAndItsScaleStayAPairOnTheDRAFTPath`, which holds the
+    // table-and-scalar pairing across a stale serve.
+
+    func testAStaleServeNeverCrossesPhotographs() {
+        defer { PlanTableCache.setRenderIdentity("") }
+        PlanTableCache.clear()
+        waitForBakes()
+        PlanTableCache.clear()
+
+        // Photograph A carries a B&W look; its finish table lands in the slot.
+        PlanTableCache.setRenderIdentity("photo-A")
+        _ = PlanTableCache.tableAllowingStale(.finish, key: "bw-look", size: 5) {
+            self.markedLUT(1)
+        }
+
+        // Step to photograph B, whose recipe is a colour look: a MISS with nothing
+        // of B's to be stale from. The old code returned the newest entry in the
+        // slot from ANY photograph — A's monochrome table — for a frame. The
+        // contract is a fresh, blocking bake instead.
+        PlanTableCache.setRenderIdentity("photo-B")
+        var baked = false
+        let served = PlanTableCache.tableAllowingStale(.finish, key: "colour-look",
+                                                       size: 5) {
+            baked = true
+            return self.markedLUT(2)
+        }
+        XCTAssertEqual(served, markedLUT(2),
+                       "photo B's first draft frame was served photo A's picture "
+                           + "formation — the stale door crossed photographs")
+        XCTAssertTrue(baked, "a cross-photo miss must bake fresh, not borrow")
+    }
+
+    func testAStaleServeStillBorrowsWithinOnePhotograph() {
+        defer { PlanTableCache.setRenderIdentity("") }
+        PlanTableCache.clear()
+        waitForBakes()
+        PlanTableCache.clear()
+
+        PlanTableCache.setRenderIdentity("photo-A")
+        _ = PlanTableCache.tableAllowingStale(.finish, key: "drag-1", size: 5) {
+            self.markedLUT(1)
+        }
+        // The next event of the SAME photograph's drag: one mouse event stale is
+        // the documented contract, and the identity fix must not have broken it.
+        let immediate = PlanTableCache.tableAllowingStale(.finish, key: "drag-2",
+                                                          size: 5) {
+            self.markedLUT(2)
+        }
+        XCTAssertEqual(immediate, markedLUT(1),
+                       "the same photograph's drag frame should ride the previous "
+                           + "event's table while the exact one bakes")
+        waitForBakes()
+    }
+
+    func testAnExactHitCrossesPhotographsAndTheEntryAdoptsThem() {
+        defer { PlanTableCache.setRenderIdentity("") }
+        PlanTableCache.clear()
+        waitForBakes()
+        PlanTableCache.clear()
+
+        // A bakes the default-recipe finish table.
+        PlanTableCache.setRenderIdentity("photo-A")
+        _ = PlanTableCache.table(.finish, key: "default-look", size: 5) {
+            self.markedLUT(1)
+        }
+
+        // B, carrying the SAME recipe, must hit — the key determines the table
+        // bit-for-bit, and rebaking 23.7 ms of identical samples on every photo
+        // step is the regression the identity fix was not allowed to introduce.
+        PlanTableCache.setRenderIdentity("photo-B")
+        var rebaked = false
+        let hit = PlanTableCache.table(.finish, key: "default-look", size: 5) {
+            rebaked = true
+            return self.markedLUT(1)
+        }
+        XCTAssertFalse(rebaked, "an exact key hit must be shared across photographs")
+        XCTAssertEqual(hit, markedLUT(1))
+
+        // And the hit ADOPTED photo B: B's next draft miss may now borrow it —
+        // it is the very picture B was showing a moment ago.
+        let borrowed = PlanTableCache.tableAllowingStale(.finish, key: "b-drag",
+                                                         size: 5) {
+            self.markedLUT(3)
+        }
+        XCTAssertEqual(borrowed, markedLUT(1),
+                       "after an exact hit, the entry belongs to photo B and its "
+                           + "drag may ride it")
+        waitForBakes()
+    }
 }
