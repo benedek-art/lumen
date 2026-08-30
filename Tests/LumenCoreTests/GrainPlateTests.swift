@@ -153,13 +153,22 @@ final class GrainPlateTests: XCTestCase {
     /// produce a plate with no chromatic structure at all, which is the exact defect
     /// `plateScale(…, channel:)` was written for and then went uncalled.
     func testTheCellSizeIsPerChannelAndComesFromTheProfile() {
+        // The plan's cell size must be the PROFILE's, per channel — that is the
+        // plumbing this test exists to check, and it is unchanged.
+        //
+        // What changed is the profile it is checked against. Creative grain is one
+        // field at one crystal size now (see `CreativeGrainTests`): three independently
+        // seeded layers at this control's 56 µm pitch is exactly what the owner
+        // reported as "rainbow splotches". So the per-channel SPREAD is asserted on a
+        // stock's profile, where a few-micron pitch keeps all three sub-pixel, and the
+        // creative plan is asserted to have no spread at all.
         let plan = GrainPlan.creative(CreativeGrain(amount: 60, size: 80),
                                       monochrome: false)
         let r = plan.plateScale(longEdgePixels: 6000, channel: 0)
         let g = plan.plateScale(longEdgePixels: 6000, channel: 1)
         let b = plan.plateScale(longEdgePixels: 6000, channel: 2)
-        XCTAssertEqual(r / g, 0.8, accuracy: 1e-9)
-        XCTAssertEqual(b / g, 2.0, accuracy: 1e-9)
+        XCTAssertEqual(r / g, 1.0, accuracy: 1e-9)
+        XCTAssertEqual(b / g, 1.0, accuracy: 1e-9)
         XCTAssertEqual(g, plan.profile.plateScale(
             longEdgePixels: 6000,
             printSizeInches: plan.printLongEdgeInches, channel: 1), accuracy: 1e-12,

@@ -409,13 +409,42 @@ public struct DraftLadder: Sendable, Equatable {
     /// stops reading as "resolving" and starts reading as broken, which is the whole of
     /// the complaint.
     ///
-    /// 2× is the number. A 2× upscale of a linear-filtered proxy is visibly soft and
-    /// unmistakably the same photograph; the floor rung's 4.1× at a 16-inch centre pane
-    /// is the mush in his screenshots. It costs frame rate only on a machine that had
-    /// already descended that far, and then only down to a bound rather than all the way
-    /// to the budget — his stated preference, made explicit here instead of assumed the
-    /// other way round.
-    public static let maxUpscale: Double = 2
+    /// 1× IS THE NUMBER, and the round that set it to 2 is why this paragraph is worth
+    /// reading before anyone raises it again.
+    ///
+    /// That round wrote, in this comment, that "a 2× upscale of a linear-filtered proxy
+    /// is visibly soft" — and shipped it anyway, on the theory that visibly soft was a
+    /// fair price for frame rate. The owner tested the build and reported exactly the
+    /// predicted symptom, at exactly the predicted place: zoomed in, where region
+    /// rendering had removed the ladder from the path, the blur was gone; at fit, where
+    /// the ladder still ran, "every single slider and editor still makes that blur
+    /// effect". A defect a comment predicts is not a trade-off. It is a defect with an
+    /// alibi.
+    ///
+    /// So the trade is taken off the table at the only place it was still being made.
+    /// The reasoning it was resting on had already stopped being true: the fit ask is
+    /// the VIEWPORT'S own device size (`requestedLongEdge` buckets the container, capped
+    /// at the fit cap), not the 4096 it used to be. When the ask equals what is on
+    /// screen, every rung below it is a magnification of the photograph and there is no
+    /// invisible descent left to spend. The ladder keeps its whole apparatus for the
+    /// case that still has headroom — an ask larger than the panel — and at fit it now
+    /// finds its floor immediately and stops.
+    ///
+    /// What a fit draft still buys, and it is not nothing: the draft pass serves colour
+    /// tables STALE where the settle bakes them exact. So a drag holds full sharpness
+    /// throughout and what resolves on release is colour exactness — a change the eye
+    /// reads as the picture settling rather than as the picture being taken away and
+    /// handed back. Sharpness stops being a thing the app negotiates while a hand is
+    /// down.
+    ///
+    /// The cost, stated plainly because it is real: a machine that cannot render the
+    /// viewport inside the drag budget now drops FRAMES instead of PIXELS. The measured
+    /// note on the owner's own machine — 8.5 ms at 2048 against a 35 ms budget — says a
+    /// laptop viewport lands around 13 ms with headroom to spare, and an expensive
+    /// kernel (the vignette's feather, the colour-balance blend) can triple that and
+    /// still hold ~20 fps. Sharp and stepping is the failure mode he asked for; smooth
+    /// and soft is the one he has rejected four times.
+    public static let maxUpscale: Double = 1
 
     /// The floor for `longEdge(requested:notBelow:)`, given what the frame occupies on
     /// the panel in device pixels. Nil when the caller cannot say, which leaves the

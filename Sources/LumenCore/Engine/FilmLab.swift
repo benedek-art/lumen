@@ -718,12 +718,37 @@ public struct FilmGrainProfile: Sendable {
     /// envelope vanishing at Dmin and at Dmax exactly as it does on film.
     public init(creative: CreativeGrain, monochrome: Bool) {
         self.amount = Num.clamp(creative.amount, 0, 100) / 100.0
-        self.sizeScale = monochrome ? RGB(1, 1, 1) : RGB(0.8, 1.0, 2.0)
+        // ONE CRYSTAL SIZE AND ONE SEED — creative grain is LUMINANCE grain, and the
+        // paragraph above arguing for three decorrelated dye layers is what the owner
+        // tested. His verdict: "the grain is absolutely ridiculously bad. It just turns
+        // into rainbow splotches. It looks like noise, not grain."
+        //
+        // He is right, and the reason the film path gets away with what this could not
+        // is a number, not a principle. A stock's pitch is a few microns, so all three
+        // of its layers land SUB-PIXEL at any preview resolution and average back into
+        // something the eye reads as luminance with a hint of colour. `Size` here runs
+        // to 56 µm by design, and the blue layer's 2.0x crystal doubles that again: at a
+        // 36 mm gate on a laptop preview that is an eight-pixel blob of pure blue beside
+        // a one-pixel red one, three times over with independent seeds. Rainbow
+        // splotches is an exact description of that arithmetic.
+        //
+        // Equalizing the crystal sizes alone would not have fixed it: independent seeds
+        // per channel ARE the colour, whatever size they are drawn at. So the layers
+        // collapse to one field, which is also what a photographer means by a grain
+        // slider — dye-layer structure is a property of a named emulsion, and it stays
+        // where the emulsion's own pitch keeps it honest.
+        self.sizeScale = RGB(1, 1, 1)
         self.pitchMicrons = Swift.max(
             FilmGrainProfile.creativePitchMicrons(size: creative.size), 0.1)
         self.dMax = RGB(gray: FilmGrainProfile.creativeDMax)
         self.gateLongEdgeMM = FilmGrainProfile.creativeGateLongEdgeMM
-        self.monochrome = monochrome
+        // True for a colour photograph too: this flag selects ONE plate and one seed
+        // (`plateSeed`), which is exactly the luminance grain argued for above — and it
+        // is a third of the plate work as a side effect. The parameter is kept because
+        // the caller genuinely knows whether the photograph is black-and-white and a
+        // later chroma component, if one is ever argued for, needs to ask.
+        _ = monochrome
+        self.monochrome = true
         self.persistence = FilmGrainProfile.creativePersistence(
             roughness: creative.roughness)
     }

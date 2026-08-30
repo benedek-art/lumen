@@ -315,48 +315,65 @@ final class CreativeGrainTests: XCTestCase {
 
     // MARK: - Colour structure
 
-    /// A colour photograph gets three decorrelated layers, like colour film — that
-    /// decorrelation is most of what makes grain read as film rather than as noise laid
-    /// over the picture, and it is why `sizeScale` is (0.8, 1.0, 2.0) here too.
-    func testAColourPhotographGetsThreeDecorrelatedLayers() {
+    /// CREATIVE GRAIN IS ONE FIELD, on a colour photograph as much as on a
+    /// black-and-white one — and this test asserted the exact opposite for one release,
+    /// which is why the reasoning is written out rather than the number changed.
+    ///
+    /// The claim it used to make was that three decorrelated dye layers are "most of
+    /// what makes grain read as film rather than as noise laid over the picture". That
+    /// is true of a film stock and false here, and the difference is a pitch. A stock
+    /// grains at a few microns, so all three layers land sub-pixel at preview resolution
+    /// and recombine into something the eye reads as luminance. `Size` on this control
+    /// reaches 56 µm by design, and the blue layer's old 2.0x crystal doubled it again:
+    /// eight-pixel blobs of pure blue beside one-pixel red ones, independently seeded.
+    ///
+    /// The owner's verdict on the build that shipped it: "the grain is absolutely
+    /// ridiculously bad. It just turns into rainbow splotches. It looks like noise, not
+    /// grain." A test asserting decorrelation was, at that pitch, a test asserting the
+    /// defect.
+    func testCreativeGrainIsOneLuminanceField() {
         var recipe = Recipe()
         recipe.look.grain = CreativeGrain(amount: 100, size: 70)
+        XCTAssertTrue(RenderPlan(recipe: recipe).grain?.profile.monochrome == true,
+                      "one plate and one seed is what makes this grain and not chroma noise")
         let deltas = grainDeltas(recipe, flat())
         for (i, j) in [(0, 1), (0, 2), (1, 2)] {
-            let r = Self.correlation(deltas[i], deltas[j])
-            XCTAssertLessThan(abs(r), 0.5,
-                              "channels \(i) and \(j) grain with correlation \(r) — one "
-                                  + "noise field written to every layer is a luminance "
-                                  + "overlay, not grain")
+            XCTAssertGreaterThan(Self.correlation(deltas[i], deltas[j]), 0.99,
+                                 "channels \(i) and \(j) are not the same field — "
+                                     + "independent seeds per channel ARE the rainbow, "
+                                     + "at whatever size they are drawn")
         }
     }
 
-    /// And a black-and-white photograph gets ONE field, for the reason Tri-X's own
-    /// `monochrome` flag exists: three decorrelated layers on a picture with no colour
-    /// in it is coloured speckle. There is no control for this because there is no
-    /// question — `look.bw.enabled` already says whether the photograph has dye layers.
-    func testABlackAndWhitePhotographGetsOneField() {
+    /// One crystal size across the layers, for the same reason: equalizing the sizes
+    /// alone would not have helped (the seeds are the colour), but a per-channel size on
+    /// a single shared field would stretch one channel's grain against the others and
+    /// reintroduce colour through the back door.
+    func testCreativeGrainHasOneCrystalSize() {
+        let profile = FilmGrainProfile(creative: CreativeGrain(amount: 60, size: 80),
+                                       monochrome: false)
+        XCTAssertEqual(profile.sizeScale.r, 1.0, accuracy: 1e-12)
+        XCTAssertEqual(profile.sizeScale.g, 1.0, accuracy: 1e-12)
+        XCTAssertEqual(profile.sizeScale.b, 1.0, accuracy: 1e-12)
+    }
+
+    /// A black-and-white photograph is unchanged by all of the above — it always got one
+    /// field, and it still does. The treatment flag no longer decides the grain's colour
+    /// structure, but it must not crash or change the answer either.
+    func testABlackAndWhitePhotographStillGetsOneField() {
         var recipe = Recipe()
         recipe.look.grain = CreativeGrain(amount: 100, size: 70)
         recipe.look.bw = BlackAndWhite(bands: Array(repeating: 0, count: 8),
                                        enabled: true)
         XCTAssertTrue(RenderPlan(recipe: recipe).grain?.profile.monochrome == true)
-
         let deltas = grainDeltas(recipe, flat())
         for (i, j) in [(0, 1), (0, 2), (1, 2)] {
-            XCTAssertGreaterThan(Self.correlation(deltas[i], deltas[j]), 0.99,
-                                 "channels \(i) and \(j) are not the same field — a "
-                                     + "black-and-white photograph is being given "
-                                     + "coloured speckle")
+            XCTAssertGreaterThan(Self.correlation(deltas[i], deltas[j]), 0.99)
         }
-
-        // A mix KEPT while the treatment is switched off is a colour picture and must
-        // get the colour grain. The two spellings — `bw != nil` and
-        // `blackAndWhiteIsOn` — diverged once already, one panel over.
         var switchedOff = recipe
         switchedOff.look.bw?.enabled = false
-        XCTAssertFalse(RenderPlan(recipe: switchedOff).grain?.profile.monochrome == true,
-                       "a switched-off treatment is a colour photograph")
+        XCTAssertTrue(RenderPlan(recipe: switchedOff).grain?.profile.monochrome == true,
+                      "creative grain is one field whatever the treatment says")
     }
 
     // MARK: - Precedence, and the film path's byte-identity

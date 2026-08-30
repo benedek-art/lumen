@@ -1026,7 +1026,7 @@ final class DraftLadderTests: XCTestCase {
     /// to edit turns super blurry while editing until I let go", raised to his highest
     /// priority — which is a photographer refuting `rungs`' claim that a moving image
     /// cannot show detail.
-    func testTheLadderMayNotDescendPastTwiceTheDrawnExtent() {
+    func testTheLadderMayNotDescendBelowWhatIsOnScreen() {
         var ladder = DraftLadder()
         // Drive it to the floor with hot frames.
         for _ in 0..<40 {
@@ -1037,12 +1037,16 @@ final class DraftLadderTests: XCTestCase {
         XCTAssertEqual(ladder.longEdge(requested: 4096), DraftLadder.rungs.last,
                        "hot frames must still reach the floor without a floor argument")
         // A 16-inch centre pane: about 2360 device pixels. The floor rung there is a
-        // 4.1x upscale, which is the mush in the screenshots.
+        // 4.1x upscale, which is the mush in the screenshots — and the 2x this test
+        // first accepted is the softness the owner reported one round later, at fit,
+        // after region rendering had cured the zoomed case.
         let floor = DraftLadder.sharpnessFloor(drawnDeviceLongEdge: 2360)
         let bounded = ladder.longEdge(requested: 4096, notBelow: floor)
-        XCTAssertEqual(bounded, 1180)
+        XCTAssertEqual(bounded, 2360)
         XCTAssertLessThanOrEqual(2360.0 / Double(bounded), DraftLadder.maxUpscale + 1e-9,
                                  "the whole point is the magnification, not the rung")
+        XCTAssertEqual(DraftLadder.maxUpscale, 1,
+                       "a draft is never magnified: sharpness is not negotiable while a hand is down")
     }
 
     /// A floor never raises the answer above what was asked for — this method's oldest
