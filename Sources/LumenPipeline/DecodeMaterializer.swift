@@ -35,27 +35,25 @@ enum DecodeMaterializer {
 
     /// Above this, leave the decode lazy.
     ///
-    /// An export decodes at full resolution, uses the result once, and would gain
-    /// nothing from being held; at 60 MP the buffer would be half a gigabyte. Every
-    /// INTERACTIVE size is at or below this — the viewer's settle, every rung of
-    /// `DraftLadder`, the mask raster, the 512 px probes — which is the whole working
-    /// set that repeats.
+    /// This was `DraftLadder.interactiveLongEdgeCeiling` (4096) under the claim that
+    /// every size that REPEATS sits at or below it — and the claim died the day the
+    /// zoomed settle went native (docs/32 owner round: a 7008 px ARW at 1142% was a
+    /// 4096 proxy blown up into mush, because 4096 was also the largest ask). The
+    /// zoomed settle now asks for the source's own long edge, it repeats on every
+    /// edit-at-zoom, and above this line `AppleRawSource` would cache the lazy
+    /// `CIRAWFilter.outputImage` — the INTENTION to decode rather than its pixels —
+    /// so every one of those settles would pay a full RAW demosaic again (measured at
+    /// 457 ms on the owner's machine, against an 8.5 ms materialized draft). That is
+    /// verbatim the defect this type exists to fix.
     ///
-    /// IT SAID 3072 AND THE CLAIM ABOVE WAS FALSE. `DraftLadder.rungs[0]` and
-    /// `LoupeView.maxRenderLongEdge` are both 4096, and at any zoom the viewer asks for
-    /// exactly that — so the settle, the one render that repeats most and matters most,
-    /// sat just above this line. `AppleRawSource` then cached the lazy
-    /// `CIRAWFilter.outputImage` (`let stored = materialized(image) ?? (image, 0)`),
-    /// which is the INTENTION to decode rather than its pixels, and every hit paid a
-    /// full RAW demosaic again. That is verbatim the defect this type exists to fix,
-    /// left live for the sizes it was written for. Measured on the owner's machine:
-    /// `draft 8.5 ms @2048` against `settle 312.7 ms @4096`, and the same file's own
-    /// history records an unmaterialized decode at 457 ms.
-    ///
-    /// Reading the ladder's own ceiling rather than restating it is the fix, not the
-    /// number: two independent constants for one quantity is what produced a cliff
-    /// nobody could see from either side of it.
-    static let longEdgeLimit = DraftLadder.interactiveLongEdgeCeiling
+    /// So the limit covers any real sensor (a 150 MP back is 14204 px), and the cost
+    /// moves where it belongs: RESIDENCY, which `AppleRawSource.evictDecodes` bounds —
+    /// one budget-exempt native "inspection" entry per source, newest wins, everything
+    /// else under the byte budget exactly as before. An export at 60 MP now
+    /// materializes a half-gigabyte buffer it uses once; that is a copy (~tens of ms)
+    /// bought with the demosaic it was already paying, and the entry is evicted by
+    /// the same rule the moment anything else native lands.
+    static let longEdgeLimit = DraftLadder.inspectionLongEdgeCeiling
 
     /// The working space every stage of this pipeline agrees on. Extended and linear:
     /// extended so values above display white survive, linear so no transfer function

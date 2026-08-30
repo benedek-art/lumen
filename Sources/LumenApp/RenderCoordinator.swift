@@ -25,6 +25,12 @@ struct RenderResult: @unchecked Sendable {
     /// The UI must say so — a preview shown as if it were the edit is a lie.
     let usedEmbeddedPreview: Bool
     let note: String?
+    /// The source file's own long edge, in pixels — what a zoomed request should ask
+    /// for so that "1:1" means the sensor's pixels rather than a proxy's (docs/32
+    /// owner round: a 7008 px ARW at 1142% drew a 4096 proxy as mush, because 4096
+    /// was both the cap and the number the zoom was denominated in). Zero when the
+    /// source could not be opened at all.
+    let nativeLongEdge: Int
 }
 
 /// What the renderer knows about one file's AI mattes after a pass, plus the files its
@@ -223,14 +229,17 @@ actor RenderCoordinator {
             // `FrameDelivery.shouldShow`, whose only questions are identity and order.
             return RenderResult(image: image, generation: generation, isDraft: draft,
                                 usedEmbeddedPreview: false,
-                                note: note)
+                                note: note,
+                                nativeLongEdge: Int(source.nativeLongEdge.rounded()))
         } catch {
             // Never leave the viewer empty: fall back to the embedded preview and
             // label it honestly.
             if let preview = Self.embeddedPreview(url: url, maxLongEdge: maxLongEdge) {
                 return RenderResult(image: preview, generation: generation, isDraft: true,
                                     usedEmbeddedPreview: true,
-                                    note: "Embedded preview — \(Self.describe(error))")
+                                    note: "Embedded preview — \(Self.describe(error))",
+                                    nativeLongEdge: Int((try? self.source(for: url))
+                                        .map(\.nativeLongEdge)?.rounded() ?? 0))
             }
             return nil
         }

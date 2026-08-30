@@ -608,23 +608,19 @@ struct LumenSlider: View {
     /// `true` refreshes `AppState.lastGestureEventAt` rather than re-latching, and the
     /// 8-second silence watchdog lands the write once, after the scrolling stops.
     ///
-    /// THE TRADE THAT BUYS, stated where it bites rather than left to be discovered. The
-    /// deferral holds the catalog write, the scope re-bin and `settleTick` — so for the
-    /// eight seconds after the scrolling stops, the loupe stays on the DRAFT it was
-    /// rendering during the gesture (`LoupeView`'s `gestureInFlight` guard) and the scopes
-    /// stay on the reading they had. The edit itself is never at risk in the meantime any
-    /// more than a long drag's is: the in-memory recipe the render reads is current from
-    /// the first tick, a photo switch flushes, and so does quitting. What is at risk is a
-    /// crash inside that window, which is now up to eight seconds rather than the length
-    /// of a hand movement.
-    ///
-    /// Two ways out were considered and both are worse than the wait. A wheel-idle timer
-    /// per row is ninety timers to replace one that already exists and already has the
-    /// three unlatches — release, photo switch, quit — that this inherits for free.
-    /// Closing on a trackpad's `.ended` phase would shorten it for trackpad users only
-    /// and leave a mouse wheel, which has no phases, on the watchdog anyway; that is a
-    /// second signal path for half the hardware, and it is the change to make first if
-    /// the owner finds eight seconds long.
+    /// THE OWNER FOUND EIGHT SECONDS LONG — the previous note here ended "it is the
+    /// change to make first if the owner finds eight seconds long", and his fourth
+    /// round found it exactly: a wheel-scrubbed Shadows left a 1277 px draft standing
+    /// on a zoomed loupe for the whole watchdog window, which reads as "the blur
+    /// never goes away". So the row closes its own gesture after half a second of
+    /// wheel silence: one task per row that is actually being scrolled (allocated on
+    /// use, not ninety timers idling), cancelled and re-armed per tick, closing
+    /// through the same `sliderGestureChanged(false)` a drag's release uses — which
+    /// lands the deferred catalog write, the scope re-bin and the settle at once.
+    /// The 8-second watchdog stays as the crash-safety net behind it, and the
+    /// known cost is narrow: begin a DRAG somewhere within the half second and the
+    /// stale closer flushes once mid-gesture; the drag's next event re-latches, and
+    /// one early settle is the whole price.
     private func wheelNudge(_ clicks: Int) {
         let next = scrubTrack.nudged(value, steps: clicks * (Self.shiftIsDown ? 10 : 1))
         guard next != value, next.isFinite else { return }
@@ -632,7 +628,17 @@ struct LumenSlider: View {
         sliderGestureChanged(true)
         commit(next)
         onEditingChanged?(false)
+        wheelSettleCloser?.cancel()
+        wheelSettleCloser = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            guard !Task.isCancelled else { return }
+            sliderGestureChanged(false)
+        }
     }
+
+    /// The half-second wheel-silence closer above. `@State` so a re-body cannot leak
+    /// an armed task, and per-row so only rows actually being scrolled ever hold one.
+    @State private var wheelSettleCloser: Task<Void, Never>?
 
     // How close to the thumb counts as grabbing it rather than pressing the track is
     // `SliderDrag.thumbGrabRadius`, in LumenCore. It is not restated here as a second

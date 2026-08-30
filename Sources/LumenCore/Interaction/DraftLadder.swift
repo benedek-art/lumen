@@ -34,8 +34,9 @@ public struct DraftLadder: Sendable, Equatable {
 
     /// Top to bottom, in image pixels.
     ///
-    /// 4096 is `LoupeView.maxRenderLongEdge`, the largest long edge the app ever asks
-    /// for, so the TOP rung caps nothing: a machine with headroom drafts at exactly the
+    /// 4096 is `LoupeView.maxRenderLongEdge`, the largest long edge a FIT render asks
+    /// for (the zoomed settle goes native — `inspectionLongEdgeCeiling`), so at fit the
+    /// TOP rung caps nothing: a machine with headroom drafts at exactly the
     /// resolution the settle will deliver and a drag is simply sharp. That is what the
     /// top of a ladder should mean — "as good as what you asked for", not "some
     /// fraction of it". The viewer used to take `max(floor, settle / 2)` before this
@@ -74,11 +75,37 @@ public struct DraftLadder: Sendable, Equatable {
     /// settle, and which the owner measured as `settle 312.7 ms @4096` against an 8.5 ms
     /// draft at 2048.
     ///
-    /// So the number lives here, where the ladder that chooses sizes lives, and the two
+    /// So the number lives here, where the ladder that chooses sizes lives, and the
     /// callers read it. A ceiling below the top rung would make this ladder's own goal
     /// unaffordable: `record` would see a hot frame at 4096, step down, refill the
     /// streak and climb back into the same cliff once per gesture.
+    ///
+    /// This is the DRAFT ceiling, not the app's. The zoomed settle asks for the
+    /// sensor's own long edge (see `inspectionLongEdgeCeiling`), which is what makes
+    /// "1:1" mean the photograph's pixels; drafts stay under this number because a
+    /// moving hand cannot see detail and the rungs' cost model is measured here.
     public static var interactiveLongEdgeCeiling: Int { rungs[0] }
+
+    /// The largest long edge ANY interactive render may ask for — the zoomed settle's
+    /// ceiling, sized past any real sensor (a 150 MP back is 14204 px) so in practice
+    /// the zoomed ask is the source's own size and "1:1" is true (docs/32 owner round:
+    /// a 7008 px ARW at 1142% drew a 4096 proxy as mush, because 4096 was the cap, the
+    /// zoom's denomination, and the materializer's limit all at once).
+    /// `DecodeMaterializer.longEdgeLimit` reads this, so a native settle's decode is
+    /// held as pixels rather than as the intention to decode.
+    public static let inspectionLongEdgeCeiling: Int = 16384
+
+    /// Whether a settle at this ask is evidence about DRAFT affordability.
+    ///
+    /// `recordSettle` exists to teach the ladder that a size is affordable under the
+    /// hand. A native-inspection settle is a different animal: ~1 s at 7000 px is a
+    /// fine price for true 1:1 at rest and a catastrophic one to project onto drafts —
+    /// fed to the ladder it reads as "everything is unaffordable" and crashes the
+    /// rungs that size the FIT drag. So the ladder only learns from settles inside
+    /// its own rung range.
+    public static func learnsFromSettle(requestedLongEdge: Int) -> Bool {
+        requestedLongEdge <= interactiveLongEdgeCeiling
+    }
 
     /// The drag budget a draft must fit inside (docs/12 §12.2's slider loop, less a
     /// couple of milliseconds for delivery and compositing).

@@ -327,6 +327,13 @@ final class PhotoRenderModel: ObservableObject {
     var displayFullLongEdge: Int? {
         settledActualLongEdge ?? (requestedFullLongEdge > 0 ? requestedFullLongEdge : nil)
     }
+    /// The source file's own long edge, learned from the first result that knew it.
+    ///
+    /// `@Published` because the ZOOMED ask is sized from it (`requestedLongEdge`):
+    /// the first zoomed render of a photo goes out at the fit cap before this is
+    /// known, and learning it must re-body the view so the render key moves and the
+    /// native ask follows. It changes once per photograph, not per frame.
+    @Published private(set) var nativeLongEdge: Int?
     @Published private(set) var isDraft: Bool = false
     @Published private(set) var usedEmbeddedPreview: Bool = false
     /// Whatever the coordinator wants said out loud — "kernel library unavailable",
@@ -459,6 +466,7 @@ final class PhotoRenderModel: ObservableObject {
             lastDraftAt = nil
             lastDraftWasSaturated = false
             lastDraftLongEdge = nil
+            nativeLongEdge = nil
             revision &+= 1
             if let thumbnails,
                let preview = await thumbnails.load(
@@ -747,10 +755,18 @@ final class PhotoRenderModel: ObservableObject {
                 // below the ask, and claiming only up to it made this recovery a no-op
                 // there (docs/31 §23) — the settle's cost already contains the whole
                 // graph at the ask's decode scale, so the ask is what it proved.
-                draftLadder.recordSettle(milliseconds: settleMs,
-                                         renderedLongEdge: Swift.max(
-                                             result.image.width, result.image.height),
-                                         requestedLongEdge: Swift.max(fullLongEdge, 64))
+                // …but never from a native-inspection settle. The zoomed settle asks
+                // for the sensor's own size now, and ~1 s at 7000 px projected onto
+                // the drafts' cost model reads as "nothing is affordable" — the
+                // rungs would crash and take the FIT drag with them. The rule is
+                // `DraftLadder.learnsFromSettle`, tested in LumenCore.
+                if DraftLadder.learnsFromSettle(
+                        requestedLongEdge: Swift.max(fullLongEdge, 64)) {
+                    draftLadder.recordSettle(milliseconds: settleMs,
+                                             renderedLongEdge: Swift.max(
+                                                 result.image.width, result.image.height),
+                                             requestedLongEdge: Swift.max(fullLongEdge, 64))
+                }
                 // THE SIZE DELIVERED, not the size asked for — the same correction
                 // the draft line already carries, and for the reason its own comment
                 // gives: "printing only the request is how a blurry picture reported
@@ -798,6 +814,9 @@ final class PhotoRenderModel: ObservableObject {
         note = result.note
         isUnreadable = false
         shownRecipe = recipe
+        if result.nativeLongEdge > 0 {
+            nativeLongEdge = result.nativeLongEdge
+        }
         if result.isDraft {
             // What is on screen is no longer a settled frame, so the next request may
             // not skip its draft on the strength of it.
@@ -836,8 +855,12 @@ struct LoupeView: View {
     // compare and survey panes so the beside-the-recipe inputs (brush blobs, mattes,
     // soft proof) can never again be in one surface's key and not another's.
 
-    /// Above this we stop asking for more pixels; a real 1:1 on a 45 MP frame is the
-    /// tiled Metal viewport's job, and the badge says which one you are looking at.
+    /// The FIT ask's ceiling, and the fallback basis for a photo whose native size
+    /// nothing knows yet. It is no longer the largest ask in the app: the zoomed
+    /// settle goes to the sensor's own size (`zoomedFullBasis`, capped by
+    /// `DraftLadder.inspectionLongEdgeCeiling`), because "a real 1:1 is the tiled
+    /// Metal viewport's job" turned out to mean the owner pixel-peeping a 4096 proxy
+    /// of a 7008 px ARW — mush, at the moment of judging sharpness.
     ///
     /// The ladder's own ceiling rather than a third copy of 4096: this used to be
     /// written down here, in `DraftLadder.rungs[0]`, and in
@@ -1483,9 +1506,13 @@ struct LoupeView: View {
                 // still holds from before the tool came up — the badge reports what is
                 // on screen, not the number waiting for the tool to close.
                 LumenBadge(text: LoupeZoom.label(LoupeZoom.fit))
-            } else if state.zoomLevel >= 1, let cg = model.image {
-                // At 1:1 and above the pixels on screen are the render proxy's, not the
-                // sensor's — say which, rather than implying a full-resolution loupe.
+            } else if state.zoomLevel >= 1, let cg = model.image,
+                      Swift.max(cg.width, cg.height)
+                          < (model.displayFullLongEdge ?? Int.max) {
+                // The frame on screen has fewer pixels than the settle will deliver —
+                // a draft mid-gesture, or the first pass before the native ask lands.
+                // Say so. Once the native settle is up the suffix goes, because the
+                // pixels ARE the sensor's and "1:1" is the whole claim.
                 LumenBadge(text: "\(LoupeZoom.label(state.zoomLevel)) · PROXY \(cg.width)×\(cg.height)")
             } else {
                 LumenBadge(text: LoupeZoom.label(state.zoomLevel))
@@ -1549,16 +1576,23 @@ struct LoupeView: View {
     }
 
     /// What a zoomed render will actually deliver — the basis `zoomLevel` is
-    /// denominated against once a gesture has left fit. Read from the SOURCE frame
-    /// rather than from the current request, which is what makes the fit zoom below
-    /// continuous across the boundary instead of jumping by the ratio between the two
-    /// request sizes.
+    /// denominated against once a gesture has left fit, AND the zoomed ask itself
+    /// (`requestedLongEdge`). Read from the SOURCE frame rather than from the current
+    /// request, which is what makes the fit zoom continuous across the boundary.
+    ///
+    /// The cap moved from the interactive ceiling (4096) to the inspection ceiling:
+    /// a 7008 px ARW at 1142% was a 4096 proxy blown up into mush, with "1:1"
+    /// meaning proxy pixels — the owner's fourth-round screenshots. The basis is the
+    /// sensor's own size now, so 1:1 is the photograph's pixels; the metadata frame
+    /// size answers first, the first render's own report backs it up, and only a
+    /// photo NOBODY knows the size of yet falls back to the fit cap for one pass.
     private var zoomedFullBasis: Int {
-        ContinuousZoom.zoomedFullLongEdge(
-            nativeLongEdge: state.primaryFrameSize.map {
-                Int(Swift.max($0.width, $0.height))
-            },
-            renderCap: LoupeView.maxRenderLongEdge)
+        let native = state.primaryFrameSize.map { Int(Swift.max($0.width, $0.height)) }
+            ?? model.nativeLongEdge
+        guard let native, native > 0 else { return LoupeView.maxRenderLongEdge }
+        return ContinuousZoom.zoomedFullLongEdge(
+            nativeLongEdge: native,
+            renderCap: DraftLadder.inspectionLongEdgeCeiling)
     }
 
     /// The zoom level at which the picture exactly fills the viewport — the floor the
@@ -1684,9 +1718,21 @@ struct LoupeView: View {
 
     /// How many pixels to ask the coordinator for. At fit that is the viewport in
     /// device pixels, quantized to 256-px buckets so a window resize does not spam the
-    /// render queue; zoomed in we ask for the cap and badge the result honestly.
+    /// render queue. Zoomed, the ask is the SOURCE'S OWN LONG EDGE — that is what
+    /// makes "1:1" mean the sensor's pixels: the drawn extent is `zoom × ask`
+    /// (`LoupeGeometry.zoomedRatio` normalizes every proxy to it), so an ask below
+    /// native denominates the zoom in proxy pixels and draws mush at depth — the
+    /// owner's 1142% screenshot of a 4096 proxy of a 7008 px ARW. Until the native
+    /// size is known (the first result carries it) the fit cap stands in, and the
+    /// key moving re-asks. The ladder still sizes DRAFTS below the rung ceiling;
+    /// only the settle pays the native price, at rest.
     private func requestedLongEdge(container: CGSize) -> Int {
-        if state.zoomLevel > 0 { return LoupeView.maxRenderLongEdge }
+        if state.zoomLevel > 0 {
+            // THE ASK IS THE DENOMINATION BASIS, one value — `zoomedFullBasis` also
+            // feeds the pinch math and the fit-snap, so asking for anything else
+            // would draw at one size and gesture at another.
+            return Swift.max(zoomedFullBasis, 64)
+        }
         let scale = Double(Swift.max(displayScale, 1))
         let longEdge = Double(Swift.max(container.width, container.height)) * scale
         guard longEdge.isFinite, longEdge > 0 else { return 1024 }

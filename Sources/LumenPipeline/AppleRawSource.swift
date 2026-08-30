@@ -299,12 +299,38 @@ public final class AppleRawSource: ImageSource {
     /// the machine hitching under swap rather than anything this file did.
     ///
     /// Newest-first order, so this drops the least recently produced.
+    ///
+    /// NATIVE INSPECTION ENTRIES ARE A CLASS OF THEIR OWN. The zoomed settle decodes
+    /// at the sensor's full size for true 1:1 (docs/32 owner round), and one such
+    /// entry weighs 260–460 MB — held under the ordinary byte budget it would
+    /// alternate-evict with the drag's draft entry, and every settle at zoom would
+    /// pay the demosaic again. So: at most ONE entry above the interactive ceiling,
+    /// the newest, EXEMPT from the byte budget; the budget keeps bounding the
+    /// interactive working set beneath it exactly as before. The exemption is per
+    /// source and sources are themselves bounded (and evicted whole), so the worst
+    /// case is one native plane per photograph the user actually zoomed into.
     private func evictDecodes() {
-        while decodeCache.count > Self.decodeCacheCapacity {
-            decodeCache.removeLast()
+        func isInspection(_ entry: (key: DecodeKey, image: CIImage, bytes: Int)) -> Bool {
+            let extent = entry.image.extent
+            return Swift.max(extent.width, extent.height)
+                > CGFloat(DraftLadder.interactiveLongEdgeCeiling)
         }
-        while decodeCache.count > 1, decodeHeldBytes > Self.decodeCacheByteBudget {
-            decodeCache.removeLast()
+        var keptInspection = false
+        decodeCache.removeAll { entry in
+            guard isInspection(entry) else { return false }
+            if keptInspection { return true }
+            keptInspection = true
+            return false
+        }
+        while decodeCache.filter({ !isInspection($0) }).count > Self.decodeCacheCapacity,
+              let last = decodeCache.lastIndex(where: { !isInspection($0) }) {
+            decodeCache.remove(at: last)
+        }
+        while decodeCache.filter({ !isInspection($0) }).count > 1,
+              decodeCache.filter({ !isInspection($0) }).reduce(0, { $0 + $1.bytes })
+                  > Self.decodeCacheByteBudget,
+              let last = decodeCache.lastIndex(where: { !isInspection($0) }) {
+            decodeCache.remove(at: last)
         }
     }
 

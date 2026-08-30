@@ -989,4 +989,33 @@ final class DraftLadderTests: XCTestCase {
                                          + "whose decode is worth caching")
         }
     }
+
+    /// The zoomed settle goes to the sensor's own size (docs/32 owner round), and two
+    /// rules keep that from breaking anything beneath it. The inspection ceiling must
+    /// clear every real sensor, or "1:1" quietly becomes a proxy again on the next
+    /// camera body; and the ladder must refuse to LEARN from a native settle — one
+    /// second at 7000 px projected onto the drafts' cost model reads as "nothing is
+    /// affordable" and crashes the rungs that size the fit drag.
+    func testANativeInspectionSettleIsNotDraftEvidence() {
+        XCTAssertGreaterThanOrEqual(DraftLadder.inspectionLongEdgeCeiling, 14204,
+                                    "a 150 MP back is 14204 px on the long edge; below "
+                                        + "that, true 1:1 silently dies on a real camera")
+        XCTAssertGreaterThan(DraftLadder.inspectionLongEdgeCeiling,
+                             DraftLadder.interactiveLongEdgeCeiling,
+                             "the inspection ask must be allowed past the draft rungs, "
+                                 + "or the zoomed settle is capped right back to a proxy")
+        for rung in DraftLadder.rungs {
+            XCTAssertTrue(DraftLadder.learnsFromSettle(requestedLongEdge: rung),
+                          "a settle inside the rung range is exactly the evidence "
+                              + "recordSettle exists to feed")
+        }
+        XCTAssertTrue(DraftLadder.learnsFromSettle(
+                          requestedLongEdge: DraftLadder.interactiveLongEdgeCeiling))
+        for ask in [DraftLadder.interactiveLongEdgeCeiling + 1, 7008, 9504,
+                    DraftLadder.inspectionLongEdgeCeiling] {
+            XCTAssertFalse(DraftLadder.learnsFromSettle(requestedLongEdge: ask),
+                           "a native-inspection settle at \(ask) must not teach the "
+                               + "draft ladder anything")
+        }
+    }
 }

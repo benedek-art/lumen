@@ -405,6 +405,11 @@ private struct ComparePane: View {
     }
 
     private func requestedLongEdge(container: CGSize) -> Int {
+        // DELIBERATELY still the interactive cap, where the loupe went native
+        // (docs/32 owner round): compare renders one frame PER PANE, and N native
+        // planes at 260 MB each is a different budget than one. A pixel-level verdict
+        // belongs to the loupe; if the owner wants native compare at 1:1, this is the
+        // one line, and the decode-cache inspection rule already handles residency.
         if sync.zoom > 0 { return LoupeView.maxRenderLongEdge }
         let scale = Double(Swift.max(displayScale, 1))
         let longEdge = Double(Swift.max(container.width, container.height)) * scale

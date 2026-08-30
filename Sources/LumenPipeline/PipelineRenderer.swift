@@ -393,7 +393,11 @@ public final class PipelineRenderer {
                               sourceURL: source.url,
                               allowStaleRasters: draft,
                               strokeSets: strokeSets,
-                              aiMattes: mattes[source.url]?.planes ?? [:])
+                              aiMattes: mattes[source.url]?.planes ?? [:],
+                              // The preview is an inspection, never a delivery — see
+                              // the parameter's note at `makeGraph`.
+                              maskRasterCeiling:
+                                  CGFloat(DraftLadder.interactiveLongEdgeCeiling))
         Self.signposter.endInterval("rasterize", rasterInterval)
         // Preview decodes are downsampled, and downsampling averages the noise down
         // with them, so the profile the denoise stage works against follows the same
@@ -998,7 +1002,8 @@ public final class PipelineRenderer {
                            allowStaleRasters: Bool,
                            strokeSets: [String: BrushStrokeSet],
                            aiMattes: [String: Plane],
-                           deferGrain: Bool = false) -> RenderGraph {
+                           deferGrain: Bool = false,
+                           maskRasterCeiling: CGFloat? = nil) -> RenderGraph {
         var graph = RenderGraph()
         let extent = decoded.extent
 
@@ -1018,7 +1023,16 @@ public final class PipelineRenderer {
             // the boundary quantised to 8 px — while the CPU reference rasterizes
             // at full resolution, so the two renderers could not agree either.
             let long = Swift.max(extent.width, extent.height)
-            let cap = allowStaleRasters ? CGFloat(Self.maskRasterLongEdge) : long
+            // `maskRasterCeiling` bounds the SETTLE raster where the caller says the
+            // render is an interactive inspection rather than a delivery: the zoomed
+            // settle now renders at the sensor's own size (docs/32 owner round), and
+            // a guided-refined raster at 7000+ px is seconds of CPU per settle — paid
+            // at rest, per edit, while the photographer waits. An export passes nil
+            // and rasterizes at the render target, which is the docs/31 §3 contract;
+            // a capped inspection raster is at worst 1.7× softer at the edge than the
+            // ideal, on the surface whose job is judging tone, not mask feather.
+            let deliveryCap = allowStaleRasters ? CGFloat(Self.maskRasterLongEdge) : long
+            let cap = Swift.min(deliveryCap, maskRasterCeiling ?? deliveryCap)
             let scale = long > 0 ? Swift.min(1.0, cap / long) : 1
             let width = Swift.max(Int(extent.width * scale), 8)
             let height = Swift.max(Int(extent.height * scale), 8)
