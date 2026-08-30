@@ -146,4 +146,45 @@ final class ContinuousZoomTests: XCTestCase {
         XCTAssertEqual(ContinuousZoom.fitZoom(proxyFitRatio: 0.5, proxyLongEdge: 1920,
                                               zoomedFullLongEdge: 0), 0.5)
     }
+
+    // MARK: The scroll zoom
+
+    /// A scroll COMPOUNDS where a pinch multiplies its start — the difference between
+    /// an instrument that reports increments and one that reports a total.
+    func testScrollCompoundsWhereAPinchDoesNot() {
+        let fit = 0.2
+        var zoom = ContinuousZoom.scrolled(currentZoom: 1, fitRatio: fit, factor: 1.2)
+        zoom = ContinuousZoom.scrolled(currentZoom: zoom, fitRatio: fit, factor: 1.2)
+        XCTAssertEqual(zoom, 1.44, accuracy: 1e-9,
+                       "two scroll events of 1.2 are worth 1.44, not 1.2")
+        // The pinch, given the same two events, reports 1.2 total both times and must
+        // land on 1.2 — which is why it takes a START rather than the current level.
+        XCTAssertEqual(ContinuousZoom.pinched(startZoom: 1, fitRatio: fit,
+                                              magnification: 1.2), 1.2, accuracy: 1e-9)
+    }
+
+    /// A scroll out lands ON fit rather than a hair above it, through the same snap
+    /// both gestures use — otherwise the only way back is a different verb.
+    func testScrollingOutSnapsToFit() {
+        let fit = 0.25
+        XCTAssertEqual(ContinuousZoom.scrolled(currentZoom: 0.26, fitRatio: fit,
+                                               factor: 0.9),
+                       ZoomLadder.fit)
+        // And a scroll IN from fit starts at the fit ratio rather than at zero, which
+        // no multiplication could leave.
+        XCTAssertEqual(ContinuousZoom.scrolled(currentZoom: ZoomLadder.fit,
+                                               fitRatio: fit, factor: 2),
+                       0.5, accuracy: 1e-9)
+    }
+
+    func testScrollIsClampedAndRefusesNonsense() {
+        XCTAssertEqual(ContinuousZoom.scrolled(currentZoom: 8, fitRatio: 0.2,
+                                               factor: 100),
+                       ZoomLadder.maximum,
+                       "a runaway flick is clamped by the same ladder as everything else")
+        XCTAssertEqual(ContinuousZoom.scrolled(currentZoom: 2, fitRatio: 0.2,
+                                               factor: .nan), 2)
+        XCTAssertEqual(ContinuousZoom.scrolled(currentZoom: 2, fitRatio: 0.2,
+                                               factor: 0), 2)
+    }
 }

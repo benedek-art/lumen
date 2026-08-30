@@ -1010,6 +1010,16 @@ struct LoupeView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .clipped()
             .contentShape(Rectangle())
+            // The wheel and the two-finger scroll, which the picture answered not at
+            // all before — the second half of the owner's fifth round, "both with the
+            // mouse and with the trackpad are pretty broken". `ViewerScroll` (LumenCore,
+            // tested) decides what a scroll means; this passes it the state and applies
+            // the verb. Above the gestures in the modifier order and below them in
+            // routing: `hitTest` claims scroll events only, so the drag, the pinch and
+            // the double-click reach SwiftUI exactly as they do today.
+            .lumenViewerScroll(zoomed: { state.zoomLevel > 0 }) { verb in
+                applyScroll(verb, container: container)
+            }
             .gesture(dragGesture(container: container))
             .simultaneousGesture(magnifyGesture(container: container))
             // The way BACK. The scrub only zooms while the press is held and only
@@ -1792,6 +1802,38 @@ struct LoupeView: View {
                 pinchStartZoom = nil
                 pinchRegion = nil
             }
+    }
+
+    /// One scroll event, applied. The arithmetic is `ViewerScroll`'s; what is left
+    /// here is the same two verbs every other zoom and pan source in this file goes
+    /// through, so a wheel cannot acquire a private ladder — the two-ladders defect
+    /// `ZoomLadder`'s own header says this project has shipped twice.
+    @MainActor
+    private func applyScroll(_ verb: ViewerScroll.Verb, container: CGSize) {
+        // The crop canvas ignores zoom and pan (`cropCanvas`), so a scroll over it
+        // must not move either invisibly — the same guard the scrub and the pinch use.
+        guard !cropArmed else { return }
+        switch verb {
+        case .zoom(let factor):
+            guard let cg = model.image else { return }
+            let target = ContinuousZoom.scrolled(
+                currentZoom: state.zoomLevel,
+                fitRatio: trueFitZoom(image: cg, container: container),
+                factor: factor)
+            // Under the pointer, like every other zoom this app has: the cursor is
+            // where the photographer is looking, and `onContinuousHover` already
+            // tracks it for exactly this.
+            viewport.setZoom(target, at: viewport.lastCursor, in: state)
+        case .pan(let dx, let dy):
+            viewport.panBy(CGSize(width: dx, height: dy))
+            let drawn: CGSize = model.image.map {
+                drawnFull(forZoom: state.zoomLevel, image: $0, container: container)
+            } ?? container
+            viewport.pan = LoupeGeometry.clampPan(viewport.pan,
+                                                  container: container, drawn: drawn)
+        case .ignore:
+            break
+        }
     }
 
     /// Arrows page the selection at fit, and pan when zoomed in — the key means the

@@ -41,6 +41,24 @@ public enum ContinuousZoom {
                        fitRatio: fitRatio)
     }
 
+    /// A scroll-wheel or ⌥-scroll zoom: the factor `ViewerScroll` derived from one
+    /// event multiplies the zoom the picture is at NOW.
+    ///
+    /// The difference from `pinched` is what it multiplies, and that is the difference
+    /// between the two instruments rather than a choice. A pinch reports the gesture's
+    /// TOTAL magnification since the fingers landed, so it multiplies the level the
+    /// gesture started at; a scroll reports an increment and never says where it
+    /// started, so it compounds — the same distinction `ScrollNudge`'s header draws
+    /// between a drag and a wheel. Resolving through the same rule as both gestures is
+    /// what keeps the wheel from growing a private ladder, which is the defect
+    /// `ZoomLadder`'s header says this project has shipped twice.
+    public static func scrolled(currentZoom: Double, fitRatio: Double,
+                                factor: Double) -> Double {
+        guard factor.isFinite, factor > 0 else { return ZoomLadder.clamp(currentZoom) }
+        return resolve(effectiveStart(currentZoom, fitRatio: fitRatio) * factor,
+                       fitRatio: fitRatio)
+    }
+
     /// The scrubby drag: horizontal travel in points, exponential so equal travel
     /// means equal zoom steps anywhere on the range.
     public static func scrubbed(startZoom: Double, fitRatio: Double,
