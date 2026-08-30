@@ -9,7 +9,6 @@
   "isMonotone" : true,
   "meanSeparation" : 12.534188463709304,
   "panel" : "Colour Balance",
-  "shippingReader" : "Sources\/LumenPipeline\/RenderGraph.swift:101",
   "smallestLiveStep" : 7.769259212812528,
   "travelHigh" : 100,
   "travelLow" : -100

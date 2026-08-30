@@ -8,7 +8,6 @@
   "isMonotone" : true,
   "meanSeparation" : 30.49158718409454,
   "panel" : "Printer Lights",
-  "shippingReader" : "Sources\/LumenPipeline\/RenderGraph.swift:86",
   "smallestLiveStep" : 6.154550562533757,
   "travelHigh" : 24,
   "travelLow" : -24

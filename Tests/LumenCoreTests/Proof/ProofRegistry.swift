@@ -16,8 +16,17 @@
 // macOS lane — is the separate proof that the shipping path still tracks it. A control
 // with a good record here and no P5 is proven correct in theory and unproven in the
 // photograph, which is exactly the split docs/21 found running through this whole
-// codebase. The `shippingReader` field is what keeps that honest: it names the line on
-// the real path, so a record cannot be filed for a control the GPU never reads.
+// codebase.
+//
+// THERE IS NO `shippingReader` FIELD ANY MORE, and the note has to say why (docs/31
+// round two; docs/32 Stream H item 3). The field claimed to tie each proof to the line
+// on the shipping path that reads the control — and no assertion ever read it, while 58
+// of its 59 entries pointed at a comment, a brace or a blank line. It could not have
+// been made real: most controls reach the GPU as BAKED artifacts (plan tables, the
+// finish cube), so there is no single reading line to name. The guards that actually
+// hold the shipping path are gpu-parity and the kernel goldens, per stage; an inert
+// field wearing a guard's clothes is worse than no field, because it is cited instead
+// of them.
 
 import Foundation
 import LumenCore
@@ -35,8 +44,6 @@ struct ControlSpec {
     let frame: () -> ImageBuffer
     /// Write a setting into a recipe.
     let apply: (inout Recipe, Double) -> Void
-    /// `file:line` of a reader on the SHIPPING path — `RenderGraph` or `export`.
-    let shippingReader: String
     /// A floor under P3 authority, in sRGB code values. Below this the control is not
     /// visible on an 8-bit display and is therefore not a control.
     let authorityFloor: Double
@@ -125,7 +132,7 @@ struct ControlSpec {
     init(id: String, panel: String, displayName: String,
          low: Double, high: Double, neutral: Double = 0,
          frameName: String, frame: @escaping () -> ImageBuffer,
-         shippingReader: String, authorityFloor: Double,
+         authorityFloor: Double,
          mayLeaveRange: Bool = true, overshootCeiling: Double? = nil,
          isCircular: Bool = false, captureISO: Double? = nil,
          denoisedFirst: Bool = false, declaredPlateauSteps: Int = 0,
@@ -138,7 +145,6 @@ struct ControlSpec {
         self.id = id; self.panel = panel; self.displayName = displayName
         self.low = low; self.high = high; self.neutral = neutral
         self.frameName = frameName; self.frame = frame
-        self.shippingReader = shippingReader
         self.authorityFloor = authorityFloor
         self.mayLeaveRange = mayLeaveRange
         self.isCircular = isCircular
@@ -189,42 +195,36 @@ enum ProofRegistry {
             id: "tone.exposure", panel: "Basic", displayName: "Exposure",
             low: -5, high: 5,
             frameName: "neutralRamp", frame: { ProofFrames.neutralRamp() },
-            shippingReader: "Sources/LumenPipeline/RenderGraph.swift:86",
             authorityFloor: 120,
             apply: { r, v in r.develop.tone.exposure = v }),
         ControlSpec(
             id: "tone.contrast", panel: "Basic", displayName: "Contrast",
             low: -100, high: 100,
             frameName: "neutralRamp", frame: { ProofFrames.neutralRamp() },
-            shippingReader: "Sources/LumenPipeline/RenderGraph.swift:486",
             authorityFloor: 55,
             apply: { r, v in r.develop.tone.contrast = v }),
         ControlSpec(
             id: "tone.highlights", panel: "Basic", displayName: "Highlights",
             low: -100, high: 100,
             frameName: "neutralRamp", frame: { ProofFrames.neutralRamp() },
-            shippingReader: "Sources/LumenPipeline/RenderGraph.swift:486",
             authorityFloor: 35,
             apply: { r, v in r.develop.tone.highlights = v }),
         ControlSpec(
             id: "tone.shadows", panel: "Basic", displayName: "Shadows",
             low: -100, high: 100,
             frameName: "neutralRamp", frame: { ProofFrames.neutralRamp() },
-            shippingReader: "Sources/LumenPipeline/RenderGraph.swift:486",
             authorityFloor: 30,
             apply: { r, v in r.develop.tone.shadows = v }),
         ControlSpec(
             id: "tone.whites", panel: "Basic", displayName: "Whites",
             low: -100, high: 100,
             frameName: "neutralRamp", frame: { ProofFrames.neutralRamp() },
-            shippingReader: "Sources/LumenPipeline/RenderGraph.swift:486",
             authorityFloor: 30,
             apply: { r, v in r.develop.tone.whites = v }),
         ControlSpec(
             id: "tone.blacks", panel: "Basic", displayName: "Blacks",
             low: -100, high: 100,
             frameName: "neutralRamp", frame: { ProofFrames.neutralRamp() },
-            shippingReader: "Sources/LumenPipeline/RenderGraph.swift:486",
             authorityFloor: 15,
             apply: { r, v in r.develop.tone.blacks = v }),
         // The pivot is denominated in EV, not in slider units: the panel offers -4…4
@@ -240,7 +240,6 @@ enum ProofRegistry {
             id: "tone.contrastPivot", panel: "Basic", displayName: "Contrast pivot",
             low: -4, high: 4,
             frameName: "neutralRamp", frame: { ProofFrames.neutralRamp() },
-            shippingReader: "Sources/LumenPipeline/RenderGraph.swift:486",
             authorityFloor: 20,
             apply: { r, v in
                 // A pivot does nothing without contrast to pivot. Measuring it at
@@ -257,14 +256,12 @@ enum ProofRegistry {
             id: "color.saturation", panel: "Colour", displayName: "Saturation",
             low: -100, high: 100,
             frameName: "colourChart", frame: { ProofFrames.colourChart() },
-            shippingReader: "Sources/LumenPipeline/RenderGraph.swift:98",
             authorityFloor: 40,
             apply: { r, v in r.develop.color.saturation = v }),
         ControlSpec(
             id: "color.vibrance", panel: "Colour", displayName: "Vibrance",
             low: -100, high: 100,
             frameName: "colourChart", frame: { ProofFrames.colourChart() },
-            shippingReader: "Sources/LumenPipeline/RenderGraph.swift:98",
             authorityFloor: 20,
             apply: { r, v in r.develop.color.vibrance = v }),
         // The slider the owner's first session reported as immovable. It is gated —
@@ -277,7 +274,6 @@ enum ProofRegistry {
             id: "color.density", panel: "Colour", displayName: "Density",
             low: 0, high: 100, neutral: 50,
             frameName: "colourChart", frame: { ProofFrames.colourChart() },
-            shippingReader: "Sources/LumenPipeline/RenderGraph.swift:98",
             authorityFloor: 24,
             apply: { r, v in
                 r.develop.color.saturation = 60
@@ -290,7 +286,6 @@ enum ProofRegistry {
             id: "color.protectSkin", panel: "Colour", displayName: "Protect Skin",
             low: 0, high: 100, neutral: 70,
             frameName: "colourChart", frame: { ProofFrames.colourChart() },
-            shippingReader: "Sources/LumenPipeline/RenderGraph.swift:98",
             authorityFloor: 9,
             apply: { r, v in
                 r.develop.color.vibrance = 80
@@ -311,7 +306,6 @@ enum ProofRegistry {
             id: "raw.temp", panel: "Basic", displayName: "Temperature",
             low: 3000, high: 9000, neutral: 5500,
             frameName: "colourChart", frame: { ProofFrames.colourChart() },
-            shippingReader: "Sources/LumenPipeline/RenderGraph.swift:86",
             authorityFloor: 60,
             apply: { r, v in r.develop.raw.temp = v }),
         ControlSpec(
@@ -324,7 +318,6 @@ enum ProofRegistry {
             id: "raw.tint", panel: "Basic", displayName: "Tint",
             low: -150, high: 150,
             frameName: "colourChart", frame: { ProofFrames.colourChart() },
-            shippingReader: "Sources/LumenPipeline/RenderGraph.swift:86",
             authorityFloor: 25,
             apply: { r, v in r.develop.raw.tint = v }),
     ]
@@ -349,7 +342,6 @@ enum ProofRegistry {
                 id: "curve.\(id)", panel: "Curve", displayName: name,
                 low: -100, high: 100,
                 frameName: "neutralRamp", frame: { ProofFrames.neutralRamp() },
-                shippingReader: "Sources/LumenPipeline/RenderGraph.swift:486",
                 // 70% of the weakest region measured (highlights, 50.70). One floor for
                 // four controls, set by the weakest, because a loop cannot carry four.
                 authorityFloor: 35,
@@ -370,21 +362,18 @@ enum ProofRegistry {
             id: "detail.texture", panel: "Presence", displayName: "Texture",
             low: -100, high: 100,
             frameName: "fineTexture", frame: { ProofFrames.fineTexture() },
-            shippingReader: "Sources/LumenPipeline/RenderGraph.swift:610",
             authorityFloor: 27, mayLeaveRange: false,
             apply: { r, v in r.develop.detail.texture = v }),
         ControlSpec(
             id: "detail.clarity", panel: "Presence", displayName: "Clarity",
             low: -100, high: 100,
             frameName: "fineTexture", frame: { ProofFrames.fineTexture() },
-            shippingReader: "Sources/LumenPipeline/RenderGraph.swift:610",
             authorityFloor: 13, mayLeaveRange: false,
             apply: { r, v in r.develop.detail.clarity = v }),
         ControlSpec(
             id: "detail.dehaze", panel: "Presence", displayName: "Dehaze",
             low: -100, high: 100,
             frameName: "hazySky", frame: { ProofFrames.hazySky() },
-            shippingReader: "Sources/LumenPipeline/RenderGraph.swift:610",
             authorityFloor: 68, mayLeaveRange: false,
             apply: { r, v in r.develop.detail.dehaze = v }),
     ]
@@ -397,14 +386,12 @@ enum ProofRegistry {
             id: "sharpen.amount", panel: "Detail", displayName: "Sharpen amount",
             low: 0, high: 150,
             frameName: "stepEdge", frame: { ProofFrames.stepEdge() },
-            shippingReader: "Sources/LumenPipeline/RenderGraph.swift:700",
             authorityFloor: 29, mayLeaveRange: false,
             apply: { r, v in r.develop.detail.sharpen.amount = v }),
         ControlSpec(
             id: "sharpen.radius", panel: "Detail", displayName: "Sharpen radius",
             low: 0.5, high: 3.0, neutral: 1.0,
             frameName: "stepEdge", frame: { ProofFrames.stepEdge() },
-            shippingReader: "Sources/LumenPipeline/RenderGraph.swift:700",
             authorityFloor: 17, mayLeaveRange: false,
             apply: { r, v in
                 // Radius does nothing without amount to apply at that radius.
@@ -415,7 +402,6 @@ enum ProofRegistry {
             id: "sharpen.detail", panel: "Detail", displayName: "Sharpen detail",
             low: 0, high: 100,
             frameName: "fineTexture", frame: { ProofFrames.fineTexture() },
-            shippingReader: "Sources/LumenPipeline/RenderGraph.swift:700",
             authorityFloor: 3, mayLeaveRange: false,
             apply: { r, v in
                 r.develop.detail.sharpen.amount = 100
@@ -436,7 +422,6 @@ enum ProofRegistry {
             id: "sharpen.masking", panel: "Detail", displayName: "Sharpen masking",
             low: 0, high: 100,
             frameName: "fineTexture", frame: { ProofFrames.fineTexture() },
-            shippingReader: "Sources/LumenPipeline/RenderGraph.swift:700",
             authorityFloor: 10, mayLeaveRange: false,
             apply: { r, v in
                 r.develop.detail.sharpen.amount = 100
@@ -450,7 +435,6 @@ enum ProofRegistry {
             displayName: "Halo suppression",
             low: 0, high: 100,
             frameName: "stepEdge", frame: { ProofFrames.stepEdge() },
-            shippingReader: "Sources/LumenPipeline/RenderGraph.swift:700",
             authorityFloor: 25, mayLeaveRange: false,
             apply: { r, v in
                 r.develop.detail.sharpen.amount = 120
@@ -483,7 +467,6 @@ enum ProofRegistry {
                     displayName: "\(band.capitalized) \(axis)",
                     low: -100, high: 100,
                     frameName: "colourChart", frame: { ProofFrames.colourChart() },
-                    shippingReader: "Sources/LumenPipeline/RenderGraph.swift:98",
                     authorityFloor: floor,
                     apply: { r, v in r.develop.mixer.bands[index][keyPath: path] = v }))
             }
@@ -495,7 +478,6 @@ enum ProofRegistry {
             id: "mixer.uniformity", panel: "Colour Mixer", displayName: "Uniformity",
             low: 0, high: 100,
             frameName: "colourChart", frame: { ProofFrames.colourChart() },
-            shippingReader: "Sources/LumenPipeline/RenderGraph.swift:98",
             authorityFloor: 7,
             apply: { r, v in r.develop.mixer.uniformity = v }))
         return out
@@ -546,7 +528,6 @@ enum ProofRegistry {
                 id: "grade.\(id).sat", panel: "Grade", displayName: "\(name) saturation",
                 low: 0, high: 1,
                 frameName: "tonalColourWedge", frame: { ProofFrames.tonalColourWedge() },
-                shippingReader: "Sources/LumenPipeline/RenderGraph.swift:101",
                 authorityFloor: 11,
                 // Global and Highlights hand back 3.914 of ~49.7 under the corrected
                 // inset (proof #16): a saturation push at the top of its travel walks
@@ -561,14 +542,12 @@ enum ProofRegistry {
                 id: "grade.\(id).lum", panel: "Grade", displayName: "\(name) luminance",
                 low: -1, high: 1,
                 frameName: "tonalColourWedge", frame: { ProofFrames.tonalColourWedge() },
-                shippingReader: "Sources/LumenPipeline/RenderGraph.swift:101",
                 authorityFloor: 37,
                 apply: { r, v in r.look.wheels[keyPath: path].lum = v }))
             out.append(ControlSpec(
                 id: "grade.\(id).hue", panel: "Grade", displayName: "\(name) hue",
                 low: 0, high: 360,
                 frameName: "tonalColourWedge", frame: { ProofFrames.tonalColourWedge() },
-                shippingReader: "Sources/LumenPipeline/RenderGraph.swift:101",
                 authorityFloor: 11, isCircular: true,
                 apply: { r, v in
                     // A hue with no saturation behind it is not a colour: `WheelTint`
@@ -604,7 +583,6 @@ enum ProofRegistry {
                 id: "grade.blending", panel: "Grade", displayName: "Zone blending",
                 low: 0, high: 100, neutral: 50,
                 frameName: "tonalColourWedge", frame: { ProofFrames.tonalColourWedge() },
-                shippingReader: "Sources/LumenPipeline/RenderGraph.swift:101",
                 authorityFloor: 26,
                 // Blending widens the crossfade between zones, and past the point where
                 // the mid zone's weight would go negative the request is eased onto a
@@ -616,7 +594,6 @@ enum ProofRegistry {
                 id: "grade.balance", panel: "Grade", displayName: "Zone balance",
                 low: -100, high: 100,
                 frameName: "tonalColourWedge", frame: { ProofFrames.tonalColourWedge() },
-                shippingReader: "Sources/LumenPipeline/RenderGraph.swift:101",
                 authorityFloor: 44,
                 apply: { r, v in opposedTints(&r); r.look.wheels.balance = v }),
             // The two pivots, on the normalized tonal axis, over the travel the PANEL
@@ -629,7 +606,6 @@ enum ProofRegistry {
                 id: "grade.pivot.shadow", panel: "Grade", displayName: "Shadow pivot",
                 low: 0, high: 0.65, neutral: 0.33,
                 frameName: "tonalColourWedge", frame: { ProofFrames.tonalColourWedge() },
-                shippingReader: "Sources/LumenPipeline/RenderGraph.swift:101",
                 // Re-anchored from 57 at proof #16: the corrected inset moved the
                 // wedge's rendered colours, and the shadow pivot's visible share of
                 // its boundary walk fell to 48.95. 70% of what is.
@@ -643,7 +619,6 @@ enum ProofRegistry {
                 displayName: "Highlight pivot",
                 low: 0.35, high: 1, neutral: 0.67,
                 frameName: "tonalColourWedge", frame: { ProofFrames.tonalColourWedge() },
-                shippingReader: "Sources/LumenPipeline/RenderGraph.swift:101",
                 authorityFloor: 52,
                 apply: { r, v in
                     opposedTints(&r)
@@ -676,7 +651,6 @@ enum ProofRegistry {
                 id: "printer.master", panel: "Printer Lights", displayName: "Master",
                 low: -GradeEngine.masterPointLimit, high: GradeEngine.masterPointLimit,
                 frameName: "neutralRamp", frame: { ProofFrames.neutralRamp() },
-                shippingReader: "Sources/LumenPipeline/RenderGraph.swift:86",
                 authorityFloor: 168,
                 apply: { r, v in r.look.printerLights.master = Int(v.rounded()) }),
         ]
@@ -685,7 +659,6 @@ enum ProofRegistry {
                 id: "printer.\(id)", panel: "Printer Lights", displayName: name,
                 low: -GradeEngine.trimPointLimit, high: GradeEngine.trimPointLimit,
                 frameName: "neutralRamp", frame: { ProofFrames.neutralRamp() },
-                shippingReader: "Sources/LumenPipeline/RenderGraph.swift:86",
                 // One floor for the three trims, set by the weakest — green at 152.63,
                 // against red 163.16 and blue 153.22. They measure within 7% of each
                 // other, which is what four stops of channel gain on a grey ramp ought
@@ -745,7 +718,6 @@ enum ProofRegistry {
                 id: "primaries.\(id)", panel: "Primaries", displayName: name,
                 low: -100, high: 100,
                 frameName: "tonalColourWedge", frame: { ProofFrames.tonalColourWedge() },
-                shippingReader: "Sources/LumenPipeline/RenderGraph.swift:101",
                 authorityFloor: floor, declaredPlateauSteps: plateau,
                 // Blue hue hands back 11.961 of ~108 since the inset fix (proof #16):
                 // rotating the blue primary walks the wedge's blues through the
@@ -798,7 +770,6 @@ enum ProofRegistry {
                 id: "pointColor.hue", panel: "Point Colour", displayName: "Hue",
                 low: -60, high: 60,
                 frameName: "colourChart", frame: { ProofFrames.colourChart() },
-                shippingReader: "Sources/LumenPipeline/RenderGraph.swift:101",
                 // Measured 141.57. Five hand-written entries, so five floors at 70% of
                 // their own numbers rather than one at 70% of the weakest: a shared
                 // floor is what a LOOP needs, and these five are five different
@@ -810,7 +781,6 @@ enum ProofRegistry {
                 displayName: "Saturation",
                 low: -100, high: 100,
                 frameName: "colourChart", frame: { ProofFrames.colourChart() },
-                shippingReader: "Sources/LumenPipeline/RenderGraph.swift:101",
                 // Measured 83.39.
                 authorityFloor: 58,
                 apply: { r, v in r.develop.pointColors = [swatch(range: 50, s: v)] }),
@@ -819,7 +789,6 @@ enum ProofRegistry {
                 displayName: "Luminance",
                 low: -100, high: 100,
                 frameName: "colourChart", frame: { ProofFrames.colourChart() },
-                shippingReader: "Sources/LumenPipeline/RenderGraph.swift:101",
                 // Measured 158.82.
                 authorityFloor: 111,
                 apply: { r, v in r.develop.pointColors = [swatch(range: 50, l: v)] }),
@@ -831,7 +800,6 @@ enum ProofRegistry {
                 id: "pointColor.range", panel: "Point Colour", displayName: "Range",
                 low: 0, high: 100, neutral: 50,
                 frameName: "colourChart", frame: { ProofFrames.colourChart() },
-                shippingReader: "Sources/LumenPipeline/RenderGraph.swift:101",
                 // Measured 66.10.
                 authorityFloor: 46,
                 apply: { r, v in r.develop.pointColors = [swatch(range: v, h: 40)] }),
@@ -843,7 +811,6 @@ enum ProofRegistry {
                 id: "pointColor.variance", panel: "Point Colour", displayName: "Variance",
                 low: -100, high: 100,
                 frameName: "colourChart", frame: { ProofFrames.colourChart() },
-                shippingReader: "Sources/LumenPipeline/RenderGraph.swift:101",
                 // Measured 77.10.
                 authorityFloor: 53,
                 apply: { r, v in
@@ -885,7 +852,6 @@ enum ProofRegistry {
                 id: "zones.\(id).ev", panel: "Zones", displayName: "\(name) EV",
                 low: -3, high: 3,
                 frameName: "neutralRamp", frame: { ProofFrames.neutralRamp() },
-                shippingReader: "Sources/LumenPipeline/RenderGraph.swift:486",
                 authorityFloor: floor,
                 apply: { r, v in r.develop.zones[keyPath: path].ev = v })
         }
@@ -921,7 +887,6 @@ enum ProofRegistry {
                 displayName: "\(name) pivot",
                 low: lo, high: hi, neutral: Zones.defaultPivots[index],
                 frameName: "neutralRamp", frame: { ProofFrames.neutralRamp() },
-                shippingReader: "Sources/LumenPipeline/RenderGraph.swift:486",
                 authorityFloor: floor,
                 // A pivot moves WHERE its zone acts, so sweeping one walks that zone
                 // across the tonal axis and eventually past the region being measured,
@@ -974,7 +939,6 @@ enum ProofRegistry {
                 displayName: "\(band.capitalized) band",
                 low: -100, high: 100,
                 frameName: "colourChart", frame: { ProofFrames.colourChart() },
-                shippingReader: "Sources/LumenPipeline/RenderGraph.swift:101",
                 // One floor for the eight, set by the weakest — aqua at 153.13, against blue
                 // 161.53, purple 161.23, magenta 167.93, red 168.99, green 202.48,
                 // orange 206.91 and yellow 211.85. Aqua is the weakest band on the
@@ -1028,7 +992,6 @@ enum ProofRegistry {
                 displayName: "\(name) strength",
                 low: 0, high: 100, neutral: 0,
                 frameName: "tonalColourWedge", frame: { ProofFrames.tonalColourWedge() },
-                shippingReader: "Sources/LumenPipeline/RenderGraph.swift:147",
                 // One floor for the five colour stocks, at 70% of the weakest —
                 // Portra 400 at 84.55 since the inset fix (proof #16 convicted the
                 // old 104 on all five: a film curve's authority is mostly its colour,
@@ -1045,7 +1008,6 @@ enum ProofRegistry {
             id: "film.exposure", panel: "Film Lab", displayName: "Film exposure",
             low: -2, high: 3,
             frameName: "tonalColourWedge", frame: { ProofFrames.tonalColourWedge() },
-            shippingReader: "Sources/LumenPipeline/RenderGraph.swift:147",
             // Measured 186.01.
             authorityFloor: 130,
             apply: { r, v in
@@ -1057,7 +1019,6 @@ enum ProofRegistry {
             id: "film.pushPull", panel: "Film Lab", displayName: "Push / pull",
             low: -1, high: 2,
             frameName: "tonalColourWedge", frame: { ProofFrames.tonalColourWedge() },
-            shippingReader: "Sources/LumenPipeline/RenderGraph.swift:147",
             // Measured 31.84.
             authorityFloor: 22,
             apply: { r, v in
@@ -1081,7 +1042,6 @@ enum ProofRegistry {
             id: "film.halation", panel: "Film Lab", displayName: "Halation",
             low: 0, high: 100,
             frameName: "wideStepEdge", frame: { ProofFrames.wideStepEdge() },
-            shippingReader: "Sources/LumenPipeline/RenderGraph.swift:128",
             // Measured 24.71 on the wide edge, against 4.31 on the narrow one.
             authorityFloor: 17,
             apply: { r, v in
@@ -1099,7 +1059,6 @@ enum ProofRegistry {
             id: "film.grain.amount", panel: "Film Lab", displayName: "Grain",
             low: 0, high: 100,
             frameName: "grainField", frame: { ProofFrames.grainField() },
-            shippingReader: "Sources/LumenPipeline/RenderGraph.swift:168",
             // Measured 19.43.
             authorityFloor: 13,
             apply: { r, v in
@@ -1123,7 +1082,6 @@ enum ProofRegistry {
             id: "film.grain.size", panel: "Film Lab", displayName: "Grain size",
             low: 0.5, high: 2.0, neutral: 1.0,
             frameName: "grainField", frame: { ProofFrames.grainField() },
-            shippingReader: "Sources/LumenPipeline/RenderGraph.swift:168",
             // Measured 40.69, against 0.00 on the ramp.
             authorityFloor: 28,
             // A grain cell's footprint is a boundary too: past the size where one cell
@@ -1168,7 +1126,6 @@ enum ProofRegistry {
             id: "denoise.luma", panel: "Detail", displayName: "Luminance denoise",
             low: 0, high: 100,
             frameName: "noisyISO6400", frame: { ProofFrames.noisyISO6400() },
-            shippingReader: "Sources/LumenPipeline/RenderGraph.swift:265",
             // Measured 9.60 — see PROOF-07.
             authorityFloor: 6, mayLeaveRange: false,
             captureISO: 6400, denoisedFirst: true,
@@ -1180,7 +1137,6 @@ enum ProofRegistry {
             id: "denoise.chroma", panel: "Detail", displayName: "Colour denoise",
             low: 0, high: 100,
             frameName: "noisyChromaEdge", frame: { ProofFrames.noisyChromaEdge() },
-            shippingReader: "Sources/LumenPipeline/RenderGraph.swift:265",
             // Measured 22.02 before the inset orientation fix; 16.16 after it.
             authorityFloor: 11, mayLeaveRange: false,
             captureISO: 6400, denoisedFirst: true,
@@ -1198,7 +1154,6 @@ enum ProofRegistry {
             id: "denoise.lumaDetail", panel: "Detail", displayName: "Luminance detail",
             low: 0, high: 100, neutral: 50,
             frameName: "noisyISO6400", frame: { ProofFrames.noisyISO6400() },
-            shippingReader: "Sources/LumenPipeline/RenderGraph.swift:265",
             authorityFloor: 4, mayLeaveRange: false,
             captureISO: 6400, denoisedFirst: true,
             apply: { r, v in
@@ -1211,7 +1166,6 @@ enum ProofRegistry {
             displayName: "Luminance contrast",
             low: 0, high: 100,
             frameName: "noisyISO6400", frame: { ProofFrames.noisyISO6400() },
-            shippingReader: "Sources/LumenPipeline/RenderGraph.swift:265",
             // Measured 0.75 of 255 — at the threshold of visibility on this frame,
             // the weakest live control in the registry. Recorded rather than hidden
             // (the Blacks-at-2.9 shape): either the shrinkage bias needs a stronger
@@ -1229,7 +1183,6 @@ enum ProofRegistry {
             id: "denoise.colorDetail", panel: "Detail", displayName: "Colour detail",
             low: 0, high: 100, neutral: 50,
             frameName: "noisyChromaEdge", frame: { ProofFrames.noisyChromaEdge() },
-            shippingReader: "Sources/LumenPipeline/RenderGraph.swift:265",
             authorityFloor: 8, mayLeaveRange: false,
             captureISO: 6400, denoisedFirst: true,
             apply: { r, v in
@@ -1242,7 +1195,6 @@ enum ProofRegistry {
             displayName: "Colour smoothness",
             low: 0, high: 100, neutral: 50,
             frameName: "noisyChromaEdge", frame: { ProofFrames.noisyChromaEdge() },
-            shippingReader: "Sources/LumenPipeline/RenderGraph.swift:265",
             authorityFloor: 4, mayLeaveRange: false,
             captureISO: 6400, denoisedFirst: true,
             apply: { r, v in
@@ -1254,7 +1206,6 @@ enum ProofRegistry {
             id: "denoise.hotPixels", panel: "Detail", displayName: "Hot pixels",
             low: 0, high: 100,
             frameName: "hotPixels", frame: { ProofFrames.hotPixels() },
-            shippingReader: "Sources/LumenPipeline/RenderGraph.swift:265",
             // A THRESHOLD control, and the record says so: authority 171 (removing
             // an impulse moves that pixel a long way) with 19 of 20 steps dead —
             // the whole job happens at the bottom of the travel and the rest of the
@@ -1285,14 +1236,12 @@ enum ProofRegistry {
                 id: "cb.hueShift", panel: "Colour Balance", displayName: "Hue shift",
                 low: -180, high: 180,
                 frameName: "tonalColourWedge", frame: { ProofFrames.tonalColourWedge() },
-                shippingReader: "Sources/LumenPipeline/RenderGraph.swift:101",
                 authorityFloor: 133, isCircular: true,
                 apply: { r, v in r.look.wheels.colorBalance.hueShift = v }),
             ControlSpec(
                 id: "cb.vibrance", panel: "Colour Balance", displayName: "CB vibrance",
                 low: -100, high: 100,
                 frameName: "tonalColourWedge", frame: { ProofFrames.tonalColourWedge() },
-                shippingReader: "Sources/LumenPipeline/RenderGraph.swift:101",
                 authorityFloor: 71,
                 apply: { r, v in r.look.wheels.colorBalance.vibrance = v }),
         ]
@@ -1327,7 +1276,6 @@ enum ProofRegistry {
                     low: -100, high: 100,
                     frameName: "tonalColourWedge",
                     frame: { ProofFrames.tonalColourWedge() },
-                    shippingReader: "Sources/LumenPipeline/RenderGraph.swift:101",
                     authorityFloor: floors["\(axisId).\(zoneId)"] ?? 3,
                     apply: { r, v in
                         r.look.wheels.colorBalance[keyPath: axisPath][keyPath: zonePath] = v
@@ -1344,7 +1292,6 @@ enum ProofRegistry {
             id: "look.vignette", panel: "Effects", displayName: "Vignette",
             low: -3.0, high: 1.0,
             frameName: "neutralRamp", frame: { ProofFrames.neutralRamp() },
-            shippingReader: "Sources/LumenPipeline/RenderGraph.swift:136",
             authorityFloor: 84,
             apply: { r, v in r.look.vignette = v }),
     ]

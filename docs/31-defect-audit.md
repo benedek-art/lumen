@@ -215,6 +215,13 @@ run through `ReferenceRenderer`, which by the registry's own admission renders n
 pixels. The apparatus proves the mathematics is alive; the one field that connected it to
 the shipping path is inert prose.
 
+*Resolved (fourth pass, Stream H item 3): the field is DELETED — from the registry, the
+record type, and all 135 committed records — with the reasoning on the registry's header.
+It could not have been made real: most controls reach the GPU as baked artifacts (plan
+tables, the finish cube), so there is no single reading line to name; the live guards on
+the shipping path are gpu-parity and the kernel goldens, and the fourth pass added
+per-stage goldens for every pipeline fix it landed.*
+
 Two more of the same shape, both demonstrated rather than argued:
 
 - `WorkspaceModificationTests`' "every section" property tests pass **either way** on the

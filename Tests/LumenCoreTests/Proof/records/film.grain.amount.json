@@ -9,7 +9,6 @@
   "isMonotone" : true,
   "meanSeparation" : 2.919107007265883,
   "panel" : "Film Lab",
-  "shippingReader" : "Sources\/LumenPipeline\/RenderGraph.swift:168",
   "smallestLiveStep" : 0.9722008380820171,
   "travelHigh" : 100,
   "travelLow" : 0

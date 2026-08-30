@@ -8,7 +8,6 @@
   "isMonotone" : true,
   "meanSeparation" : 9.884412881796242,
   "panel" : "Curve",
-  "shippingReader" : "Sources\/LumenPipeline\/RenderGraph.swift:486",
   "smallestLiveStep" : 2.5417925402904302,
   "travelHigh" : 100,
   "travelLow" : -100

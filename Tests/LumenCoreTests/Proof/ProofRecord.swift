@@ -71,11 +71,6 @@ struct ProofRecord: Codable, Equatable {
     /// Largest hue rotation over the sweep, degrees. Nil where not applicable.
     var hueRotation: Double?
 
-    // MARK: P1 — reaches
-    /// `file:line` of a reader on the shipping path. The proof that catches an inert
-    /// control, and the one this project has failed most often.
-    var shippingReader: String
-
     // MARK: P6 — baseline
     /// Which tier the competitive claim rests on: `a` an open implementation, `b` a
     /// published standard or paper, `c` behaviour observed in docs/02 or docs/03.

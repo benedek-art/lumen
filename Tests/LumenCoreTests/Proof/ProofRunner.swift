@@ -145,7 +145,6 @@ enum ProofRunner {
             overshoot: overshoot,
             overshootAbove: overshootAbove, overshootBelow: overshootBelow,
             hueRotation: hueRotation,
-            shippingReader: spec.shippingReader,
             baselineTier: nil, baselineNote: nil)
     }
 

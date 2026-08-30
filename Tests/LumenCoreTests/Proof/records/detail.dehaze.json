@@ -12,7 +12,6 @@
   "overshootAbove" : 0,
   "overshootBelow" : 51.057543940316016,
   "panel" : "Presence",
-  "shippingReader" : "Sources\/LumenPipeline\/RenderGraph.swift:610",
   "smallestLiveStep" : 3.0701522715716294,
   "travelHigh" : 100,
   "travelLow" : -100
