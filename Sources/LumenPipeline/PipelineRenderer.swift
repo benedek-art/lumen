@@ -288,6 +288,12 @@ public final class PipelineRenderer {
         public let image: CGImage
         public let regionUnit: CGRect?
         public let fullPixelSize: CGSize
+        /// Wall time inside `source.decode` — the RAW read and demosaic, separated from
+        /// the graph for the first time. A cache hit reports near zero, so a number
+        /// here means the file was actually gone back to; on an external drive that is
+        /// a read of tens of megabytes before a pixel is computed. The owner's "six to
+        /// seven seconds" on a photo change is unattributed until this is on the HUD.
+        public let decodeMilliseconds: Double
     }
 
     /// `showingUncropped` is set while the crop tool is open, so the tool draws its
@@ -364,11 +370,13 @@ public final class PipelineRenderer {
         let native = source.nativeLongEdge
         let scale = native > 0 ? Swift.min(1.0, Double(maxLongEdge) / native) : 1.0
         let decodeInterval = Self.signposter.beginInterval("decode")
+        let decodeStarted = DispatchTime.now().uptimeNanoseconds
         guard let decoded = source.decode(recipe: recipe, draft: coarseDecode,
                                           scaleFactor: scale) else {
             Self.signposter.endInterval("decode", decodeInterval)
             throw RenderError.decodeFailed
         }
+        let decodeMs = Double(DispatchTime.now().uptimeNanoseconds - decodeStarted) / 1e6
         Self.signposter.endInterval("decode", decodeInterval)
 
         let longEdge = Int(Swift.max(decoded.extent.width, decoded.extent.height))
@@ -507,7 +515,8 @@ public final class PipelineRenderer {
             ? CGSize(width: fullExtent.width, height: fullExtent.height)
             : CGSize(width: cgImage.width, height: cgImage.height)
         return PreviewDelivery(image: cgImage, regionUnit: deliveredUnit,
-                               fullPixelSize: fullPixelSize)
+                               fullPixelSize: fullPixelSize,
+                               decodeMilliseconds: decodeMs)
     }
 
     // MARK: - Export

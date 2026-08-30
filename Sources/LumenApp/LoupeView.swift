@@ -739,6 +739,7 @@ final class PhotoRenderModel: ObservableObject {
                 // So: measure the pixels, print the ask beside them. A shortfall on a
                 // cropped photograph is honest rather than a fault — the crop really
                 // is smaller than the frame — but on an uncropped one it is a lead.
+                LatencyHUD.shared.noteDecode(milliseconds: draft.decodeMilliseconds)
                 LatencyHUD.shared.noteDraft(
                     milliseconds: draftMs,
                     longEdge: Swift.max(draft.image.width, draft.image.height),
@@ -840,6 +841,7 @@ final class PhotoRenderModel: ObservableObject {
                 // disagree with it. The delivered extent is already measured a few lines
                 // up, where the ladder is fed it; the HUD was reading the request
                 // beside it. On a cropped photograph the two genuinely differ.
+                LatencyHUD.shared.noteDecode(milliseconds: result.decodeMilliseconds)
                 LatencyHUD.shared.noteSettle(
                     milliseconds: settleMs,
                     longEdge: Swift.max(result.image.width, result.image.height))

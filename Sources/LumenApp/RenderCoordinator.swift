@@ -40,6 +40,9 @@ struct RenderResult: @unchecked Sendable {
     /// viewer draws, clamps and samples against, whether or not the pixels are a
     /// region of it. Nil only on the embedded-preview fallback.
     let fullPixelSize: CGSize?
+    /// Wall time the RAW decode cost inside this render — near zero on a cache hit.
+    /// Zero on the paths that do not decode (the embedded-preview fallback).
+    let decodeMilliseconds: Double
 }
 
 /// What the renderer knows about one file's AI mattes after a pass, plus the files its
@@ -284,6 +287,7 @@ actor RenderCoordinator {
             let note: String?
             var regionUnit: CGRect?
             var fullPixelSize: CGSize?
+            var decodeMilliseconds: Double = 0
             if KernelLibrary.coreAvailable {
                 let delivery = try renderer.renderPreviewDelivery(
                     source: source, recipe: recipe,
@@ -296,6 +300,7 @@ actor RenderCoordinator {
                 image = delivery.image
                 regionUnit = delivery.regionUnit
                 fullPixelSize = delivery.fullPixelSize
+                decodeMilliseconds = delivery.decodeMilliseconds
                 // Core kernels present but something else missing: the picture is real,
                 // and some stage of it silently did nothing. Say which.
                 let missing = KernelLibrary.unavailableKernels
@@ -344,7 +349,8 @@ actor RenderCoordinator {
                                 note: note,
                                 nativeLongEdge: Int(source.nativeLongEdge.rounded()),
                                 regionUnit: regionUnit,
-                                fullPixelSize: fullPixelSize)
+                                fullPixelSize: fullPixelSize,
+                                decodeMilliseconds: decodeMilliseconds)
         } catch {
             // Never leave the viewer empty: fall back to the embedded preview and
             // label it honestly.
@@ -355,7 +361,8 @@ actor RenderCoordinator {
                                     nativeLongEdge: Int((try? self.source(for: url))
                                         .map(\.nativeLongEdge)?.rounded() ?? 0),
                                     regionUnit: nil,
-                                    fullPixelSize: nil)
+                                    fullPixelSize: nil,
+                                    decodeMilliseconds: 0)
             }
             return nil
         }

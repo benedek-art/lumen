@@ -41,6 +41,13 @@ final class LatencyHUD: ObservableObject {
     @Published private(set) var draftMs: Double?
     @Published private(set) var draftLongEdge: Int?
     @Published private(set) var settleMs: Double?
+    /// What the RAW read and demosaic cost inside the last render that actually did
+    /// one — held rather than overwritten, because a cache hit reports ~0 and would
+    /// erase the number a photo change just produced. The owner's six-to-seven-second
+    /// wait on switching photos is unattributed without this: a large value here is the
+    /// file (and on an external drive, mostly the read); a small one beside a large
+    /// `settle` puts the cost in the graph instead.
+    @Published private(set) var decodeMs: Double?
     @Published private(set) var settleLongEdge: Int?
     /// Set when the last draft came back SMALLER than it was asked for — the frame on
     /// screen is not the frame the ladder thinks it sized. Nil when they agree, so the
@@ -199,6 +206,16 @@ final class LatencyHUD: ObservableObject {
         staleServesPerSecond = Double(stats.staleServes - previous.staleServes) / elapsed
     }
 
+    /// Record a decode that actually went to the file. Values at or below
+    /// `decodeHitCeiling` are cache hits and are ignored, so the line keeps saying what
+    /// the last REAL decode cost.
+    static let decodeHitCeiling: Double = 1.0
+
+    func noteDecode(milliseconds: Double) {
+        guard enabled, milliseconds > LatencyHUD.decodeHitCeiling else { return }
+        decodeMs = milliseconds
+    }
+
     func noteSettle(milliseconds: Double, longEdge: Int) {
         guard enabled else { return }
         settleMs = milliseconds
@@ -273,6 +290,7 @@ struct LatencyHUDView: View {
                         String(format: " (its draft %.1f)", $0)
                     } ?? ""))
             Text(line("settle     ", hud.settleMs, hud.settleLongEdge))
+            Text(line("decode     ", hud.decodeMs, nil) + "  (last real)")
             Text(cacheLine("tables     ", hits: tables.hits, bakes: tables.bakes,
                            stale: tables.staleServes))
             // The same two counters as RATES, which is the only form in which they can
