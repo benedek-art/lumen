@@ -11,6 +11,15 @@
 // This file exists SEPARATELY from that one so the part that can go silently wrong can
 // be tested without a camera RAW.
 //
+// WHAT THIS FILE DOES NOT DECIDE, said here because the boundary moved: whether a given
+// decode is WORTH materializing. This type answers "can these pixels be held" — the
+// shape, the byte cost, the colour space — and `AppleRawSource.decode` answers "should
+// they be", because only the cache knows whether the key has ever come back. That
+// separation exists because the size-only rule was silently wrong for every caller that
+// decodes at `scaleFactor: 1.0` and reads five pixels: four eyedropper taps, the export
+// path and the HDR pair all paid a full-sensor demosaic and a quarter-gigabyte
+// allocation for a result nobody read twice.
+//
 // WHAT CAN GO SILENTLY WRONG. The whole contract of the RAW stage is that what leaves it
 // is scene-referred and keeps the headroom above display white — Apple's picture-forming
 // stages are switched off precisely so that a 4.0 in a specular highlight survives to
@@ -53,7 +62,18 @@ enum DecodeMaterializer {
     /// materializes a half-gigabyte buffer it uses once; that is a copy (~tens of ms)
     /// bought with the demosaic it was already paying, and the entry is evicted by
     /// the same rule the moment anything else native lands.
+    ///
+    /// …AND THE RESIDENCY IT MOVED THE COST TO IS BOUNDED IN TWO PLACES NOW, because
+    /// this one line was doing both jobs and could only do one. See
+    /// `DraftLadder.materializedDecodeByteCeiling` for the byte half and
+    /// `AppleRawSource.evictDecodes` / `RenderCoordinator.trimDecodeResidency` for the
+    /// cache half. A long edge is a shape; what is being spent is memory.
     static let longEdgeLimit = DraftLadder.inspectionLongEdgeCeiling
+
+    /// Half-float RGBA — four channels at two bytes. Named rather than spelled `8` at
+    /// the two places that need it, since the byte ceiling below is only meaningful if
+    /// it is denominated in the format actually allocated.
+    static let bytesPerPixel = 8
 
     /// The working space every stage of this pipeline agrees on. Extended and linear:
     /// extended so values above display white survive, linear so no transfer function
@@ -94,6 +114,15 @@ enum DecodeMaterializer {
 
         let width = Int(extent.width.rounded())
         let height = Int(extent.height.rounded())
+        // THE COST, not the shape. `longEdgeLimit` above admits a 16384-square decode,
+        // which is 1.4 GB in one IOSurface allocation — and admits it for the same
+        // reason it admits a 16000 × 2000 panorama at 256 MB, because a long edge
+        // cannot tell those apart. The trade this whole type exists to make is memory
+        // against a repeated demosaic, so the bound has to be denominated in memory.
+        // The rule and its argument live in LumenCore, where they have tests.
+        guard DraftLadder.mayHoldAsPixels(width: width, height: height,
+                                          bytesPerPixel: bytesPerPixel)
+        else { return nil }
         var created: CVPixelBuffer?
         let attributes: [CFString: Any] = [
             // IOSurface-backed, so the buffer stays on the GPU and the graph that reads
@@ -112,8 +141,9 @@ enum DecodeMaterializer {
         // pixel buffer and every value is re-interpreted through the wrong transfer
         // function — a silent colour shift on every photograph in the app.
         let out = CIImage(cvPixelBuffer: buffer, options: [.colorSpace: working])
-        // 8 bytes a pixel: four half-float channels.
-        let bytes = width * height * 8
+        // Four half-float channels — the same figure the byte ceiling above is
+        // denominated in, so the guard and the accounting cannot drift apart.
+        let bytes = width * height * bytesPerPixel
         // The buffer starts at the origin; the decode's extent may not. Put the pixels
         // back where the caller's geometry expects to find them.
         guard extent.origin != .zero else { return (out, bytes) }

@@ -107,6 +107,77 @@ public struct DraftLadder: Sendable, Equatable {
         requestedLongEdge <= interactiveLongEdgeCeiling
     }
 
+    /// WHETHER A DECODE BELONGS TO THE INSPECTION CLASS, ASKED OF THE ASK.
+    ///
+    /// `AppleRawSource` sorts its held decodes into two classes: an interactive working
+    /// set bounded by a byte budget, and at most one NATIVE inspection plane exempt from
+    /// that budget, because a 260 MB entry held under the ordinary budget would
+    /// alternate-evict with the drag's own entry and every settle at zoom would pay the
+    /// demosaic again.
+    ///
+    /// It classified by the DELIVERED EXTENT — `max(image.extent.width, .height) >
+    /// interactiveLongEdgeCeiling` — and that is the decoder's opinion rather than ours.
+    /// `CIRAWFilter.scaleFactor` is a request; this codebase already knows a decoder can
+    /// decline one (`record`'s guard is an inequality for exactly that reason, and
+    /// `LatencyHUD.draftShortfall` exists to print the gap). A declined scale factor is
+    /// invisible downstream — `applyGeometry` clamps the delivered frame to the ask
+    /// afterwards — so nothing in the app would say it had happened. What it WOULD do
+    /// under an extent-based rule is turn every ordinary 2560 px viewer decode into an
+    /// "inspection" entry: 260 MB, exempt from the budget, and limited to ONE, so the
+    /// draft, the settle, the 512 px scope probe and the band-hue probe would evict each
+    /// other in a four-way cycle and every frame in the app would pay a full-sensor
+    /// demosaic and a full-sensor materialization. That is the 457 ms-per-frame defect
+    /// the whole decode cache exists to prevent, reachable through a decoder quirk
+    /// nobody can see.
+    ///
+    /// The ask is ours and cannot be declined. A render that asked for 2560 wanted an
+    /// interactive entry whatever came back; only a render that asked ABOVE the
+    /// interactive ceiling asked to inspect. Same ceiling, same meaning, stated once
+    /// where the ceiling lives.
+    public static func isInspectionAsk(longEdge: Int) -> Bool {
+        longEdge > interactiveLongEdgeCeiling
+    }
+
+    /// THE LARGEST DECODE WORTH HOLDING AS PIXELS, IN BYTES — because bytes are what is
+    /// actually being bounded and a long edge is a poor proxy for them.
+    ///
+    /// `inspectionLongEdgeCeiling` is 16384 so that "past any real sensor" is true of
+    /// the ASK. `DecodeMaterializer.longEdgeLimit` then reads the same number as the
+    /// limit above which a decode is left lazy — and in that role it is a shape where a
+    /// cost is meant. 16384 × 10923 half-float RGBA is 1.4 GB in a single IOSurface
+    /// allocation; 16000 × 2000 (a stitched panorama, a perfectly ordinary file) is
+    /// 256 MB and passes the same test. One number cannot answer both questions, and
+    /// the one it was answering is not the one that matters: the decode cache's whole
+    /// argument is a trade of MEMORY against a repeated demosaic.
+    ///
+    /// 512 MB covers every real camera up to about 64 MP, which is every file this app
+    /// has been pointed at and then some. Above it the trade inverts — a gigabyte of
+    /// wired IOSurface costs the machine more than the demosaic it saves, and what the
+    /// photographer would notice is the app hitching under memory pressure rather than
+    /// anything the decoder did. Refusing is always CORRECT, never an error: a decode
+    /// that is not held as pixels is still a correct decode, just an expensive one.
+    public static let materializedDecodeByteCeiling: Int = 512 * 1024 * 1024
+
+    /// Whether a decode of this size may be held as pixels rather than as the intention
+    /// to make them. Degenerate sizes answer false rather than overflowing: a caller
+    /// that cannot say how big the buffer is has not earned one.
+    public static func mayHoldAsPixels(width: Int, height: Int,
+                                       bytesPerPixel: Int) -> Bool {
+        guard width > 0, height > 0, bytesPerPixel > 0 else { return false }
+        // AN OVERFLOW IS AN ANSWER, NOT A CRASH, and it has to be spelled this way
+        // rather than widened to `Int64` — which is what this said first, and which the
+        // test caught: two `Int32.max` edges multiply to 4.6e18 and the byte count then
+        // overflows a signed 64-bit word too. A dimension that large is nonsense from a
+        // caller reading a corrupt header, and the honest reply to nonsense is "no",
+        // arrived at without trapping inside a memory bound. Widening only moves the
+        // cliff; reporting the overflow removes it.
+        let (area, areaOverflowed) = width.multipliedReportingOverflow(by: height)
+        guard !areaOverflowed else { return false }
+        let (bytes, bytesOverflowed) = area.multipliedReportingOverflow(by: bytesPerPixel)
+        guard !bytesOverflowed else { return false }
+        return bytes <= materializedDecodeByteCeiling
+    }
+
     /// The drag budget a draft must fit inside (docs/12 §12.2's slider loop, less a
     /// couple of milliseconds for delivery and compositing).
     public static let budgetMilliseconds: Double = 35

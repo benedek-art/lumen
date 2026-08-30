@@ -75,6 +75,95 @@ actor RenderCoordinator {
     private static let sourceCacheLimit = 12
     private var sourceOrder: [URL] = []
 
+    /// THE PROCESS-WIDE CEILING ON HELD DECODES, which nothing had.
+    ///
+    /// `AppleRawSource` bounds what ONE source holds: eight entries, 320 MB of
+    /// interactive working set, plus one native inspection plane exempt from that budget
+    /// so a settle at zoom is not alternate-evicted by the drag beneath it. Every clause
+    /// of that is right, and all of it is per source — while this actor holds twelve.
+    /// Multiplied out, the shipped worst case is twelve exempt native planes at
+    /// 260–460 MB each on top of twelve interactive budgets at 320 MB each: on the order
+    /// of seven gigabytes of wired, IOSurface-backed half-float buffers, in a process
+    /// that also runs a 512 MB thumbnail cache and a Core Image context with
+    /// `cacheIntermediates: true`. The commit that introduced the exemption wrote the
+    /// worst case down as "one native plane per photograph the user actually zoomed
+    /// into" and did not multiply it by the source cache.
+    ///
+    /// What that costs is not a slow render, which is why it is hard to attribute: it is
+    /// the machine paging, and every part of the app gets slower at once — the owner's
+    /// "everything is slightly slow", with occasional stalls far longer than any render
+    /// could explain. A decode cache several times the size of the thumbnail cache is
+    /// the tail wagging the dog.
+    ///
+    /// 768 MB holds one native inspection plane and a full interactive working set for
+    /// the photograph on screen, with room for a second photograph's settle beside it —
+    /// which is what a compare pane and a before/after need. Above that the app is
+    /// holding pixels for photographs nobody is looking at.
+    private static let decodeResidencyBudget = 768 * 1024 * 1024
+
+    /// Bring held decodes back under `decodeResidencyBudget`, least-recently-used source
+    /// first, never touching the newest.
+    ///
+    /// Two passes, coarsening as it goes, because the two classes are worth very
+    /// different amounts. A native inspection plane belongs to whichever photograph is
+    /// being INSPECTED, and only one photograph can be; every other source holding one
+    /// is holding it against a zoom that already ended. The interactive working set is
+    /// different — a compare pane really does want its pane's decode between frames — so
+    /// it is only released once dropping the inspection planes has failed to get under
+    /// the line, and then from the coldest source forward.
+    ///
+    /// Releasing a decode is always CORRECT, never merely acceptable: the entry is
+    /// recomputable from a file that has not moved, the `CIRAWFilter` and the capture
+    /// metadata stay in the source, and the whole cost of a wrong guess is one demosaic
+    /// on a photograph the user came back to. That asymmetry is why this trims eagerly
+    /// rather than waiting for a memory-pressure notification that arrives after the
+    /// machine is already swapping.
+    ///
+    /// The downcast is deliberate and narrow. `ImageSource` has two conformers and only
+    /// one of them holds pixels — `RenderedImageSource` keeps a single lazy `CIImage` of
+    /// a file Core Image will re-read — so a protocol requirement would be a method
+    /// existing for one implementation. The cast says that in one line instead.
+    private func trimDecodeResidency() {
+        func held() -> Int {
+            sourceOrder.reduce(0) { total, url in
+                total + ((sources[url] as? AppleRawSource)?.heldDecodeBytes ?? 0)
+            }
+        }
+        var total = held()
+        guard total > Self.decodeResidencyBudget else { return }
+        // Oldest first, newest excluded: the newest is the photograph a render just
+        // asked for, and taking its decode is taking the one that is about to be used.
+        let cold: [URL] = Array(sourceOrder.dropLast())
+        for url in cold {
+            guard total > Self.decodeResidencyBudget else { return }
+            guard let raw = sources[url] as? AppleRawSource else { continue }
+            total -= raw.releaseInspectionDecodes()
+        }
+        // The blunt pass spares the surfaces that legitimately alternate. A four-up
+        // survey and a two-pane compare render several photographs in rotation, each one
+        // becoming "newest" in turn, so a rule that protected only the newest would have
+        // every pane release the decode the next pane's frame just made it re-do — a
+        // trim that manufactures exactly the re-demosaic it exists to prevent. The
+        // inspection pass above needs no such guard: the compare panes deliberately keep
+        // the interactive cap, so they never mint an inspection entry at all.
+        let alternating: [URL] = Array(sourceOrder.suffix(Self.residencyLiveSources))
+        for url in cold where !alternating.contains(url) {
+            guard total > Self.decodeResidencyBudget else { return }
+            guard let raw = sources[url] as? AppleRawSource else { continue }
+            total -= raw.releaseDecodes()
+        }
+    }
+
+    /// How many of the most recently used sources the blunt trim leaves alone.
+    ///
+    /// Not "the number of panes", which is not a fixed number — the survey is N-up over
+    /// whatever the photographer selected. It is the number of surfaces that alternate
+    /// at FULL render cost: the loupe (one), the two-up compare (two), and one spare for
+    /// the photograph an arrow press is about to land on. A survey's cells are 160–520 pt
+    /// and ask for a few hundred pixels each, so ten of them together hold a fraction of
+    /// the budget and this pass never reaches them however many there are.
+    private static let residencyLiveSources = 4
+
     /// Files the renderer's bounded matte cache has dropped since the app last asked.
     ///
     /// An export or a full-size render generates mattes inline and can therefore evict
@@ -516,6 +605,13 @@ actor RenderCoordinator {
         if let cached = sources[url] {
             sourceOrder.removeAll { $0 == url }
             sourceOrder.append(url)
+            // Here rather than after the render, because this is the one line every
+            // consumer passes through — the viewer's frames, the scope proxy, the
+            // clipping measurement, the four eyedropper taps and the export — and the
+            // budget has to bound the process rather than the viewer. It costs a walk of
+            // at most twelve sources summing at most eight integers each; the thing it
+            // is standing in front of is a RAW demosaic.
+            trimDecodeResidency()
             return cached
         }
         let created: any ImageSource = PhotoFormats.isRendered(url)
@@ -527,6 +623,7 @@ actor RenderCoordinator {
             sourceOrder.removeFirst()
             sources.removeValue(forKey: oldest)
         }
+        trimDecodeResidency()
         return created
     }
 
@@ -540,13 +637,40 @@ actor RenderCoordinator {
         return "render failed"
     }
 
+    /// The picture shown when the RAW stage refused the file, labelled as such by the
+    /// caller.
+    ///
+    /// THE EMBEDDED PREVIEW IS TRIED FIRST AND THE SYNTHESIZED ONE ONLY IF THERE IS
+    /// NONE, which is not what this did. `kCGImageSourceCreateThumbnailFromImageAlways`
+    /// was true unconditionally, and with it ImageIO is entitled to decode the whole
+    /// file to produce the thumbnail — a full RAW demosaic through ImageIO, on this
+    /// actor, synchronously, for a file whose RAW decode has just failed. That is the
+    /// one thing `ThumbnailLoader` refuses to do anywhere on the browse path, and its
+    /// header says why in a sentence that applies here word for word: a contact sheet
+    /// that demosaics is a contact sheet the photographer waits for. The ask made it
+    /// worse rather than better — `maxLongEdge` on the zoomed loupe is the sensor's own
+    /// long edge now, so the size being requested is precisely the one that forces the
+    /// full-image path instead of the 1616 px JPEG the camera already wrote.
+    ///
+    /// Same picture in every case where an embedded preview exists, which is every
+    /// camera RAW; strictly the old behaviour when one does not. And the ask is capped
+    /// at the interactive ceiling deliberately: this is the frame the app puts up to say
+    /// it could not develop the file, it carries a badge saying so, and nobody judges
+    /// sharpness on it. `kCGImageSourceThumbnailMaxPixelSize` is a maximum and never
+    /// upscales, so a smaller preview still arrives at its own size.
     nonisolated static func embeddedPreview(url: URL, maxLongEdge: Int) -> CGImage? {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
-        let options: [CFString: Any] = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
+        let pixels = min(max(maxLongEdge, 64), DraftLadder.interactiveLongEdgeCeiling)
+        var options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: false,
             kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: maxLongEdge,
+            kCGImageSourceThumbnailMaxPixelSize: pixels,
         ]
+        if let embedded = CGImageSourceCreateThumbnailAtIndex(source, 0,
+                                                              options as CFDictionary) {
+            return embedded
+        }
+        options[kCGImageSourceCreateThumbnailFromImageAlways] = true
         return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
     }
 }

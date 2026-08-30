@@ -132,11 +132,40 @@ public final class AppleRawSource: ImageSource {
     ///
     /// This used to end "the values are lazy CIImage recipes, so the held cost is filter
     /// descriptions, not pixels" — which was true, and was the whole defect: a
-    /// description is not a decode, so every hit re-ran the demosaic. The entries are
-    /// pixels now, which is why `evictDecodes` bounds them by bytes as well as by count.
+    /// description is not a decode, so every hit re-ran the demosaic. Entries are pixels
+    /// now — from the first ask below the interactive ceiling and from the first HIT
+    /// above it, which is where the promotion in `decode` lives and where its argument
+    /// is written down. That is why `evictDecodes` bounds them by bytes as well as by
+    /// count, and why `heldDecodeBytes` is readable from outside.
     private static let decodeCacheCapacity = 8
-    /// `bytes` is what the entry actually allocated — zero for one still held lazily.
-    private var decodeCache: [(key: DecodeKey, image: CIImage, bytes: Int)] = []
+
+    private struct DecodeEntry {
+        let key: DecodeKey
+        /// Pixels once the entry has earned them, the lazy `CIRAWFilter.outputImage`
+        /// until then — see `decode`'s promotion path.
+        var image: CIImage
+        /// What the entry actually allocated — zero for one still held lazily.
+        var bytes: Int
+        /// THE LONG EDGE THAT WAS ASKED FOR, which is not the one that came back.
+        ///
+        /// The two classes this cache sorts entries into — an interactive working set
+        /// under a byte budget, and one budget-exempt native inspection plane — used to
+        /// be told apart by the DELIVERED extent. That reads the decoder's opinion where
+        /// ours is meant: `CIRAWFilter.scaleFactor` is a request, this codebase already
+        /// knows a decoder can decline one, and a declined scale factor is invisible
+        /// downstream because `applyGeometry` clamps the delivered frame to the ask
+        /// afterwards. Under the old rule an ordinary 2560 px viewer decode that came
+        /// back native would become "the" inspection entry — exempt from the budget and
+        /// limited to one — so the draft, the settle, the scope probe and the band-hue
+        /// probe would evict each other in a four-way cycle and every frame in the app
+        /// would pay a full-sensor demosaic and a full-sensor materialization. The rule
+        /// and its argument are `DraftLadder.isInspectionAsk`, in LumenCore with tests.
+        let askedLongEdge: Int
+    }
+
+    /// Newest first. Order is USE order, not production order — see the promotion in
+    /// `decode`.
+    private var decodeCache: [DecodeEntry] = []
 
     // MARK: Materializing the decode
 
@@ -191,29 +220,66 @@ public final class AppleRawSource: ImageSource {
         }
 
         let standIn = dev.denoise.appleStandIn
+        let clampedScale = Num.clamp(scaleFactor, 0.01, 1.0)
         let key = DecodeKey(draft: draft,
-                            scaleFactor: Num.clamp(scaleFactor, 0.01, 1.0),
+                            scaleFactor: clampedScale,
                             captureStrength: dev.detail.capture.strengthFraction,
                             luminanceNR: standIn.luma,
                             colorNR: standIn.chroma,
                             lensProfile: dev.geometry.lens.profile,
                             decoderVersion: resolvedVersion.rawValue)
+        // What this call ASKED the decoder for, in pixels. Not read back from the
+        // result: see `DecodeEntry.askedLongEdge` for why the delivered extent is the
+        // wrong number to classify an entry by.
+        //
+        // Guarded rather than converted, because `Int(_:)` on a non-finite `Double`
+        // TRAPS — the same trap `PipelineRenderer.byte` guards for the same reason a few
+        // files away. `nativeLongEdge` comes from `CIRAWFilter.nativeSize`, and a source
+        // that cannot say how big it is answers zero here, which classifies as
+        // interactive: the safe side, since the only thing the inspection class buys is
+        // an exemption from the memory budget.
+        let asked = clampedScale * nativeLongEdge
+        let askedLongEdge = asked.isFinite && asked > 0 && asked < 1e9
+            ? Int(asked.rounded()) : 0
+
         // A hit must match every field the filter reads, because the entry was produced
         // under the filter's settings AT DECODE TIME. The source lives inside an actor,
         // so there is no window where another caller mutates the filter between the
         // check and the use.
         //
-        // The key mattered even more when the value was a lazy image, since the filter
-        // could have moved on beneath it by the time anyone rendered. It is pixels now,
-        // so a hit is a finished decode rather than a promise to make one — which is the
-        // difference between a drag frame costing 457 ms and costing the graph.
-        if let hit = decodeCache.first(where: { $0.key == key })?.image {
-            return hit
+        // THE HIT MOVES TO THE FRONT, and that is a fix rather than housekeeping. This
+        // list was documented as "newest-first, so eviction drops the least recently
+        // PRODUCED" — and a hit did not touch the order, so the entry the viewer is
+        // hitting on every single frame sank steadily toward the tail while the probes
+        // that ran once each stayed at the head. `evictDecodes` removes from the tail.
+        // So the first thing thrown away, once the ladder had minted a few rung keys or
+        // the 512 px probes had run, was the one entry that was actually being used, and
+        // the next frame paid a full RAW demosaic to get it back — 457 ms on the owner's
+        // machine, per frame, from a cache that was reporting a hit rate. An LRU that
+        // never records a use is not an LRU; it is a queue.
+        if let index = decodeCache.firstIndex(where: { $0.key == key }) {
+            var entry = decodeCache.remove(at: index)
+            // THE SECOND ASK IS WHAT BUYS THE PIXELS, for entries above the interactive
+            // ceiling — see the miss path below for the argument. A hit IS the second
+            // ask, by definition, so this is where a native decode stops being a promise
+            // and becomes a buffer.
+            //
+            // `bytes == 0` is the flag and it is honest for the other lazy cases too: a
+            // decode the materializer refused (too large for the byte ceiling, no
+            // working space, a pixel buffer that would not allocate) retries here and
+            // costs a handful of guards when it fails again.
+            if entry.bytes == 0, let promoted = materialized(entry.image) {
+                entry.image = promoted.image
+                entry.bytes = promoted.bytes
+            }
+            decodeCache.insert(entry, at: 0)
+            evictDecodes()
+            return entry.image
         }
 
         filter.decoderVersion = resolvedVersion
         filter.isDraftModeEnabled = draft
-        filter.scaleFactor = Float(Num.clamp(scaleFactor, 0.01, 1.0))
+        filter.scaleFactor = Float(clampedScale)
 
         // Camera reference, always. Lumen's WB is a CAT16 adaptation at S6.
         filter.neutralTemperature = Float(asShotTemperature)
@@ -281,9 +347,54 @@ public final class AppleRawSource: ImageSource {
         // Pixels, not the promise of pixels — see `materialized`. Falling back to the
         // lazy image keeps every failure path working exactly as before: a decode that
         // cannot be materialized is still a correct decode, just an expensive one.
-        let stored = materialized(image) ?? (image: image, bytes: 0)
+        //
+        // …EXCEPT ON FIRST SIGHT OF AN INSPECTION-CLASS ASK, WHICH IS NOT FREE TO GUESS
+        // ABOUT. Materializing costs a whole-frame demosaic AND a whole-frame buffer —
+        // 260 MB for a 7008 px ARW, half a gigabyte at 60 MP — and it is worth paying
+        // exactly when the same key comes back. Below the interactive ceiling that is a
+        // safe bet: those sizes are the viewer's settle, the rungs under a moving hand,
+        // the mask raster, the 512 px probes, and every one of them repeats within a
+        // gesture. Above it the bet was silently wrong for four callers that ask for
+        // `scaleFactor: 1.0` and read FIVE PIXELS — `sampleSceneLinear`,
+        // `sampleMaskStageInput`, `sampleColorStageInput` and the neutral solve behind
+        // them. Their own documentation says so in as many words: "Cheap despite
+        // decoding at full resolution: Core Image is lazy, so rendering a
+        // five-pixel-square bounds computes that region and its filter support, not the
+        // frame." That claim was TRUE while the materializer's limit was 4096 and became
+        // false the day it moved to 16384; since then every eyedropper click, every
+        // Point Colour pick and every white-balance solve has paid a full-sensor
+        // demosaic and allocated a quarter of a gigabyte to average twenty-five pixels.
+        // `exportedImage`, `renderHDRPair` and `renderFullSize` decode at 1.0 and use
+        // the result once as well, which on a two-hundred-file batch is two hundred
+        // buffers nobody reads twice.
+        //
+        // So: hold the promise, and let the FIRST HIT buy the pixels. What that costs is
+        // named plainly rather than glossed — the viewer's own entry into a zoomed photo
+        // asks twice (a draft, then a settle forty milliseconds later), so it now
+        // evaluates the lazy decode once over the region it is drawing and materializes
+        // on the second ask. That is roughly a tenth of a demosaic added to one frame,
+        // bought against removing the whole thing from every one-shot consumer.
+        //
+        // The safety of holding a lazy `CIRAWFilter.outputImage` rests on one property:
+        // that `outputImage` SNAPSHOTS the filter's settings rather than reading them at
+        // evaluation time. It does, and this codebase is its own evidence — for the
+        // whole of its history before `DecodeMaterializer` existed, every entry in this
+        // cache was a lazy image, and `renderPreviewDelivery` obtains its decode and
+        // then builds a `RenderPlan` whose `measuredBandMeanHues` reconfigures this very
+        // filter to draft mode at 512 px before the decode is ever evaluated. Were
+        // `outputImage` live-bound, the first frame of every photograph ever opened
+        // would have been delivered at 512 px in draft demosaic. That is the falsifier,
+        // it is loud, and nobody has ever seen it.
+        let stored: (image: CIImage, bytes: Int)
+        if DraftLadder.isInspectionAsk(longEdge: askedLongEdge) {
+            stored = (image: image, bytes: 0)
+        } else {
+            stored = materialized(image) ?? (image: image, bytes: 0)
+        }
         decodeCache.removeAll { $0.key == key }
-        decodeCache.insert((key: key, image: stored.image, bytes: stored.bytes), at: 0)
+        decodeCache.insert(DecodeEntry(key: key, image: stored.image,
+                                       bytes: stored.bytes,
+                                       askedLongEdge: askedLongEdge), at: 0)
         evictDecodes()
         return stored.image
     }
@@ -298,7 +409,10 @@ public final class AppleRawSource: ImageSource {
     /// bargain and a hard one to attribute, since what a photographer would notice is
     /// the machine hitching under swap rather than anything this file did.
     ///
-    /// Newest-first order, so this drops the least recently produced.
+    /// Newest-first order, so this drops the least recently USED — which it did not,
+    /// until `decode` started moving a hit to the front. It dropped the least recently
+    /// PRODUCED, and the entry a viewer hits every frame is by definition the one that
+    /// stops being produced first.
     ///
     /// NATIVE INSPECTION ENTRIES ARE A CLASS OF THEIR OWN. The zoomed settle decodes
     /// at the sensor's full size for true 1:1 (docs/32 owner round), and one such
@@ -309,11 +423,21 @@ public final class AppleRawSource: ImageSource {
     /// interactive working set beneath it exactly as before. The exemption is per
     /// source and sources are themselves bounded (and evicted whole), so the worst
     /// case is one native plane per photograph the user actually zoomed into.
+    ///
+    /// AND THE EXEMPTION IS BOUNDED FROM OUTSIDE, which the sentence above got wrong by
+    /// not doing the multiplication. "One native plane per photograph the user actually
+    /// zoomed into" is one per SOURCE, and `RenderCoordinator` holds twelve sources —
+    /// so the worst case it describes is twelve exempt planes at 260–460 MB apiece
+    /// sitting on top of twelve interactive budgets at 320 MB apiece: something like
+    /// seven gigabytes of wired, IOSurface-backed half-float buffers, in an app that
+    /// also runs a 512 MB thumbnail cache. What a photographer would see is not a slow
+    /// render but a machine swapping, which is exactly the attribution problem the byte
+    /// budget was introduced to avoid. The per-source rules below still hold; the
+    /// process-wide one is `RenderCoordinator.trimDecodeResidency`, which is where the
+    /// twelve live and therefore the only place that can count them.
     private func evictDecodes() {
-        func isInspection(_ entry: (key: DecodeKey, image: CIImage, bytes: Int)) -> Bool {
-            let extent = entry.image.extent
-            return Swift.max(extent.width, extent.height)
-                > CGFloat(DraftLadder.interactiveLongEdgeCeiling)
+        func isInspection(_ entry: DecodeEntry) -> Bool {
+            DraftLadder.isInspectionAsk(longEdge: entry.askedLongEdge)
         }
         var keptInspection = false
         decodeCache.removeAll { entry in
@@ -342,7 +466,50 @@ public final class AppleRawSource: ImageSource {
     /// at the origin gets exactly that treatment on the way into the cache. Such an
     /// entry would have been counted as weightless and never evicted — the budget
     /// leaking on precisely the entries it was written to bound.
-    private var decodeHeldBytes: Int { decodeCache.reduce(0) { $0 + $1.bytes } }
+    ///
+    /// Public because the only place that can bound the PROCESS is the one that holds
+    /// the sources — see `evictDecodes`'s note about the missing multiplication. It had
+    /// been `private` and unread since the eviction rules were rewritten to sum inline:
+    /// a memory accountant with no reader.
+    public var heldDecodeBytes: Int { decodeCache.reduce(0) { $0 + $1.bytes } }
+
+    /// Drop the native inspection planes this source is holding. Returns the bytes
+    /// freed.
+    ///
+    /// The exemption in `evictDecodes` is what lets a settle at zoom keep its 260 MB
+    /// decode against a drag that would otherwise evict it; it is emphatically not a
+    /// licence to hold one for every photograph the user has passed through. A source
+    /// nobody is rendering is not inspecting anything.
+    ///
+    /// Always safe, in the strong sense: a released decode is not a lost decode, it is a
+    /// decode that will be made again if it is wanted. The whole cost of being wrong
+    /// here is one demosaic, and only if the photographer returns to this photograph AND
+    /// zooms back past the interactive ceiling.
+    @discardableResult
+    public func releaseInspectionDecodes() -> Int {
+        var freed = 0
+        decodeCache.removeAll { entry in
+            guard DraftLadder.isInspectionAsk(longEdge: entry.askedLongEdge) else {
+                return false
+            }
+            freed += entry.bytes
+            return true
+        }
+        return freed
+    }
+
+    /// Drop everything this source is holding. Returns the bytes freed.
+    ///
+    /// The blunt instrument, for a source that has fallen out of the working set
+    /// entirely. Same argument as above and the same bounded cost: the decodes are
+    /// recomputable, the `CIRAWFilter` and the metadata are not thrown away with them,
+    /// and the photograph reopens at the price of a demosaic rather than a file open.
+    @discardableResult
+    public func releaseDecodes() -> Int {
+        let freed = heldDecodeBytes
+        decodeCache.removeAll()
+        return freed
+    }
 
     /// Room for the working set that actually repeats — the viewer's settle, the rung
     /// under the hand, the 512 px probes, the mask raster — and not much more.
