@@ -1260,13 +1260,39 @@ enum ProofRegistry {
         // corrected inset). Shadow zones measure a third of their siblings for the
         // reason every shadow control does; global and high match on this wedge
         // because the high zone dominates its bright half.
+        //
+        // THE TWO BRILLIANCE FIGURES THAT MOVED, and why a floor coming DOWN is not a
+        // goalpost being moved. These were 91 and 174 — 70% of 130.28 and of 249.87,
+        // measurements taken BEFORE the grading wheels got their limiter. That limiter
+        // is the fix for the Luminance inversion: the wheels scale OKLab L, whose
+        // linear value is L cubed, so the realised response is 1 + 3*scale*slope while
+        // the old solve used 1 + scale*slope — 2.85x too permissive, with 345 of 810
+        // sampled combinations INVERTING the tone they claimed to lift, and
+        // Brilliance's own worst case measuring 226.7 sRGB codes of reversal.
+        //
+        // So the number those two floors were 70% OF was the authority of a control
+        // that could run the picture backwards. Correcting it cost brilliance a
+        // quarter to a third of its measured travel — shadows 130.28 -> 80.82, mid
+        // 249.87 -> 159.72 — and that is the defect leaving, not the control
+        // weakening. The floors are re-derived by the rule this comment already
+        // states, applied to the corrected engine: 70% of 80.82 and of 159.72.
+        //
+        // The engine change shipped without visiting this file, which is why it took a
+        // COMPLETED Proof sweep to surface: every sweep between that commit and this
+        // one was cancelled by the next push, so the lane that would have caught it
+        // the same day never finished. A deliberate behaviour change owes this file a
+        // visit, and the cancelled lanes are why nothing said so.
+        //
+        // `brilliance.high` measured 189.93 and still clears its 178, so it KEEPS the
+        // tighter floor rather than being loosened to 70% of its own new figure: a
+        // floor a control provably clears is worth more than a consistent formula.
         let floors: [String: Double] = [
             "chroma.global": 111, "chroma.shadows": 38,
             "chroma.mid": 109, "chroma.high": 111,
             "saturation.global": 112, "saturation.shadows": 37,
             "saturation.mid": 108, "saturation.high": 112,
-            "brilliance.global": 178, "brilliance.shadows": 91,
-            "brilliance.mid": 174, "brilliance.high": 178,
+            "brilliance.global": 178, "brilliance.shadows": 56,
+            "brilliance.mid": 111, "brilliance.high": 178,
         ]
         for (axisId, axisName, axisPath) in axes {
             for (zoneId, zoneName, zonePath) in zones {
