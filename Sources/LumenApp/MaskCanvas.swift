@@ -18,6 +18,25 @@
 //     committed once on mouse-up — one stroke, one undo step, and no recipe write
 //     per mouse-moved event.
 //
+// WHAT A PRESS MEANS is not decided here. It is `MaskHandles`, in LumenCore, because
+// this target has no tests and the rule it replaced could not be reached from one — a
+// radial's only move target was the 9 pt dot at its centre, and every other press on the
+// picture threw the ellipse away and started a new one from the drag ("if I go even a
+// tiny bit out of that center dot, then I have to redraw it"). That file carries the
+// full account. What matters at this end is the shape of the grammar it hands back:
+//
+//   radial   inside → move · the whole rim → resize that axis · clear space → new one
+//   linear   the strip between the band lines → move · a band line → falloff ·
+//            an endpoint dot → turn it · clear space → new one
+//   both     ⌘ at the press → new one, wherever the press landed
+//
+// and the rule underneath all of it: a press that took hold of the shape can never
+// replace it. Every drag below is a pure function of where the pointer is NOW and where
+// the geometry was when the press landed — no accumulator, exactly as `SliderDrag`
+// argues — so a dropped event cannot change what a gesture is worth, and a resize or a
+// falloff drag that grabs somewhere other than the drawn dot does not begin by jumping
+// the shape to the pointer.
+//
 // This view owns no application state. It reads the component it is editing and hands
 // finished values back through `commit`, which the host routes into
 // `AppState.updateRecipe` — `MaskCanvas.apply(_:in:)` is that routing, written once.
@@ -134,12 +153,18 @@ struct MaskCanvas: View {
         self.commit = commit
     }
 
+    /// What the press decided, carried for the rest of the drag.
+    ///
+    /// The two geometry cases hold a `MaskHandles` answer rather than the integers they
+    /// used to hold. The integers were the defect's hiding place: "3" meant *drawing a
+    /// new one* on both kinds and was the value every hit test fell through to, so the
+    /// destructive branch was the DEFAULT of a switch nobody could test. A named case is
+    /// returned only where the rule says so, and the compiler now requires this file to
+    /// handle each one.
     private enum DragMode: Equatable {
         case idle
-        /// 0 = start handle, 1 = end handle, 2 = whole line, 3 = drawing a new one.
-        case line(handle: Int)
-        /// 0 = move centre, 1 = major radius, 2 = minor radius, 3 = drawing a new one.
-        case radial(handle: Int)
+        case line(MaskHandles.LinearGrab)
+        case radial(MaskHandles.RadialGrab)
         case brush
     }
 
@@ -188,10 +213,11 @@ struct MaskCanvas: View {
         guard let component = component else { return "" }
         switch component.kind {
         case .linear, .similarityLine:
-            return "Drag to place the gradient; Shift constrains it to 0/90°."
+            return "Drag the band to move it, a line to change the falloff, an end dot "
+                 + "to turn it; Shift constrains to 0/90°. ⌘-drag draws a new gradient."
         case .radial:
-            return "Drag to place the ellipse; Shift keeps it round, Option draws from "
-                 + "the centre."
+            return "Drag inside to move, the edge to resize; Shift keeps it round. "
+                 + "⌘-drag draws a new ellipse, and Option draws it from the centre."
         case .brush:
             return "Drag to paint. The stroke commits on mouse-up as one undo step."
         default:
@@ -239,36 +265,76 @@ struct MaskCanvas: View {
     private func dragLine(_ value: DragGesture.Value, _ component: MaskComponent,
                           ended: Bool) {
         let line = MaskCanvas.line(component)
-        // The handle is decided once, on mouse-down, and carried in a local as well as in
+        // The grab is decided once, on mouse-down, and carried in a local as well as in
         // `mode`: reading @State back inside the same event would be a bet this does not
         // need to take.
-        let handle: Int
+        let grab: MaskHandles.LinearGrab
         var updated: [Double]
         if case .line(let existing) = mode {
-            handle = existing
+            grab = existing
             updated = originLine.count == 4 ? originLine : line
         } else {
-            handle = lineHandle(at: value.startLocation, line: line)
+            grab = lineGrab(at: value.startLocation, line: line)
             updated = line
             originLine = line
-            mode = .line(handle: handle)
+            mode = .line(grab)
         }
 
         let current = value.location
-        switch handle {
-        case 0:
-            let anchor = viewPoint(updated[2], updated[3])
-            let p = constrained(current, anchor: anchor)
-            let n = normalized(p)
-            updated[0] = Double(n.x)
-            updated[1] = Double(n.y)
-        case 1:
-            let anchor = viewPoint(updated[0], updated[1])
-            let p = constrained(current, anchor: anchor)
-            let n = normalized(p)
-            updated[2] = Double(n.x)
-            updated[3] = Double(n.y)
-        case 2:
+        switch grab {
+        case .startHandle, .endHandle:
+            // The endpoint follows the pointer's TRAVEL, not the pointer. Setting it to
+            // the pointer was right only because the old hit test could not grab an
+            // endpoint from anywhere but its own 9 pt dot; now that a dot can be grabbed
+            // anywhere within 11 pt, assigning the raw position would snap the end to
+            // the cursor by up to a whole grab radius the instant the mouse went down.
+            // `updated` is the drag's origin, so this stays absolute in the pointer.
+            let moving = grab == .startHandle ? 0 : 2
+            let fixed = grab == .startHandle ? 2 : 0
+            let anchor = viewPoint(updated[fixed], updated[fixed + 1])
+            let origin = viewPoint(updated[moving], updated[moving + 1])
+            let target = CGPoint(x: origin.x + (current.x - value.startLocation.x),
+                                 y: origin.y + (current.y - value.startLocation.y))
+            let n = normalized(constrained(target, anchor: anchor))
+            updated[moving] = Double(n.x)
+            updated[moving + 1] = Double(n.y)
+        case .startBand, .endBand:
+            // A band line is drawn straight across the picture, so dragging it moves it
+            // — it does not swing the gradient round the far end. The endpoint slides
+            // ALONG the axis by the pointer's travel projected onto that axis, which is
+            // exactly the falloff: `linearPlane` ramps between the two lines and is flat
+            // outside them, so the distance between them IS the feather (docs/08 §8.2,
+            // "the span between the two lines IS the feather — there is no separate
+            // control"). Turning the gradient stays on the end dots, where an affordance
+            // that looks like a pivot is actually drawn.
+            let p0 = viewPoint(updated[0], updated[1])
+            let p1 = viewPoint(updated[2], updated[3])
+            let wx = p1.x - p0.x
+            let wy = p1.y - p0.y
+            let length = (wx * wx + wy * wy).squareRoot()
+            guard length > 1e-6 else { return }
+            let ux = wx / length
+            let uy = wy / length
+            var slide = (current.x - value.startLocation.x) * ux
+                      + (current.y - value.startLocation.y) * uy
+            // The two ends may not pass each other, or meet: a gradient shorter than one
+            // grab radius has no separable targets left, and one of zero length
+            // rasterizes to nothing at all. Clamping here rather than letting the
+            // degenerate guard below reject the commit keeps the line under the hand
+            // instead of freezing it mid-drag.
+            let minimumSpan = CGFloat(MaskHandles.grabRadius)
+            if grab == .endBand {
+                slide = Swift.max(slide, minimumSpan - length)
+            } else {
+                slide = Swift.min(slide, length - minimumSpan)
+            }
+            let moving = grab == .startBand ? 0 : 2
+            let origin = viewPoint(updated[moving], updated[moving + 1])
+            let slid = CGPoint(x: origin.x + ux * slide, y: origin.y + uy * slide)
+            let n = normalized(slid)
+            updated[moving] = Double(n.x)
+            updated[moving + 1] = Double(n.y)
+        case .move:
             // THE DELTA HAS TO BE MEASURED IN SOURCE COORDINATES, and it was measured in
             // displayed ones. Every other branch in this file routes through
             // `normalized()` → `PipelineRenderer.sourceNormalized`, which inverts the
@@ -296,7 +362,15 @@ struct MaskCanvas: View {
             let base = updated
             updated = [MaskCanvas.coord(base[0] + dx), MaskCanvas.coord(base[1] + dy),
                        MaskCanvas.coord(base[2] + dx), MaskCanvas.coord(base[3] + dy)]
-        default:
+        case .create:
+            // Only reached when the press landed clear of the whole gradient, or with ⌘
+            // down. A click is still not a gradient: without the travel guard a 3 pt
+            // twitch replaces a placed gradient with a 3 pt one, which rasterizes as a
+            // hard edge through the click and reads as the mask having been destroyed —
+            // the same defect as the radial's, one order of magnitude less obvious.
+            guard MaskHandles.drawsShape(from: value.startLocation, to: current) else {
+                return
+            }
             let start = normalized(value.startLocation)
             let end = normalized(constrained(current, anchor: value.startLocation))
             updated = [Double(start.x), Double(start.y), Double(end.x), Double(end.y)]
@@ -314,15 +388,26 @@ struct MaskCanvas: View {
                           coalescingKey: ended ? nil : coalescingKey("line")))
     }
 
-    private func lineHandle(at point: CGPoint, line: [Double]) -> Int {
-        guard line.count == 4 else { return 3 }
-        let p0 = viewPoint(line[0], line[1])
-        let p1 = viewPoint(line[2], line[3])
-        let mid = CGPoint(x: (p0.x + p1.x) / 2, y: (p0.y + p1.y) / 2)
-        if MaskCanvas.distance(point, p0) <= MaskCanvas.handleRadius { return 0 }
-        if MaskCanvas.distance(point, p1) <= MaskCanvas.handleRadius { return 1 }
-        if MaskCanvas.distance(point, mid) <= MaskCanvas.handleRadius { return 2 }
-        return 3
+    /// The press, projected into view points and handed to the rule in `MaskHandles`.
+    ///
+    /// The projection is the whole of this view's contribution: the gradient is stored
+    /// in SOURCE coordinates and the hand is aiming at the DISPLAYED picture, so the
+    /// two endpoints are pushed through `viewPoint` — crop, straighten, flip and all —
+    /// before any distance is measured. Measuring in source-normalized units instead
+    /// would make every tolerance in `MaskHandles` mean a different number of screen
+    /// points on every crop.
+    private func lineGrab(at point: CGPoint, line: [Double]) -> MaskHandles.LinearGrab {
+        guard line.count == 4 else { return .create }
+        // ⌘ is the explicit "another one" gesture, and it exists so that the rule above
+        // is free to be as protective as it is: a gradient whose band covers the frame
+        // leaves no clear space to press, and without a modifier there would be no way
+        // to start a fresh one on the picture at all. ⇧ and ⌥ are already spoken for
+        // here (constrain, and draw-from-centre on the radial), and ⌃-drag is a
+        // secondary click on macOS — ⌘ is the one that was free.
+        if isCommandDown { return .create }
+        return MaskHandles.linearGrab(press: point,
+                                      start: viewPoint(line[0], line[1]),
+                                      end: viewPoint(line[2], line[3]))
     }
 
     // MARK: Radial gradient
@@ -332,25 +417,25 @@ struct MaskCanvas: View {
         let centre = MaskCanvas.pair(component.center, fallback: [0.5, 0.5])
         let radii = MaskCanvas.pair(component.radii, fallback: [0.25, 0.25])
         let rotation = component.rotation ?? 0
-        let handle: Int
+        let grab: MaskHandles.RadialGrab
         var nextCentre: [Double]
         var nextRadii: [Double]
         if case .radial(let existing) = mode {
-            handle = existing
+            grab = existing
             nextCentre = originCenter.count == 2 ? originCenter : centre
             nextRadii = originRadii.count == 2 ? originRadii : radii
         } else {
-            handle = radialHandle(at: value.startLocation, centre: centre, radii: radii,
-                                  rotation: rotation)
+            grab = radialGrab(at: value.startLocation, centre: centre, radii: radii,
+                              rotation: rotation)
             nextCentre = centre
             nextRadii = radii
             originCenter = centre
             originRadii = radii
-            mode = .radial(handle: handle)
+            mode = .radial(grab)
         }
 
-        switch handle {
-        case 0:
+        switch grab {
+        case .move:
             // Source coordinates, not displayed ones — see the note on the gradient's
             // translate branch above. Same defect, same fix.
             let from = normalized(value.startLocation)
@@ -360,15 +445,43 @@ struct MaskCanvas: View {
             let base = nextCentre
             nextCentre = [MaskCanvas.coord(base[0] + Double(to.x - from.x)),
                           MaskCanvas.coord(base[1] + Double(to.y - from.y))]
-        case 1, 2:
-            let local = localVector(from: nextCentre, to: value.location, rotation: rotation)
-            if handle == 1 {
-                nextRadii[0] = MaskCanvas.radius(abs(local.x))
+        case .resizeMajor, .resizeMinor:
+            // The radius moves by what the POINTER moved, in the ellipse's own frame.
+            // It used to be assigned the pointer's own distance from the centre, which
+            // was indistinguishable from this while the only way to start a resize was
+            // to press the drawn dot — there `|local|` at the press IS the radius, so
+            // the two agree exactly. It stops being indistinguishable now that the whole
+            // rim resizes: grabbing the rim 40° round from the major axis would have
+            // snapped that radius to `r·cos 40° = 0.77 r` before the hand had moved, and
+            // grabbing anywhere on a rim that a rotation has turned would jump further
+            // still. `nextRadii` is the drag's origin, so this stays a pure function of
+            // the current pointer — no accumulation across events.
+            let atPress = localVector(from: nextCentre, to: value.startLocation,
+                                      rotation: rotation)
+            let local = localVector(from: nextCentre, to: value.location,
+                                    rotation: rotation)
+            if grab == .resizeMajor {
+                let moved = abs(local.x) - abs(atPress.x)
+                nextRadii[0] = MaskCanvas.radius(nextRadii[0] + moved)
             } else {
-                nextRadii[1] = MaskCanvas.radius(abs(local.y))
+                let moved = abs(local.y) - abs(atPress.y)
+                nextRadii[1] = MaskCanvas.radius(nextRadii[1] + moved)
             }
-            if isShiftDown { nextRadii = roundedRadii(nextRadii, drivenByX: handle == 1) }
-        default:
+            if isShiftDown {
+                nextRadii = roundedRadii(nextRadii, drivenByX: grab == .resizeMajor)
+            }
+        case .create:
+            // Only reached when the press landed clear of the ellipse, or with ⌘ down.
+            //
+            // THE TRAVEL GUARD IS THE REPORTED DEFECT'S LAST INCH. Without it a press
+            // with no movement writes `radii = [radius(0), radius(0)]`, and `radius`
+            // clamps to 0.002 — a click used to shrink the mask to two thousandths of
+            // the frame, which on screen is indistinguishable from deleting it, and it
+            // fired on 99.99% of the canvas. The hit test above now refuses to call this
+            // a create at all near an existing ellipse; this refuses to destroy one even
+            // when the press was genuinely out in the open and the hand never moved.
+            guard MaskHandles.drawsShape(from: value.startLocation,
+                                         to: value.location) else { return }
             let start = normalized(value.startLocation)
             let end = normalized(value.location)
             if isOptionDown {
@@ -393,15 +506,24 @@ struct MaskCanvas: View {
                           coalescingKey: ended ? nil : coalescingKey("radial")))
     }
 
-    private func radialHandle(at point: CGPoint, centre: [Double], radii: [Double],
-                              rotation: Double) -> Int {
-        let c = viewPoint(centre[0], centre[1])
+    /// The press and the drawn ellipse, in view points, handed to the rule in
+    /// `MaskHandles`.
+    ///
+    /// The three points passed across are exactly the three this view already draws, and
+    /// that is deliberate: whatever the crop, the straighten and the flip do to the
+    /// picture they do to these, so the shape the rule hit-tests is the shape on the
+    /// screen down to the last point. A hit test written against `centre`/`radii`
+    /// directly would be testing the shape in the SOURCE frame — the same class of
+    /// mistake as the displayed-coordinates delta the move branch above documents.
+    private func radialGrab(at point: CGPoint, centre: [Double], radii: [Double],
+                            rotation: Double) -> MaskHandles.RadialGrab {
+        // ⌘ means "another one", wherever the press landed. See `lineGrab`.
+        if isCommandDown { return .create }
         let major = viewPoint(from: centre, offset: (radii[0], 0), rotation: rotation)
         let minor = viewPoint(from: centre, offset: (0, radii[1]), rotation: rotation)
-        if MaskCanvas.distance(point, c) <= MaskCanvas.handleRadius { return 0 }
-        if MaskCanvas.distance(point, major) <= MaskCanvas.handleRadius { return 1 }
-        if MaskCanvas.distance(point, minor) <= MaskCanvas.handleRadius { return 2 }
-        return 3
+        return MaskHandles.radialGrab(press: point,
+                                      centre: viewPoint(centre[0], centre[1]),
+                                      majorHandle: major, minorHandle: minor)
     }
 
     /// Radii are normalized against width and height separately, so "round" is a
@@ -496,9 +618,17 @@ struct MaskCanvas: View {
             stroke(&context, ellipsePath(centre, radii, rotation, scale: inner),
                    width: 1, alpha: 0.35)
         }
+        // FOUR rim dots, not two. The hit test takes a resize from anywhere on the rim,
+        // and a picture that shows an affordance on only half of it is a picture that
+        // lies about where the shape can be grabbed — which is the habit that produced
+        // the reported defect in the first place. The centre dot stays, drawn small: it
+        // is no longer the only way to move the ellipse, it is the mark that says where
+        // the ellipse is centred.
         handle(&context, viewPoint(centre[0], centre[1]), small: true)
-        handle(&context, viewPoint(from: centre, offset: (radii[0], 0), rotation: rotation))
-        handle(&context, viewPoint(from: centre, offset: (0, radii[1]), rotation: rotation))
+        for offset in [(radii[0], 0.0), (-radii[0], 0.0),
+                       (0.0, radii[1]), (0.0, -radii[1])] {
+            handle(&context, viewPoint(from: centre, offset: offset, rotation: rotation))
+        }
     }
 
     private func drawBrush(_ context: inout GraphicsContext) {
@@ -636,6 +766,9 @@ struct MaskCanvas: View {
 
     private var isShiftDown: Bool { NSEvent.modifierFlags.contains(.shift) }
     private var isOptionDown: Bool { NSEvent.modifierFlags.contains(.option) }
+    /// The deliberate "draw another one" modifier — the only destructive gesture this
+    /// canvas still offers without asking the picture for permission first.
+    private var isCommandDown: Bool { NSEvent.modifierFlags.contains(.command) }
 
     private func coalescingKey(_ what: String) -> String {
         "mask.canvas.\(what).\(maskID).\(componentIndex)"
@@ -643,13 +776,10 @@ struct MaskCanvas: View {
 
     // MARK: Static helpers
 
-    static let handleRadius: CGFloat = 9
-
-    static func distance(_ a: CGPoint, _ b: CGPoint) -> CGFloat {
-        let dx = a.x - b.x
-        let dy = a.y - b.y
-        return (dx * dx + dy * dy).squareRoot()
-    }
+    // `handleRadius` and `distance` used to live here: a 9 pt tolerance and the
+    // three-dot proximity test that spent it. Both are gone rather than reworded,
+    // because keeping a second copy of a tolerance next to the rule that supersedes it
+    // is how the two drift apart. The one that counts is `MaskHandles.grabRadius`.
 
     static func coord(_ v: Double) -> Double {
         guard v.isFinite else { return 0 }
