@@ -205,11 +205,21 @@ public enum ReferenceRenderer {
         var out = image
         for (mask, alpha) in alphas {
             let adjusted = applyLocalAdjust(out, mask: mask, plan: plan, space: space)
+            let blend = mask.blend
             for y in 0..<out.height {
                 for x in 0..<out.width {
                     let a = Num.saturate(alpha[x, y])
                     if a > 0 {
-                        out[x, y] = out[x, y].mix(adjusted[x, y], a)
+                        // The blend runs BEFORE the alpha composite, so Amount and
+                        // the mask's own softness still do exactly what they did.
+                        // `MaskAlgebra.blended` returns `adjusted` untouched in Normal,
+                        // which is what makes this bit-identical for every existing mask.
+                        let base = out[x, y]
+                        let result = blend == .normal
+                            ? adjusted[x, y]
+                            : MaskAlgebra.blended(base: base, adjusted: adjusted[x, y],
+                                                  blend: blend, space: space)
+                        out[x, y] = base.mix(result, a)
                     }
                 }
             }

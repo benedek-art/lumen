@@ -894,10 +894,24 @@ public struct RenderGraph {
             let adjusted = Self.applyLocalAdjust(out, mask: mask, plan: plan,
                                                  longEdge: options.longEdge,
                                                  lutSize: options.lutSize)
-            guard let blended = KernelLibrary.apply(KernelLibrary.blendMask,
-                                                    extent: out.extent,
-                                                    [out, adjusted, alpha])
-            else { continue }
+            // Normal keeps the two-argument kernel it always used, so the common case
+            // is bit-identical and pays nothing for a feature it is not using. The
+            // coefficients come off the working space rather than being written into
+            // the shader, so this cannot drift from `MaskAlgebra.blended`.
+            let composite: CIImage?
+            if mask.blend == .normal {
+                composite = KernelLibrary.apply(KernelLibrary.blendMask,
+                                                extent: out.extent,
+                                                [out, adjusted, alpha])
+            } else {
+                let w = RGBColorSpace.rec2020.luminanceWeights
+                let mode: Float = mask.blend == .luminosity ? 1 : 2
+                composite = KernelLibrary.apply(KernelLibrary.blendMaskMode,
+                                                extent: out.extent,
+                                                [out, adjusted, alpha, mode,
+                                                 Float(w.r), Float(w.g), Float(w.b)])
+            }
+            guard let blended = composite else { continue }
             out = blended
         }
         return out

@@ -28,12 +28,15 @@ public struct Mask: Codable, Equatable, Sendable {
     public var components: [MaskComponent]
     public var refine: MaskRefine
     public var adjust: LocalAdjust
+    /// How this mask's result combines with the picture underneath. See `MaskBlend`.
+    public var blend: MaskBlend
 
     public init(id: String = UUID().uuidString, name: String = "",
                 enabled: Bool = true, invert: Bool = false, amount: Double = 100,
                 components: [MaskComponent] = [],
                 refine: MaskRefine = MaskRefine(),
-                adjust: LocalAdjust = LocalAdjust()) {
+                adjust: LocalAdjust = LocalAdjust(),
+                blend: MaskBlend = .normal) {
         self.id = id
         self.name = name
         self.enabled = enabled
@@ -42,10 +45,11 @@ public struct Mask: Codable, Equatable, Sendable {
         self.components = components
         self.refine = refine
         self.adjust = adjust
+        self.blend = blend
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, enabled, invert, amount, components, refine, adjust
+        case id, name, enabled, invert, amount, components, refine, adjust, blend
     }
 
     /// Every field has a default, so a mask written by a build that did not have
@@ -66,6 +70,7 @@ public struct Mask: Codable, Equatable, Sendable {
             ?? MaskRefine()
         self.adjust = try c.decodeIfPresent(LocalAdjust.self, forKey: .adjust)
             ?? LocalAdjust()
+        self.blend = try c.decodeIfPresent(MaskBlend.self, forKey: .blend) ?? .normal
     }
 
     /// The same mask with everything that is only a label removed. Renaming a mask
@@ -79,6 +84,51 @@ public struct Mask: Codable, Equatable, Sendable {
 
 public enum MaskOp: String, Codable, Sendable {
     case add, subtract, intersect
+}
+
+/// How a mask's adjusted pixels combine with the ones underneath (docs/36 §3, bet 1).
+///
+/// Photoshop, Affinity and ON1 give a layer a blend mode; Capture One does not, and it
+/// has been an open request there for years. No raw editor with this much depth per
+/// mask has one, and the reason to want it is specific rather than general: **a mask in
+/// Luminosity mode moves tone and leaves colour exactly alone**, which is the whole of
+/// dodging and burning skin without shifting it.
+///
+/// THREE MODES, NOT SIX, AND THE MISSING THREE ARE A HONESTY PROBLEM RATHER THAN A
+/// SCOPE ONE. Multiply, Screen and Soft Light are defined on a display-referred [0,1]
+/// domain; the local stage is scene-referred, where "1" is not white and values run
+/// past it. Shipping them here would give three controls whose behaviour did not match
+/// the name every other application has taught. Normal, Luminosity and Colour are
+/// exactly the three that are well defined on scene-linear values — each is a
+/// luminance-ratio rescale, which is a pure operation at any exposure.
+///
+/// Both renderers implement this in `applyLocalBlend`, once, so the CPU reference and
+/// the GPU path cannot disagree about it.
+public enum MaskBlend: String, Codable, Sendable, CaseIterable {
+    /// The adjusted pixel, as computed. What every mask did before this existed.
+    case normal
+    /// The adjusted pixel's BRIGHTNESS, over the original's colour.
+    case luminosity
+    /// The adjusted pixel's COLOUR, over the original's brightness.
+    case color
+
+    public var label: String {
+        switch self {
+        case .normal: return "Normal"
+        case .luminosity: return "Brightness only"
+        case .color: return "Colour only"
+        }
+    }
+
+    /// One line each, for the control that offers them. Says what is LEFT ALONE, which
+    /// is the half a photographer is choosing on.
+    public var explanation: String {
+        switch self {
+        case .normal: return "The whole edit, tone and colour together"
+        case .luminosity: return "Moves brightness and leaves colour exactly as it was"
+        case .color: return "Moves colour and leaves brightness exactly as it was"
+        }
+    }
 }
 
 public enum MaskKind: String, Codable, Sendable {

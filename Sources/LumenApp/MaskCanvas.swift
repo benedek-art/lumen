@@ -306,7 +306,8 @@ struct MaskCanvas: View {
         if let existing = pointGrab {
             grab = existing
         } else {
-            guard let found = pointGrab(at: value.startLocation, points: points) else { return }
+            guard let found = grabbedPoint(at: value.startLocation, points: points)
+            else { return }
             grab = found
             pointGrab = found
         }
@@ -338,7 +339,7 @@ struct MaskCanvas: View {
 
     /// The ring first, then the inside — so a point whose ring is inside a bigger
     /// point's body can still be resized. Nearest match wins among equals.
-    private func pointGrab(at location: CGPoint, points: [[Double]]) -> PointGrab? {
+    private func grabbedPoint(at location: CGPoint, points: [[Double]]) -> PointGrab? {
         var best: (grab: PointGrab, score: CGFloat)? = nil
         for (index, entry) in points.enumerated() where entry.count >= 3 {
             guard entry[0].isFinite, entry[1].isFinite, entry[2].isFinite else { continue }

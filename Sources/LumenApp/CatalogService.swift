@@ -236,7 +236,7 @@ final class CatalogService: @unchecked Sendable {
                         // that kept its own recipe can still be missing the blob a
                         // shared sidecar carries, which is the "copied the photos and
                         // the .xmp files to a new machine" case.
-                        Self.restoreStrokes(from: file, store: store)
+                        Self.restoreStrokes(from: file, blobs: blobs)
                         // A sidecar fills in where the catalog is silent — and until
                         // now it filled in ONLY the copy handed to the grid. Membership
                         // and ordering are SQL-backed (the whole filter bar compiles to
@@ -475,12 +475,12 @@ final class CatalogService: @unchecked Sendable {
     /// already dropped any entry whose key does not address its own bytes, so writing an
     /// existing blob writes identical bytes. Failures are logged, never thrown — a blob
     /// that will not write costs one mask, not the folder open.
-    private static func restoreStrokes(from file: URL, store: CatalogStore) {
+    private static func restoreStrokes(from file: URL, blobs: BlobStore) {
         guard let payload = readSidecar(for: file)?.strokesPayload else { return }
         for (ref, set) in BrushStrokeSidecar.decode(payload) {
-            guard store.blobs.strokeSet(for: ref) == nil else { continue }
+            guard blobs.strokeSet(for: ref) == nil else { continue }
             do {
-                let written = try store.blobs.store(set)
+                let written = try blobs.store(set)
                 if written != ref {
                     NSLog("Lumen catalog: a sidecar stroke set addressed %@ but stored "
                           + "as %@ — not restored", ref, written)
@@ -637,7 +637,7 @@ final class CatalogService: @unchecked Sendable {
             // at, so a restored sidecar gives brush masks that rasterize empty forever
             // (docs/35 §7.1).
             let payload = BrushStrokeSidecar.payload(for: recipe) {
-                self.store.blobs.strokeSet(for: $0)
+                self.blobs.strokeSet(for: $0)
             }
             self.enqueueSidecar(for: url, photoID: catalogID, rating: nil, label: nil,
                                 recipe: (json, fingerprint, recipe.pipelineVersion),

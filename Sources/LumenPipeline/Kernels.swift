@@ -446,6 +446,38 @@ public enum KernelLibrary {
     }
     """
 
+    /// The same composite, through a mask's BLEND MODE (docs/36 §3, bet 1).
+    ///
+    /// `mode` is `MaskBlend`'s ordinal — 0 normal, 1 luminosity, 2 colour — and
+    /// `lr/lg/lb` are the working space's luminance coefficients, passed in rather than
+    /// hardcoded so this kernel cannot disagree with `RGBColorSpace.luminance`, which is
+    /// what `MaskAlgebra.blended` uses on the CPU side.
+    ///
+    /// Both non-normal modes are luminance-RATIO rescales, so they are exact on
+    /// scene-referred values and need no white point. The guards match the reference's
+    /// `luminanceFloor` and its fallbacks: a pixel with no luminance has no colour ratio
+    /// to preserve, so Luminosity falls through to the adjusted pixel and Colour to the
+    /// base, rather than to a division.
+    static let blendMaskModeSource = """
+    kernel vec4 lumenBlendMaskMode(__sample base, __sample over, __sample mask,
+                                   float mode, float lr, float lg, float lb) {
+        float m = clamp(mask.r, 0.0, 1.0);
+        vec3 result = over.rgb;
+        vec3 coef = vec3(lr, lg, lb);
+        float floorY = 1e-7;
+        if (mode > 1.5) {
+            float from = dot(over.rgb, coef);
+            float to = dot(base.rgb, coef);
+            result = (from > floorY) ? over.rgb * (to / from) : base.rgb;
+        } else if (mode > 0.5) {
+            float from = dot(base.rgb, coef);
+            float to = dot(over.rgb, coef);
+            result = (from > floorY) ? base.rgb * (to / from) : over.rgb;
+        }
+        return vec4(mix(base.rgb, result, m), base.a);
+    }
+    """
+
     /// Density-domain grain (docs/14 §5.7). Amplitude peaks at mid densities and
     /// vanishes at Dmin and Dmax, which is why film grain lives in the midtones and
     /// clean film blacks stay clean — the property a constant-sigma RGB overlay
@@ -736,6 +768,7 @@ public enum KernelLibrary {
     public static let guidedCrossCoefficients = make(guidedCrossCoefficientsSource)
     public static let guidedApply = make(guidedApplySource)
     public static let blendMask = make(blendMaskSource)
+    public static let blendMaskMode = make(blendMaskModeSource)
     public static let grain = make(grainSource)
     public static let vignette = make(vignetteSource)
     public static let detailGain = make(detailGainSource)
