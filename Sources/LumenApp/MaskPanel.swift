@@ -120,6 +120,10 @@ struct MaskPanel: View {
             zone("What") {
                 maskListSection
                 if let mask = activeMask {
+                    // Under the list, above the stack: it is a property of WHICH mask
+                    // you are looking at, which is the question the list answers, and
+                    // it is where Lightroom puts the same three controls.
+                    overlayControls(mask)
                     componentSection(mask)
                 } else {
                     emptyMaskState
@@ -549,7 +553,6 @@ struct MaskPanel: View {
 
     private func maskRow(_ mask: Mask, index: Int) -> some View {
         let isSelected = mask.id == activeMask?.id
-        let isSolo = state.soloMaskOverlay == mask.id
         return HStack(spacing: 5) {
             Button { editMask(mask.id, key: nil) { $0.enabled.toggle() } } label: {
                 Image(systemName: mask.enabled ? "eye" : "eye.slash").font(.system(size: 10))
@@ -584,7 +587,7 @@ struct MaskPanel: View {
                 moveMask(mask.id, by: delta)
             }
 
-            maskRowMenu(mask, showing: isSolo)
+            maskRowMenu(mask)
         }
         .padding(.horizontal, 4).padding(.vertical, 3)
         .background(isSelected ? Lumen.fillColor.opacity(0.20) : Color.clear)
@@ -669,7 +672,7 @@ struct MaskPanel: View {
     /// column below the list — six controls with no visible owner, which is what the
     /// owner meant by "duplicate, delete, which is in a weird place". A row's own menu
     /// is where an operation on a row belongs, and it takes six rows out of the column.
-    private func maskRowMenu(_ mask: Mask, showing: Bool) -> some View {
+    private func maskRowMenu(_ mask: Mask) -> some View {
         LumenMenu(title: "", symbol: "ellipsis", iconOnly: true,
                   help: "Rename, invert, duplicate, delete — and how the overlay draws") {
             LumenMenuHeader(title: "This mask")
@@ -703,49 +706,49 @@ struct MaskPanel: View {
                 }
             }
 
-            LumenMenuHeader(title: "Overlay")
-            LumenMenuItem(title: showing ? "Keep it hidden" : "Keep it showing",
-                          symbol: showing ? "eye.slash" : "eye") {
-                state.soloMaskOverlay = showing ? nil : mask.id
-                if !showing { state.pinMaskOverlay() }
-            }
-            ForEach(MaskOverlay.Mode.allCases, id: \.self) { m in
-                LumenMenuItem(title: m.label, isSelected: state.maskOverlayMode == m) {
-                    state.maskOverlayMode = m
-                }
-            }
-            LumenMenuHeader(title: "Overlay colour")
-            ForEach(MaskOverlay.Tint.allCases, id: \.self) { t in
-                LumenMenuItem(title: t.label, isSelected: state.maskOverlayTint == t) {
-                    state.maskOverlayTint = t
-                }
-            }
+            // NO OVERLAY SECTION. Twelve of this menu's items — the switch, six modes
+            // and four colours — moved to `overlayControls`, which is drawn under the
+            // list and had been dead code since it was written. Two homes for one
+            // decision is worse than either, and the menu was a flat list of fifteen-plus
+            // items of which twelve were about how the red is drawn.
         }
     }
 
-    /// The overlay's mode and colour, in the panel as well as on `⌥O` / `⇧O`. Both
-    /// belong here because a control that only exists as a keystroke is a control most
-    /// people never find — and the six modes are the whole of docs/08 §8.6.
+    /// The overlay's switch, mode and colour, in the panel as well as on `O`/`⌥O`/`⇧O`.
+    ///
+    /// **This function was written, styled, argued for in its own doc comment — and
+    /// never called.** Zero call sites. Its comment said "a control that only exists as
+    /// a keystroke is a control most people never find", and meanwhile the entire
+    /// visible surface of a five-input overlay state machine was two items buried in a
+    /// row's `⋯` menu plus a badge in the corner of the loupe. The owner's "I don't know
+    /// how much of these is actually working" was, for the overlay, exactly right.
+    ///
+    /// It is drawn under the mask list now, which is where Lightroom puts the same three
+    /// controls, and the `⋯` menu's twelve overlay items are gone: one home each.
     private func overlayControls(_ mask: Mask) -> some View {
         let showing = state.soloMaskOverlay == mask.id
         return VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 6) {
                 Button {
-                    state.soloMaskOverlay = showing ? nil : mask.id
+                    // Through the pin in both directions. The raw `soloMaskOverlay`
+                    // write this used to carry is the same one that made "Keep it
+                    // hidden" a trap: a solo cleared without its pin leaves every
+                    // ambient path guarded off.
+                    if showing { state.unpinMaskOverlay() } else { state.pinMaskOverlay(mask.id) }
                 } label: {
                     HStack(spacing: 3) {
                         Image(systemName: showing ? "eye.fill" : "eye")
-                            .font(.system(size: 9))
-                        Text(showing ? "Overlay on" : "Show overlay").font(.system(size: 10))
+                            .font(.lumenCaption)
+                        Text(showing ? "Overlay on" : "Show overlay").font(.lumenCaption)
                     }
                     .padding(.horizontal, 6).padding(.vertical, 3)
                     .background(showing ? Lumen.fillColor.opacity(0.35) : Lumen.controlBackground)
-                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                    .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusChip))
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(showing ? Lumen.primaryText : Lumen.secondaryText)
-                .help("O shows the overlay for this mask")
+                .help("Keep this mask's overlay up. O does the same from the keyboard.")
 
                 // NO GLYPHS ON EITHER OF THESE, and the tint menu is why the rule
                 // exists. The four colours are the one list in this panel whose meaning
@@ -1627,11 +1630,19 @@ struct MaskPanel: View {
         state.updateRecipe(coalescingKey: nil) { $0.masks.append(mask) }
         selectedMaskID = id
         selectedComponent = 0
-        // The first second of a mask used to show nothing at all: no overlay, no
-        // thumbnail, no pin. The one moment a photographer most needs to see what a
-        // mask selected had no feedback in it (docs/35 §2.3). It flashes and stands
-        // down; `O` is still how you make it stay.
-        state.flashMaskOverlay(id)
+        // AND IT STAYS UP UNTIL THE FIRST ADJUSTMENT, rather than flashing for 1400 ms.
+        //
+        // The flash was written because the first second of a mask used to show nothing
+        // at all (docs/35 §2.3), and for a brush, a gradient, a radial or an outline it
+        // fixed nothing: an undrawn mask's alpha is zero, and a zero-alpha colour
+        // overlay composites to the photograph unchanged. So the four kinds you DRAW
+        // got a flash of the picture, and then painting did not raise the overlay
+        // either — a brush mask could reach a finished adjustment without the red ever
+        // being visible for one frame, which is what the owner reported.
+        //
+        // Persistent, it costs nothing while the mask is empty and appears with the
+        // first stroke, which is the moment it means something. `O` still overrides.
+        state.beginPersistentMaskOverlay(id)
         armIfItNeedsAColour(kind: kind, maskID: id, component: 0)
     }
 
@@ -1765,7 +1776,9 @@ struct MaskPanel: View {
         state.updateRecipe(coalescingKey: nil) { recipe in
             recipe.masks.removeAll { $0.id == id }
         }
-        if state.soloMaskOverlay == id { state.soloMaskOverlay = nil }
+        // Through the pin, so deleting the mask whose overlay was pinned does not leave
+        // the pin standing over nothing — which would silently disable flash and hover.
+        if state.soloMaskOverlay == id { state.unpinMaskOverlay() }
         selectedMaskID = masks.first?.id
         selectedComponent = 0
     }

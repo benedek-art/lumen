@@ -844,6 +844,9 @@ final class AppState: ObservableObject {
     func toggleMaskOverlay() {
         if soloMaskOverlay != nil {
             maskOverlayPinned = false
+            // O means OFF, including off a mask that is still being made. Leaving the
+            // persistent id set would put the red straight back on the next hover exit.
+            maskOverlayPersistentID = nil
             cancelMaskOverlayTimers()
             soloMaskOverlay = nil
             return
@@ -975,9 +978,75 @@ final class AppState: ObservableObject {
     /// For the row menu's "Keep it showing", which is the pointer's version of what `O`
     /// does. Separate from `toggleMaskOverlay` because the menu has already decided
     /// WHICH mask and does not want the key's "pick one if none is selected" rule.
-    func pinMaskOverlay() {
+    /// Leave the overlay up until told otherwise, optionally raising a named mask's.
+    ///
+    /// Takes the id so its one caller stops writing `soloMaskOverlay` directly — the
+    /// raw write is how the pin and the solo got out of step in the first place.
+    func pinMaskOverlay(_ id: String? = nil) {
         cancelMaskOverlayTimers()
         maskOverlayPinned = true
+        maskOverlayPersistentID = nil
+        if let id, soloMaskOverlay != id { soloMaskOverlay = id }
+    }
+
+    /// Take the pin off, and take the overlay down with it.
+    ///
+    /// THE MISSING HALF OF `pinMaskOverlay`, and its absence was a trap. The row menu's
+    /// "Keep it hidden" set `soloMaskOverlay = nil` and left `maskOverlayPinned` TRUE —
+    /// and `flashMaskOverlay`, `hoverMaskOverlay` and `setMaskEdgeGesture` all open with
+    /// `guard !maskOverlayPinned`. So showing an overlay once and hiding it once killed
+    /// every ambient path for the rest of the photograph: no creation flash, no hover,
+    /// no overlay while dragging an edge. Nothing said so, and only `O` could undo it.
+    func unpinMaskOverlay() {
+        cancelMaskOverlayTimers()
+        maskOverlayPinned = false
+        maskOverlayPersistentID = nil
+        if soloMaskOverlay != nil { soloMaskOverlay = nil }
+    }
+
+    /// A mask is new and has not been adjusted yet: leave its overlay up.
+    ///
+    /// THE RULE THIS COMPLETES, in one sentence: a mask's overlay is persistent from the
+    /// moment it is created until the first time an Effect control is touched, and
+    /// hover-only afterwards.
+    ///
+    /// Before this there was no persistent state at all. Every path was a 1400 ms
+    /// countdown or a pointer dwell, so the answer to "show me what I just selected"
+    /// was a flash you had to catch — and for a brush, a gradient, a radial or an
+    /// outline the flash rendered NOTHING, because an undrawn mask's alpha is zero and
+    /// `colorOverlay` composites `c.mix(tint, a·s)`: at `a = 0` the output is the
+    /// photograph, byte for byte. Painting did not raise it either. So a brush mask
+    /// could go from creation to fully adjusted without the red being visible for one
+    /// frame, which is exactly what the owner reported.
+    ///
+    /// Setting it on an undrawn mask is right rather than merely harmless: nothing is
+    /// selected, so nothing SHOULD be washed red, and the moment the first stroke lands
+    /// the alpha stops being zero and the overlay is already standing there. The
+    /// feedback arrives with the selection instead of before it.
+    ///
+    /// It defers to the pin, because a pin is a decision and this is a default.
+    func beginPersistentMaskOverlay(_ id: String) {
+        guard !maskOverlayPinned else { return }
+        cancelMaskOverlayTimers()
+        maskOverlayPersistentID = id
+        soloMaskOverlay = id
+    }
+
+    /// The mask whose overlay stays up because it has not been adjusted yet, if any.
+    ///
+    /// Not published: every reader of it goes through `soloMaskOverlay`, which is.
+    private var maskOverlayPersistentID: String?
+
+    /// The three inputs every ambient overlay rule is gated on, as one value.
+    ///
+    /// `MaskOverlayRule` lives in LumenCore because this class needs a catalog on disk
+    /// to construct and therefore cannot be unit tested, which is how a five-input state
+    /// machine reached the owner with three defects and no test on any of them. The
+    /// guards below CALL it rather than restating it.
+    private var maskOverlayRule: MaskOverlayRule {
+        MaskOverlayRule(pinned: maskOverlayPinned,
+                        persistentID: maskOverlayPersistentID,
+                        suppressed: maskOverlaySuppressed)
     }
 
     /// A mask was just created: show what it selected, then stand down.
@@ -987,7 +1056,11 @@ final class AppState: ObservableObject {
     /// a photographer most needs to see what a mask does had no feedback in it
     /// (docs/35 §2.3).
     func flashMaskOverlay(_ id: String) {
-        guard !maskOverlayPinned else { return }
+        // SUPPRESSION IS AUTHORITATIVE NOW. `maskOverlaySuppressed` existed, was set on
+        // every Effect press, and was read by nothing except its own dedup guard — so a
+        // flash arriving mid-drag (clicking another mask's pin, say) put the red back
+        // over the pixels the photographer was in the middle of judging.
+        guard maskOverlayRule.ambientAllowed else { return }
         cancelMaskOverlayTimers()
         soloMaskOverlay = id
         // `Task` inherits this type's `@MainActor` isolation, so the body already
@@ -997,6 +1070,9 @@ final class AppState: ObservableObject {
             try? await Task.sleep(nanoseconds: Self.maskOverlayFlashMS * 1_000_000)
             guard !Task.isCancelled, let self, !self.maskOverlayPinned,
                   self.soloMaskOverlay == id else { return }
+            // A mask that has not been adjusted yet keeps its overlay. The stand-down
+            // is for feedback that has been seen, not for a selection still being made.
+            guard self.maskOverlayRule.mayStandDown(id) else { return }
             self.soloMaskOverlay = nil
         }
     }
@@ -1008,17 +1084,23 @@ final class AppState: ObservableObject {
     /// no-op rather than a re-arm, so a row that redraws under a stationary pointer does
     /// not make the overlay blink.
     func hoverMaskOverlay(_ id: String?) {
-        guard !maskOverlayPinned else { return }
+        guard maskOverlayRule.ambientAllowed else { return }
         maskOverlayHoverTask?.cancel()
         maskOverlayHideTask?.cancel()
         guard let id else {
-            if soloMaskOverlay != nil { soloMaskOverlay = nil }
+            // THE POINTER LEFT. Fall back to the persistent overlay if one is standing
+            // rather than to nothing: hovering a second mask's row while a new, unadjusted
+            // mask is lit used to end with the photograph dark, because the exit cleared
+            // the solo outright and nothing put the persistent one back.
+            let fallback = maskOverlayRule.afterHoverExit
+            if soloMaskOverlay != fallback { soloMaskOverlay = fallback }
             return
         }
         guard soloMaskOverlay != id else { return }
         maskOverlayHoverTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: Self.maskOverlayHoverIntentMS * 1_000_000)
-            guard !Task.isCancelled, let self, !self.maskOverlayPinned else { return }
+            guard !Task.isCancelled, let self,
+                  self.maskOverlayRule.ambientAllowed else { return }
             self.soloMaskOverlay = id
         }
     }
@@ -1030,6 +1112,16 @@ final class AppState: ObservableObject {
         guard maskOverlaySuppressed != suppressed else { return }
         maskOverlaySuppressed = suppressed
         if suppressed {
+            // THE FIRST EFFECT TOUCH ENDS THE PERSISTENT PHASE, and this is the line
+            // that decides the whole rule. Up to here the mask was still being MADE and
+            // its overlay stayed up so the selection could be judged; from here the
+            // photographer is judging pixels, and a red wash over the exact pixels being
+            // judged is an obstruction. It ends on the PRESS rather than the release, so
+            // the overlay is already gone for the very first adjustment.
+            //
+            // Deliberately not fired by the Edge zone: refining an edge is still
+            // selection work, and `setMaskEdgeGesture` is what that zone calls.
+            maskOverlayPersistentID = nil
             maskOverlayResumeID = soloMaskOverlay
             cancelMaskOverlayTimers()
             if soloMaskOverlay != nil { soloMaskOverlay = nil }
@@ -1086,14 +1178,21 @@ final class AppState: ObservableObject {
     /// `⌥O` and `⇧O`: cycle the mode and the colour. Cycling either turns the overlay
     /// ON if it is off — pressing a key that changes how a thing is drawn and seeing
     /// nothing happen is how a user concludes the key is broken.
+    ///
+    /// THEY NO LONGER PIN AS A SIDE EFFECT. Both used to run
+    /// `else { maskOverlayPinned = true }`, so cycling the colour of an overlay that was
+    /// merely hovering silently converted it into a permanent one — a key that says it
+    /// changes an appearance quietly changing a persistence rule instead. Turning a
+    /// missing overlay on is still right and still goes through `toggleMaskOverlay`,
+    /// which pins deliberately; an overlay already up is left exactly as it was found.
     func cycleMaskOverlayMode() {
         maskOverlayMode = maskOverlayMode.next
-        if soloMaskOverlay == nil { toggleMaskOverlay() } else { maskOverlayPinned = true }
+        if soloMaskOverlay == nil { toggleMaskOverlay() }
     }
 
     func cycleMaskOverlayTint() {
         maskOverlayTint = maskOverlayTint.next
-        if soloMaskOverlay == nil { toggleMaskOverlay() } else { maskOverlayPinned = true }
+        if soloMaskOverlay == nil { toggleMaskOverlay() }
     }
 
     /// Whether the component under the panel's cursor is a brush.
@@ -2446,6 +2545,9 @@ final class AppState: ObservableObject {
         // name a mask that belongs to the photograph being left.
         maskOverlayPinned = false
         maskOverlayResumeID = nil
+        // The persistent overlay is per-mask and a mask id is per-photograph, so it
+        // travels with the pin and the pending timers rather than outliving them.
+        maskOverlayPersistentID = nil
         cancelMaskOverlayTimers()
         soloMaskOverlay = nil
         loadStrokeSets(for: recipe(for: photo))
