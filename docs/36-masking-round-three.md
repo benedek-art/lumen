@@ -366,12 +366,17 @@ the third table, not the first.
 | **Outline / lasso** | `MaskKind.polygon` | Ramp centred on the boundary at every feather; even-odd winding; isotropic on a 3:2 frame. 17 tests |
 | **Folders** | `MaskGroup`, `Recipe.effective` | Enable and Amount compose rather than override; a missing folder does not hide its masks. 12 tests |
 | **Shift snaps to 15°** | `MaskHandles.snapped` | The direction changes and the length does not. 288 assertions |
+| **The brush stops recording your tremor** | `BrushStabilizer` | Jitter inside the rope moves the brush not at all; the brush never leaves the path the hand drew. 564 assertions |
+| **Paste masks, or paste everything but** | `Recipe.appendingMasks` | Colliding ids re-issued as a batch, so a reference lands on its partner. 11 tests |
+| **The list can be asked where something is** | `MaskPanel.matches` | An unnamed mask is findable by what it IS. 8 tests, macOS lane |
 | **Three zones, not a form** | `MaskPanel.zone` | — |
 | **Every row is a picture of what it selects** | `AppState.maskThumbnails` | — |
 | **Every shape-parameter draws itself** | `LumenBehaviourGlyph` | — |
 | **Pins on the photograph; every mask drawn** | `MaskCanvas.drawPins` | — |
 | **The overlay gets out of the way** | `AppState.flashMaskOverlay` | — |
 | **The brush has a keyboard** | `Keymap` | — |
+| **⇧-click carries a stroke on in a line** | `MaskCanvas.dragBrush` | — |
+| **The overlay comes out while you shape an edge** | `AppState.setMaskEdgeGesture` | — |
 
 The last five have no test row and that is honest rather than an omission: they are
 SwiftUI composition on a target that cannot be built on the machine this was written on,
@@ -410,14 +415,31 @@ local half of.
 
 1. The overlay reads the render's alpha instead of rasterizing a second time.
 2. Bounded local adjust — crop the spatial stages to the mask's box.
-3. Per-component refinement, and ⌥-drag any edge slider for a matte preview.
-4. Paste masks only / without masks; sync across a selection; Develop Presets carrying masks.
+3. Per-component refinement.
+4. Sync a mask across a selection with progress; Develop Presets carrying masks — the
+   second is blocked on the AI kinds, since a preset's masks would have to be recomputed
+   per target photograph to mean anything.
 5. Alpha PNG export and import.
-6. Brush stabilization and shift-click straight strokes.
-7. The mask list's search and density controls — folders took the first bite out of §1.5.
-8. Off-screen pin docking.
-9. The six model-dependent kinds, which need a licence review, a model conversion, a
+6. Off-screen pin docking.
+7. The mask list's density toggle. The filter landed; a compact row height did not.
+8. The six model-dependent kinds, which need a licence review, a model conversion, a
    download UX and an app-size decision before a line of them is worth writing.
+
+### The four guards that caught what the filters did not
+
+Running `swift test` with a mask-shaped `--filter` all night was fast and it was also a
+way to not be told things. The full LumenCore suite found four failures, every one of
+them a guard this repository already had and every one of them mine:
+
+`SavedLookTests` fails by name when a top-level `Recipe` key is added and its travel is
+left undecided — `maskGroups` goes with `masks`, since a look carrying folders without
+their masks would arrive as a column of empty headers. `CanonicalJSONTests` caught
+`"blend":"normal"` moving every masked recipe's fingerprint once, which is the accepted
+cost of a new NON-OPTIONAL mask field and precisely why that fixture exists to be
+regenerated deliberately. `RecipeCodecToleranceTests` caught eight new optionals left nil
+in the sample, which makes the round-trip guard silently skip them.
+`KeyGrammarTests` caught ⇧⌘V attached in the app and named in neither the dispatcher nor
+the Help sheet.
 
 ### What the tooling learned
 
