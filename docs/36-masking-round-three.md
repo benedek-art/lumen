@@ -370,6 +370,8 @@ the third table, not the first.
 | **Paste masks, or paste everything but** | `Recipe.appendingMasks` | Colliding ids re-issued as a batch, so a reference lands on its partner. 11 tests |
 | **The list can be asked where something is** | `MaskPanel.matches` | An unnamed mask is findable by what it IS. 8 tests, macOS lane |
 | **You draw the ellipse, then shape it on the picture** | `MaskHandles.radialGrab` | Nothing drawn means every press draws; the ring tracks Feather and is only offered where it has room in points; the turn handle never steals the rim. 11 tests |
+| **An unfinished mask selects nothing, Invert or not** | `MaskRaster.combine` | A drawn component still inverts to the whole frame; an undrawn one no longer does. 10 tests |
+| **A pin off the picture docks rather than vanishing** | `MaskHandles.dockedPin` | Docks per axis, keeps the whole dot on screen, and says it docked. 9 tests |
 | **Three zones, not a form** | `MaskPanel.zone` | — |
 | **Every row is a picture of what it selects** | `AppState.maskThumbnails` | — |
 | **Every shape-parameter draws itself** | `LumenBehaviourGlyph` | — |
@@ -443,14 +445,26 @@ circle parked in the middle of the frame meant the draw-it-out gesture that had 
 1. The overlay reads the render's alpha instead of rasterizing a second time.
 2. Bounded local adjust — crop the spatial stages to the mask's box.
 3. Per-component refinement.
-4. Sync a mask across a selection with progress; Develop Presets carrying masks — the
-   second is blocked on the AI kinds, since a preset's masks would have to be recomputed
-   per target photograph to mean anything.
+4. Develop Presets carrying masks — blocked on the AI kinds, since a preset's masks
+   would have to be recomputed per target photograph to mean anything.
 5. Alpha PNG export and import.
-6. Off-screen pin docking.
-7. The mask list's density toggle. The filter landed; a compact row height did not.
+6. The mask list's density toggle. The filter landed; a compact row height did not.
 8. The six model-dependent kinds, which need a licence review, a model conversion, a
    download UX and an app-size decision before a line of them is worth writing.
+
+### Two items that turned out to be already done
+
+**Sync across a selection.** `AppState.editTargets` is the whole selection whenever more
+than one photograph is selected, and every `updateRecipe` goes through it — so selecting
+forty frames and choosing Paste Masks already appends the mask to all forty. The
+"with progress" half of item 27 was specified for AI mattes being recomputed per target,
+which is blocked on the AI kinds; for a recipe write across forty frames there is nothing
+to show progress for.
+
+**The brush's direct manipulation.** Its cursor has drawn a live size ring and a live
+feather ring since the view was written, and `[` `]` `⇧[` `⇧]` move them against that
+picture. It already followed the rule this round established; the radial was the odd one
+out rather than the first of many.
 
 ### The four guards that caught what the filters did not
 
