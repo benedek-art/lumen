@@ -369,6 +369,7 @@ the third table, not the first.
 | **The brush stops recording your tremor** | `BrushStabilizer` | Jitter inside the rope moves the brush not at all; the brush never leaves the path the hand drew. 564 assertions |
 | **Paste masks, or paste everything but** | `Recipe.appendingMasks` | Colliding ids re-issued as a batch, so a reference lands on its partner. 11 tests |
 | **The list can be asked where something is** | `MaskPanel.matches` | An unnamed mask is findable by what it IS. 8 tests, macOS lane |
+| **You draw the ellipse, then shape it on the picture** | `MaskHandles.radialGrab` | Nothing drawn means every press draws; the ring tracks Feather and is only offered where it has room in points; the turn handle never steals the rim. 11 tests |
 | **Three zones, not a form** | `MaskPanel.zone` | — |
 | **Every row is a picture of what it selects** | `AppState.maskThumbnails` | — |
 | **Every shape-parameter draws itself** | `LumenBehaviourGlyph` | — |
@@ -410,6 +411,32 @@ creative paths, so "local Grain 50" has two candidate meanings and the wrong one
 times too strong or invisible — a decision to make by eye against a print. `moire` and
 `defringe` are BLOCKED, and not on effort: there is no global engine for either to be the
 local half of.
+
+### The second round of feedback, and what it actually said
+
+Three complaints — a radial arriving as a circle, feather behind a slider, rotation
+behind a slider — and one sentence under them: *"sliders are slow. I have to read it, I
+have to press it, I have to slowly move side to side."* None of that is looking at the
+photograph.
+
+The instinct that follows is "make the slider better", and it is wrong here: `LumenSlider`
+is already about as fast as a slider gets — press the track and the value jumps there,
+⇧ for fine, scrub the number for precision, type `+= 0.3`, double-click to reset. The
+cost is not the widget. It is **leaving the picture**: look away, find the row, read it,
+aim, drag, look back.
+
+So the rule this round establishes, and it generalizes past masking: **put the control on
+the thing it controls, and keep the slider as the way to type an exact number.** Applied
+here it meant the ellipse is drawn rather than seeded, the feather ring became draggable
+(it had been DRAWN since the view was written), and rotation got a handle. Where the app
+already follows the rule — the curve's points, the colour wheels, the brush cursor's live
+size and feather rings, the linear gradient's falloff being the span between its two
+lines — nothing needed doing, and the radial was simply the odd one out.
+
+One consequence worth stating because it is not obvious: being handed a shape did not
+merely annoy, it BLOCKED. `.create` fires only on a press with clear space around it, so a
+circle parked in the middle of the frame meant the draw-it-out gesture that had been in
+`MaskHandles` all along could not be reached from where a photographer presses.
 
 ### Still open, in the order they are worth doing
 
