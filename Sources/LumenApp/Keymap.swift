@@ -157,14 +157,28 @@ final class KeyDispatcher {
 
         // ---- Ratings and labels ------------------------------------------------
         case "0", "1", "2", "3", "4", "5":
-            if let value = Int(String(key)) { state.setRating(value) }
+            // FLOW FIRST, and only under two conditions that cannot both be true by
+            // accident: masking is up AND the selected component is a brush. LR's digit
+            // grammar is 1–9 → 10–90%, 0 → 100%. Digits are ratings everywhere else in
+            // this application and a rating lost to a brush would be unrecoverable, so
+            // this is checked inside the rating case rather than in one before it — a
+            // separate case would have SHADOWED ratings for every digit, in every mode,
+            // which is how a keymap acquires a hole.
+            if let value = Int(String(key)) {
+                if Self.brushFlow(value, state: state) { return true }
+                state.setRating(value)
+            }
         case "6":
+            if Self.brushFlow(6, state: state) { return true }
             state.setLabel(.red)
         case "7":
+            if Self.brushFlow(7, state: state) { return true }
             state.setLabel(.yellow)
         case "8":
+            if Self.brushFlow(8, state: state) { return true }
             state.setLabel(.green)
         case "9":
+            if Self.brushFlow(9, state: state) { return true }
             state.setLabel(.blue)
         // Purple is offered by the label picker and the filter bar, so it needs a key
         // like the other five; `-` sits next to 9 and is otherwise only a zoom key in
@@ -253,6 +267,7 @@ final class KeyDispatcher {
             // docs/08 §8.1. The whole-mask invert is a toggle in the panel, because a
             // second invert key would be two keys nobody could tell apart.
             state.invertActiveMaskComponent()
+
         // The three panel keys now name a workspace AND a section, because a workspace
         // alone would leave the photographer looking at whichever section was last open.
         // Each opens the section that tab used to lead with.
@@ -288,6 +303,13 @@ final class KeyDispatcher {
         case "s":
             state.showScopes.toggle()
         case "a":
+            // Automask while a brush is selected, auto-advance otherwise. LR's `A` and
+            // ours want the same key and never at the same moment: nobody culls with a
+            // brush in hand.
+            if PanelLayout.shared.layout.isMasking, state.activeComponentIsBrush {
+                MaskBrushStore.shared.automask.toggle()
+                return true
+            }
             state.autoAdvance.toggle()
         case "f":
             state.showFilmstrip.toggle()
@@ -342,6 +364,18 @@ final class KeyDispatcher {
         // keys were already moving a number nobody could see — and those three are
         // precisely where the picture is large enough to inspect.
         case "[", "]":
+            // Brush size, and ⇧ for feather — but only with a brush selected. These are
+            // paging keys everywhere else, including inside masking, so the gate is the
+            // component and not the mode.
+            if PanelLayout.shared.layout.isMasking, state.activeComponentIsBrush {
+                let bigger = key == "]"
+                if flags.contains(.shift) {
+                    MaskBrushStore.shared.nudgeFeather(up: bigger)
+                } else {
+                    MaskBrushStore.shared.nudgeSize(up: bigger)
+                }
+                return true
+            }
             return apply(InspectionHolds.resolve(key: String(key),
                                                  surface: Self.surface(state.viewMode),
                                                  isKeyDown: true,
@@ -430,6 +464,20 @@ final class KeyDispatcher {
     }
 
     /// Which surface the rule is being asked about.
+    /// LR's digit grammar for brush Flow: 1–9 → 10–90%, 0 → 100%.
+    ///
+    /// Returns true when it CONSUMED the key, so each digit case can offer it the key
+    /// first and fall through to its rating or label otherwise. Both conditions have to
+    /// hold — masking up, and a brush actually selected — because a digit that silently
+    /// stopped being a rating would be the worst kind of keymap defect: invisible until
+    /// somebody notices a shoot has no stars in it.
+    private static func brushFlow(_ digit: Int, state: AppState) -> Bool {
+        guard PanelLayout.shared.layout.isMasking, state.activeComponentIsBrush,
+              (0...9).contains(digit) else { return false }
+        MaskBrushStore.shared.flow = digit == 0 ? 100 : Double(digit) * 10
+        return true
+    }
+
     private static func surface(_ mode: ViewMode) -> InspectionSurface {
         switch mode {
         case .grid: return .grid

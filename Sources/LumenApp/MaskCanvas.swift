@@ -68,6 +68,21 @@ final class MaskBrushStore: ObservableObject {
     @Published var erase: Bool = false
     @Published var automask: Bool = false
 
+    /// `[` and `]`: size, on a geometric ladder rather than a linear one.
+    ///
+    /// Size is a fraction of the long edge and spans 0.002…0.5 — two and a half decades
+    /// — so a fixed step is either uselessly small at the top or unusably coarse at the
+    /// bottom. 1.15× is about seventeen presses end to end, which is the same feel LR's
+    /// pixel ladder has on a 24 MP frame.
+    func nudgeSize(up: Bool) {
+        size = Num.clamp(size * (up ? 1.15 : 1 / 1.15), 0.002, 0.5)
+    }
+
+    /// `⇧[` and `⇧]`: feather, which IS linear — it is a percentage of the stamp.
+    func nudgeFeather(up: Bool) {
+        feather = Num.clamp(feather + (up ? 10 : -10), 0, 100)
+    }
+
     func stroke(points: [BrushPoint]) -> BrushStroke {
         BrushStroke(points: points,
                     size: Num.clamp(size, 0.0005, 2),
@@ -144,6 +159,8 @@ struct MaskCanvas: View {
     @State private var livePoints: [BrushPoint] = []
     @State private var strokeStarted: Date? = nil
     @State private var hover: CGPoint? = nil
+    /// Whether Option was down when this stroke began. See `dragBrush`.
+    @State private var eraseHeld: Bool = false
 
     init(imageRect: CGRect,
          sourceSize: CGSize,
@@ -220,6 +237,10 @@ struct MaskCanvas: View {
         .onContinuousHover(coordinateSpace: .local) { phase in
             if case .active(let point) = phase {
                 hover = point
+                // Cheap, and it is the only signal that arrives while a modifier is
+                // being held over a stationary picture.
+                let held = MaskCanvas.optionHeld()
+                if held != eraseHeld { eraseHeld = held }
             } else {
                 hover = nil
             }
@@ -262,7 +283,8 @@ struct MaskCanvas: View {
             return "Drag inside to move, the edge to resize; Shift keeps it round. "
                  + "⌘-drag draws a new ellipse, and Option draws it from the centre."
         case .brush:
-            return "Drag to paint. The stroke commits on mouse-up as one undo step."
+            return "Drag to paint, hold ⌥ to erase. [ and ] size it, ⇧[ and ⇧] feather "
+                 + "it, digits set Flow, A stays inside edges."
         case .similarity:
             return "Drag a point to move it, its ring to change how far it reaches."
         default:
@@ -700,6 +722,16 @@ struct MaskCanvas: View {
     /// produced this callback. A mouse or trackpad reports `pressure` 1 for a held
     /// button and 0 otherwise, which is why a zero is read as a mouse and promoted —
     /// a stroke that deposited nothing would be a worse bug than no pressure at all.
+    /// Whether Option is held right now.
+    ///
+    /// `NSEvent.modifierFlags` rather than the gesture's, because SwiftUI's
+    /// `DragGesture.Value` carries no modifiers and the alternative — an
+    /// `.onModifierKeysChanged` in the view — would miss a modifier that was already
+    /// down when the press landed, which is exactly how it is used.
+    static func optionHeld() -> Bool {
+        NSEvent.modifierFlags.contains(.option)
+    }
+
     static func currentPressure() -> Double {
         guard let event = NSApp.currentEvent else { return 1 }
         switch event.type {
@@ -726,6 +758,12 @@ struct MaskCanvas: View {
         let ms = Int(Num.clamp(Date().timeIntervalSince(started) * 1000, 0, 3_600_000))
         let point = BrushPoint(x: Double(n.x), y: Double(n.y),
                                pressure: Self.currentPressure(), t: ms)
+        // HOLD-OPTION ERASES, which is docs/08 §8.6's contract and LR's, and which is
+        // why there is no `E` key: `E` is the loupe in this application and taking it
+        // would have been a collision fixed by making a photographer relearn a key they
+        // already had. The modifier is read at the START of the stroke and carried, so
+        // letting go mid-drag does not turn half a stroke into paint.
+        if isNew { eraseHeld = Self.optionHeld() }
         // Sub-pixel resampling is the rasterizer's job (arc-length Catmull-Rom); the
         // recorder only drops events that did not move.
         var accept = true
@@ -742,7 +780,13 @@ struct MaskCanvas: View {
         strokeStarted = nil
         guard !points.isEmpty else { return }
         var set = strokes
-        set.strokes.append(brush.stroke(points: points))
+        // The held modifier wins over the panel's toggle for THIS stroke only: the
+        // toggle is a mode you set, the modifier is a thing you do, and the thing you
+        // do while holding a key is what you meant.
+        var stroke = brush.stroke(points: points)
+        if eraseHeld { stroke.erase = true }
+        eraseHeld = false
+        set.strokes.append(stroke)
         let payload = try? set.encode()
         let ref = payload.map { BrushStrokeSet.blobRef(for: $0) }
         commit(.strokes(maskID: maskID, index: componentIndex, strokes: set,
@@ -814,7 +858,7 @@ struct MaskCanvas: View {
                 if index == 0 { path.move(to: p) } else { path.addLine(to: p) }
             }
             context.stroke(path,
-                           with: .color(Color.white.opacity(brush.erase ? 0.18 : 0.32)),
+                           with: .color(Color.white.opacity((brush.erase || eraseHeld) ? 0.18 : 0.32)),
                            style: StrokeStyle(lineWidth: diameter, lineCap: .round,
                                               lineJoin: .round))
         }
@@ -823,7 +867,11 @@ struct MaskCanvas: View {
                           width: diameter, height: diameter)
         var ring = Path()
         ring.addEllipse(in: rect)
-        stroke(&context, ring, width: 1, alpha: brush.erase ? 0.5 : 0.85)
+        // The cursor says which of the two this press would be — including while Option
+        // is merely HELD, before anything has been drawn, which is the moment the
+        // question is actually being asked.
+        let erasing = brush.erase || eraseHeld
+        stroke(&context, ring, width: 1, alpha: erasing ? 0.5 : 0.85)
 
         // THE SECOND RING, which is the hardness the stamp actually has.
         //
@@ -838,7 +886,7 @@ struct MaskCanvas: View {
             var core = Path()
             core.addEllipse(in: CGRect(x: hover.x - inner / 2, y: hover.y - inner / 2,
                                        width: inner, height: inner))
-            stroke(&context, core, width: 1, alpha: brush.erase ? 0.28 : 0.42)
+            stroke(&context, core, width: 1, alpha: erasing ? 0.28 : 0.42)
         }
     }
 
