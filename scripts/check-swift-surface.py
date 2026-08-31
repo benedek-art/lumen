@@ -2047,6 +2047,142 @@ def pass_argument_values():
     return False
 
 
+
+# ==========================================================================
+# Pass 11 — a switch over an in-tree enum must handle every case
+# ==========================================================================
+#
+# The one thing this checker could not see that a compiler catches for free, and it cost
+# real time: adding `MaskKind.luminosity` and `.polygon` meant finding five switches in
+# `MaskPanel` by hand, with a throwaway script, because LumenApp is behind
+# `#if os(macOS)` and nothing on this machine compiles it. Miss one and the macOS lane
+# goes red on an error that was mechanical.
+#
+# HOW THE ENUM IS IDENTIFIED, since a text checker has no types. Every case in the switch
+# is written as `.name`, the union of those names is collected, and the in-tree enums
+# whose case list CONTAINS that union are looked up. Exactly one candidate means the
+# switch is identified; zero or several means it is skipped. That is a heuristic, and it
+# is the conservative half of one: it can decline to check a switch, and it can only
+# report when one enum in the whole tree could be the subject.
+#
+# Two things had to be right about the index before this reported nothing false:
+#
+#   NESTED TYPES. `MaskKind` contains `enum MatteProvider { case none, vision, model }`,
+#   and reading the outer enum's body whole gave `MaskKind` three cases it does not have
+#   — which made every switch over it look non-exhaustive. Nested type bodies are blanked
+#   before the case lines are read.
+#
+#   NAME COLLISIONS. `Mode` is declared in several types with different cases. Merging
+#   them made each look larger than it is. Two declarations of one name that disagree
+#   means the name cannot identify an enum, so it is refused rather than merged.
+#
+# Skipped by design: any switch with a `default` (it is exhaustive by construction), and
+# any whose cases carry a `where` clause — `case .a where p:` does NOT exhaust `.a`, and
+# Swift demands a default there, so nothing is lost by declining.
+
+ENUM_BLOCK = re.compile(r"\benum\s+([A-Z]\w*)(?:\s*:[^{]*)?\s*\{")
+NESTED_TYPE = re.compile(
+    r"\b(?:enum|struct|class|actor|extension)\s+[A-Z]\w*(?:\s*:[^{]*)?\s*\{")
+SWITCH_HEAD = re.compile(r"(?<![\w.])switch\s+[^\n{]{1,200}\{")
+SWITCH_CASE = re.compile(r"(?:^|\n)\s*case\s+((?:\.\w+(?:\([^)]*\))?\s*,?\s*)+):")
+HAS_DEFAULT = re.compile(r"(?:^|\n)\s*(?:@unknown\s+)?default\s*:")
+CASE_WHERE = re.compile(r"case[^:\n]*\bwhere\b")
+
+
+def _own_body(body):
+    """`body` with every nested type block blanked, so an enum's cases are its own."""
+    out = list(body)
+    i = 1
+    while True:
+        m = NESTED_TYPE.search(body, i)
+        if not m:
+            break
+        brace = body.find("{", m.end() - 1)
+        if brace == -1:
+            break
+        inner = brace_body(body, brace)
+        for j in range(m.start(), min(brace + len(inner), len(out))):
+            if out[j] != "\n":
+                out[j] = " "
+        i = brace + len(inner)
+    return "".join(out)
+
+
+def _enum_index():
+    """enum name -> its own cases, for names that identify exactly one enum."""
+    cases_of, seen = {}, {}
+    for path in FILES:
+        text = strip_all_keep_quotes(path.read_text())
+        for m in ENUM_BLOCK.finditer(text):
+            brace = text.find("{", m.end() - 1)
+            if brace == -1:
+                continue
+            body = _own_body(brace_body(text, brace))
+            found = set()
+            for line in CASE_LINE.findall(body):
+                for part in line.split(","):
+                    hit = re.match(r"^\s*(\w+)", part)
+                    if hit:
+                        found.add(hit.group(1))
+            if not found:
+                continue
+            name = m.group(1)
+            if seen.get(name, found) is None:
+                continue
+            if name in seen and seen[name] != found:
+                cases_of.pop(name, None)
+                seen[name] = None
+                continue
+            seen[name] = found
+            cases_of[name] = found
+    return cases_of
+
+
+def pass_switch_exhaustive():
+    cases_of = _enum_index()
+    problems, checked = [], 0
+    for path in FILES:
+        text = strip_all_keep_quotes(path.read_text())
+        for m in SWITCH_HEAD.finditer(text):
+            brace = text.rfind("{", 0, m.end())
+            inner = brace_body(text, brace)[1:-1]
+            if HAS_DEFAULT.search(inner) or CASE_WHERE.search(inner):
+                continue
+            used, parsed = set(), True
+            for cm in SWITCH_CASE.finditer(inner):
+                for part in cm.group(1).split(","):
+                    hit = re.match(r"\s*\.(\w+)", part)
+                    if hit:
+                        used.add(hit.group(1))
+                    elif part.strip():
+                        parsed = False
+            # One case identifies far too many enums to be worth a guess.
+            if not parsed or len(used) < 2:
+                continue
+            candidates = [n for n, all_cases in cases_of.items() if used <= all_cases]
+            if len(candidates) != 1:
+                continue
+            name = candidates[0]
+            checked += 1
+            missing = cases_of[name] - used
+            if missing:
+                line = text.count("\n", 0, m.start()) + 1
+                problems.append((path.relative_to(ROOT).as_posix(), line, name,
+                                 tuple(sorted(missing))))
+
+    problems = sorted(set(problems))
+    if not problems:
+        print(f"switches: {checked} switches over {len(cases_of)} in-tree enums handle "
+              f"every case")
+        return True
+    plural = "switch misses" if len(problems) == 1 else "switches miss"
+    print(f"switches: {len(problems)} {plural} a case of the enum "
+          f"they are over\n")
+    for rel, line, name, missing in problems[:25]:
+        print(f"  {rel}:{line}  switch over {name}: missing {', '.join(missing)}")
+    return False
+
+
 if __name__ == "__main__":
     ok = pass_symbols()
     print()
@@ -2068,4 +2204,6 @@ if __name__ == "__main__":
     ok = pass_cross_module_access() and ok
     print()
     ok = pass_argument_values() and ok
+    print()
+    ok = pass_switch_exhaustive() and ok
     sys.exit(0 if ok else 1)
