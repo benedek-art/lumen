@@ -303,8 +303,9 @@ struct MaskCanvas: View {
             return "Drag inside to move, the edge to resize; Shift keeps it round. "
                  + "⌘-drag draws a new ellipse, and Option draws it from the centre."
         case .brush:
-            return "Drag to paint, hold ⌥ to erase. [ and ] size it, ⇧[ and ⇧] feather "
-                 + "it, digits set Flow, A stays inside edges."
+            return "Drag to paint, hold ⌥ to erase, ⇧-click to carry on in a straight "
+                 + "line from the last stroke. [ and ] size it, ⇧[ and ⇧] feather it, "
+                 + "digits set Flow, A stays inside edges."
         case .similarity:
             return "Drag a point to move it, its ring to change how far it reaches."
         case .polygon:
@@ -953,6 +954,19 @@ struct MaskCanvas: View {
         if isNew {
             mode = .brush
             strokeStarted = started
+            // SHIFT CONTINUES FROM WHERE THE LAST STROKE ENDED, which is the one brush
+            // gesture every other editor has and this one did not. Seeding the stroke
+            // with the previous stroke's last point makes the segment between them a
+            // stroke like any other: the rasterizer's arc-length interpolation walks it,
+            // it takes the current size and feather, and it is one undo step.
+            //
+            // A click is a drag that did not move, so shift-click paints a straight
+            // segment and shift-DRAG starts from the same anchor and then follows the
+            // hand — both fall out of the same three lines rather than needing a mode.
+            if isShiftDown, let anchor = strokes.strokes.last?.points.last {
+                points = [BrushPoint(x: anchor.x, y: anchor.y,
+                                     pressure: anchor.pressure, t: 0)]
+            }
         }
         let n = normalized(value.location)
         let ms = Int(Num.clamp(Date().timeIntervalSince(started) * 1000, 0, 3_600_000))
