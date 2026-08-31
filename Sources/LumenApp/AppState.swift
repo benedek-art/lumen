@@ -859,14 +859,27 @@ final class AppState: ObservableObject {
 
     // MARK: - The ambient overlay (docs/35 §4.4)
 
-    /// Whether the mask pop-out beside the histogram is showing.
+    /// Whether the floating Masks panel is on screen.
     ///
-    /// Published rather than `@State` in the column because two places open it — the
-    /// chip under the histogram and the way-back button on the adjustments half — and a
-    /// keystroke will want it too. It is view state and it is deliberately not
-    /// persisted: a pop-out that reopened itself on relaunch is a panel, and the whole
-    /// point of this one is that it is not.
-    @Published var maskNavigatorOpen: Bool = false
+    /// Defaults to TRUE: the owner's rule is "a separate box that comes out when there
+    /// is a mask", so the panel appears on its own the first time a photograph has one
+    /// and is dismissed by hand, not summoned by hand. `ContentView` gates it on there
+    /// being a mask to list.
+    @Published var maskPanelVisible: Bool = true
+
+    /// Collapsed to its own title bar.
+    ///
+    /// The control that makes a floating panel affordable on a small screen, and the one
+    /// Lightroom puts in the same corner. Held here rather than in the view so that
+    /// collapsing it survives every rebuild of the pane underneath.
+    @Published var maskPanelMinimized: Bool = false
+
+    /// Where the photographer dragged it, relative to the pane's top-left.
+    ///
+    /// Not persisted across launches on purpose: a window that opens at a different size
+    /// would restore the panel to a place that no longer exists, and re-clamping it on
+    /// launch would move it anyway.
+    @Published var maskPanelOffset: CGSize = .zero
 
     /// Whether the photographer asked for the overlay and it should stay up.
     ///

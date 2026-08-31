@@ -233,28 +233,21 @@ struct MaskingReturnBar: View {
         .animation(.easeOut(duration: 0.12), value: masksHovered)
     }
 
-    /// The word that said where the column was, turned into the door to the pop-out.
+    /// The word that said where the column was, turned into the switch for the box.
     ///
-    /// THE OWNER ASKED FOR THIS SHAPE BY NAME, twice, with a screenshot: "once you
-    /// create one mask, then it shows up with a little box beside the histogram, and
-    /// from there you can edit the mask". This bar is already the row under the
-    /// histogram and it was already printing "Masks" as a label, so the door costs no
-    /// space at all — the label becomes a button and gains a count.
-    ///
-    /// A popover rather than a floating card over the picture, which is where Lightroom
-    /// puts its equivalent. At Lumen's minimum window the centre pane is about 511
-    /// points wide; a Lightroom-sized navigator laid over it covers between 43% and 51%
-    /// of the photograph, and that pane is a live gesture surface while masking — brush
-    /// strokes, gradient handles, polygon corners. Adobe shipped an "Auto Hide Masking
-    /// Panel" preference to paper over exactly that. Anchored here it is beside the
-    /// histogram, which is what was asked for, and the photograph keeps its width.
+    /// The Masks panel is a real floating card over the photograph now — the owner asked
+    /// for that shape three times, with two screenshots, and got a popover anchored here
+    /// instead. This is no longer the door: the box comes out by itself the first time a
+    /// photograph has a mask. It is the way back after you close it, and the readout of
+    /// how many masks the frame carries.
     private var masksChip: some View {
-        Button { state.maskNavigatorOpen.toggle() } label: {
+        Button { state.maskPanelVisible.toggle() } label: {
             HStack(spacing: 5) {
-                Image(systemName: "square.on.square.dashed")
+                Image(systemName: state.maskPanelVisible
+                      ? "square.on.square.dashed" : "square.on.square")
                     .font(.system(size: 11))
                 LumenCapsLabel(text: "Masks", size: 11,
-                               color: masksHovered || state.maskNavigatorOpen
+                               color: masksHovered || state.maskPanelVisible
                                    ? Lumen.primaryText : Lumen.secondaryText)
                 if !masks.isEmpty {
                     Text("\(masks.count)")
@@ -262,55 +255,24 @@ struct MaskingReturnBar: View {
                         .foregroundStyle(Lumen.tertiaryText)
                         .monospacedDigit()
                 }
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 8, weight: .semibold))
             }
             .padding(.horizontal, 7)
             .padding(.vertical, 5)
-            .foregroundStyle(masksHovered || state.maskNavigatorOpen
+            .foregroundStyle(masksHovered || state.maskPanelVisible
                              ? Lumen.primaryText : Lumen.secondaryText)
-            .background(state.maskNavigatorOpen ? Lumen.controlActive
-                        : masksHovered ? Lumen.controlHover : Color.clear)
+            .background(masksHovered ? Lumen.controlHover : Color.clear)
             .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusTab, style: .continuous))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .onHover { masksHovered = $0 }
         .lumenClickCursor()
-        .help("The masks on this photograph, what each is made of, and how its edge is "
-              + "shaped")
-        .popover(isPresented: $state.maskNavigatorOpen, arrowEdge: .bottom) {
-            MaskNavigatorPopover()
-                .environmentObject(state)
-                .environmentObject(edits)
-        }
+        .help(state.maskPanelVisible
+              ? "Hide the Masks panel"
+              : "Show the Masks panel — the list, what each mask is made of, and its edge")
     }
 }
 
-/// The pop-out's frame: a width, a bounded height and its own scroll.
-///
-/// Wider than the column on purpose. The column is draggable from 320 and the kind board
-/// is a three-across grid of tiles; squeezed to 320 those tiles stop being recognisable,
-/// which is the one thing a roster chosen by recognition cannot afford. A popover is not
-/// bound by the column's width, so it takes the width the board actually needs.
-///
-/// The height is capped and scrolls inside itself. This scroll cannot be the trap
-/// `DevelopPanel` warns about, because a popover is its own window: there is no outer
-/// scroll view for it to fight with.
-struct MaskNavigatorPopover: View {
-    @EnvironmentObject private var state: AppState
-
-    var body: some View {
-        ScrollView(.vertical) {
-            MaskPanel(role: .navigator, showsOwnHeader: false)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 10)
-        }
-        .frame(width: 340)
-        .frame(maxHeight: 560)
-        .background(Lumen.panel)
-    }
-}
 
 extension Workspace {
 

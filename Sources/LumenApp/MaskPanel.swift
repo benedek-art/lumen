@@ -244,13 +244,16 @@ struct MaskPanel: View {
                 }
             }
             Spacer(minLength: 0)
-            Button { state.maskNavigatorOpen = true } label: {
+            Button {
+                state.maskPanelVisible = true
+                state.maskPanelMinimized = false
+            } label: {
                 Image(systemName: "square.on.square.dashed")
                     .font(.lumenCaption)
             }
             .buttonStyle(.plain)
             .foregroundStyle(Lumen.secondaryText)
-            .help("Masks, components and the edge")
+            .help("Show the Masks panel — the list, components and the edge")
         }
         .frame(height: Lumen.rowHeight + 8)
     }

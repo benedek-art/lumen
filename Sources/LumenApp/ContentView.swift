@@ -70,6 +70,21 @@ struct ContentView: View {
             }
     }
 
+    /// Whether the floating Masks box is on screen.
+    ///
+    /// Masking has to be the current tool, there has to be a mask to list, and the
+    /// photographer must not have dismissed it. The middle condition is the owner's
+    /// rule verbatim — the box "comes out when there is a mask" rather than sitting
+    /// there empty waiting for one.
+    private var showsMaskPanel: Bool {
+        // `PanelLayout.shared` read directly rather than observed, matching
+        // `showsDevelopColumn` two properties down — this view deliberately does not
+        // observe `PanelLayout`, and the workspace change that flips `isMasking` already
+        // republishes through `state`.
+        PanelLayout.shared.layout.isMasking && state.maskPanelVisible
+            && !state.currentRecipe.masks.isEmpty
+    }
+
     var body: some View {
         NavigationSplitView(columnVisibility: Binding(
             get: { state.sidebarVisible ? .all : .detailOnly },
@@ -93,6 +108,25 @@ struct ContentView: View {
                             if state.showRawTruth {
                                 RawTruthPanel()
                                     .padding(10)
+                            }
+                        }
+                        // THE MASKS BOX, over the photograph and on the LEFT — which is
+                        // where Lightroom puts it, and it is the corner `RawTruthPanel`
+                        // does not already own. It appears on its own once a photograph
+                        // has a mask ("a separate box that comes out when there is a
+                        // mask"), minimizes to its title bar, drags anywhere inside the
+                        // pane, and fades out of the way while the hand is on the
+                        // picture. `GeometryReader` supplies the pane's size so the drag
+                        // can be clamped to it — a panel dragged off the window is a
+                        // panel you cannot get back.
+                        .overlay(alignment: .topLeading) {
+                            if showsMaskPanel {
+                                // The reader fills the pane so the drag can be
+                                // clamped against it; it draws nothing itself, so only
+                                // the card inside it ever takes a click.
+                                GeometryReader { proxy in
+                                    MaskFloatingPanel(bounds: proxy.size)
+                                }
                             }
                         }
                         .overlay(alignment: .bottom) { inspectionBadge }
