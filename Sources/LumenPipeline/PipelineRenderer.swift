@@ -1221,7 +1221,7 @@ public final class PipelineRenderer {
                                               // A `maskRef` component resolves against
                                               // this list; without it, one selects
                                               // nothing and says nothing.
-                                              masks: plan.masks)
+                                              masks: plan.allMasks)
                 }
                 let alpha: Plane
                 if let sourceKey,
@@ -1291,7 +1291,7 @@ public final class PipelineRenderer {
                               bandMeanHues: ColorEngine.needsMeasuredBandHues(
                                   recipe.develop.mixer)
                                   ? measuredBandMeanHues(source: source) : nil)
-        guard let mask = plan.masks.first(where: { $0.id == maskID }) else { return nil }
+        guard let mask = plan.allMasks.first(where: { $0.id == maskID }) else { return nil }
 
         let target = Swift.max(longEdge ?? Self.maskRasterLongEdge, 16)
         let native = source.nativeLongEdge
@@ -1320,7 +1320,7 @@ public final class PipelineRenderer {
                                   // shows the subject mask the picture is getting
                                   // rather than an empty one.
                                   aiMattes: mattes[source.url]?.planes ?? [:],
-                                  masks: plan.masks)
+                                  masks: plan.allMasks)
     }
 
     /// The local-stage input, at mask-raster resolution, as an `ImageBuffer`.

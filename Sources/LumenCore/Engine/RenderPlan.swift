@@ -110,7 +110,25 @@ public struct RenderPlan: Sendable {
     /// the EV so both renderers read one resolved pair;
     /// `DetailEngine.vignetteInnerRadius(feather:)` turns it into geometry.
     public let vignetteFeather: Double
+    /// The masks whose ADJUSTMENTS reach the picture: enabled, with their group's
+    /// enable and Amount already folded in, so neither renderer has to know that
+    /// folders exist.
     public let masks: [Mask]
+
+    /// Every mask in the recipe, in order, unfiltered — the list a `maskRef` resolves
+    /// against, and the one the overlay looks a selected mask up in.
+    ///
+    /// THESE HAD TO BE TWO LISTS, and the day they were one there was a bug in it.
+    /// `enabled` says whether a mask's ADJUSTMENTS reach the picture; it has never
+    /// meant that the mask stops SELECTING, and `MaskChannelAndReferenceTests
+    /// .testADisabledMaskStillLendsItsSelection` pins that — turning the Sky mask off
+    /// to look at something must not silently empty every mask built on it. But that
+    /// test calls `MaskRaster.combine` directly with the whole list, and the renderers
+    /// were handing it `plan.masks`, which was already filtered. So the rule held in
+    /// the unit test and not in either renderer. The same applies to the overlay: a
+    /// mask you have selected in order to edit is one you need to SEE, whether or not
+    /// its adjustments are switched on.
+    public let allMasks: [Mask]
 
     // MARK: Stage S3 — profiled classical noise reduction
     ///
@@ -445,7 +463,14 @@ public struct RenderPlan: Sendable {
         self.denoise = develop.denoise
         self.vignetteEV = look.vignette
         self.vignetteFeather = look.vignetteFeather
-        self.masks = recipe.masks.filter { $0.enabled }
+        self.allMasks = recipe.masks
+        self.masks = recipe.masks.compactMap { mask in
+            let state = recipe.effective(mask)
+            guard state.enabled else { return nil }
+            var resolved = mask
+            resolved.amount = state.amount
+            return resolved
+        }
 
         // Baked once, here, and only when the tone stage will actually read it. At
         // the plan's own fidelity: an export plan (lutSize == exportSize) gets the

@@ -30,17 +30,39 @@ public struct Recipe: Codable, Equatable, Sendable {
     public var develop: Develop
     public var look: Look
     public var masks: [Mask]
+    /// The folders masks can sit in. Order is the panel's order; a mask names one by id.
+    public var maskGroups: [MaskGroup]
 
     public init(
         pipelineVersion: Int = currentPipelineVersion,
         develop: Develop = Develop(),
         look: Look = Look(),
-        masks: [Mask] = []
+        masks: [Mask] = [],
+        maskGroups: [MaskGroup] = []
     ) {
         self.pipelineVersion = pipelineVersion
         self.develop = develop
         self.look = look
         self.masks = masks
+        self.maskGroups = maskGroups
+    }
+
+    /// What a group's settings do to one of its members, resolved in ONE place.
+    ///
+    /// Both renderers and the panel ask this rather than each folding the two levels
+    /// themselves, because a group is the first thing in this format where a mask's
+    /// effective state is not a property of the mask. Two implementations of that would
+    /// be two answers to "is this mask on".
+    ///
+    /// A mask naming a group that is not in the list is UNGROUPED, not hidden: a folder
+    /// deleted by hand out of a sidecar must not silently take its members' edits with
+    /// it.
+    public func effective(_ mask: Mask) -> (enabled: Bool, amount: Double) {
+        guard let id = mask.group,
+              let group = maskGroups.first(where: { $0.id == id })
+        else { return (mask.enabled, mask.amount) }
+        return (mask.enabled && group.enabled,
+                mask.amount * Num.clamp(group.amount, 0, 200) / 100)
     }
 
     /// Whether two recipes would render the same picture. Not every field in a recipe
@@ -76,6 +98,13 @@ public struct Recipe: Codable, Equatable, Sendable {
             stripped.id = ""
             return stripped
         }
+        // Groups go through the same projection, and their ids CANNOT be blanked the
+        // way a mask's is: a mask names its group by id, so erasing the id would fold
+        // every folder into one and make "member of A" and "member of B" hash alike.
+        // What is cosmetic about a group is its name and whether it is open — opening a
+        // folder must not re-render 45 megapixels, which is the whole reason
+        // `withoutCosmetics` exists.
+        copy.maskGroups = maskGroups.map(\.withoutCosmetics)
         if copy.look.bw?.enabled == false { copy.look.bw = nil }
         // A creative grain at Amount 0 goes the same way, and for the same reason the
         // line above exists: it is three numbers no pixel reads. `CreativeGrain
@@ -115,7 +144,7 @@ public struct Recipe: Codable, Equatable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case pipelineVersion, develop, look, masks
+        case pipelineVersion, develop, look, masks, maskGroups
     }
 
     /// Tolerant of a recipe written before any of these keys existed. `pipelineVersion`
@@ -132,6 +161,8 @@ public struct Recipe: Codable, Equatable, Sendable {
         self.develop = try c.decodeIfPresent(Develop.self, forKey: .develop) ?? Develop()
         self.look = try c.decodeIfPresent(Look.self, forKey: .look) ?? Look()
         self.masks = try c.decodeIfPresent([Mask].self, forKey: .masks) ?? []
+        self.maskGroups = try c.decodeIfPresent([MaskGroup].self, forKey: .maskGroups)
+            ?? []
     }
 }
 

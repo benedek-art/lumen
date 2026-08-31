@@ -207,7 +207,20 @@ struct MaskPanel: View {
                 LumenSectionHeader(title: "Masks", isExpanded: nil,
                                    isModified: !list.isEmpty)
             }
-            ForEach(Array(list.indices), id: \.self) { i in maskRow(list[i], index: i) }
+            // Grouped rows first, then the loose ones. Not interleaved by list order:
+            // a folder whose members are scattered through the list with other masks
+            // between them is not a folder, and the alternative — forcing the mask
+            // order to follow the grouping — would make dragging a mask into a group
+            // silently reorder the stack, which changes the picture.
+            ForEach(groupedRows, id: \.key) { row in
+                switch row.kind {
+                case .header(let group):
+                    groupHeader(group)
+                case .mask(let mask, let index):
+                    maskRow(mask, index: index)
+                        .padding(.leading, mask.group == nil ? 0 : 12)
+                }
+            }
             // BELOW the rows, full width, not beside the header. The board it discloses
             // is a three-column grid of tiles; squeezed into a header's HStack it has no
             // room to be one. With no masks at all `emptyMaskState` draws the same board
@@ -217,6 +230,184 @@ struct MaskPanel: View {
                     addMask(kind: kind)
                 }
             }
+        }
+    }
+
+    /// One row of the list: either a folder's header or a mask.
+    ///
+    /// Flattened into a single sequence rather than nested `ForEach`es so that the
+    /// index a `maskRow` is handed is still its index in `masks` — every action on a
+    /// row (reorder, delete, solo) is written in terms of that, and a per-group index
+    /// would silently address the wrong mask.
+    struct MaskListRow: Identifiable {
+        enum Kind {
+            case header(MaskGroup)
+            case mask(Mask, Int)
+        }
+        var key: String
+        var kind: Kind
+        var id: String { key }
+    }
+
+    /// The list as it is drawn: each group's header followed by its members, then every
+    /// ungrouped mask. A collapsed group contributes its header and nothing else.
+    ///
+    /// A mask naming a group that is not in the list falls through to the ungrouped
+    /// section rather than disappearing — the same rule `Recipe.effective` holds for the
+    /// render, and for the same reason: a folder deleted by hand out of a sidecar must
+    /// not take its members with it.
+    private var maskGroups: [MaskGroup] {
+        state.primarySelection.map { state.recipe(for: $0).maskGroups } ?? []
+    }
+
+    private var groupedRows: [MaskListRow] {
+        let list = masks
+        let groups = maskGroups
+        let known = Set(groups.map(\.id))
+        var rows: [MaskListRow] = []
+        for group in groups {
+            rows.append(MaskListRow(key: "g:" + group.id, kind: .header(group)))
+            guard !group.collapsed else { continue }
+            for (index, mask) in list.enumerated() where mask.group == group.id {
+                rows.append(MaskListRow(key: "m:" + mask.id, kind: .mask(mask, index)))
+            }
+        }
+        for (index, mask) in list.enumerated()
+        where mask.group == nil || !known.contains(mask.group ?? "") {
+            rows.append(MaskListRow(key: "m:" + mask.id, kind: .mask(mask, index)))
+        }
+        return rows
+    }
+
+    /// A folder's row: the triangle, the name, how many masks are in it, and the two
+    /// controls a group has — its switch and its Amount, the second behind the row's
+    /// own menu because a slider on every header would make a list of folders taller
+    /// than the list of masks it exists to shorten.
+    private func groupHeader(_ group: MaskGroup) -> some View {
+        let count = masks.filter { $0.group == group.id }.count
+        return HStack(spacing: 6) {
+            Button {
+                editGroup(group.id) { $0.collapsed.toggle() }
+            } label: {
+                Image(systemName: group.collapsed ? "chevron.right" : "chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
+                    .frame(width: 12)
+            }
+            .buttonStyle(.plain)
+            .help(group.collapsed ? "Open this group" : "Close this group")
+
+            Image(systemName: group.collapsed ? "folder.fill" : "folder")
+                .font(.system(size: 10))
+                .foregroundStyle(Lumen.secondaryText)
+
+            TextField("Group", text: groupName(group.id))
+                .textFieldStyle(.plain)
+                .font(.lumenBody)
+                .foregroundStyle(group.enabled ? Lumen.primaryText : Lumen.secondaryText)
+                .frame(maxWidth: 110)
+
+            Text(count == 1 ? "1 mask" : "\(count) masks")
+                .font(.lumenCaption)
+                .foregroundStyle(Lumen.secondaryText)
+
+            Spacer(minLength: 4)
+
+            if group.amount != 100 {
+                // Shown only when it is not at its default, like every other modified
+                // mark in the application: a badge on every row is not a badge.
+                Text("\(Int(group.amount.rounded()))%")
+                    .font(.lumenCaption)
+                    .foregroundStyle(Lumen.accent)
+            }
+            Button { editGroup(group.id) { $0.enabled.toggle() } } label: {
+                Image(systemName: group.enabled ? "eye" : "eye.slash")
+                    .font(.system(size: 10))
+                    .foregroundStyle(group.enabled ? Lumen.primaryText
+                                                   : Lumen.secondaryText)
+            }
+            .buttonStyle(.plain)
+            .help(group.enabled ? "Stop rendering every mask in this group, keeping them"
+                                : "Render them again")
+
+            LumenMenu(title: "", symbol: "ellipsis", iconOnly: true,
+                      help: "How strong the whole group is, and what happens to it") {
+                LumenMenuHeader(title: "Strength")
+                // Five stops rather than a slider. A slider on every folder header
+                // would make a list of groups taller than the list of masks it exists
+                // to shorten, and a group's Amount is a coarse control by nature —
+                // "dial the whole retouch back" is not a one-percent decision.
+                ForEach(MaskPanel.groupAmounts, id: \.self) { value in
+                    LumenMenuItem(title: "\(Int(value))%",
+                                  isSelected: abs(group.amount - value) < 0.5) {
+                        editGroup(group.id) { $0.amount = value }
+                    }
+                }
+                LumenMenuHeader(title: "This group")
+                LumenMenuItem(title: "Ungroup", symbol: "folder.badge.minus") {
+                    dissolveGroup(group.id)
+                }
+            }
+        }
+        .padding(.vertical, 2)
+        .contentShape(Rectangle())
+    }
+
+    /// The strengths a group's menu offers. Coarse on purpose — see `groupHeader`.
+    static let groupAmounts: [Double] = [25, 50, 75, 100, 150]
+
+    private func groupName(_ id: String) -> Binding<String> {
+        Binding(get: {
+            state.primarySelection
+                .flatMap { state.recipe(for: $0).maskGroups.first { $0.id == id } }?.name
+                ?? ""
+        }, set: { v in
+            state.updateRecipe(coalescingKey: "maskgroup.name." + id) { recipe in
+                guard let i = recipe.maskGroups.firstIndex(where: { $0.id == id })
+                else { return }
+                recipe.maskGroups[i].name = v
+            }
+        })
+    }
+
+    /// Delete the folder and KEEP every mask in it, at the top level.
+    ///
+    /// The only spelling of "delete a group" this panel offers, and deliberately: a
+    /// control that removes a folder AND the twelve masks inside it is one misclick
+    /// away from an hour of someone's work, and the masks can still be deleted one at a
+    /// time by whoever actually meant to.
+    private func dissolveGroup(_ id: String) {
+        state.updateRecipe(coalescingKey: nil) { recipe in
+            recipe.maskGroups.removeAll { $0.id == id }
+            for i in recipe.masks.indices where recipe.masks[i].group == id {
+                recipe.masks[i].group = nil
+            }
+        }
+    }
+
+    /// Put a mask in a folder, making one if it is not there yet.
+    private func moveMask(_ maskID: String, toGroup id: String?) {
+        state.updateRecipe(coalescingKey: nil) { recipe in
+            guard let i = recipe.masks.firstIndex(where: { $0.id == maskID })
+            else { return }
+            recipe.masks[i].group = id
+        }
+    }
+
+    private func groupMask(_ maskID: String) {
+        let group = MaskGroup(id: UUID().uuidString, name: "")
+        state.updateRecipe(coalescingKey: nil) { recipe in
+            guard let i = recipe.masks.firstIndex(where: { $0.id == maskID })
+            else { return }
+            recipe.maskGroups.append(group)
+            recipe.masks[i].group = group.id
+        }
+    }
+
+    private func editGroup(_ id: String, _ body: @escaping (inout MaskGroup) -> Void) {
+        state.updateRecipe(coalescingKey: nil) { recipe in
+            guard let i = recipe.maskGroups.firstIndex(where: { $0.id == id })
+            else { return }
+            body(&recipe.maskGroups[i])
         }
     }
 
@@ -373,6 +564,23 @@ struct MaskPanel: View {
                 duplicateMask(mask.id, inverting: true)
             }
             LumenMenuItem(title: "Delete", symbol: "trash") { deleteMask(mask.id) }
+
+            LumenMenuHeader(title: "Group")
+            LumenMenuItem(title: "New group", symbol: "folder.badge.plus") {
+                groupMask(mask.id)
+            }
+            ForEach(maskGroups, id: \.id) { group in
+                LumenMenuItem(title: group.name.isEmpty ? "Group" : group.name,
+                              symbol: "folder",
+                              isSelected: mask.group == group.id) {
+                    moveMask(mask.id, toGroup: mask.group == group.id ? nil : group.id)
+                }
+            }
+            if mask.group != nil {
+                LumenMenuItem(title: "Leave the group", symbol: "folder.badge.minus") {
+                    moveMask(mask.id, toGroup: nil)
+                }
+            }
 
             LumenMenuHeader(title: "Overlay")
             LumenMenuItem(title: showing ? "Keep it hidden" : "Keep it showing",

@@ -11,6 +11,74 @@
 
 import Foundation
 
+/// A folder of masks (docs/36 §4 item 26).
+///
+/// docs/36 §1.5 measured the problem: nothing in the previous plan survived fifteen
+/// masks, and a portrait retouched properly has more than that. A flat list of twenty
+/// rows named "Radial Gradient 14" is not a list anyone navigates.
+///
+/// THREE THINGS A GROUP DOES, and no more:
+///
+///   It COLLAPSES, which is cosmetic and lives in `withoutCosmetics` so opening a folder
+///   never re-renders anything.
+///
+///   It TURNS OFF, and a disabled group's members reach the picture exactly as a
+///   disabled mask does — which is to say not at all, while STILL LENDING THEIR
+///   SELECTION to any `maskRef` pointing at them. That rule already exists for a single
+///   mask (`testADisabledMaskStillLendsItsSelection`) and a group that broke it would
+///   silently empty every mask built on a member the moment someone hid the folder to
+///   look at something.
+///
+///   It SCALES, multiplying every member's Amount. "Dial the whole retouch back to 60%"
+///   is a real move and there was no way to make it but editing every row.
+///
+/// What a group deliberately does NOT have is a mask of its own or a blend mode. Both
+/// would mean folding the members' alphas together into one composite and applying the
+/// group's adjustments to THAT — a second, nested version of the whole local stage. It
+/// is a real feature and it is not this one; calling a folder by its name is better than
+/// shipping half of a compositor.
+public struct MaskGroup: Codable, Equatable, Sendable {
+    public var id: String
+    public var name: String
+    public var enabled: Bool
+    /// 0…200, multiplying every member's own Amount — so a group at 50 and a mask at
+    /// 200 is the mask at 100, and the two controls compose rather than override.
+    public var amount: Double
+    /// Cosmetic: which way the folder's triangle points.
+    public var collapsed: Bool
+
+    public init(id: String = UUID().uuidString, name: String = "",
+                enabled: Bool = true, amount: Double = 100, collapsed: Bool = false) {
+        self.id = id
+        self.name = name
+        self.enabled = enabled
+        self.amount = amount
+        self.collapsed = collapsed
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, enabled, amount, collapsed
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try c.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
+        self.name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
+        self.enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
+        self.amount = try c.decodeIfPresent(Double.self, forKey: .amount) ?? 100
+        self.collapsed = try c.decodeIfPresent(Bool.self, forKey: .collapsed) ?? false
+    }
+
+    /// Collapsing a folder must not re-render 45 megapixels, and neither must renaming
+    /// one — the same rule `Mask.withoutCosmetics` holds for the same reason.
+    public var withoutCosmetics: MaskGroup {
+        var copy = self
+        copy.name = ""
+        copy.collapsed = false
+        return copy
+    }
+}
+
 public struct Mask: Codable, Equatable, Sendable {
     public var id: String              // UUID string
     public var name: String
@@ -36,7 +104,8 @@ public struct Mask: Codable, Equatable, Sendable {
                 components: [MaskComponent] = [],
                 refine: MaskRefine = MaskRefine(),
                 adjust: LocalAdjust = LocalAdjust(),
-                blend: MaskBlend = .normal) {
+                blend: MaskBlend = .normal,
+                group: String? = nil) {
         self.id = id
         self.name = name
         self.enabled = enabled
@@ -46,10 +115,16 @@ public struct Mask: Codable, Equatable, Sendable {
         self.refine = refine
         self.adjust = adjust
         self.blend = blend
+        self.group = group
     }
 
+    /// The id of the `MaskGroup` this mask sits in, or nil for the top level. A mask
+    /// naming a group that does not exist is treated as ungrouped rather than hidden:
+    /// a folder deleted by hand out of a sidecar must not take its masks' EDITS with it.
+    public var group: String?
+
     private enum CodingKeys: String, CodingKey {
-        case id, name, enabled, invert, amount, components, refine, adjust, blend
+        case id, name, enabled, invert, amount, components, refine, adjust, blend, group
     }
 
     /// Every field has a default, so a mask written by a build that did not have
@@ -71,6 +146,7 @@ public struct Mask: Codable, Equatable, Sendable {
         self.adjust = try c.decodeIfPresent(LocalAdjust.self, forKey: .adjust)
             ?? LocalAdjust()
         self.blend = try c.decodeIfPresent(MaskBlend.self, forKey: .blend) ?? .normal
+        self.group = try c.decodeIfPresent(String.self, forKey: .group)
     }
 
     /// The same mask with everything that is only a label removed. Renaming a mask

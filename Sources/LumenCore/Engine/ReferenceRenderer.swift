@@ -86,7 +86,7 @@ public enum ReferenceRenderer {
                                           // The whole list, so a `maskRef` component can
                                           // find what it points at. Without it a
                                           // reference selects nothing, silently.
-                                          masks: plan.masks))
+                                          masks: plan.allMasks))
             }
             image = applyMasks(image, plan: plan, alphas: alphas, space: space)
         }
