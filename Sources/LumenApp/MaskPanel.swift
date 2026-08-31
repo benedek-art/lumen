@@ -126,7 +126,7 @@ struct MaskPanel: View {
     @State private var maskSearch: String = ""
     @State private var maskPickerOpen: Bool = false
     @State private var componentPickerOpen: Bool = false
-    @State private var componentsExpanded: Bool = true
+    @State private var subtractPickerOpen: Bool = false
     @State private var refineExpanded: Bool = true
     @State private var lightExpanded: Bool = true
     @State private var colourExpanded: Bool = true
@@ -166,27 +166,20 @@ struct MaskPanel: View {
     /// the controls that are.
     @ViewBuilder
     private var navigatorBody: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
+            // CREATE NEW MASK, at the top, above the list. Lightroom's own layout, and
+            // the distinction it draws is the one that was hardest to see here: this
+            // makes a NEW mask with its own adjustments, while Add and Subtract — down
+            // inside the selected row — give the mask you already have more area. Two
+            // adjacent verbs with completely different meanings, told apart by position.
+            if !masks.isEmpty {
+                kindMenu(label: "Create new mask", isOpen: $maskPickerOpen) { kind in
+                    addMask(kind: kind)
+                }
+            }
             maskListSection
             if let mask = activeMask {
                 overlayControls(mask)
-                componentSection(mask)
-                // The overlay comes out while an edge is dragged — an Edge control moves
-                // the SELECTION, and the overlay is the only place a selection is
-                // visible at all. Its complement lives on the adjustments half.
-                zone("Edge",
-                     isExpanded: $refineExpanded,
-                     isModified: mask.refine != MaskRefine(),
-                     onReset: { editMask(mask.id, key: nil) { $0.refine = MaskRefine() } }) {
-                    refineSection(mask)
-                }
-                    .environment(\.sliderGestureChanged) { active in
-                        state.sliderGestureSink(active)
-                        state.setMaskEdgeGesture(active, mask: mask.id)
-                    }
-                if usesBrush(mask) { zone("Brush", asks: brushScope) { brushParameters() } }
-            } else {
-                emptyMaskState
             }
         }
     }
@@ -201,23 +194,22 @@ struct MaskPanel: View {
         VStack(alignment: .leading, spacing: 8) {
             if let mask = activeMask {
                 editingRow(mask)
-                effectZone(mask)
-                    // THE OVERLAY GETS OUT OF THE WAY while an adjustment is dragged. It
-                    // is a red wash over the exact pixels being judged, which is the one
-                    // moment it obstructs rather than informs — and the press that begins
-                    // the first such drag is also what ends a new mask's persistent
-                    // overlay, because from there the photographer is judging pixels
-                    // rather than a selection.
-                    //
-                    // Scoped to this half rather than hung off `AppState.sliderGesture`,
-                    // because that signal is also what the on-image canvas fires: a
-                    // gradient drag would have hidden the overlay during the one gesture
-                    // that most wants it. The closure is wrapped rather than replaced, so
-                    // the gesture still reaches the coalescer it was written for.
+                // EDGE LIVES HERE NOW, not in the pop-out. It is a refinement of a mask
+                // that already exists — the same kind of act as moving Exposure — and
+                // the pop-out is for MAKING masks. Its overlay rule comes with it: an
+                // Edge control moves the SELECTION, and the overlay is the only place a
+                // selection is visible at all, so it is forced ON while one is dragged.
+                zone("Edge",
+                     isExpanded: $refineExpanded,
+                     isModified: mask.refine != MaskRefine(),
+                     onReset: { editMask(mask.id, key: nil) { $0.refine = MaskRefine() } }) {
+                    refineSection(mask)
+                }
                     .environment(\.sliderGestureChanged) { active in
                         state.sliderGestureSink(active)
-                        state.setMaskOverlaySuppressed(active)
+                        state.setMaskEdgeGesture(active, mask: mask.id)
                     }
+                effectZone(mask)
             } else {
                 emptyMaskState
             }
@@ -391,8 +383,23 @@ struct MaskPanel: View {
                 case .header(let group):
                     groupHeader(group)
                 case .mask(let mask, let index):
-                    maskRow(mask, index: index)
-                        .padding(.leading, mask.group == nil ? 0 : 12)
+                    // THE SELECTED MASK CARRIES ITS OWN PARTS; every other row stays one
+                    // line. This is the rule the panel was missing, and it is the whole
+                    // reason Lightroom's version reads as calm where ours read as a wall:
+                    // depth is unlocked by SELECTION, not shown by default.
+                    //
+                    // Before this, the panel drew a permanent COMPONENTS section, the
+                    // op segmented control, Invert this, Contribution, the kind's own
+                    // parameters, a note and an "Add to this mask" button — for the
+                    // selected mask, all the time, on top of Edge and six more sliders.
+                    // The owner's word for it was "overwhelmed".
+                    VStack(alignment: .leading, spacing: 2) {
+                        maskRow(mask, index: index)
+                        if mask.id == activeMask?.id {
+                            componentRows(mask)
+                        }
+                    }
+                    .padding(.leading, mask.group == nil ? 0 : 12)
                 }
             }
             // BELOW the rows, full width, not beside the header. The board it discloses
@@ -913,31 +920,48 @@ struct MaskPanel: View {
 
     // MARK: - Component stack
 
-    private func componentSection(_ mask: Mask) -> some View {
+    /// The selected mask's parts, indented under it, and the two verbs that add more.
+    ///
+    /// Indented on the LEFT with a smaller thumbnail right-aligned to the same edge as
+    /// the mask's, which is Lightroom's exact arrangement: the eye reads one column of
+    /// pictures down the list, and indentation alone says which belong to which.
+    ///
+    /// Add and Subtract sit INSIDE the list, under the parts they extend — attached to
+    /// the thing they modify rather than parked at the panel's edge. Holding ⌥ turns
+    /// them into one Intersect button, which is also how Lightroom spells it, and it
+    /// costs no permanent row.
+    @ViewBuilder
+    private func componentRows(_ mask: Mask) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            // NOT `!components.isEmpty`, which is true of every mask that has ever
-            // been drawn — a dot that is always on says nothing, which is the argument
-            // the "Default" badges were removed under. More than one component IS the
-            // notable state: it means the selection is a fold rather than one shape.
-            LumenSectionHeader(title: "Components", isExpanded: $componentsExpanded,
-                               isModified: mask.components.count > 1)
-            if componentsExpanded {
-                VStack(alignment: .leading, spacing: 2) {
-                    ForEach(Array(mask.components.indices), id: \.self) { i in
-                        componentRow(mask, i)
-                    }
-                    if let i = activeComponentIndex, mask.components.indices.contains(i) {
-                        componentEditor(mask.id, i, mask.components[i])
-                    }
-                    // Same board, same place: under the list it adds to.
-                    kindMenu(label: "Add to this mask", isOpen: $componentPickerOpen,
-                             offersReference: true) { kind in
-                        addComponent(kind: kind, to: mask.id)
+            ForEach(Array(mask.components.indices), id: \.self) { i in
+                componentRow(mask, i)
+                    .padding(.leading, 14)
+            }
+            HStack(spacing: 4) {
+                kindMenu(label: intersecting ? "Intersect" : "Add",
+                         isOpen: $componentPickerOpen,
+                         offersReference: masks.count > 1) { kind in
+                    addComponent(kind: kind, to: mask.id,
+                                 op: intersecting ? .intersect : .add)
+                }
+                if !intersecting {
+                    kindMenu(label: "Subtract", isOpen: $subtractPickerOpen,
+                             offersReference: masks.count > 1) { kind in
+                        addComponent(kind: kind, to: mask.id, op: .subtract)
                     }
                 }
             }
+            .padding(.leading, 14)
+            if let i = activeComponentIndex, mask.components.indices.contains(i) {
+                componentEditor(mask.id, i, mask.components[i])
+                    .padding(.leading, 14)
+            }
         }
     }
+
+    /// Whether ⌥ is down, which turns Add and Subtract into a single Intersect.
+    private var intersecting: Bool { MaskCanvas.optionHeld() }
+
 
     private func componentRow(_ mask: Mask, _ index: Int) -> some View {
         let component = mask.components[index]
@@ -1808,8 +1832,14 @@ struct MaskPanel: View {
         armIfItNeedsAColour(kind: kind, maskID: id, component: 0)
     }
 
-    private func addComponent(kind: MaskKind, to id: String) {
-        let component = MaskPanel.makeComponent(kind: kind, op: .add)
+    /// `op` is chosen at creation now, because the button you pressed already said it.
+    ///
+    /// It used to hardcode `.add` and leave you to find the segmented control lower down
+    /// and change it — which is what made Subtract feel like two steps. Intersect is
+    /// stored as its own op here; Lightroom spells the same thing as a subtract component
+    /// with invert set, and either is a faithful encoding of "everything both select".
+    private func addComponent(kind: MaskKind, to id: String, op: MaskOp = .add) {
+        let component = MaskPanel.makeComponent(kind: kind, op: op)
         editMask(id, key: nil) { m in
             m.components.append(component)
             if MaskPanel.aiKinds.contains(kind), m.refine == MaskRefine() { m.refine.feather = 10 }

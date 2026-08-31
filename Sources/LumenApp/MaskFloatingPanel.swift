@@ -52,7 +52,7 @@ struct MaskFloatingPanel: View {
     /// Wide enough for the kind board's three-across tiles, which is the one thing a
     /// roster chosen by recognition cannot give up. The develop column's minimum is 320
     /// and this is not bound by it.
-    static let width: CGFloat = 320
+    static let width: CGFloat = 236
     /// The title bar's own height, which is all that is left when minimized.
     static let barHeight: CGFloat = 26
 
@@ -98,6 +98,14 @@ struct MaskFloatingPanel: View {
     /// unusable.
     private var titleBar: some View {
         HStack(spacing: 6) {
+            // NO MASTER EYE YET, and its absence is deliberate rather than an
+            // oversight. Lightroom carries "hide every mask" in this corner and it is a
+            // real gap here — the only way to see the photograph clean is to switch
+            // masks off one at a time and then remember which were already off. But it
+            // is not view state: it has to reach the renderer, which means threading a
+            // flag from `AppState` through `ViewerRenderKey` into the plan. Half of it
+            // — a toggle that flips and changes no pixels — is the exact defect the rest
+            // of this round was spent removing, so it waits until it can be done whole.
             Image(systemName: "square.on.square.dashed")
                 .font(.system(size: 10))
                 .foregroundStyle(Lumen.secondaryText)
@@ -108,8 +116,17 @@ struct MaskFloatingPanel: View {
                     .foregroundStyle(Lumen.tertiaryText)
                     .monospacedDigit()
             }
-            Spacer(minLength: 0)
-            barButton(state.maskPanelMinimized ? "chevron.down" : "minus",
+
+            // CENTRED GRAB PILL, which is what says the panel moves. Lightroom puts one
+            // in the same place and it is the only affordance for dragging it — without
+            // it, a floating card looks fixed.
+            Spacer(minLength: 4)
+            Capsule()
+                .fill(Lumen.secondaryText.opacity(titleHovered ? 0.55 : 0.3))
+                .frame(width: 22, height: 2)
+            Spacer(minLength: 4)
+
+            barButton(state.maskPanelMinimized ? "chevron.down" : "chevron.up",
                       help: state.maskPanelMinimized
                           ? "Show the masks again"
                           : "Collapse to the title bar") {
@@ -135,8 +152,6 @@ struct MaskFloatingPanel: View {
                     dragging = .zero
                 }
         )
-        // Double-click the bar to collapse it, which is the macOS convention for a
-        // window title and costs nothing to honour.
         .onTapGesture(count: 2) { state.maskPanelMinimized.toggle() }
     }
 
