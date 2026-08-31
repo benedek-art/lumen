@@ -281,8 +281,13 @@ struct MaskCanvas: View {
     /// True when the canvas has anything to be pressed ON — a drawable component, or
     /// somebody else's pin. A canvas that swallows clicks with nothing to do with them
     /// is the defect this guard exists for, and a pin is something to do with them.
+    /// Whether the canvas has another mask's pin on it worth being live for.
+    ///
+    /// DOCKED PINS DO NOT COUNT. They are not grabbable — see `foreignPin` — so a canvas
+    /// made live by one would accept gestures for a target that cannot be hit, which is
+    /// the same lie as an affordance drawn where nothing can be grabbed.
     private var hasForeignPins: Bool {
-        pinPositions().contains { $0.id != maskID }
+        pinPositions().contains { $0.id != maskID && !$0.docked }
     }
 
     private var isLive: Bool {
@@ -1329,7 +1334,13 @@ struct MaskCanvas: View {
     /// The id of another mask's pin under this point, if any. Nearest wins.
     private func foreignPin(at location: CGPoint) -> String? {
         var best: (id: String, d: CGFloat)? = nil
-        for (id, point, _) in pinPositions() where id != maskID {
+        // A DOCKED PIN IS NOT A TARGET, and that is the trade docking costs. Docking
+        // puts a pin on the frame's edge, and this test runs BEFORE the brush — so with
+        // another mask anchored off the visible picture, painting along that edge would
+        // select the other mask instead of laying down paint. Losing a stroke to a
+        // signpost is a real cost; not being able to select from a signpost is not,
+        // because the row it stands for is in the list two inches away.
+        for (id, point, docked) in pinPositions() where id != maskID && !docked {
             let d = hypot(location.x - point.x, location.y - point.y)
             guard d <= MaskCanvas.pinGrab else { continue }
             if best == nil || d < best!.d { best = (id, d) }
