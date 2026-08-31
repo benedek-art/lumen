@@ -459,6 +459,63 @@ public enum MaskRaster {
     /// center/axes/rotation. The falloff runs INWARD from the ellipse edge (LR's
     /// convention, which the Feather 50 default matches). Center and radii are
     /// source-normalized against width and height respectively, per docs/15's example.
+    /// Where a point on a rotated ellipse actually lands, in source-normalized
+    /// coordinates — the on-image handles' half of `radialPlane`'s geometry.
+    ///
+    /// **This exists because the two drifted, and the drift shipped.** `radialPlane`
+    /// used to rotate in per-axis normalized space; that was fixed to rotate in
+    /// long-edge units, for the reason the comment below gives — pixels are square and
+    /// normalized coordinates are not, so on a 3:2 frame a 45° ellipse rendered at 33.7°
+    /// with the wrong eccentricity. `MaskCanvas` kept the old convention, and its own
+    /// comment went on asserting "the rotation convention is the rasterizer's" for
+    /// months after it had stopped being true.
+    ///
+    /// What that cost: on a 6000×4000 frame with a radial turned to 45°, the drawn rim,
+    /// all four resize dots, the feather ring and the rotate stalk sat 0.07 of the frame
+    /// height away from the mask that was actually rendering — about 283 source pixels,
+    /// roughly 85 screen points, against an 11 pt grab radius. The outline did not match
+    /// the effect, pressing the drawn rim could miss the real one and be read as "draw a
+    /// new ellipse here", and resize dragged by the wrong amount.
+    ///
+    /// `offset` is in the wire format's own units: a displacement in per-axis normalized
+    /// coordinates, so `(radii[0], 0)` is the major-axis end. The return is the same.
+    /// At rotation 0, and on a square frame, this is the identity on `offset` — which is
+    /// why the drift was invisible until someone turned an ellipse on a 3:2 photograph.
+    public static func radialOffset(_ offset: (x: Double, y: Double),
+                                    rotation: Double,
+                                    width: Int, height: Int) -> (x: Double, y: Double) {
+        let long = Double(Swift.max(width, height))
+        guard long > 0 else { return offset }
+        let sx = Double(width) / long, sy = Double(height) / long
+        guard sx > 0, sy > 0 else { return offset }
+        // Into long-edge units, where a rotation is a rotation.
+        let ox = offset.x * sx, oy = offset.y * sy
+        let a = rotation * Double.pi / 180
+        let c = cos(a), s = sin(a)
+        // `radialPlane` rotates a sample by −rotation to reach the ellipse's own frame,
+        // so travelling the other way — from the ellipse's frame out to the picture —
+        // is a rotation by +rotation. Inverting the wrong direction is the other way to
+        // get this wrong, and it looks identical at 0° and at 180°.
+        let rx = ox * c - oy * s
+        let ry = ox * s + oy * c
+        return (rx / sx, ry / sy)
+    }
+
+    /// The inverse of `radialOffset`: a source-normalized displacement from the centre,
+    /// expressed in the ellipse's own frame. What a resize or feather drag needs.
+    public static func radialLocal(_ delta: (x: Double, y: Double),
+                                   rotation: Double,
+                                   width: Int, height: Int) -> (x: Double, y: Double) {
+        let long = Double(Swift.max(width, height))
+        guard long > 0 else { return delta }
+        let sx = Double(width) / long, sy = Double(height) / long
+        guard sx > 0, sy > 0 else { return delta }
+        let dx = delta.x * sx, dy = delta.y * sy
+        let a = -rotation * Double.pi / 180
+        let c = cos(a), s = sin(a)
+        return ((dx * c - dy * s) / sx, (dx * s + dy * c) / sy)
+    }
+
     static func radialPlane(_ c: MaskComponent, _ w: Int, _ h: Int) -> Plane {
         var p = Plane(width: w, height: h)
         guard let center = c.center, center.count == 2,

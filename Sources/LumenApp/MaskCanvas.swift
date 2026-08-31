@@ -1657,18 +1657,43 @@ struct MaskCanvas: View {
                        y: imageRect.minY + displayed.y * imageRect.height)
     }
 
-    /// A point at `offset` in the ellipse's own (rotated, per-axis normalized) frame.
-    /// The rotation convention is the rasterizer's: it rotates in normalized space, so
-    /// the handles must too or they would drift off the drawn edge on a non-square frame.
+    /// The source frame's pixel extent, as the rasterizer sees it.
+    ///
+    /// Masks are rasterized in the SOURCE frame — `PipelineRenderer` takes the decoded
+    /// extent and geometry runs after the graph — so this is the same `w`/`h` that
+    /// `MaskRaster.radialPlane` normalises against, and the two conventions can be
+    /// compared directly.
+    private var sourcePixels: (w: Int, h: Int) {
+        (Int(sourceSize.width.rounded()), Int(sourceSize.height.rounded()))
+    }
+
+    /// A point at `offset` in the ellipse's own rotated frame.
+    ///
+    /// **THIS USED TO ROTATE IN PER-AXIS NORMALIZED SPACE, and the rasterizer stopped
+    /// doing that.** The comment here asserted "the rotation convention is the
+    /// rasterizer's" and went on asserting it after `radialPlane` was changed to rotate
+    /// in long-edge units — pixels are square and normalized coordinates are not, so a
+    /// rotation matrix applied to (fraction of width, fraction of height) mixes two
+    /// units and a 45° ellipse on a 3:2 frame renders at 33.7°.
+    ///
+    /// What the drift cost: on a 6000×4000 frame with a radial turned to 45°, the drawn
+    /// rim, all four resize dots, the feather ring and the rotate stalk sat about 283
+    /// source pixels — some 85 screen points — from the mask that was actually
+    /// rendering, against an 11 pt grab radius. The outline did not match the effect;
+    /// pressing the drawn rim could miss the real one and be read as "draw a new ellipse
+    /// here", which throws the shape away; and `localVector` inverted the same wrong
+    /// transform, so resize and feather dragged by the wrong amount.
+    ///
+    /// The conversion lives in `MaskRaster` now, beside the loop it has to agree with,
+    /// and `RadialFrameTests` checks the handle positions against that loop's OUTPUT
+    /// rather than against a second copy of its formula.
     private func viewPoint(from centre: [Double], offset: (Double, Double),
                            rotation: Double) -> CGPoint {
         guard centre.count == 2 else { return .zero }
-        let a = rotation * Double.pi / 180
-        let c = cos(a)
-        let s = sin(a)
-        let dx = offset.0 * c - offset.1 * s
-        let dy = offset.0 * s + offset.1 * c
-        return viewPoint(centre[0] + dx, centre[1] + dy)
+        let size = sourcePixels
+        let d = MaskRaster.radialOffset((x: offset.0, y: offset.1), rotation: rotation,
+                                        width: size.w, height: size.h)
+        return viewPoint(centre[0] + d.x, centre[1] + d.y)
     }
 
     /// The inverse of `viewPoint(from:offset:rotation:)`: a view point expressed in the
@@ -1677,12 +1702,11 @@ struct MaskCanvas: View {
                              rotation: Double) -> (x: Double, y: Double) {
         guard centre.count == 2 else { return (0, 0) }
         let n = normalized(point)
-        let dx = Double(n.x) - centre[0]
-        let dy = Double(n.y) - centre[1]
-        let a = -rotation * Double.pi / 180
-        let c = cos(a)
-        let s = sin(a)
-        return (dx * c - dy * s, dx * s + dy * c)
+        let size = sourcePixels
+        return MaskRaster.radialLocal((x: Double(n.x) - centre[0],
+                                       y: Double(n.y) - centre[1]),
+                                      rotation: rotation,
+                                      width: size.w, height: size.h)
     }
 
     /// Shift snaps a drag to the nearest 15° through its anchor.
