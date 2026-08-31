@@ -460,6 +460,23 @@ public struct LocalAdjust: Codable, Equatable, Sendable {
     public var blacks: Double
     public var temp: Double        // relative WB shift
     public var tint: Double
+    /// ABSOLUTE white balance for this mask, in the same units the global row uses:
+    /// Kelvin 2000…50000 and tint −150…+150. nil — the default, and what every recipe
+    /// written before this field decodes to — leaves `temp`/`tint` in charge.
+    ///
+    /// Two spellings of one control, never two stacked controls. When `kelvin` is set
+    /// the relative shift is IGNORED for white balance, because a mask carrying both a
+    /// "+30 warmer" and a "5600 K" would be the owner's two-inverts complaint in a new
+    /// costume. The panel presents it as a unit switch on one row.
+    ///
+    /// What "absolute" is measured from is the only interesting question here, and the
+    /// answer is the neutral the picture is already balanced TO when the local stage
+    /// runs — `develop.raw.temp` when it is set, the file's own as-shot neutral when it
+    /// is not. So 5600 K on a mask means "this region is lit at 5600 K", and it renders
+    /// the same whatever the global row says, which is the property that makes it worth
+    /// having: a window mask stays correct when the global balance is dragged.
+    public var kelvin: Double?
+    public var kelvinTint: Double?
     public var hue: Double         // −180…+180 hue shift (docs/08 §8.4)
     public var sat: Double
     public var vibrance: Double    // skin-protected saturation (docs/08 §8.4)
@@ -480,7 +497,9 @@ public struct LocalAdjust: Codable, Equatable, Sendable {
 
     public init(exposure: Double = 0, contrast: Double = 0, highlights: Double = 0,
                 shadows: Double = 0, whites: Double = 0, blacks: Double = 0,
-                temp: Double = 0, tint: Double = 0, hue: Double = 0, sat: Double = 0,
+                temp: Double = 0, tint: Double = 0,
+                kelvin: Double? = nil, kelvinTint: Double? = nil,
+                hue: Double = 0, sat: Double = 0,
                 vibrance: Double = 0, texture: Double = 0, clarity: Double = 0,
                 dehaze: Double = 0, sharpness: Double = 0, noise: Double = 0,
                 noiseChroma: Double = 0, moire: Double = 0, defringe: Double = 0,
@@ -495,6 +514,8 @@ public struct LocalAdjust: Codable, Equatable, Sendable {
         self.blacks = blacks
         self.temp = temp
         self.tint = tint
+        self.kelvin = kelvin
+        self.kelvinTint = kelvinTint
         self.hue = hue
         self.sat = sat
         self.vibrance = vibrance
@@ -516,6 +537,7 @@ public struct LocalAdjust: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case exposure, contrast, highlights, shadows, whites, blacks, temp, tint,
+             kelvin, kelvinTint,
              hue, sat, vibrance, texture, clarity, dehaze, sharpness, noise,
              noiseChroma, moire, defringe, grainAmount, colorTint, colorTintStrength,
              pointColors, curve, wheels
@@ -533,6 +555,8 @@ public struct LocalAdjust: Codable, Equatable, Sendable {
         self.blacks = try c.decodeIfPresent(Double.self, forKey: .blacks) ?? 0
         self.temp = try c.decodeIfPresent(Double.self, forKey: .temp) ?? 0
         self.tint = try c.decodeIfPresent(Double.self, forKey: .tint) ?? 0
+        self.kelvin = try c.decodeIfPresent(Double.self, forKey: .kelvin)
+        self.kelvinTint = try c.decodeIfPresent(Double.self, forKey: .kelvinTint)
         self.hue = try c.decodeIfPresent(Double.self, forKey: .hue) ?? 0
         self.sat = try c.decodeIfPresent(Double.self, forKey: .sat) ?? 0
         self.vibrance = try c.decodeIfPresent(Double.self, forKey: .vibrance) ?? 0

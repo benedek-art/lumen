@@ -992,8 +992,7 @@ struct MaskPanel: View {
             LumenSectionHeader(title: "Colour", isExpanded: $colourExpanded)
             if colourExpanded {
                 VStack(alignment: .leading, spacing: 2) {
-                    adjustSlider(mask.id, "Temp", \.temp, -100...100)
-                    adjustSlider(mask.id, "Tint", \.tint, -100...100)
+                    whiteBalanceRows(mask)
                     adjustSlider(mask.id, "Hue", \.hue, -180...180)
                     adjustSlider(mask.id, "Saturation", \.sat, -100...100)
                     adjustSlider(mask.id, "Vibrance", \.vibrance, -100...100)
@@ -1476,6 +1475,94 @@ struct MaskPanel: View {
                                      }),
                     range: 0...100, defaultValue: low ? 0 : 100, step: 1, decimals: 0,
                     bipolar: false)
+    }
+
+    // MARK: - White balance, in either of its two units
+
+    /// The neutral the picture is balanced TO — the number an ABSOLUTE mask is a delta
+    /// from. Same `?? asShot` rule the Basic panel's own Temp row uses, via the same
+    /// function, because a mask that rendered against one resolution while the row
+    /// beside it printed another would be unusable in exactly the way the owner
+    /// described the old panel being.
+    private var balancedNeutral: WhiteBalanceEngine.Neutral {
+        let recipe = state.primarySelection.map { state.recipe(for: $0) } ?? Recipe()
+        let shown = WhiteBalanceEngine.displayed(
+            temp: recipe.develop.raw.temp, tint: recipe.develop.raw.tint,
+            asShot: state.primaryAsShotNeutral ?? .reference)
+        return WhiteBalanceEngine.Neutral(kelvin: shown.temperature, tint: shown.tint)
+    }
+
+    /// ONE control with two units, not two controls.
+    ///
+    /// Every competitor's local white balance is a relative shift, which is correct
+    /// until the global row moves and then silently wrong — a mask built to neutralize a
+    /// tungsten window is a fixed nudge, so re-balancing the photograph re-lights the
+    /// window too. Kelvin says "this region is lit at 5600 K" and holds.
+    ///
+    /// The switch seeds from the balanced neutral in both directions, so flipping it
+    /// changes no pixel: the first thing a photographer does with a new control is press
+    /// it to find out what it is, and a control that jump-cuts the picture on that press
+    /// has taught them to distrust it.
+    @ViewBuilder
+    private func whiteBalanceRows(_ mask: Mask) -> some View {
+        let neutral = balancedNeutral
+        let absolute = mask.adjust.kelvin != nil
+        HStack(spacing: 6) {
+            Text("White balance")
+                .font(.lumenCaption)
+                .foregroundStyle(Lumen.secondaryText)
+            Spacer(minLength: 8)
+            LumenSegmented(
+                options: [(value: false, label: "Shift"), (value: true, label: "Kelvin")],
+                selection: Binding(
+                    get: { absolute },
+                    set: { wantsAbsolute in
+                        guard wantsAbsolute != absolute else { return }
+                        editMask(mask.id, key: "mask.wb.unit.\(mask.id)") { m in
+                            if wantsAbsolute {
+                                m.adjust.kelvin = neutral.kelvin
+                                m.adjust.kelvinTint = neutral.tint
+                            } else {
+                                m.adjust.kelvin = nil
+                                m.adjust.kelvinTint = nil
+                            }
+                        }
+                    }),
+                marked: absolute ? [true] : [])
+                .frame(maxWidth: 140)
+        }
+        .padding(.top, 2)
+        if absolute {
+            // The same range and step the global row uses. A mask's temperature is the
+            // same physical quantity as the picture's, and giving it a second scale
+            // would mean two numbers a photographer has to translate between.
+            optionalAdjustSlider(mask.id, "Temp", \.kelvin,
+                                 ColorTemperature.minKelvin...ColorTemperature.maxKelvin,
+                                 neutral.kelvin, step: 10, bipolar: false)
+            optionalAdjustSlider(mask.id, "Tint", \.kelvinTint, -150...150, neutral.tint,
+                                 step: 1, bipolar: true)
+        } else {
+            adjustSlider(mask.id, "Temp", \.temp, -100...100)
+            adjustSlider(mask.id, "Tint", \.tint, -100...100)
+        }
+    }
+
+    /// A slider over an optional field whose nil is not a value but an absence. The
+    /// stand-in is the balanced neutral, which is also the `defaultValue` the
+    /// double-click reset returns to — so "reset" means "this region is lit like the
+    /// rest of the photograph", which is the only reading of it that is true.
+    private func optionalAdjustSlider(_ id: String, _ t: String,
+                                      _ p: WritableKeyPath<LocalAdjust, Double?>,
+                                      _ r: ClosedRange<Double>, _ standIn: Double,
+                                      step: Double = 1, decimals: Int = 0,
+                                      bipolar: Bool = false) -> some View {
+        LumenSlider(title: t,
+                    value: maskValue(id, "abs." + t,
+                                     get: { $0.adjust[keyPath: p] ?? standIn },
+                                     set: { $0.adjust[keyPath: p] =
+                                         Num.clamp($1, r.lowerBound, r.upperBound) }),
+                    range: r, defaultValue: standIn, step: step, decimals: decimals,
+                    bipolar: bipolar)
     }
 
     private func adjustSlider(_ id: String, _ t: String,

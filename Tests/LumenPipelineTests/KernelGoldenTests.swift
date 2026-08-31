@@ -343,6 +343,45 @@ final class KernelGoldenTests: XCTestCase {
     /// hardcoded again. The second says the size REACHES PIXELS through the shipping
     /// graph, which is the proof the first one cannot give: a plan built at 65 that
     /// nothing hands 65 to is exactly the defect this replaces.
+    /// docs/36 §4 item 22 — a mask whose ONLY edit is an absolute Kelvin.
+    ///
+    /// This is the third time a local field has been added to the identity test's
+    /// conjunction after shipping without it: `pointColors` and `wheels` both spent a
+    /// release declaring a mask identity, returning a two-point cube, and doing nothing
+    /// at all on every preview and every export. `LocalPlan.isIdentity` is the single
+    /// point where that failure is possible, and it has no coverage on the CPU side
+    /// because it does not exist there — `ReferenceRenderer` has no such short-circuit,
+    /// so a parity test between them would pass while the GPU did nothing.
+    ///
+    /// The second half is what makes it a proof rather than a flag check: the baked
+    /// table has to move a colour, and move it in the direction the number names.
+    func testAMaskWhoseOnlyEditIsAnAbsoluteKelvinIsNotIdentity() throws {
+        var adjust = LocalAdjust()
+        adjust.kelvin = 3000
+
+        let anchors = RenderPlan(recipe: Recipe()).tone
+        let balanced = WhiteBalanceEngine.Neutral(kelvin: 6500, tint: 0)
+        let local = LocalPlan(adjust: adjust, scale: 1,
+                              whiteAnchorEV: anchors.whiteAnchorEV,
+                              blackAnchorEV: anchors.blackAnchorEV,
+                              size: LUT3D.exportSize,
+                              globalColor: ColorAdjust(),
+                              globalWheels: GradingWheels(),
+                              balanced: balanced)
+        XCTAssertFalse(local.isIdentity,
+                       "an absolute white balance is the mask's whole edit and the "
+                           + "stage declared itself a no-op")
+
+        // Declaring a colder illuminant than the balance assumed removes warming
+        // compensation, so the region goes blue — the same direction the global
+        // Temperature row moves, which `MaskWhiteBalanceTests` pins on the CPU side.
+        let grey = ReferenceRenderer.LocalWhiteBalance.resolve(
+            adjust, amount: 1, balanced: balanced, space: .rec2020).apply(RGB(0.4, 0.4, 0.4))
+        XCTAssertGreaterThan(grey.b, grey.r,
+                             "3000 K declared against a 6500 K balance is a cool edit")
+        XCTAssertGreaterThan(abs(grey.b - 0.4), 0.01, "and a decisive one")
+    }
+
     func testAMaskedColourEditIsBakedAtTheRendersOwnTableSize() throws {
         try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
 
@@ -362,7 +401,8 @@ final class KernelGoldenTests: XCTestCase {
                                   whiteAnchorEV: anchors.whiteAnchorEV,
                                   blackAnchorEV: anchors.blackAnchorEV, size: size,
                                   globalColor: ColorAdjust(),
-                                  globalWheels: GradingWheels())
+                                  globalWheels: GradingWheels(),
+                                  balanced: WhiteBalanceEngine.Neutral.reference)
             XCTAssertFalse(local.isIdentity,
                            "a mask with contrast, temp, saturation and vibrance "
                                + "declared itself identity, so this test measures "

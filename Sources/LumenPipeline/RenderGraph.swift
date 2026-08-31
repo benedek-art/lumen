@@ -949,7 +949,8 @@ public struct RenderGraph {
                                   blackAnchorEV: plan.tone.blackAnchorEV,
                                   size: lutSize,
                                   globalColor: plan.recipe.develop.color,
-                                  globalWheels: plan.recipe.look.wheels)
+                                  globalWheels: plan.recipe.look.wheels,
+                                  balanced: plan.balancedNeutral)
         if !localPlan.isIdentity {
             out = throughShaper(out) { encoded in
                 ColorCube.filter(localPlan.lut, image: encoded)
@@ -1762,14 +1763,16 @@ struct LocalPlan {
     /// pivots, the masked Sat re-protected by an invisible 70.
     init(adjust: LocalAdjust, scale: Double, whiteAnchorEV: Double,
          blackAnchorEV: Double, size: Int,
-         globalColor: ColorAdjust, globalWheels: GradingWheels) {
+         globalColor: ColorAdjust, globalWheels: GradingWheels,
+         balanced: WhiteBalanceEngine.Neutral) {
         // `pointColors` belongs in this list. Leaving it out meant a mask whose ONLY
         // edit was a sampled swatch declared itself identity, got a 2-point identity
         // table, and returned its input — the Point Colour control did nothing at all
         // inside a mask on the GPU path, which is every preview and every export.
         let identity = adjust.contrast == 0 && adjust.highlights == 0
             && adjust.shadows == 0 && adjust.whites == 0 && adjust.blacks == 0
-            && adjust.temp == 0 && adjust.tint == 0 && adjust.hue == 0
+            && adjust.temp == 0 && adjust.tint == 0 && adjust.kelvin == nil
+            && adjust.hue == 0
             && adjust.sat == 0 && adjust.vibrance == 0 && adjust.colorTint == nil
             && adjust.pointColors.isEmpty
             // `wheels` belongs here for the same reason `pointColors` does: a mask
@@ -1803,9 +1806,13 @@ struct LocalPlan {
         // Temp and Tint were in the identity test above and then never applied, so a
         // local white-balance nudge marked the stage live, rebuilt the table, and
         // produced the same picture.
-        let balance = ReferenceRenderer.LocalWhiteBalance(temp: adjust.temp * scale,
-                                                          tint: adjust.tint * scale,
-                                                          space: .rec2020)
+        //
+        // `resolve` rather than the relative initializer directly, because a mask now
+        // has two spellings of white balance and exactly one place is allowed to decide
+        // which one it is using. Two call sites choosing for themselves is how the
+        // reference and the GPU start rendering different pictures from one recipe.
+        let balance = ReferenceRenderer.LocalWhiteBalance.resolve(
+            adjust, amount: scale, balanced: balanced, space: .rec2020)
         // Local grading wheels (D29). The panel has offered four draggable wheels
         // since it was written and no stage read them, so a masked grade moved
         // nothing. The anchors this needs were already parameters of this initializer

@@ -305,8 +305,9 @@ public enum ReferenceRenderer {
         let exposureGain = tone.exposureGain
         let hueShift = a.hue * scale
         let context = OKLabTransform.working
-        let balance = LocalWhiteBalance(temp: a.temp * scale, tint: a.tint * scale,
-                                        space: space)
+        let balance = LocalWhiteBalance.resolve(a, amount: scale,
+                                                balanced: plan.balancedNeutral,
+                                                space: space)
         let tintColor = a.colorTint
         let tintStrength = Num.clamp(a.colorTintStrength, 0, 100) / 100 * scale
         // Local grading wheels (D29), the same engine the global grade uses. Kept in
@@ -405,6 +406,57 @@ public enum ReferenceRenderer {
                                              targetKelvin: target,
                                              targetTint: g * 1.5,
                                              space: space).matrix
+        }
+
+        /// ABSOLUTE per-mask white balance: this region is lit at `kelvin`, whatever the
+        /// global row says.
+        ///
+        /// By the time the local stage runs the pixel has already been carried to
+        /// `balanced` by S6, so the incremental matrix is the one that re-balances FROM
+        /// there TO the mask's target. That is what makes the number stable: drag the
+        /// global temperature and `balanced` moves, this matrix moves the opposite way,
+        /// and the masked region renders at the Kelvin it is labelled with. Neither
+        /// Lightroom nor Capture One offers this; both give a relative shift only, and a
+        /// relative shift silently re-lights every mask the moment the global row moves.
+        ///
+        /// AMOUNT interpolates in MIRED, not in Kelvin. Half of "3200 K" is not 1600 K —
+        /// mired is the space colour temperature is perceptually even in, and it is the
+        /// space the relative slider above already works in, so a mask fading from 0 to
+        /// 100 passes through the same colours either spelling is written in. Tint,
+        /// which is already a linear axis, interpolates directly.
+        ///
+        /// At `amount` 0 this is exactly the identity: the endpoint IS `balanced`, so
+        /// the engine is asked to adapt a neutral to itself.
+        public init(kelvin: Double, tint: Double?, amount: Double,
+                    balanced: WhiteBalanceEngine.Neutral,
+                    space: RGBColorSpace = .rec2020) {
+            let scale = Num.saturate(amount)
+            let target = Num.clamp(kelvin, ColorTemperature.minKelvin,
+                                   ColorTemperature.maxKelvin)
+            let fromMired = 1e6 / Swift.max(balanced.kelvin, 1)
+            let toMired = 1e6 / Swift.max(target, 1)
+            let mired = fromMired + (toMired - fromMired) * scale
+            let toTint = Num.clamp(tint ?? balanced.tint, -300, 300)
+            let effectiveTint = balanced.tint + (toTint - balanced.tint) * scale
+            let engine = WhiteBalanceEngine(asShotKelvin: balanced.kelvin,
+                                            asShotTint: balanced.tint,
+                                            targetKelvin: 1e6 / Swift.max(mired, 1e-9),
+                                            targetTint: effectiveTint, space: space)
+            self.matrix = engine.matrix
+            self.isIdentity = false
+        }
+
+        /// The one place that decides which spelling a mask is using, so the reference
+        /// renderer and the GPU's `LocalPlan` cannot disagree about it.
+        public static func resolve(_ a: LocalAdjust, amount: Double,
+                                   balanced: WhiteBalanceEngine.Neutral,
+                                   space: RGBColorSpace = .rec2020) -> LocalWhiteBalance {
+            if let kelvin = a.kelvin {
+                return LocalWhiteBalance(kelvin: kelvin, tint: a.kelvinTint,
+                                         amount: amount, balanced: balanced, space: space)
+            }
+            return LocalWhiteBalance(temp: a.temp * amount, tint: a.tint * amount,
+                                     space: space)
         }
 
         public func apply(_ c: RGB) -> RGB { isIdentity ? c : matrix.apply(c) }

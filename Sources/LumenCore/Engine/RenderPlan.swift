@@ -33,6 +33,17 @@ public struct RenderPlan: Sendable {
     // MARK: Stage S6 — the fused linear matrix
     public let linear: LinearStage
 
+    /// The neutral the picture is balanced TO once S6 has run — `develop.raw.temp` and
+    /// `.tint` where they are set, the file's own as-shot neutral where they are not.
+    ///
+    /// A plan owns no image, so it cannot look this up later; it is resolved here,
+    /// where `asShotKelvin` is in hand, by the same `?? asShot` rule `WhiteBalance
+    /// Engine.displayed` uses for the row. That shared rule is the whole point: a
+    /// mask's ABSOLUTE white balance is a delta from this number, so if the two
+    /// resolved "as shot" differently the mask would render one temperature and the
+    /// panel would print another.
+    public let balancedNeutral: WhiteBalanceEngine.Neutral
+
     // MARK: Stage S7 — tone
     public let tone: ToneEngine
     /// Gain (a linear multiplier) as a function of the log-encoded guided mask value.
@@ -151,6 +162,11 @@ public struct RenderPlan: Sendable {
         let wb = WhiteBalanceEngine(asShotKelvin: asShotKelvin, asShotTint: asShotTint,
                                     targetKelvin: develop.raw.temp,
                                     targetTint: develop.raw.tint, space: space)
+        let asShot = WhiteBalanceEngine.Neutral(kelvin: asShotKelvin, tint: asShotTint)
+        let shown = WhiteBalanceEngine.displayed(temp: develop.raw.temp,
+                                                 tint: develop.raw.tint, asShot: asShot)
+        self.balancedNeutral = WhiteBalanceEngine.Neutral(kelvin: shown.temperature,
+                                                          tint: shown.tint)
         let toneEngine = ToneEngine(tone: develop.tone, zones: develop.zones)
         let grade = GradeEngine(wheels: look.wheels, printerLights: look.printerLights,
                                 whiteAnchorEV: toneEngine.whiteAnchorEV,
