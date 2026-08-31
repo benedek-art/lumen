@@ -331,12 +331,16 @@ struct MaskPanel: View {
                                      query: maskSearch)
         }
         for group in groups {
-            let members = list.enumerated().filter {
-                $0.element.group == group.id && shown($0.element, $0.offset, group)
-            }
-            // A folder with nothing left in it goes with its members: a column of empty
-            // headers is a worse answer to "where is it" than a short list.
-            guard !members.isEmpty else { continue }
+            let all = list.enumerated().filter { $0.element.group == group.id }
+            let members = all.filter { shown($0.element, $0.offset, group) }
+            // FILTERED AWAY AND GENUINELY EMPTY ARE DIFFERENT THINGS, and conflating
+            // them loses a folder. A group the filter emptied is hidden — a column of
+            // headers with nothing under them is a worse answer to "where is it" than a
+            // short list. A group that is empty because its last mask was deleted STAYS,
+            // because it is still somewhere to drag a mask into and, if it is not, its
+            // own menu is the only place Ungroup lives. Hidden, it would sit in the
+            // recipe invisible and unremovable.
+            if !all.isEmpty && members.isEmpty { continue }
             rows.append(MaskListRow(key: "g:" + group.id, kind: .header(group)))
             guard !group.collapsed else { continue }
             for (index, mask) in members {
@@ -378,9 +382,12 @@ struct MaskPanel: View {
                 .foregroundStyle(group.enabled ? Lumen.primaryText : Lumen.secondaryText)
                 .frame(maxWidth: 110)
 
-            Text(count == 1 ? "1 mask" : "\(count) masks")
+            // "Empty" rather than "0 masks": a folder with nothing in it is a state
+            // worth naming, because the next question is whether to fill it or remove
+            // it, and a zero reads as a count that failed to load.
+            Text(count == 0 ? "empty" : (count == 1 ? "1 mask" : "\(count) masks"))
                 .font(.lumenCaption)
-                .foregroundStyle(Lumen.secondaryText)
+                .foregroundStyle(count == 0 ? Lumen.tertiaryText : Lumen.secondaryText)
 
             Spacer(minLength: 4)
 
@@ -529,8 +536,8 @@ struct MaskPanel: View {
             // back, so where two masks overlap the later one is working on the earlier
             // one's output. Same control as the component rows below, because it is the
             // same question being asked one level up.
-            reorderControls(canMoveUp: index > 0,
-                            canMoveDown: index < masks.count - 1,
+            reorderControls(canMoveUp: MaskPanel.reorderRoom(masks, index).up,
+                            canMoveDown: MaskPanel.reorderRoom(masks, index).down,
                             what: "mask") { delta in
                 moveMask(mask.id, by: delta)
             }
@@ -1573,13 +1580,38 @@ struct MaskPanel: View {
         if mask(id)?.components.indices.contains(target) == true { selectedComponent = target }
     }
 
+    /// Move a mask one place, WITHIN ITS FOLDER.
+    ///
+    /// Masks fold in list order — both renderers walk `plan.masks` front to back — so
+    /// the reorder has to happen in the flat array however the list is drawn. But a flat
+    /// swap is wrong now that folders exist: the neighbour in the array is very often in
+    /// a different group, so pressing "move down" inside a folder would either appear to
+    /// do nothing (the two rows are not adjacent on screen) or shuffle two folders'
+    /// contents past each other. Both read as the button being broken.
+    ///
+    /// So the neighbour is found among the masks that share this one's group, and THEN
+    /// swapped in the array. Order across the whole list still means what it always
+    /// meant; what changed is which pair the arrow picks.
     private func moveMask(_ id: String, by delta: Int) {
         state.updateRecipe(coalescingKey: nil) { recipe in
             guard let i = recipe.masks.firstIndex(where: { $0.id == id }) else { return }
-            let target = i + delta
-            guard recipe.masks.indices.contains(target) else { return }
-            recipe.masks.swapAt(i, target)
+            let group = recipe.masks[i].group
+            let siblings = recipe.masks.indices.filter { recipe.masks[$0].group == group }
+            guard let here = siblings.firstIndex(of: i) else { return }
+            let next = here + delta
+            guard siblings.indices.contains(next) else { return }
+            recipe.masks.swapAt(i, siblings[next])
         }
+    }
+
+    /// Whether this mask has a neighbour to swap with inside its own folder — which is
+    /// what the arrows must be enabled on, or they offer a move that does nothing.
+    static func reorderRoom(_ masks: [Mask], _ index: Int) -> (up: Bool, down: Bool) {
+        guard masks.indices.contains(index) else { return (false, false) }
+        let group = masks[index].group
+        let siblings = masks.indices.filter { masks[$0].group == group }
+        guard let here = siblings.firstIndex(of: index) else { return (false, false) }
+        return (here > 0, here < siblings.count - 1)
     }
 
     private func removeComponent(_ id: String, _ index: Int) {
