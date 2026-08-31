@@ -1395,13 +1395,17 @@ struct MaskCanvas: View {
         return (dx * c - dy * s, dx * s + dy * c)
     }
 
-    /// Shift constrains a drag to the horizontal or vertical axis through its anchor —
-    /// the 0/90° gradient the spec asks for.
+    /// Shift snaps a drag to the nearest 15° through its anchor.
+    ///
+    /// It used to snap to the horizontal or the vertical and nothing else, which covers
+    /// a level horizon and a straight-down sky and leaves you on your own for a gradient
+    /// raked along a hillside — the ordinary case, and the one case the constraint could
+    /// not help with. `MaskHandles.snapped` owns the arithmetic, in LumenCore where
+    /// `MaskAngleSnapTests` can reach it; 0 and 90 are multiples of 15, so nothing
+    /// anyone had learned about this key stopped working.
     private func constrained(_ point: CGPoint, anchor: CGPoint) -> CGPoint {
         guard isShiftDown else { return point }
-        let dx = abs(point.x - anchor.x)
-        let dy = abs(point.y - anchor.y)
-        return dy >= dx ? CGPoint(x: anchor.x, y: point.y) : CGPoint(x: point.x, y: anchor.y)
+        return MaskHandles.snapped(point, anchor: anchor)
     }
 
     private var isShiftDown: Bool { NSEvent.modifierFlags.contains(.shift) }

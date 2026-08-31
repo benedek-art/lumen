@@ -287,6 +287,44 @@ public enum MaskHandles {
     /// Whether a create gesture has travelled far enough to be a shape rather than a
     /// click. See `minimumDrawTravel`: below this the caller must leave the component
     /// it already has alone.
+    /// The angles a constrained drag is allowed to land on, in degrees.
+    ///
+    /// Fifteen, not ninety. What shipped constrained a gradient to the horizontal or the
+    /// vertical and nothing else, which covers a level horizon and a straight-down sky
+    /// and abandons the photographer for every other picture — a gradient raked along a
+    /// hillside or a shaft of window light is the ordinary case, and it was the one case
+    /// Shift could not help with. Twenty-four stops around the circle includes both old
+    /// answers, so nothing anyone had learned stopped working, and adds the diagonals,
+    /// the thirds and the sixths.
+    ///
+    /// Not five degrees, which is fine enough that the snap stops being felt and the
+    /// control stops being a constraint; not thirty, which cannot say 45.
+    public static let angleSnapDegrees: Double = 15
+
+    /// `point` moved onto the nearest snapped ray from `anchor`.
+    ///
+    /// The distance from the anchor is PRESERVED, not projected onto the ray: a
+    /// projection shortens the gradient as the hand moves off-axis, so a drag held near
+    /// 44° while Shift is down would shrink the band as well as turning it, and the
+    /// photographer would be fighting a control that changes two things when they asked
+    /// it to change one. Rotating keeps the length the hand chose and changes only the
+    /// direction, which is the whole of what a constraint should do.
+    ///
+    /// Degenerate by design at zero travel: a press that has not moved has no angle to
+    /// snap, and returning the anchor is the only answer that is not invented.
+    public static func snapped(_ point: CGPoint, anchor: CGPoint,
+                               step: Double = angleSnapDegrees) -> CGPoint {
+        let dx = Double(point.x - anchor.x)
+        let dy = Double(point.y - anchor.y)
+        let length = (dx * dx + dy * dy).squareRoot()
+        guard length > 1e-9, dx.isFinite, dy.isFinite, step > 0 else { return anchor }
+        let degrees = atan2(dy, dx) * 180 / Double.pi
+        let snappedDegrees = (degrees / step).rounded() * step
+        let radians = snappedDegrees * Double.pi / 180
+        return CGPoint(x: anchor.x + CGFloat(cos(radians) * length),
+                       y: anchor.y + CGFloat(sin(radians) * length))
+    }
+
     public static func drawsShape(from: CGPoint, to: CGPoint) -> Bool {
         let dx = Double(to.x - from.x)
         let dy = Double(to.y - from.y)
