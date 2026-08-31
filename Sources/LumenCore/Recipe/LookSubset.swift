@@ -100,8 +100,13 @@ public struct LookSubset: Codable, Equatable, Sendable {
     /// Top-level recipe keys a look leaves behind. `pipelineVersion` is here because it
     /// is not content: it is copied into the stored look as a stamp, and never written
     /// over the target's own (see `applied(to:)`).
+    /// `maskGroups` is here because `masks` is, and for the same reason rather than by
+    /// association: a folder is a name for a set of masks, and a look that carried the
+    /// folders without the masks would arrive as a column of empty headers. The
+    /// partition test is what forced this decision to be made rather than defaulted —
+    /// adding the field to `Recipe` and not to one of these two sets fails it by name.
     public static let uncarriedRecipeKeys: Set<String> = [
-        "pipelineVersion", "develop", "masks",
+        "pipelineVersion", "develop", "masks", "maskGroups",
     ]
 
     // MARK: - Taking a look off a photograph
