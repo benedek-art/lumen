@@ -120,6 +120,9 @@ struct MaskPanel: View {
     /// What the list is filtered by. Panel-local and never persisted: a filter that
     /// survived a relaunch would be a list of masks that is missing some, with nothing
     /// on screen to say why.
+    /// The mask whose name is being typed, if any. Nil the rest of the time, which is
+    /// almost always — see `maskRow`.
+    @State private var renamingMaskID: String?
     @State private var maskSearch: String = ""
     @State private var maskPickerOpen: Bool = false
     @State private var componentPickerOpen: Bool = false
@@ -651,9 +654,40 @@ struct MaskPanel: View {
             maskThumbnail(mask)
 
             VStack(alignment: .leading, spacing: 0) {
-                TextField(MaskPanel.autoName(mask, index: index), text: maskName(mask.id))
-                    .textFieldStyle(.plain).font(.lumenBody)
-                    .foregroundStyle(isSelected ? Lumen.primaryText : Lumen.secondaryText)
+                // TEXT UNTIL YOU ASK FOR A FIELD, and this is the single most confusing
+                // thing in the panel until it is fixed.
+                //
+                // The name was an always-live `TextField` with no visible chrome, so it
+                // ate the click: the most obvious target in the row — the mask's own
+                // name — put a caret in a text field instead of selecting the mask. The
+                // owner reported it exactly: "pressing it makes me change the name of
+                // it. So I have to press on the actual mask name." He could not tell
+                // which mask his sliders belonged to, because the click that should have
+                // switched masks was being spent on a rename he did not ask for.
+                //
+                // Double-click renames, which is what Lightroom does and what every list
+                // on macOS does. Escape and Return both end it.
+                if renamingMaskID == mask.id {
+                    TextField(MaskPanel.autoName(mask, index: index), text: maskName(mask.id))
+                        .textFieldStyle(.plain).font(.lumenBody)
+                        .foregroundStyle(Lumen.primaryText)
+                        .onSubmit { renamingMaskID = nil }
+                        .onExitCommand { renamingMaskID = nil }
+                } else {
+                    Text(mask.name.isEmpty ? MaskPanel.autoName(mask, index: index)
+                                           : mask.name)
+                        .font(.lumenBody)
+                        .foregroundStyle(isSelected ? Lumen.primaryText : Lumen.secondaryText)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                        .onTapGesture(count: 2) {
+                            selectedMaskID = mask.id
+                            renamingMaskID = mask.id
+                        }
+                        .onTapGesture { selectedMaskID = mask.id; selectedComponent = 0 }
+                }
                 // What the stack actually is, under the name — the kinds and how they
                 // fold, which is the sentence the count badge was standing in for.
                 // "3" never told anybody what mask 3 selects.

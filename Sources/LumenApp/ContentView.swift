@@ -110,22 +110,27 @@ struct ContentView: View {
                                     .padding(10)
                             }
                         }
-                        // THE MASKS BOX, over the photograph and on the LEFT — which is
-                        // where Lightroom puts it, and it is the corner `RawTruthPanel`
-                        // does not already own. It appears on its own once a photograph
+                        // THE MASKS BOX, over the photograph on the RIGHT — beside
+                        // the histogram, which is where the owner asked for it twice and
+                        // where he dragged it the first time he saw it on the left. It appears on its own once a photograph
                         // has a mask ("a separate box that comes out when there is a
                         // mask"), minimizes to its title bar, drags anywhere inside the
                         // pane, and fades out of the way while the hand is on the
                         // picture. `GeometryReader` supplies the pane's size so the drag
                         // can be clamped to it — a panel dragged off the window is a
                         // panel you cannot get back.
-                        .overlay(alignment: .topLeading) {
+                        .overlay(alignment: .topTrailing) {
                             if showsMaskPanel {
                                 // The reader fills the pane so the drag can be
                                 // clamped against it; it draws nothing itself, so only
                                 // the card inside it ever takes a click.
                                 GeometryReader { proxy in
                                     MaskFloatingPanel(bounds: proxy.size)
+                                        // Out from under the clipping panel, which owns
+                                        // this corner when it is showing. Both are
+                                        // top-trailing and a silent overlap reads as a
+                                        // broken window rather than as two panels.
+                                        .padding(.top, state.showRawTruth ? 118 : 0)
                                 }
                             }
                         }

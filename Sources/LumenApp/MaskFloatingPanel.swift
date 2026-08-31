@@ -45,6 +45,9 @@ struct MaskFloatingPanel: View {
 
     @State private var dragging: CGSize = .zero
     @State private var titleHovered = false
+    /// What the contents actually want to be. See the body: a `ScrollView` has no
+    /// intrinsic height, so it has to be told one.
+    @State private var measured: CGFloat = 240
 
     /// Wide enough for the kind board's three-across tiles, which is the one thing a
     /// roster chosen by recognition cannot give up. The develop column's minimum is 320
@@ -63,8 +66,21 @@ struct MaskFloatingPanel: View {
                         .padding(.horizontal, 10)
                         .padding(.top, 8)
                         .padding(.bottom, 10)
+                        // MEASURED, because a `ScrollView` takes every point it is
+                        // offered. `.frame(maxHeight:)` caps how tall it may get and does
+                        // nothing at all about how tall it WANTS to be — so the panel was
+                        // always its cap, with the list at the top and a field of empty
+                        // grey underneath it. The owner: "it's way too large in terms of
+                        // height. You can see there's so much empty space."
+                        .background(
+                            GeometryReader { proxy in
+                                Color.clear.preference(key: MaskPanelHeightKey.self,
+                                                       value: proxy.size.height)
+                            }
+                        )
                 }
-                .frame(maxHeight: contentHeight)
+                .frame(height: Swift.min(measured, contentHeight))
+                .onPreferenceChange(MaskPanelHeightKey.self) { measured = $0 }
             }
         }
         .frame(width: Self.width)
@@ -161,6 +177,14 @@ struct MaskFloatingPanel: View {
         let maxY = Swift.max(0, bounds.height - Self.barHeight - 24)
         return CGSize(width: Num.clamp(Double(live.width), 0, Double(maxX)),
                       height: Num.clamp(Double(live.height), 0, Double(maxY)))
+    }
+}
+
+/// The navigator's natural height, reported up from its own contents.
+private struct MaskPanelHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = Swift.max(value, nextValue())
     }
 }
 
