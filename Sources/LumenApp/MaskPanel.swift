@@ -124,6 +124,20 @@ struct MaskPanel: View {
             if let mask = activeMask {
                 zone("Edge", asks: "how it is shaped") { refineSection(mask) }
                 zone("Effect", asks: "what it does") { effectZone(mask) }
+                    // THE OVERLAY GETS OUT OF THE WAY while an adjustment is dragged.
+                    // It is a red wash over the exact pixels being judged, which is the
+                    // one moment it obstructs rather than informs — Lightroom's rule,
+                    // and it is right.
+                    //
+                    // Scoped to THIS zone rather than hung off `AppState.sliderGesture`,
+                    // because that signal is also what the on-image canvas fires: a
+                    // gradient drag would have hidden the overlay during the one gesture
+                    // that most wants it. The environment closure is wrapped rather than
+                    // replaced, so the gesture still reaches the coalescer it was for.
+                    .environment(\.sliderGestureChanged) { active in
+                        state.sliderGestureSink(active)
+                        state.setMaskOverlaySuppressed(active)
+                    }
                 if usesBrush(mask) { zone("Brush", asks: brushScope) { brushParameters() } }
             }
         }
@@ -922,6 +936,13 @@ struct MaskPanel: View {
 
     // MARK: - Local adjustments
 
+    /// The overlay gets out of the way while an adjustment is being dragged.
+    ///
+    /// It is a red wash over the exact pixels being judged, which is the one moment it
+    /// is an obstruction rather than information — Lightroom's rule, and it is right.
+    /// `setMaskOverlaySuppressed` existed for a while as dead code, which is a worse
+    /// state than not having written it: a reader would have believed the behaviour
+    /// shipped.
     private func adjustSections(_ mask: Mask) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             lightSection(mask)

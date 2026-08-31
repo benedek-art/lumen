@@ -117,6 +117,16 @@ struct MaskCanvas: View {
     let componentIndex: Int
     let component: MaskComponent?
     let strokes: BrushStrokeSet
+    /// Every mask on this photograph, so the ones you are NOT editing can still be seen.
+    ///
+    /// Only the selected component drew anything, so a photograph with five masks
+    /// showed one shape and four invisible ones — and the four you cannot see are
+    /// exactly the ones you are about to overlap by accident (docs/35 §2.5). They draw
+    /// faint; the selected one draws bright.
+    var allMasks: [Mask] = []
+    /// Selecting a mask from its pin, which is how a photographer picks the mask under
+    /// the thing they are looking at rather than by reading a list.
+    var selectMask: (String) -> Void = { _ in }
     let commit: (MaskCanvasEdit) -> Void
 
     @ObservedObject private var brush: MaskBrushStore = MaskBrushStore.shared
@@ -142,6 +152,8 @@ struct MaskCanvas: View {
          componentIndex: Int,
          component: MaskComponent?,
          strokes: BrushStrokeSet = BrushStrokeSet(),
+         allMasks: [Mask] = [],
+         selectMask: @escaping (String) -> Void = { _ in },
          commit: @escaping (MaskCanvasEdit) -> Void) {
         self.imageRect = imageRect
         self.sourceSize = sourceSize
@@ -150,6 +162,8 @@ struct MaskCanvas: View {
         self.componentIndex = componentIndex
         self.component = component
         self.strokes = strokes
+        self.allMasks = allMasks
+        self.selectMask = selectMask
         self.commit = commit
     }
 
@@ -169,12 +183,21 @@ struct MaskCanvas: View {
         case line(MaskHandles.LinearGrab)
         case radial(MaskHandles.RadialGrab)
         case brush
+        /// A press that landed on ANOTHER mask's pin. Carried for the drag so a press
+        /// that turns into a small movement still selects rather than starting to draw.
+        case pin(String)
     }
 
     // MARK: Body
 
     var body: some View {
         Canvas { context, _ in
+            // THE MASKS YOU ARE NOT EDITING, first and faint. Only the selected
+            // component drew anything, so a photograph with five masks showed one
+            // shape and four invisible ones — and an invisible mask is exactly the one
+            // you overlap by accident (docs/35 §2.5).
+            drawOtherMasks(&context)
+            drawPins(&context)
             guard let component = component, isLive else { return }
             switch component.kind {
             case .linear:
@@ -208,9 +231,17 @@ struct MaskCanvas: View {
     /// True only when there is something to manipulate: the range and AI kinds are
     /// edited in the panel and by the sampler, and the overlay must pass their clicks
     /// through to the viewer rather than swallowing them.
+    /// True when the canvas has anything to be pressed ON — a drawable component, or
+    /// somebody else's pin. A canvas that swallows clicks with nothing to do with them
+    /// is the defect this guard exists for, and a pin is something to do with them.
+    private var hasForeignPins: Bool {
+        pinPositions().contains { $0.id != maskID }
+    }
+
     private var isLive: Bool {
-        guard imageRect.width > 1, imageRect.height > 1,
-              let component = component else { return false }
+        guard imageRect.width > 1, imageRect.height > 1 else { return false }
+        if hasForeignPins { return true }
+        guard let component = component else { return false }
         switch component.kind {
         case .linear, .similarityLine, .radial, .brush: return true
         // A Colour Pick's points are placed by the eyedropper and MOVED here. The
@@ -244,6 +275,14 @@ struct MaskCanvas: View {
     private var dragGesture: some Gesture {
         DragGesture(minimumDistance: 0)
             .onChanged { value in
+                // A press on another mask's pin selects, and does nothing else. Checked
+                // FIRST and only once per gesture: a pin sits on top of whatever
+                // geometry is underneath it, and the press has to mean the pin.
+                if case .idle = mode, let id = foreignPin(at: value.startLocation) {
+                    mode = .pin(id)
+                    return
+                }
+                if case .pin = mode { return }
                 guard let component = component else { return }
                 sliderGestureChanged(true)
                 switch component.kind {
@@ -260,6 +299,12 @@ struct MaskCanvas: View {
                 }
             }
             .onEnded { value in
+                if case .pin(let id) = mode {
+                    mode = .idle
+                    pointGrab = nil
+                    selectMask(id)
+                    return
+                }
                 defer { sliderGestureChanged(false) }
                 guard let component = component else { return }
                 switch component.kind {
@@ -835,6 +880,121 @@ struct MaskCanvas: View {
             context.stroke(mark, with: .color(Color.black.opacity(0.9)),
                            style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
         }
+    }
+
+    /// The id of another mask's pin under this point, if any. Nearest wins.
+    private func foreignPin(at location: CGPoint) -> String? {
+        var best: (id: String, d: CGFloat)? = nil
+        for (id, point) in pinPositions() where id != maskID {
+            let d = hypot(location.x - point.x, location.y - point.y)
+            guard d <= MaskCanvas.pinGrab else { continue }
+            if best == nil || d < best!.d { best = (id, d) }
+        }
+        return best?.id
+    }
+
+    /// How near a pin a press has to land to mean it. The same 11 pt `MaskHandles` uses
+    /// for a gradient's dots — a grab radius smaller than the thing drawn is a target
+    /// you can see and cannot hit.
+    static let pinGrab: CGFloat = 11
+
+    /// Every other mask's geometry, at a quarter weight.
+    ///
+    /// Geometry only — a brush stroke has no outline worth drawing at this weight, and a
+    /// range mask has no shape at all — so what appears is the set of shapes a gesture
+    /// could collide with, which is what this is for.
+    private func drawOtherMasks(_ context: inout GraphicsContext) {
+        for mask in allMasks where mask.id != maskID && mask.enabled {
+            for c in mask.components {
+                switch c.kind {
+                case .linear, .similarityLine:
+                    guard let line = MaskCanvas.optionalLine(c) else { continue }
+                    var path = Path()
+                    path.move(to: viewPoint(line[0], line[1]))
+                    path.addLine(to: viewPoint(line[2], line[3]))
+                    stroke(&context, path, width: 1, alpha: 0.22)
+                case .radial:
+                    guard let centre = c.center, centre.count == 2,
+                          let radii = c.radii, radii.count == 2 else { continue }
+                    stroke(&context, ellipsePath(centre, radii, c.rotation ?? 0, scale: 1),
+                           width: 1, alpha: 0.22)
+                default:
+                    continue
+                }
+            }
+        }
+    }
+
+    /// One pin per mask: where it is, and which one is selected.
+    ///
+    /// docs/08 §8.1 clones Lightroom's pins and nothing drew one. A pin is how a
+    /// photographer picks the mask under the thing they are looking AT, rather than by
+    /// reading a list and remembering which name goes with which shape.
+    ///
+    /// A pin whose mask has no geometry — a Colour Range, a Subject — has no honest
+    /// place on the picture, so it does not get one. Inventing a position would be a
+    /// handle that lies about where its mask lives.
+    private func drawPins(_ context: inout GraphicsContext) {
+        for (id, point) in pinPositions() {
+            let selected = id == maskID
+            let r: CGFloat = selected ? 6.5 : 5
+            let rect = CGRect(x: point.x - r, y: point.y - r, width: r * 2, height: r * 2)
+            context.fill(Path(ellipseIn: rect.insetBy(dx: -1.5, dy: -1.5)),
+                         with: .color(Color.black.opacity(0.5)))
+            context.fill(Path(ellipseIn: rect),
+                         with: .color(Color.white.opacity(selected ? 0.95 : 0.55)))
+            if selected {
+                context.fill(Path(ellipseIn: rect.insetBy(dx: r - 2, dy: r - 2)),
+                             with: .color(Color.black.opacity(0.75)))
+            }
+        }
+    }
+
+    /// Where each mask's pin sits, in view points. Masks with no drawable geometry are
+    /// absent from the result rather than placed somewhere arbitrary.
+    private func pinPositions() -> [(id: String, point: CGPoint)] {
+        var out: [(String, CGPoint)] = []
+        for mask in allMasks where mask.enabled {
+            guard let anchor = MaskCanvas.anchor(of: mask) else { continue }
+            let p = viewPoint(anchor.x, anchor.y)
+            guard p.x.isFinite, p.y.isFinite,
+                  p.x > -40, p.y > -40,
+                  p.x < imageRect.width + 40, p.y < imageRect.height + 40 else { continue }
+            out.append((mask.id, p))
+        }
+        return out
+    }
+
+    /// A mask's source-normalized anchor: the first component that has a position.
+    static func anchor(of mask: Mask) -> (x: Double, y: Double)? {
+        for c in mask.components {
+            switch c.kind {
+            case .radial:
+                if let centre = c.center, centre.count == 2,
+                   centre[0].isFinite, centre[1].isFinite {
+                    return (centre[0], centre[1])
+                }
+            case .linear, .similarityLine:
+                if let line = optionalLine(c) {
+                    return ((line[0] + line[2]) / 2, (line[1] + line[3]) / 2)
+                }
+            case .similarity:
+                if let first = (c.points ?? []).first, first.count >= 2,
+                   first[0].isFinite, first[1].isFinite {
+                    return (first[0], first[1])
+                }
+            default:
+                continue
+            }
+        }
+        return nil
+    }
+
+    /// A component's line, when it has a well-formed one.
+    static func optionalLine(_ c: MaskComponent) -> [Double]? {
+        guard let line = c.line, line.count == 4, line.allSatisfy({ $0.isFinite })
+        else { return nil }
+        return line
     }
 
     /// A similarity point's reach, in view points.

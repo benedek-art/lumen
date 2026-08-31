@@ -1517,7 +1517,15 @@ struct LoupeView: View {
                            maskID: target.maskID,
                            componentIndex: target.index,
                            component: target.component,
-                           strokes: existingStrokes(target.component)) { edit in
+                           strokes: existingStrokes(target.component),
+                           // Every mask, so the ones not being edited are still visible
+                           // and their pins are still reachable.
+                           allMasks: recipe.masks,
+                           selectMask: { id in
+                               state.activeMaskID = id
+                               state.activeComponentIndex = 0
+                               state.flashMaskOverlay(id)
+                           }) { edit in
                     MaskCanvas.apply(edit, in: state)
                 }
                 .frame(width: drawn.width, height: drawn.height)
