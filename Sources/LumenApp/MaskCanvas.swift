@@ -1329,7 +1329,7 @@ struct MaskCanvas: View {
     /// The id of another mask's pin under this point, if any. Nearest wins.
     private func foreignPin(at location: CGPoint) -> String? {
         var best: (id: String, d: CGFloat)? = nil
-        for (id, point) in pinPositions() where id != maskID {
+        for (id, point, _) in pinPositions() where id != maskID {
             let d = hypot(location.x - point.x, location.y - point.y)
             guard d <= MaskCanvas.pinGrab else { continue }
             if best == nil || d < best!.d { best = (id, d) }
@@ -1388,8 +1388,23 @@ struct MaskCanvas: View {
     /// place on the picture, so it does not get one. Inventing a position would be a
     /// handle that lies about where its mask lives.
     private func drawPins(_ context: inout GraphicsContext) {
-        for (id, point) in pinPositions() {
+        for (id, point, docked) in pinPositions() {
             let selected = id == maskID
+            // A DOCKED PIN IS A SIGNPOST, NOT A POSITION — the mask is not there, it is
+            // that way — so it is drawn smaller and hollow. Drawn identically it would
+            // be a picture claiming a mask sits in a corner it does not, which is the
+            // same class of lie as an affordance where nothing can be grabbed.
+            if docked {
+                let r: CGFloat = selected ? 5 : 4
+                let rect = CGRect(x: point.x - r, y: point.y - r,
+                                  width: r * 2, height: r * 2)
+                context.stroke(Path(ellipseIn: rect),
+                               with: .color(Color.black.opacity(0.5)), lineWidth: 3)
+                context.stroke(Path(ellipseIn: rect),
+                               with: .color(Color.white.opacity(selected ? 0.9 : 0.45)),
+                               lineWidth: 1.25)
+                continue
+            }
             let r: CGFloat = selected ? 6.5 : 5
             let rect = CGRect(x: point.x - r, y: point.y - r, width: r * 2, height: r * 2)
             context.fill(Path(ellipseIn: rect.insetBy(dx: -1.5, dy: -1.5)),
@@ -1405,15 +1420,19 @@ struct MaskCanvas: View {
 
     /// Where each mask's pin sits, in view points. Masks with no drawable geometry are
     /// absent from the result rather than placed somewhere arbitrary.
-    private func pinPositions() -> [(id: String, point: CGPoint)] {
-        var out: [(String, CGPoint)] = []
+    private func pinPositions() -> [(id: String, point: CGPoint, docked: Bool)] {
+        var out: [(String, CGPoint, Bool)] = []
         for mask in allMasks where mask.enabled {
             guard let anchor = MaskCanvas.anchor(of: mask) else { continue }
-            let p = viewPoint(anchor.x, anchor.y)
-            guard p.x.isFinite, p.y.isFinite,
-                  p.x > -40, p.y > -40,
-                  p.x < imageRect.width + 40, p.y < imageRect.height + 40 else { continue }
-            out.append((mask.id, p))
+            // DOCKED, not dropped. A pin off the visible picture used to vanish — at
+            // 1:1 on a corner that is most of them — so the one control that selects a
+            // mask from the photograph disappeared exactly when the list is the only
+            // way left, which is the moment pins exist to avoid.
+            guard let docked = MaskHandles.dockedPin(
+                viewPoint(anchor.x, anchor.y),
+                in: CGSize(width: imageRect.width, height: imageRect.height))
+            else { continue }
+            out.append((mask.id, docked.point, docked.docked))
         }
         return out
     }

@@ -406,6 +406,41 @@ public enum MaskHandles {
                        y: anchor.y + CGFloat(sin(radians) * length))
     }
 
+    /// A pin's place on screen when the mask it belongs to is off the visible picture.
+    ///
+    /// Zoom to 1:1 on a corner and every mask anchored elsewhere leaves the frame; a
+    /// gradient dragged off the edge does the same at any zoom. The pin was simply
+    /// DROPPED then — so the one control that selects a mask from the photograph
+    /// disappeared exactly when the mask list is the only way left, which is the moment
+    /// the pins exist to avoid.
+    ///
+    /// Docked, it clamps to the edge and says so. That distinction is the whole of the
+    /// honesty here: a docked pin is a SIGNPOST, not a position — the mask is not there,
+    /// it is that way — so the caller draws it differently, and a pin drawn the same
+    /// either way would be a picture claiming a mask sits in a corner it does not.
+    ///
+    /// `inset` keeps the whole dot on screen rather than half of it.
+    public static func dockedPin(_ point: CGPoint, in size: CGSize,
+                                 inset: Double = pinDockInset)
+        -> (point: CGPoint, docked: Bool)? {
+        guard point.x.isFinite, point.y.isFinite,
+              size.width.isFinite, size.height.isFinite,
+              size.width > 1, size.height > 1 else { return nil }
+        // A frame narrower than two insets has no room to dock in; the midpoint is the
+        // only answer that is inside it.
+        let lo = CGFloat(Swift.max(inset, 0))
+        let hiX = Swift.max(size.width - lo, lo)
+        let hiY = Swift.max(size.height - lo, lo)
+        let x = Swift.min(Swift.max(point.x, lo), hiX)
+        let y = Swift.min(Swift.max(point.y, lo), hiY)
+        let moved = abs(x - point.x) > 1e-9 || abs(y - point.y) > 1e-9
+        return (CGPoint(x: x, y: y), moved)
+    }
+
+    /// How far in from the edge a docked pin sits: its own radius plus a little, so the
+    /// dot is whole and its grab circle is not half off the picture.
+    public static let pinDockInset: Double = 10
+
     public static func drawsShape(from: CGPoint, to: CGPoint) -> Bool {
         let dx = Double(to.x - from.x)
         let dy = Double(to.y - from.y)
