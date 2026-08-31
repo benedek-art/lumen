@@ -253,6 +253,19 @@ private struct LumenCommands: Commands {
                     .keyboardShortcut("c", modifiers: [.command])
                 Button("Paste Settings") { state.pasteSettings() }
                     .keyboardShortcut("v", modifiers: [.command])
+                // Masks are geometry in SOURCE coordinates, so a radial over a face in
+                // one frame lands on a shoulder in the next. Pasting a whole recipe
+                // across forty frames therefore destroys forty sets of local work to
+                // deliver one white balance, and Lightroom's answer is a checkbox
+                // dialog you answer identically nine times in ten. Two commands cost
+                // nothing and ask nothing.
+                Button("Paste Settings Without Masks") {
+                    state.pasteSettingsWithoutMasks()
+                }
+                .keyboardShortcut("v", modifiers: [.command, .shift])
+                .disabled(!state.hasCopiedSettings)
+                Button("Paste Masks") { state.pasteMasks() }
+                    .disabled(!state.hasCopiedMasks)
                 Divider()
                 // The look-only pair is the point of the Develop/Look split: one look
                 // across a whole shoot without touching each frame's own corrections.

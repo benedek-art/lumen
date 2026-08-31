@@ -3180,19 +3180,68 @@ final class AppState: ObservableObject {
 
     // MARK: Copy / paste settings
 
-    private var copiedRecipe: Recipe?
+    /// `@Published` because two menu items are `.disabled` on whether it is nil, and a
+    /// plain stored property does not tell SwiftUI to look again — so "Paste Masks"
+    /// would stay greyed out until something else happened to redraw the menu bar.
+    @Published private var copiedRecipe: Recipe?
     private var copiedLook: Look?
 
     func copySettings() { copiedRecipe = primarySelection.map(recipe(for:)) }
 
     func pasteSettings() {
         guard let source = copiedRecipe else { return }
-        updateRecipe { recipe in
+        updateRecipe(label: "Paste Settings") { recipe in
             recipe.develop = source.develop
             recipe.look = source.look
             recipe.masks = source.masks
+            // The folders come with their masks. Without this line every pasted mask
+            // names a group the target photograph has not got, which `Recipe.effective`
+            // treats as ungrouped — so the edit survives and the organization silently
+            // does not, which is the kind of loss nobody notices until they go looking.
+            recipe.maskGroups = source.maskGroups
         }
     }
+
+    /// Everything except the masks — the develop and look, with this photograph's own
+    /// masks left exactly where they are.
+    ///
+    /// The variant that makes Paste Settings usable across a shoot. Masks are geometry
+    /// in SOURCE coordinates, so a radial placed over a face in one frame lands on a
+    /// shoulder in the next; pasting a whole recipe across forty frames therefore
+    /// destroys forty sets of local work to deliver one white balance. Lightroom asks
+    /// with a checkbox dialog every time, which is a question you answer identically
+    /// nine times out of ten. Two commands cost nothing and ask nothing.
+    func pasteSettingsWithoutMasks() {
+        guard let source = copiedRecipe else { return }
+        updateRecipe(label: "Paste Settings Without Masks") { recipe in
+            recipe.develop = source.develop
+            recipe.look = source.look
+        }
+    }
+
+    /// Only the masks, and their folders. The develop and look of each target are left
+    /// alone, which is what "put this sky mask on the rest of the sequence" means when
+    /// the frames were exposed differently.
+    ///
+    /// APPENDED, not replaced, and that is the difference between this and the two
+    /// above: those are "make this photograph like that one", and this one is "also do
+    /// this". Replacing would silently delete whatever local work each target already
+    /// had, with no way back but undo — and it is the same gesture people use to build a
+    /// stack up mask by mask across a sequence.
+    func pasteMasks() {
+        guard let source = copiedRecipe, !source.masks.isEmpty else { return }
+        // `Recipe.appendingMasks` owns the id remapping, in LumenCore where
+        // `PasteMasksTests` can reach it — the interesting half of this command is an
+        // algorithm about references, not a menu item.
+        updateRecipe(label: "Paste Masks") { recipe in
+            recipe = recipe.appendingMasks(from: source)
+        }
+    }
+
+    /// True when there is something on the clipboard worth offering the mask commands
+    /// for — the menu greys them out rather than offering a paste that does nothing.
+    var hasCopiedMasks: Bool { !(copiedRecipe?.masks.isEmpty ?? true) }
+    var hasCopiedSettings: Bool { copiedRecipe != nil }
 
     /// Copy Look copies exactly the look-tagged slice (D4) — grade, film stock,
     /// transform preset — and nothing else. Each target keeps its own white balance,

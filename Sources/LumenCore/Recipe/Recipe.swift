@@ -47,6 +47,54 @@ public struct Recipe: Codable, Equatable, Sendable {
         self.maskGroups = maskGroups
     }
 
+    /// This recipe with `source`'s masks and folders APPENDED.
+    ///
+    /// "Paste Masks" across a sequence — put this sky mask on the rest of the shoot —
+    /// and appending rather than replacing is the whole difference between it and Paste
+    /// Settings. Those two mean "make this photograph like that one"; this one means
+    /// "also do this", and replacing would silently delete whatever local work each
+    /// target already had. It is also the gesture people use to build a stack up mask by
+    /// mask across a sequence, which replacing makes impossible.
+    ///
+    /// THE IDS. A mask's id is per-photograph, so a collision only happens when the same
+    /// mask has already been pasted here — and then a naive append produces two masks
+    /// with one id, which every `firstIndex(where:)` in the application resolves to the
+    /// first. Colliding ids are re-issued, and the whole batch is remapped TOGETHER, so
+    /// a `maskRef` between two pasted masks still points at its partner rather than at
+    /// the copy that was already here. A reference to a mask that is NOT in the batch is
+    /// left alone: it names something on the source photograph, and inventing a target
+    /// for it would be a selection nobody asked for.
+    public func appendingMasks(from source: Recipe) -> Recipe {
+        var copy = self
+        let takenMasks = Set(masks.map(\.id))
+        let takenGroups = Set(maskGroups.map(\.id))
+        var maskIDs: [String: String] = [:]
+        var groupIDs: [String: String] = [:]
+        for mask in source.masks where takenMasks.contains(mask.id) {
+            maskIDs[mask.id] = UUID().uuidString
+        }
+        for group in source.maskGroups where takenGroups.contains(group.id) {
+            groupIDs[group.id] = UUID().uuidString
+        }
+        for group in source.maskGroups {
+            var moved = group
+            moved.id = groupIDs[group.id] ?? group.id
+            copy.maskGroups.append(moved)
+        }
+        for mask in source.masks {
+            var moved = mask
+            moved.id = maskIDs[mask.id] ?? mask.id
+            if let g = moved.group { moved.group = groupIDs[g] ?? g }
+            moved.components = moved.components.map { component in
+                var c = component
+                if let ref = c.maskRef, let landed = maskIDs[ref] { c.maskRef = landed }
+                return c
+            }
+            copy.masks.append(moved)
+        }
+        return copy
+    }
+
     /// What a group's settings do to one of its members, resolved in ONE place.
     ///
     /// Both renderers and the panel ask this rather than each folding the two levels
