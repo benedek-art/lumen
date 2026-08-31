@@ -2536,6 +2536,12 @@ final class AppState: ObservableObject {
     /// The grey a colour-driven mask component is born with, so it is a valid
     /// component before anything has been picked. Named because two places have to
     /// agree it is a placeholder rather than a choice.
+    /// Reach of a freshly planted similarity point, as a fraction of the long edge.
+    /// docs/08 §8.2's "~15% long edge" — big enough that one click on a sky selects
+    /// sky rather than a coin, small enough that it is visibly LOCAL, which is the
+    /// property that distinguishes this component from Colour Range.
+    static let similarityPointRadius: Double = 0.15
+
     static let placeholderSample: [Double] = [0.18, 0.18, 0.18]
 
     /// Arm the next click on the image, and say what it is for.
@@ -2673,13 +2679,36 @@ final class AppState: ObservableObject {
                         // sitting beside it. Otherwise every colour mask would select
                         // its target plus mid-grey, which on a photograph is most of
                         // the frame.
-                        if list == [AppState.placeholderSample] {
+                        let replacing = list == [AppState.placeholderSample]
+                        if replacing {
                             list = [rgb]
                         } else {
                             guard list.count < 8 else { return }
                             list.append(rgb)
                         }
                         recipe.masks[m].components[component].samples = list
+
+                        // A Colour Pick is "pixels like this one, NEAR HERE", so the
+                        // click that takes the colour also plants the point. Without
+                        // this the spatial half of the component would be a control
+                        // nobody could reach: there is no other gesture in the app that
+                        // knows where on the photograph a sample came from.
+                        //
+                        // Colour Range is deliberately excluded — it IS the global
+                        // version, and that distinction is the whole reason both kinds
+                        // exist.
+                        let kind = recipe.masks[m].components[component].kind
+                        if kind == .similarity || kind == .similarityLine {
+                            var points = recipe.masks[m].components[component].points ?? []
+                            let planted = [sourceX, sourceY,
+                                           AppState.similarityPointRadius, 1]
+                            if replacing || points.isEmpty {
+                                points = [planted]
+                            } else {
+                                points.append(planted)
+                            }
+                            recipe.masks[m].components[component].points = points
+                        }
                     }
                 case .maskPointColor(let maskID):
                     updateRecipe { recipe in

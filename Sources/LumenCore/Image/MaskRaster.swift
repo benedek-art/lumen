@@ -572,13 +572,22 @@ public enum MaskRaster {
     /// lightness, widths set by the two selectivity sliders (log-scale so the slider is
     /// perceptually even).
     ///
-    /// DEGRADED: `MaskComponent` stores sampled colours but no point geometry, radius,
-    /// or ± sign for `.similarity` (brief §1.5 #8), and no detachable eyedropper
-    /// position for `.similarityLine` (#9). So the spatial falloff term is omitted —
-    /// `.similarity` evaluates the gate over the whole frame, `.similarityLine`
-    /// multiplies it by its stored ramp, and all samples count as positive. Adding the
-    /// geometry fields restores the spec's form without changing anything here but the
-    /// falloff multiplier.
+    /// THE SPATIAL HALF, which used to be missing. `MaskComponent.points` pairs one
+    /// `[x, y, radius, sign]` with each sample by index, so a Colour Pick is "pixels
+    /// like this one, NEAR HERE" — the U-Point mechanic it is named after — rather than
+    /// "pixels like this one, anywhere", which is a colour range wearing another tool's
+    /// name (docs/35 §2.4).
+    ///
+    /// With no points the gate evaluates over the whole frame, exactly as before, so
+    /// every recipe written before the field renders identically after it.
+    ///
+    /// With points, positive ones union and negative ones subtract:
+    ///
+    ///     alpha = saturate( max(positive: spatial·g) − max(negative: spatial·g) )
+    ///
+    /// A negative point at 40 removes 40% of what it covers rather than all of it,
+    /// because `spatial` is a falloff and not a mask — which is what makes a negative
+    /// point a *dodge* of the selection rather than a hole in it.
     static func similarityPlane(_ c: MaskComponent, _ w: Int, _ h: Int,
                                 _ source: ImageBuffer?) -> Plane {
         var p = Plane(width: w, height: h)
@@ -608,19 +617,47 @@ public enum MaskRaster {
             ? linearPlane(c, w, h)
             : Plane(width: w, height: h, fill: 1)
 
+        // The points, paired with `refs` by index. Parsed once, out of the loop, and
+        // measured in the same units the brush uses so a point keeps its reach through
+        // a crop: radius is a fraction of the LONG edge.
+        let long = Double(Swift.max(w, h))
+        let spatial = points(c, refs.count, w: w, h: h, longEdge: long)
+
         for y in 0..<h {
+            let py = Double(y) + 0.5
             for x in 0..<w {
                 let lab = context.toLab(srcColor(src, x, y, w, h))
-                var best = 0.0
-                for ref in refs {
+                let px = Double(x) + 0.5
+                var positive = 0.0
+                var negative = 0.0
+                for (index, ref) in refs.enumerated() {
                     let da = lab.a - ref.a
                     let db = lab.b - ref.b
                     let dC2 = da * da + db * db
                     let dL = lab.L - ref.L
-                    let g = exp(-dC2 / twoSigmaC2) * exp(-(dL * dL) / twoSigmaL2)
-                    if g.isFinite && g > best { best = g }
+                    var g = exp(-dC2 / twoSigmaC2) * exp(-(dL * dL) / twoSigmaL2)
+                    guard g.isFinite else { continue }
+                    guard let spatial else {
+                        // No geometry at all: the gate covers the whole frame, which is
+                        // what this component meant before points existed.
+                        if g > positive { positive = g }
+                        continue
+                    }
+                    // A malformed entry selects nothing rather than everything — an
+                    // unparseable point must not silently become a global gate.
+                    guard let point = spatial[index] else { continue }
+                    let dx = px - point.cx
+                    let dy = py - point.cy
+                    let d = (dx * dx + dy * dy).squareRoot()
+                    g *= stampProfile(d / point.radius, hardness: similarityPointCore)
+                    if g <= 0 { continue }
+                    if point.negative {
+                        if g > negative { negative = g }
+                    } else if g > positive {
+                        positive = g
+                    }
                 }
-                p[x, y] = Num.saturate(best * ramp[x, y])
+                p[x, y] = Num.saturate((positive - negative) * ramp[x, y])
             }
         }
         return p
@@ -755,6 +792,43 @@ public enum MaskRaster {
                 }
             }
         }
+    }
+
+    /// A similarity point's parsed geometry, in PIXELS at the requested extent.
+    struct SimilarityPoint {
+        var cx: Double
+        var cy: Double
+        var radius: Double
+        var negative: Bool
+    }
+
+    /// Fraction of a similarity point's radius that deposits at full strength before
+    /// the shoulder starts. 0.35 is a soft point — closer to DxO's control point, whose
+    /// influence is felt well before its drawn circle — and it is the one number here
+    /// that is taste rather than derivation, so it is named.
+    static let similarityPointCore: Double = 0.35
+
+    /// The points of a similarity component, aligned with its samples by index.
+    ///
+    /// Returns nil when the component carries no points at all, which is the signal to
+    /// the caller that the gate is global — distinct from an array of nils, which means
+    /// "there are points, and this one is malformed".
+    static func points(_ c: MaskComponent, _ count: Int, w: Int, h: Int,
+                       longEdge long: Double) -> [SimilarityPoint?]? {
+        guard let raw = c.points, !raw.isEmpty else { return nil }
+        var out: [SimilarityPoint?] = Array(repeating: nil, count: count)
+        for (index, entry) in raw.prefix(count).enumerated() {
+            guard entry.count >= 3,
+                  entry[0].isFinite, entry[1].isFinite, entry[2].isFinite else { continue }
+            let radius = entry[2] * long
+            guard radius >= 0.5 else { continue }
+            let sign = entry.count >= 4 && entry[3].isFinite ? entry[3] : 1
+            out[index] = SimilarityPoint(cx: entry[0] * Double(w),
+                                         cy: entry[1] * Double(h),
+                                         radius: radius,
+                                         negative: sign < 0)
+        }
+        return out
     }
 
     /// Stamp profile, shared with the radial gradient: flat core out to the hardness

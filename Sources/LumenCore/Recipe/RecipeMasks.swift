@@ -179,6 +179,20 @@ public struct MaskComponent: Codable, Equatable, Sendable {
 
     // color range / similarity: sampled references + selectivity
     public var samples: [[Double]]?    // sampled working-space RGB triples
+    /// Similarity POINTS — the spatial half of the U-Point mechanic (docs/08 §8.2).
+    ///
+    /// One entry per sample, by index: `[x, y, radius, sign]`, all source-normalized,
+    /// `radius` as a fraction of the LONG edge (the unit `BrushStroke.size` uses, so a
+    /// point keeps its reach through a crop), `sign` positive to extend the selection
+    /// and negative to carve it back.
+    ///
+    /// ABSENT means the gate evaluates over the whole frame, which is what shipped and
+    /// what every existing recipe means. So the field is additive in the strict sense:
+    /// a recipe written before it renders identically after it. Present, it is what
+    /// makes "Colour Pick" the tool it is named after rather than a Gaussian colour
+    /// range — DxO's control point is similarity WITHIN A RADIUS, with negative points,
+    /// and we shipped only the similarity.
+    public var points: [[Double]]?
     public var rangeAmount: Double?    // color-range refine 0…100
     public var chromaSel: Double?      // similarity chroma selectivity 0…100
     public var lumaSel: Double?        // similarity luma selectivity 0…100
@@ -234,7 +248,7 @@ public struct MaskComponent: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case op, kind, amount, invert, strokesRef, line, center, radii, rotation,
-             feather, lo, hi, smooth, samples, rangeAmount, chromaSel, lumaSel,
+             feather, lo, hi, smooth, samples, points, rangeAmount, chromaSel, lumaSel,
              model, prompt, personParts, classes, depthLo, depthHi
     }
 
@@ -261,6 +275,7 @@ public struct MaskComponent: Codable, Equatable, Sendable {
         self.hi = try c.decodeIfPresent(Double.self, forKey: .hi)
         self.smooth = try c.decodeIfPresent(Double.self, forKey: .smooth)
         self.samples = try c.decodeIfPresent([[Double]].self, forKey: .samples)
+        self.points = try c.decodeIfPresent([[Double]].self, forKey: .points)
         self.rangeAmount = try c.decodeIfPresent(Double.self, forKey: .rangeAmount)
         self.chromaSel = try c.decodeIfPresent(Double.self, forKey: .chromaSel)
         self.lumaSel = try c.decodeIfPresent(Double.self, forKey: .lumaSel)

@@ -161,6 +161,9 @@ struct MaskCanvas: View {
     /// destructive branch was the DEFAULT of a switch nobody could test. A named case is
     /// returned only where the rule says so, and the compiler now requires this file to
     /// handle each one.
+    /// The similarity point a press took hold of, for the life of the drag.
+    @State private var pointGrab: PointGrab?
+
     private enum DragMode: Equatable {
         case idle
         case line(MaskHandles.LinearGrab)
@@ -174,12 +177,17 @@ struct MaskCanvas: View {
         Canvas { context, _ in
             guard let component = component, isLive else { return }
             switch component.kind {
-            case .linear, .similarityLine:
+            case .linear:
                 drawLine(&context, component)
+            case .similarityLine:
+                drawLine(&context, component)
+                drawPoints(&context, component)
             case .radial:
                 drawRadial(&context, component)
             case .brush:
                 drawBrush(&context)
+            case .similarity:
+                drawPoints(&context, component)
             default:
                 break
             }
@@ -205,6 +213,10 @@ struct MaskCanvas: View {
               let component = component else { return false }
         switch component.kind {
         case .linear, .similarityLine, .radial, .brush: return true
+        // A Colour Pick's points are placed by the eyedropper and MOVED here. The
+        // picker overlay sits above this view while a pick is armed, so taking the
+        // clicks back does not cost the eyedropper anything.
+        case .similarity: return !(component.points ?? []).isEmpty
         default: return false
         }
     }
@@ -220,6 +232,8 @@ struct MaskCanvas: View {
                  + "⌘-drag draws a new ellipse, and Option draws it from the centre."
         case .brush:
             return "Drag to paint. The stroke commits on mouse-up as one undo step."
+        case .similarity:
+            return "Drag a point to move it, its ring to change how far it reaches."
         default:
             return ""
         }
@@ -239,6 +253,8 @@ struct MaskCanvas: View {
                     dragRadial(value, component, ended: false)
                 case .brush:
                     dragBrush(value, ended: false)
+                case .similarity:
+                    dragPoint(value, component, ended: false)
                 default:
                     break
                 }
@@ -253,12 +269,99 @@ struct MaskCanvas: View {
                     dragRadial(value, component, ended: true)
                 case .brush:
                     dragBrush(value, ended: true)
+                case .similarity:
+                    dragPoint(value, component, ended: true)
                 default:
                     break
                 }
                 mode = .idle
+                pointGrab = nil
             }
     }
+
+    // MARK: Similarity points
+
+    /// Which point a press took hold of, and whether it took the ring or the middle.
+    /// Carried for the whole drag for the reason every other grab here is: a gesture is
+    /// a pure function of where the pointer is NOW and where the geometry was when the
+    /// press landed, so a dropped event cannot change what the drag is worth.
+    private struct PointGrab: Equatable {
+        var index: Int
+        var resizing: Bool
+        var origin: [Double]
+    }
+
+    /// Points are MOVED here and CREATED by the eyedropper.
+    ///
+    /// Deliberately not "clear space makes a new one", which is the radial's rule: a new
+    /// similarity point needs a COLOUR as well as a position, and only the sampler can
+    /// read one. A press on empty space therefore does nothing rather than making a
+    /// point that matches whatever grey it was born with.
+    private func dragPoint(_ value: DragGesture.Value, _ component: MaskComponent,
+                           ended: Bool) {
+        let points = component.points ?? []
+        guard !points.isEmpty else { return }
+
+        let grab: PointGrab
+        if let existing = pointGrab {
+            grab = existing
+        } else {
+            guard let found = pointGrab(at: value.startLocation, points: points) else { return }
+            grab = found
+            pointGrab = found
+        }
+        guard points.indices.contains(grab.index), grab.origin.count >= 3 else { return }
+
+        var entry = grab.origin
+        if grab.resizing {
+            let centre = viewPoint(entry[0], entry[1])
+            let d = hypot(value.location.x - centre.x, value.location.y - centre.y)
+            entry[2] = pointRadiusFromView(d)
+        } else {
+            // Travel, not position, and measured in SOURCE coordinates — the defect the
+            // gradient's and the ellipse's translate branches both record. `normalized`
+            // inverts the crop, the straighten and the flip; a displayed-space delta
+            // added to a source-normalized value runs away at 1/crop.width.
+            let from = normalized(value.startLocation)
+            let to = normalized(value.location)
+            entry[0] = Num.clamp(entry[0] + Double(to.x - from.x), -0.5, 1.5)
+            entry[1] = Num.clamp(entry[1] + Double(to.y - from.y), -0.5, 1.5)
+        }
+
+        var updated = points
+        updated[grab.index] = entry
+        var next = component
+        next.points = updated
+        commit(.component(maskID: maskID, index: componentIndex, component: next,
+                          coalescingKey: ended ? nil : coalescingKey("point")))
+    }
+
+    /// The ring first, then the inside — so a point whose ring is inside a bigger
+    /// point's body can still be resized. Nearest match wins among equals.
+    private func pointGrab(at location: CGPoint, points: [[Double]]) -> PointGrab? {
+        var best: (grab: PointGrab, score: CGFloat)? = nil
+        for (index, entry) in points.enumerated() where entry.count >= 3 {
+            guard entry[0].isFinite, entry[1].isFinite, entry[2].isFinite else { continue }
+            let centre = viewPoint(entry[0], entry[1])
+            let r = pointRadiusInView(entry[2])
+            let d = hypot(location.x - centre.x, location.y - centre.y)
+            if abs(d - r) <= MaskCanvas.pointRingGrab {
+                let candidate = PointGrab(index: index, resizing: true, origin: entry)
+                if best == nil || abs(d - r) < best!.score {
+                    best = (candidate, abs(d - r))
+                }
+            } else if d <= r, best?.grab.resizing != true {
+                let candidate = PointGrab(index: index, resizing: false, origin: entry)
+                if best == nil || d < best!.score { best = (candidate, d) }
+            }
+        }
+        return best?.grab
+    }
+
+    /// How near a ring a press has to land to mean "resize" rather than "move".
+    /// The same 11 pt `MaskHandles` uses for a gradient's dots, for the same reason: a
+    /// grab radius smaller than the thing drawn is a target you can see and not hit.
+    static let pointRingGrab: CGFloat = 11
 
     // MARK: Linear gradient
 
@@ -691,6 +794,71 @@ struct MaskCanvas: View {
                                        width: inner, height: inner))
             stroke(&context, core, width: 1, alpha: brush.erase ? 0.28 : 0.42)
         }
+    }
+
+    /// The similarity points: where the colour is being matched, and how far.
+    ///
+    /// Without these on the picture, "Reach" was a slider with no referent — the one
+    /// control whose whole meaning is a distance on the photograph, expressed as a
+    /// number in a column. A positive point draws a full ring, a negative one a dashed
+    /// ring, and both carry their sign at the centre.
+    private func drawPoints(_ context: inout GraphicsContext, _ c: MaskComponent) {
+        for (index, entry) in (c.points ?? []).enumerated() where entry.count >= 3 {
+            guard entry[0].isFinite, entry[1].isFinite, entry[2].isFinite else { continue }
+            let centre = viewPoint(entry[0], entry[1])
+            let r = pointRadiusInView(entry[2])
+            guard r.isFinite, r > 1 else { continue }
+            let negative = entry.count >= 4 && entry[3] < 0
+            var ring = Path()
+            ring.addEllipse(in: CGRect(x: centre.x - r, y: centre.y - r,
+                                       width: r * 2, height: r * 2))
+            if negative {
+                context.stroke(ring, with: .color(Color.black.opacity(0.4)),
+                               style: StrokeStyle(lineWidth: 3, dash: [5, 4]))
+                context.stroke(ring, with: .color(Color.white.opacity(0.8)),
+                               style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
+            } else {
+                stroke(&context, ring, width: 1, alpha: 0.8)
+            }
+            handle(&context, centre, small: index != pointGrab?.index)
+            // The sign, drawn as a bar (and a crossbar for positive) rather than as
+            // text: a glyph at this size has to be a shape, not a character.
+            let arm: CGFloat = 3
+            var mark = Path()
+            mark.move(to: CGPoint(x: centre.x - arm, y: centre.y))
+            mark.addLine(to: CGPoint(x: centre.x + arm, y: centre.y))
+            if !negative {
+                mark.move(to: CGPoint(x: centre.x, y: centre.y - arm))
+                mark.addLine(to: CGPoint(x: centre.x, y: centre.y + arm))
+            }
+            context.stroke(mark, with: .color(Color.black.opacity(0.9)),
+                           style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+        }
+    }
+
+    /// A similarity point's reach, in view points.
+    ///
+    /// The radius is stored as a fraction of the SOURCE long edge — the unit
+    /// `BrushStroke.size` uses, so a point keeps its reach through a crop. Converting
+    /// it through the DISPLAYED long edge is the defect the brush cursor already had:
+    /// on a 0.35 crop the ring showed about a third of the reach the rasterizer used.
+    private func pointRadiusInView(_ radius: Double) -> CGFloat {
+        let perSourcePixel = PipelineRenderer.displayedPixelsPerSourcePixel(
+            geometry, sourceSize: sourceSize,
+            displayedLongEdge: Swift.max(imageRect.width, imageRect.height))
+        let sourceLong = Swift.max(sourceSize.width, sourceSize.height)
+        return CGFloat(Num.clamp(radius, 0, 2)) * sourceLong * perSourcePixel
+    }
+
+    /// The inverse, for the resize drag.
+    private func pointRadiusFromView(_ points: CGFloat) -> Double {
+        let perSourcePixel = PipelineRenderer.displayedPixelsPerSourcePixel(
+            geometry, sourceSize: sourceSize,
+            displayedLongEdge: Swift.max(imageRect.width, imageRect.height))
+        let sourceLong = Swift.max(sourceSize.width, sourceSize.height)
+        let denominator = sourceLong * perSourcePixel
+        guard denominator > 0.0001 else { return 0.15 }
+        return Num.clamp(Double(points / denominator), 0.01, 1.0)
     }
 
     /// The cursor ring, in view points.

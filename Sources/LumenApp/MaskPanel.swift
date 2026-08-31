@@ -499,11 +499,72 @@ struct MaskPanel: View {
     /// a paragraph in the panel and is a fact about the format, which is here.
     private func similarityParameters(_ id: String, _ i: Int,
                                       _ c: MaskComponent) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
+        let points = c.points ?? []
+        return VStack(alignment: .leading, spacing: 2) {
             sampleChips(id, i, c)
+            // The spatial half, which used to have no controls because it had no
+            // fields. Reach is one slider over every point of this component rather
+            // than one per point: the format stores a radius each, so per-point reach
+            // is a later canvas gesture, and a slider per point would be eight sliders
+            // for a control most people set once.
+            if !points.isEmpty {
+                LumenSlider(title: "Reach",
+                            value: Binding(
+                                get: { (component(id, i)?.points?.first?.count ?? 0) >= 3
+                                        ? (component(id, i)!.points![0][2] * 100) : 15 },
+                                set: { v in
+                                    editComponent(id, i, key: "mask.reach.\(id).\(i)") { c in
+                                        let r = Num.clamp(v, 1, 100) / 100
+                                        c.points = (c.points ?? []).map { p in
+                                            var q = p
+                                            if q.count >= 3 { q[2] = r }
+                                            return q
+                                        }
+                                    }
+                                }),
+                            range: 1...100, defaultValue: 15, step: 1, decimals: 0,
+                            bipolar: false)
+                pointSigns(id, i, points)
+            }
             optionalSlider(id, i, "Colour tolerance", \.chromaSel, 0...100, 50)
             optionalSlider(id, i, "Brightness tolerance", \.lumaSel, 0...100, 50)
         }
+    }
+
+    /// One ± per point, aligned under the sample chips they belong to.
+    ///
+    /// A negative point carves its own area back out of the selection — the half of
+    /// U-Point that makes "the sky, but not the sun" one more click rather than a
+    /// second mask. The control is a toggle on the point rather than a mode on the
+    /// eyedropper, because a mode you have to be in before you click is a mode you
+    /// discover by getting it wrong.
+    private func pointSigns(_ id: String, _ i: Int, _ points: [[Double]]) -> some View {
+        HStack(spacing: 4) {
+            ForEach(Array(points.indices), id: \.self) { index in
+                let negative = points[index].count >= 4 && points[index][3] < 0
+                Button {
+                    editComponent(id, i, key: nil) { c in
+                        guard var list = c.points, list.indices.contains(index),
+                              list[index].count >= 3 else { return }
+                        while list[index].count < 4 { list[index].append(1) }
+                        list[index][3] = list[index][3] < 0 ? 1 : -1
+                        c.points = list
+                    }
+                } label: {
+                    Image(systemName: negative ? "minus.circle.fill" : "plus.circle.fill")
+                        .font(.system(size: 12))
+                        .foregroundStyle(negative ? Lumen.secondaryText : Lumen.primaryText)
+                        .frame(width: 20, height: 14)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .lumenClickCursor()
+                .help(negative ? "This point takes its area back out of the selection"
+                               : "This point adds its area to the selection")
+            }
+            Spacer(minLength: 0)
+        }
+        .frame(height: Lumen.rowHeight)
     }
 
     private func sampleChips(_ id: String, _ i: Int, _ c: MaskComponent) -> some View {
@@ -872,6 +933,7 @@ struct MaskPanel: View {
         // mask selected had no feedback in it (docs/35 §2.3). It flashes and stands
         // down; `O` is still how you make it stay.
         state.flashMaskOverlay(id)
+        armIfItNeedsAColour(kind: kind, maskID: id, component: 0)
     }
 
     private func addComponent(kind: MaskKind, to id: String) {
@@ -880,7 +942,25 @@ struct MaskPanel: View {
             m.components.append(component)
             if MaskPanel.aiKinds.contains(kind), m.refine == MaskRefine() { m.refine.feather = 10 }
         }
-        selectedComponent = Swift.max((mask(id)?.components.count ?? 1) - 1, 0)
+        let index = Swift.max((mask(id)?.components.count ?? 1) - 1, 0)
+        selectedComponent = index
+        armIfItNeedsAColour(kind: kind, maskID: id, component: index)
+    }
+
+    /// A kind whose whole input is a colour arms the eyedropper the moment it is made.
+    ///
+    /// Choosing "Colour Pick" and then having to find a second control to say WHICH
+    /// colour is a step that exists only because the roster and the sampler are two
+    /// different surfaces. The component is born carrying a placeholder grey so it is
+    /// valid; arming here means the next click on the photograph replaces it, which is
+    /// what the person who chose this kind was about to do anyway.
+    private func armIfItNeedsAColour(kind: MaskKind, maskID: String, component: Int) {
+        switch kind {
+        case .colorRange, .similarity, .similarityLine:
+            state.beginPick(.maskSample(maskID: maskID, component: component))
+        default:
+            break
+        }
     }
 
     /// A swap rather than a remove-and-insert: the move is always by one place, and the
@@ -926,6 +1006,12 @@ struct MaskPanel: View {
             guard list.count > 1 else { return }
             list.removeLast()
             c.samples = list
+            // Points pair with samples BY INDEX, so a sample removed without its point
+            // would leave the next sample wearing the previous one's geometry.
+            if var points = c.points, points.count >= list.count + 1 {
+                points.removeLast()
+                c.points = points.isEmpty ? nil : points
+            }
         }
     }
 
