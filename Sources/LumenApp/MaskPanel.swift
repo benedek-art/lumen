@@ -580,6 +580,19 @@ struct MaskPanel: View {
                 optionalSlider(id, i, "Smoothness", \.smooth, 0...100, 50,
                                behaviour: .smoothness)
             }
+        case .luminosity:
+            VStack(alignment: .leading, spacing: 2) {
+                channelRow(id, i, c)
+                seriesRow(id, i, c)
+                // The generator, and there is only one of it. Lumenzia's whole purpose
+                // is baking fifteen of these into a Photoshop document; here the level
+                // is a slider, so there is nothing to generate and nothing lands in the
+                // mask list that the photographer did not ask for.
+                optionalSlider(id, i, "Level", \.level,
+                               MaskRaster.luminosityMinLevel...MaskRaster.luminosityMaxLevel,
+                               1, step: 0.1, decimals: 1,
+                               behaviour: .luminositySeries(c.series ?? .lights))
+            }
         // Still editable, no longer offerable. Nothing estimates depth and nothing reads
         // embedded depth — `aiMattes` is a literal empty dictionary at both call sites —
         // so the kind left `rangeKinds` and the paragraph apologising for it left with
@@ -730,6 +743,29 @@ struct MaskPanel: View {
                     }
                 }
             }
+        }
+        .frame(height: Lumen.rowHeight)
+    }
+
+    /// Which end of the tone scale. Three segments rather than a menu, because there
+    /// are exactly three and they are the thing the photographer is choosing between —
+    /// a menu would hide two of the three answers behind the one already picked.
+    private func seriesRow(_ id: String, _ i: Int, _ c: MaskComponent) -> some View {
+        let series = c.series ?? .lights
+        return HStack(spacing: 6) {
+            Text("Selects")
+                .font(.lumenBody)
+                .foregroundStyle(Lumen.secondaryText)
+            Spacer(minLength: 8)
+            LumenSegmented(
+                options: LuminositySeries.allCases.map {
+                    (value: $0, label: $0.label)
+                },
+                selection: Binding(get: { series },
+                                   set: { option in
+                                       editComponent(id, i, key: nil) { $0.series = option }
+                                   }))
+                .frame(maxWidth: 190)
         }
         .frame(height: Lumen.rowHeight)
     }
@@ -1870,8 +1906,8 @@ struct MaskPanel: View {
     /// bundled, so all four rasterize to an empty plane. The kinds themselves stay in
     /// `MaskKind` — the wire format carries them and a foreign recipe may hold one —
     /// and their editors still open. What is gone is the offer.
-    static let rangeKinds: [MaskKind] = [.lumaRange, .colorRange, .similarity,
-                                         .similarityLine]
+    static let rangeKinds: [MaskKind] = [.lumaRange, .luminosity, .colorRange,
+                                         .similarity, .similarityLine]
 
     /// Still the full roster: this is what decides whether a new mask gets the
     /// edge-aware snap seeded, which is a question about mattes and not about menus.
@@ -1889,6 +1925,7 @@ struct MaskPanel: View {
         case .linear: return "Linear Gradient"
         case .radial: return "Radial Gradient"
         case .lumaRange: return "Brightness Range"
+        case .luminosity: return "Luminosity"
         case .colorRange: return "Colour Range"
         // "Similarity" is the kernel's word. What the photographer does is pick a
         // colour, or drag a line along one.
@@ -1921,6 +1958,7 @@ struct MaskPanel: View {
         case .linear: return "square.lefthalf.filled"
         case .radial: return "circle.circle"
         case .lumaRange: return "circle.lefthalf.filled"
+        case .luminosity: return "circle.righthalf.filled"
         case .colorRange: return "paintpalette"
         case .similarity: return "eyedropper"
         case .similarityLine: return "eyedropper.halffull"
@@ -1947,6 +1985,7 @@ struct MaskPanel: View {
         case .linear: return "A straight fade across the frame — skies, foregrounds"
         case .radial: return "An oval, faded at its edge — spotlights and vignettes"
         case .lumaRange: return "Everything this bright, wherever it is"
+        case .luminosity: return "The bright end, or the dark end, with no edge at all"
         case .colorRange: return "Everything this colour, wherever it is"
         case .similarity: return "Click a colour; take what looks like it"
         case .similarityLine: return "A fade, but only where the colour matches"
@@ -2020,6 +2059,13 @@ struct MaskPanel: View {
             c.lo = 0
             c.hi = 1
             c.smooth = 50
+        case .luminosity:
+            // Lights 1 is the plain luminance channel: it selects the whole frame,
+            // weighted toward the highlights. A new component that selects SOMETHING is
+            // the difference between a control you drag to explore and a form you fill
+            // in before anything happens.
+            c.series = .lights
+            c.level = 1
         case .colorRange:
             c.samples = [AppState.placeholderSample]
             c.rangeAmount = 50

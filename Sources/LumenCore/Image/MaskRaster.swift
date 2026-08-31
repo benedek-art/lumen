@@ -30,8 +30,12 @@ public enum MaskRaster {
 
     /// Fixed EV axis for the luminance band. Never per-image auto-ranging — EV
     /// denomination exists so the same band means the same thing on every photo.
-    private static let evMin: Double = -10
-    private static let evMax: Double = 4
+    /// The fixed axis every channel-reading selection is denominated on. Internal
+    /// rather than private because the luminosity series' tests assert the rasterizer
+    /// against the closed form, and a test that had to re-derive these two numbers
+    /// would be asserting its own arithmetic rather than the renderer's.
+    static let evMin: Double = -10
+    static let evMax: Double = 4
     private static let evSpan: Double = 14
     /// Luminance-band shoulder half-width at Smoothness 100, in EV (so 50 → 1.0 EV).
     private static let lumaShoulderEV: Double = 2.0
@@ -92,6 +96,8 @@ public enum MaskRaster {
             return brushPlane(component, w, h, source, strokes)
         case .lumaRange:
             return lumaRangePlane(component, w, h, source)
+        case .luminosity:
+            return luminosityPlane(component, w, h, source)
         case .colorRange:
             return colorRangePlane(component, w, h, source)
         case .similarity, .similarityLine:
@@ -589,6 +595,97 @@ public enum MaskRaster {
         }
         return p
     }
+
+    /// Kuyper's luminosity series, evaluated as a continuous function of the channel.
+    ///
+    /// THE FAMILY, written out because this is where it is defined and nowhere else:
+    ///
+    ///     L         = the channel on the same fixed −10…+4 EV axis Brightness Range
+    ///                 uses, saturated to 0…1
+    ///     Lights n  = L^n
+    ///     Darks n   = (1 − L)^n
+    ///     Midtones n = 1 − L^(n+1) − (1 − L)^(n+1),  renormalized to peak at 1
+    ///
+    /// Every one of them is smooth in L with no boundary anywhere, at any level, which
+    /// is the property the tradition calls SELF-FEATHERING and the reason the family is
+    /// worth having rather than a band with soft shoulders. A band has a plateau and two
+    /// edges; feathering it moves the edges. There is nothing here to move.
+    ///
+    /// TWO DELIBERATE DEPARTURES from the Photoshop original, both of which make it a
+    /// better control rather than a different one:
+    ///
+    ///   `n` is CONTINUOUS. Photoshop's series is five pre-baked channels because
+    ///   channel arithmetic can only intersect a mask with itself a whole number of
+    ///   times. `pow` has no such limit, and a level of 2.4 is exactly as self-feathering
+    ///   as a level of 2. So the "series generator" that Lumenzia exists to be is one
+    ///   slider here, and the mask list stays the length the photographer made it.
+    ///
+    ///   Midtones are RENORMALIZED. The raw formula peaks at `1 − 2^-n` — 0.5 at level
+    ///   1 — so a Photoshop midtone mask at full opacity performs half an edit, and
+    ///   everyone who uses them knows to compensate. Lumen already has one control that
+    ///   means "less of this", and it is called Amount. A second, invisible, level-
+    ///   dependent one hiding inside the selection would make Amount a lie. The shape is
+    ///   unchanged; only the scale is, and `testMidtonesPeakAtOneSoAmountMeansWhatItSays`
+    ///   is the reason it may not drift back.
+    static func luminosityPlane(_ c: MaskComponent, _ w: Int, _ h: Int,
+                                _ source: ImageBuffer?) -> Plane {
+        var p = Plane(width: w, height: h)
+        guard let src = source else { return p }
+        let series = c.series ?? .lights
+        let raw = c.level ?? 1
+        let n = raw.isFinite
+            ? Num.clamp(raw, luminosityMinLevel, luminosityMaxLevel)
+            : luminosityMinLevel
+        let weights = RGBColorSpace.rec2020.luminanceWeights
+        let channel = c.channel ?? .luma
+        // Level 1 midtones peak at 0.5; level 5 at 0.969. Computed once rather than per
+        // pixel, and guarded because `n` can be small enough that the peak is tiny.
+        let midtonePeak = Swift.max(1 - pow(2, -n), 1e-6)
+
+        for y in 0..<h {
+            for x in 0..<w {
+                let rgb = srcColor(src, x, y, w, h)
+                let measured = channel.value(rgb, weights: weights)
+                let ev = Num.safeLog2(measured.isFinite ? measured : 0, floorEV: -16)
+                let l = Num.saturate((ev - evMin) / (evMax - evMin))
+                p[x, y] = Num.saturate(luminosityValue(l, series: series, level: n,
+                                                       midtonePeak: midtonePeak))
+            }
+        }
+        return p
+    }
+
+    /// The family's arithmetic, on one already-normalized luminance. Separated from the
+    /// loop above so a test can state the curve directly rather than through a fixture
+    /// picture, and so the panel's own preview curve cannot drift from what renders.
+    public static func luminosityValue(_ l: Double, series: LuminositySeries,
+                                       level: Double, midtonePeak: Double? = nil)
+        -> Double {
+        // `Num.clamp` compares, and every comparison against NaN is false, so a
+        // poisoned level would pass straight through into `pow` and poison the plane.
+        // Level 1 is the plain channel — the honest answer to "this number is not a
+        // number" is the one that still selects something sensible.
+        let n = level.isFinite
+            ? Num.clamp(level, luminosityMinLevel, luminosityMaxLevel)
+            : luminosityMinLevel
+        let x = l.isFinite ? Num.saturate(l) : 0
+        switch series {
+        case .lights:
+            return pow(x, n)
+        case .darks:
+            return pow(1 - x, n)
+        case .midtones:
+            let peak = midtonePeak ?? Swift.max(1 - pow(2, -n), 1e-6)
+            let raw = 1 - pow(x, n + 1) - pow(1 - x, n + 1)
+            return Num.saturate(raw / peak)
+        }
+    }
+
+    /// Level 1 is the plain channel; below it the family stops being a series. Five is
+    /// where Photoshop's stops and where `L^n` has narrowed to the top ~1.5 EV, past
+    /// which the selection is too small to place by eye.
+    public static let luminosityMinLevel: Double = 1
+    public static let luminosityMaxLevel: Double = 5
 
     /// docs/08 §8.2: similarity in OKLab hue/chroma/lightness with a trapezoid falloff
     /// per axis; multiple samples union before falloff. Per-axis tolerance fields are

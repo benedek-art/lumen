@@ -131,6 +131,38 @@ public enum MaskBlend: String, Codable, Sendable, CaseIterable {
     }
 }
 
+/// Which end of the tone scale a luminosity component selects (docs/36 §3, bet 2).
+///
+/// Tony Kuyper's series, the thing Photoshop users buy Lumenzia to generate: a set of
+/// SELF-FEATHERING selections that are smooth functions of the luminance channel rather
+/// than bands with edges. Lights n is `L^n`, Darks n is `(1−L)^n`, and each higher level
+/// is the previous one intersected with the first — which is why the family tightens
+/// toward its end of the scale without ever acquiring a boundary. No raw editor ships
+/// this natively.
+public enum LuminositySeries: String, Codable, Sendable, CaseIterable {
+    case lights
+    case darks
+    case midtones
+
+    public var label: String {
+        switch self {
+        case .lights: return "Lights"
+        case .darks: return "Darks"
+        case .midtones: return "Midtones"
+        }
+    }
+
+    /// One line, for the picker tile. Not a tooltip and not a paragraph: the roster is
+    /// chosen by recognition, and these three need the one word that distinguishes them.
+    public var explanation: String {
+        switch self {
+        case .lights: return "The bright end, weighted — brighter pixels selected more"
+        case .darks: return "The dark end, weighted — darker pixels selected more"
+        case .midtones: return "Everything that is neither, peaking at middle grey"
+        }
+    }
+}
+
 public enum MaskKind: String, Codable, Sendable {
     case brush
     case linear
@@ -154,6 +186,14 @@ public enum MaskKind: String, Codable, Sendable {
     /// Masks merges sources into one layer rather than referencing one. Neither gives
     /// you a live reference — change the Sky mask and the intersection follows.
     case maskRef
+    /// A self-feathering luminosity selection — Kuyper's series (docs/36 §3, bet 2).
+    ///
+    /// It is deliberately NOT a band. A band is a plateau with two shoulders and it
+    /// cannot express `L^n`, which is the whole point of the family: there is no
+    /// boundary anywhere in it to feather, at any level. It reads the same six channels
+    /// and the same fixed −10…+4 EV axis Brightness Range reads, so the two agree about
+    /// what "bright" means.
+    case luminosity
 
     /// True when rasterizing this kind needs the picture, not just geometry.
     ///
@@ -166,7 +206,7 @@ public enum MaskKind: String, Codable, Sendable {
         switch self {
         case .brush, .linear, .radial:
             return false
-        case .lumaRange, .colorRange, .similarity, .similarityLine:
+        case .lumaRange, .colorRange, .similarity, .similarityLine, .luminosity:
             return true
         case .aiSubject, .aiSky, .aiBackground, .aiObject, .aiPerson, .aiLandscape,
              .depthRange:
@@ -201,7 +241,7 @@ public enum MaskKind: String, Codable, Sendable {
     public var matteProvider: MatteProvider {
         switch self {
         case .brush, .linear, .radial, .lumaRange, .colorRange, .similarity,
-             .similarityLine, .maskRef:
+             .similarityLine, .maskRef, .luminosity:
             // A reference needs no matte of its OWN. Whether it ends up needing one is a
             // property of the mask it names, and `VisionMattes.kinds(in:)` walks the
             // whole recipe, so that question is already answered where it belongs.
@@ -322,6 +362,16 @@ public struct MaskComponent: Codable, Equatable, Sendable {
     /// `maskRef`: the id of the mask this component folds in.
     public var maskRef: String?
 
+    // luminosity series
+    /// Which end of the tone scale. Absent means `.lights`.
+    public var series: LuminositySeries?
+    /// How far down the series, 1…5 — and CONTINUOUS rather than the five discrete
+    /// steps Photoshop's channel arithmetic forces, because `L^2.5` is perfectly well
+    /// defined and just as self-feathering. Dragging it is the generator: no five
+    /// pre-baked channels, no panel to buy, nothing in the mask list you did not ask
+    /// for. Absent means 1, which is the plain luminance channel.
+    public var level: Double?
+
     public init(op: MaskOp, kind: MaskKind, amount: Double = 100, invert: Bool = false) {
         self.op = op
         self.kind = kind
@@ -359,6 +409,12 @@ public struct MaskComponent: Codable, Equatable, Sendable {
             guard let maskRef, !maskRef.isEmpty else {
                 return "this component needs a mask to point at"
             }
+        case .luminosity:
+            // Both fields default rather than fail: `series` absent is Lights and
+            // `level` absent is 1, which is the plain luminance channel and a
+            // perfectly good selection. A kind whose default state selects something
+            // does not need the photographer to fill a form in before it works.
+            break
         case .aiSubject, .aiSky, .aiBackground, .aiPerson, .aiLandscape:
             break // one-click kinds; model id recorded at generation time
         }
@@ -368,7 +424,8 @@ public struct MaskComponent: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case op, kind, amount, invert, strokesRef, line, center, radii, rotation,
              feather, lo, hi, smooth, channel, samples, points, rangeAmount, chromaSel, lumaSel,
-             model, prompt, personParts, classes, depthLo, depthHi, maskRef
+             model, prompt, personParts, classes, depthLo, depthHi, maskRef,
+             series, level
     }
 
     /// Tolerant of an absent key, including the two that say what the component IS.
@@ -406,6 +463,8 @@ public struct MaskComponent: Codable, Equatable, Sendable {
         self.depthLo = try c.decodeIfPresent(Double.self, forKey: .depthLo)
         self.depthHi = try c.decodeIfPresent(Double.self, forKey: .depthHi)
         self.maskRef = try c.decodeIfPresent(String.self, forKey: .maskRef)
+        self.series = try c.decodeIfPresent(LuminositySeries.self, forKey: .series)
+        self.level = try c.decodeIfPresent(Double.self, forKey: .level)
     }
 }
 

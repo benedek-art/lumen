@@ -49,6 +49,13 @@ enum BehaviourShape {
     case expandContract
     /// A range band's shoulders opening.
     case smoothness
+    /// The luminosity series' own curve — the strongest case the whole component makes
+    /// for itself. Lights, Darks and Midtones are three different SHAPES over the tone
+    /// scale, the level bends each one, and the glyph is literally the mask's transfer
+    /// function rather than an illustration of it: `draw` calls the same
+    /// `MaskRaster.luminosityValue` the rasterizer calls. The picture and the pixels
+    /// cannot drift apart, because they are one function.
+    case luminositySeries(LuminositySeries)
 }
 
 /// A 44×14 live drawing of what one parameter does.
@@ -174,6 +181,16 @@ struct LumenBehaviourGlyph: View {
                 let x = CGFloat(t)
                 return Double(Swift.min(smoothstep(0.30 - s, 0.30 + s, x),
                                         1 - smoothstep(0.70 - s, 0.70 + s, x)))
+            }
+
+        case .luminositySeries(let series):
+            // `value` is the level normalized over 1…5, which is what the slider hands
+            // every glyph; the curve wants the level itself.
+            let level = MaskRaster.luminosityMinLevel
+                + Num.saturate(v)
+                    * (MaskRaster.luminosityMaxLevel - MaskRaster.luminosityMinLevel)
+            filled(&context, w: w, floor: floor, travel: travel) { t in
+                MaskRaster.luminosityValue(t, series: series, level: level)
             }
         }
     }
