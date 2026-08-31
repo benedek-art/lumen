@@ -117,7 +117,7 @@ struct MaskPanel: View {
     /// its own question beside its name, once.
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            zone("What", asks: "what is selected") {
+            zone("What") {
                 maskListSection
                 if let mask = activeMask {
                     componentSection(mask)
@@ -126,7 +126,16 @@ struct MaskPanel: View {
                 }
             }
             if let mask = activeMask {
-                zone("Edge", asks: "how it is shaped") { refineSection(mask) }
+                // The zone OWNS the disclosure and the Reset now. `refineSection` used
+                // to draw its own `LumenSectionHeader(title: "Edge")` as the first row
+                // inside a zone already titled "Edge" — the same word twice, twenty
+                // points apart, the outer one smaller and fainter than the inner one.
+                zone("Edge",
+                     isExpanded: $refineExpanded,
+                     isModified: mask.refine != MaskRefine(),
+                     onReset: { editMask(mask.id, key: nil) { $0.refine = MaskRefine() } }) {
+                    refineSection(mask)
+                }
                     // AND THE OVERLAY COMES OUT WHILE AN EDGE IS DRAGGED — the exact
                     // complement of the rule on the zone below, and the two are a pair.
                     // An Effect slider moves the picture and the overlay covers up what
@@ -138,7 +147,7 @@ struct MaskPanel: View {
                         state.sliderGestureSink(active)
                         state.setMaskEdgeGesture(active, mask: mask.id)
                     }
-                zone("Effect", asks: "what it does") { effectZone(mask) }
+                zone("Effect") { effectZone(mask) }
                     // THE OVERLAY GETS OUT OF THE WAY while an adjustment is dragged.
                     // It is a red wash over the exact pixels being judged, which is the
                     // one moment it obstructs rather than informs — Lightroom's rule,
@@ -158,28 +167,58 @@ struct MaskPanel: View {
         }
     }
 
-    /// One zone: a surface, a name, and the question it answers.
+    /// One zone: a name, and the rows under it. NO SURFACE — and the missing surface is
+    /// the fix rather than an omission.
     ///
-    /// `lumenSurface` rather than a hairline, for the reason docs/30 §2.1 measured — the
-    /// grey ladder alone spans 1.873:1 end to end and cannot delineate anything, so
-    /// depth has to come from a lit edge.
-    private func zone<Content: View>(_ name: String, asks: String,
+    /// It used to draw `.lumenSurface(… fill: Lumen.panel)`. Its parent, `MaskEditor`,
+    /// draws `.lumenSurface(… fill: Lumen.panel)`. Identical fill, identical `.flush`
+    /// elevation, so the card's entire visual output was a 1 px 5.5%-white hairline
+    /// against a background of exactly its own value — about 1.05:1, where
+    /// `LumenSurface`'s own header puts the eye's floor at 1.135:1. Four zones spent
+    /// 72 pt of track budget and ~140 pt of scroll on a boundary nobody could see, and
+    /// what the owner actually read was the indentation: "a box inside of a box inside
+    /// of a box inside of a box." The boxes were real and the innermost ones were blank.
+    ///
+    /// So the zone delineates the way the accordion above it already learned to — by
+    /// heading and space, on the one card that does have an edge.
+    ///
+    /// `LumenSectionHeader` rather than a hand-built caps label, for two reasons. It is
+    /// 12 pt `primaryText` where the old label was 10 pt `secondaryText`, which reverses
+    /// a hierarchy that had every zone heading SMALLER and FAINTER than the section
+    /// headings nested inside it — eight times over, so the eye could not build an
+    /// outline and the panel read as a flat run of headings. And it carries
+    /// `isExpanded` / `isModified` / `onReset`, so a zone that owns exactly one section
+    /// (Edge) stops printing its name twice, twenty points apart, in two different sizes.
+    ///
+    /// `topRhythm: 0` because the card's own padding is already the boundary — the same
+    /// value `WorkspaceSectionView` passes for the same reason.
+    private func zone<Content: View>(_ name: String,
+                                     asks: String? = nil,
+                                     isExpanded: Binding<Bool>? = nil,
+                                     isModified: Bool = false,
+                                     onReset: (() -> Void)? = nil,
                                      @ViewBuilder _ content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 8) {
-                LumenCapsLabel(text: name, size: 10, color: Lumen.secondaryText)
-                Spacer(minLength: 0)
+            LumenSectionHeader(title: name, isExpanded: isExpanded,
+                               isModified: isModified, onReset: onReset,
+                               topRhythm: 0)
+            // ONE caption survives, and only because it is the only one that was ever
+            // saying anything. "What — what is selected", "Edge — how it is shaped" and
+            // "Effect — what it does" restated the word beside them; the third is a
+            // tautology. Three permanent grey phrases that teach nothing train the eye
+            // to skip the class, and the class contains "for the next stroke", which is
+            // the only thing on screen saying the brush settings apply to the stroke you
+            // are ABOUT to make rather than the ones already painted.
+            if let asks {
                 Text(asks)
                     .font(.lumenCaption)
                     .foregroundStyle(Lumen.tertiaryText)
+                    .padding(.bottom, 2)
             }
-            .padding(.bottom, 2)
             content()
         }
-        .padding(.horizontal, 9)
-        .padding(.top, 8)
-        .padding(.bottom, 10)
-        .lumenSurface(radius: Lumen.radiusControl, elevation: .flush, fill: Lumen.panel)
+        .padding(.top, 2)
+        .padding(.bottom, 6)
     }
 
     /// Whether this mask has anything the brush parameters would apply to.
@@ -207,7 +246,10 @@ struct MaskPanel: View {
             LumenSlider(title: "Strength",
                         value: maskValue(mask.id, "amount", get: { $0.amount },
                                          set: { $0.amount = Num.clamp($1, 0, 200) }),
-                        range: 0...200, defaultValue: 100, step: 1, decimals: 0)
+                        range: 0...200, defaultValue: 100, step: 1, decimals: 0,
+                        help: "How far every adjustment below is pushed, all together. "
+                            + "Past 100 it exaggerates them. It does not change what is "
+                            + "selected — Contribution, up in the stack, does that.")
             blendRow(mask)
             adjustSections(mask)
         }
@@ -764,13 +806,25 @@ struct MaskPanel: View {
     private func componentRow(_ mask: Mask, _ index: Int) -> some View {
         let component = mask.components[index]
         let isSelected = index == activeComponentIndex
+        // THE NAME FIRST, and the operation as a badge behind it rather than a symbol
+        // in front of it. `∪` in a 12 pt box, five points from the word, in the same
+        // grey, fused with it: the owner read the row as one word, "Ubrush", and asked
+        // what it was. A badge cannot fuse — it carries its own fill and its own edge.
+        //
+        // A leading Add draws nothing at all. Every stack starts by selecting
+        // something, so the first `∪` was pure ceremony; what a photographer needs to
+        // see at a glance is the row that SUBTRACTS.
+        //
+        // `.lumenBody` rather than `.system(size: 11)`: 11 pt appeared nowhere else in
+        // the panel — one point off the caption above it and the labels below it, which
+        // is the jitter `LumenType` was written to end.
         return HStack(spacing: 5) {
-            Text(MaskPanel.opGlyph(component.op))
-                .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                .foregroundStyle(Lumen.secondaryText).frame(width: 12)
-            Text(MaskPanel.kindName(component.kind)).font(.system(size: 11)).lineLimit(1)
+            Text(MaskPanel.kindName(component.kind)).font(.lumenBody).lineLimit(1)
                 .foregroundStyle(isSelected ? Lumen.primaryText : Lumen.secondaryText)
-            if component.invert { LumenBadge(text: "INV") }
+            if index > 0 || component.op != .add {
+                LumenBadge(text: MaskPanel.opName(component.op))
+            }
+            if component.invert { LumenBadge(text: "Inverted") }
             Spacer(minLength: 0)
             if component.validationError() != nil {
                 LumenBadge(text: "INCOMPLETE", emphasized: true)
@@ -819,7 +873,10 @@ struct MaskPanel: View {
                                                $0.amount = Num.clamp(v, 0, 100)
                                            }
                                        }),
-                        range: 0...100, defaultValue: 100, step: 1, decimals: 0, bipolar: false)
+                        range: 0...100, defaultValue: 100, step: 1, decimals: 0, bipolar: false,
+                        help: "How much of THIS piece counts toward the selection, "
+                            + "before it folds into the ones above it. Strength, down "
+                            + "in Effect, scales the adjustment instead.")
             componentParameters(id, i, c)
             if let problem = c.validationError(), !MaskPanel.saysItsOwnProblem(c.kind) {
                 // A component that renders nothing must say so unprompted — unless its
@@ -835,7 +892,13 @@ struct MaskPanel: View {
     private func componentParameters(_ id: String, _ i: Int, _ c: MaskComponent) -> some View {
         switch c.kind {
         case .brush:
-            brushParameters()
+            // NOTHING, and that is the fix. `body` already draws the brush settings as
+            // their own zone (`usesBrush`), and `usesBrush` is true exactly when this
+            // case is reached — so these seven controls were on screen TWICE, about
+            // 1400 points apart, bound to the same `MaskBrushStore` and moving
+            // together. The zone is the right home: they are the settings the NEXT
+            // stroke records, not this component's, and only the zone's caption says so.
+            EmptyView()
         case .linear:
             // Live: `lineSummary` is the gradient's current geometry, so this is a
             // readout wearing an instruction, not teaching.
@@ -966,22 +1029,38 @@ struct MaskPanel: View {
                         defaultValue: BrushStroke.defaultSize, step: 0.002, decimals: 3,
                         bipolar: false,
                         behaviour: .size,
-                        behaviourValue: (brush.size - 0.002) / 0.498)
+                        behaviourValue: (brush.size - 0.002) / 0.498,
+                        help: "How wide the brush is, as a fraction of the long edge — "
+                            + "so it keeps its width at export size. [ and ] on the "
+                            + "photograph, where the cursor ring already shows it.")
             LumenSlider(title: "Feather", value: brushValue(\.feather), range: 0...100,
                         defaultValue: 50, step: 1, decimals: 0, bipolar: false,
-                        behaviour: .stampFalloff, behaviourValue: brush.feather / 100)
+                        behaviour: .stampFalloff, behaviourValue: brush.feather / 100,
+                        help: "How soft the brush's own edge is. At 0 the stamp has a "
+                            + "hard rim; at 100 it fades from the centre out. ⇧[ and ⇧] "
+                            + "on the photograph — it is the cursor's inner ring.")
             LumenSlider(title: "Flow", value: brushValue(\.flow), range: 1...100,
                         defaultValue: 100, step: 1, decimals: 0, bipolar: false,
-                        behaviour: .flow, behaviourValue: brush.flow / 100)
+                        behaviour: .flow, behaviourValue: brush.flow / 100,
+                        help: "How much each pass lays down. Low Flow builds the "
+                            + "selection up gradually, so you can paint over the same "
+                            + "place twice to deepen it. The digit keys set it.")
             LumenSlider(title: "Max strength", value: brushValue(\.density), range: 0...100,
                         defaultValue: 100, step: 1, decimals: 0, bipolar: false,
-                        behaviour: .densityCeiling, behaviourValue: brush.density / 100)
+                        behaviour: .densityCeiling, behaviourValue: brush.density / 100,
+                        help: "The ceiling repeated passes build toward. At 60 the "
+                            + "brush can never select more than 60% however long you "
+                            + "paint — Flow is the rate, this is the limit.")
             // Last of the five, because it is the only one that changes how the tool
             // FOLLOWS rather than what it lays down — and the only one a photographer
             // sets once and forgets.
             LumenSlider(title: "Steadiness", value: brushValue(\.stabilize),
                         range: 0...100, defaultValue: 0, step: 1, decimals: 0,
-                        bipolar: false)
+                        bipolar: false,
+                        help: "Pulls the brush along behind the pointer on a short "
+                            + "rope, so a slow hand draws a smooth line. It never "
+                            + "leaves the path you drew, and the stroke ends where you "
+                            + "let go.")
             LumenToggleRow(title: "Eraser", isOn: brushFlag(\.erase),
                            help: "Erase strokes fold into the same buffer in draw order")
             LumenToggleRow(title: "Stay inside edges", isOn: brushFlag(\.automask),
@@ -1236,12 +1315,12 @@ struct MaskPanel: View {
     // MARK: - Refinement chain
 
     private func refineSection(_ mask: Mask) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            // "Edge", not "Refine": the section name used to be the same word as the
-            // first slider inside it AND as a Colour Range control further up.
-            LumenSectionHeader(title: "Edge", isExpanded: $refineExpanded,
-                               isModified: mask.refine != MaskRefine(),
-                               onReset: { editMask(mask.id, key: nil) { $0.refine = MaskRefine() } })
+        // NO HEADER OF ITS OWN. The zone above prints "Edge" and carries the chevron,
+        // the modified dot and the Reset — this drew all four a second time, one row
+        // below, at a smaller size. "Edge", not "Refine", is still the right word and
+        // the reason still holds: the old name was the same word as the first slider
+        // inside it AND as a Colour Range control further up.
+        Group {
             if refineExpanded {
                 VStack(alignment: .leading, spacing: 2) {
                     // Drawn in the order the engine runs them — an edge-aware snap
@@ -1258,16 +1337,31 @@ struct MaskPanel: View {
                     // broken, which is the failure this rebuild exists to remove
                     // (docs/36 §1.3).
                     refineSlider(mask.id, "Follow edges", \.feather, 0...100, 0,
+                                 help: "Bends the selection toward edges it can find in "
+                                     + "the photograph itself. Does nothing where there "
+                                     + "is no edge under the boundary.",
                                  behaviour: .followEdges,
                                  behaviourValue: mask.refine.feather / 100)
-                    refineSlider(mask.id, "Expand / Contract", \.edge, -50...50, 0,
+                    // "Expand", not "Expand / Contract". Seventeen characters could not
+                    // fit the label column at any panel width, and a name that arrives
+                    // as "Expa…" has told you less than no name at all. The track is
+                    // bipolar with a centre detent and the glyph draws both directions,
+                    // so the negative half needs no second word in the label — it needs
+                    // the sentence underneath, which is what the tooltip is for.
+                    refineSlider(mask.id, "Expand", \.edge, -50...50, 0,
                                  bipolar: true,
+                                 help: "Moves the boundary outward, or inward below "
+                                     + "zero. About one percent of the long edge at "
+                                     + "either end.",
                                  behaviour: .expandContract,
                                  behaviourValue: mask.refine.edge / 50)
                     // "Soften edge", not "Feather": this is a Gaussian blur of the
                     // FINISHED alpha, and the brush's Feather is the hardness of one
                     // stamp. Two controls, nine rows apart, that were the same word.
                     refineSlider(mask.id, "Soften edge", \.blur, 0...100, 0,
+                                 help: "Blurs the finished selection, so the adjustment "
+                                     + "fades in across a wider band. Not the brush's "
+                                     + "Feather, which is the hardness of one stamp.",
                                  behaviour: .softenEdge,
                                  behaviourValue: mask.refine.blur / 100)
                     // The density ramp. "Curve" was its old name and it sat directly
@@ -1276,7 +1370,10 @@ struct MaskPanel: View {
                     levelsSlider(mask.id, "Ramp from", low: true)
                     levelsSlider(mask.id, "Ramp to", low: false)
                     refineSlider(mask.id, "Ramp shape", \.levelsGamma, 0.2...5, 1,
-                                 step: 0.05, decimals: 2, bipolar: true)
+                                 step: 0.05, decimals: 2, bipolar: true,
+                                 help: "Bends the fade between Ramp from and Ramp to. "
+                                     + "Below 1 the selection comes up early and eases "
+                                     + "in; above 1 it holds back and arrives late.")
                 }
             }
         }
@@ -1828,6 +1925,7 @@ struct MaskPanel: View {
     private func refineSlider(_ id: String, _ t: String, _ p: WritableKeyPath<MaskRefine, Double>,
                               _ r: ClosedRange<Double>, _ d: Double, step: Double = 1,
                               decimals: Int = 0, bipolar: Bool = false,
+                              help: String? = nil,
                               behaviour: BehaviourShape? = nil,
                               behaviourValue: Double = 0) -> some View {
         LumenSlider(title: t,
@@ -1836,7 +1934,8 @@ struct MaskPanel: View {
                                          Num.clamp($1, r.lowerBound, r.upperBound) }),
                     range: r, defaultValue: d, step: step, decimals: decimals,
                     bipolar: bipolar,
-                    behaviour: behaviour, behaviourValue: behaviourValue)
+                    behaviour: behaviour, behaviourValue: behaviourValue,
+                    help: help)
     }
 
     private func levelsSlider(_ id: String, _ t: String, low: Bool) -> some View {
@@ -1849,7 +1948,12 @@ struct MaskPanel: View {
                                          else { m.refine.levelsHi = Swift.max(c, m.refine.levelsLo) }
                                      }),
                     range: 0...100, defaultValue: low ? 0 : 100, step: 1, decimals: 0,
-                    bipolar: false)
+                    bipolar: false,
+                    help: low
+                        ? "Where the selection starts counting. Raise it and the "
+                            + "faintest part of the mask drops out entirely."
+                        : "Where the selection counts as full. Lower it and the "
+                            + "middle of the mask reaches full strength sooner.")
     }
 
     // MARK: - White balance, in either of its two units
@@ -2365,19 +2469,46 @@ struct MaskPanel: View {
         return mask.components.count == 1 ? base : "\(base) +\(mask.components.count - 1)"
     }
 
-    /// The stack, as one line under the name: `∪ Sky  ∖ Brush`.
+    /// The stack, as one line under the name: `Sky, minus Brush`.
+    ///
+    /// It used to read `∪ Sky  ∖ Brush`, and the owner reported the result: "I don't
+    /// know what Ubrush is." He was reading the screen correctly. U+222A at 10 pt is a
+    /// capital U with no crossbar and no serifs, set in the same grey as the word a few
+    /// points to its right, so the eye bound them into one token — and in the row's
+    /// subtitle, at `.lumenCaption`, `∪ Brush` read as "a Brush".
+    ///
+    /// Set-theory notation was never the right register for a panel whose whole job is
+    /// to be legible at a glance, and it was REDUNDANT besides: the same three values
+    /// are spelled Add / Subtract / Intersect in a segmented control two rows below.
+    /// Words, and the leading Add is dropped — a stack starts by selecting something,
+    /// so "∪ Sky" only ever meant "Sky".
     static func stackSummary(_ mask: Mask) -> String {
         guard !mask.components.isEmpty else { return "nothing selected yet" }
-        return mask.components
-            .map { "\(opGlyph($0.op)) \(kindName($0.kind))\($0.invert ? " inv" : "")" }
-            .joined(separator: "  ")
+        return mask.components.enumerated()
+            .map { index, c in
+                let name = kindName(c.kind) + (c.invert ? " inverted" : "")
+                guard index > 0 || c.op != .add else { return name }
+                return "\(opPhrase(c.op)) \(name)"
+            }
+            .joined(separator: " ")
     }
 
-    static func opGlyph(_ op: MaskOp) -> String {
+    /// How one component joins the one before it, in words a photographer reads rather
+    /// than operators a mathematician does.
+    static func opPhrase(_ op: MaskOp) -> String {
         switch op {
-        case .add: return "∪"
-        case .subtract: return "∖"
-        case .intersect: return "∩"
+        case .add: return "plus"
+        case .subtract: return "minus"
+        case .intersect: return "inside"
+        }
+    }
+
+    /// The same three, capitalised, for a badge that stands alone on a row.
+    static func opName(_ op: MaskOp) -> String {
+        switch op {
+        case .add: return "Add"
+        case .subtract: return "Subtract"
+        case .intersect: return "Intersect"
         }
     }
 

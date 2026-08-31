@@ -54,11 +54,53 @@ final class MaskFilterTests: XCTestCase {
     }
 
     func testItFindsAMaskByWhatIsInItsStack() {
-        // The summary line under the name — `∪ Brush ∖ Linear Gradient` — is on screen,
-        // so it is searchable. "Which one had the brush in it" is a real question.
+        // The summary line under the name — `Linear Gradient plus Brush` — is on
+        // screen, so it is searchable. "Which one had the brush in it" is a real
+        // question.
         let stacked = mask("Ridge", [.linear, .brush])
         XCTAssertTrue(matches(stacked, "brush"))
         XCTAssertTrue(matches(stacked, "ridge"))
+    }
+
+    /// The owner read the component row as one word and asked what "Ubrush" was.
+    ///
+    /// It was `∪ Brush` — U+222A, the set-union operator, in a monospaced face at 11pt,
+    /// five points from a word set in the same grey. At that size ∪ is a capital U with
+    /// no crossbar and no serifs, so the eye bound the two runs together; in the row's
+    /// caption-sized subtitle it read as "a Brush" instead.
+    ///
+    /// This asserts the register rather than the exact wording: no set-theory operator
+    /// may appear in a string a photographer reads. Rewording the phrases is free;
+    /// putting an operator back is not.
+    func testTheStackSummaryUsesWordsAndNotSetTheory() {
+        let stacked = mask("Ridge", [.linear, .brush])
+        let line = MaskPanel.stackSummary(stacked)
+        for operatorGlyph in ["∪", "∖", "∩", "\\"] {
+            XCTAssertFalse(line.contains(operatorGlyph),
+                           "the summary still prints \(operatorGlyph): \(line)")
+        }
+        XCTAssertTrue(line.contains("Brush"), line)
+        XCTAssertTrue(line.contains("Linear Gradient"), line)
+    }
+
+    /// A stack begins by selecting something, so the leading Add was always ceremony.
+    ///
+    /// What a photographer needs to pick out of a three-row stack is the row that
+    /// SUBTRACTS. Marking every row equally is the same as marking none.
+    func testALeadingAddIsNotAnnounced() {
+        let single = mask("Sky", [.linear])
+        XCTAssertEqual(MaskPanel.stackSummary(single), "Linear Gradient")
+        XCTAssertFalse(MaskPanel.stackSummary(single).lowercased().contains("plus"))
+    }
+
+    /// Every operation still has to be sayable, or the badge on a subtracting row has
+    /// nothing to print.
+    func testEveryOperationHasAWordInBothRegisters() {
+        for op in [MaskOp.add, .subtract, .intersect] {
+            XCTAssertFalse(MaskPanel.opName(op).isEmpty)
+            XCTAssertFalse(MaskPanel.opPhrase(op).isEmpty)
+            XCTAssertEqual(MaskPanel.opName(op).first?.isUppercase, true)
+        }
     }
 
     func testItFindsEveryMaskInAFolderByTheFoldersName() {

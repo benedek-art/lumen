@@ -10,7 +10,7 @@
 // been designed yet.
 //
 // So this draws the parameter instead. Every slider whose meaning IS a shape gets a
-// 44×14 picture of that shape in its own label row, live, as the value changes. Four
+// small picture of that shape in its own label row, live, as the value changes. Four
 // properties make it worth building rather than decorative (docs/35 §4.5):
 //
 //   1. It is not text, so it costs no words and obeys the silence rule.
@@ -62,24 +62,40 @@ enum BehaviourShape: Equatable {
     case luminositySeries(LuminositySeries)
 }
 
-/// A 44×14 live drawing of what one parameter does.
+/// A live drawing of what one parameter does, 26×14 inside a slider row.
 ///
 /// `value` is normalized 0…1 for every shape but `expandContract`, which is signed
 /// −1…1 because its two directions are different behaviours rather than more and less
 /// of one.
+///
+/// **It was 44 wide, and 44 was more than half the label column it was drawn inside.**
+/// `LumenSlider` paid for the picture out of `Lumen.labelWidth` — 86 − 44 − 4 left 38
+/// points for the name, about six characters — so the four controls that carry a glyph
+/// were the four whose names ellipsized: "Follo…", "Expa…", "Softe…", "Max s…". The
+/// column had been MEASURED at 86 to fit every name in the app; the glyph broke that
+/// measurement in the same round that added it, and it did so at every panel width,
+/// because the text columns are fixed and only the track grows.
+///
+/// A picture explaining a control must not eat the control's name. 26 still reads as a
+/// ramp, a falloff or a pair of squares at arm's length, and it leaves 56 points — over
+/// eleven characters at the shrink floor — which fits every label that exists.
 struct LumenBehaviourGlyph: View {
 
     let shape: BehaviourShape
     let value: Double
+    /// Overridable so a future standalone use is not forced to the in-row size; every
+    /// call site today takes the default.
+    var width: CGFloat = LumenBehaviourGlyph.inRowWidth
 
-    static let width: CGFloat = 44
+    /// What a glyph costs inside a slider's label column.
+    static let inRowWidth: CGFloat = 26
     static let height: CGFloat = 14
 
     var body: some View {
         Canvas { context, size in
             draw(&context, size)
         }
-        .frame(width: Self.width, height: Self.height)
+        .frame(width: width, height: Self.height)
         // A well, not a card: it is a readout of a value, and every other readout of a
         // value in this application is carved down rather than raised up.
         .lumenWell(radius: 3)
@@ -119,7 +135,11 @@ struct LumenBehaviourGlyph: View {
             // passes.
             let f = shape == .flow ? Num.saturate(v) : 0.55
             let cap = shape == .flow ? 1 : Num.saturate(v)
-            let pad: CGFloat = 4
+            // Proportional, not fixed. At the old 44 pt width a flat 4 pt gutter left
+            // 9 pt bars; at the in-row 26 it would have left 3.3, which reads as three
+            // hairlines rather than three passes. The gutter now scales with the box so
+            // the bars stay the subject at any width the glyph is asked to draw at.
+            let pad = Swift.max(2, w * 0.09)
             let bw = (w - pad * 4) / 3
             for n in 1...3 {
                 let accumulated = Swift.min(cap, 1 - pow(1 - f, Double(n)))

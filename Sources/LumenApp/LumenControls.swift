@@ -451,22 +451,31 @@ struct LumenSlider: View {
             // The caption under the wheels has been promising that "the bar under each
             // wheel is the zone's own lightness" over a bar too narrow to read. Double
             // click still resets it — the track's own gesture does that.
-            if let behaviour {
-                LumenBehaviourGlyph(shape: behaviour, value: behaviourValue)
-            }
             if !title.isEmpty {
-                Text(title)
-                    .font(.lumenBody)
-                    .foregroundStyle(isModified ? Lumen.primaryText : Lumen.secondaryText)
-                    // The glyph is drawn IN the label column's budget, not beside it:
-                    // the track is already the narrowest instrument in the app
-                    // (docs/30 §2.3) and a picture that cost it forty-six points would
-                    // be paid for by the control it is explaining.
-                    .frame(width: behaviour == nil
-                               ? Lumen.labelWidth
-                               : Swift.max(Lumen.labelWidth - LumenBehaviourGlyph.width - 4, 28),
-                           alignment: .leading)
-                    .lineLimit(1)
+                // NAME FIRST, GLYPH SECOND, and both inside one `Lumen.labelWidth`
+                // column. The glyph used to lead, which put every glyph-bearing label
+                // 48 points right of every plain one — five different left edges inside
+                // a single zone, and the owner read the result as "it looks random, it
+                // looks like it was just put there". Now every label in the panel starts
+                // at the same x whether it has a picture or not, and the glyph sits in
+                // the slack between the name and the track where it reads as annotation
+                // rather than as a second, competing icon column.
+                HStack(spacing: 4) {
+                    Text(title)
+                        .font(.lumenBody)
+                        .foregroundStyle(isModified ? Lumen.primaryText : Lumen.secondaryText)
+                        // The glyph is drawn IN the label column's budget, not beside it:
+                        // the track is already the narrowest instrument in the app
+                        // (docs/30 §2.3) and a picture that cost it forty-six points would
+                        // be paid for by the control it is explaining. What it may NOT do
+                        // is cost the name — at 44 wide it took 48 of the 86 and left 38,
+                        // six characters, which is why "Follow edges" rendered "Follo…".
+                        // At `inRowWidth` the name keeps 56 and every label in the app fits.
+                        .frame(width: behaviour == nil
+                                   ? Lumen.labelWidth
+                                   : Lumen.labelWidth - LumenBehaviourGlyph.inRowWidth - 4,
+                               alignment: .leading)
+                        .lineLimit(1)
                     // SHRINK RATHER THAN TRUNCATE. The 86pt column was measured against
                     // 11pt labels and the type scale moved them to 12, which puts the
                     // longest name in the app — "Luminance Contrast", in Noise Reduction
@@ -476,17 +485,25 @@ struct LumenSlider: View {
                     // without a hover. A name that renders 8% smaller on four rows out of
                     // ninety-two is a far cheaper price than eight points of track on all
                     // of them, and it degrades gracefully if a longer name is ever added.
-                    .minimumScaleFactor(0.86)
-                    .onTapGesture(count: 2) { reset() }
-                    // COMPOSED, not layered. The row carries a `.help` too, and an outer
-                    // `.help` is SHADOWED wherever an inner one covers — so hovering a
-                    // slider's NAME, which is the most natural place to point when
-                    // asking "what is this", was showing only the reset hint. That
-                    // matters more than it sounds: docs/30's plan retires fifty-nine
-                    // prose rows by moving their text onto exactly this tooltip, and the
-                    // strategy would have silently failed over a third of the row.
-                    .help(help.map { "\(title) — \($0)\n\nDouble-click to reset" }
-                          ?? "\(title) — double-click to reset")
+                        .minimumScaleFactor(0.86)
+                    if let behaviour {
+                        LumenBehaviourGlyph(shape: behaviour, value: behaviourValue)
+                    }
+                }
+                .onTapGesture(count: 2) { reset() }
+                // COMPOSED, not layered. The row carries a `.help` too, and an outer
+                // `.help` is SHADOWED wherever an inner one covers — so hovering a
+                // slider's NAME, which is the most natural place to point when
+                // asking "what is this", was showing only the reset hint. That
+                // matters more than it sounds: docs/30's plan retires fifty-nine
+                // prose rows by moving their text onto exactly this tooltip, and the
+                // strategy would have silently failed over a third of the row.
+                //
+                // The hover now covers the glyph too, which is the right span: a
+                // photographer pointing at the little picture and asking "what is
+                // that" is asking the same question as one pointing at the name.
+                .help(help.map { "\(title) — \($0)\n\nDouble-click to reset" }
+                      ?? "\(title) — double-click to reset")
             }
 
             track
