@@ -44,6 +44,12 @@ public enum MaskAlgebra {
     /// The degenerate cases are both real photographs rather than hypotheticals — a
     /// clipped black is luminance zero, and there is no colour in it to preserve — so
     /// each falls back to the mode that has something to say rather than to a division.
+    ///
+    /// And the contract at the edges, which is the one a test can hold: **finite in,
+    /// finite out.** Neither mode can manufacture a non-finite pixel from two finite
+    /// ones. Neither can clean a poisoned one either — with a NaN on the way in, the
+    /// answer is one of the two inputs, exactly as `.normal` passes its argument
+    /// through, rather than a third value the pipeline has never seen.
     public static func blended(base: RGB, adjusted: RGB, blend: MaskBlend,
                                space: RGBColorSpace) -> RGB {
         switch blend {
@@ -52,17 +58,19 @@ public enum MaskAlgebra {
         case .luminosity:
             let from = space.luminance(base)
             let to = space.luminance(adjusted)
-            guard from > luminanceFloor, to.isFinite else { return adjusted }
-            let scale = to / from
-            guard scale.isFinite else { return adjusted }
-            return base * scale
+            guard from.isFinite, to.isFinite, from > luminanceFloor else { return adjusted }
+            let out = base * (to / from)
+            // The result, not the ratio. `to / from` can be finite where the product is
+            // not — an enormous ratio against an enormous base — and `∞ · 0` is a NaN
+            // that a ratio check cannot see. Testing what is about to be returned is the
+            // only guard that covers both.
+            return out.isFinite ? out : adjusted
         case .color:
             let from = space.luminance(adjusted)
             let to = space.luminance(base)
-            guard from > luminanceFloor, to.isFinite else { return base }
-            let scale = to / from
-            guard scale.isFinite else { return base }
-            return adjusted * scale
+            guard from.isFinite, to.isFinite, from > luminanceFloor else { return base }
+            let out = adjusted * (to / from)
+            return out.isFinite ? out : base
         }
     }
 

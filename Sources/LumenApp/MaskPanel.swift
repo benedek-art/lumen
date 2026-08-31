@@ -146,6 +146,7 @@ struct MaskPanel: View {
                             value: maskValue(mask.id, "amount", get: { $0.amount },
                                              set: { $0.amount = Num.clamp($1, 0, 200) }),
                             range: 0...200, defaultValue: 100, step: 1, decimals: 0)
+                blendRow(mask)
                 // Whole-mask invert (docs/08 §8.1), not the per-component one further
                 // down: this flips the folded stack. It runs BEFORE the refinement
                 // chain, so Refine still snaps to the picture and Grow / Shrink still
@@ -232,6 +233,39 @@ struct MaskPanel: View {
         // intent that keeps a pointer crossing the list on its way somewhere else from
         // strobing ten overlays across the photograph (docs/36 §1.4).
         .onHover { inside in state.hoverMaskOverlay(inside ? mask.id : nil) }
+    }
+
+    /// How this mask's result meets the picture underneath.
+    ///
+    /// Three entries, and the two that are not Normal are the reason it exists: a mask
+    /// in **Brightness only** dodges and burns skin without shifting its colour, and one
+    /// in **Colour only** warms a sky without lifting it. Photoshop, Affinity and ON1
+    /// give a layer a blend mode; no raw editor with this much depth per mask does
+    /// (docs/36 §3).
+    ///
+    /// Named for what each LEAVES ALONE rather than for the compositing operator, because
+    /// that is the half a photographer is choosing on — and because "Luminosity" and
+    /// "Color" are Photoshop's words for a Photoshop model, and the thing being chosen
+    /// here is not a layer.
+    private func blendRow(_ mask: Mask) -> some View {
+        HStack(spacing: 6) {
+            Text("Applies")
+                .font(.lumenBody)
+                .foregroundStyle(Lumen.secondaryText)
+            Spacer(minLength: 0)
+            LumenMenu(title: mask.blend.label,
+                      help: MaskBlend.allCases
+                          .map { "\($0.label) — \($0.explanation)" }
+                          .joined(separator: "\n")) {
+                ForEach(MaskBlend.allCases, id: \.self) { blend in
+                    LumenMenuItem(title: blend.label,
+                                  isSelected: mask.blend == blend) {
+                        editMask(mask.id, key: nil) { $0.blend = blend }
+                    }
+                }
+            }
+        }
+        .frame(height: Lumen.rowHeight)
     }
 
     /// The overlay's mode and colour, in the panel as well as on `⌥O` / `⇧O`. Both
