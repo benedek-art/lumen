@@ -269,6 +269,12 @@ def render_identity(tree):
     for mask in out.get("masks", []) or []:
         mask["name"] = ""
         mask["id"] = ""
+    # A group's NAME and its open/shut state are cosmetic the same way a mask's name is.
+    # Its id is NOT: a mask names its group by id, so blanking them would fold every
+    # folder into one and make "member of A" and "member of B" hash alike.
+    for group in out.get("maskGroups", []) or []:
+        group["name"] = ""
+        group["collapsed"] = False
     # Removed, not nulled: Swift encodes a nil optional by omitting the key, and a
     # `"bw":null` that the default tree does not carry survives the sparse pass and
     # takes the fingerprint with it.
@@ -376,6 +382,10 @@ DEFAULT_RECIPE = {
         "render": {"preset": "Neutral"},
     },
     "masks": [],
+    # Folders (docs/36 §4 item 26). Empty by default and pruned by `sparse` like every
+    # other empty container, so a recipe with no groups is byte-identical to one written
+    # before they existed.
+    "maskGroups": [],
 }
 
 
@@ -417,7 +427,13 @@ def gen_canonical_fixture():
     # form prunes at the recipe level and never descends into the mask array.
     c["masks"] = [{
         "id": "6f000000-0000-0000-0000-00000000la01",
+        # `blend` is written unconditionally like `invert` and `amount` beside it: the
+        # sparse form prunes at the recipe level and never descends into the mask array.
+        # Adding it therefore MOVED every masked recipe's fingerprint once, which is the
+        # accepted cost of a new non-optional mask field and the reason this fixture
+        # exists to be updated deliberately rather than drifted into.
         "name": "Sky", "enabled": True, "invert": False, "amount": 100,
+        "blend": "normal",
         "components": [
             {"op": "add", "kind": "aiSky", "amount": 100, "invert": False,
              "model": "skyseg/1.3"},

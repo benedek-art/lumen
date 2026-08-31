@@ -200,6 +200,8 @@ public enum KeyGrammar {
             KeyRow(KeyBinding("z", command: true, shift: true), "Redo"),
             KeyRow(KeyBinding("c", command: true), "Copy settings"),
             KeyRow(KeyBinding("v", command: true), "Paste settings"),
+            KeyRow(KeyBinding("v", command: true, shift: true),
+                   "Paste settings, leaving this frame's masks alone"),
             KeyRow(KeyBinding("c", command: true, option: true), "Copy Look"),
             KeyRow(KeyBinding("v", command: true, option: true), "Paste Look"),
             KeyRow(KeyBinding("r", command: true, shift: true), "Reset settings"),

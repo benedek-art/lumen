@@ -511,6 +511,12 @@ final class RecipeCodecToleranceTests: XCTestCase {
         component.classes = ["sky", "water"]
         component.depthLo = 0.2
         component.depthHi = 0.7
+        component.channel = .min
+        component.points = [[0.2, 0.3, 0.1, 1]]
+        component.maskRef = "5C0F6B8A-0000-4000-8000-000000000002"
+        component.path = [[0.1, 0.1], [0.9, 0.15], [0.5, 0.85]]
+        component.series = .midtones
+        component.level = 3.5
 
         let adjust = LocalAdjust(
             exposure: 0.6, contrast: 12, highlights: -20, shadows: 18, whites: 6,
@@ -519,14 +525,22 @@ final class RecipeCodecToleranceTests: XCTestCase {
             noiseChroma: 23, moire: 24, defringe: 26, grainAmount: 27,
             colorTint: [0.5, 0.4, 0.3], colorTintStrength: 65,
             pointColors: [swatch], curve: curve, wheels: wheels)
+        var populatedAdjust = adjust
+        populatedAdjust.kelvin = 4300
+        populatedAdjust.kelvinTint = -14
 
         let mask = Mask(id: "5C0F6B8A-0000-4000-8000-000000000001", name: "Sky",
                         enabled: false, invert: true, amount: 150,
                         components: [component],
                         refine: MaskRefine(feather: 12, edge: -5, blur: 7,
                                            levelsLo: 10, levelsHi: 90, levelsGamma: 1.4),
-                        adjust: adjust)
+                        adjust: populatedAdjust,
+                        blend: .luminosity,
+                        group: "8A1B0000-0000-4000-8000-0000000000f0")
 
-        return Recipe(pipelineVersion: 1, develop: develop, look: look, masks: [mask])
+        return Recipe(pipelineVersion: 1, develop: develop, look: look, masks: [mask],
+                      maskGroups: [MaskGroup(id: "8A1B0000-0000-4000-8000-0000000000f0",
+                                             name: "Retouch", enabled: false,
+                                             amount: 65, collapsed: true)])
     }
 }
