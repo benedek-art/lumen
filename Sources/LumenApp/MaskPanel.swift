@@ -232,11 +232,21 @@ struct MaskPanel: View {
             .buttonStyle(.plain)
             .help(mask.enabled ? "Stop rendering this mask, keeping it" : "Render it again")
 
-            TextField("Mask \(index + 1)", text: maskName(mask.id))
-                .textFieldStyle(.plain).font(.system(size: 11))
-                .foregroundStyle(isSelected ? Lumen.primaryText : Lumen.secondaryText)
+            maskThumbnail(mask)
 
-            LumenBadge(text: "\(mask.components.count)")
+            VStack(alignment: .leading, spacing: 0) {
+                TextField(MaskPanel.autoName(mask, index: index), text: maskName(mask.id))
+                    .textFieldStyle(.plain).font(.lumenBody)
+                    .foregroundStyle(isSelected ? Lumen.primaryText : Lumen.secondaryText)
+                // What the stack actually is, under the name — the operation glyphs and
+                // the kinds, which is the sentence the count badge was standing in for.
+                // "3" never told anybody what mask 3 selects.
+                Text(MaskPanel.stackSummary(mask))
+                    .font(.lumenCaption)
+                    .foregroundStyle(Lumen.tertiaryText)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
 
             // Masks fold in list order too — both renderers walk `plan.masks` front to
             // back, so where two masks overlap the later one is working on the earlier
@@ -250,9 +260,9 @@ struct MaskPanel: View {
 
             maskRowMenu(mask, showing: isSolo)
         }
-        .padding(.horizontal, 4).frame(height: Lumen.rowHeight)
+        .padding(.horizontal, 4).padding(.vertical, 3)
         .background(isSelected ? Lumen.fillColor.opacity(0.20) : Color.clear)
-        .clipShape(RoundedRectangle(cornerRadius: 3))
+        .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusChip))
         .contentShape(Rectangle())
         .onTapGesture {
             selectedMaskID = mask.id
@@ -296,6 +306,35 @@ struct MaskPanel: View {
             }
         }
         .frame(height: Lumen.rowHeight)
+    }
+
+    /// A picture of what this mask selects, in its own row.
+    ///
+    /// This is the single biggest comprehension win in the rebuild and the cheapest:
+    /// a row carried a COUNT BADGE, so "Mask 3" had to be remembered rather than seen,
+    /// and a stack of three components was an abstraction rather than three pictures
+    /// and a result (docs/35 §4.3). Lightroom has had this for years and it is most of
+    /// why its masking reads as approachable despite being the deepest in the market.
+    ///
+    /// The placeholder is a well rather than a spinner: a thumbnail lands within a
+    /// frame or two of an edit, and a spinner that appears and vanishes that fast is
+    /// worse than a quiet empty box.
+    private func maskThumbnail(_ mask: Mask) -> some View {
+        Group {
+            if let image = state.maskThumbnails[mask.id] {
+                Image(decorative: image, scale: 1, orientation: .up)
+                    .resizable()
+                    .interpolation(.medium)
+                    .aspectRatio(contentMode: .fill)
+            } else {
+                Color.black.opacity(0.35)
+            }
+        }
+        .frame(width: 40, height: 27)
+        .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 3, style: .continuous)
+            .strokeBorder(Lumen.separator, lineWidth: 0.5))
+        .opacity(mask.enabled ? 1 : 0.4)
     }
 
     /// Everything that acts on ONE mask, attached to that mask's row.
@@ -1812,6 +1851,25 @@ struct MaskPanel: View {
         case .depthRange: return "Everything at this distance from the camera"
         case .maskRef: return "Whatever another mask selects, live"
         }
+    }
+
+    /// What a mask is called when it has not been named.
+    ///
+    /// "Brush 1" told you which TOOL made it, which is the least interesting thing about
+    /// a mask by the time there are five. A mask made of one component is named for what
+    /// that component selects; a stack is named for its first component and its depth.
+    static func autoName(_ mask: Mask, index: Int) -> String {
+        guard let first = mask.components.first else { return "Mask \(index + 1)" }
+        let base = kindName(first.kind)
+        return mask.components.count == 1 ? base : "\(base) +\(mask.components.count - 1)"
+    }
+
+    /// The stack, as one line under the name: `∪ Sky  ∖ Brush`.
+    static func stackSummary(_ mask: Mask) -> String {
+        guard !mask.components.isEmpty else { return "nothing selected yet" }
+        return mask.components
+            .map { "\(opGlyph($0.op)) \(kindName($0.kind))\($0.invert ? " inv" : "")" }
+            .joined(separator: "  ")
     }
 
     static func opGlyph(_ op: MaskOp) -> String {

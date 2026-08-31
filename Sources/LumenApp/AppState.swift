@@ -825,7 +825,14 @@ final class AppState: ObservableObject {
             availableMattes[url] = pass.available
         }
         // The overlay is a picture of the mask, and the mask only changed if this did.
-        if before != availableMattes[url] { refreshMaskOverlay() }
+        if before != availableMattes[url] {
+            refreshMaskOverlay()
+            // A matte ARRIVING changes what a Subject mask selects, and the row's
+            // picture of it has to follow — but the recipe did not move, so the
+            // thumbnail key would not have changed on its own.
+            maskThumbnailKey = nil
+            refreshMaskThumbnails()
+        }
     }
 
     /// `O`: show or hide the overlay for the mask the panel has selected. With no mask
@@ -870,6 +877,98 @@ final class AppState: ObservableObject {
     static let maskOverlayHoverIntentMS: UInt64 = 120
     /// How long a newly created mask shows itself before getting out of the way.
     static let maskOverlayFlashMS: UInt64 = 1_400
+
+    // MARK: - Mask thumbnails (docs/35 §4.3)
+
+    /// Long edge a mask row's thumbnail is rasterized at.
+    ///
+    /// 96 px is about a hundredth of the proxy's pixels, so a whole list of them costs
+    /// less than one overlay. That ratio is what makes "every row is a picture of its
+    /// own alpha" affordable at all — the idea is old and the reason nobody in a raw
+    /// editor does it live is that they compute it at mask resolution.
+    static let maskThumbnailLongEdge = 96
+
+    /// One grey image per mask, keyed by mask id. Published so a row redraws when its
+    /// thumbnail lands.
+    @Published private(set) var maskThumbnails: [String: CGImage] = [:]
+
+    /// What the held thumbnails were computed FROM. A mask id is not enough of a key:
+    /// the picture behind a Colour Range moves when Exposure does, and the same mask id
+    /// exists on the next photograph after Paste Settings.
+    private var maskThumbnailKey: String?
+    private var maskThumbnailTask: Task<Void, Never>?
+
+    /// Rebuild the thumbnails if anything they depend on has changed.
+    ///
+    /// Coalesced the same way `refreshMaskOverlay` is, and for the same reason: this is
+    /// called from the edit path, so a drag would otherwise queue one job per mouse
+    /// event on an actor whose queue can hold a cold decode.
+    func refreshMaskThumbnails() {
+        guard let photo = primarySelection else {
+            if !maskThumbnails.isEmpty { maskThumbnails = [:] }
+            maskThumbnailKey = nil
+            return
+        }
+        let recipe = recipe(for: photo)
+        guard !recipe.masks.isEmpty else {
+            if !maskThumbnails.isEmpty { maskThumbnails = [:] }
+            maskThumbnailKey = nil
+            return
+        }
+        // The masks themselves, minus their names — renaming a mask must not re-render
+        // ninety-six pixels — plus everything the mask SOURCE is a function of, which is
+        // what `PipelineRenderer.maskSourceFingerprint` already knows how to state.
+        let shape = (try? CanonicalJSON.tree(of: recipe.masks.map(\.withoutCosmetics)))
+            .map(CanonicalJSON.serialize) ?? UUID().uuidString
+        let key = [photo.id.absoluteString, shape,
+                   PipelineRenderer.maskSourceFingerprint(recipe: recipe) ?? "-"]
+            .joined(separator: "|")
+        guard key != maskThumbnailKey else { return }
+        maskThumbnailKey = key
+
+        let ids = recipe.masks.map(\.id)
+        let strokes = strokeSets(for: recipe)
+        maskThumbnailTask?.cancel()
+        maskThumbnailTask = Task { [weak self] in
+            guard let self else { return }
+            await Task.yield()
+            guard !Task.isCancelled else { return }
+            var built: [String: CGImage] = [:]
+            for id in ids {
+                guard !Task.isCancelled else { return }
+                let plane = await self.renderCoordinator.maskThumbnail(
+                    url: photo.id, recipe: recipe, maskID: id, strokeSets: strokes)
+                if let plane, let image = AppState.greyImage(from: plane) {
+                    built[id] = image
+                }
+            }
+            guard !Task.isCancelled, self.maskThumbnailKey == key else { return }
+            self.maskThumbnails = built
+        }
+    }
+
+    /// An alpha plane as a grey image a row can draw.
+    ///
+    /// 8-bit grey with no alpha channel: this is a PICTURE of a mask, not a mask, and
+    /// giving it an alpha channel is how the overlay once ended up drawing a flat tint
+    /// over the whole frame.
+    nonisolated static func greyImage(from plane: Plane) -> CGImage? {
+        let w = plane.width, h = plane.height
+        guard w > 0, h > 0 else { return nil }
+        var bytes = [UInt8](repeating: 0, count: w * h)
+        for i in 0..<(w * h) {
+            bytes[i] = UInt8(Num.saturate(Double(plane.values[i])) * 255)
+        }
+        guard let provider = CGDataProvider(data: Data(bytes) as CFData),
+              let space = CGColorSpace(name: CGColorSpace.linearGray)
+                  ?? CGColorSpace(name: CGColorSpace.genericGrayGamma2_2)
+        else { return nil }
+        return CGImage(width: w, height: h, bitsPerComponent: 8, bitsPerPixel: 8,
+                       bytesPerRow: w, space: space,
+                       bitmapInfo: CGBitmapInfo(rawValue: 0),
+                       provider: provider, decode: nil, shouldInterpolate: true,
+                       intent: .defaultIntent)
+    }
 
     /// Keep the overlay up until it is deliberately taken down.
     ///
@@ -2314,6 +2413,7 @@ final class AppState: ObservableObject {
         // paths above do not schedule it.
         scheduleRawTruthRefresh()
         refreshMaskOverlay()
+        refreshMaskThumbnails()
     }
 
     /// The direction the photographer last travelled, for `DecodeWarming`: forward
@@ -2804,6 +2904,10 @@ final class AppState: ObservableObject {
             // including while dragging the mask's own sliders. Its refresh is
             // generation-guarded and cancels its predecessor, so per-event is cheap.
             refreshMaskOverlay()
+            // And the rows' pictures of the same masks. Keyed on the masks' own shape
+            // plus the mask-source fingerprint, so an edit that moves neither — a
+            // rename, a crop the masks reproject through — costs nothing.
+            refreshMaskThumbnails()
             // The HUD's input side: the next draft that lands closes the loop.
             LatencyHUD.shared.noteInput()
         }
@@ -3056,6 +3160,7 @@ final class AppState: ObservableObject {
             // mask DELETION was worse — the overlay for a mask that no longer existed
             // stayed painted until some unrelated edit happened to refresh it.
             refreshMaskOverlay()
+            refreshMaskThumbnails()
             // Same reason: a restored Vision mask needs its matte asked for again.
             ensureMaskMattes()
         }

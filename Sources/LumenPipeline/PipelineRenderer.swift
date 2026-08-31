@@ -1274,8 +1274,13 @@ public final class PipelineRenderer {
     /// everywhere. So the overlay was a flat tint over the whole frame a second time,
     /// by a different route than the first. The six overlay modes need the alpha as
     /// numbers anyway: `MaskOverlay.composite` mixes the picture with it per pixel.
+    /// - Parameter longEdge: how big to rasterize. The overlay wants the proxy; a mask
+    ///   row's thumbnail wants ~96 px, which is a hundredth of the pixels and therefore
+    ///   about a hundredth of the cost — cheap enough to recompute whenever the recipe
+    ///   moves, which is what makes a live thumbnail per row affordable at all.
     public func renderMaskAlpha(source: any ImageSource, recipe: Recipe, maskID: String,
-                                strokeSets: [String: BrushStrokeSet] = [:]) -> Plane? {
+                                strokeSets: [String: BrushStrokeSet] = [:],
+                                longEdge: Int? = nil) -> Plane? {
         Self.stampRenderIdentity(source)
         let plan = RenderPlan(recipe: recipe,
                               asShotKelvin: source.asShotTemperature,
@@ -1288,7 +1293,12 @@ public final class PipelineRenderer {
                                   ? measuredBandMeanHues(source: source) : nil)
         guard let mask = plan.masks.first(where: { $0.id == maskID }) else { return nil }
 
+        let target = Swift.max(longEdge ?? Self.maskRasterLongEdge, 16)
         let native = source.nativeLongEdge
+        // The DECODE stays at the proxy even for a thumbnail. A 96 px decode would be a
+        // second scale factor in `AppleRawSource`'s cache — a whole extra demosaic of a
+        // 45 MP file — to save a rasterization that is already sub-millisecond at that
+        // size. The scale that matters here is the raster's, not the decode's.
         let scale = native > 0
             ? Swift.min(1.0, Double(Self.maskRasterLongEdge) / native) : 1.0
         guard let decoded = source.decode(recipe: recipe, draft: true,
@@ -1296,7 +1306,7 @@ public final class PipelineRenderer {
 
         let extent = decoded.extent
         let long = Swift.max(extent.width, extent.height)
-        let fit = long > 0 ? Swift.min(1.0, CGFloat(Self.maskRasterLongEdge) / long) : 1
+        let fit = long > 0 ? Swift.min(1.0, CGFloat(target) / long) : 1
         let width = Swift.max(Int(extent.width * fit), 8)
         let height = Swift.max(Int(extent.height * fit), 8)
 

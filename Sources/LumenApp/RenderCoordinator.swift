@@ -432,6 +432,23 @@ actor RenderCoordinator {
                                         maskID: maskID, strokeSets: strokeSets)
     }
 
+    /// A mask's alpha, small enough to draw in its own row.
+    ///
+    /// The thing that makes a stack of three components readable at a glance: the fold
+    /// stops being an abstraction and becomes three pictures and a result (docs/35
+    /// §4.3). A mask row carried a COUNT BADGE and nothing else, so "Mask 3" had to be
+    /// remembered rather than seen.
+    ///
+    /// 96 px is a hundredth of the proxy's pixels, so this is affordable per row per
+    /// edit in a way the 1024 px overlay is not.
+    func maskThumbnail(url: URL, recipe: Recipe, maskID: String,
+                       strokeSets: [String: BrushStrokeSet]) -> Plane? {
+        guard let source = try? self.source(for: url) else { return nil }
+        return renderer.renderMaskAlpha(source: source, recipe: recipe,
+                                        maskID: maskID, strokeSets: strokeSets,
+                                        longEdge: AppState.maskThumbnailLongEdge)
+    }
+
     /// Generate the Vision mattes this recipe's masks need, if they are not cached
     /// already, and hand back what the renderer knows afterwards (docs/08 §8.7).
     ///
