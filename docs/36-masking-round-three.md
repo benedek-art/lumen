@@ -340,3 +340,91 @@ And the standard the whole of this document is measured against, which is the ow
 not a metric: **anything he needs, for any photograph, without leaving the app.** Against that,
 64 of 116 rows are still open — but none of them needs a different engine, six need a model, and
 the four that would make this the best masking in the market need neither.
+
+---
+
+## 6. WHAT ACTUALLY LANDED
+
+Written after the fact, against the plan above, because a plan nobody scores is a wish
+list. Sixteen commits, `b3710b3` through `cd43d7e`. The rule for this section is that a
+row says what a photographer can DO, not what a struct has — a field with no reader is in
+the third table, not the first.
+
+### Landed, with the test that holds it
+
+| What | Where it is | What convicts a broken version |
+|---|---|---|
+| **The radial's tail is gone** | `MaskGPU`, `Kernels` | 18 shapes × 3 resolutions against `MaskRaster`, one deliberately 331×197, plus mirror and offset-extent cases. Worst pixel 1e-4 |
+| **Painting stops getting slower** | `BrushPlaneCache`, `MaskRaster.accumulatedBrushPlane` | Paint 60 strokes, time the 61st. 3 assertions |
+| **A brush mask survives the catalog** | `BrushStrokeSidecar`, `XMPSidecar` | Delete the catalog AND the blob store; identical pixels. 8 tests |
+| **A mask can move tone and leave colour alone** | `MaskAlgebra.blended`, `MaskBlend` | Chromaticity held to 1e-9 through the pure function, 1e-7 through the whole stage. 19 assertions |
+| **A band can read six channels** | `MaskChannel` | Red separates what luma cannot, on one fixed −10…+4 EV axis |
+| **A mask can point at another mask** | `MaskKind.maskRef` | Cycles terminate, an orphan selects NOTHING, a disabled source still lends its selection. 833 assertions |
+| **Colour Pick has the point it is named after** | `SimilarityPoint` | 6 assertions |
+| **Per-mask absolute white balance** | `LocalWhiteBalance.resolve`, `RenderPlan.balancedNeutral` | Local ∘ global = one adaptation from as-shot straight to the mask's Kelvin, whatever the global row says. 26 assertions |
+| **Kuyper's luminosity series** | `MaskKind.luminosity` | Self-feathering as a bounded difference over a 401-step sweep; continuous level; midtones peak at 1. 363 assertions |
+| **Outline / lasso** | `MaskKind.polygon` | Ramp centred on the boundary at every feather; even-odd winding; isotropic on a 3:2 frame. 17 tests |
+| **Folders** | `MaskGroup`, `Recipe.effective` | Enable and Amount compose rather than override; a missing folder does not hide its masks. 12 tests |
+| **Shift snaps to 15°** | `MaskHandles.snapped` | The direction changes and the length does not. 288 assertions |
+| **Three zones, not a form** | `MaskPanel.zone` | — |
+| **Every row is a picture of what it selects** | `AppState.maskThumbnails` | — |
+| **Every shape-parameter draws itself** | `LumenBehaviourGlyph` | — |
+| **Pins on the photograph; every mask drawn** | `MaskCanvas.drawPins` | — |
+| **The overlay gets out of the way** | `AppState.flashMaskOverlay` | — |
+| **The brush has a keyboard** | `Keymap` | — |
+
+The last five have no test row and that is honest rather than an omission: they are
+SwiftUI composition on a target that cannot be built on the machine this was written on,
+and a test that asserted a view hierarchy would be asserting its own transcription.
+
+### Found while building, and fixed
+
+Two defects nobody was looking for, both of which had a passing test beside them:
+
+**A reference to a disabled mask resolved to nothing in both renderers.** `enabled` has
+never meant a mask stops SELECTING, and `testADisabledMaskStillLendsItsSelection` pinned
+that — of `MaskRaster.combine`, called directly with the whole list. Both renderers were
+handing it `plan.masks`, filtered to the enabled ones. `plan.allMasks` is the unfiltered
+list now.
+
+**The overlay could not find a mask you had switched off.** Same root, same fix: a mask
+you selected in order to edit is one you need to see.
+
+### Carried, not rendered
+
+`noise`, `noiseChroma`, `moire`, `defringe`, `grainAmount` decode, round-trip and hash,
+and no stage reads any of them. They stay — deleting them would make Lumen silently drop
+data out of a recipe written by hand or by a later version — and they stay out of the
+panel, because a control that does nothing is what the owner complained about by name.
+`MaskDeadFieldTests` holds both halves, so the claim cannot rot.
+
+`noise`/`noiseChroma` are tractable: the work is computing the smooth at S11 and matching
+it in a kernel. `grainAmount` is tractable and the engine is finished; what is unsettled
+is the amplitude, and `FilmGrainProfile.amount` is normalized differently on the stock and
+creative paths, so "local Grain 50" has two candidate meanings and the wrong one is ten
+times too strong or invisible — a decision to make by eye against a print. `moire` and
+`defringe` are BLOCKED, and not on effort: there is no global engine for either to be the
+local half of.
+
+### Still open, in the order they are worth doing
+
+1. The overlay reads the render's alpha instead of rasterizing a second time.
+2. Bounded local adjust — crop the spatial stages to the mask's box.
+3. Per-component refinement, and ⌥-drag any edge slider for a matte preview.
+4. Paste masks only / without masks; sync across a selection; Develop Presets carrying masks.
+5. Alpha PNG export and import.
+6. Brush stabilization and shift-click straight strokes.
+7. The mask list's search and density controls — folders took the first bite out of §1.5.
+8. Off-screen pin docking.
+9. The six model-dependent kinds, which need a licence review, a model conversion, a
+   download UX and an app-size decision before a line of them is worth writing.
+
+### What the tooling learned
+
+Four macOS rounds went red on errors a Linux build cannot see, and each one became a pass
+rather than a lesson. `check-swift-surface.py` grew a cross-module ACCESS pass and an
+argument-VALUE pass, its `labels` pass went from 5245 checked call sites to 8324 (a comma
+inside a generic was dropping 23 whole methods, and a call with no receiver was never
+looked at), and its `symbols` output is quiet again. It is still not a compiler, and the
+two things it structurally cannot see are switch exhaustiveness and protocol conformance —
+both of which are on the list above as the next passes worth writing.
