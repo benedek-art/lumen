@@ -1446,6 +1446,7 @@ struct MaskPanel: View {
     private func optionalSlider(_ id: String, _ i: Int, _ t: String,
                                 _ p: WritableKeyPath<MaskComponent, Double?>,
                                 _ r: ClosedRange<Double>, _ d: Double,
+                                step: Double = 1, decimals: Int = 0,
                                 bipolar: Bool = false,
                                 behaviour: BehaviourShape? = nil) -> some View {
         let current = component(id, i)?[keyPath: p] ?? d
@@ -1456,7 +1457,8 @@ struct MaskPanel: View {
                                            $0[keyPath: p] = Num.clamp(v, r.lowerBound, r.upperBound)
                                        }
                                    }),
-                    range: r, defaultValue: d, step: 1, decimals: 0, bipolar: bipolar,
+                    range: r, defaultValue: d, step: step, decimals: decimals,
+                    bipolar: bipolar,
                     behaviour: behaviour,
                     behaviourValue: (current - r.lowerBound)
                         / Swift.max(r.upperBound - r.lowerBound, 1e-9))

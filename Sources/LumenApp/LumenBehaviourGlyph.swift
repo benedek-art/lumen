@@ -32,7 +32,11 @@ import LumenCore
 import SwiftUI
 
 /// What a behaviour glyph draws. One case per parameter whose meaning is a shape.
-enum BehaviourShape {
+/// `Equatable` is written down now that one case carries a payload. An enum with no
+/// associated values gets `==` implicitly; adding `luminositySeries(LuminositySeries)`
+/// withdrew it, and three comparisons in `draw` stopped compiling — on macOS only,
+/// because this file is behind `#if os(macOS)` and the Linux build never sees it.
+enum BehaviourShape: Equatable {
     /// A brush stamp's cross-section: square at Feather 0, a bell at 100.
     case stampFalloff
     /// Three passes of one stroke, each accumulating `1 − (1 − flow)ⁿ`.
