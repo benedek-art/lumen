@@ -1183,6 +1183,15 @@ public final class PipelineRenderer {
             }
 
             for mask in plan.masks {
+                // THE CLOSED-FORM PATH FIRST. A mask made only of gradients, with no
+                // refinement, is evaluated in a shader at the render's own resolution —
+                // so it never enters the raster cache, never misses it, and can never
+                // be served one gesture stale. That staleness IS the tail the owner
+                // reported dragging a radial (docs/35 §5.1).
+                if let gpu = MaskGPU.alpha(for: mask, extent: extent) {
+                    graph.maskImages[mask.id] = gpu
+                    continue
+                }
                 let bake = { [brushPlanes] in
                     // The brush half is accumulated rather than replayed. Built inside
                     // `bake` and not before it, so a frame served a stale raster does

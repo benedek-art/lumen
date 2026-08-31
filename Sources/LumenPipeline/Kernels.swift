@@ -446,6 +446,95 @@ public enum KernelLibrary {
     }
     """
 
+    // MARK: Parametric mask alpha — the tail's fix (docs/35 §5.1)
+    //
+    // Linear and radial gradients are closed-form per-pixel functions: a smoothstep
+    // along an axis, and a signed distance to an ellipse. They were rasterized on the
+    // CPU into a `Plane` like everything else, so dragging one missed the raster cache
+    // on every mouse event, was served the PREVIOUS raster, and the picture arrived a
+    // gesture behind the handle — the tail. Evaluated here they cost a pass over the
+    // pixels the frame was going to touch anyway, and there is nothing to cache or miss.
+    //
+    // COORDINATES ARE LONG-EDGE UNITS, exactly as `MaskRaster.linearPlane` and
+    // `radialPlane` use them, because pixels are square and normalized coordinates are
+    // not: a rotation applied to (fraction of width, fraction of height) mixes two units
+    // and renders a 45° ellipse at 33.7°. `w`, `h` and the derived `long` are passed in
+    // rather than read from `destCoord`'s extent so the two implementations cannot
+    // disagree about which pixel centre they are asking about.
+    //
+    // Every constant below is `MaskRaster`'s. `MaskGPUParityTests` compares the two at
+    // three resolutions and fails on a worst-pixel difference past 1e-4.
+
+    /// A linear gradient's raw alpha.
+    static let maskLinearSource = """
+    kernel vec4 lumenMaskLinear(float x0, float y0, float x1, float y1,
+                                float w, float h, float ox, float oy) {
+        float long = max(w, h);
+        vec2 p = (destCoord() - vec2(ox, oy)) / long;
+        vec2 a = vec2(x0 * w / long, y0 * h / long);
+        vec2 b = vec2(x1 * w / long, y1 * h / long);
+        vec2 ab = b - a;
+        float dd = dot(ab, ab);
+        if (dd < 1e-12) { return vec4(0.0, 0.0, 0.0, 1.0); }
+        float t = clamp(dot(p - a, ab) / dd, 0.0, 1.0);
+        float v = t * t * (3.0 - 2.0 * t);
+        return vec4(v, v, v, 1.0);
+    }
+    """
+
+    /// A radial gradient's raw alpha. `rin` is the flat core, computed on the CPU side
+    /// with the same pixel guard the reference applies, so the shader carries no policy.
+    static let maskRadialSource = """
+    kernel vec4 lumenMaskRadial(float cx, float cy, float rx, float ry,
+                                float ct, float st, float rin,
+                                float w, float h, float ox, float oy) {
+        float long = max(w, h);
+        vec2 p = (destCoord() - vec2(ox, oy)) / long;
+        vec2 q = p - vec2(cx * w / long, cy * h / long);
+        float qx = q.x * ct - q.y * st;
+        float qy = q.x * st + q.y * ct;
+        float nx = qx / max(rx * w / long, 1e-12);
+        float ny = qy / max(ry * h / long, 1e-12);
+        float r = sqrt(nx * nx + ny * ny);
+        float v;
+        if (r <= rin) { v = 1.0; }
+        else if (r >= 1.0) { v = 0.0; }
+        else {
+            float t = clamp((r - rin) / max(1.0 - rin, 1e-12), 0.0, 1.0);
+            v = 1.0 - t * t * (3.0 - 2.0 * t);
+        }
+        return vec4(v, v, v, 1.0);
+    }
+    """
+
+    /// One fold step. `op` is `MaskOp`'s ordinal — 0 add, 1 subtract, 2 intersect — and
+    /// `invert`/`amount` are the component's, applied in `MaskAlgebra.componentAlpha`'s
+    /// order: clamp, invert, scale. The accumulator seeds at zero, so a stack opening
+    /// with subtract or intersect stays empty, which is the property maskalgebra.json
+    /// pins for the CPU fold.
+    static let maskFoldSource = """
+    kernel vec4 lumenMaskFold(__sample acc, __sample raw,
+                              float op, float invert, float amount) {
+        float v = clamp(raw.r, 0.0, 1.0);
+        if (invert > 0.5) { v = 1.0 - v; }
+        v = v * clamp(amount, 0.0, 100.0) / 100.0;
+        float a = clamp(acc.r, 0.0, 1.0);
+        float out;
+        if (op > 1.5) { out = a * v; }
+        else if (op > 0.5) { out = min(a, 1.0 - v); }
+        else { out = max(a, v); }
+        return vec4(out, out, out, 1.0);
+    }
+    """
+
+    /// The whole-mask invert, which runs after the fold and before the refinement chain.
+    static let maskInvertSource = """
+    kernel vec4 lumenMaskInvert(__sample a) {
+        float v = 1.0 - clamp(a.r, 0.0, 1.0);
+        return vec4(v, v, v, 1.0);
+    }
+    """
+
     /// The same composite, through a mask's BLEND MODE (docs/36 §3, bet 1).
     ///
     /// `mode` is `MaskBlend`'s ordinal — 0 normal, 1 luminosity, 2 colour — and
@@ -769,6 +858,13 @@ public enum KernelLibrary {
     public static let guidedApply = make(guidedApplySource)
     public static let blendMask = make(blendMaskSource)
     public static let blendMaskMode = make(blendMaskModeSource)
+    // GENERAL kernels, not colour ones: they take no `__sample` at all, and a colour
+    // kernel is defined as a function of the pixel it is given. `applyGenerator` gives
+    // them an extent and nothing else.
+    public static let maskLinear = makeGeneral(maskLinearSource)
+    public static let maskRadial = makeGeneral(maskRadialSource)
+    public static let maskFold = make(maskFoldSource)
+    public static let maskInvert = make(maskInvertSource)
     public static let grain = make(grainSource)
     public static let vignette = make(vignetteSource)
     public static let detailGain = make(detailGainSource)
@@ -836,6 +932,12 @@ public enum KernelLibrary {
             && denoiseRemoved != nil && subtract != nil
     }
 
+    /// The parametric-mask fast path. Without all four the graph falls back to
+    /// `MaskRaster`, which is correct and slower — never to a wrong mask.
+    public static var parametricMasksAvailable: Bool {
+        maskLinear != nil && maskRadial != nil && maskFold != nil && maskInvert != nil
+    }
+
     /// The kernels the core colour path cannot run without. Presence, film and mask
     /// stages degrade individually; without these the whole graph is wrong.
     public static var coreAvailable: Bool {
@@ -860,6 +962,18 @@ public enum KernelLibrary {
                              _ arguments: [Any]) -> CIImage? {
         guard let kernel else { return nil }
         return kernel.apply(extent: extent, arguments: arguments)
+    }
+
+    /// Apply a kernel that reads no input image at all — a generator.
+    ///
+    /// Separate from `applyNeighbourhood` because the region-of-interest question does
+    /// not arise: there is no input to ask about. Core Image is given the extent and the
+    /// scalars, and every pixel is a closed form of `destCoord()`.
+    public static func applyGenerator(_ kernel: CIKernel?, extent: CGRect,
+                                      _ arguments: [Any]) -> CIImage? {
+        guard let kernel else { return nil }
+        return kernel.apply(extent: extent, roiCallback: { _, rect in rect },
+                            arguments: arguments)
     }
 
     /// Apply a neighbourhood kernel. `reach` is how far, in pixels, the kernel samples
