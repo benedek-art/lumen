@@ -830,8 +830,12 @@ struct MaskPanel: View {
         case .linear:
             // Live: `lineSummary` is the gradient's current geometry, so this is a
             // readout wearing an instruction, not teaching.
-            note("Drag on the image to set the gradient line — " + MaskPanel.lineSummary(c)
-                 + ". The span between the ends is the feather; there is no other control.")
+            note(MaskPanel.optionalLineIsSet(c)
+                 ? MaskPanel.lineSummary(c)
+                     + ". The span between the ends is the feather; there is no other "
+                     + "control. ⇧ snaps the angle to 15°."
+                 : "Drag on the photograph to draw the gradient. The span between the "
+                     + "ends is the feather; ⇧ snaps the angle to 15°.")
         case .similarityLine:
             VStack(alignment: .leading, spacing: 2) {
                 note("Drag on the image to set the ramp — " + MaskPanel.lineSummary(c) + ".")
@@ -839,14 +843,19 @@ struct MaskPanel: View {
             }
         case .radial:
             VStack(alignment: .leading, spacing: 2) {
+                // BOTH SLIDERS ARE NOW THE SECOND WAY TO DO THIS, and they stay for the
+                // same reason a numeric field stays beside a colour picker: a slider is
+                // how you type 45° exactly, and the handle is how you find it. The
+                // handle came first because "sliders are slow — I have to read it, press
+                // it, slowly move side to side" is a description of the tool getting in
+                // the way of the picture.
                 optionalSlider(id, i, "Feather", \.feather, 0...100, 50,
                                behaviour: .softenEdge)
                 // ±90, not ±180: an axis-aligned ellipse has rotational period 180°
                 // (`MaskRaster.radialPlane`), so half the old track duplicated the other
                 // half — two thumb positions 180° apart rasterized the same mask.
                 optionalSlider(id, i, "Rotation", \.rotation, -90...90, 0, bipolar: true)
-                note("Drag on the image to place and resize the ellipse — "
-                     + MaskPanel.ellipseSummary(c) + ". Falloff runs inward from the edge.")
+                note(MaskPanel.ellipseHint(c))
             }
         case .lumaRange:
             VStack(alignment: .leading, spacing: 2) {
@@ -1985,19 +1994,31 @@ struct MaskPanel: View {
                 Button {
                     withAnimation(.easeOut(duration: 0.16)) { isOpen.wrappedValue.toggle() }
                 } label: {
-                    HStack(spacing: 5) {
-                        Image(systemName: "plus").font(.system(size: 10, weight: .semibold))
+                    // THE MOST-PRESSED CONTROL IN THE PANEL, drawn like it. It was a
+                    // 22 pt row of secondary text with an 8 pt chevron — "the add mask
+                    // button is super small" — which is the weight of a disclosure
+                    // triangle on the one thing every session starts with. It is a real
+                    // button now: a control surface, primary text, centred, and tall
+                    // enough to hit without aiming.
+                    HStack(spacing: 6) {
+                        Spacer(minLength: 0)
+                        Image(systemName: "plus")
+                            .font(.system(size: 12, weight: .semibold))
                         Text(label).font(.lumenBody)
                         Image(systemName: "chevron.down")
-                            .font(.system(size: 8, weight: .semibold))
+                            .font(.system(size: 9, weight: .semibold))
                             .rotationEffect(.degrees(isOpen.wrappedValue ? 180 : 0))
                         Spacer(minLength: 0)
                     }
-                    .foregroundStyle(Lumen.secondaryText)
-                    .padding(.horizontal, 4)
-                    .frame(height: Lumen.rowHeight)
+                    .foregroundStyle(Lumen.primaryText)
+                    .padding(.horizontal, 8)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 30)
+                    .background(Lumen.controlSurface)
+                    .lumenWell()
                     .contentShape(Rectangle())
                 }
+                .padding(.top, 4)
                 .buttonStyle(.plain)
                 .lumenClickCursor()
                 .help("Every kind of selection, on one board")
@@ -2348,10 +2369,22 @@ struct MaskPanel: View {
             // `validationError()` exists to say.
             break
         case .linear:
-            c.line = [0.5, 0.75, 0.5, 0.25]
+            // Unseeded, like the ellipse below and for the same reason: a gradient
+            // already lying down the middle of the frame is one you have to move rather
+            // than place, and it leaves no clear space for the draw gesture to fire in.
+            break
         case .radial:
-            c.center = [0.5, 0.5]
-            c.radii = [0.3, 0.3]
+            // NO ELLIPSE. Being handed a circle in the middle of the frame is the
+            // owner's complaint word for word — "I don't want to automatically be given
+            // the oval shape" — and it had a second cost that was not obvious: the
+            // `.create` gesture only fires on a press with clear space around it, so a
+            // shape parked under the pointer meant the draw-it-out gesture that has been
+            // in `MaskHandles` all along could never be reached. The first drag on the
+            // picture makes it, which is Lightroom's rule and now ours.
+            //
+            // Feather and rotation are still seeded: they are the shape's SETTINGS, not
+            // its geometry, and a nil feather renders as 50 anyway. Writing them here
+            // means the canvas never has to invent a value mid-drag.
             c.rotation = 0
             c.feather = 50
         case .lumaRange:
@@ -2404,6 +2437,11 @@ struct MaskPanel: View {
         return c
     }
 
+    static func optionalLineIsSet(_ c: MaskComponent) -> Bool {
+        guard let line = c.line, line.count == 4 else { return false }
+        return line.allSatisfy(\.isFinite)
+    }
+
     static func lineSummary(_ c: MaskComponent) -> String {
         guard let line = c.line, line.count == 4 else { return "no line yet" }
         return String(format: "(%.2f, %.2f) → (%.2f, %.2f)", line[0], line[1], line[2], line[3])
@@ -2417,6 +2455,23 @@ struct MaskPanel: View {
         case 2: return "two corners, one more needed"
         default: return "\(n) corners"
         }
+    }
+
+    /// What the radial's note says, which is a different sentence before the shape
+    /// exists and after.
+    ///
+    /// Before, it is the only place that says the gesture: an ellipse you have not drawn
+    /// has no handles to discover the tool from, so this is the one moment the panel has
+    /// to carry it. After, it is a readout with the four grabs named — and naming them
+    /// is what stops the two sliders above from looking like the only way.
+    static func ellipseHint(_ c: MaskComponent) -> String {
+        guard c.center?.count == 2, c.radii?.count == 2 else {
+            return "Drag on the photograph to draw the ellipse. Hold ⇧ to keep it "
+                 + "round, ⌥ to draw it out from the centre."
+        }
+        return ellipseSummary(c)
+            + ". Drag inside to move it, the edge to resize, the inner ring to feather, "
+            + "the outer dot to turn it."
     }
 
     static func ellipseSummary(_ c: MaskComponent) -> String {

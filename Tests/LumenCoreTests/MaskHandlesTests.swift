@@ -126,6 +126,143 @@ final class MaskHandlesTests: XCTestCase {
         XCTAssertEqual(grab(60, 60), .create, "the far corner of the preview")
     }
 
+    // MARK: Drawing it out, feathering it, turning it — without a slider
+    //
+    // The owner's second round of feedback, and it is one complaint rather than three:
+    // "I want to be able to trace it out while holding, just like Lightroom", "the
+    // feather I should be able to change without having to go through the sliders", and
+    // "rotation, all that stuff". Sliders are slow — read it, press it, move it side to
+    // side — and none of that is looking at the photograph.
+
+    /// A radial created from the picker no longer arrives with an ellipse, so the first
+    /// press has to DRAW rather than move.
+    ///
+    /// This is also why being handed one was worse than it looked: `.create` only fires
+    /// on a press with clear space around it, and a circle parked in the middle of the
+    /// frame meant the draw gesture that has been in this file all along could not be
+    /// reached from the middle of the picture — which is where you press.
+    func testWithNoEllipseYetEveryPressDraws() {
+        for point in [(800.0, 550.0), (100.0, 100.0), (1280.0, 550.0)] {
+            XCTAssertEqual(MaskHandles.radialGrab(press: CGPoint(x: point.0, y: point.1),
+                                                  centre: centre, majorHandle: major,
+                                                  minorHandle: minor,
+                                                  hasGeometry: false),
+                           .create,
+                           "a press at \(point) with nothing drawn must draw")
+        }
+    }
+
+    func testTheDefaultIsStillThatThereIsGeometry() {
+        // `hasGeometry` defaults to true, so every existing caller and every existing
+        // test above means what it always meant.
+        XCTAssertEqual(grab(800, 550), .move)
+    }
+
+    /// The inner ellipse is the feather boundary, it is already drawn, and it was the
+    /// only thing on this shape you had to leave the picture to change.
+    func testTheInnerRingFeathers() {
+        // Feather 50 puts the ring at half the radius: 240 pt along the major axis.
+        for offset in [-8.0, 0.0, 8.0] {
+            XCTAssertEqual(MaskHandles.radialGrab(press: CGPoint(x: 800 + 240 + offset,
+                                                                 y: 550),
+                                                  centre: centre, majorHandle: major,
+                                                  minorHandle: minor, feather: 50),
+                           .feather,
+                           "\(offset) pt off the ring is still the ring")
+        }
+    }
+
+    func testTheRingMovesWithTheFeatherRatherThanSittingAtHalf() {
+        // At Feather 20 the ring is at 0.8 — 384 pt out — and half-way is a plain move.
+        XCTAssertEqual(MaskHandles.radialGrab(press: CGPoint(x: 800 + 384, y: 550),
+                                              centre: centre, majorHandle: major,
+                                              minorHandle: minor, feather: 20),
+                       .feather)
+        XCTAssertEqual(MaskHandles.radialGrab(press: CGPoint(x: 800 + 240, y: 550),
+                                              centre: centre, majorHandle: major,
+                                              minorHandle: minor, feather: 20),
+                       .move, "and where the ring ISN'T is not a feather grab")
+    }
+
+    func testTheRimStillWinsWhereTheRingHasFusedWithIt() {
+        // Feather 5 puts the ring at 0.95, which is 24 pt inside a 480 pt rim — the two
+        // bands overlap, and a press there almost certainly means resize.
+        XCTAssertEqual(MaskHandles.radialGrab(press: CGPoint(x: 1280, y: 550),
+                                              centre: centre, majorHandle: major,
+                                              minorHandle: minor, feather: 5),
+                       .resizeMajor)
+    }
+
+    func testFeatherIsNotOfferedWhereItCannotBeHit() {
+        // A 30 pt ellipse at Feather 50 has its ring seven points from the centre,
+        // inside its own grab band. Offering it there would take the move target away
+        // from a shape that has barely any — the same trap as the reported defect, from
+        // the other side.
+        let c = CGPoint(x: 300, y: 300)
+        let m = CGPoint(x: 315, y: 300)
+        let n = CGPoint(x: 300, y: 315)
+        XCTAssertEqual(MaskHandles.radialGrab(press: CGPoint(x: 307, y: 300),
+                                              centre: c, majorHandle: m, minorHandle: n,
+                                              feather: 50),
+                       .move)
+    }
+
+    func testFeatherZeroAndOneHundredOfferNoRing() {
+        // At 0 the ring IS the rim; at 100 it is the centre. Neither is a target.
+        XCTAssertNotEqual(MaskHandles.radialGrab(press: CGPoint(x: 1280, y: 550),
+                                                 centre: centre, majorHandle: major,
+                                                 minorHandle: minor, feather: 0),
+                          .feather)
+        XCTAssertNotEqual(MaskHandles.radialGrab(press: CGPoint(x: 802, y: 550),
+                                                 centre: centre, majorHandle: major,
+                                                 minorHandle: minor, feather: 100),
+                          .feather)
+    }
+
+    /// The rotation handle sits beyond the rim on the major axis, where the only other
+    /// answer is `.create` — so a miss would draw a new ellipse over the one being
+    /// turned, which is why it is tested at its edges rather than only at its centre.
+    func testTheHandleBeyondTheRimTurnsTheEllipse() {
+        let knob = CGPoint(x: 1280 + MaskHandles.rotateHandleOffset, y: 550)
+        for offset in [-9.0, 0.0, 9.0] {
+            XCTAssertEqual(MaskHandles.radialGrab(press: CGPoint(x: knob.x + offset,
+                                                                 y: knob.y),
+                                                  centre: centre, majorHandle: major,
+                                                  minorHandle: minor,
+                                                  rotateHandle: knob),
+                           .rotate, "\(offset) pt off the knob")
+        }
+    }
+
+    func testTheRotationHandleDoesNotStealTheRim() {
+        // 24 pt out with an 11 pt band each: the rim's answer survives at the rim.
+        let knob = CGPoint(x: 1280 + MaskHandles.rotateHandleOffset, y: 550)
+        XCTAssertEqual(MaskHandles.radialGrab(press: CGPoint(x: 1280, y: 550),
+                                              centre: centre, majorHandle: major,
+                                              minorHandle: minor, rotateHandle: knob),
+                       .resizeMajor)
+    }
+
+    func testWithNoRotationHandleNothingRotates() {
+        // The canvas passes nil when the axis is too short to place one, and a shape
+        // with no handle drawn must not have an invisible one.
+        XCTAssertNotEqual(MaskHandles.radialGrab(press: CGPoint(x: 1304, y: 550),
+                                                 centre: centre, majorHandle: major,
+                                                 minorHandle: minor, rotateHandle: nil),
+                          .rotate)
+    }
+
+    func testEveryNewGrabIsRefusedOnAPoisonedShape() {
+        // The file's own rule: a shape whose numbers are not numbers is not one a
+        // gesture may overwrite.
+        let bad = CGPoint(x: CGFloat.nan, y: 550)
+        XCTAssertEqual(MaskHandles.radialGrab(press: CGPoint(x: 900, y: 550),
+                                              centre: centre, majorHandle: bad,
+                                              minorHandle: minor, feather: 50,
+                                              rotateHandle: CGPoint(x: 900, y: 550)),
+                       .move)
+    }
+
     // MARK: Shapes that are hard to hit
 
     /// A small ellipse keeps a move target. Every tolerance here is absolute, so on a

@@ -123,10 +123,42 @@ public enum MaskHandles {
         case resizeMajor
         /// Change the second radius.
         case resizeMinor
+        /// Drag the INNER ellipse — the feather boundary, which is already drawn and
+        /// was already the only thing on this shape you had to leave the picture to
+        /// change.
+        ///
+        /// The owner's words: "the feather I should be able to change without having to
+        /// go through the sliders". The linear gradient has always worked this way — its
+        /// two falloff lines are draggable — so the radial was the odd one out rather
+        /// than the ordinary case.
+        case feather
+        /// Turn the ellipse. Only ever returned for a press on the handle drawn beyond
+        /// the major axis; there is no bare-rim gesture for it, because every one that
+        /// suggests itself collides with resize.
+        case rotate
         /// Discard this ellipse and draw a new one from the drag. Only ever returned
         /// for a press with clear space around it.
         case create
     }
+
+    /// How far beyond the rim the rotation handle sits, in points, measured along the
+    /// major axis.
+    ///
+    /// Far enough that its 11 pt grab circle clears the rim's: at 24 the two centres are
+    /// 24 apart and the bands meet at 12 from the rim, so a press is never ambiguous
+    /// between "resize" and "turn". Close enough that it reads as belonging to the
+    /// ellipse rather than floating beside it.
+    public static let rotateHandleOffset: Double = 24
+
+    /// The band of inner-ellipse fractions the feather ring can be grabbed in.
+    ///
+    /// Below the floor the ring is inside the centre dot and a grab would fight the move
+    /// gesture for a target a few points wide. Above the ceiling it has fused with the
+    /// rim, and the rim's answer — resize — is the one a press there almost certainly
+    /// means. Outside the band, Feather stays a slider, which is honest: a control with
+    /// no room to be dragged should not pretend it has some.
+    public static let featherRingFloor: Double = 0.16
+    public static let featherRingCeiling: Double = 0.9
 
     /// Which part of a radial a press at `press` takes hold of.
     ///
@@ -137,9 +169,19 @@ public enum MaskHandles {
     /// Answers in order of what the press is most specifically about: the rim before the
     /// interior, the interior before the empty canvas, and — first of all — the inner
     /// half, which is a move under every circumstance.
+    /// `feather` is the component's 0…100, and `hasGeometry` is false for an ellipse
+    /// that has not been drawn yet — a mask created from the picker no longer arrives
+    /// with one, so the first drag on the picture is what makes it.
     public static func radialGrab(press: CGPoint, centre: CGPoint,
-                                  majorHandle: CGPoint, minorHandle: CGPoint)
+                                  majorHandle: CGPoint, minorHandle: CGPoint,
+                                  feather: Double = 50,
+                                  hasGeometry: Bool = true,
+                                  rotateHandle: CGPoint? = nil)
         -> RadialGrab {
+        // Nothing drawn yet: every press draws, wherever it lands. Without this the
+        // fallback geometry a nil centre resolves to would sit under the pointer and
+        // the drag would MOVE an ellipse that does not exist.
+        guard hasGeometry else { return .create }
         let ux = Double(majorHandle.x - centre.x)
         let uy = Double(majorHandle.y - centre.y)
         let vx = Double(minorHandle.x - centre.x)
@@ -152,6 +194,19 @@ public enum MaskHandles {
         // recipe gets repaired in the panel rather than by a drag that guessed.
         guard ux.isFinite, uy.isFinite, vx.isFinite, vy.isFinite,
               dx.isFinite, dy.isFinite else { return .move }
+
+        // THE ROTATION HANDLE FIRST, and it is a plain point test rather than anything
+        // in the ellipse's frame: it sits outside the rim, where the only other answer
+        // is `.create`, so getting it wrong would draw a new shape over the one being
+        // turned. A press claims it or it does not.
+        if let rotateHandle {
+            let rx = Double(press.x - rotateHandle.x)
+            let ry = Double(press.y - rotateHandle.y)
+            if rx.isFinite, ry.isFinite,
+               (rx * rx + ry * ry).squareRoot() <= grabRadius {
+                return .rotate
+            }
+        }
 
         let distance = (dx * dx + dy * dy).squareRoot()
         let det = ux * vy - uy * vx
@@ -172,6 +227,32 @@ public enum MaskHandles {
         let b = (ux * dy - uy * dx) / det
         let rho = (a * a + b * b).squareRoot()
         guard rho.isFinite else { return .move }
+
+        // The FEATHER RING, before the interior shortcut, because at Feather 60 the
+        // ring sits at 0.4 and the shortcut would swallow it whole. Checked after the
+        // rim below? No — the rim test is further down and returns first for a press
+        // that is on both, which is the right precedence: the two only overlap on a
+        // barely-feathered ellipse, where the rim is what a press means.
+        let ring = Num.clamp(1 - Num.clamp(feather, 0, 100) / 100, 0, 1)
+        // AND IT HAS TO HAVE ROOM IN POINTS, not only as a fraction. On an ellipse
+        // drawn 30 pt across, a ring at 0.5 sits seven points from the centre — inside
+        // its own grab band, so it would swallow the move target whole and leave a tiny
+        // shape resize-and-feather only. That is the trap `testSmallEllipseStillMoves
+        // FromItsMiddle` was written for from the other side, and it caught this.
+        //
+        // Two grab radii of clearance: enough that the ring's band and the centre's
+        // move region do not overlap at all. Below that, Feather stays a slider, which
+        // is honest — a target you cannot hit is worse than one that is not offered.
+        let shortestAxis = Swift.min((ux * ux + uy * uy).squareRoot(),
+                                     (vx * vx + vy * vy).squareRoot())
+        if ring * shortestAxis >= 2 * grabRadius,
+           ring >= featherRingFloor, ring <= featherRingCeiling {
+            // The ring point along this ray sits at screen distance `ring · distance/rho`.
+            let gap = distance - ring * distance / rho
+            if abs(gap) <= grabRadius, abs(distance - distance / rho) > grabRadius {
+                return .feather
+            }
+        }
 
         // The inner half, unconditionally. See `interiorMoveFraction`.
         if rho <= interiorMoveFraction { return .move }

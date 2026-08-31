@@ -159,6 +159,9 @@ struct MaskCanvas: View {
     @State private var originLine: [Double] = []
     @State private var originCenter: [Double] = []
     @State private var originRadii: [Double] = []
+    /// The rotation the ellipse had when the turn started. Carried rather than re-read,
+    /// because a turn computed against a value the previous event wrote compounds.
+    @State private var originRotation: Double = 0
     @State private var livePoints: [BrushPoint] = []
     @State private var strokeStarted: Date? = nil
     @State private var hover: CGPoint? = nil
@@ -303,8 +306,9 @@ struct MaskCanvas: View {
             return "Drag the band to move it, a line to change the falloff, an end dot "
                  + "to turn it; Shift constrains to 0/90°. ⌘-drag draws a new gradient."
         case .radial:
-            return "Drag inside to move, the edge to resize; Shift keeps it round. "
-                 + "⌘-drag draws a new ellipse, and Option draws it from the centre."
+            return "Drag out an ellipse on the picture. Then: inside to move, the edge "
+                 + "to resize, the inner ring to feather, the outer dot to turn it. "
+                 + "⇧ keeps it round or snaps the angle; ⌘-drag draws another."
         case .brush:
             return "Drag to paint, hold ⌥ to erase, ⇧-click to carry on in a straight "
                  + "line from the last stroke. [ and ] size it, ⇧[ and ⇧] feather it, "
@@ -672,7 +676,12 @@ struct MaskCanvas: View {
             grab = existing
             updated = originLine.count == 4 ? originLine : line
         } else {
-            grab = lineGrab(at: value.startLocation, line: line)
+            // The RAW geometry, not the drawing fallback: `MaskCanvas.line` substitutes
+            // a gradient down the middle so there is always something to draw, and
+            // handing that to the hit test would make a gradient that does not exist
+            // yet feel like one parked under the pointer.
+            grab = lineGrab(at: value.startLocation,
+                            line: MaskCanvas.optionalLine(component) ?? [])
             updated = line
             originLine = line
             mode = .line(grab)
@@ -818,19 +827,28 @@ struct MaskCanvas: View {
         let grab: MaskHandles.RadialGrab
         var nextCentre: [Double]
         var nextRadii: [Double]
+        var nextFeather = component.feather ?? 50
+        var nextRotation = rotation
         if case .radial(let existing) = mode {
             grab = existing
             nextCentre = originCenter.count == 2 ? originCenter : centre
             nextRadii = originRadii.count == 2 ? originRadii : radii
         } else {
             grab = radialGrab(at: value.startLocation, centre: centre, radii: radii,
-                              rotation: rotation)
+                              rotation: rotation,
+                              feather: component.feather ?? 50,
+                              hasGeometry: MaskCanvas.hasEllipse(component))
             nextCentre = centre
             nextRadii = radii
             originCenter = centre
             originRadii = radii
+            // Carried for the whole drag, like every other origin here: `rotation` is
+            // read back off the component each event, and a turn computed against a
+            // value the previous event just wrote compounds instead of tracking.
+            originRotation = rotation
             mode = .radial(grab)
         }
+        if grab == .rotate { nextRotation = originRotation }
 
         switch grab {
         case .move:
@@ -893,13 +911,48 @@ struct MaskCanvas: View {
                              MaskCanvas.radius(abs(Double(end.y) - Double(start.y)) / 2)]
             }
             if isShiftDown { nextRadii = roundedRadii(nextRadii, drivenByX: true) }
+
+        case .feather:
+            // WHERE THE POINTER IS, not how far it moved. The ring is a position on the
+            // ray from the centre, so tracking the pointer's own fraction is what makes
+            // the ring stay under the finger; a travel delta would drift away from it
+            // over a long drag, which is the one thing a control you are LOOKING at may
+            // not do.
+            let local = localVector(from: nextCentre, to: value.location,
+                                    rotation: rotation)
+            let rx = Swift.max(abs(nextRadii[0]), 1e-9)
+            let ry = Swift.max(abs(nextRadii[1]), 1e-9)
+            let nx = local.x / rx, ny = local.y / ry
+            let rho = (nx * nx + ny * ny).squareRoot()
+            guard rho.isFinite else { return }
+            nextFeather = Num.clamp((1 - rho) * 100, 0, 100)
+
+        case .rotate:
+            // The angle from the centre to the pointer, minus the angle it had at the
+            // press, added to the rotation the ellipse started the drag with. Taking the
+            // pointer's absolute angle instead would snap the major axis under the
+            // finger the instant the handle was touched.
+            let from = viewPoint(nextCentre[0], nextCentre[1])
+            let a0 = atan2(Double(value.startLocation.y - from.y),
+                           Double(value.startLocation.x - from.x))
+            let a1 = atan2(Double(value.location.y - from.y),
+                           Double(value.location.x - from.x))
+            guard a0.isFinite, a1.isFinite else { return }
+            var turned = originRotation + (a1 - a0) * 180 / Double.pi
+            // ⇧ snaps to the same fifteen degrees the gradient uses, so one habit
+            // covers both shapes.
+            if isShiftDown {
+                let step = MaskHandles.angleSnapDegrees
+                turned = (turned / step).rounded() * step
+            }
+            nextRotation = turned.truncatingRemainder(dividingBy: 360)
         }
 
         var next = component
         next.center = nextCentre
         next.radii = nextRadii
-        if next.feather == nil { next.feather = 50 }
-        if next.rotation == nil { next.rotation = 0 }
+        next.feather = nextFeather
+        next.rotation = nextRotation
         commit(.component(maskID: maskID, index: componentIndex, component: next,
                           coalescingKey: ended ? nil : coalescingKey("radial")))
     }
@@ -914,14 +967,41 @@ struct MaskCanvas: View {
     /// directly would be testing the shape in the SOURCE frame — the same class of
     /// mistake as the displayed-coordinates delta the move branch above documents.
     private func radialGrab(at point: CGPoint, centre: [Double], radii: [Double],
-                            rotation: Double) -> MaskHandles.RadialGrab {
+                            rotation: Double, feather: Double,
+                            hasGeometry: Bool) -> MaskHandles.RadialGrab {
         // ⌘ means "another one", wherever the press landed. See `lineGrab`.
         if isCommandDown { return .create }
         let major = viewPoint(from: centre, offset: (radii[0], 0), rotation: rotation)
         let minor = viewPoint(from: centre, offset: (0, radii[1]), rotation: rotation)
         return MaskHandles.radialGrab(press: point,
                                       centre: viewPoint(centre[0], centre[1]),
-                                      majorHandle: major, minorHandle: minor)
+                                      majorHandle: major, minorHandle: minor,
+                                      feather: feather,
+                                      hasGeometry: hasGeometry,
+                                      rotateHandle: MaskCanvas.rotateHandle(
+                                        centre: viewPoint(centre[0], centre[1]),
+                                        major: major))
+    }
+
+    /// Where the rotation handle is drawn, and therefore where it can be grabbed: on
+    /// the major axis, `rotateHandleOffset` points beyond the rim.
+    ///
+    /// Nil when the axis is too short to place it on — a freshly pinched ellipse has no
+    /// direction to speak of, and a handle whose position is decided by rounding error
+    /// jumps across the screen while you resize.
+    /// One axis's half-length in view points, which is what both the feather ring's
+    /// room test and the rotation handle's placement are measured in.
+    static func axisLength(_ centre: CGPoint, _ handle: CGPoint) -> Double {
+        let d = Double(hypot(handle.x - centre.x, handle.y - centre.y))
+        return d.isFinite ? d : 0
+    }
+
+    static func rotateHandle(centre: CGPoint, major: CGPoint) -> CGPoint? {
+        let dx = major.x - centre.x, dy = major.y - centre.y
+        let length = hypot(dx, dy)
+        guard length.isFinite, length > 4 else { return nil }
+        let out = length + CGFloat(MaskHandles.rotateHandleOffset)
+        return CGPoint(x: centre.x + dx / length * out, y: centre.y + dy / length * out)
     }
 
     /// Radii are normalized against width and height separately, so "round" is a
@@ -1072,8 +1152,8 @@ struct MaskCanvas: View {
     // MARK: Drawing
 
     private func drawLine(_ context: inout GraphicsContext, _ component: MaskComponent) {
-        let line = MaskCanvas.line(component)
-        guard line.count == 4 else { return }
+        // Nothing until it has been drawn, for the reason `drawRadial` gives.
+        guard let line = MaskCanvas.optionalLine(component) else { return }
         let p0 = viewPoint(line[0], line[1])
         let p1 = viewPoint(line[2], line[3])
         let dx = p1.x - p0.x
@@ -1101,6 +1181,10 @@ struct MaskCanvas: View {
     }
 
     private func drawRadial(_ context: inout GraphicsContext, _ component: MaskComponent) {
+        // NOTHING until it has been drawn. A ghost ellipse where the shape is about to
+        // be would be a picture of a mask that does not exist yet, and the one thing it
+        // would reliably teach is that the tool ignores where you press.
+        guard MaskCanvas.hasEllipse(component) else { return }
         let centre = MaskCanvas.pair(component.center, fallback: [0.5, 0.5])
         let radii = MaskCanvas.pair(component.radii, fallback: [0.25, 0.25])
         let rotation = component.rotation ?? 0
@@ -1111,6 +1195,28 @@ struct MaskCanvas: View {
         if inner < 0.999 {
             stroke(&context, ellipsePath(centre, radii, rotation, scale: inner),
                    width: 1, alpha: 0.35)
+            // A HANDLE ON THE RING, on the same two conditions the hit test uses — the
+            // file's own rule about the rim's four dots is that a picture showing an
+            // affordance where there isn't one is a picture that lies about where the
+            // shape can be grabbed, and it lies just as badly the other way. The ring
+            // has been drawn since this view was written and has never been draggable;
+            // now that it is, it has to look it, and where it is NOT draggable — a
+            // small ellipse, or a feather at either end of its travel — it must not.
+            let shortest = Swift.min(
+                MaskCanvas.axisLength(viewPoint(centre[0], centre[1]),
+                                      viewPoint(from: centre, offset: (radii[0], 0),
+                                                rotation: rotation)),
+                MaskCanvas.axisLength(viewPoint(centre[0], centre[1]),
+                                      viewPoint(from: centre, offset: (0, radii[1]),
+                                                rotation: rotation)))
+            if inner >= MaskHandles.featherRingFloor,
+               inner <= MaskHandles.featherRingCeiling,
+               inner * shortest >= 2 * MaskHandles.grabRadius {
+                handle(&context,
+                       viewPoint(from: centre, offset: (radii[0] * inner, 0),
+                                 rotation: rotation),
+                       small: true)
+            }
         }
         // FOUR rim dots, not two. The hit test takes a resize from anywhere on the rim,
         // and a picture that shows an affordance on only half of it is a picture that
@@ -1122,6 +1228,20 @@ struct MaskCanvas: View {
         for offset in [(radii[0], 0.0), (-radii[0], 0.0),
                        (0.0, radii[1]), (0.0, -radii[1])] {
             handle(&context, viewPoint(from: centre, offset: offset, rotation: rotation))
+        }
+
+        // THE ROTATION HANDLE, on a stalk so it reads as belonging to the ellipse rather
+        // than floating beside it. Drawn last, over everything, because it is the only
+        // handle that lives outside the shape and a rim that crossed it would make it
+        // look like part of the rim.
+        let origin = viewPoint(centre[0], centre[1])
+        let major = viewPoint(from: centre, offset: (radii[0], 0), rotation: rotation)
+        if let knob = MaskCanvas.rotateHandle(centre: origin, major: major) {
+            var stalk = Path()
+            stalk.move(to: major)
+            stalk.addLine(to: knob)
+            stroke(&context, stalk, width: 1, alpha: 0.5)
+            handle(&context, knob, small: true)
         }
     }
 
@@ -1331,6 +1451,21 @@ struct MaskCanvas: View {
             }
         }
         return nil
+    }
+
+    /// True when this component has an ellipse to grab at all.
+    ///
+    /// A radial created from the picker no longer arrives with one — the owner's
+    /// complaint was "I don't want to automatically be given the oval shape", and being
+    /// handed a circle in the middle of the frame ALSO meant there was never clear space
+    /// to draw in, so the `.create` gesture that has been there all along could not be
+    /// reached. Nil geometry resolves to a fallback for drawing, so this is what the
+    /// hit test asks instead of testing the fallback.
+    static func hasEllipse(_ c: MaskComponent) -> Bool {
+        guard let centre = c.center, centre.count == 2,
+              let radii = c.radii, radii.count == 2 else { return false }
+        return centre.allSatisfy(\.isFinite) && radii.allSatisfy(\.isFinite)
+            && abs(radii[0]) > 1e-9 && abs(radii[1]) > 1e-9
     }
 
     /// A component's outline, when it has a well-formed one — three finite corners or
