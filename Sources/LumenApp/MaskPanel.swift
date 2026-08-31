@@ -83,6 +83,10 @@ struct MaskPanel: View {
     ///
     /// Closed by default once a photograph has masks; the empty state draws the board
     /// unconditionally instead, because there is nothing there to disclose it with.
+    /// What the list is filtered by. Panel-local and never persisted: a filter that
+    /// survived a relaunch would be a list of masks that is missing some, with nothing
+    /// on screen to say why.
+    @State private var maskSearch: String = ""
     @State private var maskPickerOpen: Bool = false
     @State private var componentPickerOpen: Bool = false
     @State private var componentsExpanded: Bool = true
@@ -207,6 +211,29 @@ struct MaskPanel: View {
                 LumenSectionHeader(title: "Masks", isExpanded: nil,
                                    isModified: !list.isEmpty)
             }
+            // Only past the point where a list stops being scannable. A search field
+            // over four masks is a control that costs a row and saves nothing, and
+            // docs/36 §1.5's complaint was specifically about fifteen.
+            if list.count >= MaskPanel.searchAppearsAt {
+                HStack(spacing: 5) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 10))
+                        .foregroundStyle(Lumen.secondaryText)
+                    TextField("Filter", text: $maskSearch)
+                        .textFieldStyle(.plain)
+                        .font(.lumenBody)
+                    if !maskSearch.isEmpty {
+                        Button { maskSearch = "" } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 10))
+                                .foregroundStyle(Lumen.secondaryText)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Show every mask again")
+                    }
+                }
+                .padding(.bottom, 2)
+            }
             // Grouped rows first, then the loose ones. Not interleaved by list order:
             // a folder whose members are scattered through the list with other masks
             // between them is not a folder, and the alternative — forcing the mask
@@ -260,20 +287,54 @@ struct MaskPanel: View {
         state.primarySelection.map { state.recipe(for: $0).maskGroups } ?? []
     }
 
+    /// Where a list stops being scannable and starts needing a filter.
+    static let searchAppearsAt = 8
+
+    /// Does this mask answer the filter?
+    ///
+    /// Everything a row DISPLAYS is searchable — the name the photographer typed, the
+    /// name it has when they have not typed one, the stack summary underneath, and the
+    /// folder it is in. Matching only `name` would be a filter that cannot find "the
+    /// radial one", which is how people actually describe a mask they have not named.
+    static func matches(_ mask: Mask, index: Int, group: MaskGroup?,
+                        query: String) -> Bool {
+        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !q.isEmpty else { return true }
+        let haystack = [mask.name, autoName(mask, index: index), stackSummary(mask),
+                        group?.name ?? ""].joined(separator: " ").lowercased()
+        return haystack.contains(q)
+    }
+
     private var groupedRows: [MaskListRow] {
         let list = masks
         let groups = maskGroups
         let known = Set(groups.map(\.id))
         var rows: [MaskListRow] = []
+        // The SELECTED mask is never filtered out. The editor below the list is showing
+        // it either way, and a panel editing something the list says is not there is
+        // the sort of thing that makes people stop trusting a filter.
+        let selected = activeMask?.id
+        func shown(_ mask: Mask, _ index: Int, _ group: MaskGroup?) -> Bool {
+            mask.id == selected
+                || MaskPanel.matches(mask, index: index, group: group,
+                                     query: maskSearch)
+        }
         for group in groups {
+            let members = list.enumerated().filter {
+                $0.element.group == group.id && shown($0.element, $0.offset, group)
+            }
+            // A folder with nothing left in it goes with its members: a column of empty
+            // headers is a worse answer to "where is it" than a short list.
+            guard !members.isEmpty else { continue }
             rows.append(MaskListRow(key: "g:" + group.id, kind: .header(group)))
             guard !group.collapsed else { continue }
-            for (index, mask) in list.enumerated() where mask.group == group.id {
+            for (index, mask) in members {
                 rows.append(MaskListRow(key: "m:" + mask.id, kind: .mask(mask, index)))
             }
         }
         for (index, mask) in list.enumerated()
-        where mask.group == nil || !known.contains(mask.group ?? "") {
+        where (mask.group == nil || !known.contains(mask.group ?? ""))
+            && shown(mask, index, nil) {
             rows.append(MaskListRow(key: "m:" + mask.id, kind: .mask(mask, index)))
         }
         return rows
