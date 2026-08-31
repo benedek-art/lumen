@@ -127,6 +127,17 @@ struct MaskPanel: View {
             }
             if let mask = activeMask {
                 zone("Edge", asks: "how it is shaped") { refineSection(mask) }
+                    // AND THE OVERLAY COMES OUT WHILE AN EDGE IS DRAGGED — the exact
+                    // complement of the rule on the zone below, and the two are a pair.
+                    // An Effect slider moves the picture and the overlay covers up what
+                    // you are judging; an Edge slider moves the SELECTION, which the
+                    // overlay is the only place you can see at all. Dragging Refine with
+                    // nothing on screen is a control whose entire output is invisible
+                    // while you use it.
+                    .environment(\.sliderGestureChanged) { active in
+                        state.sliderGestureSink(active)
+                        state.setMaskEdgeGesture(active, mask: mask.id)
+                    }
                 zone("Effect", asks: "what it does") { effectZone(mask) }
                     // THE OVERLAY GETS OUT OF THE WAY while an adjustment is dragged.
                     // It is a red wash over the exact pixels being judged, which is the

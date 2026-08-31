@@ -1042,6 +1042,37 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// An EDGE control is being dragged: show the matte, because the edge IS the thing
+    /// being judged. The exact complement of `setMaskOverlaySuppressed`, and they are a
+    /// pair rather than two rules — an Effect slider moves the picture and the overlay
+    /// covers it up, an Edge slider moves the SELECTION and the overlay is the only
+    /// place it is visible at all.
+    ///
+    /// Dragging Refine, Expand/Contract, Soften Edge or a Levels handle with no overlay
+    /// up is a control whose whole output is invisible while you are using it, which is
+    /// the "I want to know what Feather does" complaint in its purest form: the glyph
+    /// says what the parameter means, and this says what it just did to THIS photograph.
+    ///
+    /// It stands down the way a creation flash does rather than snapping off, so
+    /// nudging a value repeatedly does not strobe. A PINNED overlay is left exactly
+    /// alone in both directions — that is a decision, and this is feedback.
+    func setMaskEdgeGesture(_ active: Bool, mask id: String?) {
+        guard !maskOverlayPinned else { return }
+        if active {
+            guard let id else { return }
+            cancelMaskOverlayTimers()
+            maskEdgeGestureID = id
+            if soloMaskOverlay != id { soloMaskOverlay = id }
+        } else {
+            guard let held = maskEdgeGestureID else { return }
+            maskEdgeGestureID = nil
+            guard soloMaskOverlay == held else { return }
+            flashMaskOverlay(held)
+        }
+    }
+
+    private var maskEdgeGestureID: String?
+
     private var maskOverlaySuppressed = false
     private var maskOverlayResumeID: String?
 
