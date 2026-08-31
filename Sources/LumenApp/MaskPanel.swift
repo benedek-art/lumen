@@ -884,9 +884,7 @@ struct MaskPanel: View {
             VStack(alignment: .leading, spacing: 2) {
                 optionalSlider(id, i, "Feather", \.feather, 0...100, 0,
                                behaviour: .softenEdge)
-                note("Drag on the image to lasso a shape, or click to place corners — "
-                     + MaskPanel.outlineSummary(c)
-                     + ". Drag a corner to move it, ⌥-click to remove it.")
+                note(MaskPanel.outlineHint(c))
             }
         case .luminosity:
             VStack(alignment: .leading, spacing: 2) {
@@ -2484,6 +2482,29 @@ struct MaskPanel: View {
     static func lineSummary(_ c: MaskComponent) -> String {
         guard let line = c.line, line.count == 4 else { return "no line yet" }
         return String(format: "(%.2f, %.2f) → (%.2f, %.2f)", line[0], line[1], line[2], line[3])
+    }
+
+    /// What the outline's note says, in the three states it has — none, part-built, and
+    /// closed. The same shape as `ellipseHint`, and for the same reason: before a shape
+    /// exists there are no handles to discover the tool from, so this is the one moment
+    /// the panel has to carry the gesture.
+    ///
+    /// The third state is the one worth splitting out. Once the outline is closed a
+    /// plain drag deliberately does NOTHING — it used to replace the whole path, and
+    /// reaching for a corner and missing is the ordinary way to miss — so the note has
+    /// to say where the redraw went, or the tool reads as having stopped working.
+    static func outlineHint(_ c: MaskComponent) -> String {
+        let corners = (c.path ?? []).count
+        if corners == 0 {
+            return "Drag on the photograph to lasso a shape, or click to place its "
+                 + "corners one at a time."
+        }
+        if corners < 3 {
+            return outlineSummary(c) + " — keep clicking, or drag to lasso instead. "
+                 + "Three is the fewest an outline can have."
+        }
+        return outlineSummary(c) + ". Drag one to move it, ⌥-click to remove it, click "
+             + "anywhere to add one. ⌘-drag starts a new outline."
     }
 
     static func outlineSummary(_ c: MaskComponent) -> String {
