@@ -1526,10 +1526,10 @@ struct MaskPanel: View {
                                          set(&m.adjust.pointColors[index],
                                              Num.clamp(v, r.lowerBound, r.upperBound))
                                      }),
-                    range: r, defaultValue: d, step: 1, decimals: 0, bipolar: bipolar,
-                    behaviour: behaviour,
-                    behaviourValue: (current - r.lowerBound)
-                        / Swift.max(r.upperBound - r.lowerBound, 1e-9))
+                    // No behaviour glyph: a point colour's Hue, Saturation and
+                    // Luminance are magnitudes, and `BehaviourShape`'s roster is
+                    // deliberately only parameters whose meaning IS a shape.
+                    range: r, defaultValue: d, step: 1, decimals: 0, bipolar: bipolar)
     }
 
     // MARK: - Small views

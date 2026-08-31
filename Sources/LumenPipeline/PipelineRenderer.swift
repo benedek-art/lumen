@@ -1372,7 +1372,12 @@ public final class PipelineRenderer {
     /// and exposure, S7 tone and zones, S9/S10 colour and grade — serialized
     /// canonically for the raster cache's key. Nil when any subtree fails to encode,
     /// which the caller treats as "do not cache".
-    static func maskSourceFingerprint(recipe: Recipe) -> String? {
+    ///
+    /// Public because the mask thumbnails key off it too: a thumbnail is a picture of
+    /// what a mask SELECTS, and every selection that reads the picture — a luminance
+    /// band, a colour range, a similarity point — moves when these subtrees move. Two
+    /// callers stating the same dependency two ways is how they drift apart.
+    public static func maskSourceFingerprint(recipe: Recipe) -> String? {
         var parts: [String] = []
         let inputs: [any Encodable] = [
             recipe.develop.raw, recipe.develop.tone, recipe.develop.zones,
