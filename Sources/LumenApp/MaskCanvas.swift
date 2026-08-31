@@ -67,6 +67,9 @@ final class MaskBrushStore: ObservableObject {
     @Published var density: Double = 100
     @Published var erase: Bool = false
     @Published var automask: Bool = false
+    /// 0…100, and 0 is what shipped: a rigid connection between pointer and brush.
+    /// See `BrushStabilizer` for why the useful range needs a squared curve.
+    @Published var stabilize: Double = 0
 
     /// `[` and `]`: size, on a geometric ladder rather than a linear one.
     ///
@@ -200,6 +203,9 @@ struct MaskCanvas: View {
     /// every grab in this file is carried rather than re-derived: a gesture must be a
     /// pure function of where the pointer is now and where the geometry was when the
     /// press landed, so a dropped event cannot change what the drag is worth.
+    /// One stabilizer per stroke, carrying the brush's position between events. Reset
+    /// in `onEnded` with the rest of the gesture's state.
+    @State private var stabilizer: BrushStabilizer?
     @State private var tracing: [[Double]]?
     @State private var outlineGrab: Int?
 
@@ -950,14 +956,39 @@ struct MaskCanvas: View {
         }
         let n = normalized(value.location)
         let ms = Int(Num.clamp(Date().timeIntervalSince(started) * 1000, 0, 3_600_000))
-        let point = BrushPoint(x: Double(n.x), y: Double(n.y),
-                               pressure: Self.currentPressure(), t: ms)
+        // The pulled string, between the pointer and what gets recorded. At Stabilize 0
+        // it is a rigid connection and this is arithmetically the line it replaces.
+        //
+        // `finish` on the last event rather than `next`, because a stabilized stroke
+        // otherwise stops one rope-length short of where the hand let go — every time,
+        // which is a systematic error rather than smoothing and a visible gap on a
+        // stroke drawn to meet another one.
         // HOLD-OPTION ERASES, which is docs/08 §8.6's contract and LR's, and which is
         // why there is no `E` key: `E` is the loupe in this application and taking it
         // would have been a collision fixed by making a photographer relearn a key they
         // already had. The modifier is read at the START of the stroke and carried, so
         // letting go mid-drag does not turn half a stroke into paint.
-        if isNew { eraseHeld = Self.optionHeld() }
+        //
+        // Read here, beside the stabilizer's own start-of-stroke work, rather than
+        // after the guard below: the first sample can never be swallowed by the rope
+        // (there is nothing to be inside of yet), but a reader should not have to prove
+        // that to know the eraser flag is set.
+        if isNew {
+            stabilizer = BrushStabilizer(strength: brush.stabilize)
+            eraseHeld = Self.optionHeld()
+        }
+        var smoother = stabilizer ?? BrushStabilizer(strength: brush.stabilize)
+        let moved = ended ? (smoother.finish(x: Double(n.x), y: Double(n.y))
+                                ?? smoother.next(x: Double(n.x), y: Double(n.y)))
+                          : smoother.next(x: Double(n.x), y: Double(n.y))
+        stabilizer = smoother
+        guard let moved else {
+            // Inside the rope: nothing was painted, and the live stroke is unchanged.
+            if ended { commitBrushStroke(points) }
+            return
+        }
+        let point = BrushPoint(x: moved.x, y: moved.y,
+                               pressure: Self.currentPressure(), t: ms)
         // Sub-pixel resampling is the rasterizer's job (arc-length Catmull-Rom); the
         // recorder only drops events that did not move.
         var accept = true
@@ -970,9 +1001,20 @@ struct MaskCanvas: View {
         livePoints = points
 
         guard ended else { return }
+        commitBrushStroke(points)
+    }
+
+    /// The end of a stroke, in one place because there are two ways to reach it: the
+    /// ordinary last event, and a last event the stabilizer swallowed because the hand
+    /// released inside the rope. Missing the second is a stroke that never lands.
+    private func commitBrushStroke(_ points: [BrushPoint]) {
         livePoints = []
         strokeStarted = nil
-        guard !points.isEmpty else { return }
+        stabilizer = nil
+        guard !points.isEmpty else {
+            eraseHeld = false
+            return
+        }
         var set = strokes
         // The held modifier wins over the panel's toggle for THIS stroke only: the
         // toggle is a mode you set, the modifier is a thing you do, and the thing you

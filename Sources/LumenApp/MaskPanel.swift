@@ -886,6 +886,12 @@ struct MaskPanel: View {
             LumenSlider(title: "Max strength", value: brushValue(\.density), range: 0...100,
                         defaultValue: 100, step: 1, decimals: 0, bipolar: false,
                         behaviour: .densityCeiling, behaviourValue: brush.density / 100)
+            // Last of the five, because it is the only one that changes how the tool
+            // FOLLOWS rather than what it lays down — and the only one a photographer
+            // sets once and forgets.
+            LumenSlider(title: "Steadiness", value: brushValue(\.stabilize),
+                        range: 0...100, defaultValue: 0, step: 1, decimals: 0,
+                        bipolar: false)
             LumenToggleRow(title: "Eraser", isOn: brushFlag(\.erase),
                            help: "Erase strokes fold into the same buffer in draw order")
             LumenToggleRow(title: "Stay inside edges", isOn: brushFlag(\.automask),
