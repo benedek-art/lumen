@@ -1,0 +1,219 @@
+// LumenBehaviourGlyph.swift
+// The answer to "I want to know what Feather does, what Flow does, what Density does
+// before I even click it" — and the reason it is not a sentence.
+//
+// docs/30 §2.2 measured what happened the last time this application explained itself:
+// nineteen always-visible paragraphs in the mask panel became nineteen rows reading
+// "ⓘ How this works", which was worse, because a tooltip that ships its own visible
+// label is a permanent three-word advertisement for one. Half the words in the app were
+// explanation. The rule that came out of it is that a control needing a sentence has not
+// been designed yet.
+//
+// So this draws the parameter instead. Every slider whose meaning IS a shape gets a
+// 44×14 picture of that shape in its own label row, live, as the value changes. Four
+// properties make it worth building rather than decorative (docs/35 §4.5):
+//
+//   1. It is not text, so it costs no words and obeys the silence rule.
+//   2. It is LIVE, so it stays a readout after it has finished being an explanation —
+//      it keeps earning its space, which a tooltip does not.
+//   3. It is ONE component driven by an enum, not eight drawings.
+//   4. It generalises. Highlights and Shadows, the parametric curve's regions, Clarity's
+//      radius, the vignette's midpoint — every one of those is a shape currently being
+//      described in words somewhere in this application.
+//
+// WHERE IT IS ALLOWED. Only on parameters whose meaning is a shape. A magnitude —
+// Exposure, Contrast, Saturation — has no shape to draw, and a glyph beside one would be
+// decoration, which is how a good idea becomes visual noise. `Shape` is the whole list,
+// and it is deliberately short.
+
+#if os(macOS)
+
+import LumenCore
+import SwiftUI
+
+/// What a behaviour glyph draws. One case per parameter whose meaning is a shape.
+enum BehaviourShape {
+    /// A brush stamp's cross-section: square at Feather 0, a bell at 100.
+    case stampFalloff
+    /// Three passes of one stroke, each accumulating `1 − (1 − flow)ⁿ`.
+    case flow
+    /// The same three passes against a ceiling they cannot cross.
+    case densityCeiling
+    /// The stamp at true relative scale.
+    case size
+    /// A soft alpha ramp leaning onto a hard edge in the picture.
+    case followEdges
+    /// A step becoming a ramp — a Gaussian over the finished alpha.
+    case softenEdge
+    /// The boundary moving out of, or into, the selection.
+    case expandContract
+    /// A range band's shoulders opening.
+    case smoothness
+}
+
+/// A 44×14 live drawing of what one parameter does.
+///
+/// `value` is normalized 0…1 for every shape but `expandContract`, which is signed
+/// −1…1 because its two directions are different behaviours rather than more and less
+/// of one.
+struct LumenBehaviourGlyph: View {
+
+    let shape: BehaviourShape
+    let value: Double
+
+    static let width: CGFloat = 44
+    static let height: CGFloat = 14
+
+    var body: some View {
+        Canvas { context, size in
+            draw(&context, size)
+        }
+        .frame(width: Self.width, height: Self.height)
+        // A well, not a card: it is a readout of a value, and every other readout of a
+        // value in this application is carved down rather than raised up.
+        .lumenWell(radius: 3)
+        .accessibilityHidden(true)
+    }
+
+    // MARK: - Drawing
+
+    private var ink: Color { Lumen.primaryText.opacity(0.85) }
+    private var wash: Color { Lumen.primaryText.opacity(0.22) }
+    private var mark: Color { Lumen.accent }
+
+    private func draw(_ context: inout GraphicsContext, _ size: CGSize) {
+        let w = size.width, h = size.height
+        let floor = h - 2.5
+        let ceiling: CGFloat = 2.5
+        let travel = floor - ceiling
+        let v = value.isFinite ? value : 0
+
+        switch shape {
+        case .stampFalloff:
+            // `MaskRaster.stampProfile`: flat core to `hardness`, smoothstep shoulder
+            // to the rim. Drawn as the profile across the stamp's diameter, which is
+            // literally what the rasterizer walks.
+            let hardness = 1 - Num.saturate(v)
+            filled(&context, w: w, floor: floor, travel: travel) { t in
+                let r = abs(t * 2 - 1)
+                if r <= hardness { return 1 }
+                if r >= 1 { return 0 }
+                let u = (r - hardness) / Swift.max(1 - hardness, 1e-6)
+                return 1 - (u * u * (3 - 2 * u))
+            }
+
+        case .flow, .densityCeiling:
+            // Three bars, whose HEIGHT and opacity both carry the accumulated value —
+            // one channel alone reads as three similar rectangles rather than as three
+            // passes.
+            let f = shape == .flow ? Num.saturate(v) : 0.55
+            let cap = shape == .flow ? 1 : Num.saturate(v)
+            let pad: CGFloat = 4
+            let bw = (w - pad * 4) / 3
+            for n in 1...3 {
+                let accumulated = Swift.min(cap, 1 - pow(1 - f, Double(n)))
+                let bh = 2 + CGFloat(accumulated) * (travel - 2)
+                let x = pad + CGFloat(n - 1) * (bw + pad)
+                context.fill(Path(CGRect(x: x, y: floor - bh, width: bw, height: bh)),
+                             with: .color(ink.opacity(0.25 + accumulated * 0.75)))
+            }
+            if shape == .densityCeiling {
+                let y = floor - (2 + CGFloat(cap) * (travel - 2))
+                var line = Path()
+                line.move(to: CGPoint(x: 2, y: y))
+                line.addLine(to: CGPoint(x: w - 2, y: y))
+                context.stroke(line, with: .color(mark),
+                               style: StrokeStyle(lineWidth: 1.25, dash: [2.5, 2.5]))
+            }
+
+        case .size:
+            let r = 2 + CGFloat(Num.saturate(v)) * (h / 2 - 3)
+            let rect = CGRect(x: w / 2 - r, y: h / 2 - r, width: r * 2, height: r * 2)
+            context.fill(Path(ellipseIn: rect), with: .color(wash))
+            context.stroke(Path(ellipseIn: rect), with: .color(ink), lineWidth: 1)
+
+        case .followEdges:
+            // The picture's edge, and the alpha leaning onto it. At 0 the ramp is
+            // broad and ignores the edge; at 100 it collapses onto it — which is what
+            // the guided filter does, and why "Snap" was the wrong word for it.
+            let edge = w * 0.55
+            context.fill(Path(CGRect(x: edge, y: 0, width: w - edge, height: h)),
+                         with: .color(Lumen.primaryText.opacity(0.12)))
+            var post = Path()
+            post.move(to: CGPoint(x: edge, y: 0))
+            post.addLine(to: CGPoint(x: edge, y: h))
+            context.stroke(post, with: .color(Lumen.primaryText.opacity(0.35)),
+                           lineWidth: 1)
+            let soft = CGFloat(0.34 * (1 - Num.saturate(v))) + 0.02
+            var ramp = Path()
+            for step in 0...Int(w) {
+                let x = CGFloat(step)
+                let t = smoothstep(edge - soft * w, edge + soft * w, x)
+                let y = floor - CGFloat(t) * travel
+                if step == 0 { ramp.move(to: CGPoint(x: x, y: y)) }
+                else { ramp.addLine(to: CGPoint(x: x, y: y)) }
+            }
+            context.stroke(ramp, with: .color(mark), lineWidth: 1.4)
+
+        case .softenEdge:
+            let soft = CGFloat(Num.saturate(v)) * 0.42 + 0.01
+            filled(&context, w: w, floor: floor, travel: travel) { t in
+                Double(smoothstep(0.5 - soft, 0.5 + soft, CGFloat(t)))
+            }
+
+        case .expandContract:
+            // The original as a dashed ghost, and where the boundary went as a solid.
+            let d = CGFloat(Num.clamp(v, -1, 1)) * (h * 0.22)
+            box(&context, w: w, h: h, inset: 0, stroke: Lumen.primaryText.opacity(0.3),
+                dashed: true)
+            box(&context, w: w, h: h, inset: -d, stroke: mark, dashed: false)
+
+        case .smoothness:
+            let s = CGFloat(Num.saturate(v)) * 0.26 + 0.015
+            filled(&context, w: w, floor: floor, travel: travel) { t in
+                let x = CGFloat(t)
+                return Double(Swift.min(smoothstep(0.30 - s, 0.30 + s, x),
+                                        1 - smoothstep(0.70 - s, 0.70 + s, x)))
+            }
+        }
+    }
+
+    /// A filled profile under a function of `t` in 0…1. Every shape that is a curve
+    /// draws through here, so they all sit on the same baseline and read as a family.
+    private func filled(_ context: inout GraphicsContext, w: CGFloat,
+                        floor: CGFloat, travel: CGFloat,
+                        _ f: (Double) -> Double) {
+        var path = Path()
+        let steps = Int(w)
+        for step in 0...steps {
+            let x = CGFloat(step)
+            let y = floor - CGFloat(Num.saturate(f(Double(step) / Double(steps)))) * travel
+            if step == 0 { path.move(to: CGPoint(x: x, y: y)) }
+            else { path.addLine(to: CGPoint(x: x, y: y)) }
+        }
+        var area = path
+        area.addLine(to: CGPoint(x: w, y: floor))
+        area.addLine(to: CGPoint(x: 0, y: floor))
+        area.closeSubpath()
+        context.fill(area, with: .color(wash))
+        context.stroke(path, with: .color(ink), lineWidth: 1.1)
+    }
+
+    private func box(_ context: inout GraphicsContext, w: CGFloat, h: CGFloat,
+                     inset: CGFloat, stroke: Color, dashed: Bool) {
+        let rect = CGRect(x: w * 0.3 + inset, y: 3 + inset,
+                          width: w * 0.4 - inset * 2, height: h - 6 - inset * 2)
+        guard rect.width > 1, rect.height > 1 else { return }
+        let path = Path(roundedRect: rect, cornerRadius: 2.5)
+        context.stroke(path, with: .color(stroke),
+                       style: StrokeStyle(lineWidth: 1.1, dash: dashed ? [2.5, 2.5] : []))
+    }
+
+    private func smoothstep(_ e0: CGFloat, _ e1: CGFloat, _ x: CGFloat) -> CGFloat {
+        guard e1 > e0 else { return x < e0 ? 0 : 1 }
+        let t = Swift.min(Swift.max((x - e0) / (e1 - e0), 0), 1)
+        return t * t * (3 - 2 * t)
+    }
+}
+
+#endif

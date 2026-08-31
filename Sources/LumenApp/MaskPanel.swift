@@ -104,18 +104,83 @@ struct MaskPanel: View {
     /// trap — the column would stop scrolling wherever the pointer happened to be — and
     /// a second background would put a panel-coloured rectangle on a panel-coloured
     /// panel.
+    /// THREE ZONES, VISIBLY DIFFERENT, IN THE ORDER THE QUESTIONS ARE ASKED.
+    ///
+    /// A mask asks three things — what is selected, how the edge is shaped, what it does
+    /// to the picture — and they used to be three visually identical stacks of grey rows
+    /// under three visually identical headers, so nothing on screen said they were
+    /// different kinds of question (docs/35 §4.1). Each is a surface now, and each says
+    /// its own question beside its name, once.
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            // Hairlines gone; each header's own 16 pt is the boundary now
-            // (`LumenSectionHeader.topRhythm`). Design audit §1.1.
-            maskListSection
-            if let mask = activeMask {
-                componentSection(mask)
-                refineSection(mask)
-                adjustSections(mask)
-            } else {
-                emptyMaskState
+        VStack(alignment: .leading, spacing: 8) {
+            zone("What", asks: "what is selected") {
+                maskListSection
+                if let mask = activeMask {
+                    componentSection(mask)
+                } else {
+                    emptyMaskState
+                }
             }
+            if let mask = activeMask {
+                zone("Edge", asks: "how it is shaped") { refineSection(mask) }
+                zone("Effect", asks: "what it does") { effectZone(mask) }
+                if usesBrush(mask) { zone("Brush", asks: brushScope) { brushParameters() } }
+            }
+        }
+    }
+
+    /// One zone: a surface, a name, and the question it answers.
+    ///
+    /// `lumenSurface` rather than a hairline, for the reason docs/30 §2.1 measured — the
+    /// grey ladder alone spans 1.873:1 end to end and cannot delineate anything, so
+    /// depth has to come from a lit edge.
+    private func zone<Content: View>(_ name: String, asks: String,
+                                     @ViewBuilder _ content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 8) {
+                LumenCapsLabel(text: name, size: 10, color: Lumen.secondaryText)
+                Spacer(minLength: 0)
+                Text(asks)
+                    .font(.lumenCaption)
+                    .foregroundStyle(Lumen.tertiaryText)
+            }
+            .padding(.bottom, 2)
+            content()
+        }
+        .padding(.horizontal, 9)
+        .padding(.top, 8)
+        .padding(.bottom, 10)
+        .lumenSurface(radius: Lumen.radiusControl, elevation: .flush, fill: Lumen.panel)
+    }
+
+    /// Whether this mask has anything the brush parameters would apply to.
+    ///
+    /// The brush zone is a TOOL, not a property of the mask — the same four controls
+    /// formatted like the mask's own was the defect docs/36 §1.1 names — so it is drawn
+    /// only when a brush component is selected, and its name says whose settings they
+    /// are.
+    private func usesBrush(_ mask: Mask) -> Bool {
+        guard let i = activeComponentIndex, mask.components.indices.contains(i) else {
+            return false
+        }
+        return mask.components[i].kind == .brush
+    }
+
+    private var brushScope: String { "for the next stroke" }
+
+    /// Strength, how it applies, and the whole local adjustment set.
+    ///
+    /// Strength moved here from the mask list, where it read as a property of the LIST.
+    /// It scales the adjustments and never the selection, so this is where it belongs
+    /// and this is why it is no longer called Amount.
+    private func effectZone(_ mask: Mask) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            LumenSlider(title: "Strength",
+                        value: maskValue(mask.id, "amount", get: { $0.amount },
+                                         set: { $0.amount = Num.clamp($1, 0, 200) }),
+                        range: 0...200, defaultValue: 100, step: 1, decimals: 0)
+            blendRow(mask)
+            adjustSections(mask)
         }
     }
 
@@ -137,34 +202,6 @@ struct MaskPanel: View {
                 kindMenu(label: "Add a mask", isOpen: $maskPickerOpen) { kind in
                     addMask(kind: kind)
                 }
-            }
-            if let mask = activeMask {
-                // "Strength", and it scales the EFFECT, not the selection — which is
-                // why two sliders called Amount, nine rows apart, was the wrong pair of
-                // names for the wrong pair of things.
-                LumenSlider(title: "Strength",
-                            value: maskValue(mask.id, "amount", get: { $0.amount },
-                                             set: { $0.amount = Num.clamp($1, 0, 200) }),
-                            range: 0...200, defaultValue: 100, step: 1, decimals: 0)
-                blendRow(mask)
-                // Whole-mask invert (docs/08 §8.1), not the per-component one further
-                // down: this flips the folded stack. It runs BEFORE the refinement
-                // chain, so Refine still snaps to the picture and Grow / Shrink still
-                // grows what is now selected.
-                LumenToggleRow(title: "Invert selection",
-                               isOn: optionBinding(mask.id, mask.invert,
-                                                   on: { $0.invert = true },
-                                                   off: { $0.invert = false }),
-                               help: "Selects everything this stack does not, after the "
-                                   + "components combine and before Refine, Grow / "
-                                   + "Shrink, Feather and the density ramp")
-                HStack(spacing: 4) {
-                    smallButton("Duplicate", "plus.square.on.square") { duplicateMask(mask.id) }
-                    smallButton("Delete", "trash") { deleteMask(mask.id) }
-                    Spacer(minLength: 0)
-                }
-                .frame(height: Lumen.rowHeight)
-                overlayControls(mask)
             }
         }
     }
@@ -211,14 +248,7 @@ struct MaskPanel: View {
                 moveMask(mask.id, by: delta)
             }
 
-            Button { state.soloMaskOverlay = isSolo ? nil : mask.id } label: {
-                Image(systemName: isSolo ? "circle.lefthalf.striped.horizontal"
-                                        : "circle.lefthalf.filled")
-                    .font(.system(size: 10))
-                    .foregroundStyle(isSolo ? Lumen.accent : Lumen.secondaryText)
-            }
-            .buttonStyle(.plain)
-            .help("Show this mask's alpha as an overlay on the image")
+            maskRowMenu(mask, showing: isSolo)
         }
         .padding(.horizontal, 4).frame(height: Lumen.rowHeight)
         .background(isSelected ? Lumen.fillColor.opacity(0.20) : Color.clear)
@@ -266,6 +296,49 @@ struct MaskPanel: View {
             }
         }
         .frame(height: Lumen.rowHeight)
+    }
+
+    /// Everything that acts on ONE mask, attached to that mask's row.
+    ///
+    /// Invert, Duplicate, Delete and the three overlay controls used to float in the
+    /// column below the list — six controls with no visible owner, which is what the
+    /// owner meant by "duplicate, delete, which is in a weird place". A row's own menu
+    /// is where an operation on a row belongs, and it takes six rows out of the column.
+    private func maskRowMenu(_ mask: Mask, showing: Bool) -> some View {
+        LumenMenu(title: "", symbol: "ellipsis", iconOnly: true,
+                  help: "Rename, invert, duplicate, delete — and how the overlay draws") {
+            LumenMenuHeader(title: "This mask")
+            LumenMenuItem(title: mask.invert ? "Stop inverting" : "Invert selection",
+                          symbol: "circle.righthalf.filled") {
+                editMask(mask.id, key: nil) { $0.invert.toggle() }
+            }
+            LumenMenuItem(title: "Duplicate", symbol: "plus.square.on.square") {
+                duplicateMask(mask.id)
+            }
+            LumenMenuItem(title: "Duplicate and invert",
+                          symbol: "plus.square.on.square.dashed") {
+                duplicateMask(mask.id, inverting: true)
+            }
+            LumenMenuItem(title: "Delete", symbol: "trash") { deleteMask(mask.id) }
+
+            LumenMenuHeader(title: "Overlay")
+            LumenMenuItem(title: showing ? "Keep it hidden" : "Keep it showing",
+                          symbol: showing ? "eye.slash" : "eye") {
+                state.soloMaskOverlay = showing ? nil : mask.id
+                if !showing { state.pinMaskOverlay() }
+            }
+            ForEach(MaskOverlay.Mode.allCases, id: \.self) { m in
+                LumenMenuItem(title: m.label, isSelected: state.maskOverlayMode == m) {
+                    state.maskOverlayMode = m
+                }
+            }
+            LumenMenuHeader(title: "Overlay colour")
+            ForEach(MaskOverlay.Tint.allCases, id: \.self) { t in
+                LumenMenuItem(title: t.label, isSelected: state.maskOverlayTint == t) {
+                    state.maskOverlayTint = t
+                }
+            }
+        }
     }
 
     /// The overlay's mode and colour, in the panel as well as on `⌥O` / `⇧O`. Both
@@ -433,7 +506,8 @@ struct MaskPanel: View {
             }
         case .radial:
             VStack(alignment: .leading, spacing: 2) {
-                optionalSlider(id, i, "Feather", \.feather, 0...100, 50)
+                optionalSlider(id, i, "Feather", \.feather, 0...100, 50,
+                               behaviour: .softenEdge)
                 // ±90, not ±180: an axis-aligned ellipse has rotational period 180°
                 // (`MaskRaster.radialPlane`), so half the old track duplicated the other
                 // half — two thumb positions 180° apart rasterized the same mask.
@@ -450,7 +524,8 @@ struct MaskPanel: View {
                 // changes under it — which is why every channel is on one axis.
                 bandSlider(id, i, "From", isLow: true, depth: false)
                 bandSlider(id, i, "To", isLow: false, depth: false)
-                optionalSlider(id, i, "Smoothness", \.smooth, 0...100, 50)
+                optionalSlider(id, i, "Smoothness", \.smooth, 0...100, 50,
+                               behaviour: .smoothness)
             }
         // Still editable, no longer offerable. Nothing estimates depth and nothing reads
         // embedded depth — `aiMattes` is a literal empty dictionary at both call sites —
@@ -517,13 +592,18 @@ struct MaskPanel: View {
         VStack(alignment: .leading, spacing: 2) {
             LumenSlider(title: "Size", value: brushValue(\.size), range: 0.002...0.5,
                         defaultValue: BrushStroke.defaultSize, step: 0.002, decimals: 3,
-                        bipolar: false)
+                        bipolar: false,
+                        behaviour: .size,
+                        behaviourValue: (brush.size - 0.002) / 0.498)
             LumenSlider(title: "Feather", value: brushValue(\.feather), range: 0...100,
-                        defaultValue: 50, step: 1, decimals: 0, bipolar: false)
+                        defaultValue: 50, step: 1, decimals: 0, bipolar: false,
+                        behaviour: .stampFalloff, behaviourValue: brush.feather / 100)
             LumenSlider(title: "Flow", value: brushValue(\.flow), range: 1...100,
-                        defaultValue: 100, step: 1, decimals: 0, bipolar: false)
+                        defaultValue: 100, step: 1, decimals: 0, bipolar: false,
+                        behaviour: .flow, behaviourValue: brush.flow / 100)
             LumenSlider(title: "Max strength", value: brushValue(\.density), range: 0...100,
-                        defaultValue: 100, step: 1, decimals: 0, bipolar: false)
+                        defaultValue: 100, step: 1, decimals: 0, bipolar: false,
+                        behaviour: .densityCeiling, behaviourValue: brush.density / 100)
             LumenToggleRow(title: "Eraser", isOn: brushFlag(\.erase),
                            help: "Erase strokes fold into the same buffer in draw order")
             LumenToggleRow(title: "Stay inside edges", isOn: brushFlag(\.automask),
@@ -776,13 +856,19 @@ struct MaskPanel: View {
                     // control named "Snap" that visibly does nothing at 10 reads as
                     // broken, which is the failure this rebuild exists to remove
                     // (docs/36 §1.3).
-                    refineSlider(mask.id, "Follow edges", \.feather, 0...100, 0)
+                    refineSlider(mask.id, "Follow edges", \.feather, 0...100, 0,
+                                 behaviour: .followEdges,
+                                 behaviourValue: mask.refine.feather / 100)
                     refineSlider(mask.id, "Expand / Contract", \.edge, -50...50, 0,
-                                 bipolar: true)
+                                 bipolar: true,
+                                 behaviour: .expandContract,
+                                 behaviourValue: mask.refine.edge / 50)
                     // "Soften edge", not "Feather": this is a Gaussian blur of the
                     // FINISHED alpha, and the brush's Feather is the hardness of one
                     // stamp. Two controls, nine rows apart, that were the same word.
-                    refineSlider(mask.id, "Soften edge", \.blur, 0...100, 0)
+                    refineSlider(mask.id, "Soften edge", \.blur, 0...100, 0,
+                                 behaviour: .softenEdge,
+                                 behaviourValue: mask.refine.blur / 100)
                     // The density ramp. "Curve" was its old name and it sat directly
                     // above a section called Curve, which is the collision that could
                     // not be defended; "Start"/"End" were a 1994 histogram dialog.
@@ -1124,11 +1210,17 @@ struct MaskPanel: View {
         }
     }
 
-    private func duplicateMask(_ id: String) {
+    /// `inverting` is LrC's Duplicate-and-Invert, which docs/08 §8.1 lists and we did
+    /// not have: the fastest way to grade "the subject" and "everything else" as a pair
+    /// that cannot drift apart, because the second is defined as the first's complement.
+    private func duplicateMask(_ id: String, inverting: Bool = false) {
         guard let source = mask(id) else { return }
         var copy = source
         copy.id = UUID().uuidString
-        copy.name = source.name.isEmpty ? "Copy" : source.name + " copy"
+        if inverting { copy.invert.toggle() }
+        copy.name = source.name.isEmpty
+            ? (inverting ? "Inverted" : "Copy")
+            : source.name + (inverting ? " inverted" : " copy")
         let newID = copy.id
         state.updateRecipe(coalescingKey: nil) { recipe in
             guard let i = recipe.masks.firstIndex(where: { $0.id == id }) else {
@@ -1251,15 +1343,20 @@ struct MaskPanel: View {
     private func optionalSlider(_ id: String, _ i: Int, _ t: String,
                                 _ p: WritableKeyPath<MaskComponent, Double?>,
                                 _ r: ClosedRange<Double>, _ d: Double,
-                                bipolar: Bool = false) -> some View {
-        LumenSlider(title: t,
+                                bipolar: Bool = false,
+                                behaviour: BehaviourShape? = nil) -> some View {
+        let current = component(id, i)?[keyPath: p] ?? d
+        return LumenSlider(title: t,
                     value: Binding(get: { component(id, i)?[keyPath: p] ?? d },
                                    set: { v in
                                        editComponent(id, i, key: "mask.c.\(t).\(id).\(i)") {
                                            $0[keyPath: p] = Num.clamp(v, r.lowerBound, r.upperBound)
                                        }
                                    }),
-                    range: r, defaultValue: d, step: 1, decimals: 0, bipolar: bipolar)
+                    range: r, defaultValue: d, step: 1, decimals: 0, bipolar: bipolar,
+                    behaviour: behaviour,
+                    behaviourValue: (current - r.lowerBound)
+                        / Swift.max(r.upperBound - r.lowerBound, 1e-9))
     }
 
     /// The luminance and depth bands, cross-clamped so `lo` can never pass `hi` — the
@@ -1296,12 +1393,16 @@ struct MaskPanel: View {
 
     private func refineSlider(_ id: String, _ t: String, _ p: WritableKeyPath<MaskRefine, Double>,
                               _ r: ClosedRange<Double>, _ d: Double, step: Double = 1,
-                              decimals: Int = 0, bipolar: Bool = false) -> some View {
+                              decimals: Int = 0, bipolar: Bool = false,
+                              behaviour: BehaviourShape? = nil,
+                              behaviourValue: Double = 0) -> some View {
         LumenSlider(title: t,
                     value: maskValue(id, t, get: { $0.refine[keyPath: p] },
                                      set: { $0.refine[keyPath: p] =
                                          Num.clamp($1, r.lowerBound, r.upperBound) }),
-                    range: r, defaultValue: d, step: step, decimals: decimals, bipolar: bipolar)
+                    range: r, defaultValue: d, step: step, decimals: decimals,
+                    bipolar: bipolar,
+                    behaviour: behaviour, behaviourValue: behaviourValue)
     }
 
     private func levelsSlider(_ id: String, _ t: String, low: Bool) -> some View {
@@ -1365,7 +1466,10 @@ struct MaskPanel: View {
                                          set(&m.adjust.pointColors[index],
                                              Num.clamp(v, r.lowerBound, r.upperBound))
                                      }),
-                    range: r, defaultValue: d, step: 1, decimals: 0, bipolar: bipolar)
+                    range: r, defaultValue: d, step: 1, decimals: 0, bipolar: bipolar,
+                    behaviour: behaviour,
+                    behaviourValue: (current - r.lowerBound)
+                        / Swift.max(r.upperBound - r.lowerBound, 1e-9))
     }
 
     // MARK: - Small views

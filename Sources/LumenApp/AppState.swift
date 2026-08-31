@@ -871,6 +871,16 @@ final class AppState: ObservableObject {
     /// How long a newly created mask shows itself before getting out of the way.
     static let maskOverlayFlashMS: UInt64 = 1_400
 
+    /// Keep the overlay up until it is deliberately taken down.
+    ///
+    /// For the row menu's "Keep it showing", which is the pointer's version of what `O`
+    /// does. Separate from `toggleMaskOverlay` because the menu has already decided
+    /// WHICH mask and does not want the key's "pick one if none is selected" rule.
+    func pinMaskOverlay() {
+        cancelMaskOverlayTimers()
+        maskOverlayPinned = true
+    }
+
     /// A mask was just created: show what it selected, then stand down.
     ///
     /// The first second of every mask used to look like nothing at all — `addMask`

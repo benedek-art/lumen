@@ -305,6 +305,18 @@ struct LumenSlider: View {
     /// deviation from neutral in both cases, and a flag was never what distinguished
     /// them.
     var bipolar: Bool = true
+    /// A live picture of what this parameter does, drawn in the label column beside its
+    /// name (docs/35 §4.5). Nil for every control whose meaning is a MAGNITUDE — a glyph
+    /// beside Exposure would be decoration, which is how a good idea becomes noise.
+    ///
+    /// It costs the label column 46 points, which is why it is opt-in per control rather
+    /// than a property of the slider: the row is already the narrowest instrument in the
+    /// application, and a shape is only worth that where the shape IS the meaning.
+    var behaviour: BehaviourShape?
+    /// The glyph's own value, normalized 0…1 (or −1…1 for a signed shape). Separate from
+    /// `value` because a control's units are not the glyph's: Feather is 0…100, Ramp
+    /// shape is 0.2…5, and the drawing wants neither.
+    var behaviourValue: Double = 0
     /// Non-nil turns the groove into the control's own axis — see the
     /// `Lumen.temperatureStops` comment for which controls may have one and why almost
     /// none of them may.
@@ -439,11 +451,21 @@ struct LumenSlider: View {
             // The caption under the wheels has been promising that "the bar under each
             // wheel is the zone's own lightness" over a bar too narrow to read. Double
             // click still resets it — the track's own gesture does that.
+            if let behaviour {
+                LumenBehaviourGlyph(shape: behaviour, value: behaviourValue)
+            }
             if !title.isEmpty {
                 Text(title)
                     .font(.lumenBody)
                     .foregroundStyle(isModified ? Lumen.primaryText : Lumen.secondaryText)
-                    .frame(width: Lumen.labelWidth, alignment: .leading)
+                    // The glyph is drawn IN the label column's budget, not beside it:
+                    // the track is already the narrowest instrument in the app
+                    // (docs/30 §2.3) and a picture that cost it forty-six points would
+                    // be paid for by the control it is explaining.
+                    .frame(width: behaviour == nil
+                               ? Lumen.labelWidth
+                               : Swift.max(Lumen.labelWidth - LumenBehaviourGlyph.width - 4, 28),
+                           alignment: .leading)
                     .lineLimit(1)
                     // SHRINK RATHER THAN TRUNCATE. The 86pt column was measured against
                     // 11pt labels and the type scale moved them to 12, which puts the
