@@ -859,6 +859,15 @@ final class AppState: ObservableObject {
 
     // MARK: - The ambient overlay (docs/35 §4.4)
 
+    /// Whether the mask pop-out beside the histogram is showing.
+    ///
+    /// Published rather than `@State` in the column because two places open it — the
+    /// chip under the histogram and the way-back button on the adjustments half — and a
+    /// keystroke will want it too. It is view state and it is deliberately not
+    /// persisted: a pop-out that reopened itself on relaunch is a panel, and the whole
+    /// point of this one is that it is not.
+    @Published var maskNavigatorOpen: Bool = false
+
     /// Whether the photographer asked for the overlay and it should stay up.
     ///
     /// The three transient rules below — flash on create, show on hover, hide while an

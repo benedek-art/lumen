@@ -58,10 +58,44 @@ struct MaskPanel: View {
     /// this one never did. The default is what a standalone rendering keeps.
     var showsOwnHeader: Bool = true
 
+    /// WHICH HALF OF MASKING THIS INSTANCE DRAWS.
+    ///
+    /// The owner's complaint, after using the panel that put both halves in one column:
+    /// "the radial gradient and the add mask, that shouldn't be there… I'd rather have
+    /// it in a place where if I need it, I can open it up instead of having this
+    /// clutter… All I really want is temperature, tint, exposure, contrast."
+    ///
+    /// That is a real distinction and not a matter of taste. Making a mask and adjusting
+    /// one are different activities on different clocks: the first happens once, in a
+    /// burst, and then almost never again; the second is what a photographer does for
+    /// the rest of the edit. A linear gradient across a sky is drawn in a second and
+    /// then lived with — so the twenty-odd controls that describe HOW IT WAS MADE sat
+    /// permanently between the photographer and the six that describe what it DOES.
+    ///
+    /// Lightroom splits them the same way and has since 11: a floating Masks panel holds
+    /// the roster, the list and the overlay switch, and the right-hand column holds
+    /// nothing but the sliders.
+    ///
+    /// Two roles rather than two view types, because everything both halves draw is
+    /// already built here and the selection they share already lives in `AppState`.
+    /// Extracting eight hundred lines into a second struct would have moved the same
+    /// code past a compiler this machine does not have, for no gain a photographer
+    /// could see.
+    enum Role {
+        /// The pop-out beside the histogram: the roster, the list, each mask's
+        /// components, its Edge and the overlay switch.
+        case navigator
+        /// The column: which mask is being edited, and what it does to the picture.
+        case adjustments
+    }
+
+    var role: Role = .adjustments
+
     /// Spelled out because the synthesised memberwise initialiser is private the moment
     /// any stored property is, and every `@State` fold below is. Without this,
     /// `MaskPanel(showsOwnHeader:)` would not be callable from the column that draws it.
-    init(showsOwnHeader: Bool = true) {
+    init(role: Role = .adjustments, showsOwnHeader: Bool = true) {
+        self.role = role
         self.showsOwnHeader = showsOwnHeader
     }
 
@@ -116,59 +150,109 @@ struct MaskPanel: View {
     /// different kinds of question (docs/35 §4.1). Each is a surface now, and each says
     /// its own question beside its name, once.
     var body: some View {
+        switch role {
+        case .navigator: navigatorBody
+        case .adjustments: adjustmentsBody
+        }
+    }
+
+    /// The pop-out: everything about MAKING the mask.
+    ///
+    /// List, roster, components, Edge, the brush's tools and the overlay switch. None of
+    /// it is needed to judge a photograph, and all of it was permanently in the way of
+    /// the controls that are.
+    @ViewBuilder
+    private var navigatorBody: some View {
         VStack(alignment: .leading, spacing: 8) {
-            zone("What") {
-                maskListSection
-                if let mask = activeMask {
-                    // Under the list, above the stack: it is a property of WHICH mask
-                    // you are looking at, which is the question the list answers, and
-                    // it is where Lightroom puts the same three controls.
-                    overlayControls(mask)
-                    componentSection(mask)
-                } else {
-                    emptyMaskState
-                }
-            }
+            maskListSection
             if let mask = activeMask {
-                // The zone OWNS the disclosure and the Reset now. `refineSection` used
-                // to draw its own `LumenSectionHeader(title: "Edge")` as the first row
-                // inside a zone already titled "Edge" — the same word twice, twenty
-                // points apart, the outer one smaller and fainter than the inner one.
+                overlayControls(mask)
+                componentSection(mask)
+                // The overlay comes out while an edge is dragged — an Edge control moves
+                // the SELECTION, and the overlay is the only place a selection is
+                // visible at all. Its complement lives on the adjustments half.
                 zone("Edge",
                      isExpanded: $refineExpanded,
                      isModified: mask.refine != MaskRefine(),
                      onReset: { editMask(mask.id, key: nil) { $0.refine = MaskRefine() } }) {
                     refineSection(mask)
                 }
-                    // AND THE OVERLAY COMES OUT WHILE AN EDGE IS DRAGGED — the exact
-                    // complement of the rule on the zone below, and the two are a pair.
-                    // An Effect slider moves the picture and the overlay covers up what
-                    // you are judging; an Edge slider moves the SELECTION, which the
-                    // overlay is the only place you can see at all. Dragging Refine with
-                    // nothing on screen is a control whose entire output is invisible
-                    // while you use it.
                     .environment(\.sliderGestureChanged) { active in
                         state.sliderGestureSink(active)
                         state.setMaskEdgeGesture(active, mask: mask.id)
                     }
-                zone("Effect") { effectZone(mask) }
-                    // THE OVERLAY GETS OUT OF THE WAY while an adjustment is dragged.
-                    // It is a red wash over the exact pixels being judged, which is the
-                    // one moment it obstructs rather than informs — Lightroom's rule,
-                    // and it is right.
+                if usesBrush(mask) { zone("Brush", asks: brushScope) { brushParameters() } }
+            } else {
+                emptyMaskState
+            }
+        }
+    }
+
+    /// The column: everything about what the mask DOES.
+    ///
+    /// With no mask yet there is nothing to adjust, so the column draws the roster
+    /// instead — which is where Lightroom puts it too, and it is the one moment the
+    /// board deserves the whole width: there is nothing else to look at.
+    @ViewBuilder
+    private var adjustmentsBody: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let mask = activeMask {
+                editingRow(mask)
+                effectZone(mask)
+                    // THE OVERLAY GETS OUT OF THE WAY while an adjustment is dragged. It
+                    // is a red wash over the exact pixels being judged, which is the one
+                    // moment it obstructs rather than informs — and the press that begins
+                    // the first such drag is also what ends a new mask's persistent
+                    // overlay, because from there the photographer is judging pixels
+                    // rather than a selection.
                     //
-                    // Scoped to THIS zone rather than hung off `AppState.sliderGesture`,
+                    // Scoped to this half rather than hung off `AppState.sliderGesture`,
                     // because that signal is also what the on-image canvas fires: a
                     // gradient drag would have hidden the overlay during the one gesture
-                    // that most wants it. The environment closure is wrapped rather than
-                    // replaced, so the gesture still reaches the coalescer it was for.
+                    // that most wants it. The closure is wrapped rather than replaced, so
+                    // the gesture still reaches the coalescer it was written for.
                     .environment(\.sliderGestureChanged) { active in
                         state.sliderGestureSink(active)
                         state.setMaskOverlaySuppressed(active)
                     }
-                if usesBrush(mask) { zone("Brush", asks: brushScope) { brushParameters() } }
+            } else {
+                emptyMaskState
             }
         }
+    }
+
+    /// Which mask the sliders below are pointing at.
+    ///
+    /// The column no longer contains the list, so without this there is nothing on
+    /// screen naming what an Exposure drag is about to move — and a mask panel that does
+    /// not say which mask it is editing is worse than one that is merely cluttered.
+    /// Thumbnail, name, and the way back into the pop-out.
+    private func editingRow(_ mask: Mask) -> some View {
+        HStack(spacing: 7) {
+            maskThumbnail(mask)
+            VStack(alignment: .leading, spacing: 0) {
+                Text(mask.name.isEmpty
+                     ? MaskPanel.autoName(mask, index: masks.firstIndex(where: { $0.id == mask.id }) ?? 0)
+                     : mask.name)
+                    .font(.lumenBody)
+                    .foregroundStyle(Lumen.primaryText)
+                    .lineLimit(1)
+                if masks.count > 1 {
+                    Text("\(masks.count) masks")
+                        .font(.lumenCaption)
+                        .foregroundStyle(Lumen.tertiaryText)
+                }
+            }
+            Spacer(minLength: 0)
+            Button { state.maskNavigatorOpen = true } label: {
+                Image(systemName: "square.on.square.dashed")
+                    .font(.lumenCaption)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(Lumen.secondaryText)
+            .help("Masks, components and the edge")
+        }
+        .frame(height: Lumen.rowHeight + 8)
     }
 
     /// One zone: a name, and the rows under it. NO SURFACE — and the missing surface is

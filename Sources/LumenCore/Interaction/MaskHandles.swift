@@ -141,14 +141,6 @@ public enum MaskHandles {
         case create
     }
 
-    /// How far beyond the rim the rotation handle sits, in points, measured along the
-    /// major axis.
-    ///
-    /// Far enough that its 11 pt grab circle clears the rim's: at 24 the two centres are
-    /// 24 apart and the bands meet at 12 from the rim, so a press is never ambiguous
-    /// between "resize" and "turn". Close enough that it reads as belonging to the
-    /// ellipse rather than floating beside it.
-    public static let rotateHandleOffset: Double = 24
 
     /// The band of inner-ellipse fractions the feather ring can be grabbed in.
     ///
@@ -175,8 +167,7 @@ public enum MaskHandles {
     public static func radialGrab(press: CGPoint, centre: CGPoint,
                                   majorHandle: CGPoint, minorHandle: CGPoint,
                                   feather: Double = 50,
-                                  hasGeometry: Bool = true,
-                                  rotateHandle: CGPoint? = nil)
+                                  hasGeometry: Bool = true)
         -> RadialGrab {
         // Nothing drawn yet: every press draws, wherever it lands. Without this the
         // fallback geometry a nil centre resolves to would sit under the pointer and
@@ -194,19 +185,6 @@ public enum MaskHandles {
         // recipe gets repaired in the panel rather than by a drag that guessed.
         guard ux.isFinite, uy.isFinite, vx.isFinite, vy.isFinite,
               dx.isFinite, dy.isFinite else { return .move }
-
-        // THE ROTATION HANDLE FIRST, and it is a plain point test rather than anything
-        // in the ellipse's frame: it sits outside the rim, where the only other answer
-        // is `.create`, so getting it wrong would draw a new shape over the one being
-        // turned. A press claims it or it does not.
-        if let rotateHandle {
-            let rx = Double(press.x - rotateHandle.x)
-            let ry = Double(press.y - rotateHandle.y)
-            if rx.isFinite, ry.isFinite,
-               (rx * rx + ry * ry).squareRoot() <= grabRadius {
-                return .rotate
-            }
-        }
 
         let distance = (dx * dx + dy * dy).squareRoot()
         let det = ux * vy - uy * vx
@@ -280,7 +258,26 @@ public enum MaskHandles {
             return abs(a) >= abs(b) ? .resizeMajor : .resizeMinor
         }
         // Inside, or outside by less than the buffer: still this shape.
-        if gap <= newShapeClearance { return .move }
+        // INSIDE, still this shape. Outside, TURN IT.
+        //
+        // The owner asked for this directly: "I would like to be able to turn it
+        // wherever I want, so I can just grab it in the centre, but on the outside of
+        // it… And I just don't want this little lever at the edge."
+        //
+        // He is right, and the lever was the wrong shape for a second reason he did not
+        // have to name. It sat at one fixed offset from ONE end of the major axis, so
+        // turning the ellipse meant first finding where the handle had rotated to — a
+        // control that moves while you look for it. The rim is 360° of target and it is
+        // exactly where the hand already is when the thought "turn this" arrives.
+        //
+        // The band is `newShapeClearance` because that is already the buffer that says
+        // "this press is about the shape you can see, not a new one" — it was returning
+        // `.move` for the same span, and rotating is the better answer for a press
+        // OUTSIDE a shape whose inside already moves it. Nothing is lost: a near-miss on
+        // the rim can no longer create a stray ellipse, which was the property the buffer
+        // existed for, and it now does something useful instead of nothing.
+        if gap < 0 { return .move }
+        if gap <= newShapeClearance { return .rotate }
         return .create
     }
 

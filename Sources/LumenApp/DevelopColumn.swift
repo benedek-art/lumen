@@ -182,7 +182,12 @@ struct WorkspaceRail: View {
 /// only on the window's edge.
 struct MaskingReturnBar: View {
     @ObservedObject var panel: PanelLayout
+    @EnvironmentObject private var state: AppState
+    /// This bar shows a mask count and a thumbnail, so it observes the edit signal —
+    /// `AppState.recipes` is deliberately not published (see `EditRevision`).
+    @EnvironmentObject private var edits: EditRevision
     @State private var backHovered = false
+    @State private var masksHovered = false
 
     /// Spelled out rather than left to the memberwise initializer, which the private
     /// hover state would otherwise make inaccessible from DevelopPanel's file — the
@@ -190,6 +195,8 @@ struct MaskingReturnBar: View {
     init(panel: PanelLayout) {
         self.panel = panel
     }
+
+    private var masks: [Mask] { state.currentRecipe.masks }
 
     var body: some View {
         HStack(spacing: 6) {
@@ -218,13 +225,90 @@ struct MaskingReturnBar: View {
             .help("Leave masking and go back to \(panel.layout.workspace.title) "
                   + "(Escape, or M)")
             Spacer(minLength: 0)
-            // The column has to say where it is; this word is what does.
-            LumenCapsLabel(text: "Masks", size: 11, color: Lumen.primaryText)
-                .padding(.trailing, 8)
+            masksChip
         }
         .padding(.horizontal, 4)
         .padding(.vertical, 4)
         .animation(.easeOut(duration: 0.12), value: backHovered)
+        .animation(.easeOut(duration: 0.12), value: masksHovered)
+    }
+
+    /// The word that said where the column was, turned into the door to the pop-out.
+    ///
+    /// THE OWNER ASKED FOR THIS SHAPE BY NAME, twice, with a screenshot: "once you
+    /// create one mask, then it shows up with a little box beside the histogram, and
+    /// from there you can edit the mask". This bar is already the row under the
+    /// histogram and it was already printing "Masks" as a label, so the door costs no
+    /// space at all — the label becomes a button and gains a count.
+    ///
+    /// A popover rather than a floating card over the picture, which is where Lightroom
+    /// puts its equivalent. At Lumen's minimum window the centre pane is about 511
+    /// points wide; a Lightroom-sized navigator laid over it covers between 43% and 51%
+    /// of the photograph, and that pane is a live gesture surface while masking — brush
+    /// strokes, gradient handles, polygon corners. Adobe shipped an "Auto Hide Masking
+    /// Panel" preference to paper over exactly that. Anchored here it is beside the
+    /// histogram, which is what was asked for, and the photograph keeps its width.
+    private var masksChip: some View {
+        Button { state.maskNavigatorOpen.toggle() } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "square.on.square.dashed")
+                    .font(.system(size: 11))
+                LumenCapsLabel(text: "Masks", size: 11,
+                               color: masksHovered || state.maskNavigatorOpen
+                                   ? Lumen.primaryText : Lumen.secondaryText)
+                if !masks.isEmpty {
+                    Text("\(masks.count)")
+                        .font(.lumenCaption)
+                        .foregroundStyle(Lumen.tertiaryText)
+                        .monospacedDigit()
+                }
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 8, weight: .semibold))
+            }
+            .padding(.horizontal, 7)
+            .padding(.vertical, 5)
+            .foregroundStyle(masksHovered || state.maskNavigatorOpen
+                             ? Lumen.primaryText : Lumen.secondaryText)
+            .background(state.maskNavigatorOpen ? Lumen.controlActive
+                        : masksHovered ? Lumen.controlHover : Color.clear)
+            .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusTab, style: .continuous))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { masksHovered = $0 }
+        .lumenClickCursor()
+        .help("The masks on this photograph, what each is made of, and how its edge is "
+              + "shaped")
+        .popover(isPresented: $state.maskNavigatorOpen, arrowEdge: .bottom) {
+            MaskNavigatorPopover()
+                .environmentObject(state)
+                .environmentObject(edits)
+        }
+    }
+}
+
+/// The pop-out's frame: a width, a bounded height and its own scroll.
+///
+/// Wider than the column on purpose. The column is draggable from 320 and the kind board
+/// is a three-across grid of tiles; squeezed to 320 those tiles stop being recognisable,
+/// which is the one thing a roster chosen by recognition cannot afford. A popover is not
+/// bound by the column's width, so it takes the width the board actually needs.
+///
+/// The height is capped and scrolls inside itself. This scroll cannot be the trap
+/// `DevelopPanel` warns about, because a popover is its own window: there is no outer
+/// scroll view for it to fight with.
+struct MaskNavigatorPopover: View {
+    @EnvironmentObject private var state: AppState
+
+    var body: some View {
+        ScrollView(.vertical) {
+            MaskPanel(role: .navigator, showsOwnHeader: false)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 10)
+        }
+        .frame(width: 340)
+        .frame(maxHeight: 560)
+        .background(Lumen.panel)
     }
 }
 

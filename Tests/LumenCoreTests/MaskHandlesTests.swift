@@ -109,13 +109,18 @@ final class MaskHandlesTests: XCTestCase {
 
     // MARK: Missing, and meaning it
 
-    /// A miss just past the rim moves the shape. This is the asymmetry the clearance
-    /// constant exists for: mistaking a new shape for a resize costs one undo, and
-    /// mistaking a resize for a new shape costs the shape.
-    func testNearMissOutsideTheRimIsAMoveNotACreate() {
+    /// A miss just past the rim never draws a new shape. This is the asymmetry the
+    /// clearance constant exists for: mistaking a new shape for a resize costs one undo,
+    /// and mistaking a resize for a new shape costs the shape.
+    ///
+    /// It used to answer `.move` there and now answers `.rotate` — the band outside the
+    /// rim turns the ellipse. The property being protected is unchanged and is what this
+    /// asserts: whatever the band does, it does not DESTROY. Pinning `.move` instead
+    /// would have been pinning the answer rather than the reason.
+    func testNearMissOutsideTheRimNeverCreates() {
         for gap in [12.0, 20.0, 30.0, MaskHandles.newShapeClearance - 1] {
-            XCTAssertEqual(grab(800 + 480 + gap, 550), .move,
-                           "a press \(gap) pt past the rim is a miss, not a decision")
+            XCTAssertNotEqual(grab(800 + 480 + gap, 550), .create,
+                              "a press \(gap) pt past the rim is a miss, not a decision")
         }
     }
 
@@ -219,37 +224,61 @@ final class MaskHandlesTests: XCTestCase {
                           .feather)
     }
 
-    /// The rotation handle sits beyond the rim on the major axis, where the only other
-    /// answer is `.create` — so a miss would draw a new ellipse over the one being
-    /// turned, which is why it is tested at its edges rather than only at its centre.
-    func testTheHandleBeyondTheRimTurnsTheEllipse() {
-        let knob = CGPoint(x: 1280 + MaskHandles.rotateHandleOffset, y: 550)
-        for offset in [-9.0, 0.0, 9.0] {
-            XCTAssertEqual(MaskHandles.radialGrab(press: CGPoint(x: knob.x + offset,
-                                                                 y: knob.y),
-                                                  centre: centre, majorHandle: major,
-                                                  minorHandle: minor,
-                                                  rotateHandle: knob),
-                           .rotate, "\(offset) pt off the knob")
+    /// The whole band just outside the rim turns the ellipse — 360° of it, not a knob.
+    ///
+    /// There WAS a knob, on a stalk beyond one end of the major axis. The owner asked
+    /// for it gone: "I would like to be able to turn it wherever I want, so I can just
+    /// grab it in the centre, but on the outside of it… And I just don't want this
+    /// little lever at the edge." The lever also had a defect he did not have to name —
+    /// it sat at a fixed offset from ONE end of the axis, so turning the ellipse meant
+    /// first finding where the handle had rotated to.
+    ///
+    /// Tested all the way round, because "wherever I want" is the whole claim.
+    func testTheBandOutsideTheRimTurnsTheEllipse() {
+        // Just past the 11 pt rim band, and still well inside `newShapeClearance`.
+        let out = MaskHandles.grabRadius + 6
+        for degrees in stride(from: 0.0, to: 360.0, by: 30.0) {
+            let a = degrees * Double.pi / 180
+            // The rim in this direction, then a little further along the same ray.
+            let rimX = Double(centre.x) + cos(a) * 480
+            let rimY = Double(centre.y) + sin(a) * 330
+            let dx = rimX - Double(centre.x), dy = rimY - Double(centre.y)
+            let length = (dx * dx + dy * dy).squareRoot()
+            let press = CGPoint(x: rimX + dx / length * out,
+                                y: rimY + dy / length * out)
+            XCTAssertEqual(MaskHandles.radialGrab(press: press, centre: centre,
+                                                  majorHandle: major, minorHandle: minor,
+                                                  feather: 0),
+                           .rotate, "at \(degrees)°")
         }
     }
 
-    func testTheRotationHandleDoesNotStealTheRim() {
-        // 24 pt out with an 11 pt band each: the rim's answer survives at the rim.
-        let knob = CGPoint(x: 1280 + MaskHandles.rotateHandleOffset, y: 550)
-        XCTAssertEqual(MaskHandles.radialGrab(press: CGPoint(x: 1280, y: 550),
+    /// The rim still resizes. Rotation takes the band OUTSIDE it, and the two must not
+    /// overlap, or an ellipse would become impossible to resize.
+    func testTurningDoesNotStealTheRim() {
+        XCTAssertEqual(MaskHandles.radialGrab(press: CGPoint(x: 800 + 480, y: 550),
                                               centre: centre, majorHandle: major,
-                                              minorHandle: minor, rotateHandle: knob),
+                                              minorHandle: minor),
                        .resizeMajor)
     }
 
-    func testWithNoRotationHandleNothingRotates() {
-        // The canvas passes nil when the axis is too short to place one, and a shape
-        // with no handle drawn must not have an invisible one.
-        XCTAssertNotEqual(MaskHandles.radialGrab(press: CGPoint(x: 1304, y: 550),
-                                                 centre: centre, majorHandle: major,
-                                                 minorHandle: minor, rotateHandle: nil),
-                          .rotate)
+    /// And the inside still moves. Outside turns, inside moves, the rim resizes —
+    /// three answers, no modifier, nothing to hunt for.
+    func testTheInsideStillMoves() {
+        XCTAssertEqual(MaskHandles.radialGrab(press: centre, centre: centre,
+                                              majorHandle: major, minorHandle: minor),
+                       .move)
+    }
+
+    /// Far enough out and it is a new ellipse again, which is the gesture the band was
+    /// taken from. If rotation swallowed that, ⌘-drag would be the only way to draw a
+    /// second shape on a photograph that already has one.
+    func testFarOutsideStillDrawsANewOne() {
+        let press = CGPoint(x: Double(centre.x) + 480 + MaskHandles.newShapeClearance + 4,
+                            y: Double(centre.y))
+        XCTAssertEqual(MaskHandles.radialGrab(press: press, centre: centre,
+                                              majorHandle: major, minorHandle: minor),
+                       .create)
     }
 
     func testEveryNewGrabIsRefusedOnAPoisonedShape() {
@@ -258,8 +287,7 @@ final class MaskHandlesTests: XCTestCase {
         let bad = CGPoint(x: CGFloat.nan, y: 550)
         XCTAssertEqual(MaskHandles.radialGrab(press: CGPoint(x: 900, y: 550),
                                               centre: centre, majorHandle: bad,
-                                              minorHandle: minor, feather: 50,
-                                              rotateHandle: CGPoint(x: 900, y: 550)),
+                                              minorHandle: minor, feather: 50),
                        .move)
     }
 

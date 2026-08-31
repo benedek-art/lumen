@@ -355,7 +355,7 @@ struct MaskCanvas: View {
                  + "to turn it; Shift constrains to 0/90°. ⌘-drag draws a new gradient."
         case .radial:
             return "Drag out an ellipse on the picture. Then: inside to move, the edge "
-                 + "to resize, the inner ring to feather, the outer dot to turn it. "
+                 + "to resize, the inner ring to feather, just outside it to turn it. "
                  + "⇧ keeps it round or snaps the angle; ⌘-drag draws another."
         case .brush:
             return "Drag to paint, hold ⌥ to erase, ⇧-click to carry on in a straight "
@@ -1025,31 +1025,14 @@ struct MaskCanvas: View {
                                       centre: viewPoint(centre[0], centre[1]),
                                       majorHandle: major, minorHandle: minor,
                                       feather: feather,
-                                      hasGeometry: hasGeometry,
-                                      rotateHandle: MaskCanvas.rotateHandle(
-                                        centre: viewPoint(centre[0], centre[1]),
-                                        major: major))
+                                      hasGeometry: hasGeometry)
     }
 
-    /// Where the rotation handle is drawn, and therefore where it can be grabbed: on
-    /// the major axis, `rotateHandleOffset` points beyond the rim.
-    ///
-    /// Nil when the axis is too short to place it on — a freshly pinched ellipse has no
-    /// direction to speak of, and a handle whose position is decided by rounding error
-    /// jumps across the screen while you resize.
-    /// One axis's half-length in view points, which is what both the feather ring's
-    /// room test and the rotation handle's placement are measured in.
+    /// One axis's half-length in view points, which is what the feather ring's room
+    /// test is measured in.
     static func axisLength(_ centre: CGPoint, _ handle: CGPoint) -> Double {
         let d = Double(hypot(handle.x - centre.x, handle.y - centre.y))
         return d.isFinite ? d : 0
-    }
-
-    static func rotateHandle(centre: CGPoint, major: CGPoint) -> CGPoint? {
-        let dx = major.x - centre.x, dy = major.y - centre.y
-        let length = hypot(dx, dy)
-        guard length.isFinite, length > 4 else { return nil }
-        let out = length + CGFloat(MaskHandles.rotateHandleOffset)
-        return CGPoint(x: centre.x + dx / length * out, y: centre.y + dy / length * out)
     }
 
     /// Radii are normalized against width and height separately, so "round" is a
@@ -1278,19 +1261,13 @@ struct MaskCanvas: View {
             handle(&context, viewPoint(from: centre, offset: offset, rotation: rotation))
         }
 
-        // THE ROTATION HANDLE, on a stalk so it reads as belonging to the ellipse rather
-        // than floating beside it. Drawn last, over everything, because it is the only
-        // handle that lives outside the shape and a rim that crossed it would make it
-        // look like part of the rim.
-        let origin = viewPoint(centre[0], centre[1])
-        let major = viewPoint(from: centre, offset: (radii[0], 0), rotation: rotation)
-        if let knob = MaskCanvas.rotateHandle(centre: origin, major: major) {
-            var stalk = Path()
-            stalk.move(to: major)
-            stalk.addLine(to: knob)
-            stroke(&context, stalk, width: 1, alpha: 0.5)
-            handle(&context, knob, small: true)
-        }
+        // NO ROTATION KNOB. There was one on a stalk beyond the major axis, and it is
+        // gone: the whole band just outside the rim turns the ellipse now, so a knob
+        // would be a second, smaller target for something the shape's entire outline
+        // already offers. The owner asked for exactly this — "I just don't want this
+        // little lever at the edge" — and the lever had a defect he did not have to
+        // name: it sat at one fixed offset from ONE end of the axis, so turning the
+        // ellipse meant first hunting for where the handle had rotated to.
     }
 
     private func drawBrush(_ context: inout GraphicsContext) {
