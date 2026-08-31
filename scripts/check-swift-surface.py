@@ -390,14 +390,29 @@ def match_paren(text, open_index):
 
 
 def split_top(text):
-    """Split on commas not nested in brackets or strings.
+    """Split on commas not nested in brackets, generic arguments, or strings.
 
-    `<`/`>` are NOT treated as brackets: `->` appears in every closure-typed parameter
-    and counting its `>` as a close ran the depth negative, which swallowed the
-    parameter after it. That produced four confident false reports the first time this
-    was run, which is the whole reason the note is here.
+    `<`/`>` cannot be counted as plain brackets: `->` appears in every closure-typed
+    parameter and counting its `>` as a close ran the depth negative, which swallowed
+    the parameter after it and produced four confident false reports the first time
+    this was run.
+
+    But leaving them out entirely was worse, and silently so. A comma inside a generic
+    argument list — `WritableKeyPath<LocalAdjust, Double?>` — split one parameter into
+    two halves, the second (` Double?>`) matched no label pattern, and `collect_methods`
+    dropped the WHOLE METHOD rather than the parameter. Twenty-three method names went
+    unrecorded that way, and they were not obscure: `adjustSlider`, `optionalSlider`,
+    `refineSlider`, `bipolarSlider`, `wheelValue`, `brushValue` — the panel's slider
+    builders, which is to say the most-called helpers in the code that has broken the
+    macOS lane three times. Every call site to all twenty-three was unchecked, and one
+    of them was the extra-argument error that broke it a fourth.
+
+    So `<` opens a level only where it can only be a generic: immediately after an
+    identifier character, and never as part of `->`. `>` closes one only while a level
+    is open and it is not the tail of `->`. A comparison in a default value (`= a < b`)
+    has a space before its `<` and opens nothing.
     """
-    parts, depth, cur, i, n = [], 0, [], 0, len(text)
+    parts, depth, angle, cur, i, n = [], 0, 0, [], 0, len(text)
     while i < n:
         ch = text[i]
         if ch == '"':
@@ -416,7 +431,13 @@ def split_top(text):
         elif ch in ")]}":
             depth -= 1
             cur.append(ch)
-        elif ch == "," and depth == 0:
+        elif ch == "<" and i > 0 and (text[i - 1].isalnum() or text[i - 1] == "_"):
+            angle += 1
+            cur.append(ch)
+        elif ch == ">" and angle > 0 and not (i > 0 and text[i - 1] == "-"):
+            angle -= 1
+            cur.append(ch)
+        elif ch == "," and depth == 0 and angle == 0:
             parts.append("".join(cur))
             cur = []
         else:
@@ -790,6 +811,30 @@ RECEIVER_KEYWORDS = {
 # happens to share its name.
 METHOD_CALL_TYPED = re.compile(r"(?<![\w.])(Self|[A-Z]\w*)\s*\.\s*([a-z]\w*)\s*\(")
 
+# The same call with NO receiver at all: `optionalSlider(id, i, …)` inside the type that
+# declares it. Both regexes above require something before the dot, so every implicit-
+# `self` call in the application was invisible to this pass — which is most of the calls
+# in a SwiftUI view, and it is where the extra-argument error that broke the macOS lane
+# lived.
+#
+# Three filters make it report nothing false over the tree, and each one is a real
+# language rule rather than a patch:
+#
+#   SHADOWING. `commit(edit)` in `MaskCanvas` calls a stored closure PROPERTY, and there
+#   is a `func commit` elsewhere in the tree. A bare name that is also bound as a value
+#   or a parameter anywhere in the file is a call on that value.
+#
+#   VARIADICS. `run("/usr/bin/ditto", "-x", …)` is one declared parameter and five
+#   arguments, and the label walk counts them. A variadic declaration is skipped whole.
+#
+#   ENUM CASES. `case mask(String)` inside an enum body is a declaration, not a call.
+METHOD_CALL_BARE = re.compile(r"(?<![\w.$@\\#?])([a-z_]\w*)\s*\(")
+VALUE_BOUND = re.compile(r"(?:^|[^\w.])(?:let|var)\s+([a-z_]\w*)")
+PARAM_LABELLED = re.compile(r"[(,]\s*(?:[a-z_]\w*|_)\s+([a-z_]\w*)\s*:")
+PARAM_PLAIN = re.compile(r"[(,]\s*([a-z_]\w*)\s*:")
+VARIADIC_DECL = re.compile(
+    r"\bfunc\s+([a-z]\w*)\s*(?:<[^<>]*>)?\s*\(([^)]*\.\.\.[^)]*)\)")
+
 # Method names that also exist on stdlib or platform types, where an in-tree
 # declaration of the same name says nothing about a call on something else.
 METHOD_SKIP = {
@@ -871,14 +916,19 @@ def pass_method_labels():
     methods = collect_methods()
     problems, checked = [], 0
 
+    variadic = set()
+    for path in FILES:
+        for m in VARIADIC_DECL.finditer(strip_comments(path.read_text())):
+            variadic.add(m.group(1))
+
     intree_types = set()
     for path in FILES:
         body = strip_comments(path.read_text())
         intree_types.update(DECL.findall(body))
         intree_types.update(EXTENSION.findall(body))
 
-    def call_sites(text):
-        """Every method call this pass can judge, value-receiver and type-receiver."""
+    def call_sites(text, shadowed):
+        """Every method call this pass can judge: value-, type- and no-receiver."""
         for m in METHOD_CALL.finditer(text):
             if m.group(1) in RECEIVER_KEYWORDS:
                 continue
@@ -887,10 +937,25 @@ def pass_method_labels():
             receiver = m.group(1)
             if receiver == "Self" or receiver in intree_types:
                 yield m, m.group(2)
+        for m in METHOD_CALL_BARE.finditer(text):
+            name = m.group(1)
+            if name in RECEIVER_KEYWORDS or name in shadowed or name in variadic:
+                continue
+            before = text[max(0, m.start() - 40):m.start()]
+            # The declaration itself, and an enum case with an associated value.
+            if re.search(r"\b(?:func|case)\s+$", before):
+                continue
+            yield m, name
 
     for path in FILES:
-        text = strip_comments(path.read_text())
-        for m, name in call_sites(text):
+        # Bodies blanked so prose — the schema strings in `CatalogStore`, above all —
+        # cannot invent a call, but the delimiter quotes kept so a positional string
+        # argument still counts as one. `strip_comments` alone read `photo(added_at)`
+        # out of a CREATE INDEX as twenty-three calls to `func photo`.
+        text = strip_all_keep_quotes(path.read_text())
+        shadowed = (set(VALUE_BOUND.findall(text)) | set(PARAM_LABELLED.findall(text))
+                    | set(PARAM_PLAIN.findall(text)))
+        for m, name in call_sites(text, shadowed):
             if name in METHOD_SKIP or name not in methods:
                 continue
             open_i = m.end() - 1
