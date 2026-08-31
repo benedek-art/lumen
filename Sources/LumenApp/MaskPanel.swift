@@ -838,7 +838,9 @@ struct MaskPanel: View {
                      + "ends is the feather; ⇧ snaps the angle to 15°.")
         case .similarityLine:
             VStack(alignment: .leading, spacing: 2) {
-                note("Drag on the image to set the ramp — " + MaskPanel.lineSummary(c) + ".")
+                note(MaskPanel.optionalLineIsSet(c)
+                     ? MaskPanel.lineSummary(c) + "."
+                     : "Drag on the photograph to draw the fade.")
                 similarityParameters(id, i, c)
             }
         case .radial:
@@ -2415,7 +2417,10 @@ struct MaskPanel: View {
             c.samples = [AppState.placeholderSample]
             c.chromaSel = 50
             c.lumaSel = 50
-            if kind == .similarityLine { c.line = [0.5, 0.75, 0.5, 0.25] }
+            // No line, for the same reason the plain gradient has none: one lying down
+            // the middle of the frame is one you have to move rather than place. The
+            // order here is pick a colour, then drag the fade — and `validationError`
+            // says which half is still missing at each step.
         case .depthRange:
             c.depthLo = 0
             c.depthHi = 1
