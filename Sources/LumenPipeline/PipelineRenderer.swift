@@ -1208,7 +1208,11 @@ public final class PipelineRenderer {
                                               source: source,
                                               strokeSets: strokeSets,
                                               aiMattes: aiMattes,
-                                              brushPlanes: painted)
+                                              brushPlanes: painted,
+                                              // A `maskRef` component resolves against
+                                              // this list; without it, one selects
+                                              // nothing and says nothing.
+                                              masks: plan.masks)
                 }
                 let alpha: Plane
                 if let sourceKey,
@@ -1296,7 +1300,8 @@ public final class PipelineRenderer {
                                   // The same cache the render reads, so the overlay
                                   // shows the subject mask the picture is getting
                                   // rather than an empty one.
-                                  aiMattes: mattes[source.url]?.planes ?? [:])
+                                  aiMattes: mattes[source.url]?.planes ?? [:],
+                                  masks: plan.masks)
     }
 
     /// The local-stage input, at mask-raster resolution, as an `ImageBuffer`.

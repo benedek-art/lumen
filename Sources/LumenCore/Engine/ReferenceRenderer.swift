@@ -82,7 +82,11 @@ public enum ReferenceRenderer {
                                           size: (width: image.width, height: image.height),
                                           source: image,
                                           strokeSets: inputs.strokeSets,
-                                          aiMattes: inputs.aiMattes))
+                                          aiMattes: inputs.aiMattes,
+                                          // The whole list, so a `maskRef` component can
+                                          // find what it points at. Without it a
+                                          // reference selects nothing, silently.
+                                          masks: plan.masks))
             }
             image = applyMasks(image, plan: plan, alphas: alphas, space: space)
         }

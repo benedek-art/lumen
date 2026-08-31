@@ -146,6 +146,14 @@ public enum MaskKind: String, Codable, Sendable {
     case aiPerson
     case aiLandscape
     case depthRange
+    /// Another mask on this photograph, folded into this one (docs/36 §3, bet 3).
+    ///
+    /// Component algebra was only ever available INSIDE one mask, so "Sky ∩ Person"
+    /// meant rebuilding both stacks in a third mask and keeping three copies in step by
+    /// hand. Photoshop loads a selection from any layer mask; Capture One's Combine
+    /// Masks merges sources into one layer rather than referencing one. Neither gives
+    /// you a live reference — change the Sky mask and the intersection follows.
+    case maskRef
 
     /// True when rasterizing this kind needs the picture, not just geometry.
     ///
@@ -165,6 +173,12 @@ public enum MaskKind: String, Codable, Sendable {
             // These read a cached matte rather than the picture. Listed explicitly
             // rather than caught by a `default`, so adding a kind is a compile error
             // here instead of a silently empty mask.
+            return false
+        case .maskRef:
+            // It reads whatever the mask it names reads, and `combine` resolves that by
+            // evaluating the referenced stack — so the answer for THIS component alone
+            // is no. `maskSource` asks the whole recipe, not one component, which is
+            // why that is the right answer rather than a convenient one.
             return false
         }
     }
@@ -187,7 +201,10 @@ public enum MaskKind: String, Codable, Sendable {
     public var matteProvider: MatteProvider {
         switch self {
         case .brush, .linear, .radial, .lumaRange, .colorRange, .similarity,
-             .similarityLine:
+             .similarityLine, .maskRef:
+            // A reference needs no matte of its OWN. Whether it ends up needing one is a
+            // property of the mask it names, and `VisionMattes.kinds(in:)` walks the
+            // whole recipe, so that question is already answered where it belongs.
             return .none
         case .aiSubject, .aiBackground, .aiPerson:
             // Foreground instances and person instances both come out of Vision.
@@ -199,6 +216,48 @@ public enum MaskKind: String, Codable, Sendable {
             // Sky segmentation, SAM and Depth Anything. None is bundled; the panel
             // says so rather than implying a pass that is not running.
             return .model
+        }
+    }
+}
+
+/// Which signal a Brightness Range measures (docs/36 §3, bet 2).
+///
+/// The whole Photoshop luminosity-mask tradition — Kuyper's series, and the panels
+/// people buy to generate it — is built on CHANNELS, not on luminance alone. Selecting
+/// on the red channel finds skin and sunset cloud that a luma band cannot separate;
+/// selecting on Min finds where every channel is dark, which is the mask for recovering
+/// a shadow without touching a colour cast. ON1 ships luminosity masks; we shipped one
+/// luma band.
+///
+/// EVERY CHANNEL HERE IS A SCENE-LINEAR VALUE ON THE SAME FIXED −10…+4 EV AXIS, which is
+/// what lets one band control serve all six and lets a band mean the same thing when the
+/// channel is changed under it. Saturation is deliberately absent: it is a ratio in
+/// [0,1], not a scene-linear quantity, so it would need its own axis and the handles
+/// would silently change units — and a control whose units move is the defect this
+/// rebuild is for.
+public enum MaskChannel: String, Codable, Sendable, CaseIterable {
+    case luma, red, green, blue, max, min
+
+    public var label: String {
+        switch self {
+        case .luma: return "Brightness"
+        case .red: return "Red"
+        case .green: return "Green"
+        case .blue: return "Blue"
+        case .max: return "Brightest channel"
+        case .min: return "Darkest channel"
+        }
+    }
+
+    /// The scalar this channel measures, in scene-linear units.
+    public func value(_ c: RGB, weights: RGB) -> Double {
+        switch self {
+        case .luma: return weights.r * c.r + weights.g * c.g + weights.b * c.b
+        case .red: return c.r
+        case .green: return c.g
+        case .blue: return c.b
+        case .max: return Swift.max(c.r, Swift.max(c.g, c.b))
+        case .min: return Swift.min(c.r, Swift.min(c.g, c.b))
         }
     }
 }
@@ -226,6 +285,9 @@ public struct MaskComponent: Codable, Equatable, Sendable {
     public var lo: Double?
     public var hi: Double?
     public var smooth: Double?
+    /// Which signal the band measures. Absent means `.luma`, which is what every recipe
+    /// written before this field means, so a band keeps selecting what it selected.
+    public var channel: MaskChannel?
 
     // color range / similarity: sampled references + selectivity
     public var samples: [[Double]]?    // sampled working-space RGB triples
@@ -256,6 +318,9 @@ public struct MaskComponent: Codable, Equatable, Sendable {
     // depth range
     public var depthLo: Double?
     public var depthHi: Double?
+
+    /// `maskRef`: the id of the mask this component folds in.
+    public var maskRef: String?
 
     public init(op: MaskOp, kind: MaskKind, amount: Double = 100, invert: Bool = false) {
         self.op = op
@@ -290,6 +355,10 @@ public struct MaskComponent: Codable, Equatable, Sendable {
         case .depthRange:
             guard let depthLo, let depthHi else { return "depthRange needs depthLo/depthHi" }
             if !(depthLo <= depthHi) { return "depthRange lo must be <= hi" }
+        case .maskRef:
+            guard let maskRef, !maskRef.isEmpty else {
+                return "this component needs a mask to point at"
+            }
         case .aiSubject, .aiSky, .aiBackground, .aiPerson, .aiLandscape:
             break // one-click kinds; model id recorded at generation time
         }
@@ -298,8 +367,8 @@ public struct MaskComponent: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case op, kind, amount, invert, strokesRef, line, center, radii, rotation,
-             feather, lo, hi, smooth, samples, points, rangeAmount, chromaSel, lumaSel,
-             model, prompt, personParts, classes, depthLo, depthHi
+             feather, lo, hi, smooth, channel, samples, points, rangeAmount, chromaSel, lumaSel,
+             model, prompt, personParts, classes, depthLo, depthHi, maskRef
     }
 
     /// Tolerant of an absent key, including the two that say what the component IS.
@@ -324,6 +393,7 @@ public struct MaskComponent: Codable, Equatable, Sendable {
         self.lo = try c.decodeIfPresent(Double.self, forKey: .lo)
         self.hi = try c.decodeIfPresent(Double.self, forKey: .hi)
         self.smooth = try c.decodeIfPresent(Double.self, forKey: .smooth)
+        self.channel = try c.decodeIfPresent(MaskChannel.self, forKey: .channel)
         self.samples = try c.decodeIfPresent([[Double]].self, forKey: .samples)
         self.points = try c.decodeIfPresent([[Double]].self, forKey: .points)
         self.rangeAmount = try c.decodeIfPresent(Double.self, forKey: .rangeAmount)
@@ -335,6 +405,7 @@ public struct MaskComponent: Codable, Equatable, Sendable {
         self.classes = try c.decodeIfPresent([String].self, forKey: .classes)
         self.depthLo = try c.decodeIfPresent(Double.self, forKey: .depthLo)
         self.depthHi = try c.decodeIfPresent(Double.self, forKey: .depthHi)
+        self.maskRef = try c.decodeIfPresent(String.self, forKey: .maskRef)
     }
 }
 

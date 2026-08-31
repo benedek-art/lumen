@@ -100,6 +100,11 @@ public enum MaskRaster {
             return depthRangePlane(component, w, h, aiMattes)
         case .aiSubject, .aiSky, .aiBackground, .aiObject, .aiPerson, .aiLandscape:
             return mattePlane(component.kind, w, h, aiMattes)
+        case .maskRef:
+            // Resolved by `combine`, which is the only function that holds the list of
+            // masks a reference could name. Rasterizing ONE component cannot answer
+            // "what does mask X select", so this returns empty rather than pretending.
+            return Plane(width: w, height: h)
         }
     }
 
@@ -119,12 +124,19 @@ public enum MaskRaster {
     ///   accumulates with `accumulatedBrushPlane` and hands the result in, so appending
     ///   a stroke costs one stroke instead of the whole set (docs/36 §1.2). A plane of
     ///   the wrong size is ignored, not trusted.
+    /// - Parameter masks: every mask on this photograph, so a `maskRef` component can be
+    ///   resolved. Defaults to empty, which makes a reference select nothing — the same
+    ///   posture the rest of this file takes toward an input it was not given.
+    /// - Parameter resolving: the ids currently being evaluated, so a reference cycle
+    ///   terminates. Callers pass nothing; the recursion carries it.
     public static func combine(mask: Mask,
                                size: (width: Int, height: Int),
                                source: ImageBuffer? = nil,
                                strokeSets: [String: BrushStrokeSet] = [:],
                                aiMattes: [String: Plane] = [:],
-                               brushPlanes: [String: Plane] = [:]) -> Plane {
+                               brushPlanes: [String: Plane] = [:],
+                               masks: [Mask] = [],
+                               resolving: Set<String> = []) -> Plane {
         let w = Swift.max(size.width, 1)
         let h = Swift.max(size.height, 1)
         var acc = Plane(width: w, height: h)
@@ -136,9 +148,17 @@ public enum MaskRaster {
         for c in mask.components {
             let set: BrushStrokeSet? = c.kind == .brush ? strokeSets[c.strokesRef ?? ""] : nil
             let held: Plane? = c.kind == .brush ? brushPlanes[c.strokesRef ?? ""] : nil
-            let raw = rasterize(component: c, size: (width: w, height: h),
+            let raw: Plane
+            if c.kind == .maskRef {
+                raw = referenced(c, size: (width: w, height: h), source: source,
+                                 strokeSets: strokeSets, aiMattes: aiMattes,
+                                 brushPlanes: brushPlanes, masks: masks,
+                                 resolving: resolving.union([mask.id]))
+            } else {
+                raw = rasterize(component: c, size: (width: w, height: h),
                                 source: source, strokes: set, aiMattes: aiMattes,
                                 brushPlane: held)
+            }
             if raw.width != w || raw.height != h { continue }
             for i in 0..<n {
                 let v = MaskAlgebra.componentAlpha(raw: Double(raw.values[i]),
@@ -154,6 +174,50 @@ public enum MaskRaster {
 
         return refined(acc, refine: mask.refine, source: source, invert: mask.invert)
     }
+
+    /// One `maskRef` component's alpha: the FINISHED alpha of the mask it names.
+    ///
+    /// Finished, not raw — the referenced mask's own fold, its whole-mask invert and its
+    /// whole refinement chain — because "Sky ∩ Person" means the two selections a
+    /// photographer can see, not two half-built ones. It is a live reference: soften the
+    /// Sky mask's edge and every intersection with it softens too, which is the property
+    /// Capture One's Combine Masks does not have, since that merges sources into one
+    /// layer and forgets where they came from.
+    ///
+    /// What it does NOT take is the referenced mask's Amount, which scales that mask's
+    /// ADJUSTMENTS and never its raster (`MaskAlgebra`'s header). A reference is about
+    /// the selection; the strength of the other mask's edit is none of its business.
+    ///
+    /// Cycles terminate. `resolving` carries every id on the current chain, so a mask
+    /// that names itself, or A → B → A, selects nothing rather than recursing — and
+    /// "nothing" is the right answer because a cyclic definition has no fixed point to
+    /// be right about. `referenceDepthLimit` is the belt to that brace: a chain longer
+    /// than any photograph could justify stops rather than growing a stack.
+    static func referenced(_ c: MaskComponent,
+                           size: (width: Int, height: Int),
+                           source: ImageBuffer?,
+                           strokeSets: [String: BrushStrokeSet],
+                           aiMattes: [String: Plane],
+                           brushPlanes: [String: Plane],
+                           masks: [Mask],
+                           resolving: Set<String>) -> Plane {
+        let empty = Plane(width: Swift.max(size.width, 1), height: Swift.max(size.height, 1))
+        guard let id = c.maskRef, !id.isEmpty,
+              !resolving.contains(id),
+              resolving.count <= referenceDepthLimit,
+              let target = masks.first(where: { $0.id == id })
+        else { return empty }
+        // A disabled mask still SELECTS. `enabled` says whether its adjustments reach
+        // the picture, and a reference wants its selection — otherwise turning off the
+        // Sky mask to look at something would silently empty every mask built on it.
+        return combine(mask: target, size: size, source: source,
+                       strokeSets: strokeSets, aiMattes: aiMattes,
+                       brushPlanes: brushPlanes, masks: masks, resolving: resolving)
+    }
+
+    /// How long a chain of references may be. Eight is past any composition a
+    /// photograph justifies and far short of a stack that matters.
+    static let referenceDepthLimit = 8
 
     /// docs/08 §8.5: "radius ≈ Refine × 2% long edge". At 61 MP (9504 px long edge),
     /// Refine 10 → 19 px, Refine 100 → 190 px.
@@ -509,12 +573,14 @@ public enum MaskRaster {
         // a zero-width smoothstep.
         let shoulder = Swift.max(s * lumaShoulderEV / evSpan, 1e-4)
         let weights = RGBColorSpace.rec2020.luminanceWeights
+        // Absent means luma, which is what every band written before the field means.
+        let channel = c.channel ?? .luma
 
         for y in 0..<h {
             for x in 0..<w {
                 let rgb = srcColor(src, x, y, w, h)
-                let luminance = weights.r * rgb.r + weights.g * rgb.g + weights.b * rgb.b
-                let ev = Num.safeLog2(luminance.isFinite ? luminance : 0, floorEV: -16)
+                let measured = channel.value(rgb, weights: weights)
+                let ev = Num.safeLog2(measured.isFinite ? measured : 0, floorEV: -16)
                 let nEV = Num.saturate((ev - evMin) / (evMax - evMin))
                 let rise = smoothstep(lo01 - shoulder, lo01, nEV)
                 let fall = 1 - smoothstep(hi01, hi01 + shoulder, nEV)

@@ -339,7 +339,8 @@ struct MaskPanel: View {
                         componentEditor(mask.id, i, mask.components[i])
                     }
                     // Same board, same place: under the list it adds to.
-                    kindMenu(label: "Add to this mask", isOpen: $componentPickerOpen) { kind in
+                    kindMenu(label: "Add to this mask", isOpen: $componentPickerOpen,
+                             offersReference: true) { kind in
                         addComponent(kind: kind, to: mask.id)
                     }
                 }
@@ -442,9 +443,11 @@ struct MaskPanel: View {
             }
         case .lumaRange:
             VStack(alignment: .leading, spacing: 2) {
+                channelRow(id, i, c)
                 // From / To, not Band Lo / Band Hi. Both are EV on the fixed −10…+4
-                // axis over scene luminance, never auto-ranged, so a band means the same
-                // thing on every frame — which is a fact about the axis, not a caption.
+                // axis over the CHANNEL above, never auto-ranged, so a band means the
+                // same thing on every frame and keeps meaning it when the channel
+                // changes under it — which is why every channel is on one axis.
                 bandSlider(id, i, "From", isLow: true, depth: false)
                 bandSlider(id, i, "To", isLow: false, depth: false)
                 optionalSlider(id, i, "Smoothness", \.smooth, 0...100, 50)
@@ -495,6 +498,8 @@ struct MaskPanel: View {
                     .foregroundStyle(.secondary)
                 modelNote(c)
             }
+        case .maskRef:
+            referenceRow(id, i, c)
         case .aiSubject, .aiSky, .aiBackground, .aiObject, .aiLandscape:
             modelNote(c)
         }
@@ -524,6 +529,76 @@ struct MaskPanel: View {
             LumenToggleRow(title: "Stay inside edges", isOn: brushFlag(\.automask),
                            help: "Gates each stamp by colour similarity to the stamp centre")
         }
+    }
+
+    /// Which mask this component folds in.
+    ///
+    /// The list excludes THIS mask, because a mask that references itself has no fixed
+    /// point to be right about — the engine refuses the cycle and selects nothing, and
+    /// a picker that can only produce that is a picker offering a mistake.
+    ///
+    /// What it takes is the other mask's FINISHED alpha: its fold, its invert, its whole
+    /// refinement chain. Live, so softening the Sky mask's edge softens every
+    /// intersection built on it. Not its Amount — that scales the other mask's
+    /// adjustments, which are none of this one's business.
+    private func referenceRow(_ id: String, _ i: Int, _ c: MaskComponent) -> some View {
+        let others = masks.filter { $0.id != id }
+        let target = others.first { $0.id == c.maskRef }
+        return VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
+                Text("Points at")
+                    .font(.lumenBody)
+                    .foregroundStyle(Lumen.secondaryText)
+                Spacer(minLength: 0)
+                LumenMenu(title: target.map { MaskPanel.displayName($0, in: masks) }
+                              ?? "Choose a mask",
+                          help: "This component selects whatever that mask selects, "
+                              + "and follows it when it changes") {
+                    ForEach(Array(others.indices), id: \.self) { index in
+                        LumenMenuItem(title: MaskPanel.displayName(others[index], in: masks),
+                                      isSelected: others[index].id == c.maskRef) {
+                            let chosen = others[index].id
+                            editComponent(id, i, key: nil) { $0.maskRef = chosen }
+                        }
+                    }
+                }
+            }
+            .frame(height: Lumen.rowHeight)
+        }
+    }
+
+    /// A mask's name as a menu should say it — its own name, or its position when it has
+    /// none, so an unnamed mask is still distinguishable from the other unnamed ones.
+    static func displayName(_ mask: Mask, in list: [Mask]) -> String {
+        if !mask.name.isEmpty { return mask.name }
+        let index = list.firstIndex { $0.id == mask.id }.map { $0 + 1 } ?? 0
+        return "Mask \(index)"
+    }
+
+    /// Which signal the band measures.
+    ///
+    /// The Photoshop luminosity-mask tradition is channel-based, and no raw editor
+    /// exposes the channels natively (docs/36 §3, bet 2). Red separates skin and sunset
+    /// cloud a luma band cannot; Darkest channel finds where EVERY channel is down,
+    /// which is the mask for lifting a shadow without pulling its colour cast with it.
+    private func channelRow(_ id: String, _ i: Int, _ c: MaskComponent) -> some View {
+        let channel = c.channel ?? .luma
+        return HStack(spacing: 6) {
+            Text("Measures")
+                .font(.lumenBody)
+                .foregroundStyle(Lumen.secondaryText)
+            Spacer(minLength: 0)
+            LumenMenu(title: channel.label,
+                      help: "Every channel reads the same −10…+4 EV axis, so the band "
+                          + "keeps its meaning when you change what it measures") {
+                ForEach(MaskChannel.allCases, id: \.self) { option in
+                    LumenMenuItem(title: option.label, isSelected: channel == option) {
+                        editComponent(id, i, key: nil) { $0.channel = option }
+                    }
+                }
+            }
+        }
+        .frame(height: Lumen.rowHeight)
     }
 
     /// Both sliders are the width of the OKLab similarity gate, one across chroma and
@@ -1309,6 +1384,7 @@ struct MaskPanel: View {
     /// worth pressing rather than as a corner of a header.
     private func kindMenu(label: String, isOpen: Binding<Bool>,
                           prominent: Bool = false,
+                          offersReference: Bool = false,
                           action: @escaping (MaskKind) -> Void) -> some View {
         // A DISCLOSURE OVER A BOARD, not a popup menu.
         //
@@ -1344,10 +1420,10 @@ struct MaskPanel: View {
                 .help("Every kind of selection, on one board")
             }
             if prominent || isOpen.wrappedValue {
-                kindBoard { kind in
+                kindBoard({ kind in
                     isOpen.wrappedValue = false
                     action(kind)
-                }
+                }, offersReference: offersReference)
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
@@ -1359,11 +1435,18 @@ struct MaskPanel: View {
     /// kernel family and the second names where the model runs. Neither is what a
     /// photographer is deciding between. "Draw it by hand", "Find it by tone or colour"
     /// and "Find it for me" are.
-    private func kindBoard(_ action: @escaping (MaskKind) -> Void) -> some View {
+    private func kindBoard(_ action: @escaping (MaskKind) -> Void,
+                           offersReference: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             boardGroup("Draw it by hand", MaskPanel.drawnKinds, action)
             boardGroup("Find it by tone or colour", MaskPanel.rangeKinds, action)
             boardGroup("Find it for me", MaskPanel.visionKinds, action)
+            // Only where there is something to point AT. A reference offered on a
+            // photograph with one mask is a tile that can only make an empty component,
+            // which is the shape of offer-and-retraction this panel keeps deleting.
+            if offersReference, masks.count > 1 {
+                boardGroup("Reuse", [.maskRef], action)
+            }
         }
         .padding(.vertical, 2)
     }
@@ -1567,6 +1650,7 @@ struct MaskPanel: View {
         case .aiPerson: return "People"
         case .aiLandscape: return "Landscape"
         case .depthRange: return "Depth Range"
+        case .maskRef: return "Another Mask"
         }
     }
 
@@ -1596,6 +1680,7 @@ struct MaskPanel: View {
         case .aiPerson: return "person.2"
         case .aiLandscape: return "mountain.2"
         case .depthRange: return "cube.transparent"
+        case .maskRef: return "square.on.square.dashed"
         }
     }
 
@@ -1621,6 +1706,7 @@ struct MaskPanel: View {
         case .aiPerson: return "The people in the frame"
         case .aiLandscape: return "Sky, water, greenery, ground — by class"
         case .depthRange: return "Everything at this distance from the camera"
+        case .maskRef: return "Whatever another mask selects, live"
         }
     }
 
@@ -1682,6 +1768,12 @@ struct MaskPanel: View {
         // have.
         case .aiPerson, .aiLandscape,
              .aiSubject, .aiSky, .aiBackground, .aiObject:
+            break
+        case .maskRef:
+            // Deliberately unseeded. A reference born pointing at an arbitrary other
+            // mask would be a component that silently does something nobody asked for;
+            // `validationError` reads INCOMPLETE until one is chosen, which is what
+            // that badge is for.
             break
         }
         return c
