@@ -172,6 +172,26 @@ public enum MaskRaster {
         // empty — same as LR, and the property maskalgebra.json pins.
         let n = w * h
         for c in mask.components {
+            // AND THE SAME RULE PER COMPONENT, which is the half that was missing.
+            //
+            // The guard above only fires when EVERY component is incomplete. The loop
+            // then rasterized the unfinished ones anyway — `rasterize` hands back a zero
+            // plane — and folded them in. For `.add` that is invisible, because max(a, 0)
+            // is a; for `.subtract` it is also invisible, because min(a, 1) is a. For
+            // `.intersect` it is `a × 0`, and THE WHOLE MASK GOES TO ZERO.
+            //
+            // Reachable in two clicks: a mask with a working Radial, add a component —
+            // `makeComponent` seeds no geometry by design — and set its op to Intersect
+            // with the segmented control that is always on screen. Every pixel the mask
+            // selected disappears until the second component is drawn, and a recipe saved
+            // in that state renders empty forever, in the loupe and in the delivered
+            // file, with the panel flagging only the one component as INCOMPLETE.
+            //
+            // "The absence of a selection" is the argument the guard above already makes.
+            // A component that cannot be evaluated has nothing to contribute to the fold
+            // — not zero, nothing — and skipping it is what that sentence means applied
+            // one level down.
+            if c.validationError() != nil { continue }
             let set: BrushStrokeSet? = c.kind == .brush ? strokeSets[c.strokesRef ?? ""] : nil
             let held: Plane? = c.kind == .brush ? brushPlanes[c.strokesRef ?? ""] : nil
             let raw: Plane
