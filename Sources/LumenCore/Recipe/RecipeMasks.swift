@@ -194,6 +194,17 @@ public enum MaskKind: String, Codable, Sendable {
     /// and the same fixed −10…+4 EV axis Brightness Range reads, so the two agree about
     /// what "bright" means.
     case luminosity
+    /// A closed outline the photographer drew — polygon or lasso (docs/36 §2 A).
+    ///
+    /// ONE kind, not two, and that is a decision rather than a shortcut: a lasso IS a
+    /// polygon whose vertices arrived quickly. The wire format cannot tell them apart
+    /// and neither can the rasterizer, so a lasso drawn in a hurry can be tidied
+    /// vertex by vertex afterwards — which is the thing every editor that keeps them
+    /// separate cannot do.
+    ///
+    /// Capture One, Photoshop, Affinity and ON1 all have one. Lightroom does not, and
+    /// neither did we: "select that building" had no answer here but the brush.
+    case polygon
 
     /// True when rasterizing this kind needs the picture, not just geometry.
     ///
@@ -204,7 +215,7 @@ public enum MaskKind: String, Codable, Sendable {
     /// Luma Range, Colour Range and both Similarity kinds doing nothing at all.
     public var readsSourceImage: Bool {
         switch self {
-        case .brush, .linear, .radial:
+        case .brush, .linear, .radial, .polygon:
             return false
         case .lumaRange, .colorRange, .similarity, .similarityLine, .luminosity:
             return true
@@ -241,7 +252,7 @@ public enum MaskKind: String, Codable, Sendable {
     public var matteProvider: MatteProvider {
         switch self {
         case .brush, .linear, .radial, .lumaRange, .colorRange, .similarity,
-             .similarityLine, .maskRef, .luminosity:
+             .similarityLine, .maskRef, .luminosity, .polygon:
             // A reference needs no matte of its OWN. Whether it ends up needing one is a
             // property of the mask it names, and `VisionMattes.kinds(in:)` walks the
             // whole recipe, so that question is already answered where it belongs.
@@ -362,6 +373,11 @@ public struct MaskComponent: Codable, Equatable, Sendable {
     /// `maskRef`: the id of the mask this component folds in.
     public var maskRef: String?
 
+    /// The closed outline's vertices, source-normalized, in order: `[[x, y], …]`. The
+    /// last joins back to the first — a path that stored its own closing vertex would
+    /// let a recipe describe an outline that is not closed, and there is no such thing.
+    public var path: [[Double]]?
+
     // luminosity series
     /// Which end of the tone scale. Absent means `.lights`.
     public var series: LuminositySeries?
@@ -409,6 +425,13 @@ public struct MaskComponent: Codable, Equatable, Sendable {
             guard let maskRef, !maskRef.isEmpty else {
                 return "this component needs a mask to point at"
             }
+        case .polygon:
+            guard let path, path.count >= 3 else {
+                return "an outline needs at least three points"
+            }
+            if path.contains(where: { $0.count != 2 || !$0.allSatisfy(\.isFinite) }) {
+                return "an outline point is [x, y] and both must be numbers"
+            }
         case .luminosity:
             // Both fields default rather than fail: `series` absent is Lights and
             // `level` absent is 1, which is the plain luminance channel and a
@@ -425,7 +448,7 @@ public struct MaskComponent: Codable, Equatable, Sendable {
         case op, kind, amount, invert, strokesRef, line, center, radii, rotation,
              feather, lo, hi, smooth, channel, samples, points, rangeAmount, chromaSel, lumaSel,
              model, prompt, personParts, classes, depthLo, depthHi, maskRef,
-             series, level
+             series, level, path
     }
 
     /// Tolerant of an absent key, including the two that say what the component IS.
@@ -463,6 +486,7 @@ public struct MaskComponent: Codable, Equatable, Sendable {
         self.depthLo = try c.decodeIfPresent(Double.self, forKey: .depthLo)
         self.depthHi = try c.decodeIfPresent(Double.self, forKey: .depthHi)
         self.maskRef = try c.decodeIfPresent(String.self, forKey: .maskRef)
+        self.path = try c.decodeIfPresent([[Double]].self, forKey: .path)
         self.series = try c.decodeIfPresent(LuminositySeries.self, forKey: .series)
         self.level = try c.decodeIfPresent(Double.self, forKey: .level)
     }

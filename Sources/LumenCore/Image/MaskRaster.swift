@@ -98,6 +98,8 @@ public enum MaskRaster {
             return lumaRangePlane(component, w, h, source)
         case .luminosity:
             return luminosityPlane(component, w, h, source)
+        case .polygon:
+            return polygonPlane(component, w, h)
         case .colorRange:
             return colorRangePlane(component, w, h, source)
         case .similarity, .similarityLine:
@@ -595,6 +597,107 @@ public enum MaskRaster {
         }
         return p
     }
+
+    /// A closed outline, filled — the polygon and the lasso, which are one thing.
+    ///
+    /// ONE MECHANISM DOES BOTH JOBS. The value at a pixel is a smoothstep over the
+    /// SIGNED DISTANCE to the outline, so the same arithmetic that feathers the edge
+    /// also antialiases it: at Feather 0 the ramp is exactly one pixel wide, which is a
+    /// clean edge rather than a staircase, and every higher setting simply widens it.
+    /// A fill that computed coverage and then blurred would need two passes, would
+    /// round the corners at Feather 0, and would put the boundary in a different place
+    /// than the handles the photographer is dragging.
+    ///
+    /// Distances are in LONG-EDGE units, for the reason `linearPlane` states: pixels are
+    /// square and normalized coordinates are not, so a feather measured in normalized
+    /// space would be wider across a 3:2 frame than down it.
+    ///
+    /// Winding is EVEN-ODD. A lasso that crosses itself — which is most of them, drawn
+    /// quickly — produces a hole under the nonzero rule and does not under even-odd, and
+    /// a hole where the photographer's hand wobbled is never what they meant.
+    static func polygonPlane(_ c: MaskComponent, _ w: Int, _ h: Int) -> Plane {
+        var p = Plane(width: w, height: h)
+        guard let raw = c.path, raw.count >= 3 else { return p }
+        let long = Double(Swift.max(w, h))
+        let sx = Double(w) / long, sy = Double(h) / long
+        var xs = [Double](), ys = [Double]()
+        xs.reserveCapacity(raw.count)
+        ys.reserveCapacity(raw.count)
+        for point in raw {
+            guard point.count == 2, point[0].isFinite, point[1].isFinite else { return p }
+            xs.append(point[0] * sx)
+            ys.append(point[1] * sy)
+        }
+        let n = xs.count
+
+        // Feather 0 is ONE PIXEL, not zero: a zero-width ramp is a staircase, and the
+        // one place a mask must never look cheap is the edge the photographer drew by
+        // hand. Above that it is a fraction of the long edge, matching the radial's
+        // travel closely enough that the two controls feel like one control.
+        let pixel = 1.0 / long
+        let f = Num.clamp(c.feather ?? 0, 0, 100) / 100
+        let band = Swift.max(f * polygonFeatherSpan, pixel)
+
+        // The outline's own bounding box, grown by the feather: outside it the answer
+        // is zero, and a lasso around one window in a 45 MP frame would otherwise pay
+        // for a per-edge distance at every pixel in the photograph.
+        let minX = (xs.min() ?? 0) - band, maxX = (xs.max() ?? 0) + band
+        let minY = (ys.min() ?? 0) - band, maxY = (ys.max() ?? 0) + band
+
+        for y in 0..<h {
+            let py = (Double(y) + 0.5) / long
+            if py < minY || py > maxY { continue }
+            for x in 0..<w {
+                let px = (Double(x) + 0.5) / long
+                if px < minX || px > maxX { continue }
+                let d = signedDistanceToOutline(px, py, xs, ys, n)
+                // `d` is positive inside. The ramp is centred ON the outline, so the
+                // boundary the photographer placed is the half-selected line rather
+                // than the outer or inner limit of the falloff — which is what makes a
+                // feathered shape stay the size it was drawn.
+                p[x, y] = Num.saturate(smoothstep(-band / 2, band / 2, d))
+            }
+        }
+        return p
+    }
+
+    /// Distance from a point to the outline, positive inside.
+    ///
+    /// The unsigned distance is the minimum over every edge, treated as a segment; the
+    /// sign comes from an even-odd crossing count, computed in the same loop because
+    /// both walk the same edge list and a second pass would double the cost of the
+    /// hottest arithmetic in the rasterizer.
+    static func signedDistanceToOutline(_ px: Double, _ py: Double,
+                                        _ xs: [Double], _ ys: [Double],
+                                        _ n: Int) -> Double {
+        var best = Double.greatestFiniteMagnitude
+        var inside = false
+        var j = n - 1
+        for i in 0..<n {
+            let ax = xs[j], ay = ys[j], bx = xs[i], by = ys[i]
+            let ex = bx - ax, ey = by - ay
+            let wx = px - ax, wy = py - ay
+            let ee = ex * ex + ey * ey
+            let t = ee > 1e-24 ? Num.saturate((wx * ex + wy * ey) / ee) : 0
+            let dx = wx - ex * t, dy = wy - ey * t
+            best = Swift.min(best, dx * dx + dy * dy)
+            // The standard crossing test, with the half-open rule on y so a vertex
+            // exactly level with the scanline is counted once rather than twice.
+            if (ay > py) != (by > py) {
+                let cross = ax + (py - ay) / (by - ay) * ex
+                if px < cross { inside.toggle() }
+            }
+            j = i
+        }
+        let distance = best.squareRoot()
+        return inside ? distance : -distance
+    }
+
+    /// What Feather 100 means for an outline, as a fraction of the long edge. The
+    /// radial's falloff at Feather 100 runs the whole way from centre to rim, which has
+    /// no analogue on an arbitrary shape; 6% is close to what that looks like on a
+    /// typical drawn region and is the widest a hand-drawn edge stays placeable at.
+    static let polygonFeatherSpan: Double = 0.06
 
     /// Kuyper's luminosity series, evaluated as a continuous function of the channel.
     ///

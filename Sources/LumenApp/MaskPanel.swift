@@ -580,6 +580,14 @@ struct MaskPanel: View {
                 optionalSlider(id, i, "Smoothness", \.smooth, 0...100, 50,
                                behaviour: .smoothness)
             }
+        case .polygon:
+            VStack(alignment: .leading, spacing: 2) {
+                optionalSlider(id, i, "Feather", \.feather, 0...100, 0,
+                               behaviour: .softenEdge)
+                note("Drag on the image to lasso a shape, or click to place corners — "
+                     + MaskPanel.outlineSummary(c)
+                     + ". Drag a corner to move it, ⌥-click to remove it.")
+            }
         case .luminosity:
             VStack(alignment: .leading, spacing: 2) {
                 channelRow(id, i, c)
@@ -1898,7 +1906,7 @@ struct MaskPanel: View {
         Num.saturate((ev - evMin) / (evMax - evMin))
     }
 
-    static let drawnKinds: [MaskKind] = [.brush, .linear, .radial]
+    static let drawnKinds: [MaskKind] = [.brush, .linear, .radial, .polygon]
 
     /// Depth Range is deliberately not in this list, and there is no `modelKinds` list
     /// any more. Between them they named the four kinds the picker can no longer offer:
@@ -1926,6 +1934,7 @@ struct MaskPanel: View {
         case .radial: return "Radial Gradient"
         case .lumaRange: return "Brightness Range"
         case .luminosity: return "Luminosity"
+        case .polygon: return "Outline"
         case .colorRange: return "Colour Range"
         // "Similarity" is the kernel's word. What the photographer does is pick a
         // colour, or drag a line along one.
@@ -1959,6 +1968,7 @@ struct MaskPanel: View {
         case .radial: return "circle.circle"
         case .lumaRange: return "circle.lefthalf.filled"
         case .luminosity: return "circle.righthalf.filled"
+        case .polygon: return "lasso"
         case .colorRange: return "paintpalette"
         case .similarity: return "eyedropper"
         case .similarityLine: return "eyedropper.halffull"
@@ -1986,6 +1996,7 @@ struct MaskPanel: View {
         case .radial: return "An oval, faded at its edge — spotlights and vignettes"
         case .lumaRange: return "Everything this bright, wherever it is"
         case .luminosity: return "The bright end, or the dark end, with no edge at all"
+        case .polygon: return "Lasso a shape, or click its corners"
         case .colorRange: return "Everything this colour, wherever it is"
         case .similarity: return "Click a colour; take what looks like it"
         case .similarityLine: return "A fade, but only where the colour matches"
@@ -2059,6 +2070,16 @@ struct MaskPanel: View {
             c.lo = 0
             c.hi = 1
             c.smooth = 50
+        case .polygon:
+            // Deliberately unseeded. Every other drawn kind can be born somewhere
+            // sensible — a gradient down the middle, an ellipse in the centre — because
+            // it has a shape before anyone touches it. An outline does not: the only
+            // outline that means anything is the one the photographer drew, and a
+            // starter triangle in the middle of the frame would be a shape they have to
+            // delete before they can begin. `validationError` reads INCOMPLETE until
+            // three corners exist, which is what that badge is for, and the canvas says
+            // how to make them.
+            break
         case .luminosity:
             // Lights 1 is the plain luminance channel: it selects the whole frame,
             // weighted toward the highlights. A new component that selects SOMETHING is
@@ -2098,6 +2119,16 @@ struct MaskPanel: View {
     static func lineSummary(_ c: MaskComponent) -> String {
         guard let line = c.line, line.count == 4 else { return "no line yet" }
         return String(format: "(%.2f, %.2f) → (%.2f, %.2f)", line[0], line[1], line[2], line[3])
+    }
+
+    static func outlineSummary(_ c: MaskComponent) -> String {
+        let n = (c.path ?? []).count
+        switch n {
+        case 0: return "no corners yet"
+        case 1: return "one corner, two more needed"
+        case 2: return "two corners, one more needed"
+        default: return "\(n) corners"
+        }
     }
 
     static func ellipseSummary(_ c: MaskComponent) -> String {

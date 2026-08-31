@@ -195,11 +195,23 @@ struct MaskCanvas: View {
     /// The similarity point a press took hold of, for the life of the drag.
     @State private var pointGrab: PointGrab?
 
+    /// The outline being traced by the current drag, or the vertex it took hold of.
+    /// Both are gesture-lifetime state and both are cleared in `onEnded`, for the reason
+    /// every grab in this file is carried rather than re-derived: a gesture must be a
+    /// pure function of where the pointer is now and where the geometry was when the
+    /// press landed, so a dropped event cannot change what the drag is worth.
+    @State private var tracing: [[Double]]?
+    @State private var outlineGrab: Int?
+
     private enum DragMode: Equatable {
         case idle
         case line(MaskHandles.LinearGrab)
         case radial(MaskHandles.RadialGrab)
         case brush
+        /// Dragging one vertex of an outline.
+        case outlineVertex
+        /// Tracing a new outline freehand — the lasso.
+        case outlineTrace
         /// A press that landed on ANOTHER mask's pin. Carried for the drag so a press
         /// that turns into a small movement still selects rather than starting to draw.
         case pin(String)
@@ -228,6 +240,8 @@ struct MaskCanvas: View {
                 drawBrush(&context)
             case .similarity:
                 drawPoints(&context, component)
+            case .polygon:
+                drawOutline(&context, component)
             default:
                 break
             }
@@ -264,7 +278,7 @@ struct MaskCanvas: View {
         if hasForeignPins { return true }
         guard let component = component else { return false }
         switch component.kind {
-        case .linear, .similarityLine, .radial, .brush: return true
+        case .linear, .similarityLine, .radial, .brush, .polygon: return true
         // A Colour Pick's points are placed by the eyedropper and MOVED here. The
         // picker overlay sits above this view while a pick is armed, so taking the
         // clicks back does not cost the eyedropper anything.
@@ -287,6 +301,9 @@ struct MaskCanvas: View {
                  + "it, digits set Flow, A stays inside edges."
         case .similarity:
             return "Drag a point to move it, its ring to change how far it reaches."
+        case .polygon:
+            return "Drag to lasso a shape, or click to place corners one at a time. "
+                 + "Drag a corner to move it, ⌥-click to remove it. ⌘-drag starts over."
         default:
             return ""
         }
@@ -316,6 +333,8 @@ struct MaskCanvas: View {
                     dragBrush(value, ended: false)
                 case .similarity:
                     dragPoint(value, component, ended: false)
+                case .polygon:
+                    dragOutline(value, component, ended: false)
                 default:
                     break
                 }
@@ -338,13 +357,188 @@ struct MaskCanvas: View {
                     dragBrush(value, ended: true)
                 case .similarity:
                     dragPoint(value, component, ended: true)
+                case .polygon:
+                    dragOutline(value, component, ended: true)
                 default:
                     break
                 }
                 mode = .idle
                 pointGrab = nil
+                tracing = nil
+                outlineGrab = nil
             }
     }
+
+    // MARK: Outline
+
+    /// The closed outline, and a dot on every corner.
+    ///
+    /// While a lasso is being traced the path is drawn OPEN, with the closing edge
+    /// dashed. That is not decoration: the one thing a photographer cannot see while
+    /// dragging is where the shape will close, and a lasso whose two ends meet somewhere
+    /// unexpected is the failure mode of every lasso tool ever shipped.
+    private func drawOutline(_ context: inout GraphicsContext, _ c: MaskComponent) {
+        let points = tracing ?? c.path ?? []
+        let live = tracing != nil
+        guard points.count >= 2 else {
+            if let only = points.first, only.count == 2 {
+                handle(&context, viewPoint(only[0], only[1]))
+            }
+            return
+        }
+        var path = Path()
+        var first: CGPoint?
+        var last: CGPoint?
+        for entry in points where entry.count == 2 {
+            guard entry[0].isFinite, entry[1].isFinite else { continue }
+            let p = viewPoint(entry[0], entry[1])
+            if first == nil {
+                path.move(to: p)
+                first = p
+            } else {
+                path.addLine(to: p)
+            }
+            last = p
+        }
+        guard let start = first, let end = last else { return }
+        if !live { path.addLine(to: start) }
+        stroke(&context, path, width: 1.5, alpha: 0.85)
+        if live {
+            var closing = Path()
+            closing.move(to: end)
+            closing.addLine(to: start)
+            context.stroke(closing, with: .color(Color.white.opacity(0.5)),
+                           style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
+            // No corner dots on a trace: a freehand lasso has hundreds of vertices and
+            // drawing one dot each would paint a solid line over the shape.
+            return
+        }
+        for (index, entry) in points.enumerated() where entry.count == 2 {
+            guard entry[0].isFinite, entry[1].isFinite else { continue }
+            handle(&context, viewPoint(entry[0], entry[1]), small: index != outlineGrab)
+        }
+    }
+
+    /// Three gestures on one tool, decided by what the press landed on and how far it
+    /// travelled — which is the same rule the gradient uses and the reason a lasso and a
+    /// polygon are one kind rather than two.
+    ///
+    ///   press on a corner, then move  →  move that corner
+    ///   press on empty space, then move  →  trace a new outline
+    ///   press and release without moving  →  add a corner where you clicked
+    ///
+    /// ⌘ forces the trace branch, so a shape already drawn can be replaced without
+    /// deleting it first; ⌥ on a corner removes it. Both match the gradient's grammar.
+    private func dragOutline(_ value: DragGesture.Value, _ component: MaskComponent,
+                             ended: Bool) {
+        let existing = (component.path ?? []).filter {
+            $0.count == 2 && $0.allSatisfy(\.isFinite)
+        }
+        let travelled = hypot(value.location.x - value.startLocation.x,
+                              value.location.y - value.startLocation.y)
+
+        if mode == .idle {
+            if !isCommandDown,
+               let index = grabbedVertex(at: value.startLocation, path: existing) {
+                if isOptionDown {
+                    // Removing a corner is a whole gesture, finished on the press: the
+                    // three-corner floor is `validationError`'s and taking a fourth
+                    // corner off a triangle would make the component incomplete.
+                    guard existing.count > 3 else { mode = .outlineVertex; return }
+                    var next = component
+                    next.path = existing.enumerated()
+                        .filter { $0.offset != index }.map(\.element)
+                    commit(.component(maskID: maskID, index: componentIndex,
+                                      component: next, coalescingKey: nil))
+                    mode = .outlineVertex
+                    return
+                }
+                outlineGrab = index
+                mode = .outlineVertex
+            } else {
+                mode = .outlineTrace
+            }
+        }
+
+        switch mode {
+        case .outlineVertex:
+            guard let index = outlineGrab, existing.indices.contains(index) else { return }
+            // Travel in SOURCE coordinates, not position: `normalized` inverts the crop,
+            // the straighten and the flip, and a displayed-space delta added to a
+            // source-normalized value runs away at 1/crop.width.
+            let from = normalized(value.startLocation)
+            let to = normalized(value.location)
+            var path = existing
+            var moved = path[index]
+            moved[0] = Num.clamp(moved[0] + Double(to.x - from.x), -0.5, 1.5)
+            moved[1] = Num.clamp(moved[1] + Double(to.y - from.y), -0.5, 1.5)
+            path[index] = moved
+            var next = component
+            next.path = path
+            commit(.component(maskID: maskID, index: componentIndex, component: next,
+                              coalescingKey: ended ? nil : coalescingKey("outline")))
+
+        case .outlineTrace:
+            if travelled < MaskCanvas.outlineClickSlop {
+                // A click, not a drag. Nothing happens until the release, so a press
+                // that turns into a trace does not leave a stray corner behind.
+                guard ended else { return }
+                let at = normalized(value.location)
+                var next = component
+                next.path = existing + [[Double(at.x), Double(at.y)]]
+                commit(.component(maskID: maskID, index: componentIndex,
+                                  component: next, coalescingKey: nil))
+                return
+            }
+            let at = normalized(value.location)
+            let point = [Double(at.x), Double(at.y)]
+            var traced = tracing ?? [[Double(normalized(value.startLocation).x),
+                                      Double(normalized(value.startLocation).y)]]
+            // Thinned as it is recorded rather than afterwards. A 45 MP frame at 120 Hz
+            // records several thousand samples across one sweep of the hand, and every
+            // one of them is a vertex the rasterizer walks at every pixel inside the
+            // bounding box — the difference between a shape that rasterizes in
+            // milliseconds and one that does not.
+            if let last = traced.last,
+               hypot(point[0] - last[0], point[1] - last[1])
+                   < MaskCanvas.outlineTraceStep, !ended {
+                return
+            }
+            traced.append(point)
+            tracing = traced
+            guard ended else { return }
+            tracing = nil
+            guard traced.count >= 3 else { return }
+            var next = component
+            next.path = traced
+            commit(.component(maskID: maskID, index: componentIndex, component: next,
+                              coalescingKey: nil))
+
+        default:
+            break
+        }
+    }
+
+    private func grabbedVertex(at location: CGPoint, path: [[Double]]) -> Int? {
+        var best: (index: Int, distance: CGFloat)?
+        for (index, entry) in path.enumerated() where entry.count == 2 {
+            let p = viewPoint(entry[0], entry[1])
+            let d = hypot(location.x - p.x, location.y - p.y)
+            guard d <= MaskCanvas.pointRingGrab else { continue }
+            if best == nil || d < best!.distance { best = (index, d) }
+        }
+        return best?.index
+    }
+
+    /// How far a press may travel and still count as a click that places a corner. Below
+    /// the 11 pt grab radius, so a click near an existing corner grabs it rather than
+    /// stacking a second one on top.
+    static let outlineClickSlop: CGFloat = 4
+
+    /// Minimum spacing between recorded lasso vertices, in source-normalized units —
+    /// roughly a fifth of a percent of the frame, which is finer than the edge the
+    /// rasterizer's one-pixel ramp can express at any sane display size.
+    static let outlineTraceStep: Double = 0.002
 
     // MARK: Similarity points
 
@@ -966,6 +1160,15 @@ struct MaskCanvas: View {
                           let radii = c.radii, radii.count == 2 else { continue }
                     stroke(&context, ellipsePath(centre, radii, c.rotation ?? 0, scale: 1),
                            width: 1, alpha: 0.22)
+                case .polygon:
+                    guard let outline = MaskCanvas.outlinePath(c) else { continue }
+                    var path = Path()
+                    path.move(to: viewPoint(outline[0][0], outline[0][1]))
+                    for entry in outline.dropFirst() {
+                        path.addLine(to: viewPoint(entry[0], entry[1]))
+                    }
+                    path.closeSubpath()
+                    stroke(&context, path, width: 1, alpha: 0.22)
                 default:
                     continue
                 }
@@ -1031,11 +1234,30 @@ struct MaskCanvas: View {
                    first[0].isFinite, first[1].isFinite {
                     return (first[0], first[1])
                 }
+            case .polygon:
+                // The centroid of the corners, not the first one: a pin on a vertex
+                // sits on the shape's edge, where it overlaps the handle that is
+                // already there and reads as belonging to whichever side of the
+                // boundary it happens to land on.
+                if let outline = outlinePath(c) {
+                    let n = Double(outline.count)
+                    return (outline.reduce(0) { $0 + $1[0] } / n,
+                            outline.reduce(0) { $0 + $1[1] } / n)
+                }
             default:
                 continue
             }
         }
         return nil
+    }
+
+    /// A component's outline, when it has a well-formed one — three finite corners or
+    /// more, which is the same floor `validationError` holds.
+    static func outlinePath(_ c: MaskComponent) -> [[Double]]? {
+        guard let path = c.path, path.count >= 3,
+              path.allSatisfy({ $0.count == 2 && $0.allSatisfy(\.isFinite) })
+        else { return nil }
+        return path
     }
 
     /// A component's line, when it has a well-formed one.
