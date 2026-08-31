@@ -831,13 +831,116 @@ final class AppState: ObservableObject {
     /// `O`: show or hide the overlay for the mask the panel has selected. With no mask
     /// selected there is nothing to show, so the key does nothing rather than picking
     /// a mask on the user's behalf.
+    ///
+    /// This is the PINNED overlay: pressing the key says "leave it up", and it survives
+    /// the hover and auto-hide rules below.
     func toggleMaskOverlay() {
         if soloMaskOverlay != nil {
+            maskOverlayPinned = false
+            cancelMaskOverlayTimers()
             soloMaskOverlay = nil
             return
         }
         guard let id = activeMaskID ?? currentRecipe.masks.first?.id else { return }
+        cancelMaskOverlayTimers()
+        maskOverlayPinned = true
         soloMaskOverlay = id
+    }
+
+    // MARK: - The ambient overlay (docs/35 §4.4)
+
+    /// Whether the photographer asked for the overlay and it should stay up.
+    ///
+    /// The three transient rules below — flash on create, show on hover, hide while an
+    /// adjustment is dragged — all defer to this. A pinned overlay is a decision; an
+    /// ambient one is feedback, and feedback that will not go away is an obstruction.
+    private(set) var maskOverlayPinned = false
+
+    /// Hover intent, and the auto-hide after a creation flash. Both are `Task`s rather
+    /// than timers so a second event supersedes the first by cancellation.
+    private var maskOverlayHideTask: Task<Void, Never>?
+    private var maskOverlayHoverTask: Task<Void, Never>?
+
+    /// Milliseconds of pointer dwell before a hovered row shows its overlay.
+    ///
+    /// Without it, a pointer crossing a ten-mask list on its way somewhere else is ten
+    /// overlay builds and ten flashes of red over the photograph — worse than not having
+    /// the feature (docs/36 §1.4). 120 ms is below the threshold at which a deliberate
+    /// hover feels laggy and above the time a pointer spends passing over a 30 pt row.
+    static let maskOverlayHoverIntentMS: UInt64 = 120
+    /// How long a newly created mask shows itself before getting out of the way.
+    static let maskOverlayFlashMS: UInt64 = 1_400
+
+    /// A mask was just created: show what it selected, then stand down.
+    ///
+    /// The first second of every mask used to look like nothing at all — `addMask`
+    /// appended, selected, and returned without touching the overlay, so the one moment
+    /// a photographer most needs to see what a mask does had no feedback in it
+    /// (docs/35 §2.3).
+    func flashMaskOverlay(_ id: String) {
+        guard !maskOverlayPinned else { return }
+        cancelMaskOverlayTimers()
+        soloMaskOverlay = id
+        // `Task` inherits this type's `@MainActor` isolation, so the body already
+        // runs where `soloMaskOverlay` lives — a `MainActor.run` here would be a
+        // second hop to the actor it is already on.
+        maskOverlayHideTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: Self.maskOverlayFlashMS * 1_000_000)
+            guard !Task.isCancelled, let self, !self.maskOverlayPinned,
+                  self.soloMaskOverlay == id else { return }
+            self.soloMaskOverlay = nil
+        }
+    }
+
+    /// A mask row (or its pin) is under the pointer, or the pointer has left.
+    ///
+    /// Entering arms the intent timer; leaving cancels it and takes the overlay down
+    /// unless it was pinned. Passing the SAME id again while it is already showing is a
+    /// no-op rather than a re-arm, so a row that redraws under a stationary pointer does
+    /// not make the overlay blink.
+    func hoverMaskOverlay(_ id: String?) {
+        guard !maskOverlayPinned else { return }
+        maskOverlayHoverTask?.cancel()
+        maskOverlayHideTask?.cancel()
+        guard let id else {
+            if soloMaskOverlay != nil { soloMaskOverlay = nil }
+            return
+        }
+        guard soloMaskOverlay != id else { return }
+        maskOverlayHoverTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: Self.maskOverlayHoverIntentMS * 1_000_000)
+            guard !Task.isCancelled, let self, !self.maskOverlayPinned else { return }
+            self.soloMaskOverlay = id
+        }
+    }
+
+    /// An adjustment slider is being dragged: the overlay is in the way of the thing
+    /// being judged, so it goes — even if it was pinned, and it comes back when the
+    /// drag ends. Lightroom's rule, and it is right.
+    func setMaskOverlaySuppressed(_ suppressed: Bool) {
+        guard maskOverlaySuppressed != suppressed else { return }
+        maskOverlaySuppressed = suppressed
+        if suppressed {
+            maskOverlayResumeID = soloMaskOverlay
+            cancelMaskOverlayTimers()
+            if soloMaskOverlay != nil { soloMaskOverlay = nil }
+        } else if maskOverlayPinned, let id = maskOverlayResumeID,
+                  currentRecipe.masks.contains(where: { $0.id == id }) {
+            soloMaskOverlay = id
+            maskOverlayResumeID = nil
+        } else {
+            maskOverlayResumeID = nil
+        }
+    }
+
+    private var maskOverlaySuppressed = false
+    private var maskOverlayResumeID: String?
+
+    private func cancelMaskOverlayTimers() {
+        maskOverlayHideTask?.cancel()
+        maskOverlayHideTask = nil
+        maskOverlayHoverTask?.cancel()
+        maskOverlayHoverTask = nil
     }
 
     /// `⌥O` and `⇧O`: cycle the mode and the colour. Cycling either turns the overlay
@@ -845,12 +948,12 @@ final class AppState: ObservableObject {
     /// nothing happen is how a user concludes the key is broken.
     func cycleMaskOverlayMode() {
         maskOverlayMode = maskOverlayMode.next
-        if soloMaskOverlay == nil { toggleMaskOverlay() }
+        if soloMaskOverlay == nil { toggleMaskOverlay() } else { maskOverlayPinned = true }
     }
 
     func cycleMaskOverlayTint() {
         maskOverlayTint = maskOverlayTint.next
-        if soloMaskOverlay == nil { toggleMaskOverlay() }
+        if soloMaskOverlay == nil { toggleMaskOverlay() } else { maskOverlayPinned = true }
     }
 
     /// `'`: invert the component the mask panel has selected (docs/08 §8.6).
@@ -2187,6 +2290,11 @@ final class AppState: ObservableObject {
         // comes back nil for an id this recipe has no mask for) AND the next press of `O`
         // took the "solo is set, clear it" branch — so the first O after every photo
         // change did nothing and you had to press it twice.
+        // And the ambient state with it: a pin, a pending hover and a pending flash all
+        // name a mask that belongs to the photograph being left.
+        maskOverlayPinned = false
+        maskOverlayResumeID = nil
+        cancelMaskOverlayTimers()
         soloMaskOverlay = nil
         loadStrokeSets(for: recipe(for: photo))
         scheduleScopeRefresh()

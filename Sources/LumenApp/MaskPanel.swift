@@ -77,6 +77,14 @@ struct MaskPanel: View {
         nonmutating set { state.activeComponentIndex = newValue }
     }
     @State private var selectedSwatch: Int = 0
+    /// Whether each add-board is open. TWO flags, not one: the mask list and the
+    /// component stack both disclose the same board, and a single flag opened both at
+    /// once — twenty tiles under two headings, for one press.
+    ///
+    /// Closed by default once a photograph has masks; the empty state draws the board
+    /// unconditionally instead, because there is nothing there to disclose it with.
+    @State private var maskPickerOpen: Bool = false
+    @State private var componentPickerOpen: Bool = false
     @State private var componentsExpanded: Bool = true
     @State private var refineExpanded: Bool = true
     @State private var lightExpanded: Bool = true
@@ -116,22 +124,25 @@ struct MaskPanel: View {
     private var maskListSection: some View {
         let list = masks
         return VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 6) {
-                if showsOwnHeader {
-                    LumenSectionHeader(title: "Masks", isExpanded: nil,
-                                       isModified: !list.isEmpty)
-                }
-                // Only once there is a list to add to: with none, `emptyMaskState` below
-                // carries the add control at a size worth aiming at, and the same
-                // affordance twice, twenty points apart, is the duplication this rebuild
-                // is for.
-                if !list.isEmpty {
-                    kindMenu(label: "Add mask") { kind in addMask(kind: kind) }
-                }
+            if showsOwnHeader {
+                LumenSectionHeader(title: "Masks", isExpanded: nil,
+                                   isModified: !list.isEmpty)
             }
             ForEach(Array(list.indices), id: \.self) { i in maskRow(list[i], index: i) }
+            // BELOW the rows, full width, not beside the header. The board it discloses
+            // is a three-column grid of tiles; squeezed into a header's HStack it has no
+            // room to be one. With no masks at all `emptyMaskState` draws the same board
+            // with nothing to disclose it.
+            if !list.isEmpty {
+                kindMenu(label: "Add a mask", isOpen: $maskPickerOpen) { kind in
+                    addMask(kind: kind)
+                }
+            }
             if let mask = activeMask {
-                LumenSlider(title: "Amount",
+                // "Strength", and it scales the EFFECT, not the selection — which is
+                // why two sliders called Amount, nine rows apart, was the wrong pair of
+                // names for the wrong pair of things.
+                LumenSlider(title: "Strength",
                             value: maskValue(mask.id, "amount", get: { $0.amount },
                                              set: { $0.amount = Num.clamp($1, 0, 200) }),
                             range: 0...200, defaultValue: 100, step: 1, decimals: 0)
@@ -139,7 +150,7 @@ struct MaskPanel: View {
                 // down: this flips the folded stack. It runs BEFORE the refinement
                 // chain, so Refine still snaps to the picture and Grow / Shrink still
                 // grows what is now selected.
-                LumenToggleRow(title: "Invert mask",
+                LumenToggleRow(title: "Invert selection",
                                isOn: optionBinding(mask.id, mask.invert,
                                                    on: { $0.invert = true },
                                                    off: { $0.invert = false }),
@@ -164,9 +175,10 @@ struct MaskPanel: View {
     /// moment that sentence cannot help. The only useful thing an empty list can do is
     /// be easy to fill, so the control that fills it is the biggest object on screen.
     private var emptyMaskState: some View {
-        HStack(spacing: 0) {
-            kindMenu(label: "Add a mask", prominent: true) { kind in addMask(kind: kind) }
-            Spacer(minLength: 0)
+        VStack(alignment: .leading, spacing: 0) {
+            kindMenu(label: "Add a mask", isOpen: $maskPickerOpen, prominent: true) { kind in
+                addMask(kind: kind)
+            }
         }
         .padding(.vertical, 6)
     }
@@ -216,6 +228,10 @@ struct MaskPanel: View {
             selectedComponent = 0
             selectedSwatch = 0
         }
+        // Hovering a row shows what it selects. `hoverMaskOverlay` holds the 120 ms
+        // intent that keeps a pointer crossing the list on its way somewhere else from
+        // strobing ten overlays across the photograph (docs/36 §1.4).
+        .onHover { inside in state.hoverMaskOverlay(inside ? mask.id : nil) }
     }
 
     /// The overlay's mode and colour, in the panel as well as on `⌥O` / `⇧O`. Both
@@ -278,21 +294,19 @@ struct MaskPanel: View {
 
     private func componentSection(_ mask: Mask) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 6) {
-                LumenSectionHeader(title: "Components", isExpanded: $componentsExpanded,
-                                   isModified: !mask.components.isEmpty)
-                kindMenu(label: "Add") { kind in addComponent(kind: kind, to: mask.id) }
-            }
+            LumenSectionHeader(title: "Components", isExpanded: $componentsExpanded,
+                               isModified: !mask.components.isEmpty)
             if componentsExpanded {
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(Array(mask.components.indices), id: \.self) { i in
                         componentRow(mask, i)
                     }
-                    // Nothing when the stack is empty: `Add` sits in the header one row
-                    // above, and a mask with no components is a state you pass through
-                    // in a single click.
                     if let i = activeComponentIndex, mask.components.indices.contains(i) {
                         componentEditor(mask.id, i, mask.components[i])
+                    }
+                    // Same board, same place: under the list it adds to.
+                    kindMenu(label: "Add to this mask", isOpen: $componentPickerOpen) { kind in
+                        addComponent(kind: kind, to: mask.id)
                     }
                 }
             }
@@ -344,9 +358,13 @@ struct MaskPanel: View {
                                      (value: MaskOp.intersect, label: "Intersect")],
                            selection: opBinding(id, i))
                 .padding(.vertical, 2)
-            LumenToggleRow(title: "Invert", isOn: invertBinding(id, i),
+            // "Invert this" against the mask's "Invert selection" above: the owner's
+            // "there are two inverts and I don't know what that means" was two booleans
+            // wearing one word. They are still two controls, because they are two
+            // operations at two levels — but they no longer have the same name.
+            LumenToggleRow(title: "Invert this", isOn: invertBinding(id, i),
                            help: "Inverts this component before it folds into the stack")
-            LumenSlider(title: "Amount",
+            LumenSlider(title: "Contribution",
                         value: Binding(get: { component(id, i)?.amount ?? 100 },
                                        set: { v in
                                            editComponent(id, i, key: "mask.c.amount.\(id).\(i)") {
@@ -416,7 +434,7 @@ struct MaskPanel: View {
                 // One Refine, not three: it drives the hue, chroma and lightness
                 // tolerances together because the per-axis split has no field in the
                 // format, so the other two are absent rather than faked.
-                optionalSlider(id, i, "Refine", \.rangeAmount, 0...100, 50)
+                optionalSlider(id, i, "Tolerance", \.rangeAmount, 0...100, 50)
             }
         case .similarity:
             similarityParameters(id, i, c)
@@ -465,11 +483,11 @@ struct MaskPanel: View {
                         defaultValue: 50, step: 1, decimals: 0, bipolar: false)
             LumenSlider(title: "Flow", value: brushValue(\.flow), range: 1...100,
                         defaultValue: 100, step: 1, decimals: 0, bipolar: false)
-            LumenSlider(title: "Density", value: brushValue(\.density), range: 0...100,
+            LumenSlider(title: "Max strength", value: brushValue(\.density), range: 0...100,
                         defaultValue: 100, step: 1, decimals: 0, bipolar: false)
             LumenToggleRow(title: "Eraser", isOn: brushFlag(\.erase),
                            help: "Erase strokes fold into the same buffer in draw order")
-            LumenToggleRow(title: "Automask", isOn: brushFlag(\.automask),
+            LumenToggleRow(title: "Stay inside edges", isOn: brushFlag(\.automask),
                            help: "Gates each stamp by colour similarity to the stamp centre")
         }
     }
@@ -483,8 +501,8 @@ struct MaskPanel: View {
                                       _ c: MaskComponent) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             sampleChips(id, i, c)
-            optionalSlider(id, i, "Colour range", \.chromaSel, 0...100, 50)
-            optionalSlider(id, i, "Brightness range", \.lumaSel, 0...100, 50)
+            optionalSlider(id, i, "Colour tolerance", \.chromaSel, 0...100, 50)
+            optionalSlider(id, i, "Brightness tolerance", \.lumaSel, 0...100, 50)
         }
     }
 
@@ -568,7 +586,9 @@ struct MaskPanel: View {
 
     private func refineSection(_ mask: Mask) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            LumenSectionHeader(title: "Refine", isExpanded: $refineExpanded,
+            // "Edge", not "Refine": the section name used to be the same word as the
+            // first slider inside it AND as a Colour Range control further up.
+            LumenSectionHeader(title: "Edge", isExpanded: $refineExpanded,
                                isModified: mask.refine != MaskRefine(),
                                onReset: { editMask(mask.id, key: nil) { $0.refine = MaskRefine() } })
             if refineExpanded {
@@ -580,13 +600,25 @@ struct MaskPanel: View {
                     // `levelsGamma`, and Grow / Shrink is `edge`: the wire names are a
                     // histogram dialog describing a density ramp, and the labels now say
                     // which end of the ramp each handle moves.
-                    refineSlider(mask.id, "Refine", \.feather, 0...100, 0)
-                    refineSlider(mask.id, "Grow / Shrink", \.edge, -50...50, 0,
+                    // FOLLOW, not "snap". A guided filter bends the alpha toward image
+                    // structure with a radius and a regularisation; it does not snap to
+                    // anything, and at low values it does nothing a person can see. A
+                    // control named "Snap" that visibly does nothing at 10 reads as
+                    // broken, which is the failure this rebuild exists to remove
+                    // (docs/36 §1.3).
+                    refineSlider(mask.id, "Follow edges", \.feather, 0...100, 0)
+                    refineSlider(mask.id, "Expand / Contract", \.edge, -50...50, 0,
                                  bipolar: true)
-                    refineSlider(mask.id, "Feather", \.blur, 0...100, 0)
-                    levelsSlider(mask.id, "Start", low: true)
-                    levelsSlider(mask.id, "End", low: false)
-                    refineSlider(mask.id, "Curve", \.levelsGamma, 0.2...5, 1,
+                    // "Soften edge", not "Feather": this is a Gaussian blur of the
+                    // FINISHED alpha, and the brush's Feather is the hardness of one
+                    // stamp. Two controls, nine rows apart, that were the same word.
+                    refineSlider(mask.id, "Soften edge", \.blur, 0...100, 0)
+                    // The density ramp. "Curve" was its old name and it sat directly
+                    // above a section called Curve, which is the collision that could
+                    // not be defended; "Start"/"End" were a 1994 histogram dialog.
+                    levelsSlider(mask.id, "Ramp from", low: true)
+                    levelsSlider(mask.id, "Ramp to", low: false)
+                    refineSlider(mask.id, "Ramp shape", \.levelsGamma, 0.2...5, 1,
                                  step: 0.05, decimals: 2, bipolar: true)
                 }
             }
@@ -658,7 +690,7 @@ struct MaskPanel: View {
                     // control that moves the picture in the opposite direction to its
                     // own name is worse than an absent one, and its help text admitted
                     // as much rather than fixing it.
-                    LumenToggleRow(title: "Colour tint",
+                    LumenToggleRow(title: "Colorize",
                                    isOn: optionBinding(mask.id, hasTint,
                                                        on: { MaskPanel.enableTint(&$0) },
                                                        off: { $0.adjust.colorTint = nil }),
@@ -666,7 +698,7 @@ struct MaskPanel: View {
                                        + "colour, holding each pixel's own brightness")
                     if hasTint {
                         tintTargetRow(mask)
-                        adjustSlider(mask.id, "Tint strength", \.colorTintStrength, 0...100,
+                        adjustSlider(mask.id, "Colorize amount", \.colorTintStrength, 0...100,
                                      bipolar: false)
                     }
                 }
@@ -835,6 +867,11 @@ struct MaskPanel: View {
         state.updateRecipe(coalescingKey: nil) { $0.masks.append(mask) }
         selectedMaskID = id
         selectedComponent = 0
+        // The first second of a mask used to show nothing at all: no overlay, no
+        // thumbnail, no pin. The one moment a photographer most needs to see what a
+        // mask selected had no feedback in it (docs/35 §2.3). It flashes and stands
+        // down; `O` is still how you make it stay.
+        state.flashMaskOverlay(id)
     }
 
     private func addComponent(kind: MaskKind, to id: String) {
@@ -1150,34 +1187,116 @@ struct MaskPanel: View {
     ///
     /// `prominent` is the empty-list rendering: the same roster, drawn as the one thing
     /// worth pressing rather than as a corner of a header.
-    private func kindMenu(label: String, prominent: Bool = false,
+    private func kindMenu(label: String, isOpen: Binding<Bool>,
+                          prominent: Bool = false,
                           action: @escaping (MaskKind) -> Void) -> some View {
-        // `prominent` used to mean a bigger glyph, a bigger word and four points of
-        // extra padding — a second size of the same control, hand-tuned here. It means
-        // WIDTH now, because the type and the height belong to `LumenMenu` and a
-        // control that is one size everywhere is most of what makes a panel look drawn
-        // rather than assembled. The empty state is still the only thing on its row,
-        // and a 170-point target there is unmissable without being a second design.
-        LumenMenu(title: label, symbol: "plus",
-                  minWidth: prominent ? 170 : nil,
-                  help: "Subject, Background and People are computed on this Mac by "
-                      + "Vision, with no download") {
-            LumenMenuHeader(title: "Drawn")
-            ForEach(MaskPanel.drawnKinds, id: \.self) { k in
-                LumenMenuItem(title: MaskPanel.kindName(k),
-                              symbol: MaskPanel.kindSymbol(k)) { action(k) }
+        // A DISCLOSURE OVER A BOARD, not a popup menu.
+        //
+        // What stood here was `LumenMenu` — the owner's "a container inside of a
+        // container inside of a dropdown". The roster is the one thing in this panel a
+        // photographer chooses by RECOGNITION rather than by reading, and a menu hides
+        // every shape until after the decision to open it. Lightroom's masking feels
+        // approachable for three reasons and this is the first of them: the whole
+        // roster is on screen at once.
+        //
+        // `prominent` is the empty-list rendering, where the board simply IS the panel
+        // and there is nothing to disclose.
+        VStack(alignment: .leading, spacing: 4) {
+            if !prominent {
+                Button {
+                    withAnimation(.easeOut(duration: 0.16)) { isOpen.wrappedValue.toggle() }
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "plus").font(.system(size: 10, weight: .semibold))
+                        Text(label).font(.lumenBody)
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 8, weight: .semibold))
+                            .rotationEffect(.degrees(isOpen.wrappedValue ? 180 : 0))
+                        Spacer(minLength: 0)
+                    }
+                    .foregroundStyle(Lumen.secondaryText)
+                    .padding(.horizontal, 4)
+                    .frame(height: Lumen.rowHeight)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .lumenClickCursor()
+                .help("Every kind of selection, on one board")
             }
-            LumenMenuHeader(title: "Range")
-            ForEach(MaskPanel.rangeKinds, id: \.self) { k in
-                LumenMenuItem(title: MaskPanel.kindName(k),
-                              symbol: MaskPanel.kindSymbol(k)) { action(k) }
-            }
-            LumenMenuHeader(title: "AI — on this Mac")
-            ForEach(MaskPanel.visionKinds, id: \.self) { k in
-                LumenMenuItem(title: MaskPanel.kindName(k),
-                              symbol: MaskPanel.kindSymbol(k)) { action(k) }
+            if prominent || isOpen.wrappedValue {
+                kindBoard { kind in
+                    isOpen.wrappedValue = false
+                    action(kind)
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
+    }
+
+    /// The board itself: three columns, grouped by the QUESTION each group answers.
+    ///
+    /// "Range" and "AI — on this Mac" were engineering categories — the first names a
+    /// kernel family and the second names where the model runs. Neither is what a
+    /// photographer is deciding between. "Draw it by hand", "Find it by tone or colour"
+    /// and "Find it for me" are.
+    private func kindBoard(_ action: @escaping (MaskKind) -> Void) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            boardGroup("Draw it by hand", MaskPanel.drawnKinds, action)
+            boardGroup("Find it by tone or colour", MaskPanel.rangeKinds, action)
+            boardGroup("Find it for me", MaskPanel.visionKinds, action)
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func boardGroup(_ title: String, _ kinds: [MaskKind],
+                            _ action: @escaping (MaskKind) -> Void) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            LumenCapsLabel(text: title, size: 10, color: Lumen.tertiaryText)
+            // Three across, laid out by hand rather than by `LazyVGrid`: the roster is
+            // ten entries and will not grow past a dozen, and a lazy grid inside the
+            // column's one ScrollView measures itself badly at this size.
+            VStack(spacing: 4) {
+                ForEach(Array(stride(from: 0, to: kinds.count, by: 3)), id: \.self) { row in
+                    HStack(spacing: 4) {
+                        ForEach(row..<Swift.min(row + 3, kinds.count), id: \.self) { i in
+                            kindTile(kinds[i], action)
+                        }
+                        // Keeps a short last row's tiles the same width as a full one's.
+                        if kinds.count - row < 3 {
+                            ForEach(0..<(3 - (kinds.count - row)), id: \.self) { _ in
+                                Color.clear.frame(maxWidth: .infinity)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func kindTile(_ kind: MaskKind,
+                          _ action: @escaping (MaskKind) -> Void) -> some View {
+        Button { action(kind) } label: {
+            VStack(spacing: 4) {
+                Image(systemName: MaskPanel.kindSymbol(kind))
+                    .font(.system(size: 15, weight: .regular))
+                Text(MaskPanel.kindName(kind))
+                    .font(.lumenCaption)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .foregroundStyle(Lumen.secondaryText)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+            .padding(.horizontal, 2)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .lumenSurface(radius: Lumen.radiusChip, elevation: .flush,
+                      fill: Lumen.controlSurface)
+        .lumenHoverable(radius: Lumen.radiusChip)
+        .lumenClickCursor()
+        .help(MaskPanel.kindPurpose(kind))
     }
 
     /// Two chevrons, for a list whose ORDER changes the picture.
@@ -1221,11 +1340,11 @@ struct MaskPanel: View {
     /// new `PickTarget`, which is a change to state this panel does not own.
     private func tintTargetRow(_ mask: Mask) -> some View {
         HStack(spacing: 6) {
-            Text("Tint colour")
+            Text("Colorize to")
                 .font(.system(size: 11))
                 .foregroundStyle(Lumen.secondaryText)
             Spacer(minLength: 0)
-            ColorPicker("Tint colour", selection: tintBinding(mask.id),
+            ColorPicker("Colorize to", selection: tintBinding(mask.id),
                         supportsOpacity: false)
                 .labelsHidden()
         }
@@ -1357,6 +1476,31 @@ struct MaskPanel: View {
         case .aiPerson: return "person.2"
         case .aiLandscape: return "mountain.2"
         case .depthRange: return "cube.transparent"
+        }
+    }
+
+    /// What each kind is FOR, in one line, on the tile's hover.
+    ///
+    /// Not prose in the panel — docs/30 §2.2 measured what happened the last time this
+    /// panel explained itself, and the answer was nineteen rows advertising a tooltip.
+    /// This is the tooltip, on a control that is opened knowing roughly what you want,
+    /// and it says what the kind SELECTS rather than how it works.
+    static func kindPurpose(_ kind: MaskKind) -> String {
+        switch kind {
+        case .brush: return "Paint the selection by hand"
+        case .linear: return "A straight fade across the frame — skies, foregrounds"
+        case .radial: return "An oval, faded at its edge — spotlights and vignettes"
+        case .lumaRange: return "Everything this bright, wherever it is"
+        case .colorRange: return "Everything this colour, wherever it is"
+        case .similarity: return "Click a colour; take what looks like it"
+        case .similarityLine: return "A fade, but only where the colour matches"
+        case .aiSubject: return "Whatever the photograph is of"
+        case .aiSky: return "The sky, including through branches"
+        case .aiBackground: return "Everything the subject is not"
+        case .aiObject: return "One thing you point at"
+        case .aiPerson: return "The people in the frame"
+        case .aiLandscape: return "Sky, water, greenery, ground — by class"
+        case .depthRange: return "Everything at this distance from the camera"
         }
     }
 

@@ -125,6 +125,13 @@ public final class PipelineRenderer {
     /// `MaskRaster.combine` per mouse event. See the type's header for the contract.
     private let maskRasters = MaskRasterCache()
 
+    /// Painted brush planes, so appending a stroke costs one stroke rather than the
+    /// whole set. Separate from `maskRasters` because it caches a different thing at a
+    /// different granularity: one component's painting, before the fold and before the
+    /// refinement chain, which is the only part of a mask that grows without bound as
+    /// the photographer works. See the type's header (docs/36 §1.2).
+    private let brushPlanes = BrushPlaneCache()
+
     /// One file's mattes, and which kinds have been LOOKED for.
     ///
     /// The two are one value because they are evicted together, and they used to be
@@ -1176,12 +1183,32 @@ public final class PipelineRenderer {
             }
 
             for mask in plan.masks {
-                let bake = {
-                    MaskRaster.combine(mask: mask,
-                                       size: (width: width, height: height),
-                                       source: source,
-                                       strokeSets: strokeSets,
-                                       aiMattes: aiMattes)
+                let bake = { [brushPlanes] in
+                    // The brush half is accumulated rather than replayed. Built inside
+                    // `bake` and not before it, so a frame served a stale raster does
+                    // not pay for painting it will not use.
+                    var painted: [String: Plane] = [:]
+                    for (index, component) in mask.components.enumerated()
+                    where component.kind == .brush {
+                        guard let ref = component.strokesRef,
+                              let set = strokeSets[ref], !set.strokes.isEmpty else { continue }
+                        // A brush WITHOUT automask does not read the picture, so its
+                        // plane must not be thrown away when the exposure moves — that
+                        // invalidation is the cost this cache exists to remove.
+                        let readsPicture = set.strokes.contains { $0.automask }
+                        painted[ref] = brushPlanes.plane(
+                            componentKey: "\(mask.id)#\(index)",
+                            set: set,
+                            size: (width: width, height: height),
+                            sourceKey: readsPicture ? (sourceKey ?? "-") : "-",
+                            source: readsPicture ? source : nil)
+                    }
+                    return MaskRaster.combine(mask: mask,
+                                              size: (width: width, height: height),
+                                              source: source,
+                                              strokeSets: strokeSets,
+                                              aiMattes: aiMattes,
+                                              brushPlanes: painted)
                 }
                 let alpha: Plane
                 if let sourceKey,

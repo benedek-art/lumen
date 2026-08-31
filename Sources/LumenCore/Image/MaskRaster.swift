@@ -67,11 +67,16 @@ public enum MaskRaster {
     ///   - aiMattes: precomputed mattes keyed by `MaskKind.rawValue`; `depthRange`
     ///     reads its depth map from the same dictionary (key `"depthRange"`, or
     ///     `"depth"`). A missing key ⇒ zero.
+    ///   - brushPlane: an already-painted plane for THIS component's stroke set, when
+    ///     the caller holds one (`accumulatedBrushPlane`). Used verbatim if it is the
+    ///     right size; ignored otherwise, so a stale or mis-sized cache degrades to a
+    ///     repaint rather than to a wrong mask.
     public static func rasterize(component: MaskComponent,
                                  size: (width: Int, height: Int),
                                  source: ImageBuffer? = nil,
                                  strokes: BrushStrokeSet? = nil,
-                                 aiMattes: [String: Plane] = [:]) -> Plane {
+                                 aiMattes: [String: Plane] = [:],
+                                 brushPlane held: Plane? = nil) -> Plane {
         let w = Swift.max(size.width, 1)
         let h = Swift.max(size.height, 1)
         if size.width < 1 || size.height < 1 { return Plane(width: w, height: h) }
@@ -83,6 +88,7 @@ public enum MaskRaster {
         case .radial:
             return radialPlane(component, w, h)
         case .brush:
+            if let held, held.width == w, held.height == h { return held }
             return brushPlane(component, w, h, source, strokes)
         case .lumaRange:
             return lumaRangePlane(component, w, h, source)
@@ -108,11 +114,17 @@ public enum MaskRaster {
     /// disabled masks; this stays a pure raster function.
     ///
     /// - Parameter strokeSets: brush blobs keyed by the component's `strokesRef` string.
+    /// - Parameter brushPlanes: already-painted brush planes, keyed by the same
+    ///   `strokesRef`. This is how an incremental painter reaches the fold: the caller
+    ///   accumulates with `accumulatedBrushPlane` and hands the result in, so appending
+    ///   a stroke costs one stroke instead of the whole set (docs/36 §1.2). A plane of
+    ///   the wrong size is ignored, not trusted.
     public static func combine(mask: Mask,
                                size: (width: Int, height: Int),
                                source: ImageBuffer? = nil,
                                strokeSets: [String: BrushStrokeSet] = [:],
-                               aiMattes: [String: Plane] = [:]) -> Plane {
+                               aiMattes: [String: Plane] = [:],
+                               brushPlanes: [String: Plane] = [:]) -> Plane {
         let w = Swift.max(size.width, 1)
         let h = Swift.max(size.height, 1)
         var acc = Plane(width: w, height: h)
@@ -123,8 +135,10 @@ public enum MaskRaster {
         let n = w * h
         for c in mask.components {
             let set: BrushStrokeSet? = c.kind == .brush ? strokeSets[c.strokesRef ?? ""] : nil
+            let held: Plane? = c.kind == .brush ? brushPlanes[c.strokesRef ?? ""] : nil
             let raw = rasterize(component: c, size: (width: w, height: h),
-                                source: source, strokes: set, aiMattes: aiMattes)
+                                source: source, strokes: set, aiMattes: aiMattes,
+                                brushPlane: held)
             if raw.width != w || raw.height != h { continue }
             for i in 0..<n {
                 let v = MaskAlgebra.componentAlpha(raw: Double(raw.values[i]),
@@ -416,11 +430,67 @@ public enum MaskRaster {
     /// form as the radial gradient — one shader serves both.
     static func brushPlane(_ c: MaskComponent, _ w: Int, _ h: Int,
                            _ source: ImageBuffer?, _ set: BrushStrokeSet?) -> Plane {
-        var p = Plane(width: w, height: h)
-        guard let set = set, !set.strokes.isEmpty else { return p }
+        guard let set = set else { return Plane(width: w, height: h) }
+        return accumulatedBrushPlane(strokes: set, size: (width: w, height: h),
+                                     source: source, resuming: nil)
+    }
+
+    /// A brush component's plane, optionally **resumed** from a previously computed one.
+    ///
+    /// This is the shape docs/08 §8.2 specifies and the shape the shipping path did not
+    /// have: *"brush strokes render into the cached component buffer incrementally
+    /// rather than re-folding the whole stack per stamp."* What stood here painted
+    /// every stroke of the set on every rasterization, so a sixty-stroke mask paid
+    /// sixty strokes on every settle, every export and every draft cache miss — and the
+    /// sixty-first stroke made all sixty-one more expensive. The cost of painting grew
+    /// with how much you had already painted, which is the worst possible shape for the
+    /// one tool a photographer uses continuously (docs/36 §1.2).
+    ///
+    /// `resuming` is `(plane, strokes)`: a plane that already holds the first `strokes`
+    /// strokes of this same set, at this same size, against this same stage input. When
+    /// it is supplied and usable, only `strokes...` are painted. It is REFUSED — and the
+    /// whole set repainted — whenever it cannot be shown to be a prefix of this one:
+    ///
+    ///   · a size mismatch (a different raster resolution is a different plane),
+    ///   · a count past the end of the set (strokes were removed or undone),
+    ///   · a count that is negative.
+    ///
+    /// Correctness rests on one property of the fold: strokes composite in draw order
+    /// and each one reads only the accumulator, never the strokes before it. Paint
+    /// deposits `a + flow·s·max(density − a, 0)` and an eraser multiplies toward zero;
+    /// both are functions of the accumulator alone. So painting `[0..<k)` then `[k...]`
+    /// is exactly painting `[0...]`, which is what
+    /// `testResumingAStrokeSetIsTheSameAsPaintingItWhole` pins.
+    ///
+    /// The caller owns the cache and therefore owns the key. `PipelineRenderer` keys on
+    /// the stroke reference, the raster size and the stage-input fingerprint — the last
+    /// because Automask samples the picture, so the same strokes over a different
+    /// exposure are a different plane.
+    public static func accumulatedBrushPlane(strokes set: BrushStrokeSet,
+                                             size: (width: Int, height: Int),
+                                             source: ImageBuffer? = nil,
+                                             resuming: (plane: Plane, strokes: Int)?
+                                                 = nil) -> Plane {
+        let w = Swift.max(size.width, 1)
+        let h = Swift.max(size.height, 1)
+        if size.width < 1 || size.height < 1 { return Plane(width: w, height: h) }
+
+        var p: Plane
+        var first: Int
+        if let resuming, resuming.plane.width == w, resuming.plane.height == h,
+           resuming.strokes >= 0, resuming.strokes <= set.strokes.count {
+            p = resuming.plane
+            first = resuming.strokes
+        } else {
+            p = Plane(width: w, height: h)
+            first = 0
+        }
+        guard first < set.strokes.count else { return p }
+
         let long = Double(Swift.max(w, h))
-        for stroke in set.strokes {
-            paint(stroke: stroke, into: &p, width: w, height: h, longEdge: long, source: source)
+        for index in first..<set.strokes.count {
+            paint(stroke: set.strokes[index], into: &p,
+                  width: w, height: h, longEdge: long, source: source)
         }
         return p
     }

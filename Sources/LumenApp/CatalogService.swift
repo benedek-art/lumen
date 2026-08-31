@@ -229,6 +229,14 @@ final class CatalogService: @unchecked Sendable {
                                                     recipeFingerprint: fingerprint,
                                                     hasUnflushedEdits: unflushed,
                                                     file: file)
+                        // Before anything reads the recovered recipe: put the sidecar's
+                        // brush strokes back into the blob store, so a `strokesRef` in
+                        // it resolves to a painting rather than to nothing. Run for
+                        // EVERY decision, not only when the sidecar wins — a catalog
+                        // that kept its own recipe can still be missing the blob a
+                        // shared sidecar carries, which is the "copied the photos and
+                        // the .xmp files to a new machine" case.
+                        Self.restoreStrokes(from: file, store: store)
                         // A sidecar fills in where the catalog is silent — and until
                         // now it filled in ONLY the copy handed to the grid. Membership
                         // and ordering are SQL-backed (the whole filter bar compiles to
@@ -456,6 +464,34 @@ final class CatalogService: @unchecked Sendable {
             sidecarMTime: modificationTime(of: sidecarURL(for: file)))
     }
 
+    /// Put a sidecar's brush strokes back into the blob store.
+    ///
+    /// The other half of `BrushStrokeSidecar` (docs/35 §7.1). Without it the sidecar
+    /// round-trip restores a recipe whose brush components reference paintings that are
+    /// not on this machine, and those masks rasterize empty forever with nothing on
+    /// screen saying so.
+    ///
+    /// Idempotent by construction: the store is content-addressed and `decode` has
+    /// already dropped any entry whose key does not address its own bytes, so writing an
+    /// existing blob writes identical bytes. Failures are logged, never thrown — a blob
+    /// that will not write costs one mask, not the folder open.
+    private static func restoreStrokes(from file: URL, store: CatalogStore) {
+        guard let payload = readSidecar(for: file)?.strokesPayload else { return }
+        for (ref, set) in BrushStrokeSidecar.decode(payload) {
+            guard store.blobs.strokeSet(for: ref) == nil else { continue }
+            do {
+                let written = try store.blobs.store(set)
+                if written != ref {
+                    NSLog("Lumen catalog: a sidecar stroke set addressed %@ but stored "
+                          + "as %@ — not restored", ref, written)
+                }
+            } catch {
+                NSLog("Lumen catalog: could not restore a sidecar stroke set — %@",
+                      String(describing: error))
+            }
+        }
+    }
+
     private static func stored(_ state: SidecarMerge.State,
                                row: PhotoRow) -> StoredState {
         StoredState(catalogID: row.id,
@@ -594,8 +630,18 @@ final class CatalogService: @unchecked Sendable {
                                     + "\(url.lastPathComponent) — \(error)")
                 }
             }
+            // The strokes ride WITH the recipe, resolved out of the blob store here
+            // and not in the view layer, because this is the one place that knows the
+            // sidecar is being written and the one place that holds the store. Without
+            // them the sidecar carries a `strokesRef` and nothing the reference points
+            // at, so a restored sidecar gives brush masks that rasterize empty forever
+            // (docs/35 §7.1).
+            let payload = BrushStrokeSidecar.payload(for: recipe) {
+                self.store.blobs.strokeSet(for: $0)
+            }
             self.enqueueSidecar(for: url, photoID: catalogID, rating: nil, label: nil,
-                                recipe: (json, fingerprint, recipe.pipelineVersion))
+                                recipe: (json, fingerprint, recipe.pipelineVersion),
+                                strokes: .some(payload))
         }
     }
 
@@ -910,7 +956,8 @@ final class CatalogService: @unchecked Sendable {
     private func enqueueSidecar(for url: URL, photoID: Int64? = nil, rating: Int?,
                                 flag: SidecarFlag? = nil,
                                 label: String??,
-                                recipe: (json: String, fingerprint: String, version: Int)?) {
+                                recipe: (json: String, fingerprint: String, version: Int)?,
+                                strokes: String?? = nil) {
         sidecarLock.lock()
         let queued = pendingSidecars[url]
         var content = queued?.content ?? Self.readSidecar(for: url) ?? SidecarContent()
@@ -922,6 +969,11 @@ final class CatalogService: @unchecked Sendable {
             content.recipeFingerprint = recipe.fingerprint
             content.pipelineVersion = recipe.version
         }
+        // Double-optional for the same reason `label` is: nil means "this call has
+        // nothing to say about the strokes", `.some(nil)` means "this recipe has no
+        // brush masking, so drop the key". Collapsing them would leave a stale painting
+        // in the sidecar of a photograph whose brush masks had all been deleted.
+        if let strokes { content.strokesPayload = strokes }
         content.writeStamp = ISO8601DateFormatter().string(from: Date())
         pendingSidecars[url] = (photoID: photoID ?? queued?.photoID, content: content)
         let shouldSchedule = !sidecarFlushScheduled

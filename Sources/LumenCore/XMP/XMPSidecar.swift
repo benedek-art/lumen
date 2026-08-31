@@ -34,6 +34,13 @@ public struct SidecarContent: Equatable, Sendable {
     public var pipelineVersion: Int
     public var recipeFingerprint: String?
     public var recipeJSON: String?  // canonical sparse recipe JSON
+    /// Base64 of `ref → BrushStrokeSet`, so brush masks survive the catalog.
+    ///
+    /// Without it the sidecar carried a brush component's `strokesRef` and nothing the
+    /// reference pointed AT, because the blob store lives in the catalog. Restore a
+    /// sidecar without that store and every brush mask rasterized empty, forever, with
+    /// nothing on screen saying so. See `BrushStrokeSidecar`.
+    public var strokesPayload: String?
     public var catalogUUID: String?
     public var writeStamp: String?  // ISO 8601
 
@@ -59,6 +66,7 @@ public struct SidecarContent: Equatable, Sendable {
     public init(rating: Int = 0, flag: SidecarFlag = .none, label: String? = nil,
                 pipelineVersion: Int = currentPipelineVersion,
                 recipeFingerprint: String? = nil, recipeJSON: String? = nil,
+                strokesPayload: String? = nil,
                 catalogUUID: String? = nil, writeStamp: String? = nil,
                 parsedCleanly: Bool = true) {
         self.rating = rating
@@ -67,6 +75,7 @@ public struct SidecarContent: Equatable, Sendable {
         self.pipelineVersion = pipelineVersion
         self.recipeFingerprint = recipeFingerprint
         self.recipeJSON = recipeJSON
+        self.strokesPayload = strokesPayload
         self.catalogUUID = catalogUUID
         self.writeStamp = writeStamp
         self.parsedCleanly = parsedCleanly
@@ -393,6 +402,12 @@ public enum XMPSidecar {
         if let recipe = content.recipeJSON {
             fields += "   <lumen:recipe>\(escapeXML(recipe))</lumen:recipe>\n"
         }
+        // Last, and after the recipe: it is the largest element by far, and a reader
+        // that gives up partway through a damaged file should have reached everything
+        // smaller first. `parsedCleanly` is what stops such a read being written back.
+        if let strokes = content.strokesPayload {
+            fields += "   <lumen:strokes>\(escapeXML(strokes))</lumen:strokes>\n"
+        }
         return fields
     }
 
@@ -454,7 +469,7 @@ private final class SidecarParserDelegate: NSObject, XMLParserDelegate {
     private static let interesting: Set<String> = [
         "xmp:Rating", "xmp:Label", "lumen:flag",
         "lumen:pipelineVersion", "lumen:recipeFingerprint",
-        "lumen:recipe", "lumen:catalogUUID", "lumen:writeStamp",
+        "lumen:recipe", "lumen:strokes", "lumen:catalogUUID", "lumen:writeStamp",
     ]
 
     func parser(_ parser: XMLParser, didStartElement elementName: String,
@@ -509,6 +524,12 @@ private final class SidecarParserDelegate: NSObject, XMLParserDelegate {
                 Int(value.trimmingCharacters(in: .whitespacesAndNewlines)) ?? currentPipelineVersion
         case "lumen:recipeFingerprint":
             content.recipeFingerprint = value
+        case "lumen:strokes":
+            // Whitespace-trimmed here rather than in the decoder: the XML writer indents
+            // and a third-party rewriter may re-wrap, and an all-whitespace element is
+            // "no payload", not "an empty one".
+            let payload = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            content.strokesPayload = payload.isEmpty ? nil : payload
         case "lumen:recipe":
             content.recipeJSON = value
         case "lumen:catalogUUID":

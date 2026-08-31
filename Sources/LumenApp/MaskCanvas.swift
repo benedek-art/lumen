@@ -539,6 +539,30 @@ struct MaskCanvas: View {
 
     // MARK: Brush
 
+    /// The pressure of the event being handled, 0…1.
+    ///
+    /// `BrushPoint.pressure` has been in the wire format and read by the rasterizer
+    /// since the format was written; the recorder wrote a literal `1` on every point,
+    /// so every tablet in the world drew like a mouse (docs/36 §2, "tablet pressure and
+    /// tilt"). The field and the reader existed; only the writer did not.
+    ///
+    /// `NSApp.currentEvent` rather than a custom `NSView`: SwiftUI's `DragGesture`
+    /// carries no pressure, and the event being dispatched right now is the one that
+    /// produced this callback. A mouse or trackpad reports `pressure` 1 for a held
+    /// button and 0 otherwise, which is why a zero is read as a mouse and promoted —
+    /// a stroke that deposited nothing would be a worse bug than no pressure at all.
+    static func currentPressure() -> Double {
+        guard let event = NSApp.currentEvent else { return 1 }
+        switch event.type {
+        case .leftMouseDown, .leftMouseDragged, .leftMouseUp,
+             .tabletPoint, .tabletProximity:
+            let p = Double(event.pressure)
+            return (p.isFinite && p > 0) ? Num.saturate(p) : 1
+        default:
+            return 1
+        }
+    }
+
     private func dragBrush(_ value: DragGesture.Value, ended: Bool) {
         // The whole stroke accumulates locally; nothing reaches the recipe until mouse-up,
         // so a stroke is one undo step and a mouse-moved event is not a recipe write.
@@ -551,7 +575,8 @@ struct MaskCanvas: View {
         }
         let n = normalized(value.location)
         let ms = Int(Num.clamp(Date().timeIntervalSince(started) * 1000, 0, 3_600_000))
-        let point = BrushPoint(x: Double(n.x), y: Double(n.y), pressure: 1, t: ms)
+        let point = BrushPoint(x: Double(n.x), y: Double(n.y),
+                               pressure: Self.currentPressure(), t: ms)
         // Sub-pixel resampling is the rasterizer's job (arc-length Catmull-Rom); the
         // recorder only drops events that did not move.
         var accept = true
@@ -650,6 +675,22 @@ struct MaskCanvas: View {
         var ring = Path()
         ring.addEllipse(in: rect)
         stroke(&context, ring, width: 1, alpha: brush.erase ? 0.5 : 0.85)
+
+        // THE SECOND RING, which is the hardness the stamp actually has.
+        //
+        // The cursor drew one circle, so Feather — a parameter that also cannot be
+        // changed after the stroke is painted — could not be judged before it either.
+        // The inner radius is `MaskRaster.stampProfile`'s flat core: full deposition
+        // out to `hardness`, smoothstep shoulder to the rim. Drawn only when there is
+        // a shoulder worth drawing and enough room to see it.
+        let hardness = Num.saturate(1 - Num.clamp(brush.feather, 0, 100) / 100)
+        let inner = diameter * CGFloat(hardness)
+        if hardness > 0.02, diameter - inner > 3 {
+            var core = Path()
+            core.addEllipse(in: CGRect(x: hover.x - inner / 2, y: hover.y - inner / 2,
+                                       width: inner, height: inner))
+            stroke(&context, core, width: 1, alpha: brush.erase ? 0.28 : 0.42)
+        }
     }
 
     /// The cursor ring, in view points.
