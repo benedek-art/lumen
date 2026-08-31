@@ -22,6 +22,12 @@ An interactive prototype of §4 — the two columns side by side, the tail repro
 behaviour glyphs of §4.5 live — is at
 <https://claude.ai/code/artifact/795e9858-c9b9-4bd5-a061-72bd3fa535cf>.
 
+**`docs/36` is the adversarial pass over this one** and supersedes it in three places: §4.7's
+"Snap to edges" becomes **Follow edges**, §5.1's "the brush stays a raster" was wrong (it is the
+one tool whose cost grows with use), and §6's count of 91 capabilities is 116. Read this for the
+diagnosis and the design; read `docs/36` for the corrections, the twenty-five rows this matrix
+lacked, and the order of work that supersedes §8.
+
 ---
 
 ## 0. WHERE THIS SITS
