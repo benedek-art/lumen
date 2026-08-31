@@ -218,6 +218,9 @@ struct MaskCanvas: View {
         case outlineVertex
         /// Tracing a new outline freehand — the lasso.
         case outlineTrace
+        /// A press on empty space with a finished outline already there: a click adds
+        /// a corner, and a drag does nothing, because tracing would replace the shape.
+        case outlineCorner
         /// A press that landed on ANOTHER mask's pin. Carried for the drag so a press
         /// that turns into a small movement still selects rather than starting to draw.
         case pin(String)
@@ -310,7 +313,8 @@ struct MaskCanvas: View {
             return "Drag a point to move it, its ring to change how far it reaches."
         case .polygon:
             return "Drag to lasso a shape, or click to place corners one at a time. "
-                 + "Drag a corner to move it, ⌥-click to remove it. ⌘-drag starts over."
+                 + "Drag a corner to move it, ⌥-click to remove it. Once it is "
+                 + "closed, ⌘-drag is how you start over."
         default:
             return ""
         }
@@ -462,6 +466,17 @@ struct MaskCanvas: View {
                 }
                 outlineGrab = index
                 mode = .outlineVertex
+            } else if existing.count >= 3 && !isCommandDown {
+                // A FINISHED OUTLINE IS NOT REDRAWN BY ACCIDENT. Tracing replaces the
+                // whole path, so without this a drag that started a few points off a
+                // corner — reaching for one and missing is the ordinary way to miss —
+                // would silently destroy a shape someone spent a minute placing. ⌘ is
+                // the deliberate "draw another one", the same modifier the gradient and
+                // the ellipse already use for exactly this.
+                //
+                // A click still adds a corner, which is how a polygon is built up and
+                // is not destructive: this branch is the trace with the replace removed.
+                mode = .outlineCorner
             } else {
                 mode = .outlineTrace
             }
@@ -485,16 +500,18 @@ struct MaskCanvas: View {
             commit(.component(maskID: maskID, index: componentIndex, component: next,
                               coalescingKey: ended ? nil : coalescingKey("outline")))
 
+        case .outlineCorner:
+            // The outline is already closed, so a drag would REPLACE it. A click still
+            // adds a corner, which is how a polygon is built up and costs nothing.
+            guard ended, travelled < MaskCanvas.outlineClickSlop else { return }
+            appendCorner(value, component, to: existing)
+
         case .outlineTrace:
             if travelled < MaskCanvas.outlineClickSlop {
                 // A click, not a drag. Nothing happens until the release, so a press
                 // that turns into a trace does not leave a stray corner behind.
                 guard ended else { return }
-                let at = normalized(value.location)
-                var next = component
-                next.path = existing + [[Double(at.x), Double(at.y)]]
-                commit(.component(maskID: maskID, index: componentIndex,
-                                  component: next, coalescingKey: nil))
+                appendCorner(value, component, to: existing)
                 return
             }
             let at = normalized(value.location)
@@ -524,6 +541,15 @@ struct MaskCanvas: View {
         default:
             break
         }
+    }
+
+    private func appendCorner(_ value: DragGesture.Value, _ component: MaskComponent,
+                              to existing: [[Double]]) {
+        let at = normalized(value.location)
+        var next = component
+        next.path = existing + [[Double(at.x), Double(at.y)]]
+        commit(.component(maskID: maskID, index: componentIndex, component: next,
+                          coalescingKey: nil))
     }
 
     private func grabbedVertex(at location: CGPoint, path: [[Double]]) -> Int? {
