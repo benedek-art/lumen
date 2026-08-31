@@ -1176,6 +1176,17 @@ struct LoupeView: View {
                 // describes the picture the photographer is actually looking at.
                 if let cg = model.image, !model.isDraft, model.imageURL == photo.id {
                     state.measureScopes(fromViewerFrame: cg, url: photo.id)
+                    // And file it, so coming back to this photograph does not read the
+                    // RAW again. Only a SETTLED frame is worth filing: a draft is the
+                    // same edit at lower quality, and caching one would hand the next
+                    // visit a picture the settle has already improved on.
+                    //
+                    // Region frames are excluded by `!model.isDraft` alone not being
+                    // enough — a zoomed settle covers a rectangle, not the frame — so
+                    // the whole-frame test is explicit.
+                    if model.regionUnit == nil, !cropArmed {
+                        state.thumbnails.recordDeveloped(url: photo.id, image: cg)
+                    }
                 }
                 await warmNextPhoto(longEdge: longEdge)
             }

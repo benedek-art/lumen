@@ -161,6 +161,39 @@ final class ThumbnailLoader: ObservableObject {
         self.previews = previews
     }
 
+    /// File a SETTLED develop frame at the fit rung, so returning to this photograph
+    /// does not read the RAW again.
+    ///
+    /// The rung, the freshness rule and the edit-invalidation were all built for this
+    /// and never connected: `PreviewLevel.fit` is documented in `PreviewCache.Freshness`
+    /// as "a rung that claims to show the current render", it is the one rung an edit
+    /// makes STALE rather than merely browsable, and `invalidatePreviews` already
+    /// deletes it. What was missing was a writer — every fit row in the cache was the
+    /// camera's own embedded JPEG, so the loupe's instant path opened a photograph you
+    /// had edited and showed you the camera's rendering of it.
+    ///
+    /// Nothing needs to change on the read side. `PreviewCache.decide` already refuses
+    /// a fit row whose fingerprint does not match the recipe, so a stale frame cannot be
+    /// served; with a `.lumen` row present and current it is served instead of the
+    /// embedded one, and the settle that follows replaces it with the full-size render.
+    ///
+    /// `source: .lumen` is what files this under the CURRENT fingerprint —
+    /// `PreviewCache.rowForDecode` files a camera render as as-shot whatever the photo's
+    /// recipe says, which is right for an embedded JPEG and would be a lie about this.
+    ///
+    /// Fire-and-forget, and refusable: `record` drops the write under back pressure, so
+    /// a settle never waits on an encoder and a cache miss costs a decode rather than a
+    /// stall.
+    func recordDeveloped(url: URL, image: CGImage) {
+        guard let previews else { return }
+        guard let pixels = ThumbnailLadder.pixels(for: .fit) else { return }
+        Task { [weak self] in
+            guard self != nil,
+                  let plan = await previews.plan(for: url, pixels: pixels) else { return }
+            previews.record(plan, image: image, source: .lumen)
+        }
+    }
+
     // MARK: Reads
 
     /// The scroll path's only question: is it here already? Never blocks, never
