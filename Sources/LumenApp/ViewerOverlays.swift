@@ -507,6 +507,16 @@ struct MaskOverlayView: View {
     var strength: Double = MaskOverlay.defaultStrength
 
     @State private var overlay: CGImage?
+    /// The composite in flight, so a superseded one can be told to stop.
+    @State private var buildTask: Task<CGImage?, Never>?
+
+    /// The longest edge the composite is built at.
+    ///
+    /// See `build`: the overlay is drawn resizable and interpolated into a pane rarely
+    /// wider than 1400 points, over a mask raster whose own long edge is 1024, so
+    /// compositing at the sampler's full 4096 was interpolating an interpolation at
+    /// four times the cost. 2048 keeps a downscale on the way to the screen.
+    static let compositeLongEdge = 2048
 
     private struct BuildKey: Equatable {
         let sampler: UUID?
@@ -554,7 +564,21 @@ struct MaskOverlayView: View {
 
     @MainActor
     private func rebuild() async {
+        // CANCEL THE ONE BEFORE IT, and hold the handle so that is possible at all.
+        //
+        // `Task.detached` is not a child task, so `.task(id:)` tearing down the previous
+        // `rebuild` never reached the work it had started — and `await …value` on a
+        // `Task<_, Never>` does not observe the parent's cancellation either. Every
+        // superseded composite therefore ran to completion. During a drag that is one
+        // full-frame composite per delivered frame, none of them cancelled, none of them
+        // ever shown, each holding tens of megabytes while it ran; the queue only drained
+        // when the hand stopped. That is the trail.
+        //
+        // Detached is still right — this is heavy CPU work and it must not inherit the
+        // main actor — so the fix is an explicit handle rather than a child task.
+        buildTask?.cancel()
         guard let alpha else {
+            buildTask = nil
             overlay = nil
             return
         }
@@ -564,13 +588,18 @@ struct MaskOverlayView: View {
         let amount = strength
         let frame = geometry
         let native = sourceSize
-        let built: CGImage? = await Task.detached(priority: .userInitiated) {
+        let task = Task.detached(priority: .userInitiated) { () -> CGImage? in
             MaskOverlayView.build(alpha: alpha, sampler: picture, geometry: frame,
                                   sourceSize: native, mode: wanted,
                                   tint: colour, strength: amount)
-        }.value
+        }
+        buildTask = task
+        let built = await task.value
         guard !Task.isCancelled else { return }
-        overlay = built
+        // A cancelled build returns nil, and nil means "draw nothing". Keeping the last
+        // good overlay instead of blanking it is what stops the red flickering out on
+        // every superseded frame of a drag.
+        if let built { overlay = built }
     }
 
     /// Composited at the PICTURE's resolution when there is one, so the mask edge is
@@ -582,12 +611,30 @@ struct MaskOverlayView: View {
                                   mode: MaskOverlay.Mode, tint: MaskOverlay.Tint,
                                   strength: Double) -> CGImage? {
         let needsPicture = mode.readsPicture
-        // The sampler's extent for every mode, including the Matte: the layer is drawn
+        // The sampler's ASPECT for every mode, including the Matte: the layer is drawn
         // over the DISPLAYED frame, so it has to carry the displayed frame's aspect. A
         // matte built at the source raster's aspect would be stretched on any crop.
-        let width = sampler?.width ?? alpha.width
-        let height = sampler?.height ?? alpha.height
-        guard width > 0, height > 0 else { return nil }
+        //
+        // But not the sampler's SIZE. It is capped at 4096, so on a 5K pane this loop
+        // ran 11.2 million times — measured at 823 ms — to produce an image that is then
+        // drawn `.resizable()` with `.interpolation(.high)` into a pane rarely wider than
+        // 1400 points. The mask raster underneath it is 1024 on its long edge and, in
+        // this file's own words, "smooth by construction", so nothing above that carries
+        // mask detail: the extra pixels were interpolating an interpolation.
+        //
+        // `compositeLongEdge` is the aspect-preserving bound. At 2048 a 3:2 frame is 2.8
+        // megapixels against 11.2 — a straight 4× off the dominant term — and it is
+        // still 1.5× the pane it lands in, so the resample on the way to the screen is a
+        // downscale rather than a stretch.
+        let rawWidth = sampler?.width ?? alpha.width
+        let rawHeight = sampler?.height ?? alpha.height
+        guard rawWidth > 0, rawHeight > 0 else { return nil }
+        let longest = Swift.max(rawWidth, rawHeight)
+        let shrink = longest > compositeLongEdge
+            ? Double(compositeLongEdge) / Double(longest)
+            : 1
+        let width = Swift.max(1, Int((Double(rawWidth) * shrink).rounded()))
+        let height = Swift.max(1, Int((Double(rawHeight) * shrink).rounded()))
         let bytes = sampler?.bytes
         let usable = needsPicture && bytes != nil
             && (bytes?.count ?? 0) >= width * height * 4
@@ -603,38 +650,96 @@ struct MaskOverlayView: View {
         // supplied there is nothing to invert and the plane is stretched, which is
         // right for an uncropped photograph and no worse than before for a cropped one.
         let reproject = sourceSize.width > 0 && sourceSize.height > 0
-        var out = [UInt8](repeating: 0, count: width * height * 4)
-        for y in 0..<height {
-            let v = (Double(y) + 0.5) / Double(height)
-            for x in 0..<width {
-                let u = (Double(x) + 0.5) / Double(width)
-                var su = u
-                var sv = v
-                if reproject {
-                    let point = PipelineRenderer.sourceNormalized(
-                        displayedX: u, displayedY: v, geometry: geometry,
-                        sourceSize: sourceSize)
-                    su = Double(point.x)
-                    sv = Double(point.y)
-                }
-                let a = alpha.bilinear(su * Double(alpha.width),
-                                       sv * Double(alpha.height))
-                var picture = RGB.zero
-                if usable, let bytes {
-                    let i = (y * width + x) * 4
-                    picture = RGB(Double(bytes[i]) / 255,
-                                  Double(bytes[i + 1]) / 255,
-                                  Double(bytes[i + 2]) / 255)
-                }
-                let c = MaskOverlay.composite(picture: picture, alpha: a, mode: mode,
-                                              tint: tint, strength: strength)
-                let i = (y * width + x) * 4
-                out[i] = byte(c.r)
-                out[i + 1] = byte(c.g)
-                out[i + 2] = byte(c.b)
-                out[i + 3] = 255
+
+        // THE MAP IS AFFINE, so it is solved once instead of per pixel.
+        //
+        // `sourceNormalized` inverts a crop and a straighten — a translate, a scale and
+        // a rotation, every one of them affine — but it was being called inside the
+        // inner loop, and it walks `geometryRects` → `CropGeometry.resolve` →
+        // `usableSize` on the way, which runs `sin` and `cos` unconditionally even at
+        // angle 0. Measured at 4096×2731: 136 ms of the composite's 823 was this one
+        // call, evaluated 11.2 million times to produce a mapping with six coefficients.
+        //
+        // Three probes give the coefficients; a fourth checks them. If the fourth
+        // disagrees the map is not affine after all and the per-pixel path is used, so
+        // this is an optimisation that cannot change what is drawn.
+        var affine: (su: (Double, Double, Double), sv: (Double, Double, Double))?
+        if reproject {
+            func probe(_ u: Double, _ v: Double) -> (Double, Double) {
+                let p = PipelineRenderer.sourceNormalized(displayedX: u, displayedY: v,
+                                                          geometry: geometry,
+                                                          sourceSize: sourceSize)
+                return (Double(p.x), Double(p.y))
+            }
+            let o = probe(0, 0), du = probe(1, 0), dv = probe(0, 1)
+            let candidate = (su: (o.0, du.0 - o.0, dv.0 - o.0),
+                             sv: (o.1, du.1 - o.1, dv.1 - o.1))
+            let check = probe(0.37, 0.63)
+            let predictedU = candidate.su.0 + candidate.su.1 * 0.37 + candidate.su.2 * 0.63
+            let predictedV = candidate.sv.0 + candidate.sv.1 * 0.37 + candidate.sv.2 * 0.63
+            if abs(predictedU - check.0) < 1e-9, abs(predictedV - check.1) < 1e-9 {
+                affine = candidate
             }
         }
+
+        let aw = Double(alpha.width), ah = Double(alpha.height)
+        let pictureWidth = sampler?.width ?? 0
+        let pictureHeight = sampler?.height ?? 0
+        // The picture is read at whatever resolution the sampler happens to be and the
+        // composite is built at `width`×`height`, so the two are no longer required to
+        // match — which is what lets the working resolution be bounded above.
+        let sx = pictureWidth > 0 ? Double(pictureWidth) / Double(width) : 0
+        let sy = pictureHeight > 0 ? Double(pictureHeight) / Double(height) : 0
+
+        var out = [UInt8](repeating: 0, count: width * height * 4)
+        out.withUnsafeMutableBufferPointer { buffer in
+            for y in 0..<height {
+                // A superseded composite used to run to completion — `Task.detached` is
+                // not a child task, so `.task(id:)` cancelling the wrapper never reached
+                // the loop, and a drag queued one full-frame composite per delivered
+                // frame with nothing draining them. Checked per row rather than per
+                // pixel: the check is cheap but not free, and a row is under a
+                // millisecond.
+                if Task.isCancelled { return }
+                let v = (Double(y) + 0.5) / Double(height)
+                let py = pictureHeight > 0
+                    ? Swift.min(pictureHeight - 1, Swift.max(0, Int((Double(y) + 0.5) * sy)))
+                    : 0
+                for x in 0..<width {
+                    let u = (Double(x) + 0.5) / Double(width)
+                    var su = u
+                    var sv = v
+                    if let affine {
+                        su = affine.su.0 + affine.su.1 * u + affine.su.2 * v
+                        sv = affine.sv.0 + affine.sv.1 * u + affine.sv.2 * v
+                    } else if reproject {
+                        let point = PipelineRenderer.sourceNormalized(
+                            displayedX: u, displayedY: v, geometry: geometry,
+                            sourceSize: sourceSize)
+                        su = Double(point.x)
+                        sv = Double(point.y)
+                    }
+                    let a = alpha.bilinear(su * aw, sv * ah)
+                    var picture = RGB.zero
+                    if usable, let bytes, pictureWidth > 0 {
+                        let px = Swift.min(pictureWidth - 1,
+                                           Swift.max(0, Int((Double(x) + 0.5) * sx)))
+                        let i = (py * pictureWidth + px) * 4
+                        picture = RGB(Double(bytes[i]) / 255,
+                                      Double(bytes[i + 1]) / 255,
+                                      Double(bytes[i + 2]) / 255)
+                    }
+                    let c = MaskOverlay.composite(picture: picture, alpha: a, mode: mode,
+                                                  tint: tint, strength: strength)
+                    let i = (y * width + x) * 4
+                    buffer[i] = byte(c.r)
+                    buffer[i + 1] = byte(c.g)
+                    buffer[i + 2] = byte(c.b)
+                    buffer[i + 3] = 255
+                }
+            }
+        }
+        if Task.isCancelled { return nil }
 
         guard let space = CGColorSpace(name: CGColorSpace.sRGB),
               let provider = CGDataProvider(data: Data(out) as CFData) else { return nil }

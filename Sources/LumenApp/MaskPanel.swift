@@ -1359,7 +1359,7 @@ struct MaskPanel: View {
                     // control named "Snap" that visibly does nothing at 10 reads as
                     // broken, which is the failure this rebuild exists to remove
                     // (docs/36 §1.3).
-                    refineSlider(mask.id, "Follow edges", \.feather, 0...100, 0,
+                    refineSlider(mask.id, "Follow", \.feather, 0...100, 0,
                                  help: "Bends the selection toward edges it can find in "
                                      + "the photograph itself. Does nothing where there "
                                      + "is no edge under the boundary.",
@@ -1378,10 +1378,19 @@ struct MaskPanel: View {
                                      + "either end.",
                                  behaviour: .expandContract,
                                  behaviourValue: mask.refine.edge / 50)
-                    // "Soften edge", not "Feather": this is a Gaussian blur of the
-                    // FINISHED alpha, and the brush's Feather is the hardness of one
-                    // stamp. Two controls, nine rows apart, that were the same word.
-                    refineSlider(mask.id, "Soften edge", \.blur, 0...100, 0,
+                    // "Soften", not "Feather": this is a Gaussian blur of the FINISHED
+                    // alpha, and the brush's Feather is the hardness of one stamp. Two
+                    // controls, nine rows apart, that were the same word.
+                    //
+                    // AND ONE WORD, not two. Shrinking the behaviour glyph from 44 to 26
+                    // bought the label column back to 56 points, and that was still not
+                    // enough: "Follow edges" and "Soften edge" measure past 60 at 12 pt
+                    // even at the 0.86 shrink floor, so both still arrived as "Follow
+                    // ed…" and "Soften e…" — which the owner photographed. A name that
+                    // ellipsizes has told you less than no name. Follow / Expand /
+                    // Soften is a parallel trio that fits, and the sentence each one
+                    // needs is in its tooltip, where it costs no width at all.
+                    refineSlider(mask.id, "Soften", \.blur, 0...100, 0,
                                  help: "Blurs the finished selection, so the adjustment "
                                      + "fades in across a wider band. Not the brush's "
                                      + "Feather, which is the hardness of one stamp.",
