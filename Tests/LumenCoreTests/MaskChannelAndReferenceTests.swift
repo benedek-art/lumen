@@ -54,11 +54,11 @@ final class MaskChannelAndReferenceTests: XCTestCase {
     func testARedBandSeparatesWhatALumaBandCannot() {
         let src = twoHues()
         // 0.40 linear is about −1.3 EV; the band sits around it on the red axis.
-        let red = plane(band(.red, lo: MaskPanel_evNorm(-2.5), hi: MaskPanel_evNorm(0.5)), src)
+        let red = plane(band(.red, lo: evNorm(-2.5), hi: evNorm(0.5)), src)
         XCTAssertGreaterThan(at(red, 0.25), 0.9, "the red-dominant half is in")
         XCTAssertLessThan(at(red, 0.75), 0.05, "and the blue-dominant half is out")
 
-        let blue = plane(band(.blue, lo: MaskPanel_evNorm(-2.5), hi: MaskPanel_evNorm(0.5)), src)
+        let blue = plane(band(.blue, lo: evNorm(-2.5), hi: evNorm(0.5)), src)
         XCTAssertLessThan(at(blue, 0.25), 0.05)
         XCTAssertGreaterThan(at(blue, 0.75), 0.9, "the same band on blue is the mirror")
     }
@@ -67,7 +67,7 @@ final class MaskChannelAndReferenceTests: XCTestCase {
         let src = twoHues()
         // Both halves have a channel at 0.05, so Min selects both; Max selects neither
         // at the same band, which is what makes the two different tools.
-        let low = MaskPanel_evNorm(-5.5), high = MaskPanel_evNorm(-3.5)
+        let low = evNorm(-5.5), high = evNorm(-3.5)
         let min = plane(band(.min, lo: low, hi: high), src)
         XCTAssertGreaterThan(at(min, 0.25), 0.9)
         XCTAssertGreaterThan(at(min, 0.75), 0.9)
@@ -105,7 +105,7 @@ final class MaskChannelAndReferenceTests: XCTestCase {
     /// The band handles are normalized on the fixed −10…+4 EV axis; this is the same
     /// mapping the panel's own slider uses, written out so the fixtures above read as
     /// EV rather than as magic fractions.
-    private func MaskPanel_evNorm(_ ev: Double) -> Double { (ev + 10) / 14 }
+    private func evNorm(_ ev: Double) -> Double { (ev + 10) / 14 }
 
     // MARK: - References
 

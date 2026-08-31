@@ -186,6 +186,9 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     "Int", "Int8", "Int16", "Int32", "Int64", "UInt", "UInt8", "UInt16", "UInt32",
     "UInt64", "Double", "Float", "Float32", "Float64", "Bool", "String", "Substring",
     "Character", "Array", "Dictionary", "Set", "Optional", "Result", "Range",
+    # `#filePath` and `#line` defaults on a test helper, so a failure reports the
+    # CALL site rather than the helper's own line.
+    "StaticString",
     "ClosedRange", "Sequence", "Collection", "Comparable", "Equatable", "Hashable",
     "Hasher", "Codable", "Encodable", "Decodable", "Sendable", "Error",
     "LocalizedError", "Any",
@@ -1585,6 +1588,11 @@ BINDERS = [
     # associated values: `case .thing(let x)` is covered by the let rule; `x)` in a
     # pattern with `case let .thing(x, y)` is not, so take those too
     re.compile(r"\bcase\s+let\s+[.\w]*\(\s*((?:[a-z_]\w*\s*,\s*)*[a-z_]\w*)\s*\)"),
+    # …and with a capture list in the way: `{ [weak self] event in`. Both closure
+    # binders above want the `{` and the first name adjacent, so every escaping closure
+    # in the application — which is to say every one that touches `self` — lost its
+    # parameter.
+    re.compile(r"\{\s*\[[^\]]*\]\s*\(?\s*((?:[a-z_]\w*\s*,\s*)*[a-z_]\w*)\s*\)?\s+in\b"),
 ]
 
 # Not member lookups on a value: language keywords, and the property-wrapper and
@@ -1703,6 +1711,277 @@ def pass_unbound_receivers():
     return False
 
 
+
+# ==========================================================================
+# Pass 9 — a member reached across a module boundary must be public
+# ==========================================================================
+#
+# Pass 4 asks whether `TypeName.member` NAMES something. It does not ask whether the
+# caller is allowed to see it, and those are different questions the moment a reference
+# crosses one of the four targets.
+#
+# `PipelineRenderer.maskSourceFingerprint` cost a CI round for exactly this. The
+# function existed, pass 4 resolved it, `swiftc -parse` had no opinion — and it was
+# `static func` with no access modifier, which is internal, so `AppState` in LumenApp
+# could not reach into LumenPipeline for it. Nothing on this Linux box could say so,
+# because the two macOS targets are never built here.
+#
+# Swift's rule, which this encodes:
+#   - a declaration with no modifier is INTERNAL, visible only inside its own module
+#   - `public` and `open` cross the boundary
+#   - a type being public does NOT make its members public — `public struct S { let x }`
+#     has an internal `x` — with two exceptions, both of which are here:
+#       * members of a `public extension` are public unless marked otherwise
+#       * an enum's CASES carry the enum's own access level
+#
+# Two directions of caution, both chosen to under-report rather than over-report:
+#   - a member name declared more than once is accessible if ANY declaration is public,
+#     because the crude member scan cannot tell a nested type's members from the outer
+#     one's, and a wrong report is how a checker gets ignored
+#   - `Tests/` is skipped entirely: `@testable import` grants internal access, so a test
+#     file reaching for an internal member is correct code
+
+ACCESS_LEVEL = re.compile(
+    r"(?:^|\n)([ \t]*(?:@\w+(?:\([^)]*\))?[ \t]*)*"
+    r"(?:public|open|internal|private|fileprivate|final|static|class|nonisolated"
+    r"|mutating|nonmutating|lazy|weak|unowned|override|indirect|dynamic|convenience"
+    r"|required|unsafe|package)?"
+    r"(?:[ \t]+(?:public|open|internal|private|fileprivate|final|static|class"
+    r"|nonisolated|mutating|nonmutating|lazy|weak|unowned|override|indirect|dynamic"
+    r"|convenience|required|unsafe|package))*[ \t]+)"
+    r"(?:let|var|func|struct|class|enum|actor|typealias|protocol|init|subscript)"
+    r"(?:[ \t]+([A-Za-z_]\w*))?")
+
+CROSSES = ("public", "open")
+
+
+def _leading_modifiers(text, index):
+    """The modifier words immediately before `index`, back to the line start."""
+    line_start = text.rfind("\n", 0, index) + 1
+    return set(re.findall(r"[a-z]+", text[line_start:index]))
+
+
+def _module_surface():
+    """(module, TypeName) -> {member: reachable}, and whether the type itself is."""
+    surface, type_public = {}, {}
+    for path in FILES:
+        module = _module_of(path)
+        if module is None or path.relative_to(ROOT).parts[0] == "Tests":
+            continue
+        text = strip_comments(path.read_text())
+        for m in TYPE_BLOCK.finditer(text):
+            name = m.group(2).split(".")[-1]
+            kind = m.group(1)
+            outer = _leading_modifiers(text, m.start())
+            opens = bool(outer & set(CROSSES))
+            key = (module, name)
+            if kind != "extension":
+                type_public[key] = type_public.get(key, False) or opens
+            elif opens:
+                type_public.setdefault(key, False)
+            body = brace_body(text, m.end() - 1)
+            found = surface.setdefault(key, {})
+            # A `public extension` hands its access to every member that does not
+            # override it; anywhere else a member starts internal.
+            inherited = opens and kind == "extension"
+            for hit in ACCESS_LEVEL.finditer(body):
+                member = hit.group(2)
+                if not member:
+                    continue
+                words = set(re.findall(r"[a-z]+", hit.group(1)))
+                reachable = bool(words & set(CROSSES)) or (
+                    inherited and not (words & {"private", "fileprivate", "internal"}))
+                found[member] = found.get(member, False) or reachable
+            # An enum's cases carry the enum's own access level, and `public` is not
+            # spellable on a `case` line, so they are read off the container.
+            if kind in ("enum", "extension"):
+                cases = opens if kind == "extension" else (
+                    type_public.get(key, False) or opens)
+                for line in CASE_LINE.findall(body):
+                    for part in line.split(","):
+                        hit = re.match(r"^\s*(\w+)", part)
+                        if hit:
+                            found[hit.group(1)] = found.get(hit.group(1), False) or cases
+    return surface, type_public
+
+
+def pass_cross_module_access():
+    surface, type_public = _module_surface()
+    modules_of = {}
+    for module, name in surface:
+        modules_of.setdefault(name, set()).add(module)
+
+    problems = []
+    for path in FILES:
+        module = _module_of(path)
+        if module is None or path.relative_to(ROOT).parts[0] == "Tests":
+            continue
+        text = strip_all(path.read_text())
+        for m in QUALIFIED.finditer(text):
+            tname, member = m.group(1), m.group(2)
+            homes = modules_of.get(tname)
+            # Declared nowhere in tree, in this very module, or in two modules at once:
+            # not this pass's question.
+            if not homes or module in homes or len(homes) != 1 or member in UNIVERSAL:
+                continue
+            home = next(iter(homes))
+            here = surface[(home, tname)]
+            line = text.count("\n", 0, m.start()) + 1
+            site = (path.relative_to(ROOT).as_posix(), line)
+            if not type_public.get((home, tname), True):
+                problems.append((*site, tname, "", home))
+                continue
+            # Absent means the crude scan did not see it — an inherited member, a
+            # protocol requirement, a synthesized conformance. Pass 4 owns existence.
+            if here.get(member, True):
+                continue
+            problems.append((*site, tname, member, home))
+
+    problems = sorted(set(problems))
+    if not problems:
+        print(f"access:   every cross-module TypeName.member reference is public "
+              f"({len(surface)} type/module pairs)")
+        return True
+    grouped = {}
+    for path, line, tname, member, home in problems:
+        key = f"{tname}.{member}" if member else tname
+        grouped.setdefault((key, home), []).append(f"{path}:{line}")
+    print(f"access:   {len(grouped)} references reach a non-public declaration "
+          f"in another module\n")
+    for (key, home) in sorted(grouped, key=lambda k: -len(grouped[k])):
+        sites = grouped[(key, home)]
+        more = f" (+{len(sites) - 3} more)" if len(sites) > 3 else ""
+        print(f"  {key:<44} internal in {home}   {', '.join(sites[:3])}{more}")
+    return False
+
+
+
+# ==========================================================================
+# Pass 10 — an argument's value must be a name that exists
+# ==========================================================================
+#
+# The receiver pass asks whether `name` in `name.member` is bound. It never looks at a
+# bare name passed AS an argument, and that is where the second of the two errors that
+# went red on macOS lived: `swatchSlider` carried a copy of two trailing arguments from
+# a neighbouring helper — `behaviour: behaviour, behaviourValue: (current - …)` — and
+# neither name existed anywhere in its scope.
+#
+# WHY THE RECEIVER PASS'S OWN BINDING SET CANNOT BE REUSED. `BINDERS` reads a function
+# parameter as `[(,] name :`, which is also exactly what a call-site LABEL looks like.
+# Over a whole function body that binds every label the function passes to anything — so
+# `behaviour: behaviour` binds `behaviour` from its own left-hand side, and the bug
+# makes itself invisible. That over-broad rule is deliberate and correct for receivers,
+# where a false positive is expensive and a miss is cheap. Here it is fatal, so this
+# pass builds its own set: the label rule applies to the SIGNATURE only, and everything
+# else — locals, `for`, `case let`, closure parameters — applies to the whole scope.
+#
+# Two more things this pass needs that the receiver pass does not:
+#   - a nested `func`'s body is lexically inside its parent's scope, so its parameters
+#     read as unbound there. Nested spans are subtracted; each nested function is
+#     checked separately against its own signature.
+#   - `kCGImagePropertyOrientation` and its family are genuine globals from a C header,
+#     and the `k`-prefix convention is the only thing in the file that identifies them.
+#
+# Run against the whole tree it reports nothing, and against the commit that was red it
+# reports the one line. That is the entire claim.
+
+ARGUMENT_VALUE = re.compile(
+    r"(?<![\w.$@\\#])[a-z_]\w*\s*:\s*\(?\s*([a-z_]\w*)\s*(?=[,)\-+*/<>=!&|?\s])")
+LABEL_BINDER = re.compile(r"[(,]\s*([a-z_]\w*)\s*:")
+EXTERNAL_LABEL_BINDER = re.compile(r"[(,]\s*(?:[a-z_]\w*|_)\s+([a-z_]\w*)\s*:")
+PLATFORM_CONSTANT = re.compile(r"^k[A-Z]")
+
+# Words that are grammar rather than values. `inout` is the one that matters most:
+# `_ context: inout GraphicsContext` reads as a label followed by a value, sixty times.
+GRAMMAR = set("""
+if else guard return for in while switch case default break continue fallthrough
+throw throws rethrows defer do catch as is where inout async await try lazy weak
+unowned mutating nonmutating static final class public private internal fileprivate
+open override required convenience indirect nonisolated dynamic package unsafe
+consume copy discard let var func init deinit subscript
+""".split())
+
+
+def _value_bindings(scope):
+    """Every name in scope, WITHOUT reading call-site labels as parameters."""
+    names = _declaration_list_names(scope)
+    for pattern in BINDERS:
+        if pattern.pattern == LABEL_BINDER.pattern:
+            continue
+        for hit in pattern.findall(scope):
+            for part in hit.split(","):
+                names.add(part.strip())
+    # `catch { … error … }` binds `error` with nothing written down.
+    if re.search(r"\bcatch\b", scope):
+        names.add("error")
+    return names | _signature_parameters(scope)
+
+
+def _signature_parameters(scope):
+    """The label rule, applied only where a label really is a parameter."""
+    m = FUNC_HEAD.search(scope)
+    if not m:
+        return set()
+    depth, i, n = 0, m.end() - 1, len(scope)
+    while i < n:
+        if scope[i] == "(":
+            depth += 1
+        elif scope[i] == ")":
+            depth -= 1
+            if depth == 0:
+                break
+        i += 1
+    signature = scope[m.start():i + 1]
+    return set(LABEL_BINDER.findall(signature)) | set(
+        EXTERNAL_LABEL_BINDER.findall(signature))
+
+
+def pass_argument_values():
+    members, _kinds, conforms = _type_index()
+    globals_ = _file_level_names()
+    problems = []
+    for path in FILES:
+        text = strip_all(path.read_text())
+        spans = _enclosing_types(text)
+        functions = list(_function_scopes(text))
+        records = [(off, off + len(sc), sc) for off, sc in functions]
+        for offset, scope in functions:
+            owners = [name for start, end, name in spans if start <= offset < end]
+            if not owners:
+                continue
+            available = set(globals_)
+            for owner in owners:
+                available |= members.get(owner, set())
+                for parent in conforms.get(owner, []):
+                    available |= members.get(parent, set())
+            for start, end, enclosing in records:
+                if start <= offset < end:
+                    available |= _value_bindings(enclosing)
+            nested = [(start - offset, end - offset) for start, end, _ in records
+                      if start > offset and end <= offset + len(scope)]
+            for m in ARGUMENT_VALUE.finditer(scope):
+                name = m.group(1)
+                if any(a <= m.start() < b for a, b in nested):
+                    continue
+                if (name in available or name in GRAMMAR
+                        or name in RECEIVER_EXEMPT
+                        or PLATFORM_CONSTANT.match(name)):
+                    continue
+                line = text.count("\n", 0, offset + m.start()) + 1
+                problems.append((path.relative_to(ROOT).as_posix(), line, name,
+                                 owners[-1]))
+
+    problems = sorted(set(problems))
+    if not problems:
+        print("args:     every bare name passed as an argument is bound in its scope")
+        return True
+    plural = "argument names" if len(problems) == 1 else "arguments name"
+    print(f"args:     {len(problems)} {plural} something that is not in scope\n")
+    for path, line, name, owner in problems[:25]:
+        print(f"  {name:<28} no {name} in scope inside {owner}   {path}:{line}")
+    return False
+
+
 if __name__ == "__main__":
     ok = pass_symbols()
     print()
@@ -1720,4 +1999,8 @@ if __name__ == "__main__":
     ok = pass_value_members() and ok
     print()
     ok = pass_unbound_receivers() and ok
+    print()
+    ok = pass_cross_module_access() and ok
+    print()
+    ok = pass_argument_values() and ok
     sys.exit(0 if ok else 1)
