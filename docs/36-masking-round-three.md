@@ -445,7 +445,19 @@ circle parked in the middle of the frame meant the draw-it-out gesture that had 
 
 1. The overlay reads the render's alpha instead of rasterizing a second time.
 2. Bounded local adjust — crop the spatial stages to the mask's box.
-3. Per-component refinement.
+3. ~~Per-component refinement.~~ **Reconsidered, and it should not be built as
+   specified.** The insertion point is easy — `MaskRaster.combine` folds `raw` per
+   component and applies `refined` once at the end, so a per-component chain goes in the
+   loop and both renderers get it, since both call `combine`. What it costs is the
+   problem: a second set of four sliders PER COMPONENT, in a panel whose owner has just
+   said, twice, that sliders are the slow part. A mask with three components would carry
+   twelve refinement sliders and the panel would be back to being a form over the data
+   model, which is what docs/35 §2 was written to end.
+   The need behind it is real — "feather the brush part and not the gradient part" —
+   and the honest answer is probably a component that carries its own SOFTNESS as one
+   number rather than the whole chain, or splitting the stack into two masks and
+   referencing one from the other, which already works. Left open as a design question
+   rather than a task.
 4. Develop Presets carrying masks — blocked on the AI kinds, since a preset's masks
    would have to be recomputed per target photograph to mean anything.
 5. Alpha PNG export and import.
