@@ -465,59 +465,303 @@ The measurement to take first is a settle with 1, 3 and 6 masks at fit and at 10
 
 ---
 
-## 6. WHAT WE STILL OWE
+## 6. THE COVERAGE MATRIX — does the rebuild cover everything?
 
-Ranked by value per unit of cost. The first three need no model and no download.
+The honest answer to that question, asked of §4 and §5 as first drafted, is **no.** Those two
+sections rebuild the *interaction* and fix the *tail*. A masking system has eight territories and
+they cover three and a half of them.
 
-1. **Similarity Point's missing half.** Add `center`, `radius` and a sign to `MaskComponent`, wire the canvas handles, gate the existing OKLab similarity by spatial falloff. This turns a component that is currently mis-named into the fastest selection tool in the app — and DxO's U-Point is the only comparable thing in the market, with no AI masks and no intersect to compose it with.
-2. **The Brightness Range instrument.** A live luminance histogram with four handles (band + falloff), an eyedropper, and "show the luminance map". Capture One's version is the best-loved refinement in that application and we ship three plain sliders against it. The histogram machinery exists in `Scopes.swift`.
-3. **Local Noise, Moiré, Defringe, Grain.** Five wire fields with no readers; `LocalNoiseAdjust` exists in `DenoiseEngine` with no caller. Lightroom ships all of them locally. This is render-stage work, not UI work — the panel is right to hide them until it is done.
-4. **Depth Range on every photograph.** Depth Anything V2 **Small** (Apache-2.0; Base and Large are CC-BY-NC and prohibited). Lightroom's depth mask works only on iPhone-portrait HEIC. This is the clearest capability win over the market leader that a single bundled model buys.
-5. **Sky**, then **Object** (SAM 2.1-small, cached encoder), then **People parts**. The order is by how often a photographer reaches for them.
-6. **Copy/paste masks, and presets that carry them.** Neither exists. `docs/08 §8.10` claims adaptive presets as a headline.
+So here is the whole surface, one row per capability, status read from the code at head — not from
+`docs/audit/mask.md`, which is a pass old and wrong in both directions now (MASK-01, -02, -04,
+-06, -07 and -23 have all closed since; MASK-33 has not).
 
-None of §6 should start before §4 and §5.1 are done. A broader roster on an interaction nobody can
-read is more of the problem, not less.
+**SHIPS** works on the shipping path · **PART** works but short of the contract · **GONE** the
+control or the reader does not exist · **UNPROVEN** exists, nothing can fail if it breaks.
+**⊕** marks the items that need a new field in the wire format, which is the real cost signal:
+a new field touches the recipe, the sidecar, the catalog and every reader of all three.
+
+### A · What a mask can select
+
+| Capability | Status | Note |
+|---|---|---|
+| Brush — vector strokes, Catmull-Rom, arc-length stamping | SHIPS | resolution-independent, geometry-proof |
+| Brush — Size / Feather / Flow / Density / Eraser / Automask | SHIPS | Automask is wired on the shipping path |
+| Linear gradient | SHIPS | |
+| Linear **Mirror** | GONE ⊕ | spec'd in §8.2; no field. One drag replaces the two-opposing-gradients ritual |
+| Radial gradient | SHIPS | |
+| Brightness Range — band + smoothness, EV-denominated | SHIPS | EV axis is ahead of LrC |
+| Brightness Range — histogram instrument, eyedropper, luminance map | GONE | three plain sliders against Capture One's best-loved tool |
+| Colour Range — up to 8 samples | SHIPS | LrC caps at 5 |
+| Colour Range — per-axis hue/chroma/luma tolerance | GONE ⊕ | one linked Refine only |
+| Colour Range — delete any sample | PART | last-only; LrC deletes per chip |
+| Colour Pick — OKLab similarity gate | SHIPS | |
+| Colour Pick — **radius, and negative points** | GONE ⊕ | the spatial half of U-Point. Without it this is a colour range wearing another tool's name |
+| Colour Along a Line — detachable sampler | GONE ⊕ | DxO's Control Line's best idea |
+| Subject | SHIPS | Vision, no download |
+| Subject — instance chips (pick one of several) | GONE ⊕ | all foreground instances unioned |
+| Subject — hair-grade matting pass | GONE | BiRefNet, §8.8 |
+| Background — complement of Subject | SHIPS | consistent by construction; better mechanism than LrC's second model |
+| People — one union matte | PART | |
+| People — per-person chips + the nine parts | GONE ⊕ | `personParts` exists with no writer and no reader |
+| Sky | GONE | no model. `docs/08`'s own core test case starts here |
+| Object — click / scribble / box | GONE | no SAM |
+| Landscape classes | GONE | no model |
+| Depth Range | GONE | no estimator, embedded depth unread |
+| Convert a component to a brush | GONE | LrC has it for some types |
+| Component algebra ∪ ∖ ∩, visible, editable after creation | SHIPS | **ahead of LrC** |
+| Component reorder | SHIPS | the fold is order-dependent and now reachable |
+| Per-component Amount and Invert | SHIPS | **ahead of LrC** (open Adobe request) |
+
+### B · How the edge is shaped
+
+| Capability | Status | Note |
+|---|---|---|
+| Guided-filter refine | SHIPS | |
+| Edge shift (signed distance) | SHIPS | |
+| Gaussian soften | SHIPS | |
+| Density remap (levels lo/hi/gamma) | SHIPS | **LrC has no equivalent** |
+| Whole-mask invert, before the chain | SHIPS | tested both ways |
+| Edge resolved at the render's own resolution on settle and export | SHIPS | `testASettleMaskEdgeIsResolvedAtTheRendersOwnResolution` |
+| Draft edge at the 1024 proxy | PART | the edge you *judge* is not the edge you *ship* |
+| ⌥-drag any edge slider → the pure matte | GONE | the micro-interaction LR users reach for constantly |
+
+### C · What a mask can do to the picture
+
+| Capability | Status | Note |
+|---|---|---|
+| Exposure + Contrast/Highlights/Shadows/Whites/Blacks | SHIPS | |
+| **Local point curve** — Luma + RGB + per-channel | SHIPS | **LrC does not have this** |
+| **Local grading wheels** — 3-way + Global | SHIPS | **LrC does not have this** |
+| Temp / Tint / Hue / Saturation / Vibrance | SHIPS | Vibrance is ahead of LrC |
+| Point Colour swatches, 8, with Variance | SHIPS | |
+| Colorize swatch + strength | SHIPS | |
+| Texture / Clarity / Dehaze / Sharpness | SHIPS | |
+| Local Noise (luma) | GONE | field, no reader; `LocalNoiseAdjust` has no caller either |
+| Local Noise (chroma) | GONE | field, no reader |
+| Local Moiré | GONE | field, no reader |
+| Local Defringe | GONE | field, no reader |
+| Local Grain | GONE | field, no reader |
+| Mask Strength 0–200 | SHIPS | |
+| ⌥-drag the pin to scrub Strength | GONE | no pins to drag |
+
+Five fields with no readers is the whole of LrC's local Detail group. This is the largest single
+*capability* gap in the table, and it is engine work, not panel work.
+
+### D · Seeing what you are doing
+
+| Capability | Status | Note |
+|---|---|---|
+| Six overlay modes, composited from true alpha | SHIPS | tested mode by mode |
+| `O` / `⇧O` / `⌥O` | SHIPS | |
+| Overlay on when a mask is created | GONE | `addMask` returns without touching it |
+| Overlay on mask-row hover | GONE | |
+| Overlay auto-hides while an adjustment is dragged | GONE | |
+| Per-mask overlay colour | PART | one global tint for every mask |
+| More than one mask's overlay at once | GONE | `soloMaskOverlay` is a single optional |
+| Mask row thumbnail | GONE | a count badge is the whole readout |
+| Component thumbnail | GONE | |
+| Canvas pins | GONE | |
+| Every mask drawn, selected one bright | GONE | only the selected *component* draws |
+| Brush size ring | SHIPS | correct through crop, which it once was not |
+| Brush feather ring | GONE | |
+| Live stroke that shows flow, density and falloff | GONE | a flat white polyline |
+| Brush/tool keyboard grammar | GONE | `M`, `O`, `⇧O`, `⌥O`, `'` is the entire map |
+
+### E · Speed
+
+| Capability | Status | Note |
+|---|---|---|
+| Masks render in draft frames | SHIPS | they used to be dropped entirely |
+| Raster cache, newest-wins, per-photograph identity | SHIPS | `MaskRasterCacheTests` |
+| Parametric kinds evaluated on the GPU | GONE | §5.1 — **the tail** |
+| The overlay reads the render's alpha | GONE | §5.2 — a second rasterization on the render actor |
+| Local adjust bounded to the mask's box | GONE | §5.3 — N masks cost N full-frame passes |
+| A measurement of a masked settle | UNPROVEN | `docs/34 §5` lists it as never profiled |
+
+### F · Not losing the work
+
+| Capability | Status | Note |
+|---|---|---|
+| Recipe carries every mask parameter | SHIPS | |
+| XMP sidecar carries the recipe, masks included | SHIPS | |
+| **XMP carries the brush strokes** | **GONE** | see §7.1 — this is the one that loses work |
+| Export refuses a photo whose stroke blobs are unreadable | SHIPS | wired and tested since the audit |
+| Raster caches versioned and self-healing | PART | keyed on `pipelineVersion`; no checksum-and-regenerate |
+| A blob store that cannot collect a referenced stroke set | UNPROVEN | there is no collector at all — a leak, which is the safe direction |
+
+### G · Moving masks between photographs
+
+| Capability | Status | Note |
+|---|---|---|
+| Copy / Paste Settings carries masks | SHIPS | `pasteSettings` assigns `recipe.masks` |
+| Paste masks *only*, or settings *without* masks | GONE | one all-or-nothing verb |
+| Sync a mask across a selection, with progress | GONE | |
+| **Saved Looks carry masks** | **GONE** | `LookSubset.uncarriedRecipeKeys` contains `"masks"`, and `applied(to:)` leaves them untouched. `RecipeLook.swift`'s header comment says a look carries "look-tagged masks" — it does not, and no such tag exists |
+| Adaptive presets — AI components recomputed per target photo | GONE | `docs/08 §8.10` claims this as a headline |
+| A background activity surface for mask recompute | GONE | |
+
+### H · Proof
+
+| Capability | Status | Note |
+|---|---|---|
+| Mask algebra golden (`maskalgebra.json`) | SHIPS | |
+| A mask through `RenderGraph`, GPU against the CPU reference | SHIPS | |
+| A mask through the shipping `makeGraph` via `renderPreview` | SHIPS | closed since the audit |
+| Masked colour bakes at the render's own table size | SHIPS | closed since the audit |
+| Raster cache semantics — stale, converge, never on settle, never cross-photo | SHIPS | |
+| Radial matches the reference | SHIPS | `EngineMathFixtureTests` |
+| The Vision path | UNPROVEN | `#if os(macOS)`, and no test has ever executed it anywhere |
+| The geometry inverse behind every gesture and overlay | UNPROVEN | load-bearing for `MaskCanvas`, overlay reprojection and the cursor ring |
+| Masked settle performance | UNPROVEN | no perf test exists |
+
+### The count
+
+**Ninety-one capabilities, counted across the eight tables above. 41 ship, 5 are partial, 40 are
+gone, 5 are unproven.** Six of the missing need a new wire field; six need a model.
+
+What the shape of that says: the *engine* is in good order — the algebra, the refine chain, the
+two tools Lightroom lacks, and the proof around them are real. What is missing clusters in three
+places, and none of them is engine maths: **the AI roster** (Sky, Object, Landscape, Depth, people
+parts, subject instances — six rows, all model work), **the local Detail group** (five fields with
+no readers), and **everything that happens outside one photograph** (looks, presets, sync, batch
+recompute).
 
 ---
 
-## 7. ORDER OF WORK
+## 7. THE FOUR TERRITORIES §4 AND §5 UNDER-COVERED
 
-Sequenced by felt improvement per unit of risk, in the shape `docs/30` used, because it worked.
+Ordered by what a photographer loses, not by what is hardest.
 
-### Phase A — one afternoon, no new architecture
+### 7.1 Durability — the one that loses work
 
-1. Run the §2.6 HUD experiment. Sixty seconds, and it decides the order of Phase C.
-2. **The picker board** (§4.2). One function, no logic.
-3. **The vocabulary** (§4.7). Label strings and one `⌄` menu.
-4. **Overlay on create**, and on row hover. Two lines and a hover handler; it is the owner's stated ask and it lands before anything else is rebuilt.
-5. **Two rings on the brush cursor**, and the brush's missing "drag on the image to paint" instruction.
+**A brush mask does not survive its catalog.** The XMP sidecar carries the whole recipe as
+canonical JSON, mask parameters included, which is why `docs/08 §8.9` can claim masks survive
+catalog loss. But a brush component stores only `strokesRef` — a content hash into the blob store
+— and the blob store lives in the catalog. Restore a sidecar onto a machine without that store, or
+lose the catalog and re-import from sidecars, and every brush component resolves to nothing and
+rasterizes **empty, forever, with no badge and no error**, indistinguishable from a mask that
+selects nothing on purpose.
+
+This is the `.lrcat-data` folklore that `docs/08 §8.7` exists to prevent, reproduced exactly, in
+the one place the spec promised it could not happen.
+
+**The fix.** Embed the stroke set in the sidecar. Strokes are point lists; a heavy brush mask is
+tens of kilobytes of JSON and compresses hard. Write them inline under `lumen:strokes` keyed by
+ref, restore them into the blob store on read, and keep the ref as the identity so nothing else
+changes. Then: a test that round-trips a painted mask through a sidecar with the blob store
+**deleted** and asserts the mask still rasterizes. That test is the whole feature.
+
+**And the smaller sibling.** There is no blob collector at all, so stroke blobs accumulate for the
+life of a catalog. That is a leak rather than a loss — the safe direction — but the day one is
+written it must be provably unable to collect a referenced set, and `BrushStrokes.unresolvedReferences`
+is already the function that knows how to ask.
+
+### 7.2 Lifecycle — async, self-healing, honest
+
+`docs/08 §8.7` is the section that was supposed to be the categorical win over Lightroom, and it
+is the least built part of the specification. What exists: matte generation runs off the render
+actor, the per-file/per-kind ledgers agree with each other now, and eviction trims both. What does
+not:
+
+- **No progressive delivery.** The spec's instant-pass-then-quality-pass contract needs a second pass to deliver; there is one pass.
+- **No stale badge.** A mask whose matte is being recomputed renders as itself-minus-that-component with nothing on screen saying so.
+- **No recompute-on-upstream-change.** Nothing invalidates a matte when the pixels under it move — a denoise change, a heal. The cache key covers geometry and recipe subtrees, not the decoded signal.
+- **Error surfaces are three strings.** `modelNote` says ready / working / nothing-found / needs-model. The spec's contract is that every failure names its cause and its next action.
+- **No photo-switch budget.** `docs/08` promises ≤100 ms with ten AI masks present. Nothing measures it.
+
+None of this is visible until the AI roster grows, which is why it belongs *with* that work rather
+than before it — but it belongs in the plan, and it was not in the first draft at all.
+
+### 7.3 Portability — a mask that cannot leave its photograph
+
+Copy/Paste Settings carries masks. That is the whole of it. There is no paste-masks-only, no
+paste-without-masks, no sync across a selection, and **a saved Look explicitly drops them** —
+`"masks"` is in `LookSubset.uncarriedRecipeKeys` and `applied(to:)` leaves the target's own alone.
+
+The partition is defensible as far as it goes: a mask is develop-side, and a Look that dragged a
+sky gradient onto 800 unrelated frames would be a bad Look. But `docs/08 §8.10` promises the
+opposite for a specific and valuable case — an *adaptive* preset, whose masks are stored as
+prompts rather than pixels, so "Polished Portrait" re-finds each photograph's own face. Those are
+two different features wearing one word, and the plan needs both names:
+
+- **A Look stays mask-free.** No change; the comment in `RecipeLook.swift` that says otherwise is wrong and should go.
+- **A Develop Preset carries masks** — the `developPreset` register in `LookKind` already exists with no writer — and AI components in one recompute per target photograph through the §7.2 queue. That is the adaptive preset, and it is the feature that turns masking from per-photo hand work into something that survives a 300-frame shoot.
+- **Sync across a selection**, with the same queue and a visible progress surface. `docs/08 §8.7`'s rule, restated: *a batch operation is never followed by N manual clicks.*
+
+### 7.4 The roster, in full
+
+§6.A is the list. The order below is value per unit of cost, and the first three need no model and
+no download:
+
+1. **Colour Pick's spatial half** ⊕ — `center`, `radius`, sign. Turns a mis-named component into the fastest selection tool in the app, and the only comparable thing in the market (DxO's U-Point) has no AI masks and no intersect to compose with.
+2. **The Brightness Range instrument** — live histogram, four handles, eyedropper, luminance map. No model; `Scopes.swift` already computes the histogram.
+3. **The five local Detail readers** — Noise, chroma Noise, Moiré, Defringe, Grain. Engine stages, not controls; the controls are one line each once a reader exists.
+4. **Two small wire fields** ⊕ — linear Mirror and per-axis colour tolerance — plus per-sample delete, which needs no field at all, only a UI that removes the chip you clicked rather than the last one. Cheap, spec'd, and each closes a "we ship less than Lightroom" row.
+5. **Depth Range** — Depth Anything V2 **Small** (Apache-2.0; Base and Large are CC-BY-NC and prohibited). Works on every raw ever shot; LrC's works only on iPhone-portrait HEIC. The clearest capability win over the market leader that one bundled model buys.
+6. **Sky**, then **Object** (SAM 2.1-small with a cached encoder), then **Subject instance chips**, then **People parts**. Ordered by how often a photographer reaches for them.
+7. **Landscape classes** — last, and gated: the candidate weights are trained on research-restricted datasets and must clear the licence ledger (`docs/17`) before anything is bundled.
+
+---
+
+## 8. ORDER OF WORK
+
+Revised to carry §7. Still sequenced by felt improvement per unit of risk, with one exception:
+**Phase D jumps the queue on merit** — silent data loss outranks everything below it.
+
+### Phase 0 — the sixty seconds
+
+Open the latency HUD, drag a radial with the overlay off, then on, read `rasters Nh Nb Ns`. This
+decides whether §5.1 or §5.2 is the tail's dominant cause, and therefore the order of Phase C.
+`docs/34` rule 4: a hypothesis that costs a week must survive an experiment that costs a minute.
+
+### Phase A — the afternoon
+
+Constants, deletions, labels. No new abstractions.
+
+1. The picker board replaces the dropdown (§4.2).
+2. The rename table, entire (§4.7).
+3. Overlay on create, and on mask-row hover (§4.4).
+4. Two rings on the brush cursor; the brush's missing "drag on the image" instruction.
+5. Move Strength into Effect; Invert / Duplicate / Delete / overlay into the mask row's menu.
 
 ### Phase B — the panel as three zones
 
-6. The three surfaces, the moved Strength, the row `⌄` menu, in-place chip expansion (§4.1).
-7. Mask and component thumbnails (§4.3).
-8. `LumenBehaviourGlyph` and the eight glyphs (§4.5). **Prototype this one in isolation first** — it is the piece with a real chance of being wrong, and the piece most worth having if it is right.
+6. What / Edge / Effect as three surfaces; in-place chip expansion (§4.1).
+7. Live alpha thumbnails on every mask row and component chip (§4.3).
+8. `LumenBehaviourGlyph` and its eight shapes (§4.5). **Prototype in isolation first** — it is the piece most likely to be wrong and most worth having if it is right.
 
 ### Phase C — the engine
 
-9. `linear` + `radial` as kernels, behind parity tests (§5.1, stage one). Re-run the HUD.
-10. The overlay on the render's alpha (§5.2). Ambient overlay and ⌥-drag matte become possible.
-11. The range kinds as kernels (§5.1, stage two).
-12. Bounding-box local adjust (§5.3), after measuring.
+9. `linear` + `radial` as CIKernels behind parity tests. Re-run the HUD.
+10. The overlay reads the render's alpha (§5.2); ⌥-drag matte and ambient overlay become affordable.
+11. The range kinds as kernels; the `maskSource` GPU→CPU readback disappears.
+12. Bound the local adjust to the mask's bounding box, **after** measuring a masked settle with 1, 3 and 6 masks at fit and at 100%.
 
-### Phase D — the canvas
+### Phase D — durability
 
-13. Pins, all-masks-drawn, honest live stroke, drag-to-create.
-14. The brush keyboard grammar, entire.
+13. **Brush strokes in the sidecar** (§7.1), with the delete-the-blob-store round-trip test.
+14. A blob collector that provably cannot collect a referenced set.
+15. Raster caches that regenerate on checksum mismatch rather than rendering stale.
 
-### Phase E — capability
+### Phase E — the canvas
 
-15. §6, in order.
+16. Pins; every mask drawn; ⌥-drag pin scrubs Strength.
+17. The honest live stroke — real falloff, real flow.
+18. The brush and tool keyboard grammar, entire.
+
+### Phase F — the roster
+
+19. §7.4 in order. Each AI kind lands with its lifecycle (§7.2) — stale badge, progressive delivery, an error that names its cause — rather than after it.
+
+### Phase G — masks that leave the photograph
+
+20. Paste masks only / paste without masks; sync across a selection with progress.
+21. Develop Presets that carry masks, with AI components recomputing per target photograph.
+22. Delete the `RecipeLook.swift` comment that says a Look carries masks. It does not.
 
 ---
 
-## 8. HOW WE WILL KNOW IT WORKED
+## 9. HOW WE WILL KNOW IT WORKED
 
 Acceptance, written before the work so it cannot be moved afterwards.
 
@@ -526,18 +770,27 @@ Acceptance, written before the work so it cannot be moved afterwards.
 | The tail is gone | Drag a radial with Exposure +2 at fit. The bright region tracks the ellipse with no visible lag, and the HUD's stale-serve rate is 0. |
 | A mask is legible | With three masks on a frame, a person who has not seen the panel can say what each one selects without clicking anything. The thumbnails are the whole answer. |
 | The sliders teach | Same person can predict which direction Feather, Flow and Density move the picture, from the glyphs alone, before touching one. |
-| Nothing regressed | `maskalgebra.json` golden green; the GPU/CPU mask parity test green; every kernel added has a test that fails when its call site is deleted. |
+| **Work is not lost** | Paint a brush mask, export a sidecar, **delete the catalog and the blob store**, re-import from the sidecar. The mask still rasterizes, identically. |
+| **A mask travels** | Save a Develop Preset containing a Subject mask off photo A. Apply it to 50 unrelated frames. Every one finds its own subject, asynchronously, with progress, and **no per-photo click**. |
 | The edge is real | Export at 6000 px with a hard luminance band and Snap-to-edges 50; the edge transition measures ~1 px, not the ~6 px an upsampled 1024 raster gives. |
+| Masks scale | A settle with six masks at 100% zoom is within 1.5× of a settle with one. Measured, in a test, because it never has been. |
 | Words did not grow | The mask panel's word count goes **down**. It is **340 words across 48 sentences** today (counted over the file's user-facing strings of three words or more, comments excluded); the target is under 150, with the glyphs carrying what the sentences carried. |
+| Nothing regressed | `maskalgebra.json` golden green; the GPU/CPU mask parity test green; every kernel added has a test that fails when its call site is deleted. |
+| The Vision path is real | Two headless tests that need no camera: a synthetic `CVPixelBuffer` whose top rows are white, asserting `plane(from:)` puts the mass at row 0; and Background asserted as the complement of an injected Subject plane. Neither exists, and the orientation contract is currently a comment. |
 
 ---
 
-## 9. THE ONE-LINE SUMMARY
+## 10. THE ONE-LINE SUMMARY
 
-Masking in Lumen has the deepest engine in the field — component algebra with visible Intersect, a
-local point curve and local grading wheels that Lightroom Classic still does not have in 2026 —
-wired to a form that asks the photographer to read its database schema, rasterized on a CPU path
-that makes the picture arrive one gesture late. The engine is not the problem. **Rebuild the panel
-as three questions, put the roster on a board, draw every mask as a picture of itself, draw every
-parameter as the shape it is, and move the two cheapest components onto the GPU.** Everything
-after that is roster.
+Masking in Lumen has the deepest *engine* in the field — component algebra with visible Intersect,
+a local point curve and local grading wheels that Lightroom Classic still does not have in 2026,
+and real proof around all three — wired to a panel that asks the photographer to read its database
+schema, rasterized on a CPU path that makes the picture arrive one gesture late, stored in a way
+that loses brush strokes if the catalog goes, and unable to leave the photograph it was made on.
+
+**Rebuild the panel as three questions, put the roster on a board, draw every mask as a picture of
+itself, draw every parameter as the shape it is, move the two cheapest components onto the GPU,
+put the strokes in the sidecar, and give a preset the ability to carry a mask.** Forty of
+ninety-one capabilities are missing. Six need a new wire field, six need a model, five are engine
+readers for fields that already exist, and the rest are panel and canvas work. **None of them
+needs a different engine.**
