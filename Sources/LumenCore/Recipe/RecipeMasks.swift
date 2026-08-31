@@ -567,6 +567,43 @@ public struct LocalAdjust: Codable, Equatable, Sendable {
     public var clarity: Double
     public var dehaze: Double
     public var sharpness: Double   // negative = blur
+
+    // ------------------------------------------------------------------------
+    // CARRIED, NOT RENDERED. The five fields below decode, round-trip and hash;
+    // no stage reads any of them, on either renderer, and the panel offers no row
+    // for any of them. `MaskDeadFieldTests` holds both halves of that: the values
+    // survive a save and a load, and setting one changes no pixel.
+    //
+    // They are kept rather than deleted because deleting them would make Lumen
+    // SILENTLY DROP data out of a recipe written by a future version or by hand —
+    // which is a worse failure than a field that does nothing, since it is
+    // invisible and permanent. They are not offered in the panel because a control
+    // that does nothing is the thing the owner complained about by name: "I don't
+    // know how much of these is actually working."
+    //
+    // What each would take to become real, so the next round starts from a fact
+    // rather than a guess:
+    //
+    //   noise, noiseChroma  — TRACTABLE. `DenoiseEngine` exists and the global
+    //       stage runs at S5. A local version needs the smooth computed at S11 and
+    //       the same arithmetic in a kernel, because the GPU cannot read back a
+    //       CPU plane per frame. It is a real afternoon, not a line.
+    //
+    //   grainAmount — TRACTABLE, and the engine is finished: `ReferenceRenderer
+    //       .applyGrain` and the GPU's plate would both take a mask alpha. What is
+    //       NOT settled is the amplitude, and it is not a detail: `FilmGrainProfile
+    //       .amount` is normalized differently on the stock path and the creative
+    //       path, so "local Grain 50" has two candidate meanings and picking the
+    //       wrong one gives a control that is ten times too strong or invisible.
+    //       That is judged by eye against a print, which is the owner's call.
+    //
+    //   moire, defringe — BLOCKED, and not on effort. There is no global engine for
+    //       either to be the local half OF. `Develop.defringe` is a wire field with
+    //       no reader anywhere, and nothing in the tree estimates moiré at all. A
+    //       "local" version would be a slider wired to a stage that does not exist,
+    //       which is not a smaller version of the feature but a different and worse
+    //       thing. Both wait on the global engines.
+    // ------------------------------------------------------------------------
     public var noise: Double       // classical luma NR lift (docs/07)
     public var noiseChroma: Double // chroma NR lift (disclosure split, docs/08 §8.4)
     public var moire: Double
