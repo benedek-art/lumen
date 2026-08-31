@@ -567,14 +567,22 @@ struct MaskPanel: View {
                 TextField(MaskPanel.autoName(mask, index: index), text: maskName(mask.id))
                     .textFieldStyle(.plain).font(.lumenBody)
                     .foregroundStyle(isSelected ? Lumen.primaryText : Lumen.secondaryText)
-                // What the stack actually is, under the name — the operation glyphs and
-                // the kinds, which is the sentence the count badge was standing in for.
+                // What the stack actually is, under the name — the kinds and how they
+                // fold, which is the sentence the count badge was standing in for.
                 // "3" never told anybody what mask 3 selects.
-                Text(MaskPanel.stackSummary(mask))
-                    .font(.lumenCaption)
-                    .foregroundStyle(Lumen.tertiaryText)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                //
+                // AND NOT WHEN IT WOULD ONLY REPEAT THE NAME. A fresh one-component mask
+                // is called "Brush 1" and its stack is "Brush", so the row spent two
+                // lines saying one word. The summary earns its line when there is more
+                // than one component, or when a typed name has replaced the kind and the
+                // kind is no longer visible anywhere on the row.
+                if MaskPanel.summaryAddsSomething(mask) {
+                    Text(MaskPanel.stackSummary(mask))
+                        .font(.lumenCaption)
+                        .foregroundStyle(Lumen.tertiaryText)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
             }
 
             // Masks fold in list order too — both renderers walk `plan.masks` front to
@@ -786,8 +794,12 @@ struct MaskPanel: View {
 
     private func componentSection(_ mask: Mask) -> some View {
         VStack(alignment: .leading, spacing: 2) {
+            // NOT `!components.isEmpty`, which is true of every mask that has ever
+            // been drawn — a dot that is always on says nothing, which is the argument
+            // the "Default" badges were removed under. More than one component IS the
+            // notable state: it means the selection is a fold rather than one shape.
             LumenSectionHeader(title: "Components", isExpanded: $componentsExpanded,
-                               isModified: !mask.components.isEmpty)
+                               isModified: mask.components.count > 1)
             if componentsExpanded {
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(Array(mask.components.indices), id: \.self) { i in
@@ -881,11 +893,19 @@ struct MaskPanel: View {
                             + "before it folds into the ones above it. Strength, down "
                             + "in Effect, scales the adjustment instead.")
             componentParameters(id, i, c)
-            if let problem = c.validationError(), !MaskPanel.saysItsOwnProblem(c.kind) {
+            if c.validationError() != nil, !MaskPanel.saysItsOwnProblem(c.kind) {
                 // A component that renders nothing must say so unprompted — unless its
                 // own editor already does, in the photographer's words rather than the
                 // wire format's.
-                note(problem + " — it renders empty until that is supplied.")
+                //
+                // IT USED TO PRINT `validationError()` VERBATIM, and that string is a
+                // wire-format diagnostic: `makeComponent` deliberately leaves
+                // `strokesRef` nil, so every brush mask greeted its owner with
+                // "brush component missing strokesRef — it renders empty until that is
+                // supplied." The doc comment on `saysItsOwnProblem` diagnosed exactly
+                // this — "fine when the only way to see it was to hand-edit a sidecar" —
+                // and then routed it to the panel for seven kinds out of eleven.
+                note(MaskPanel.unfinishedNote(c.kind))
             }
         }
         .padding(.leading, 6).padding(.bottom, 4)
@@ -1404,7 +1424,11 @@ struct MaskPanel: View {
 
     private func lightSection(_ mask: Mask) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            LumenSectionHeader(title: "Light", isExpanded: $lightExpanded)
+            LumenSectionHeader(title: "Light", isExpanded: $lightExpanded,
+                               isModified: mask.adjust.isModified(.light),
+                               onReset: { editMask(mask.id, key: nil) {
+                                   $0.adjust.reset(.light)
+                               } })
             if lightExpanded {
                 VStack(alignment: .leading, spacing: 2) {
                     adjustSlider(mask.id, "Exposure", \.exposure, -4...4, step: 0.05, decimals: 2)
@@ -1437,7 +1461,11 @@ struct MaskPanel: View {
     private func colourSection(_ mask: Mask) -> some View {
         let hasTint = mask.adjust.colorTint != nil
         return VStack(alignment: .leading, spacing: 2) {
-            LumenSectionHeader(title: "Colour", isExpanded: $colourExpanded)
+            LumenSectionHeader(title: "Colour", isExpanded: $colourExpanded,
+                               isModified: mask.adjust.isModified(.colour),
+                               onReset: { editMask(mask.id, key: nil) {
+                                   $0.adjust.reset(.colour)
+                               } })
             if colourExpanded {
                 VStack(alignment: .leading, spacing: 2) {
                     whiteBalanceRows(mask)
@@ -1587,7 +1615,11 @@ struct MaskPanel: View {
 
     private func detailSection(_ mask: Mask) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            LumenSectionHeader(title: "Presence & Detail", isExpanded: $detailExpanded)
+            LumenSectionHeader(title: "Presence & Detail", isExpanded: $detailExpanded,
+                               isModified: mask.adjust.isModified(.detail),
+                               onReset: { editMask(mask.id, key: nil) {
+                                   $0.adjust.reset(.detail)
+                               } })
             if detailExpanded {
                 VStack(alignment: .leading, spacing: 2) {
                     adjustSlider(mask.id, "Texture", \.texture, -100...100)
@@ -2482,6 +2514,30 @@ struct MaskPanel: View {
         return mask.components.count == 1 ? base : "\(base) +\(mask.components.count - 1)"
     }
 
+    /// Whether the stack summary tells you anything the name above it does not.
+    ///
+    /// Two components or more, always: the summary is the only place the fold is
+    /// written. One component, only when the name does not already contain the kind —
+    /// so "Brush 1" over "Brush" collapses to one line, and "Roof" over "Brush" keeps
+    /// both, because "Roof" alone does not say what tool made it.
+    ///
+    /// Case-insensitive containment rather than equality: "Sky brush" over "Brush" is
+    /// the same redundancy as "Brush 1" over "Brush".
+    static func summaryAddsSomething(_ mask: Mask) -> Bool {
+        // Nought components summarises as "nothing selected yet", which is the one thing
+        // a mask most needs to say. Two or more, the fold is only written here.
+        guard mask.components.count == 1, let only = mask.components.first else {
+            return true
+        }
+        // An unfinished component's summary carries ", not drawn yet", which is the one
+        // thing the list must be able to say about a mask whose editor is not on screen.
+        guard only.validationError() == nil else { return true }
+        guard only.op == .add, !only.invert else { return true }
+        let name = mask.name.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty else { return false }
+        return !name.lowercased().contains(kindName(only.kind).lowercased())
+    }
+
     /// The stack, as one line under the name: `Sky, minus Brush`.
     ///
     /// It used to read `∪ Sky  ∖ Brush`, and the owner reported the result: "I don't
@@ -2499,7 +2555,13 @@ struct MaskPanel: View {
         guard !mask.components.isEmpty else { return "nothing selected yet" }
         return mask.components.enumerated()
             .map { index, c in
-                let name = kindName(c.kind) + (c.invert ? " inverted" : "")
+                var name = kindName(c.kind)
+                if c.invert { name += " inverted" }
+                // A row you have not selected is a row whose editor you cannot see, so
+                // the ONE thing the list has to be able to say about a component is that
+                // it selects nothing yet. Without this the subtitle just repeated the
+                // kind, which the name above it already carries.
+                if c.validationError() != nil { name += ", not drawn yet" }
                 guard index > 0 || c.op != .add else { return name }
                 return "\(opPhrase(c.op)) \(name)"
             }
@@ -2670,6 +2732,46 @@ struct MaskPanel: View {
     /// radial is the ordinary first second of every one, so that sentence would be the
     /// first thing a photographer reads about the tool. The badge on the chip still
     /// says INCOMPLETE, which is the part that is worth saying twice.
+    /// What to do about an unfinished component, said to a photographer.
+    ///
+    /// `MaskComponent.validationError()` stays exactly as it is — it is the engine's
+    /// truth about whether a component can render, it is what the tests assert against,
+    /// and it names wire-format fields because that is its job. What it is not is a
+    /// sentence anyone should read: "brush component missing strokesRef" appeared on
+    /// screen every time a brush mask was created, because `makeComponent` leaves
+    /// `strokesRef` nil by design and filling it is the photographer's next action.
+    ///
+    /// Every line here says the ACTION rather than the absence, because the absence is
+    /// already visible — the mask is doing nothing.
+    static func unfinishedNote(_ kind: MaskKind) -> String {
+        switch kind {
+        case .brush:
+            return "Drag on the photograph to paint what this selects."
+        case .colorRange:
+            return "Click the photograph to sample a colour this should find."
+        case .similarity:
+            return "Click the photograph to sample the colour this follows."
+        case .similarityLine:
+            return "Drag on the photograph to draw the gradient, then sample a colour."
+        case .lumaRange:
+            return "Set the brightness range this selects."
+        case .aiObject:
+            return "Point at the object you want selected."
+        case .depthRange:
+            return "Set the depth range this selects."
+        case .luminosity:
+            return "Choose which end of the tone scale this selects."
+        case .aiSubject, .aiSky, .aiBackground, .aiPerson, .aiLandscape:
+            return "Waiting for this to be found in the photograph."
+        // These four print their own instruction in their own editor, so this is
+        // unreachable for them — `saysItsOwnProblem` gates the call site. Written out
+        // rather than defaulted so adding a kind is a compile error here instead of a
+        // silently generic sentence.
+        case .linear, .radial, .polygon, .maskRef:
+            return "This is not finished yet."
+        }
+    }
+
     static func saysItsOwnProblem(_ kind: MaskKind) -> Bool {
         switch kind {
         case .radial, .linear, .similarityLine, .polygon:

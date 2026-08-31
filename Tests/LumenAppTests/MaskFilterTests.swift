@@ -24,6 +24,31 @@ final class MaskFilterTests: XCTestCase {
         return m
     }
 
+    /// The same, but with geometry, so `validationError()` is nil.
+    ///
+    /// The summary appends ", not drawn yet" to an unfinished component — the one thing
+    /// the list must be able to say about a mask whose editor is not on screen — so a
+    /// test about WORDING has to hand it a component that is actually finished, or it is
+    /// really testing the unfinished path.
+    private func drawnMask(_ name: String, _ kinds: [MaskKind] = [.radial]) -> Mask {
+        var m = mask(name, kinds)
+        m.components = m.components.map { c in
+            var c = c
+            switch c.kind {
+            case .linear, .similarityLine: c.line = [0.2, 0.2, 0.8, 0.8]
+            case .radial: c.center = [0.5, 0.5]; c.radii = [0.3, 0.2]
+            case .brush: c.strokesRef = "sha256:probe"
+            case .polygon: c.path = [[0, 0], [1, 0], [1, 1]]
+            default: break
+            }
+            return c
+        }
+        for c in m.components where c.validationError() != nil {
+            XCTFail("drawnMask left \(c.kind) unfinished: \(c.validationError() ?? "")")
+        }
+        return m
+    }
+
     private func matches(_ m: Mask, _ query: String, index: Int = 0,
                          group: MaskGroup? = nil) -> Bool {
         MaskPanel.matches(m, index: index, group: group, query: query)
@@ -73,7 +98,7 @@ final class MaskFilterTests: XCTestCase {
     /// may appear in a string a photographer reads. Rewording the phrases is free;
     /// putting an operator back is not.
     func testTheStackSummaryUsesWordsAndNotSetTheory() {
-        let stacked = mask("Ridge", [.linear, .brush])
+        let stacked = drawnMask("Ridge", [.linear, .brush])
         let line = MaskPanel.stackSummary(stacked)
         for operatorGlyph in ["∪", "∖", "∩", "\\"] {
             XCTAssertFalse(line.contains(operatorGlyph),
@@ -88,9 +113,38 @@ final class MaskFilterTests: XCTestCase {
     /// What a photographer needs to pick out of a three-row stack is the row that
     /// SUBTRACTS. Marking every row equally is the same as marking none.
     func testALeadingAddIsNotAnnounced() {
-        let single = mask("Sky", [.linear])
+        let single = drawnMask("Sky", [.linear])
         XCTAssertEqual(MaskPanel.stackSummary(single), "Linear Gradient")
         XCTAssertFalse(MaskPanel.stackSummary(single).lowercased().contains("plus"))
+    }
+
+    /// The list is the only place a mask you have not selected can tell you it selects
+    /// nothing — its editor, its INCOMPLETE badge and its instruction note are all on the
+    /// other side of a click.
+    func testAnUndrawnComponentSaysSoInTheList() {
+        let undrawn = mask("Sky", [.linear])
+        XCTAssertTrue(MaskPanel.stackSummary(undrawn).contains("not drawn yet"),
+                      MaskPanel.stackSummary(undrawn))
+        XCTAssertFalse(MaskPanel.stackSummary(drawnMask("Sky", [.linear]))
+                           .contains("not drawn yet"))
+    }
+
+    /// The subtitle earns its line or it does not get one.
+    ///
+    /// A fresh mask is called "Brush 1" and its stack is "Brush", so the row was spending
+    /// two lines to say one word. It keeps the line when there is a fold to describe,
+    /// when the mask is unfinished, or when a typed name has replaced the kind.
+    func testTheSummaryIsHiddenWhenItOnlyRepeatsTheName() {
+        XCTAssertFalse(MaskPanel.summaryAddsSomething(drawnMask("Brush 1", [.brush])),
+                       "\"Brush 1\" over \"Brush\" is one word on two lines")
+        XCTAssertFalse(MaskPanel.summaryAddsSomething(drawnMask("", [.brush])),
+                       "an unnamed mask shows the kind as its placeholder already")
+        XCTAssertTrue(MaskPanel.summaryAddsSomething(drawnMask("Roof", [.brush])),
+                      "\"Roof\" does not say which tool made it")
+        XCTAssertTrue(MaskPanel.summaryAddsSomething(drawnMask("Brush 1", [.brush, .linear])),
+                      "a fold is only written in the summary")
+        XCTAssertTrue(MaskPanel.summaryAddsSomething(mask("Brush 1", [.brush])),
+                      "an unfinished mask has to be able to say so")
     }
 
     /// Every operation still has to be sayable, or the badge on a subtracting row has

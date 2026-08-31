@@ -775,6 +775,73 @@ public struct LocalAdjust: Codable, Equatable, Sendable {
     }
 }
 
+// MARK: - The panel's groups, as a fact about the model
+
+extension LocalAdjust {
+
+    /// The sections the mask panel draws these fields in.
+    ///
+    /// Here rather than in the panel because the answer is a fact about `LocalAdjust`,
+    /// and because the panel needed it for two things it did not have: an accent dot
+    /// saying a section has been touched, and a Reset clearing exactly that section.
+    ///
+    /// Light and Colour — the eleven most-used sliders in the panel — had NEITHER, while
+    /// Edge, Curve, Grading and Point Colour had both; and Components carried a dot
+    /// whose condition was `!components.isEmpty`, which is always true. The rule that
+    /// breaks is written down elsewhere in this application: a dot that is always on
+    /// says nothing.
+    ///
+    /// Curve, Grading and Point Colour are deliberately absent: each is one optional or
+    /// one array, and each already has its own working Reset.
+    public enum Group: String, CaseIterable, Sendable {
+        case light
+        case colour
+        case detail
+    }
+
+    /// Whether anything in `group` has moved off its default.
+    ///
+    /// Compared field by field against a fresh `LocalAdjust()` rather than by listing
+    /// zeroes, so a default that changes cannot leave a dot permanently lit.
+    public func isModified(_ group: Group) -> Bool {
+        let fresh = LocalAdjust()
+        switch group {
+        case .light:
+            return exposure != fresh.exposure || contrast != fresh.contrast
+                || highlights != fresh.highlights || shadows != fresh.shadows
+                || whites != fresh.whites || blacks != fresh.blacks
+        case .colour:
+            return temp != fresh.temp || tint != fresh.tint
+                || kelvin != fresh.kelvin || kelvinTint != fresh.kelvinTint
+                || hue != fresh.hue || sat != fresh.sat || vibrance != fresh.vibrance
+                || colorTint != fresh.colorTint
+                || colorTintStrength != fresh.colorTintStrength
+        case .detail:
+            return texture != fresh.texture || clarity != fresh.clarity
+                || dehaze != fresh.dehaze || sharpness != fresh.sharpness
+        }
+    }
+
+    /// Put `group` back to its defaults and leave every other group alone.
+    public mutating func reset(_ group: Group) {
+        let fresh = LocalAdjust()
+        switch group {
+        case .light:
+            exposure = fresh.exposure; contrast = fresh.contrast
+            highlights = fresh.highlights; shadows = fresh.shadows
+            whites = fresh.whites; blacks = fresh.blacks
+        case .colour:
+            temp = fresh.temp; tint = fresh.tint
+            kelvin = fresh.kelvin; kelvinTint = fresh.kelvinTint
+            hue = fresh.hue; sat = fresh.sat; vibrance = fresh.vibrance
+            colorTint = fresh.colorTint; colorTintStrength = fresh.colorTintStrength
+        case .detail:
+            texture = fresh.texture; clarity = fresh.clarity
+            dehaze = fresh.dehaze; sharpness = fresh.sharpness
+        }
+    }
+}
+
 // MARK: - What a delivered file needs before its brush masking can be honoured
 
 /// The blob references a recipe's masking will actually ask the rasterizer for, and
