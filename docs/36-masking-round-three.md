@@ -372,6 +372,7 @@ the third table, not the first.
 | **You draw the ellipse, then shape it on the picture** | `MaskHandles.radialGrab` | Nothing drawn means every press draws; the ring tracks Feather and is only offered where it has room in points; the turn handle never steals the rim. 11 tests |
 | **An unfinished mask selects nothing, Invert or not** | `MaskRaster.combine` | A drawn component still inverts to the whole frame; an undrawn one no longer does. 10 tests |
 | **A pin off the picture docks rather than vanishing** | `MaskHandles.dockedPin` | Docks per axis, keeps the whole dot on screen, and says it docked. 9 tests |
+| **Up/down moves a mask inside its own folder** | `MaskPanel.reorderRoom` | An interleaved fixture, because a contiguous one cannot fail the way the flat swap failed. 6 tests, macOS lane |
 | **Three zones, not a form** | `MaskPanel.zone` | — |
 | **Every row is a picture of what it selects** | `AppState.maskThumbnails` | — |
 | **Every shape-parameter draws itself** | `LumenBehaviourGlyph` | — |
@@ -451,6 +452,33 @@ circle parked in the middle of the frame meant the draw-it-out gesture that had 
 6. The mask list's density toggle. The filter landed; a compact row height did not.
 8. The six model-dependent kinds, which need a licence review, a model conversion, a
    download UX and an app-size decision before a line of them is worth writing.
+
+### Four things found by READING, which no test would have reached
+
+Interaction code has a failure mode tests do not cover: the gesture is correct in
+isolation and wrong beside the gesture next to it. Every one of these was found by
+re-reading a diff, and every one of them would have shipped.
+
+**A plain drag wiped a finished outline.** Tracing replaces the whole path, and reaching
+for a corner and missing is the ordinary way to miss — so a shape someone spent a minute
+placing could vanish with nothing but undo. Past three corners a drag on empty space now
+does nothing and ⌘ is the deliberate redraw.
+
+**A docked pin would have eaten brush strokes.** `foreignPin` is checked BEFORE the
+brush, and docking puts a pin on the frame's edge, so painting along that edge with
+another mask anchored off-screen would have selected the other mask. Docked pins are
+signposts and are not grabbable.
+
+**Move up/down swapped in the flat array**, so inside a folder it either appeared to do
+nothing or shuffled two folders past each other.
+
+**A folder outlived its last mask, invisibly** — hidden by the same rule that hides one
+the filter emptied, and unremovable because Ungroup lives in its own header's menu.
+
+The fifth was found by a test rather than by reading, and belongs on the same list
+because it was created by this round's own change: an undrawn mask with Invert ticked
+selected the WHOLE photograph, since inverting an empty stack is a full frame. Before
+this round a new radial arrived with a circle, so the window did not exist.
 
 ### Two items that turned out to be already done
 
