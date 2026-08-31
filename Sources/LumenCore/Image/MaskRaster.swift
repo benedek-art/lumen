@@ -150,6 +150,24 @@ public enum MaskRaster {
         var acc = Plane(width: w, height: h)
         if size.width < 1 || size.height < 1 { return acc }
 
+        // A MASK NOBODY HAS FINISHED MAKING SELECTS NOTHING, INVERT OR NOT.
+        //
+        // `invert` flips the folded alpha, so an empty stack inverted is the WHOLE
+        // FRAME — which is right for a stack whose components deliberately select
+        // nothing, and catastrophic for one that has not been drawn yet. The picker
+        // stopped seeding geometry this round (a radial arriving as a circle was the
+        // owner's complaint, and it also blocked the draw gesture), so there is now a
+        // window of seconds between choosing a kind and drawing it. Ticking Invert in
+        // that window used to hand a two-stop lift to the entire photograph.
+        //
+        // The distinction the fold needs is the same one the panel's badge already
+        // makes: a component that reads INCOMPLETE is not a selection of nothing, it is
+        // the absence of a selection, and there is nothing there to invert. A mask with
+        // no components at all is the same statement — which is what the stack summary
+        // has always said in words: "nothing selected yet".
+        let usable = mask.components.contains { $0.validationError() == nil }
+        guard usable else { return acc }
+
         // Accumulator seeds at 0, so a stack that opens with subtract/intersect stays
         // empty — same as LR, and the property maskalgebra.json pins.
         let n = w * h

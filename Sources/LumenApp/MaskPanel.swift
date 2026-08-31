@@ -814,8 +814,10 @@ struct MaskPanel: View {
                                        }),
                         range: 0...100, defaultValue: 100, step: 1, decimals: 0, bipolar: false)
             componentParameters(id, i, c)
-            if let problem = c.validationError() {
-                // A component that renders nothing must say so unprompted.
+            if let problem = c.validationError(), !MaskPanel.saysItsOwnProblem(c.kind) {
+                // A component that renders nothing must say so unprompted — unless its
+                // own editor already does, in the photographer's words rather than the
+                // wire format's.
                 note(problem + " — it renders empty until that is supplied.")
             }
         }
@@ -2459,6 +2461,26 @@ struct MaskPanel: View {
         case 1: return "one corner, two more needed"
         case 2: return "two corners, one more needed"
         default: return "\(n) corners"
+        }
+    }
+
+    /// True for the kinds whose own editor already says what is missing, and says it
+    /// as a gesture rather than as a schema.
+    ///
+    /// `validationError` is a wire-format diagnostic — "radial component needs center
+    /// [cx,cy] and radii [rx,ry]" — and it was fine when the only way to see it was to
+    /// hand-edit a sidecar. Now that a shape is DRAWN rather than seeded, an incomplete
+    /// radial is the ordinary first second of every one, so that sentence would be the
+    /// first thing a photographer reads about the tool. The badge on the chip still
+    /// says INCOMPLETE, which is the part that is worth saying twice.
+    static func saysItsOwnProblem(_ kind: MaskKind) -> Bool {
+        switch kind {
+        case .radial, .linear, .similarityLine, .polygon:
+            return true
+        case .brush, .lumaRange, .luminosity, .colorRange, .similarity, .maskRef,
+             .depthRange, .aiSubject, .aiSky, .aiBackground, .aiObject, .aiPerson,
+             .aiLandscape:
+            return false
         }
     }
 
