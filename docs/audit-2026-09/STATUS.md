@@ -28,9 +28,9 @@ Out, `B`→album, `⌘B`→assessment, `F`/`S` stay · denoise: free + best, del
 - [x] W0.5 known-open ledger written → `ledger.md` (K-001…K-104)
 - [x] W0.6 W1 briefs written → `briefs/w1-*.md` (common + R1–R7 + R-S)
 - [x] W1 research: R1–R7 all landed and committed (944f3da, 5f043c3, +r4/r7); R-S synthesis running → `w1/gap-table.md`
-- [ ] U0 mockup + pitch published → link below
-- [ ] W2 audit (3 workflow runs) → `w2/*.md`
-- [ ] W3 verify (pipelined) → `w3/*.md`
+- [x] U0 mockup + pitch published → link below (awaiting the owner's yes)
+- [ ] W2 audit (Agent fan-out, 20 at a time) → `w2/*.md` — 20 running, 10 queued
+- [ ] W3 verify (two lenses per area) → `w3/<code>-a.md`, `w3/<code>-b.md`
 - [ ] W4 triage → `ledger.md` rows dispositioned, `w5/streams.md`
 - [ ] W5 L0 foundation split landed
 - [ ] W5 J data-loss batch landed
@@ -52,6 +52,8 @@ Out, `B`→album, `⌘B`→assessment, `F`/`S` stay · denoise: free + best, del
 | 64ae6da | W0.7b — `out`→`folded` in `maskFold`; checker pass 13 (kernel reserved words) + 2 fixtures | gpu-parity red: **parity tests ran for the first time — GPU alpha vertically mirrored** (23 failures). Dev build mirrored for ~8 min. |
 | fce5936 | W0.7c — `h − (y − oy)` in both generator kernels | **gpu-parity GREEN** (33563101474). ci.yml pending. N-001 closed. |
 | a60b016 | W1 closes — gap table, W3 brief, mechanism change (docs only) | — |
+| a1e13c8 | N-001 closed in ledger/status (docs only) | — |
+| 903ad4d | ci.yml `paths-ignore: docs/**` — docs pushes no longer cancel code runs | pending; this run is fce5936's code + the yml |
 
 ## Rule learned: docs-only pushes cancelled the code push's CI
 `ci.yml` triggered on every push and its concurrency group cancels in progress, so
