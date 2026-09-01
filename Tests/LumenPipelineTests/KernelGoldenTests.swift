@@ -1441,6 +1441,17 @@ final class KernelGoldenTests: XCTestCase {
     func testEveryKernelCompiles() {
         XCTAssertTrue(KernelLibrary.isAvailable,
                       "kernels failed to compile: \(KernelLibrary.unavailableKernels)")
+        // THE MASK KERNELS TOO. They are not in `unavailableKernels` because a failed
+        // mask kernel has an honest CPU fallback and must not take the GPU path down
+        // with it — but that is exactly how `lumenMaskLinear` and `lumenMaskRadial`
+        // failed to compile on every macOS build with this test green: the sentinel
+        // never looked at them, the parity tests below skipped themselves as
+        // "kernels unavailable", and every gradient mask rasterized on the CPU.
+        XCTAssertTrue(KernelLibrary.parametricMasksAvailable,
+                      "mask kernels failed to compile: "
+                          + "\(KernelLibrary.unavailableMaskKernels) — the parametric "
+                          + "fast path is silently off and every gradient mask is on "
+                          + "the CPU")
     }
 
     // MARK: - Helpers

@@ -120,6 +120,10 @@ J library/export, K crop/lens, L state, M recipe).
 | K-103 | J3 | S3 | docs/11 | Watermarking — deferred, stated | | |
 | K-104 | G3 | S2 | docs/29 | Keymap: `L`→Lights Out, `B`→album, `⌘B`→assessment, `F` stays, `S` stays — **decided**, not yet implemented; docs/12 amendments owed | | |
 
-## New findings (appended by W4 synthesis)
+## New findings (appended by W4 synthesis; N-rows below were found in W0 from CI evidence)
 
-_none yet_
+| id | area | sev | source | finding | verdict | disposition |
+|---|---|---|---|---|---|---|
+| N-001 | F2/I2 | **S1** | gpu-parity log run 33553464942 + `Kernels.swift:472,491` | `lumenMaskLinear` and `lumenMaskRadial` use `float long` — a reserved word in the CI Kernel Language — so neither compiled on any macOS build; `parametricMasksAvailable` false → `MaskGPU.isParametric` false → every gradient mask rasterized on the CPU. `testEveryKernelCompiles` could not see it (the four mask kernels were in no roster) and `MaskGPUParityTests` skipped 3/5 as "kernels unavailable". Green lane, dead fast path; the direct cause of "the mask is still delayed when I drag it". | CONFIRMED (log + grep) | **LANDED W0.7** — rename to `edge`; `unavailableMaskKernels` roster; sentinel asserts it |
+| N-002 | I1 | S2 | `w0/perf-baseline.md` DRAGPROBE | Settle path bakes tables on every frame with zero cache hits for Whites (`0h/36b`, p50 388 ms vs 69 ms draft) and Saturation (p50 269 ms vs 24 ms draft) — the settle frame after a drag costs 7–11× the drafts that preceded it. | CONFIRMED (measured) | → I1 audit; engine window 1 candidate |
+| N-003 | C1/I2 | S3 | `w0/perf-baseline.md` HALATION | Halation mass on the GPU is 6.4517 vs 6.8944 in the reference — 6% light, while spread matches (52.31 vs 52.74). | measured | → C1 audit |

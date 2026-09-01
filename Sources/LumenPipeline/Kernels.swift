@@ -458,9 +458,20 @@ public enum KernelLibrary {
     // COORDINATES ARE LONG-EDGE UNITS, exactly as `MaskRaster.linearPlane` and
     // `radialPlane` use them, because pixels are square and normalized coordinates are
     // not: a rotation applied to (fraction of width, fraction of height) mixes two units
-    // and renders a 45° ellipse at 33.7°. `w`, `h` and the derived `long` are passed in
-    // rather than read from `destCoord`'s extent so the two implementations cannot
+    // and renders a 45° ellipse at 33.7°. `w`, `h` and the derived long edge are passed
+    // in rather than read from `destCoord`'s extent so the two implementations cannot
     // disagree about which pixel centre they are asking about.
+    //
+    // THE LONG EDGE IS SPELLED `edge`, NOT `long`, and the spelling is load-bearing.
+    // `long` is a reserved word in the Core Image Kernel Language — it inherits GLSL's
+    // keyword list — so `float long = max(w, h)` is a parse error, not a variable.
+    // Both kernels below shipped with it, both failed to compile on every macOS build
+    // ("4 errors generated" in the gpu-parity log), `parametricMasksAvailable` was
+    // therefore false, and `MaskGPU` fell back to `MaskRaster` on the CPU for every
+    // gradient mask ever drawn — which is why dragging a radial gradient trailed the
+    // hand no matter how the overlay was coalesced. Nothing said so, because the
+    // sentinel test's roster did not include these four kernels; see
+    // `unavailableMaskKernels`.
     //
     // Every constant below is `MaskRaster`'s. `MaskGPUParityTests` compares the two at
     // three resolutions and fails on a worst-pixel difference past 1e-4.
@@ -469,10 +480,10 @@ public enum KernelLibrary {
     static let maskLinearSource = """
     kernel vec4 lumenMaskLinear(float x0, float y0, float x1, float y1,
                                 float w, float h, float ox, float oy) {
-        float long = max(w, h);
-        vec2 p = (destCoord() - vec2(ox, oy)) / long;
-        vec2 a = vec2(x0 * w / long, y0 * h / long);
-        vec2 b = vec2(x1 * w / long, y1 * h / long);
+        float edge = max(w, h);
+        vec2 p = (destCoord() - vec2(ox, oy)) / edge;
+        vec2 a = vec2(x0 * w / edge, y0 * h / edge);
+        vec2 b = vec2(x1 * w / edge, y1 * h / edge);
         vec2 ab = b - a;
         float dd = dot(ab, ab);
         if (dd < 1e-12) { return vec4(0.0, 0.0, 0.0, 1.0); }
@@ -488,13 +499,13 @@ public enum KernelLibrary {
     kernel vec4 lumenMaskRadial(float cx, float cy, float rx, float ry,
                                 float ct, float st, float rin,
                                 float w, float h, float ox, float oy) {
-        float long = max(w, h);
-        vec2 p = (destCoord() - vec2(ox, oy)) / long;
-        vec2 q = p - vec2(cx * w / long, cy * h / long);
+        float edge = max(w, h);
+        vec2 p = (destCoord() - vec2(ox, oy)) / edge;
+        vec2 q = p - vec2(cx * w / edge, cy * h / edge);
         float qx = q.x * ct - q.y * st;
         float qy = q.x * st + q.y * ct;
-        float nx = qx / max(rx * w / long, 1e-12);
-        float ny = qy / max(ry * h / long, 1e-12);
+        float nx = qx / max(rx * w / edge, 1e-12);
+        float ny = qy / max(ry * h / edge, 1e-12);
         float r = sqrt(nx * nx + ny * ny);
         float v;
         if (r <= rin) { v = 1.0; }
@@ -934,8 +945,21 @@ public enum KernelLibrary {
 
     /// The parametric-mask fast path. Without all four the graph falls back to
     /// `MaskRaster`, which is correct and slower — never to a wrong mask.
-    public static var parametricMasksAvailable: Bool {
-        maskLinear != nil && maskRadial != nil && maskFold != nil && maskInvert != nil
+    public static var parametricMasksAvailable: Bool { unavailableMaskKernels.isEmpty }
+
+    /// Names of the mask kernels that failed. Separate from `unavailableKernels` on
+    /// purpose: that list gates the whole GPU path (`KernelAvailability.coreAvailable`)
+    /// and a mask kernel has its own honest fallback, so it must not take the picture
+    /// down with it. But it MUST be loud somewhere — these four were absent from every
+    /// roster, so two of them failed to compile on every build without a single test
+    /// noticing, and the fast path this file exists to provide never ran.
+    /// `testEveryKernelCompiles` asserts this list is empty too.
+    public static var unavailableMaskKernels: [String] {
+        let all: [(String, CIKernel?)] = [
+            ("maskLinear", maskLinear), ("maskRadial", maskRadial),
+            ("maskFold", maskFold), ("maskInvert", maskInvert),
+        ]
+        return all.filter { $0.1 == nil }.map { $0.0 }
     }
 
     /// The kernels the core colour path cannot run without. Presence, film and mask

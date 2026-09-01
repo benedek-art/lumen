@@ -47,6 +47,8 @@ Out, `B`→album, `⌘B`→assessment, `F`/`S` stay · denoise: free + best, del
 | SHA | Landing | CI |
 |---|---|---|
 | cc82116 | base — masks panel per-mask disclosure, placement, drag, overlay draft | green |
+| ff0bf93 | W0 — ledger, briefs, baseline, plan (docs only) | pending |
+| _next_ | **W0.7** — N-001: gradient-mask kernels compile again (`long`→`edge`), sentinel widened. A deliberate deviation from find→verify→fix: the finding is CI-log-verified, one file, no stream in flight, and it is the owner's most-felt complaint. **Watch gpu-parity: `MaskGPUParityTests` will RUN for the first time ever** — if parity fails, revert the kernel rename (keep the sentinel) and file for F3/I. | pending |
 
 ## Streams (W5)
 _not started_
