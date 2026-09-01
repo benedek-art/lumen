@@ -50,6 +50,21 @@ Out, `B`→album, `⌘B`→assessment, `F`/`S` stay · denoise: free + best, del
 | ff0bf93 | W0 — ledger, briefs, baseline, plan (docs only) | pending |
 | _next_ | **W0.7** — N-001: gradient-mask kernels compile again (`long`→`edge`), sentinel widened. A deliberate deviation from find→verify→fix: the finding is CI-log-verified, one file, no stream in flight, and it is the owner's most-felt complaint. **Watch gpu-parity: `MaskGPUParityTests` will RUN for the first time ever** — if parity fails, revert the kernel rename (keep the sentinel) and file for F3/I. | pending |
 
+## Mechanism change (W2/W3), recorded
+The Workflow tool caps concurrency at min(16, CPUs−2) per run and this box has 4 CPUs
+→ 2 agents at a time; a 30-area run would take hours. The Agent tool fan-out ran seven
+research agents concurrently without a cap, so W2 audits run that way (one background
+agent per area, briefs unchanged) and W3 runs as **two independent refuters per area**
+— lens A (by-design / already-fixed / duplicate / scope) and lens B (evidence /
+severity / numbers / reproducibility / the test) — writing `w3/<code>-a.md` and
+`w3/<code>-b.md`. W4 treats a finding as CONFIRMED only when both lenses confirm it.
+The per-finding refuter design stays in `briefs/w3-common.md` as the standard each
+lens applies to every finding.
+
+## W2 progress
+- 21:52 launched F1–F5, I1–I3 (masks + pipeline) — before the gap table, since those
+  areas lean on code and K-rows; A–E and G–M launch when `w1/gap-table.md` lands.
+
 ## Streams (W5)
 _not started_
 
