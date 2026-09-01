@@ -124,10 +124,23 @@ struct MaskPanel: View {
     /// almost always — see `maskRow`.
     @State private var renamingMaskID: String?
     @State private var maskSearch: String = ""
-    @State private var maskPickerOpen: Bool = false
+    /// WHICH MASKS HAVE THEIR OWN SETTINGS OPEN, one entry per mask, empty by default.
+    ///
+    /// The owner's rule, and it is Lightroom's: "there should be a chevron. And if I
+    /// press the chevron, then all of these settings come up. So invert, contribution,
+    /// feather, rotation, as well as the edge stuff … And they are always closed until
+    /// I open them. And each of them have their separate open area."
+    ///
+    /// A `Set` rather than one id, because "each of them have their separate open area"
+    /// means two masks can be open at once — the panel is not an accordion. And separate
+    /// from SELECTION, which is the distinction the previous arrangement lost: selecting
+    /// a mask dumped its whole component stack, its editor and its Edge into the list
+    /// unasked, so choosing which mask the sliders point at and asking to see how a mask
+    /// was built were the same gesture. They are two questions and they now have two
+    /// controls: the row selects, the chevron discloses.
+    @State private var expandedMaskIDs: Set<String> = []
     @State private var componentPickerOpen: Bool = false
     @State private var subtractPickerOpen: Bool = false
-    @State private var refineExpanded: Bool = true
     @State private var lightExpanded: Bool = true
     @State private var colourExpanded: Bool = true
     @State private var curveExpanded: Bool = true
@@ -167,15 +180,23 @@ struct MaskPanel: View {
     @ViewBuilder
     private var navigatorBody: some View {
         VStack(alignment: .leading, spacing: 6) {
-            // CREATE NEW MASK, at the top, above the list. Lightroom's own layout, and
-            // the distinction it draws is the one that was hardest to see here: this
-            // makes a NEW mask with its own adjustments, while Add and Subtract — down
-            // inside the selected row — give the mask you already have more area. Two
-            // adjacent verbs with completely different meanings, told apart by position.
-            if !masks.isEmpty {
-                kindMenu(label: "Create new mask", isOpen: $maskPickerOpen) { kind in
+            // THE ROSTER, disclosed by the round `+` in the title bar above — ONE board
+            // behind ONE flag.
+            //
+            // What stood here was a full-width "Create new mask" disclosure button whose
+            // `isOpen` was `$maskPickerOpen`… and so was the "Add a mask" button at the
+            // bottom of `maskListSection`. One `Bool`, two disclosures reading it: one
+            // press flipped it and BOTH boards opened, so the owner got "the entirety of
+            // the add a mask twice, and I don't know why". Twenty tiles under two
+            // headings for one click. There is one control now and it lives in the title
+            // bar, where it is reachable whether the panel is open or collapsed.
+            if state.maskCreateBoardOpen {
+                kindBoard({ kind in
+                    state.maskCreateBoardOpen = false
                     addMask(kind: kind)
-                }
+                }, offersReference: false)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+                Divider().overlay(Lumen.separator).padding(.vertical, 2)
             }
             maskListSection
             if let mask = activeMask {
@@ -194,21 +215,16 @@ struct MaskPanel: View {
         VStack(alignment: .leading, spacing: 8) {
             if let mask = activeMask {
                 editingRow(mask)
-                // EDGE LIVES HERE NOW, not in the pop-out. It is a refinement of a mask
-                // that already exists — the same kind of act as moving Exposure — and
-                // the pop-out is for MAKING masks. Its overlay rule comes with it: an
-                // Edge control moves the SELECTION, and the overlay is the only place a
-                // selection is visible at all, so it is forced ON while one is dragged.
-                zone("Edge",
-                     isExpanded: $refineExpanded,
-                     isModified: mask.refine != MaskRefine(),
-                     onReset: { editMask(mask.id, key: nil) { $0.refine = MaskRefine() } }) {
-                    refineSection(mask)
-                }
-                    .environment(\.sliderGestureChanged) { active in
-                        state.sliderGestureSink(active)
-                        state.setMaskEdgeGesture(active, mask: mask.id)
-                    }
+                // EDGE IS NOT HERE ANY MORE. It sat in this column for one round, on the
+                // argument that refining an edge is the same kind of act as moving
+                // Exposure, and the owner overruled it by name: the chevron he asked for
+                // opens "invert, contribution, feather, rotation, as well as the edge
+                // stuff". He is right and the argument was wrong — Edge changes WHAT IS
+                // SELECTED, so it belongs beside the rest of the selection, and having
+                // it a panel away meant judging an edge against an overlay you could
+                // not see from where the slider was. `maskDetail` draws it now.
+                //
+                // The column is what the mask DOES, and nothing else.
                 effectZone(mask)
             } else {
                 emptyMaskState
@@ -251,60 +267,6 @@ struct MaskPanel: View {
             .help("Show the Masks panel — the list, components and the edge")
         }
         .frame(height: Lumen.rowHeight + 8)
-    }
-
-    /// One zone: a name, and the rows under it. NO SURFACE — and the missing surface is
-    /// the fix rather than an omission.
-    ///
-    /// It used to draw `.lumenSurface(… fill: Lumen.panel)`. Its parent, `MaskEditor`,
-    /// draws `.lumenSurface(… fill: Lumen.panel)`. Identical fill, identical `.flush`
-    /// elevation, so the card's entire visual output was a 1 px 5.5%-white hairline
-    /// against a background of exactly its own value — about 1.05:1, where
-    /// `LumenSurface`'s own header puts the eye's floor at 1.135:1. Four zones spent
-    /// 72 pt of track budget and ~140 pt of scroll on a boundary nobody could see, and
-    /// what the owner actually read was the indentation: "a box inside of a box inside
-    /// of a box inside of a box." The boxes were real and the innermost ones were blank.
-    ///
-    /// So the zone delineates the way the accordion above it already learned to — by
-    /// heading and space, on the one card that does have an edge.
-    ///
-    /// `LumenSectionHeader` rather than a hand-built caps label, for two reasons. It is
-    /// 12 pt `primaryText` where the old label was 10 pt `secondaryText`, which reverses
-    /// a hierarchy that had every zone heading SMALLER and FAINTER than the section
-    /// headings nested inside it — eight times over, so the eye could not build an
-    /// outline and the panel read as a flat run of headings. And it carries
-    /// `isExpanded` / `isModified` / `onReset`, so a zone that owns exactly one section
-    /// (Edge) stops printing its name twice, twenty points apart, in two different sizes.
-    ///
-    /// `topRhythm: 0` because the card's own padding is already the boundary — the same
-    /// value `WorkspaceSectionView` passes for the same reason.
-    private func zone<Content: View>(_ name: String,
-                                     asks: String? = nil,
-                                     isExpanded: Binding<Bool>? = nil,
-                                     isModified: Bool = false,
-                                     onReset: (() -> Void)? = nil,
-                                     @ViewBuilder _ content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            LumenSectionHeader(title: name, isExpanded: isExpanded,
-                               isModified: isModified, onReset: onReset,
-                               topRhythm: 0)
-            // ONE caption survives, and only because it is the only one that was ever
-            // saying anything. "What — what is selected", "Edge — how it is shaped" and
-            // "Effect — what it does" restated the word beside them; the third is a
-            // tautology. Three permanent grey phrases that teach nothing train the eye
-            // to skip the class, and the class contains "for the next stroke", which is
-            // the only thing on screen saying the brush settings apply to the stroke you
-            // are ABOUT to make rather than the ones already painted.
-            if let asks {
-                Text(asks)
-                    .font(.lumenCaption)
-                    .foregroundStyle(Lumen.tertiaryText)
-                    .padding(.bottom, 2)
-            }
-            content()
-        }
-        .padding(.top, 2)
-        .padding(.bottom, 6)
     }
 
     /// Whether this mask has anything the brush parameters would apply to.
@@ -383,36 +345,107 @@ struct MaskPanel: View {
                 case .header(let group):
                     groupHeader(group)
                 case .mask(let mask, let index):
-                    // THE SELECTED MASK CARRIES ITS OWN PARTS; every other row stays one
-                    // line. This is the rule the panel was missing, and it is the whole
-                    // reason Lightroom's version reads as calm where ours read as a wall:
-                    // depth is unlocked by SELECTION, not shown by default.
+                    // A MASK CARRIES ITS OWN PARTS WHEN ASKED, and not before. Depth is
+                    // unlocked by the row's own CHEVRON — see `expandedMaskIDs` — not by
+                    // selection and never by default.
                     //
-                    // Before this, the panel drew a permanent COMPONENTS section, the
-                    // op segmented control, Invert this, Contribution, the kind's own
-                    // parameters, a note and an "Add to this mask" button — for the
-                    // selected mask, all the time, on top of Edge and six more sliders.
-                    // The owner's word for it was "overwhelmed".
+                    // Selection used to do it, which is one gesture doing two jobs:
+                    // pointing the sliders at a mask also dumped its component stack,
+                    // its op control, Invert this, Contribution, the kind's parameters
+                    // and its Edge into the list, so there was no way to switch masks
+                    // without also unfolding one. Before that they were all permanently
+                    // on screen; the owner's word for that was "overwhelmed".
                     VStack(alignment: .leading, spacing: 2) {
                         maskRow(mask, index: index)
-                        if mask.id == activeMask?.id {
-                            componentRows(mask)
+                        if expandedMaskIDs.contains(mask.id) {
+                            maskDetail(mask)
                         }
                     }
+                    // A leading inset is the whole indent and wants no trailing
+                    // partner: it moves the left edge in and leaves the right edge on
+                    // the container's, which is what makes a grouped row line up with
+                    // its ungrouped neighbours down the right-hand side. The lopsided
+                    // insets the owner could see — "most of these things are padded on
+                    // the left side and not the right side" — were in the DISCLOSED
+                    // block, where `.padding(.leading, 14)` was applied three times to
+                    // three different subtrees inside a container that had no matching
+                    // inset of its own. `maskDetail` owns that now, once, on both sides.
                     .padding(.leading, mask.group == nil ? 0 : 12)
-                }
-            }
-            // BELOW the rows, full width, not beside the header. The board it discloses
-            // is a three-column grid of tiles; squeezed into a header's HStack it has no
-            // room to be one. With no masks at all `emptyMaskState` draws the same board
-            // with nothing to disclose it.
-            if !list.isEmpty {
-                kindMenu(label: "Add a mask", isOpen: $maskPickerOpen) { kind in
-                    addMask(kind: kind)
                 }
             }
         }
     }
+
+    /// One mask's own settings, disclosed by its chevron.
+    ///
+    /// Everything about how this particular mask was BUILT and how its edge is shaped:
+    /// its parts, the two verbs that add more, the selected part's own controls (Invert,
+    /// Contribution, and whatever the kind itself has — a radial's Feather and Rotation,
+    /// a brush's flow) and then Edge. The owner named this list exactly: "invert,
+    /// contribution, feather, rotation, as well as the edge stuff".
+    ///
+    /// Inset on BOTH sides. The indent says these belong to the row above; the trailing
+    /// inset is what stops them growing past the rows they belong to, which is what made
+    /// a disclosed mask look wider than its own container.
+    @ViewBuilder
+    private func maskDetail(_ mask: Mask) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            componentRows(mask)
+            // THE BRUSH'S OWN TOOLS, and their absence was not a design decision.
+            //
+            // `brushParameters()` was declared and called from nowhere: an earlier round
+            // deleted the brush ZONE from the develop column on the correct grounds that
+            // it drew the same seven controls the component editor already drew, and
+            // `componentParameters` still returns `EmptyView()` for `.brush` with a
+            // comment explaining that the zone has them. Both halves of that pair were
+            // removed and the survivor kept deferring to a view that no longer existed,
+            // so a brush mask has had NO Size, Feather, Flow or Density control anywhere
+            // in the window — only the `[`/`]` keys, which you have to already know.
+            //
+            // Its own heading with its own caption, because the scope really is
+            // different from everything above it: these are the settings the NEXT stroke
+            // records into the blob, not properties of the strokes already painted.
+            if usesBrush(mask) {
+                LumenSectionHeader(title: "Brush", isExpanded: nil, topRhythm: 0)
+                Text(brushScope)
+                    .font(.lumenCaption)
+                    .foregroundStyle(Lumen.tertiaryText)
+                brushParameters()
+            }
+            // EDGE, in the pop-out and beside the mask it shapes.
+            //
+            // It was in the develop column, one panel away from the mask whose edge it
+            // shapes, on the theory that refining an edge is the same kind of act as
+            // moving Exposure. The owner disagrees and he is right: it is part of making
+            // the selection, so it belongs with the rest of making the selection. Its
+            // overlay rule comes with it — an Edge control moves the SELECTION, and the
+            // overlay is the only place a selection is visible at all, so it is forced
+            // on while one is dragged.
+            LumenSectionHeader(title: "Edge", isExpanded: nil,
+                               isModified: mask.refine != MaskRefine(),
+                               onReset: mask.refine == MaskRefine() ? nil : {
+                                   editMask(mask.id, key: nil) { $0.refine = MaskRefine() }
+                               },
+                               topRhythm: 0)
+            refineSection(mask)
+                .environment(\.sliderGestureChanged) { active in
+                    state.sliderGestureSink(active)
+                    state.setMaskEdgeGesture(active, mask: mask.id)
+                }
+        }
+        .padding(.leading, MaskPanel.detailIndent)
+        .padding(.trailing, 2)
+        .padding(.top, 2)
+        .padding(.bottom, 6)
+    }
+
+    /// How far a mask's disclosed settings sit in from its own row.
+    ///
+    /// One constant rather than a `14` written at four call sites, three of which had
+    /// drifted apart — the component rows, their Add/Subtract buttons and the component
+    /// editor were each indented independently, so a disclosed mask had three different
+    /// left edges stacked down it.
+    static let detailIndent: CGFloat = 12
 
     /// One row of the list: either a folder's header or a mask.
     ///
@@ -641,7 +674,11 @@ struct MaskPanel: View {
     /// be easy to fill, so the control that fills it is the biggest object on screen.
     private var emptyMaskState: some View {
         VStack(alignment: .leading, spacing: 0) {
-            kindMenu(label: "Add a mask", isOpen: $maskPickerOpen, prominent: true) { kind in
+            // `.constant(true)` because `prominent` draws the board unconditionally
+            // and never reads the flag — there is nothing here to disclose it WITH, so
+            // the board simply is the panel. It used to be handed `$maskPickerOpen`,
+            // which is how one `Bool` ended up wired to three different disclosures.
+            kindMenu(label: "Add a mask", isOpen: .constant(true), prominent: true) { kind in
                 addMask(kind: kind)
             }
         }
@@ -650,15 +687,34 @@ struct MaskPanel: View {
 
     private func maskRow(_ mask: Mask, index: Int) -> some View {
         let isSelected = mask.id == activeMask?.id
+        let isOpen = expandedMaskIDs.contains(mask.id)
         return HStack(spacing: 5) {
-            Button { editMask(mask.id, key: nil) { $0.enabled.toggle() } } label: {
-                Image(systemName: mask.enabled ? "eye" : "eye.slash").font(.system(size: 10))
-                    .foregroundStyle(mask.enabled ? Lumen.primaryText : Lumen.secondaryText)
+            // THE CHEVRON, and it is the control the panel was missing.
+            //
+            // Its own hit target, ahead of everything else in the row, so disclosing a
+            // mask and selecting one are two different places to press rather than two
+            // meanings of one press.
+            Button {
+                withAnimation(.easeOut(duration: 0.14)) {
+                    if isOpen { expandedMaskIDs.remove(mask.id) }
+                    else { expandedMaskIDs.insert(mask.id) }
+                }
+            } label: {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 8, weight: .semibold))
+                    .rotationEffect(.degrees(isOpen ? 90 : 0))
+                    .frame(width: 14, height: 18)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help(mask.enabled ? "Stop rendering this mask, keeping it" : "Render it again")
+            .foregroundStyle(isOpen ? Lumen.primaryText : Lumen.secondaryText)
+            .lumenClickCursor()
+            .help(isOpen ? "Hide this mask's settings" : "Show this mask's settings")
 
-            maskThumbnail(mask)
+            MaskThumbnail(image: state.maskThumbnails[mask.id],
+                          enabled: mask.enabled,
+                          width: 44, height: 30,
+                          selected: false)
 
             VStack(alignment: .leading, spacing: 0) {
                 // TEXT UNTIL YOU ASK FOR A FIELD, and this is the single most confusing
@@ -713,18 +769,25 @@ struct MaskPanel: View {
                 }
             }
 
-            // Masks fold in list order too — both renderers walk `plan.masks` front to
-            // back, so where two masks overlap the later one is working on the earlier
-            // one's output. Same control as the component rows below, because it is the
-            // same question being asked one level up.
-            reorderControls(canMoveUp: MaskPanel.reorderRoom(masks, index).up,
-                            canMoveDown: MaskPanel.reorderRoom(masks, index).down,
-                            what: "mask") { delta in
-                moveMask(mask.id, by: delta)
+            Button { editMask(mask.id, key: nil) { $0.enabled.toggle() } } label: {
+                Image(systemName: mask.enabled ? "eye" : "eye.slash")
+                    .font(.system(size: 10))
+                    .frame(width: 16, height: 16)
+                    .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .foregroundStyle(mask.enabled ? Lumen.secondaryText : Lumen.tertiaryText)
+            .help(mask.enabled ? "Stop rendering this mask, keeping it" : "Render it again")
 
-            maskRowMenu(mask)
+            maskRowMenu(mask, index: index)
         }
+        // THE ROW'S OWN BUDGET, and the arithmetic is why the panel got wider rather
+        // than why this row got more controls. At 236 points the card gave the content
+        // 216, of which chrome took 120 and the name got 96 — "Radial Gradient 1" needs
+        // about 105, so every default name in the list arrived truncated. The reorder
+        // chevrons that used to sit here have moved into the row's own menu, where
+        // "Move up" and "Move down" are words rather than two 12-point targets a
+        // pixel apart, and that plus the wider card leaves the name 132.
         .padding(.horizontal, 4).padding(.vertical, 3)
         .background(isSelected ? Lumen.fillColor.opacity(0.20) : Color.clear)
         .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusChip))
@@ -781,25 +844,12 @@ struct MaskPanel: View {
     /// and a result (docs/35 §4.3). Lightroom has had this for years and it is most of
     /// why its masking reads as approachable despite being the deepest in the market.
     ///
-    /// The placeholder is a well rather than a spinner: a thumbnail lands within a
-    /// frame or two of an edit, and a spinner that appears and vanishes that fast is
-    /// worse than a quiet empty box.
+    /// Its own view rather than a method here, because the collapsed panel is nothing
+    /// BUT a column of these — see `MaskFloatingPanel.maskRail` — and two copies of the
+    /// corner radius and the border would have drifted the moment one of them changed.
     private func maskThumbnail(_ mask: Mask) -> some View {
-        Group {
-            if let image = state.maskThumbnails[mask.id] {
-                Image(decorative: image, scale: 1, orientation: .up)
-                    .resizable()
-                    .interpolation(.medium)
-                    .aspectRatio(contentMode: .fill)
-            } else {
-                Color.black.opacity(0.35)
-            }
-        }
-        .frame(width: 40, height: 27)
-        .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 3, style: .continuous)
-            .strokeBorder(Lumen.separator, lineWidth: 0.5))
-        .opacity(mask.enabled ? 1 : 0.4)
+        MaskThumbnail(image: state.maskThumbnails[mask.id],
+                      enabled: mask.enabled, width: 40, height: 27, selected: false)
     }
 
     /// Everything that acts on ONE mask, attached to that mask's row.
@@ -808,10 +858,15 @@ struct MaskPanel: View {
     /// column below the list — six controls with no visible owner, which is what the
     /// owner meant by "duplicate, delete, which is in a weird place". A row's own menu
     /// is where an operation on a row belongs, and it takes six rows out of the column.
-    private func maskRowMenu(_ mask: Mask) -> some View {
-        LumenMenu(title: "", symbol: "ellipsis", iconOnly: true,
-                  help: "Rename, invert, duplicate, delete — and how the overlay draws") {
+    private func maskRowMenu(_ mask: Mask, index: Int) -> some View {
+        let room = MaskPanel.reorderRoom(masks, index)
+        return LumenMenu(title: "", symbol: "ellipsis", iconOnly: true,
+                         help: "Rename, reorder, invert, duplicate, delete") {
             LumenMenuHeader(title: "This mask")
+            LumenMenuItem(title: "Rename", symbol: "pencil") {
+                selectedMaskID = mask.id
+                renamingMaskID = mask.id
+            }
             LumenMenuItem(title: mask.invert ? "Stop inverting" : "Invert selection",
                           symbol: "circle.righthalf.filled") {
                 editMask(mask.id, key: nil) { $0.invert.toggle() }
@@ -824,6 +879,28 @@ struct MaskPanel: View {
                 duplicateMask(mask.id, inverting: true)
             }
             LumenMenuItem(title: "Delete", symbol: "trash") { deleteMask(mask.id) }
+
+            // REORDER LIVES HERE NOW, as two words rather than two 12-point chevrons
+            // wedged into the row. Masks fold in list order — both renderers walk
+            // `plan.masks` front to back, so where two masks overlap the later one is
+            // working on the earlier one's output — so this is a real operation and not
+            // a cosmetic sort. It is also used about once a session, which is exactly
+            // the kind of control that should cost a menu rather than 30 points of every
+            // row's width forever. Getting it out of the row is most of what bought the
+            // mask's own name enough room to be read.
+            if room.up || room.down {
+                LumenMenuHeader(title: "Order")
+                if room.up {
+                    LumenMenuItem(title: "Move up", symbol: "chevron.up") {
+                        moveMask(mask.id, by: -1)
+                    }
+                }
+                if room.down {
+                    LumenMenuItem(title: "Move down", symbol: "chevron.down") {
+                        moveMask(mask.id, by: 1)
+                    }
+                }
+            }
 
             LumenMenuHeader(title: "Group")
             LumenMenuItem(title: "New group", symbol: "folder.badge.plus") {
@@ -863,59 +940,74 @@ struct MaskPanel: View {
     /// controls, and the `⋯` menu's twelve overlay items are gone: one home each.
     private func overlayControls(_ mask: Mask) -> some View {
         let showing = state.soloMaskOverlay == mask.id
-        return VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 6) {
-                Button {
-                    // Through the pin in both directions. The raw `soloMaskOverlay`
-                    // write this used to carry is the same one that made "Keep it
-                    // hidden" a trap: a solo cleared without its pin leaves every
-                    // ambient path guarded off.
-                    if showing { state.unpinMaskOverlay() } else { state.pinMaskOverlay(mask.id) }
-                } label: {
-                    HStack(spacing: 3) {
-                        Image(systemName: showing ? "eye.fill" : "eye")
-                            .font(.lumenCaption)
-                        Text(showing ? "Overlay on" : "Show overlay").font(.lumenCaption)
-                    }
-                    .padding(.horizontal, 6).padding(.vertical, 3)
-                    .background(showing ? Lumen.fillColor.opacity(0.35) : Lumen.controlBackground)
-                    .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusChip))
-                    .contentShape(Rectangle())
+        // ONE BUTTON AND ONE MENU, because three controls did not fit and did not
+        // admit it.
+        //
+        // This row used to be an `HStack` of the "Show overlay" pill (~85 pt), a mode
+        // menu whose longest title is "Image on Black" (~110 pt) and a tint menu
+        // (~55 pt), with 12 points of gaps: about 262 points of content laid across a
+        // 216-point card. `LumenMenu` has no truncation — a menu that shortened its own
+        // title would be lying about what is selected — so the row simply won the layout
+        // and drew past the card's edge. That is the "the radial gradient item is bigger
+        // than the container it's in" the owner could see and could not name.
+        //
+        // Folding the two menus into one fixes it honestly rather than by shrinking
+        // type: mode and tint are both "how the overlay draws", they are chosen
+        // together, and each is a four-to-six entry list that a menu holds better than a
+        // row does. The row now costs a 76-point toggle and an 84-point menu.
+        return HStack(spacing: 6) {
+            Button {
+                // Through the pin in both directions. The raw `soloMaskOverlay`
+                // write this used to carry is the same one that made "Keep it
+                // hidden" a trap: a solo cleared without its pin leaves every
+                // ambient path guarded off.
+                if showing { state.unpinMaskOverlay() } else { state.pinMaskOverlay(mask.id) }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: showing ? "eye.fill" : "eye")
+                        .font(.lumenCaption)
+                    Text("Overlay").font(.lumenCaption)
                 }
-                .buttonStyle(.plain)
-                .foregroundStyle(showing ? Lumen.primaryText : Lumen.secondaryText)
-                .help("Keep this mask's overlay up. O does the same from the keyboard.")
-
-                // NO GLYPHS ON EITHER OF THESE, and the tint menu is why the rule
-                // exists. The four colours are the one list in this panel whose meaning
-                // IS a colour, and `LumenMenuItem` draws its glyph in `secondaryText`
-                // like every other piece of chrome in the app — four identical grey
-                // circles labelled Red, Green, White and Black would be a worse row
-                // than no circle at all. The modes have no honest shape either: "Image
-                // on Black" is a compositing rule, not an object.
-                LumenMenu(title: state.maskOverlayMode.label,
-                          help: "⌥O cycles the six modes") {
-                    ForEach(MaskOverlay.Mode.allCases, id: \.self) { m in
-                        LumenMenuItem(title: m.label,
-                                      isSelected: state.maskOverlayMode == m) {
-                            state.maskOverlayMode = m
-                        }
-                    }
-                }
-
-                LumenMenu(title: state.maskOverlayTint.label,
-                          help: "⇧O cycles red, green, white and black") {
-                    ForEach(MaskOverlay.Tint.allCases, id: \.self) { t in
-                        LumenMenuItem(title: t.label,
-                                      isSelected: state.maskOverlayTint == t) {
-                            state.maskOverlayTint = t
-                        }
-                    }
-                }
-                Spacer(minLength: 0)
+                .padding(.horizontal, 7).padding(.vertical, 3)
+                .frame(maxWidth: .infinity)
+                .background(showing ? Lumen.fillColor.opacity(0.35) : Lumen.controlSurface)
+                .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusChip))
+                .contentShape(Rectangle())
             }
-            .frame(height: Lumen.rowHeight)
+            .buttonStyle(.plain)
+            .foregroundStyle(showing ? Lumen.primaryText : Lumen.secondaryText)
+            .lumenClickCursor()
+            .help("Keep this mask's overlay up. O does the same from the keyboard.")
+
+            // NO GLYPHS ON THE TINTS, and they are why the rule exists. The four
+            // colours are the one list in this panel whose meaning IS a colour, and
+            // `LumenMenuItem` draws its glyph in `secondaryText` like every other piece
+            // of chrome in the app — four identical grey circles labelled Red, Green,
+            // White and Black would be a worse row than no circle at all. The modes have
+            // no honest shape either: "Image on Black" is a compositing rule, not an
+            // object.
+            LumenMenu(title: state.maskOverlayMode.label,
+                      help: "How the overlay draws, and in what colour. "
+                          + "⌥O cycles the six modes, ⇧O the four colours.") {
+                LumenMenuHeader(title: "How it draws")
+                ForEach(MaskOverlay.Mode.allCases, id: \.self) { m in
+                    LumenMenuItem(title: m.label,
+                                  isSelected: state.maskOverlayMode == m) {
+                        state.maskOverlayMode = m
+                    }
+                }
+                LumenMenuHeader(title: "Colour")
+                ForEach(MaskOverlay.Tint.allCases, id: \.self) { t in
+                    LumenMenuItem(title: t.label,
+                                  isSelected: state.maskOverlayTint == t) {
+                        state.maskOverlayTint = t
+                    }
+                }
+            }
+            .frame(maxWidth: 108)
         }
+        .frame(height: Lumen.rowHeight)
+        .padding(.horizontal, 4)
     }
 
     // MARK: - Component stack
@@ -932,10 +1024,13 @@ struct MaskPanel: View {
     /// costs no permanent row.
     @ViewBuilder
     private func componentRows(_ mask: Mask) -> some View {
+        // ONE INDENT FOR THE WHOLE BLOCK, applied by `maskDetail` above rather than
+        // three times here at three different call sites. The rows, the Add/Subtract
+        // pair and the editor each carried their own `.padding(.leading, 14)`, so
+        // anything that moved one of them moved one left edge out of three.
         VStack(alignment: .leading, spacing: 2) {
             ForEach(Array(mask.components.indices), id: \.self) { i in
                 componentRow(mask, i)
-                    .padding(.leading, 14)
             }
             HStack(spacing: 4) {
                 kindMenu(label: intersecting ? "Intersect" : "Add",
@@ -951,10 +1046,8 @@ struct MaskPanel: View {
                     }
                 }
             }
-            .padding(.leading, 14)
             if let i = activeComponentIndex, mask.components.indices.contains(i) {
                 componentEditor(mask.id, i, mask.components[i])
-                    .padding(.leading, 14)
             }
         }
     }
@@ -989,22 +1082,36 @@ struct MaskPanel: View {
             if component.validationError() != nil {
                 LumenBadge(text: "INCOMPLETE", emphasized: true)
             }
+            // ITS OWN MENU, the same shape as the mask row's one level up — because
+            // it is the same question being asked one level down, and because the
+            // chevron pair plus the remove button were 37 points of permanent chrome on
+            // a row that is already indented and already carries up to two badges.
+            //
             // ORDER IS AN ARGUMENT HERE, not a preference. `MaskRaster.combine` folds
             // the stack top-down into an accumulator that seeds empty, so Subject
             // ∪ then Sky ∖ is a different selection from Sky ∖ then Subject ∪ — the
             // second one subtracts from nothing and then adds everything back. The
             // panel let you set the operation and never let you move the row, so half
             // of what the fold can express was unreachable.
-            reorderControls(canMoveUp: index > 0,
-                            canMoveDown: index < mask.components.count - 1,
-                            what: "component") { delta in
-                moveComponent(mask.id, from: index, by: delta)
+            LumenMenu(title: "", symbol: "ellipsis", iconOnly: true,
+                      help: "Reorder or remove this part of the mask") {
+                if index > 0 || index < mask.components.count - 1 {
+                    LumenMenuHeader(title: "Order")
+                    if index > 0 {
+                        LumenMenuItem(title: "Move up", symbol: "chevron.up") {
+                            moveComponent(mask.id, from: index, by: -1)
+                        }
+                    }
+                    if index < mask.components.count - 1 {
+                        LumenMenuItem(title: "Move down", symbol: "chevron.down") {
+                            moveComponent(mask.id, from: index, by: 1)
+                        }
+                    }
+                }
+                LumenMenuItem(title: "Remove", symbol: "minus.circle") {
+                    removeComponent(mask.id, index)
+                }
             }
-            Button { removeComponent(mask.id, index) } label: {
-                Image(systemName: "minus.circle").font(.system(size: 10))
-            }
-            .buttonStyle(.plain).foregroundStyle(Lumen.secondaryText)
-            .help("Remove this component")
         }
         .padding(.horizontal, 4).frame(height: Lumen.rowHeight)
         .background(isSelected ? Lumen.fillColor.opacity(0.16) : Color.clear)
@@ -1060,12 +1167,17 @@ struct MaskPanel: View {
     private func componentParameters(_ id: String, _ i: Int, _ c: MaskComponent) -> some View {
         switch c.kind {
         case .brush:
-            // NOTHING, and that is the fix. `body` already draws the brush settings as
-            // their own zone (`usesBrush`), and `usesBrush` is true exactly when this
-            // case is reached — so these seven controls were on screen TWICE, about
-            // 1400 points apart, bound to the same `MaskBrushStore` and moving
-            // together. The zone is the right home: they are the settings the NEXT
-            // stroke records, not this component's, and only the zone's caption says so.
+            // NOTHING, and that is still the fix. `maskDetail` draws the brush
+            // settings under their own heading when a brush component is selected —
+            // which is exactly when this case is reached — so drawing them here too put
+            // the same seven controls on screen TWICE, bound to the same
+            // `MaskBrushStore` and moving together. The heading is the right home:
+            // they are the settings the NEXT stroke records, not this component's, and
+            // only the caption up there says so.
+            //
+            // The pairing has to hold in BOTH directions, which is the half that broke:
+            // for one round this said "the zone has them" while the zone did not exist,
+            // and the controls were simply gone.
             EmptyView()
         case .linear:
             // Live: `lineSummary` is the gradient's current geometry, so this is a
@@ -1483,76 +1595,78 @@ struct MaskPanel: View {
     // MARK: - Refinement chain
 
     private func refineSection(_ mask: Mask) -> some View {
-        // NO HEADER OF ITS OWN. The zone above prints "Edge" and carries the chevron,
-        // the modified dot and the Reset — this drew all four a second time, one row
-        // below, at a smaller size. "Edge", not "Refine", is still the right word and
-        // the reason still holds: the old name was the same word as the first slider
-        // inside it AND as a Colour Range control further up.
-        Group {
-            if refineExpanded {
-                VStack(alignment: .leading, spacing: 2) {
-                    // Drawn in the order the engine runs them — an edge-aware snap
-                    // against the image structure, a boundary shift, a Gaussian soften,
-                    // then the density remap — which is why they are not alphabetical
-                    // and not grouped. Start / End / Curve are `levelsLo` / `levelsHi` /
-                    // `levelsGamma`, and Grow / Shrink is `edge`: the wire names are a
-                    // histogram dialog describing a density ramp, and the labels now say
-                    // which end of the ramp each handle moves.
-                    // FOLLOW, not "snap". A guided filter bends the alpha toward image
-                    // structure with a radius and a regularisation; it does not snap to
-                    // anything, and at low values it does nothing a person can see. A
-                    // control named "Snap" that visibly does nothing at 10 reads as
-                    // broken, which is the failure this rebuild exists to remove
-                    // (docs/36 §1.3).
-                    refineSlider(mask.id, "Follow", \.feather, 0...100, 0,
-                                 help: "Bends the selection toward edges it can find in "
-                                     + "the photograph itself. Does nothing where there "
-                                     + "is no edge under the boundary.",
-                                 behaviour: .followEdges,
-                                 behaviourValue: mask.refine.feather / 100)
-                    // "Expand", not "Expand / Contract". Seventeen characters could not
-                    // fit the label column at any panel width, and a name that arrives
-                    // as "Expa…" has told you less than no name at all. The track is
-                    // bipolar with a centre detent and the glyph draws both directions,
-                    // so the negative half needs no second word in the label — it needs
-                    // the sentence underneath, which is what the tooltip is for.
-                    refineSlider(mask.id, "Expand", \.edge, -50...50, 0,
-                                 bipolar: true,
-                                 help: "Moves the boundary outward, or inward below "
-                                     + "zero. About one percent of the long edge at "
-                                     + "either end.",
-                                 behaviour: .expandContract,
-                                 behaviourValue: mask.refine.edge / 50)
-                    // "Soften", not "Feather": this is a Gaussian blur of the FINISHED
-                    // alpha, and the brush's Feather is the hardness of one stamp. Two
-                    // controls, nine rows apart, that were the same word.
-                    //
-                    // AND ONE WORD, not two. Shrinking the behaviour glyph from 44 to 26
-                    // bought the label column back to 56 points, and that was still not
-                    // enough: "Follow edges" and "Soften edge" measure past 60 at 12 pt
-                    // even at the 0.86 shrink floor, so both still arrived as "Follow
-                    // ed…" and "Soften e…" — which the owner photographed. A name that
-                    // ellipsizes has told you less than no name. Follow / Expand /
-                    // Soften is a parallel trio that fits, and the sentence each one
-                    // needs is in its tooltip, where it costs no width at all.
-                    refineSlider(mask.id, "Soften", \.blur, 0...100, 0,
-                                 help: "Blurs the finished selection, so the adjustment "
-                                     + "fades in across a wider band. Not the brush's "
-                                     + "Feather, which is the hardness of one stamp.",
-                                 behaviour: .softenEdge,
-                                 behaviourValue: mask.refine.blur / 100)
-                    // The density ramp. "Curve" was its old name and it sat directly
-                    // above a section called Curve, which is the collision that could
-                    // not be defended; "Start"/"End" were a 1994 histogram dialog.
-                    levelsSlider(mask.id, "Ramp from", low: true)
-                    levelsSlider(mask.id, "Ramp to", low: false)
-                    refineSlider(mask.id, "Ramp shape", \.levelsGamma, 0.2...5, 1,
-                                 step: 0.05, decimals: 2, bipolar: true,
-                                 help: "Bends the fade between Ramp from and Ramp to. "
-                                     + "Below 1 the selection comes up early and eases "
-                                     + "in; above 1 it holds back and arrives late.")
-                }
-            }
+        // NO HEADER OF ITS OWN. `maskDetail` prints "Edge" and carries the modified dot
+        // and the Reset — this drew all four a second time, one row below, at a smaller
+        // size. "Edge", not "Refine", is still the right word and the reason still
+        // holds: the old name was the same word as the first slider inside it AND as a
+        // Colour Range control further up.
+        //
+        // NO SECOND DISCLOSURE EITHER. It used to guard itself on `refineExpanded`, a
+        // chevron carried by the zone wrapper in the develop column. That wrapper is
+        // gone and the mask's own chevron is now the one control that decides whether
+        // any of this is on screen — a disclosure inside a disclosure is the "box inside
+        // of a box inside of a box" the panel keeps being told about.
+        VStack(alignment: .leading, spacing: 2) {
+            // Drawn in the order the engine runs them — an edge-aware snap
+            // against the image structure, a boundary shift, a Gaussian soften,
+            // then the density remap — which is why they are not alphabetical
+            // and not grouped. Start / End / Curve are `levelsLo` / `levelsHi` /
+            // `levelsGamma`, and Grow / Shrink is `edge`: the wire names are a
+            // histogram dialog describing a density ramp, and the labels now say
+            // which end of the ramp each handle moves.
+            // FOLLOW, not "snap". A guided filter bends the alpha toward image
+            // structure with a radius and a regularisation; it does not snap to
+            // anything, and at low values it does nothing a person can see. A
+            // control named "Snap" that visibly does nothing at 10 reads as
+            // broken, which is the failure this rebuild exists to remove
+            // (docs/36 §1.3).
+            refineSlider(mask.id, "Follow", \.feather, 0...100, 0,
+                         help: "Bends the selection toward edges it can find in "
+                             + "the photograph itself. Does nothing where there "
+                             + "is no edge under the boundary.",
+                         behaviour: .followEdges,
+                         behaviourValue: mask.refine.feather / 100)
+            // "Expand", not "Expand / Contract". Seventeen characters could not
+            // fit the label column at any panel width, and a name that arrives
+            // as "Expa…" has told you less than no name at all. The track is
+            // bipolar with a centre detent and the glyph draws both directions,
+            // so the negative half needs no second word in the label — it needs
+            // the sentence underneath, which is what the tooltip is for.
+            refineSlider(mask.id, "Expand", \.edge, -50...50, 0,
+                         bipolar: true,
+                         help: "Moves the boundary outward, or inward below "
+                             + "zero. About one percent of the long edge at "
+                             + "either end.",
+                         behaviour: .expandContract,
+                         behaviourValue: mask.refine.edge / 50)
+            // "Soften", not "Feather": this is a Gaussian blur of the FINISHED
+            // alpha, and the brush's Feather is the hardness of one stamp. Two
+            // controls, nine rows apart, that were the same word.
+            //
+            // AND ONE WORD, not two. Shrinking the behaviour glyph from 44 to 26
+            // bought the label column back to 56 points, and that was still not
+            // enough: "Follow edges" and "Soften edge" measure past 60 at 12 pt
+            // even at the 0.86 shrink floor, so both still arrived as "Follow
+            // ed…" and "Soften e…" — which the owner photographed. A name that
+            // ellipsizes has told you less than no name. Follow / Expand /
+            // Soften is a parallel trio that fits, and the sentence each one
+            // needs is in its tooltip, where it costs no width at all.
+            refineSlider(mask.id, "Soften", \.blur, 0...100, 0,
+                         help: "Blurs the finished selection, so the adjustment "
+                             + "fades in across a wider band. Not the brush's "
+                             + "Feather, which is the hardness of one stamp.",
+                         behaviour: .softenEdge,
+                         behaviourValue: mask.refine.blur / 100)
+            // The density ramp. "Curve" was its old name and it sat directly
+            // above a section called Curve, which is the collision that could
+            // not be defended; "Start"/"End" were a 1994 histogram dialog.
+            levelsSlider(mask.id, "Ramp from", low: true)
+            levelsSlider(mask.id, "Ramp to", low: false)
+            refineSlider(mask.id, "Ramp shape", \.levelsGamma, 0.2...5, 1,
+                         step: 0.05, decimals: 2, bipolar: true,
+                         help: "Bends the fade between Ramp from and Ramp to. "
+                             + "Below 1 the selection comes up early and eases "
+                             + "in; above 1 it holds back and arrives late.")
         }
     }
 
@@ -2449,39 +2563,6 @@ struct MaskPanel: View {
         .help(MaskPanel.kindPurpose(kind))
     }
 
-    /// Two chevrons, for a list whose ORDER changes the picture.
-    ///
-    /// Buttons rather than drag-to-reorder: these rows live in a `VStack` inside the
-    /// column's one `ScrollView`, and a drag reorder there would need either a nested
-    /// `List` — a scroll trap, which is the defect this panel was rebuilt to remove —
-    /// or a hand-written hit-test against every row's frame. Two clicks move a row one
-    /// place, which for stacks that are three deep is the whole job.
-    private func reorderControls(canMoveUp: Bool, canMoveDown: Bool, what: String,
-                                 move: @escaping (Int) -> Void) -> some View {
-        HStack(spacing: 1) {
-            reorderButton("chevron.up", enabled: canMoveUp,
-                          help: "Move this \(what) earlier in the stack") { move(-1) }
-            reorderButton("chevron.down", enabled: canMoveDown,
-                          help: "Move this \(what) later in the stack") { move(1) }
-        }
-    }
-
-    private func reorderButton(_ symbol: String, enabled: Bool, help: String,
-                               action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: 8, weight: .semibold))
-                // A fixed box, so a row with one chevron disabled does not shuffle the
-                // controls beside it a pixel to the left.
-                .frame(width: 12, height: 12)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(!enabled)
-        .foregroundStyle(enabled ? Lumen.secondaryText : Lumen.separator)
-        .help(help)
-    }
-
     /// The tint target, as a swatch that opens the system colour panel.
     ///
     /// `ColorPicker` rather than an eyedropper: sampling FROM the frame is what the
@@ -3004,6 +3085,48 @@ struct MaskPanel: View {
         return [pow(Num.saturate(Double(srgb.redComponent)), 2.2),
                 pow(Num.saturate(Double(srgb.greenComponent)), 2.2),
                 pow(Num.saturate(Double(srgb.blueComponent)), 2.2)]
+    }
+}
+
+/// A picture of what one mask selects.
+///
+/// Its own view rather than a method on `MaskPanel`, because it is drawn in three
+/// places now — the mask row, the develop column's "which mask am I editing" strip, and
+/// the collapsed panel, which is nothing BUT a column of these — and three copies of a
+/// corner radius, a border and a disabled opacity drift the moment one of them changes.
+///
+/// The placeholder is a well rather than a spinner: a thumbnail lands within a frame or
+/// two of an edit, and a spinner that appears and vanishes that fast is worse than a
+/// quiet empty box.
+struct MaskThumbnail: View {
+    let image: CGImage?
+    let enabled: Bool
+    let width: CGFloat
+    let height: CGFloat
+    /// Whether to draw the selection ring. Only the collapsed column asks for it: there
+    /// is no name and no highlight bar down there, so the ring is the ONLY thing saying
+    /// which mask the sliders are pointing at.
+    var selected: Bool = false
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(decorative: image, scale: 1, orientation: .up)
+                    .resizable()
+                    .interpolation(.medium)
+                    .aspectRatio(contentMode: .fill)
+            } else {
+                Color.black.opacity(0.35)
+            }
+        }
+        .frame(width: width, height: height)
+        .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                .strokeBorder(selected ? Lumen.accent : Lumen.separator,
+                              lineWidth: selected ? 1.5 : 0.5)
+        )
+        .opacity(enabled ? 1 : 0.4)
     }
 }
 

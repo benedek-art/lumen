@@ -425,11 +425,17 @@ actor RenderCoordinator {
 
     /// One mask's alpha, for the loupe's overlay. Small by construction — the raster is
     /// capped at 1024 px — so it does not claim a render ticket.
+    /// - Parameter longEdge: how big to rasterize, or nil for the full 1024. The
+    ///   overlay asks for half that while a gesture is running — see
+    ///   `AppState.refreshMaskOverlay`. The fold is O(pixels), so halving the edge is a
+    ///   straight 4× off the wait between moving a gradient and seeing where it went.
     func maskAlpha(url: URL, recipe: Recipe, maskID: String,
-                   strokeSets: [String: BrushStrokeSet]) -> Plane? {
+                   strokeSets: [String: BrushStrokeSet],
+                   longEdge: Int? = nil) -> Plane? {
         guard let source = try? self.source(for: url) else { return nil }
         return renderer.renderMaskAlpha(source: source, recipe: recipe,
-                                        maskID: maskID, strokeSets: strokeSets)
+                                        maskID: maskID, strokeSets: strokeSets,
+                                        longEdge: longEdge)
     }
 
     /// A mask's alpha, small enough to draw in its own row.

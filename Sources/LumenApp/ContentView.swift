@@ -121,11 +121,25 @@ struct ContentView: View {
                         // panel you cannot get back.
                         .overlay(alignment: .topTrailing) {
                             if showsMaskPanel {
-                                // The reader fills the pane so the drag can be
-                                // clamped against it; it draws nothing itself, so only
-                                // the card inside it ever takes a click.
+                                // The reader fills the pane so the drag can be clamped
+                                // against it; it draws nothing itself, so only the card
+                                // inside it ever takes a click.
+                                //
+                                // THE INNER `.frame(alignment:)` IS LOAD-BEARING and its
+                                // absence is why the panel opened on the LEFT, which was
+                                // the owner's first complaint on first use. A
+                                // `GeometryReader` is greedy: it takes every point it is
+                                // offered, so `.overlay(alignment: .topTrailing)` was
+                                // top-trailing-aligning a view that already filled the
+                                // whole pane — a no-op — and the reader then placed its
+                                // own child at its own top-LEADING corner, which is what
+                                // a `GeometryReader` does. The alignment has to be
+                                // restated INSIDE the reader, against the reader's own
+                                // filled frame, or it does not happen at all.
                                 GeometryReader { proxy in
                                     MaskFloatingPanel(bounds: proxy.size)
+                                        .frame(maxWidth: .infinity, maxHeight: .infinity,
+                                               alignment: .topTrailing)
                                         // Out from under the clipping panel, which owns
                                         // this corner when it is showing. Both are
                                         // top-trailing and a silent overlap reads as a

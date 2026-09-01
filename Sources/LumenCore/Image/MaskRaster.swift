@@ -1394,6 +1394,37 @@ public enum MaskRaster {
 /// picture and the mask's alpha.
 public enum MaskOverlay {
 
+    /// How big to composite the overlay layer, given the alpha it will be built from.
+    ///
+    /// The overlay is drawn by resampling a mask alpha over the picture, one output
+    /// pixel at a time in Swift, so this number squared is the cost of every frame the
+    /// photographer sees while dragging a gradient around. Two bounds decide it and
+    /// both are ceilings, never floors:
+    ///
+    ///   · `cap` is the pane bound. Above it the extra pixels are thrown away by the
+    ///     downscale on the way to the screen.
+    ///   · The ALPHA's own size is the information bound, and it is the one that makes
+    ///     dragging feel live. `AppState.refreshMaskOverlay` rasterizes a half-size
+    ///     alpha while a gesture is running; compositing that into a full-size layer
+    ///     spends four times the pixels to interpolate detail the input does not have.
+    ///
+    /// Twice the alpha rather than exactly it, because five of the six modes read the
+    /// PICTURE too and the picture is sharp at any size — so the layer stays a little
+    /// ahead of the mask it carries, and the mask edge is the only thing that softens.
+    ///
+    /// The 512 floor keeps a degenerate alpha — a 96-px thumbnail plane arriving here
+    /// by accident, or an 8-px raster from a collapsed crop — from compositing the
+    /// overlay at a size that reads as broken rather than as soft.
+    ///
+    /// Pure arithmetic, in Core rather than in the view, so the rule can be tested on
+    /// the platform CI runs tests on. It decides how the app performs during the one
+    /// interaction masking is judged by; a rule that lived only in a macOS-gated view
+    /// could only ever be checked by looking at it.
+    public static func compositeLongEdge(alphaLongEdge: Int, cap: Int) -> Int {
+        let wanted = Swift.max(512, alphaLongEdge * 2)
+        return Swift.max(1, Swift.min(cap, wanted))
+    }
+
     /// The six modes, in the order `⌥O` cycles them — LR's order, because fifteen
     /// years of tutorials describe it.
     public enum Mode: String, Codable, Sendable, CaseIterable {

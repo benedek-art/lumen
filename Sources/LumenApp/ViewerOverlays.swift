@@ -626,13 +626,25 @@ struct MaskOverlayView: View {
         // megapixels against 11.2 — a straight 4× off the dominant term — and it is
         // still 1.5× the pane it lands in, so the resample on the way to the screen is a
         // downscale rather than a stretch.
+        //
+        // AND IT FOLLOWS THE ALPHA DOWN. `refreshMaskOverlay` rasterizes a DRAFT alpha
+        // — half the long edge — while a gesture is running, and compositing a 512-px
+        // alpha into a 2048-px layer is the same "interpolating an interpolation" this
+        // comment already objects to, one level further in: the extra pixels cannot
+        // carry mask detail the alpha does not have. Bounding the composite at twice
+        // the alpha's own long edge ties the cost of the expensive loop to the quality
+        // of its input, so a live drag pays a quarter of the pixels for a layer that
+        // looks the same, and the settled pass gets the full 2048 back automatically
+        // when the full-size alpha lands. Twice rather than exactly, because the
+        // picture underneath IS sharp in the modes that read it.
         let rawWidth = sampler?.width ?? alpha.width
         let rawHeight = sampler?.height ?? alpha.height
         guard rawWidth > 0, rawHeight > 0 else { return nil }
+        let cap = MaskOverlay.compositeLongEdge(
+            alphaLongEdge: Swift.max(alpha.width, alpha.height),
+            cap: compositeLongEdge)
         let longest = Swift.max(rawWidth, rawHeight)
-        let shrink = longest > compositeLongEdge
-            ? Double(compositeLongEdge) / Double(longest)
-            : 1
+        let shrink = longest > cap ? Double(cap) / Double(longest) : 1
         let width = Swift.max(1, Int((Double(rawWidth) * shrink).rounded()))
         let height = Swift.max(1, Int((Double(rawHeight) * shrink).rounded()))
         let bytes = sampler?.bytes

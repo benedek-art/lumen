@@ -670,18 +670,66 @@ final class AppState: ObservableObject {
         }
         let recipe = recipe(for: photo)
         let strokes = strokeSets(for: recipe)
+        // IS A GESTURE RUNNING? Answered by the clock rather than by a flag, because
+        // there is no one flag to read: a radial dragged on the CANVAS, an Edge slider
+        // dragged in the panel and a brush stroke all arrive here as an ordinary edit,
+        // and the only thing they have in common is that the next one is already on its
+        // way. Refreshes closer together than `maskOverlayBurstGapMS` are a drag.
+        //
+        // This is the answer to "the mask isn't updating quick enough, so if I drag it
+        // around, it's still delayed". The supersession below already stopped a drag
+        // QUEUEING sixty rasterizations; what it could not do is make the one that
+        // survives cheap. Every surviving frame still paid for a full 1024-px fold of
+        // the whole stack plus a 2048-px composite over it, which is why the overlay
+        // trailed the gradient by a beat no matter how well the queue behaved.
+        let now = Date()
+        let live = now.timeIntervalSince(maskOverlayLastRefresh) < Self.maskOverlayBurstGapMS
+        maskOverlayLastRefresh = now
         maskOverlayTask = Task { [weak self] in
             guard let self else { return }
             // Let the burst settle: of N refreshes queued in one runloop turn, only
             // the newest survives to touch the actor at all.
             await Task.yield()
             guard !Task.isCancelled, self.maskOverlayGeneration == generation else { return }
+            if live {
+                // DRAFT FIRST, so the hand gets an answer this frame. Half the long
+                // edge is a quarter of the pixels through a fold that is O(pixels),
+                // and `MaskOverlayView.build` follows it down so the composite over it
+                // costs a quarter too. What is lost is a slightly softer boundary on a
+                // selection that is still moving, which nobody is judging yet.
+                let draft = await self.renderCoordinator.maskAlpha(
+                    url: photo.id, recipe: recipe, maskID: maskID, strokeSets: strokes,
+                    longEdge: Self.maskOverlayDraftLongEdge)
+                guard !Task.isCancelled,
+                      self.maskOverlayGeneration == generation else { return }
+                if let draft { self.maskOverlayAlpha = draft }
+                // THEN WAIT FOR THE HAND TO STOP before paying for the real one. The
+                // next mouse event supersedes this task during the sleep, so a
+                // sustained drag pays for drafts only and the full-size raster happens
+                // exactly once, when the drag ends.
+                try? await Task.sleep(nanoseconds: Self.maskOverlaySettleMS * 1_000_000)
+                guard !Task.isCancelled,
+                      self.maskOverlayGeneration == generation else { return }
+            }
             let raster = await self.renderCoordinator.maskAlpha(
                 url: photo.id, recipe: recipe, maskID: maskID, strokeSets: strokes)
             guard !Task.isCancelled, self.maskOverlayGeneration == generation else { return }
             self.maskOverlayAlpha = raster
         }
     }
+
+    /// When the overlay was last asked to rebuild, so a drag can be told from an edit.
+    private var maskOverlayLastRefresh: Date = .distantPast
+    /// Refreshes closer together than this are one continuous gesture, in seconds.
+    ///
+    /// 140 ms is comfortably longer than the gap between two mouse events at any frame
+    /// rate a Mac runs at, and comfortably shorter than the gap between two deliberate
+    /// nudges of a slider — so a held drag reads as live and two taps do not.
+    private static let maskOverlayBurstGapMS: TimeInterval = 0.14
+    /// The long edge a live gesture's overlay is rasterized at, against 1024 settled.
+    private static let maskOverlayDraftLongEdge = 512
+    /// How long the hand must be still before the full-size raster is paid for.
+    private static let maskOverlaySettleMS: UInt64 = 160
 
     /// Which AI matte kinds each file has, so the views that consume them can go stale
     /// when one arrives.
@@ -867,12 +915,31 @@ final class AppState: ObservableObject {
     /// being a mask to list.
     @Published var maskPanelVisible: Bool = true
 
-    /// Collapsed to its own title bar.
+    /// Collapsed to a single column of mask thumbnails.
     ///
-    /// The control that makes a floating panel affordable on a small screen, and the one
-    /// Lightroom puts in the same corner. Held here rather than in the view so that
-    /// collapsing it survives every rebuild of the pane underneath.
+    /// NOT collapsed to the title bar, which is what this used to mean and what the
+    /// owner rejected: "if I press minimize in some sort of way, I just want one row,
+    /// not one row, one column, and one column just shows the picture of the black and
+    /// white gradient, and it shows all of them down the line."
+    ///
+    /// The difference is that a title bar is a control with nothing in it, while a
+    /// column of thumbnails is the mask list at its smallest useful size — you can
+    /// still see what every mask selects and still switch between them. That is what
+    /// makes minimizing worth doing rather than an on/off switch spelled twice.
+    ///
+    /// Held here rather than in the view so it survives every rebuild of the pane
+    /// underneath.
     @Published var maskPanelMinimized: Bool = false
+
+    /// Whether the roster board — every kind of mask, on one board — is disclosed.
+    ///
+    /// Shared state rather than the panel's own `@State` because the control that opens
+    /// it and the surface that draws it are two different views: the round `+` lives in
+    /// the floating panel's title bar, where it is reachable in BOTH the full panel and
+    /// the collapsed thumbnail column, and the board itself is drawn by `MaskPanel` in
+    /// the content below. One flag, one board — the two-flag arrangement this replaces
+    /// is what put the same twenty tiles on screen twice for one press.
+    @Published var maskCreateBoardOpen: Bool = false
 
     /// Where the photographer dragged it, relative to the pane's top-left.
     ///
@@ -956,7 +1023,21 @@ final class AppState: ObservableObject {
         maskThumbnailTask?.cancel()
         maskThumbnailTask = Task { [weak self] in
             guard let self else { return }
-            await Task.yield()
+            // A REAL QUIET PERIOD, not one runloop turn.
+            //
+            // `Task.yield()` coalesces refreshes queued in the SAME turn, which is
+            // enough for a burst of edits and not nearly enough for a DRAG: dragging a
+            // radial gradient changes its geometry on every mouse event, each event is
+            // its own turn, so each one cancelled the task before the previous one had
+            // finished rasterizing and started again. The thumbnails therefore never
+            // landed at all while the hand was down — they appeared only on release,
+            // which is exactly when they stop being useful.
+            //
+            // That was survivable while a thumbnail was 40 points of a row. It is not
+            // survivable now that collapsing the panel makes the thumbnails the ONLY
+            // thing on screen. 90 ms is below the point a settled image feels late and
+            // above the gap between two mouse events.
+            try? await Task.sleep(nanoseconds: 90 * 1_000_000)
             guard !Task.isCancelled else { return }
             var built: [String: CGImage] = [:]
             for id in ids {
