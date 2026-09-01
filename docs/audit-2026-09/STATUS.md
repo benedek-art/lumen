@@ -47,8 +47,11 @@ Out, `B`→album, `⌘B`→assessment, `F`/`S` stay · denoise: free + best, del
 | SHA | Landing | CI |
 |---|---|---|
 | cc82116 | base — masks panel per-mask disclosure, placement, drag, overlay draft | green |
-| ff0bf93 | W0 — ledger, briefs, baseline, plan (docs only) | pending |
-| _next_ | **W0.7** — N-001: gradient-mask kernels compile again (`long`→`edge`), sentinel widened. A deliberate deviation from find→verify→fix: the finding is CI-log-verified, one file, no stream in flight, and it is the owner's most-felt complaint. **Watch gpu-parity: `MaskGPUParityTests` will RUN for the first time ever** — if parity fails, revert the kernel rename (keep the sentinel) and file for F3/I. | pending |
+| ff0bf93 | W0 — ledger, briefs, baseline, plan (docs only) | green |
+| d5d7136 | W0.7a — N-001: `long`→`edge` in the linear/radial kernels; `unavailableMaskKernels` roster; sentinel widened | gpu-parity red: sentinel found `maskFold` dead too (expected class of failure) |
+| 64ae6da | W0.7b — `out`→`folded` in `maskFold`; checker pass 13 (kernel reserved words) + 2 fixtures | gpu-parity red: **parity tests ran for the first time — GPU alpha vertically mirrored** (23 failures). Dev build mirrored for ~8 min. |
+| fce5936 | W0.7c — `h − (y − oy)` in both generator kernels | **gpu-parity GREEN** (33563101474). ci.yml pending. N-001 closed. |
+| a60b016 | W1 closes — gap table, W3 brief, mechanism change (docs only) | — |
 
 ## Mechanism change (W2/W3), recorded
 The Workflow tool caps concurrency at min(16, CPUs−2) per run and this box has 4 CPUs
@@ -63,7 +66,12 @@ lens applies to every finding.
 
 ## W2 progress
 - 21:52 launched F1–F5, I1–I3 (masks + pipeline) — before the gap table, since those
-  areas lean on code and K-rows; A–E and G–M launch when `w1/gap-table.md` lands.
+  areas lean on code and K-rows.
+- 21:57 gap table landed (a60b016); launched A1, A2, B1, B2, B3, C1, C2, D1, D2, E1,
+  E2, G1. **The Agent tool caps at 20 concurrent** — G2, G3, H1, H2, J1, J2, J3, K, L,
+  M are queued and launch as the first batch frees slots (~22:22). On a reset: launch
+  any area whose `w2/<code>.md` is missing, 20 at a time.
+- W3 (two lenses per area) launches per area as its `w2/<code>.md` lands.
 
 ## Streams (W5)
 _not started_
