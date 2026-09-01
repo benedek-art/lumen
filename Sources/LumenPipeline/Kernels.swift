@@ -462,6 +462,17 @@ public enum KernelLibrary {
     // in rather than read from `destCoord`'s extent so the two implementations cannot
     // disagree about which pixel centre they are asking about.
     //
+    // Y RUNS DOWN. `destCoord()` is Core Image's coordinate — origin at the BOTTOM-LEFT
+    // of the extent — while `MaskRaster` indexes a plane from the top row, and
+    // `PipelineRenderer.image(from:)` hands Core Image that plane as a top-down bitmap
+    // unflipped. So the row the reference calls `y` is `h - (destCoord().y - oy)` here,
+    // pixel centres included: the reference samples `(y + 0.5) / edge` and Core Image
+    // reports centres, so `h - (r + 0.5)` for the r-th row from the bottom is exactly
+    // the (h - r - 1)-th row from the top, at its centre. Written the moment the
+    // parity tests ran for the first time and reported every vertical gradient upside
+    // down — `testTheGPUAlphaIsNotVerticallyMirrored` existed for precisely this and
+    // had never once executed.
+    //
     // THE LONG EDGE IS SPELLED `edge`, NOT `long`, and the spelling is load-bearing.
     // `long` is a reserved word in the Core Image Kernel Language — it inherits GLSL's
     // keyword list — so `float long = max(w, h)` is a parse error, not a variable.
@@ -487,7 +498,7 @@ public enum KernelLibrary {
     kernel vec4 lumenMaskLinear(float x0, float y0, float x1, float y1,
                                 float w, float h, float ox, float oy) {
         float edge = max(w, h);
-        vec2 p = (destCoord() - vec2(ox, oy)) / edge;
+        vec2 p = vec2(destCoord().x - ox, h - (destCoord().y - oy)) / edge;
         vec2 a = vec2(x0 * w / edge, y0 * h / edge);
         vec2 b = vec2(x1 * w / edge, y1 * h / edge);
         vec2 ab = b - a;
@@ -506,7 +517,7 @@ public enum KernelLibrary {
                                 float ct, float st, float rin,
                                 float w, float h, float ox, float oy) {
         float edge = max(w, h);
-        vec2 p = (destCoord() - vec2(ox, oy)) / edge;
+        vec2 p = vec2(destCoord().x - ox, h - (destCoord().y - oy)) / edge;
         vec2 q = p - vec2(cx * w / edge, cy * h / edge);
         float qx = q.x * ct - q.y * st;
         float qy = q.x * st + q.y * ct;

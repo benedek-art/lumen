@@ -58,6 +58,10 @@ _not started_
   (Develop / Masking / Cull scenes, Current ↔ Proposed toggle, live slider states, `B`
   for assessment mode). Awaiting the owner's yes/adjust; UI streams wait on it.
 - W1: r1, r2, r3, r5 on disk and committed (944f3da); r4, r6, r7 running.
-- d5d7136 (N-001 kernel fix): **gpu-parity FAILED** — first-ever execution of
-  `MaskGPUParityTests`. Diagnosing; per the failure protocol a parity mismatch reverts
-  the rename and files the defect for F3/I.
+- N-001 chain: d5d7136 (`long`→`edge`) → sentinel found `maskFold` dead too → 64ae6da
+  (`out`→`folded`, checker pass 13) → parity tests ran for the first time: **GPU alpha
+  vertically mirrored** (23 failures / 3 tests) → flip fix pushed. **64ae6da's dev
+  build drew mirrored gradient masks** (app-bundle publishes regardless of tests) —
+  superseded within ~15 min. Lesson for W5: an engine landing that un-skips tests can
+  ship a regression through app-bundle before the lane reports; treat "first real run
+  of a previously-skipped test" as an engine-window event.
