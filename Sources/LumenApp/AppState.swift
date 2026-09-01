@@ -2800,7 +2800,11 @@ final class AppState: ObservableObject {
             guard now != was else { continue }
             before[allPhotos[i].id] = HistoryStack.PhotoEdit(culling: was)
             after[allPhotos[i].id] = HistoryStack.PhotoEdit(culling: now)
-            catalog?.saveCullingState(allPhotos[i])
+            // Whether this keystroke is entitled to speak about the colour label. A
+            // flag or a rating is not: `photo.label` cannot tell "no label" from "a
+            // label this build has no word for", so asserting it deleted other tools'
+            // labels from the file.
+            catalog?.saveCullingState(allPhotos[i], labelChanged: was.label != now.label)
             if allPhotos[i].id == primarySelection?.id {
                 primarySelection = allPhotos[i]
             }
@@ -2820,10 +2824,11 @@ final class AppState: ObservableObject {
     /// Put a culling state back on a photo, wherever it currently sits in the roll.
     private func restore(_ culling: HistoryStack.Culling, to url: URL) {
         guard let i = allPhotos.firstIndex(where: { $0.id == url }) else { return }
+        let wasLabel = allPhotos[i].label
         allPhotos[i].flag = culling.flag
         allPhotos[i].rating = culling.rating
         allPhotos[i].label = culling.label
-        catalog?.saveCullingState(allPhotos[i])
+        catalog?.saveCullingState(allPhotos[i], labelChanged: wasLabel != culling.label)
         if allPhotos[i].id == primarySelection?.id {
             primarySelection = allPhotos[i]
         }

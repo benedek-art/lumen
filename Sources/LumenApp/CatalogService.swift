@@ -564,7 +564,11 @@ final class CatalogService: @unchecked Sendable {
 
     // MARK: - Culling state
 
-    func saveCullingState(_ photo: PhotoItem) {
+    /// - Parameter labelChanged: whether THIS edit moved the colour label. It decides
+    ///   whether the sidecar write is entitled to speak about `xmp:Label` at all — see
+    ///   `SidecarLabelPolicy`. Every caller previously spoke unconditionally, which
+    ///   deleted labels this build has no word for whenever a flag or rating was set.
+    func saveCullingState(_ photo: PhotoItem, labelChanged: Bool) {
         guard let id = photo.catalogID else { return }
         let flag = photo.flag
         let rating = photo.rating
@@ -581,7 +585,9 @@ final class CatalogService: @unchecked Sendable {
             }
             self.enqueueSidecar(
                 for: url, photoID: id, rating: rating, flag: Self.sidecarFlag(flag),
-                label: .some(label == .none ? nil : label.displayName.lowercased()),
+                label: SidecarLabelPolicy.write(
+                    appLabel: label == .none ? nil : label.displayName.lowercased(),
+                    labelChanged: labelChanged),
                 recipe: nil)
         }
     }

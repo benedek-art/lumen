@@ -382,6 +382,14 @@ public enum XMPSidecar {
     /// never disagree about what Lumen writes.
     static func fieldLines(_ content: SidecarContent) -> String {
         var fields = ""
+        // NOT −1 FOR A REJECT, deliberately, and `testFlagAndRatingSurviveEachOther`
+        // is the contract: `lumen:flag` exists precisely so a photograph can be four
+        // stars AND rejected, which Lightroom's convention cannot express because it
+        // spends the rating field on the reject. Writing −1 here would destroy the
+        // stars — which the reading half below already recovers into `lumen:flag`, so
+        // nothing is lost by staying on our own axis. What Lumen cannot do is make
+        // Lightroom SEE the reject on the way back out; that is a real interoperability
+        // gap and it is written up rather than fixed by breaking a pinned contract.
         fields += "   <xmp:Rating>\(content.rating)</xmp:Rating>\n"
         if content.flag != .none {
             fields += "   <lumen:flag>\(content.flag.rawValue)</lumen:flag>\n"
@@ -512,8 +520,25 @@ private final class SidecarParserDelegate: NSObject, XMLParserDelegate {
             // wrote, and the star row downstream will be asked to draw whatever it
             // says. `CatalogStore.setRating` clamps too, but the in-memory PhotoItem
             // does not, so 999 stars would reach the grid.
+            //
+            // MINUS ONE IS NOT A RATING, IT IS A REJECT. Lightroom, Bridge and every
+            // tool that follows them write `xmp:Rating` = −1 for a rejected frame; XMP
+            // itself reserves it. Clamping it to 0 lost the only thing the file said
+            // about that photograph — it arrived unrated and unflagged — and then the
+            // first culling keystroke wrote `<xmp:Rating>0</xmp:Rating>` over the
+            // stripped original, so the reject was gone from the file for good.
+            //
+            // Lumen keeps rejects on its own axis, so the marker lands there. It does
+            // not overwrite a `lumen:flag` that has already been read: this build's own
+            // word about its own photograph outranks another tool's convention, and
+            // field order in the document is not something to depend on.
             let parsed = Int(value.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
-            content.rating = Swift.min(Swift.max(parsed, 0), 5)
+            if parsed < 0 {
+                content.rating = 0
+                if content.flag == .none { content.flag = .reject }
+            } else {
+                content.rating = Swift.min(parsed, 5)
+            }
         case "lumen:flag":
             content.flag = SidecarFlag(
                 rawValue: value.trimmingCharacters(in: .whitespacesAndNewlines)) ?? .none
