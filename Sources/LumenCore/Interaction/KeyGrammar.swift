@@ -123,7 +123,7 @@ public enum KeyGrammar {
             KeyRow(keys: "P", action: "Pick"),
             KeyRow(keys: "X", action: "Reject"),
             KeyRow(keys: "U", action: "Unflag"),
-            KeyRow(keys: "⌫", action: "Reject"),
+            KeyRow(keys: "⌫", action: "Reject — or, while masking, delete the mask"),
             KeyRow(keys: "1–5", action: "Rating"),
             KeyRow(keys: "0", action: "Clear rating"),
             KeyRow(keys: "6–9", action: "Red / yellow / green / blue label"),

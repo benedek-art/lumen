@@ -519,6 +519,16 @@ final class KeyDispatcher {
             }
             return true
         case NSDeleteFunctionKey, 0x7F:
+            // DELETE MEANS THE THING YOU ARE INSIDE, which is the rule Escape two cases
+            // down already follows. Without the guard, reaching for Delete to remove a
+            // mask flagged the PHOTOGRAPH rejected — and `setFlag` calls
+            // `advanceIfNeeded`, so the frame was marked and the selection moved off it
+            // while the photographer was mid-mask, with nothing on screen saying what
+            // had happened.
+            if PanelLayout.shared.layout.isMasking {
+                state.deleteActiveMask()
+                return true
+            }
             state.setFlag(.rejected)
             return true
         case 0x1B:      // Escape

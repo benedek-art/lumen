@@ -2718,6 +2718,26 @@ final class AppState: ObservableObject {
     /// photos of which three are already picked must leave ten picked — deciding
     /// per-item toggled the three back off, which is how a pass over a selection ends
     /// up with holes in it.
+    /// Delete the mask the panel and canvas are pointed at.
+    ///
+    /// On `AppState` rather than in the panel because the keyboard needs it and the
+    /// panel's own `deleteMask` is private to a view — which is why Delete, while
+    /// masking, used to reach for the only deletion it could see and flag the
+    /// PHOTOGRAPH rejected instead.
+    ///
+    /// Through the pin, like every other path that removes a mask: deleting the mask
+    /// whose overlay was pinned would otherwise leave the pin standing over nothing,
+    /// which silently disables flash and hover for the rest of the session.
+    func deleteActiveMask() {
+        guard let id = activeMaskID ?? currentRecipe.masks.first?.id else { return }
+        updateRecipe(coalescingKey: nil, label: "Delete Mask") { recipe in
+            recipe.masks.removeAll { $0.id == id }
+        }
+        if soloMaskOverlay == id { unpinMaskOverlay() }
+        activeMaskID = currentRecipe.masks.first?.id
+        activeComponentIndex = 0
+    }
+
     func setFlag(_ flag: PhotoFlag) {
         let target: PhotoFlag = referenceItem?.flag == flag ? .none : flag
         let from = cursorIndex
