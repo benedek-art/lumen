@@ -3,6 +3,15 @@ name: CI
 on:
   push:
     branches: ["**"]
+    # A push that touches only prose must not cancel the run that is compiling the
+    # code. The concurrency group below is per branch and cancels in progress, which
+    # is right for a burst of code pushes and wrong for a status note pushed while a
+    # kernel fix is halfway through test-fast — that note cancelled the fix's run and,
+    # with it, the app-bundle that would have replaced a build drawing masks upside
+    # down. Docs-only pushes now start no run at all; the dev release is unchanged by
+    # them anyway.
+    paths-ignore:
+      - "docs/**"
   # Re-recording proof records moved to proof.yml's dispatch, with the control sweep
   # itself; the GPU goldens moved to gpu-parity.yml, which triggers itself on the
   # paths that can break parity instead of waiting for a human who never came.

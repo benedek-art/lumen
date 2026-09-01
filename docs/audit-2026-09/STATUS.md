@@ -53,6 +53,13 @@ Out, `B`→album, `⌘B`→assessment, `F`/`S` stay · denoise: free + best, del
 | fce5936 | W0.7c — `h − (y − oy)` in both generator kernels | **gpu-parity GREEN** (33563101474). ci.yml pending. N-001 closed. |
 | a60b016 | W1 closes — gap table, W3 brief, mechanism change (docs only) | — |
 
+## Rule learned: docs-only pushes cancelled the code push's CI
+`ci.yml` triggered on every push and its concurrency group cancels in progress, so
+each STATUS/ledger push cancelled the run verifying the previous code push — and its
+`app-bundle`. Fixed in `ci.yml` with `paths-ignore: docs/**`. For W5: commit docs with
+the code they describe, and never push prose while a code run is in flight unless
+the run is already past `app-bundle`.
+
 ## Mechanism change (W2/W3), recorded
 The Workflow tool caps concurrency at min(16, CPUs−2) per run and this box has 4 CPUs
 → 2 agents at a time; a 30-area run would take hours. The Agent tool fan-out ran seven
