@@ -139,8 +139,20 @@ struct MaskPanel: View {
     /// was built were the same gesture. They are two questions and they now have two
     /// controls: the row selects, the chevron discloses.
     @State private var expandedMaskIDs: Set<String> = []
-    @State private var componentPickerOpen: Bool = false
-    @State private var subtractPickerOpen: Bool = false
+    /// WHICH MASKS HAVE AN ADD (OR SUBTRACT) BOARD OPEN — a set, not a flag.
+    ///
+    /// These were `Bool`s, and every disclosed mask drew its Add and Subtract buttons
+    /// bound to the same one. Two chevrons open, press Add under the first, and the
+    /// twelve-tile roster appeared under BOTH — the second one a live mis-target, since
+    /// choosing a kind on it adds to whichever mask that board is nested in.
+    ///
+    /// This is the defect the disclosure rewrite says it fixed one level up ("One
+    /// `Bool`, two disclosures reading it: one press flipped it and BOTH boards
+    /// opened"), reintroduced hours later by the feature that let two masks be open at
+    /// once. A flag that is per-mask in the UI has to be per-mask in the state; the
+    /// moment `expandedMaskIDs` became a `Set`, these had to become sets too.
+    @State private var componentPickerOpen: Set<String> = []
+    @State private var subtractPickerOpen: Set<String> = []
     @State private var lightExpanded: Bool = true
     @State private var colourExpanded: Bool = true
     @State private var curveExpanded: Bool = true
@@ -276,9 +288,8 @@ struct MaskPanel: View {
     /// only when a brush component is selected, and its name says whose settings they
     /// are.
     private func usesBrush(_ mask: Mask) -> Bool {
-        guard let i = activeComponentIndex, mask.components.indices.contains(i) else {
-            return false
-        }
+        guard let i = componentIndex(for: mask),
+              mask.components.indices.contains(i) else { return false }
         return mask.components[i].kind == .brush
     }
 
@@ -1034,19 +1045,20 @@ struct MaskPanel: View {
             }
             HStack(spacing: 4) {
                 kindMenu(label: intersecting ? "Intersect" : "Add",
-                         isOpen: $componentPickerOpen,
+                         isOpen: pickerBinding($componentPickerOpen, mask.id),
                          offersReference: masks.count > 1) { kind in
                     addComponent(kind: kind, to: mask.id,
                                  op: intersecting ? .intersect : .add)
                 }
                 if !intersecting {
-                    kindMenu(label: "Subtract", isOpen: $subtractPickerOpen,
+                    kindMenu(label: "Subtract",
+                             isOpen: pickerBinding($subtractPickerOpen, mask.id),
                              offersReference: masks.count > 1) { kind in
                         addComponent(kind: kind, to: mask.id, op: .subtract)
                     }
                 }
             }
-            if let i = activeComponentIndex, mask.components.indices.contains(i) {
+            if let i = componentIndex(for: mask), mask.components.indices.contains(i) {
                 componentEditor(mask.id, i, mask.components[i])
             }
         }
@@ -1058,7 +1070,7 @@ struct MaskPanel: View {
 
     private func componentRow(_ mask: Mask, _ index: Int) -> some View {
         let component = mask.components[index]
-        let isSelected = index == activeComponentIndex
+        let isSelected = index == componentIndex(for: mask)
         // THE NAME FIRST, and the operation as a badge behind it rather than a symbol
         // in front of it. `∪` in a 12 pt box, five points from the word, in the same
         // grey, fused with it: the owner read the row as one word, "Ubrush", and asked
@@ -1117,7 +1129,13 @@ struct MaskPanel: View {
         .background(isSelected ? Lumen.fillColor.opacity(0.16) : Color.clear)
         .clipShape(RoundedRectangle(cornerRadius: 3))
         .contentShape(Rectangle())
-        .onTapGesture { selectedComponent = index }
+        // SELECTS THE MASK TOO. Tapping a part of a mask is a statement about which
+        // mask you are working on, and without the first line this row moved the
+        // selected mask's index while appearing to move this one's.
+        .onTapGesture {
+            selectedMaskID = mask.id
+            selectedComponent = index
+        }
     }
 
     private func componentEditor(_ id: String, _ i: Int, _ c: MaskComponent) -> some View {
@@ -2141,6 +2159,38 @@ struct MaskPanel: View {
     private var activeComponentIndex: Int? {
         guard let m = activeMask, !m.components.isEmpty else { return nil }
         return Swift.min(Swift.max(selectedComponent, 0), m.components.count - 1)
+    }
+
+    /// WHICH COMPONENT OF *THIS* MASK IS BEING EDITED, or nil when none is.
+    ///
+    /// `activeComponentIndex` answers for the SELECTED mask, and every child of
+    /// `maskDetail` used it regardless of which mask it was drawing — so opening a
+    /// second mask's chevron without selecting it showed that mask's list highlighted
+    /// at the other mask's index, opened an editor on whatever component happened to
+    /// sit there, and decided the Brush section by what the other mask's index landed
+    /// on. Worse, tapping a row in the unselected mask moved the SELECTED mask's index,
+    /// so the next Contribution drag landed on a mask that was not under the pointer.
+    ///
+    /// One component is active at a time and it belongs to the selected mask — the
+    /// panel's own thesis, "the row selects, the chevron discloses", carried down to the
+    /// component level, where it was only ever applied at the top. A disclosed but
+    /// unselected mask shows its parts with none highlighted and no editor; tapping one
+    /// selects that mask and that component in a single gesture, which is also what
+    /// makes the canvas agree, since `MaskCanvas` reads the same selection.
+    private func componentIndex(for mask: Mask) -> Int? {
+        MaskSelection.activeComponent(maskID: mask.id,
+                                      componentCount: mask.components.count,
+                                      selectedMaskID: activeMask?.id,
+                                      selectedComponent: selectedComponent)
+    }
+
+    /// A picker board's open state for one mask.
+    private func pickerBinding(_ open: Binding<Set<String>>, _ id: String) -> Binding<Bool> {
+        Binding(get: { open.wrappedValue.contains(id) },
+                set: { isOpen in
+                    if isOpen { open.wrappedValue.insert(id) }
+                    else { open.wrappedValue.remove(id) }
+                })
     }
 
     private func maskName(_ id: String) -> Binding<String> {
