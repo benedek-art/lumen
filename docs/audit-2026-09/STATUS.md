@@ -27,7 +27,7 @@ Out, `B`→album, `⌘B`→assessment, `F`/`S` stay · denoise: free + best, del
 - [x] W0.4 perf baseline captured → `w0/perf-baseline.md` (from gpu-parity run 33553464942)
 - [x] W0.5 known-open ledger written → `ledger.md` (K-001…K-104)
 - [x] W0.6 W1 briefs written → `briefs/w1-*.md` (common + R1–R7 + R-S)
-- [ ] W1 research launched (7 + synthesis) → `w1/*.md` — R1–R7 launched in background; R-S runs when all seven land
+- [x] W1 research: R1–R7 all landed and committed (944f3da, 5f043c3, +r4/r7); R-S synthesis running → `w1/gap-table.md`
 - [ ] U0 mockup + pitch published → link below
 - [ ] W2 audit (3 workflow runs) → `w2/*.md`
 - [ ] W3 verify (pipelined) → `w3/*.md`
