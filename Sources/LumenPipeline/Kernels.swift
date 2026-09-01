@@ -477,6 +477,12 @@ public enum KernelLibrary {
     // three resolutions and fails on a worst-pixel difference past 1e-4.
 
     /// A linear gradient's raw alpha.
+    ///
+    /// (And the fold kernel below carried the same defect in a different word: `float
+    /// out;` — `out` is a GLSL parameter qualifier. Two of the four mask kernels were
+    /// dead for two different reserved words, which is why the identifiers in these
+    /// sources are now checked against the language's keyword list mechanically rather
+    /// than by eye; see `scripts/check-swift-surface.py`'s kernel pass.)
     static let maskLinearSource = """
     kernel vec4 lumenMaskLinear(float x0, float y0, float x1, float y1,
                                 float w, float h, float ox, float oy) {
@@ -530,11 +536,11 @@ public enum KernelLibrary {
         if (invert > 0.5) { v = 1.0 - v; }
         v = v * clamp(amount, 0.0, 100.0) / 100.0;
         float a = clamp(acc.r, 0.0, 1.0);
-        float out;
-        if (op > 1.5) { out = a * v; }
-        else if (op > 0.5) { out = min(a, 1.0 - v); }
-        else { out = max(a, v); }
-        return vec4(out, out, out, 1.0);
+        float folded;
+        if (op > 1.5) { folded = a * v; }
+        else if (op > 0.5) { folded = min(a, 1.0 - v); }
+        else { folded = max(a, v); }
+        return vec4(folded, folded, folded, 1.0);
     }
     """
 

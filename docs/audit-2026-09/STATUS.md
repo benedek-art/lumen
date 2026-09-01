@@ -54,4 +54,10 @@ Out, `B`→album, `⌘B`→assessment, `F`/`S` stay · denoise: free + best, del
 _not started_
 
 ## Notes
-- U0 mockup: _not yet published_
+- **U0 mockup published**: https://claude.ai/code/artifact/d2b27d8f-e938-4f72-a402-2d638cd52f9b
+  (Develop / Masking / Cull scenes, Current ↔ Proposed toggle, live slider states, `B`
+  for assessment mode). Awaiting the owner's yes/adjust; UI streams wait on it.
+- W1: r1, r2, r3, r5 on disk and committed (944f3da); r4, r6, r7 running.
+- d5d7136 (N-001 kernel fix): **gpu-parity FAILED** — first-ever execution of
+  `MaskGPUParityTests`. Diagnosing; per the failure protocol a parity mismatch reverts
+  the rename and files the defect for F3/I.

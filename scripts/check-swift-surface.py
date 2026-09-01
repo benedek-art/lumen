@@ -2183,6 +2183,68 @@ def pass_switch_exhaustive():
     return False
 
 
+# ── Pass 13: Core Image kernel sources ─────────────────────────────────────────
+#
+# The one thing in this tree the compiler does not compile: every GPU kernel is a Swift
+# string literal in Core Image Kernel Language, handed to `CIKernel(source:)` at
+# runtime. A kernel that does not parse is not a build error — it is a `nil` in
+# `KernelLibrary`, an honest CPU fallback, and a lane that stays green. Two of the four
+# parametric-mask kernels shipped that way for their whole life: `float long = …` and
+# `float out;` — both GLSL reserved words used as identifiers, both parse errors, both
+# invisible to `swiftc`, to this checker's other twelve passes, and to a sentinel test
+# whose roster did not include them.
+#
+# This pass is the mechanical half of the fix. It finds every triple-quoted literal that
+# declares a `kernel`, and flags any declared identifier — a parameter or a local — that
+# is a keyword of the language. It does not parse CIKL; it only knows the keyword list,
+# which is what a person checking by eye did not.
+KERNEL_RESERVED = set("""
+attribute const uniform varying buffer shared coherent volatile restrict readonly writeonly
+atomic_uint layout centroid flat smooth noperspective patch sample break continue do for
+while switch case default if else subroutine in out inout float double int void bool true
+false invariant precise discard return lowp mediump highp precision struct common
+partition active asm class union enum typedef template this resource goto inline noinline
+public static extern external interface long short half fixed unsigned superp input output
+hvec2 hvec3 hvec4 fvec2 fvec3 fvec4 filter sizeof cast namespace using
+mat2 mat3 mat4 vec2 vec3 vec4 ivec2 ivec3 ivec4 bvec2 bvec3 bvec4 uint uvec2 uvec3 uvec4
+sampler1D sampler2D sampler3D samplerCube sampler2DRect
+kernel __sample __color __table
+""".split())
+KERNEL_LITERAL = re.compile(r'"""\n(.*?)\n[ \t]*"""', re.S)
+KERNEL_DECL = re.compile(
+    r"\b(?:float|int|bool|uint|vec[234]|ivec[234]|bvec[234]|mat[234]|__sample|__color|sampler)"
+    r"\s+([A-Za-z_]\w*)")
+
+
+def pass_kernel_reserved():
+    problems, kernels = [], 0
+    for path in FILES:
+        text = path.read_text()
+        for lit in KERNEL_LITERAL.finditer(text):
+            body = lit.group(1)
+            if not re.search(r"\bkernel\s+\w+\s+\w+\s*\(", body):
+                continue
+            kernels += 1
+            base = text.count("\n", 0, lit.start(1)) + 1
+            for m in KERNEL_DECL.finditer(body):
+                ident = m.group(1)
+                if ident in KERNEL_RESERVED:
+                    line = base + body.count("\n", 0, m.start())
+                    problems.append((path.relative_to(ROOT).as_posix(), line, ident,
+                                     body.splitlines()[line - base].strip()))
+    problems = sorted(set(problems))
+    if not problems:
+        print(f"kernels:  {kernels} kernel sources declare no reserved-word identifier")
+        return True
+    plural = "kernel declares" if len(problems) == 1 else "kernels declare"
+    print(f"kernels:  {len(problems)} {plural} a reserved word of the kernel language "
+          f"as an identifier — a parse error at runtime, a nil in KernelLibrary, and a "
+          f"CPU fallback nothing reports\n")
+    for rel, line, ident, src in problems[:25]:
+        print(f"  {rel}:{line}  `{ident}` is reserved: {src}")
+    return False
+
+
 if __name__ == "__main__":
     ok = pass_symbols()
     print()
@@ -2206,4 +2268,6 @@ if __name__ == "__main__":
     ok = pass_argument_values() and ok
     print()
     ok = pass_switch_exhaustive() and ok
+    print()
+    ok = pass_kernel_reserved() and ok
     sys.exit(0 if ok else 1)
