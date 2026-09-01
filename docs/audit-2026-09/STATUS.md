@@ -21,39 +21,52 @@ Out, `B`→album, `⌘B`→assessment, `F`/`S` stay · denoise: free + best, del
 (download-on-first-use), timing mine.
 
 ## Waves
-- [x] W0.1 tree synced to origin `cc82116`
-- [x] W0.2 ledger skeleton created
-- [x] W0.3 web access probed — WebSearch works; WebFetch blocked on adobe/arxiv/darktable-docs/rawpedia/wikipedia, **works on github.com + raw.githubusercontent.com**
-- [x] W0.4 perf baseline captured → `w0/perf-baseline.md` (from gpu-parity run 33553464942)
-- [x] W0.5 known-open ledger written → `ledger.md` (K-001…K-104)
-- [x] W0.6 W1 briefs written → `briefs/w1-*.md` (common + R1–R7 + R-S)
-- [x] W1 research: R1–R7 all landed and committed (944f3da, 5f043c3, +r4/r7); R-S synthesis running → `w1/gap-table.md`
-- [x] U0 mockup + pitch published → link below (awaiting the owner's yes)
-- [ ] W2 audit (Agent fan-out, 20 at a time) → `w2/*.md` — 20 running, 10 queued
-- [ ] W3 verify (two lenses per area) → `w3/<code>-a.md`, `w3/<code>-b.md`
-- [ ] W4 triage → `ledger.md` rows dispositioned, `w5/streams.md`
-- [ ] W5 L0 foundation split landed
-- [ ] W5 J data-loss batch landed
-- [ ] W5 L recipe-safety batch landed
-- [ ] W5 engine window 1 landed + proof ceremony
-- [ ] U0 yes received → UI streams unblocked
-- [ ] W5 U1 design system landed
-- [ ] W5 U2/U3/U4 landed
-- [ ] W5 engine window 2 landed + proof ceremony
-- [ ] W5 U5 polish landed
-- [ ] W6 re-audit, perf after, `docs/38-the-grind.md`, report artifact
+- [x] W0 — ledger K-001…K-104, perf baseline, 42 briefs
+- [x] W1 — 7 dossiers + gap table
+- [x] U0 — mockup published and **APPROVED** by the owner ("build it")
+- [x] W2 — **13 of 13 areas audited** (the trimmed set): C1 F3 F5 · A2 B1 C2 F1 F4 G1 G2 I1 J1 L
+- [ ] W3 — verification of the ~90 findings W2 produced
+- [ ] W4 — triage into landing order
+- [~] W5 — implementation IN PROGRESS, see Landings
+- [ ] W6 — re-audit, perf after, docs/38, report
+
+## Decisions taken since the plan
+- Audit trimmed from 30 areas to 13 (owner: "trim discovery, spend it on fixes").
+- **L0 dropped** — the four-file `AppState` split. The L audit confirms it was right:
+  7 privates would widen across stream boundaries, 73 `@Published` and 13 `didSet`
+  cannot move, and it is unverifiable locally on the SHA every worktree branches from.
+- **Two UI-direction entries corrected** where the approved mockup silently reverted the
+  owner's own recorded requests (see PLAN.md §The UI direction): radii stay 6/9/14, and
+  hover paints only clickable things, never a slider row. His words beat my mockup.
+- **One fix refused**: writing `xmp:Rating` = −1 for a reject. It broke a pinned
+  contract (`testFlagAndRatingSurviveEachOther`) that exists so a frame can be four
+  stars AND rejected. The read half landed; the interop gap is written up.
 
 ## Landings (SHA · what · CI)
 | SHA | Landing | CI |
 |---|---|---|
-| cc82116 | base — masks panel per-mask disclosure, placement, drag, overlay draft | green |
-| ff0bf93 | W0 — ledger, briefs, baseline, plan (docs only) | green |
-| d5d7136 | W0.7a — N-001: `long`→`edge` in the linear/radial kernels; `unavailableMaskKernels` roster; sentinel widened | gpu-parity red: sentinel found `maskFold` dead too (expected class of failure) |
-| 64ae6da | W0.7b — `out`→`folded` in `maskFold`; checker pass 13 (kernel reserved words) + 2 fixtures | gpu-parity red: **parity tests ran for the first time — GPU alpha vertically mirrored** (23 failures). Dev build mirrored for ~8 min. |
-| fce5936 | W0.7c — `h − (y − oy)` in both generator kernels | **gpu-parity GREEN** (33563101474). ci.yml pending. N-001 closed. |
-| a60b016 | W1 closes — gap table, W3 brief, mechanism change (docs only) | — |
-| a1e13c8 | N-001 closed in ledger/status (docs only) | — |
-| 903ad4d | ci.yml `paths-ignore: docs/**` — docs pushes no longer cancel code runs | pending; this run is fce5936's code + the yml |
+| cc82116 | base | green |
+| d5d7136 · 64ae6da · fce5936 | N-001: three dead GPU mask kernels revived (two reserved words, then a vertical flip); checker pass 13 + 2 fixtures | gpu-parity **green** on fce5936 |
+| 903ad4d | `ci.yml` `paths-ignore: docs/**` | green |
+| 6f07572 | **F3-01** canvas gesture no longer writes to every selected photo · **F3-03** an absent mask input no longer selects the whole frame when inverted | in 27b8372's run |
+| 2083f92 | **F4-01** picker flags keyed by mask · **F4-02** `MaskSelection.activeComponent` — a disclosed-but-unselected mask stops editing another mask's component | cancelled by the next push |
+| 27b8372 | **F1-01** Delete removes the mask, not the photograph | build-macos ✅ app-bundle ✅ engine-linux ✅ fixtures ✅ test-fast running |
+| 7bd7fdf | **K-053** a rating keystroke stops deleting another tool's colour label · **K-054** Lightroom's reject survives the trip in | held until 27b8372 reports |
+
+**Seven S1s landed.** Four were found tonight (F3-01, F3-03, F4-01, F4-02); two of those
+were regressions in code that shipped this morning.
+
+## Queued next, in order
+1. K-052 FTS never rebuilt · K-015 same-basename sidecar collision (patch sketches in `w2/J1.md`)
+2. **L-01 / A2-01** the grading-wheel drag: two undo steps per mouse event, evicting the
+   400-step history in ~3.4 s. Fix specified in `w2/L.md` (gesture epoch as the first
+   coalescing clause), three substitution-proof tests.
+3. **B1-01/02/03** Point Colour selects neutral grey at weight 1.000 and bypasses the
+   chroma gate; Saturation −100 flattens the entire B&W mix.
+4. **I1-01** `PlanTableCache.table` never consults `pending`, so a settle blocks on the
+   bake the drag queued and `drainPending` bakes it a third time (245–319 ms).
+5. **C2** the grain floor applied twice — Velvia red preview grain 46.5% coarser than export.
+6. **U1** the design system, then U2 from G1's 20-row checklist.
 
 ## Rule learned: docs-only pushes cancelled the code push's CI
 `ci.yml` triggered on every push and its concurrency group cancels in progress, so
