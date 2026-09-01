@@ -1751,11 +1751,30 @@ struct MaskCanvas: View {
     /// `strokesRef` whose bytes were never stored is a mask that rasterizes empty
     /// forever, and it reaches the catalog and the sidecar looking exactly like a mask
     /// that works.
+    /// A CANVAS GESTURE IS ABOUT THE PHOTOGRAPH ON SCREEN, and `targets:` is what says
+    /// so. Without it `updateRecipe` falls back to `editTargets`, which is the whole
+    /// SELECTION whenever more than one frame is selected — so dragging a radial handle
+    /// or painting a stroke with five frames selected wrote the gesture into all five.
+    ///
+    /// It needed mask ids to collide across photographs to bite, and Paste Settings
+    /// makes them collide by construction: it assigns `recipe.masks = source.masks`,
+    /// ids included. So the sequence that loses work is the ordinary one — paste a sky
+    /// mask and a brush across a shoot, select the shoot, touch up the brush on the
+    /// frame you are looking at, and the other four frames' brush masks silently become
+    /// this frame's painting. Their blobs stay on disk with nothing referencing them,
+    /// and each stroke is its own undo step, so walking it back is per-stroke.
+    ///
+    /// Moving a gradient across a sequence is a real thing to want; it is what Paste
+    /// Settings is for, and it is explicit. This is not.
     @MainActor
     static func apply(_ edit: MaskCanvasEdit, in state: AppState) {
+        // No photograph on screen, no gesture to apply. Guarded rather than left to
+        // `editTargets`, whose empty-selection fallback is `[]` — a silent no-op that
+        // would look exactly like the write having happened.
+        guard let subject = state.primarySelection else { return }
         switch edit {
         case .component(let maskID, let index, let component, let key):
-            state.updateRecipe(coalescingKey: key) { recipe in
+            state.updateRecipe(coalescingKey: key, targets: [subject]) { _, recipe in
                 guard let m = recipe.masks.firstIndex(where: { $0.id == maskID }),
                       recipe.masks[m].components.indices.contains(index) else { return }
                 recipe.masks[m].components[index] = component
@@ -1774,7 +1793,7 @@ struct MaskCanvas: View {
             // The bytes are already in hand, so the render path does not have to go
             // back to the disk to find out what was just painted.
             state.remember(set, ref: ref)
-            state.updateRecipe(coalescingKey: nil) { recipe in
+            state.updateRecipe(coalescingKey: nil, targets: [subject]) { _, recipe in
                 guard let m = recipe.masks.firstIndex(where: { $0.id == maskID }),
                       recipe.masks[m].components.indices.contains(index) else { return }
                 recipe.masks[m].components[index].strokesRef = ref

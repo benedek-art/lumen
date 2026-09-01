@@ -112,14 +112,35 @@ it is the discipline that produces it.
 1. **Light, not lines**: no hairlines anywhere; the five-step ladder does all dividing
    (surround 0.165 · base 0.18 · panel 0.20 · well 0.145 · control 0.24/0.27/0.31). Wells
    carve down, controls step up, cards get a 1 px white@4% top edge ("lit from above").
-2. **One rhythm**: 4 pt grid; **24 pt rows**; three radii (3 swatch · 6 control · 10
-   well/card); 12 pt panel inset on both sides; 16 pt section gap; nothing below 10 pt.
+2. **One rhythm**: 4 pt grid; **24 pt rows**; three radii — **6 chip · 9 control ·
+   14 card, the values already in `LumenSurface.swift`** — 12 pt panel inset on both
+   sides; 16 pt section gap; nothing below 10 pt.
+
+   > **CORRECTED after the G2 audit.** This said 3 / 6 / 10, and that would have
+   > silently reverted a request of the owner's recorded verbatim at
+   > `LumenSurface.swift:145-160`: *"I'd love if we can maybe make the corner radius a
+   > little higher, so a little bit more circular, especially for the Cull, Develop,
+   > Crop, Grade, Deliver items, as well as the independent items like the Curves tab,
+   > the White Balance, Tone."* The ladder was moved UP to 6/9/14 on that request. The
+   > mockup rendered the smaller set and the approval was of the direction, not of a
+   > number he had already asked to raise; his words win. Radii are not changing.
 3. **Type with a scale**: 12 pt semibold mixed-case section titles (caps retire to the
    sidebar), 11 pt labels, 11 pt mono values in **pills** that advertise click-to-type,
    10 pt notes. Primary text 0.86 (≈8:1) not 0.92, secondary 0.62, tertiary 0.48.
-4. **State you can see**: hover = surface +0.03 in 100 ms; focus = 1.5 px accent ring
-   @60%; modified = fill 0.72 + accent dot + pill border; **thumb hidden until row-hover
-   on untouched sliders** (LR's trick — a panel of fifteen white dots becomes quiet).
+4. **State you can see**: focus = 1.5 px accent ring @60%; modified = fill 0.72 +
+   accent dot + pill border. **Hover paints only things you can click** — headers,
+   chevrons, tabs, buttons, chips — and never a slider row.
+
+   > **CORRECTED after the G2 audit.** This said hover on every row and the thumb
+   > hidden until row-hover. Both contradict a request recorded verbatim at
+   > `LumenFocus.swift:35-38`: *"I would remove a bunch of the hover effects, like
+   > hovering over the white balance or the temperature or tint, stuff like that. I
+   > really don't like the fact that I can get that hover effect."* The file's own
+   > argument is Law 4: eleven rows lighting up as the pointer crosses them is motion in
+   > the peripheral vision of a colour judgement. A thumb appearing per row on hover is
+   > the same wave by another means, so it goes too — the modified/unmodified fill
+   > separation already does that job without motion. Focus keeps its surface, because
+   > it is the one state with nothing else to show it.
 5. **The viewer is the hero**: chrome recedes (thinner bars, rail icons 14 pt with 9 pt
    labels), overlays and the floating Masks panel share one **HUD material** (black @72%,
    radius 10, no border), badges are pills not boxes.

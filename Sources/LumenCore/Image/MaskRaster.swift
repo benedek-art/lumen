@@ -165,7 +165,24 @@ public enum MaskRaster {
         // the absence of a selection, and there is nothing there to invert. A mask with
         // no components at all is the same statement — which is what the stack summary
         // has always said in words: "nothing selected yet".
-        let usable = mask.components.contains { $0.validationError() == nil }
+        //
+        // AND "FINISHED" MEANS ITS INPUT IS THERE, not merely that its fields parse.
+        // `validationError()` is a check on the RECIPE — a brush passes it the moment it
+        // has a `strokesRef` — and a reference is only a promise that bytes exist
+        // somewhere. When the promise is unkept (a catalog restored without its blob
+        // directory, a sidecar that dropped its payload, a matte not yet generated) the
+        // component rasterizes to a zero plane, which reads as "selects nothing", which
+        // an invert turns back into the whole photograph. That is the same catastrophe
+        // the paragraph above is about, arriving through the one door it did not close:
+        // structurally valid, semantically absent.
+        //
+        // So the question both guards ask is `isEvaluable`, which adds to
+        // `validationError()` the one thing the recipe cannot know: whether the data
+        // this rasterization needs was actually handed to it.
+        let usable = mask.components.contains {
+            MaskRaster.isEvaluable($0, strokeSets: strokeSets, aiMattes: aiMattes,
+                                   brushPlanes: brushPlanes)
+        }
         guard usable else { return acc }
 
         // Accumulator seeds at 0, so a stack that opens with subtract/intersect stays
@@ -191,7 +208,8 @@ public enum MaskRaster {
             // A component that cannot be evaluated has nothing to contribute to the fold
             // — not zero, nothing — and skipping it is what that sentence means applied
             // one level down.
-            if c.validationError() != nil { continue }
+            guard MaskRaster.isEvaluable(c, strokeSets: strokeSets, aiMattes: aiMattes,
+                                         brushPlanes: brushPlanes) else { continue }
             let set: BrushStrokeSet? = c.kind == .brush ? strokeSets[c.strokesRef ?? ""] : nil
             let held: Plane? = c.kind == .brush ? brushPlanes[c.strokesRef ?? ""] : nil
             let raw: Plane
@@ -219,6 +237,43 @@ public enum MaskRaster {
         }
 
         return refined(acc, refine: mask.refine, source: source, invert: mask.invert)
+    }
+
+    /// Whether this component can actually be rasterized into a selection.
+    ///
+    /// Two questions, and the second is the one that was missing. Does the recipe
+    /// describe it fully (`validationError()`)? And is the DATA it reads present — a
+    /// brush's stroke set or its held plane, an AI kind's matte?
+    ///
+    /// A component that fails either is not a selection of nothing; it is the absence of
+    /// a selection, and there is nothing there to inflate, subtract or invert. The
+    /// distinction matters exactly once and then it matters enormously: `invert` turns
+    /// "selects nothing" into "selects everything", so a brush mask whose blob did not
+    /// come back from a restore stops being a dodge on one shoulder and becomes a
+    /// two-stop lift on the whole photograph — in the loupe, in the overlay, and in the
+    /// thumbnails, which read the memory cache rather than the export path's guard.
+    ///
+    /// `.maskRef` is deliberately not consulted here: what it needs is another mask,
+    /// which `referenced` resolves with its own cycle guard, and asking twice would
+    /// mean two answers to keep in step.
+    static func isEvaluable(_ c: MaskComponent,
+                            strokeSets: [String: BrushStrokeSet],
+                            aiMattes: [String: Plane],
+                            brushPlanes: [String: Plane]) -> Bool {
+        guard c.validationError() == nil else { return false }
+        switch c.kind {
+        case .brush:
+            // Either source is enough: `brushPlanes` is the painted plane held across
+            // frames, `strokeSets` the strokes themselves. A stroke set that exists but
+            // is EMPTY is a real answer — a stroke that was undone back to nothing —
+            // so presence is the test, not point count.
+            guard let ref = c.strokesRef else { return false }
+            return strokeSets[ref] != nil || brushPlanes[ref] != nil
+        default:
+            // Every kind whose selection comes from a model: no matte, no selection.
+            guard c.kind.needsMatte else { return true }
+            return aiMattes[c.kind.rawValue] != nil
+        }
     }
 
     /// One `maskRef` component's alpha: the FINISHED alpha of the mask it names.
