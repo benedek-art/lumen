@@ -220,7 +220,7 @@ struct MaskFloatingPanel: View {
                            _ action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.system(size: 9, weight: .semibold))
+                .font(.system(size: 10, weight: .semibold))
                 .frame(width: 16, height: 16)
                 .contentShape(Rectangle())
         }

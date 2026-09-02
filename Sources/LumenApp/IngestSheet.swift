@@ -159,10 +159,10 @@ struct IngestSheet: View {
         if let reason = driver.unavailableReason {
             HStack(alignment: .top, spacing: 6) {
                 Image(systemName: "exclamationmark.triangle")
-                    .font(.system(size: 11))
+                    .font(.lumenBody)
                     .foregroundStyle(Lumen.primaryText)
                 Text(reason)
-                    .font(.system(size: 11))
+                    .font(.lumenBody)
                     .foregroundStyle(Lumen.primaryText)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 0)
@@ -221,11 +221,11 @@ struct IngestSheet: View {
 
             HStack(spacing: 6) {
                 Text("Files")
-                    .font(.system(size: 11))
+                    .font(.lumenBody)
                     .foregroundStyle(Lumen.secondaryText)
                     .frame(width: Lumen.labelWidth, alignment: .leading)
                 Text(fileCountSummary)
-                    .font(.system(size: 11))
+                    .font(.lumenBody)
                     .foregroundStyle(Lumen.primaryText)
                 Spacer(minLength: 0)
             }
@@ -285,7 +285,7 @@ struct IngestSheet: View {
             IngestFieldRow("Primary") {
                 HStack(spacing: 6) {
                     Text(primaryDestination.map { $0.path } ?? "Not chosen")
-                        .font(.system(size: 11))
+                        .font(.lumenBody)
                         .foregroundStyle(primaryDestination == nil
                                          ? Lumen.secondaryText : Lumen.primaryText)
                         .lineLimit(1)
@@ -300,7 +300,7 @@ struct IngestSheet: View {
                 IngestFieldRow("Backup") {
                     HStack(spacing: 6) {
                         Text(backupDestination.map { $0.path } ?? "Not chosen")
-                            .font(.system(size: 11))
+                            .font(.lumenBody)
                             .foregroundStyle(backupDestination == nil
                                              ? Lumen.secondaryText : Lumen.primaryText)
                             .lineLimit(1)
@@ -347,9 +347,9 @@ struct IngestSheet: View {
                     ForEach(templateProblems, id: \.self) { problem in
                         HStack(alignment: .top, spacing: 5) {
                             Image(systemName: "xmark.octagon")
-                                .font(.system(size: 10))
+                                .font(.lumenCaption)
                             Text(problem)
-                                .font(.system(size: 10))
+                                .font(.lumenCaption)
                                 .fixedSize(horizontal: false, vertical: true)
                             Spacer(minLength: 0)
                         }
@@ -404,13 +404,13 @@ struct IngestSheet: View {
         VStack(alignment: .leading, spacing: 8) {
             if let statusLine {
                 Text(statusLine)
-                    .font(.system(size: 11))
+                    .font(.lumenBody)
                     .foregroundStyle(Lumen.primaryText)
                     .fixedSize(horizontal: false, vertical: true)
             }
             HStack(spacing: 10) {
                 Text(readinessSummary)
-                    .font(.system(size: 11))
+                    .font(.lumenBody)
                     .foregroundStyle(canStart ? Lumen.primaryText : Lumen.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 8)
@@ -684,7 +684,7 @@ private struct IngestFieldRow<Content: View>: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             Text(label)
-                .font(.system(size: 11))
+                .font(.lumenBody)
                 .foregroundStyle(Lumen.secondaryText)
                 .frame(width: Lumen.labelWidth, alignment: .leading)
                 .lineLimit(1)
@@ -720,7 +720,7 @@ private struct IngestNote: View {
 
     var body: some View {
         Text(text)
-            .font(.system(size: 10))
+            .font(.lumenCaption)
             .foregroundStyle(Lumen.secondaryText)
             .fixedSize(horizontal: false, vertical: true)
             .padding(.top, 2)

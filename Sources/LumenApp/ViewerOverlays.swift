@@ -142,7 +142,7 @@ struct BeforeAfterSplit<Before: View, After: View>: View {
             .frame(width: 12, height: 34)
             .overlay {
                 Image(systemName: "arrow.left.and.right")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(Lumen.primaryText)
             }
     }
@@ -323,15 +323,15 @@ struct ReadoutHUD: View {
                     .foregroundStyle(Lumen.primaryText)
             }
             Text(sample.space.label)
-                .font(.system(size: 9))
+                .font(.lumenCaption)
                 .foregroundStyle(Lumen.secondaryText)
             if let caption = sample.caption {
                 Text(caption)
-                    .font(.system(size: 9))
+                    .font(.lumenCaption)
                     .foregroundStyle(Lumen.secondaryText)
             }
             Text("\(sample.x), \(sample.y) px")
-                .font(.system(size: 9, design: .monospaced))
+                .font(.lumenCaptionNumeric)
                 .foregroundStyle(Lumen.secondaryText)
         }
         .padding(.horizontal, 7)

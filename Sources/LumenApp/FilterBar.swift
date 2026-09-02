@@ -87,9 +87,9 @@ struct FilterBar: View {
         } label: {
             HStack(spacing: 4) {
                 Image(systemName: "line.3.horizontal.decrease")
-                    .font(.system(size: 9))
+                    .font(.lumenCaption)
                 Text("Filter")
-                    .font(.system(size: 10))
+                    .font(.lumenCaption)
                 // Criteria, not chips: three flag chips lit is ONE clause of the query,
                 // and a badge counting chips would read 5 where the sentence reads 2.
                 // And HIDDEN criteria, not all of them — the search field is in this
@@ -97,7 +97,7 @@ struct FilterBar: View {
                 // it would send you into a popover where every group is empty.
                 if state.filter.hiddenCriteriaCount > 0 {
                     Text("\(state.filter.hiddenCriteriaCount)")
-                        .font(.system(size: 9).monospacedDigit())
+                        .font(.lumenCaptionNumeric)
                 }
             }
             .padding(.horizontal, 6)
@@ -116,7 +116,7 @@ struct FilterBar: View {
     private var clearButton: some View {
         Button("Clear") { state.filter = LibraryFilter() }
             .buttonStyle(.plain)
-            .font(.system(size: 10))
+            .font(.lumenCaption)
             .foregroundStyle(Lumen.secondaryText)
             .keyboardShortcut("\\", modifiers: [.command])
             .help("Clear the filter (⌘\\)")
@@ -146,7 +146,7 @@ struct FilterBar: View {
             // (`LibraryFilter.sentence`) so the popover and the status bar cannot
             // describe the same query two different ways.
             Text(state.filter.sentence(catalogLive: state.isLibraryQueryLive))
-                .font(.system(size: 10))
+                .font(.lumenCaption)
                 .foregroundStyle(state.filter.isActive
                                  ? Lumen.primaryText : Lumen.tertiaryText)
                 .fixedSize(horizontal: false, vertical: true)
@@ -189,7 +189,7 @@ struct FilterBar: View {
     private var ratingGroup: some View {
         HStack(spacing: 6) {
             Text("≥")
-                .font(.system(size: 10))
+                .font(.lumenCaption)
                 .foregroundStyle(Lumen.secondaryText)
             ForEach(1...5, id: \.self) { value in
                 Button {
@@ -197,11 +197,11 @@ struct FilterBar: View {
                 } label: {
                     VStack(spacing: 2) {
                         Image(systemName: "star.fill")
-                            .font(.system(size: 10))
+                            .font(.lumenCaption)
                             .foregroundStyle(value <= state.filter.minRating
                                              ? Lumen.primaryText : Lumen.trackColor)
                         Text("\(ratingCount(value))")
-                            .font(.system(size: 9).monospacedDigit())
+                            .font(.lumenCaptionNumeric)
                             .foregroundStyle(Lumen.tertiaryText)
                     }
                     .contentShape(Rectangle())
@@ -229,7 +229,7 @@ struct FilterBar: View {
                                                   lineWidth: state.filter.labels.contains(label) ? 2 : 1)
                             )
                         Text("\(labelCount(label))")
-                            .font(.system(size: 9).monospacedDigit())
+                            .font(.lumenCaptionNumeric)
                             .foregroundStyle(Lumen.tertiaryText)
                     }
                     .contentShape(Rectangle())
@@ -420,11 +420,11 @@ struct FilterBar: View {
     private var textFilter: some View {
         HStack(spacing: 3) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 9))
+                .font(.lumenCaption)
                 .foregroundStyle(Lumen.secondaryText)
             TextField(textPlaceholder, text: $state.filter.text)
                 .textFieldStyle(.plain)
-                .font(.system(size: 11))
+                .font(.lumenBody)
                 .foregroundStyle(Lumen.primaryText)
                 .frame(width: 130)
             if !state.filter.text.isEmpty {
@@ -432,7 +432,7 @@ struct FilterBar: View {
                     state.filter.text = ""
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 9))
+                        .font(.lumenCaption)
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(Lumen.secondaryText)
@@ -532,7 +532,7 @@ struct FilterBar: View {
             state.sortAscending.toggle()
         } label: {
             Image(systemName: state.sortAscending ? "arrow.up" : "arrow.down")
-                .font(.system(size: 9))
+                .font(.lumenCaption)
                 .foregroundStyle(Lumen.primaryText)
                 .padding(.horizontal, 5)
                 .padding(.vertical, 3)
@@ -550,9 +550,9 @@ struct FilterBar: View {
         HStack(spacing: 5) {
             HStack(spacing: 3) {
                 Image(systemName: "forward.end.alt.fill")
-                    .font(.system(size: 9))
+                    .font(.lumenCaption)
                 Text("Auto-advance")
-                    .font(.system(size: 10))
+                    .font(.lumenCaption)
                     .lineLimit(1)
             }
             .foregroundStyle(state.autoAdvance ? Lumen.primaryText : Lumen.secondaryText)
@@ -646,7 +646,7 @@ struct FilterBar: View {
 
     private func groupLabel(_ text: String) -> some View {
         Text(text.uppercased())
-            .font(.system(size: 9, weight: .semibold))
+            .font(.system(size: 10, weight: .semibold))
             .tracking(0.5)
             .foregroundStyle(Lumen.secondaryText)
     }
@@ -660,14 +660,14 @@ struct FilterBar: View {
             HStack(spacing: 3) {
                 if let systemImage {
                     Image(systemName: systemImage)
-                        .font(.system(size: 9))
+                        .font(.lumenCaption)
                 }
                 Text(title)
-                    .font(.system(size: 10))
+                    .font(.lumenCaption)
                     .lineLimit(1)
                 if let count, count > 0 {
                     Text("\(count)")
-                        .font(.system(size: 9).monospacedDigit())
+                        .font(.lumenCaptionNumeric)
                         .foregroundStyle(Lumen.secondaryText)
                 }
             }

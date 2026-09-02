@@ -75,7 +75,7 @@ struct RawTruthPanel: View {
                 state.showRawTruth = false
             } label: {
                 Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(.system(size: 10, weight: .semibold))
             }
             .buttonStyle(.borderless)
             .foregroundStyle(Lumen.secondaryText)
@@ -91,7 +91,7 @@ struct RawTruthPanel: View {
         // of what?", and it is printed from the measurement rather than from a literal
         // in this file so it cannot describe a reading the row does not carry.
         Text(readout.provenanceLabel.uppercased())
-            .font(.system(size: 9, weight: .medium))
+            .font(.system(size: 10, weight: .medium))
             .foregroundStyle(Lumen.accent)
 
         Text(readout.verdict.summary)
@@ -112,7 +112,7 @@ struct RawTruthPanel: View {
             .textSelection(.enabled)
 
         Text(readout.ceilingNote)
-            .font(.system(size: 9))
+            .font(.lumenCaption)
             .foregroundStyle(Lumen.secondaryText)
             .fixedSize(horizontal: false, vertical: true)
 
@@ -121,14 +121,14 @@ struct RawTruthPanel: View {
         // most worth reading, and a collapsed one is a sentence nobody reads.
         ForEach(readout.qualifications, id: \.self) { note in
             Text(note)
-                .font(.system(size: 9))
+                .font(.lumenCaption)
                 .foregroundStyle(Lumen.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
         }
 
         Text("Hold [ to lift the shadows, ] to inspect the highlights. Neither writes "
              + "an edit.")
-            .font(.system(size: 9))
+            .font(.lumenCaption)
             .foregroundStyle(Lumen.secondaryText)
             .fixedSize(horizontal: false, vertical: true)
     }
@@ -153,7 +153,7 @@ struct RawTruthPanel: View {
                 .font(.system(size: 10).monospacedDigit())
                 .frame(width: 46, alignment: .trailing)
             Text(RawTruth.percent(line.nearClippedPercent))
-                .font(.system(size: 9).monospacedDigit())
+                .font(.lumenCaptionNumeric)
                 .foregroundStyle(Lumen.secondaryText)
                 .frame(width: 44, alignment: .trailing)
                 .help("Within 0.25 EV of the ceiling")

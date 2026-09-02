@@ -123,12 +123,12 @@ struct GridView: View {
         if count == 0 {
             VStack(spacing: 8) {
                 Text(emptyMessage)
-                    .font(.system(size: 12))
+                    .font(.lumenBody)
                     .foregroundStyle(Lumen.secondaryText)
                 if state.filter.isActive {
                     Button("Clear Filter") { state.filter = LibraryFilter() }
                         .buttonStyle(.plain)
-                        .font(.system(size: 11))
+                        .font(.lumenBody)
                         .foregroundStyle(Lumen.primaryText)
                 }
             }
@@ -274,7 +274,7 @@ struct PhotoCell: View {
             well
             if showsCaption {
                 Text(photo.filename)
-                    .font(.system(size: 10))
+                    .font(.lumenCaption)
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .foregroundStyle(isPrimary ? Lumen.primaryText : Lumen.secondaryText)
@@ -318,7 +318,7 @@ struct PhotoCell: View {
         HStack(spacing: 3) {
             if photo.flag != .none {
                 Image(systemName: photo.flag.symbolName)
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(photo.flag == .picked ? Color.white : Lumen.secondaryText)
             }
             if showsStars { stars }
@@ -362,7 +362,7 @@ struct PhotoCell: View {
         Image(systemName: "star.fill")
             // 7pt was below any Mac legibility floor (design audit §1.9);
             // 10pt is the app-wide minimum now.
-            .font(.system(size: 10))
+            .font(.lumenCaption)
             .foregroundStyle(index <= photo.rating ? Color.white : Lumen.trackColor)
     }
 

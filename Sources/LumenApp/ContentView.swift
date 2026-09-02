@@ -387,7 +387,7 @@ private struct Sidebar: View {
                     // zero-chroma everywhere the photo isn't). Urgency reads through
                     // primary-value text in a quiet chrome just as well.
                     Text(catalogStatus)
-                        .font(.system(size: 10))
+                        .font(.lumenCaption)
                         .foregroundStyle(Lumen.primaryText)
                         .fixedSize(horizontal: false, vertical: true)
                         .padding(.top, 12)
@@ -416,7 +416,7 @@ private struct Sidebar: View {
                     state.chooseFolder()
                 } label: {
                     Label("Open Folder…", systemImage: "folder")
-                        .font(.system(size: 11))
+                        .font(.lumenBody)
                 }
                 .buttonStyle(.borderless)
 
@@ -426,7 +426,7 @@ private struct Sidebar: View {
                             .font(.system(size: 11, weight: .semibold))
                             .lineLimit(1)
                         Text(folder.deletingLastPathComponent().path)
-                            .font(.system(size: 10))
+                            .font(.lumenCaption)
                             .foregroundStyle(Lumen.tertiaryText)
                             .lineLimit(2)
                             .truncationMode(.head)
@@ -496,7 +496,7 @@ private struct Sidebar: View {
                 state.addSelectionToTargetCollection()
             } label: {
                 Label(addToTargetTitle, systemImage: "tray.and.arrow.down")
-                    .font(.system(size: 11))
+                    .font(.lumenBody)
             }
             .buttonStyle(.borderless)
             .keyboardShortcut("b", modifiers: [.command])
@@ -538,7 +538,7 @@ private struct Sidebar: View {
                     createAlbum()
                 } label: {
                     Image(systemName: "plus")
-                        .font(.system(size: 9))
+                        .font(.lumenCaption)
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(Lumen.secondaryText)
@@ -595,7 +595,7 @@ private struct Sidebar: View {
                     addKeyword()
                 } label: {
                     Image(systemName: "plus")
-                        .font(.system(size: 9))
+                        .font(.lumenCaption)
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(Lumen.secondaryText)
@@ -631,7 +631,7 @@ private struct Sidebar: View {
                 keywordFieldFocused = true
             }
             .buttonStyle(.borderless)
-            .font(.system(size: 11))
+            .font(.lumenBody)
             .keyboardShortcut("k", modifiers: [.command, .shift])
             .disabled(state.editTargets.isEmpty)
             .help("Type a keyword for the selection (⌘⇧K)")
@@ -646,20 +646,20 @@ private struct Sidebar: View {
                 Text(state.primarySelection == nil
                      ? "Select a photo to keyword it"
                      : "None on this photo")
-                    .font(.system(size: 10))
+                    .font(.lumenCaption)
                     .foregroundStyle(Lumen.tertiaryText)
             } else {
                 ForEach(state.primaryKeywords, id: \.self) { word in
                     HStack(spacing: 4) {
                         Text(word)
-                            .font(.system(size: 11))
+                            .font(.lumenBody)
                             .foregroundStyle(Lumen.primaryText)
                         Spacer()
                         Button {
                             state.removeKeyword(word)
                         } label: {
                             Image(systemName: "xmark")
-                                .font(.system(size: 9))
+                                .font(.lumenCaption)
                         }
                         .buttonStyle(.plain)
                         .foregroundStyle(Lumen.secondaryText)
@@ -684,7 +684,7 @@ private struct Sidebar: View {
             // Above the fold: the verb that makes a stack, and the holder of ⌘G.
             Button("Stack Selection") { state.stackSelection() }
                 .buttonStyle(.borderless)
-                .font(.system(size: 11))
+                .font(.lumenBody)
                 .keyboardShortcut("g", modifiers: [.command])
                 .disabled(state.selection.count < 2)
                 .help("Group the selection into one stack (⌘G)")
@@ -719,7 +719,7 @@ private struct Sidebar: View {
                 Text("\(stack.memberCount) frame\(stack.memberCount == 1 ? "" : "s")"
                      + " · \(stack.collapsed ? "collapsed" : "expanded")"
                      + (stack.isPick ? " · this is the pick" : ""))
-                    .font(.system(size: 10))
+                    .font(.lumenCaption)
                     .foregroundStyle(Lumen.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
 
@@ -729,18 +729,18 @@ private struct Sidebar: View {
                     Text(stack.collapsed ? "Expand Stack" : "Collapse Stack")
                 }
                 .buttonStyle(.borderless)
-                .font(.system(size: 11))
+                .font(.lumenBody)
 
                 Button("Promote to Pick") { state.promoteStackPick() }
                     .buttonStyle(.borderless)
-                    .font(.system(size: 11))
+                    .font(.lumenBody)
                     .disabled(stack.isPick)
 
                 // Unstack's BUTTON stays here beside the other stack verbs, where it
                 // reads; ⇧⌘G moved above the fold. See the note there.
                 Button("Unstack") { state.unstackSelection() }
                     .buttonStyle(.borderless)
-                    .font(.system(size: 11))
+                    .font(.lumenBody)
                     .help("Unstack (⇧⌘G)")
             } else {
                 // Three lines of teaching in front of one button, on a fresh folder,
@@ -768,11 +768,11 @@ private struct Sidebar: View {
             HStack(spacing: 4) {
                 if isTarget {
                     Image(systemName: "target")
-                        .font(.system(size: 9))
+                        .font(.lumenCaption)
                         .foregroundStyle(Lumen.secondaryText)
                 }
                 Text(title)
-                    .font(.system(size: 11))
+                    .font(.lumenBody)
                     .lineLimit(1)
                 Spacer()
                 Text("\(count)")
@@ -815,7 +815,7 @@ private struct StatusBar: View {
             }
             if let message = state.statusMessage, !message.isEmpty {
                 Text(message)
-                    .font(.system(size: 10))
+                    .font(.lumenCaption)
                     .foregroundStyle(Lumen.secondaryText)
             }
             // The query, in words. It used to own the second row of a full-width filter
@@ -825,7 +825,7 @@ private struct StatusBar: View {
             // reconstruct what they mean together. Here it sits beside the count it
             // qualifies, which is where a query result belongs.
             Text(sentence)
-                .font(.system(size: 10))
+                .font(.lumenCaption)
                 .foregroundStyle(state.filter.isActive
                                  ? Lumen.primaryText : Lumen.tertiaryText)
                 .lineLimit(1)
@@ -837,7 +837,7 @@ private struct StatusBar: View {
             Spacer()
             if state.isExporting {
                 Text("Exporting \(Int(state.exportProgress * 100))%")
-                    .font(.system(size: 10))
+                    .font(.lumenCaption)
                     .foregroundStyle(Lumen.secondaryText)
             }
             // NO FILENAME HERE. `DevelopPanel.header` draws it whenever the develop
@@ -847,7 +847,7 @@ private struct StatusBar: View {
             // was decoration at the far corner.
             if state.selection.count > 1 {
                 Text("\(state.selection.count) selected")
-                    .font(.system(size: 10))
+                    .font(.lumenCaption)
                     .foregroundStyle(Lumen.accent)
             }
             // THE FILMSTRIP'S SWITCH, and it lives here rather than only on the strip
@@ -860,7 +860,7 @@ private struct StatusBar: View {
                 state.showFilmstrip.toggle()
             } label: {
                 Image(systemName: "film")
-                    .font(.system(size: 10))
+                    .font(.lumenCaption)
                     .foregroundStyle(state.showFilmstrip
                                      ? Lumen.primaryText : Lumen.secondaryText)
                     .contentShape(Rectangle())
@@ -901,7 +901,7 @@ private struct EmptyState: View {
                 .font(.system(size: 13))
                 .foregroundStyle(Lumen.primaryText)
             Text("Folders are the library. Nothing is copied, moved, or modified.")
-                .font(.system(size: 11))
+                .font(.lumenBody)
                 .foregroundStyle(Lumen.secondaryText)
             Button("Open Folder…") { state.chooseFolder() }
                 .padding(.top, 6)
@@ -943,7 +943,7 @@ private struct KeyReferenceSheet: View {
                                         .frame(width: 84, alignment: .leading)
                                         .foregroundStyle(Lumen.primaryText)
                                     Text(entry.action)
-                                        .font(.system(size: 11))
+                                        .font(.lumenBody)
                                         .foregroundStyle(Lumen.secondaryText)
                                         .fixedSize(horizontal: false, vertical: true)
                                     Spacer()

@@ -205,17 +205,28 @@ final class DesignSystemTests: XCTestCase {
     /// owned panels; the type scale exists so this keeps falling.
     func testRawFontSizesOnlyEverDecrease() {
         let n = total(".system(size:")
-        XCTAssertLessThanOrEqual(n, 164,
+        XCTAssertLessThanOrEqual(n, 84,
                                  "\(n) raw .system(size:) calls in Sources/LumenApp, up "
-                                 + "from 164 — use .lumenHeading / .lumenBody / "
+                                 + "from 84 — use .lumenHeading / .lumenBody / "
                                  + ".lumenCaption / .lumenNumeric")
     }
 
-    /// Sub-floor text. The app set 10 pt as its own floor and shipped 37 sites under it.
-    func testNinePointTextOnlyEverDecreases() {
-        let n = total(".system(size: 9")
-        XCTAssertLessThanOrEqual(n, 35,
-                                 "\(n) sites at 9 pt, up from 35 — 10 is the floor")
+    /// THE FLOOR IS THE FLOOR. The app set 10 pt as its own minimum, shipped 46 sites
+    /// under it, and never enforced it. There are none left, so this is no longer a
+    /// ratchet — it is zero, and the first site to reappear fails.
+    func testNothingIsDrawnBelowTheTenPointFloor() {
+        var offenders: [String] = []
+        for (name, text) in Self.sources {
+            for (offset, line) in text.split(separator: "\n",
+                                             omittingEmptySubsequences: false).enumerated()
+            where line.contains(".system(size: 9") || line.contains(".system(size: 8") {
+                offenders.append("\(name):\(offset + 1): "
+                                 + line.trimmingCharacters(in: .whitespaces))
+            }
+        }
+        XCTAssertTrue(offenders.isEmpty,
+                      "text below the app's own 10 pt floor:\n"
+                      + offenders.joined(separator: "\n"))
     }
 
     /// Raw corner radii off the 6 / 9 / 14 ladder. 34 at landing.

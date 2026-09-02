@@ -553,7 +553,7 @@ struct MaskPanel: View {
                 editGroup(group.id) { $0.collapsed.toggle() }
             } label: {
                 Image(systemName: group.collapsed ? "chevron.right" : "chevron.down")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(.system(size: 10, weight: .semibold))
                     .frame(width: 12)
             }
             .buttonStyle(.plain)
@@ -712,9 +712,13 @@ struct MaskPanel: View {
                 }
             } label: {
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 8, weight: .semibold))
+                    // 10, the floor, and the same size every other disclosure chevron
+                    // in the app draws at — this one was 8, which is two points under
+                    // the app's own stated minimum and visibly lighter than the
+                    // chevrons in the develop column beside it.
+                    .font(.system(size: 10, weight: .semibold))
                     .rotationEffect(.degrees(isOpen ? 90 : 0))
-                    .frame(width: 14, height: 18)
+                    .frame(width: 16, height: 20)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -1545,13 +1549,13 @@ struct MaskPanel: View {
             }
             Spacer(minLength: 0)
             Button { addSample(id, i) } label: {
-                Image(systemName: "plus").font(.system(size: 9, weight: .semibold))
+                Image(systemName: "plus").font(.system(size: 10, weight: .semibold))
             }
             .buttonStyle(.plain).disabled(samples.count >= 8)
             .foregroundStyle(samples.count < 8 ? Lumen.primaryText : Lumen.secondaryText)
             .help("Add a sample (up to 8); the eyedropper lands with the sampler")
             Button { removeSample(id, i) } label: {
-                Image(systemName: "minus").font(.system(size: 9, weight: .semibold))
+                Image(systemName: "minus").font(.system(size: 10, weight: .semibold))
             }
             .buttonStyle(.plain).disabled(samples.count <= 1)
             .foregroundStyle(samples.count > 1 ? Lumen.primaryText : Lumen.secondaryText)
@@ -2513,7 +2517,7 @@ struct MaskPanel: View {
                             .font(.system(size: 12, weight: .semibold))
                         Text(label).font(.lumenBody)
                         Image(systemName: "chevron.down")
-                            .font(.system(size: 9, weight: .semibold))
+                            .font(.system(size: 10, weight: .semibold))
                             .rotationEffect(.degrees(isOpen.wrappedValue ? 180 : 0))
                         Spacer(minLength: 0)
                     }
@@ -2650,7 +2654,7 @@ struct MaskPanel: View {
                              action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 3) {
-                Image(systemName: systemImage).font(.system(size: 9))
+                Image(systemName: systemImage).font(.lumenCaption)
                 Text(title).font(.system(size: 10))
             }
             .padding(.horizontal, 6).padding(.vertical, 3)

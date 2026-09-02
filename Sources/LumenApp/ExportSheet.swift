@@ -93,7 +93,7 @@ struct ExportSheet: View {
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(Lumen.primaryText)
             Text(sourceSummary)
-                .font(.system(size: 11))
+                .font(.lumenBody)
                 .foregroundStyle(Lumen.secondaryText)
             Spacer()
             Button("Close") { state.showExportSheet = false }
@@ -160,7 +160,7 @@ struct ExportSheet: View {
     private func iconButton(_ symbol: String, help: String, disabled: Bool,
                             action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Image(systemName: symbol).font(.system(size: 11))
+            Image(systemName: symbol).font(.lumenBody)
         }
         .buttonStyle(.plain)
         .foregroundStyle(Lumen.secondaryText)
@@ -205,10 +205,10 @@ struct ExportSheet: View {
             VStack(spacing: 6) {
                 Spacer()
                 Text("No recipe selected")
-                    .font(.system(size: 12))
+                    .font(.lumenBody)
                     .foregroundStyle(Lumen.secondaryText)
                 Text("Pick one on the left, or press + to make a new one.")
-                    .font(.system(size: 11))
+                    .font(.lumenBody)
                     .foregroundStyle(Lumen.secondaryText)
                 Spacer()
             }
@@ -228,13 +228,13 @@ struct ExportSheet: View {
                     // is nothing beside it to judge its hue against.
                     LumenProgressBar(value: clampedProgress)
                     Text("Exporting — \(Int((clampedProgress * 100).rounded()))%")
-                        .font(.system(size: 10))
+                        .font(.lumenCaption)
                         .foregroundStyle(Lumen.secondaryText)
                 }
             }
             HStack(spacing: 10) {
                 Text(fileCountSummary)
-                    .font(.system(size: 11))
+                    .font(.lumenBody)
                     .foregroundStyle(fileCount == 0 ? Lumen.secondaryText : Lumen.primaryText)
                 Spacer()
                 Button("Export…") { state.chooseExportDestination() }
@@ -358,7 +358,7 @@ private struct ExportRecipeRow: View {
                     if isHDR { LumenBadge(text: "HDR", emphasized: true) }
                 }
                 Text(summary)
-                    .font(.system(size: 9))
+                    .font(.lumenCaption)
                     .foregroundStyle(Lumen.secondaryText)
                     .lineLimit(1)
             }
@@ -487,12 +487,12 @@ private struct ExportRecipeEditor: View {
                 .frame(maxWidth: 140)
         } else if recipe.format.supportsTenBit {
             Text("8-bit — this Mac's HEVC encoder declined a 10-bit probe")
-                .font(.system(size: 10))
+                .font(.lumenCaption)
                 .foregroundStyle(Lumen.secondaryText)
         } else {
             Text("8-bit — all the JPEG format can carry; the dither below is what "
                  + "stands between an 8-bit sky and banding")
-                .font(.system(size: 10))
+                .font(.lumenCaption)
                 .foregroundStyle(Lumen.secondaryText)
         }
     }
@@ -947,7 +947,7 @@ private struct ExportNote: View {
 
     var body: some View {
         Text(text)
-            .font(.system(size: 10))
+            .font(.lumenCaption)
             .foregroundStyle(Lumen.secondaryText)
             .fixedSize(horizontal: false, vertical: true)
             .padding(.top, 2)

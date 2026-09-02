@@ -111,7 +111,7 @@ struct CompareView: View {
             Image(systemName: "rectangle.split.2x1")
                 .font(.system(size: 34))
             Text("Select two or more photos to compare")
-                .font(.system(size: 12))
+                .font(.lumenBody)
         }
         .foregroundStyle(Lumen.secondaryText)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -145,7 +145,7 @@ struct CompareView: View {
                     Image(systemName: "plus.rectangle")
                         .font(.system(size: 26))
                     Text("Select a second photo")
-                        .font(.system(size: 11))
+                        .font(.lumenBody)
                 }
                 .foregroundStyle(Lumen.secondaryText)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -224,7 +224,7 @@ private struct ComparePane: View {
                     plate(cg, container: container)
                 } else if model.isUnreadable {
                     Text("Can't read \(photo.filename)")
-                        .font(.system(size: 11))
+                        .font(.lumenBody)
                         .foregroundStyle(Lumen.secondaryText)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
@@ -451,7 +451,7 @@ private struct SurveyCell: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if model.isUnreadable {
                     Text("Can't read \(photo.filename)")
-                        .font(.system(size: 10))
+                        .font(.lumenCaption)
                         .foregroundStyle(Lumen.secondaryText)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
@@ -472,7 +472,7 @@ private struct SurveyCell: View {
                     state.selection.remove(photo.id)
                 } label: {
                     Image(systemName: "xmark")
-                        .font(.system(size: 9, weight: .semibold))
+                        .font(.system(size: 10, weight: .semibold))
                         .padding(4)
                         .background(Color.black.opacity(0.55), in: Circle())
                         .foregroundStyle(Lumen.primaryText)

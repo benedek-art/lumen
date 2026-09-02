@@ -80,6 +80,18 @@ extension Font {
     /// rows the numbers are the last thing that should be shouting.
     static let lumenNumeric: Font = .system(size: 11, weight: .regular).monospacedDigit()
 
+    /// A COUNT, beside the thing it counts — a filter chip's tally, a clipping
+    /// percentage, the raw panel's readouts.
+    ///
+    /// The caption size, with tabular figures, because these are annotations that
+    /// happen to be numbers: they must not jitter as they count, and they must not
+    /// claim the weight of a value somebody is reading. It exists because the
+    /// alternative was six sites at `.system(size: 9)` — under this file's own stated
+    /// floor — three of them reaching for `.monospacedDigit()` by hand and one for a
+    /// second typeface.
+    static let lumenCaptionNumeric: Font =
+        .system(size: 10, weight: .regular).monospacedDigit()
+
     /// A number that is the subject rather than an annotation — the slider readout while
     /// it is being scrubbed, the histogram's clipping percentages.
     static let lumenNumericStrong: Font = .system(size: 11, weight: .medium).monospacedDigit()
