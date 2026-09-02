@@ -46,6 +46,7 @@ verify as fixed. Fixes in this project name the defect, not the audit row.
 | **L-03** the updater checks the bundle is *signed*, never *whose* signature | a `sha256:` line in the release body, published by CI from the bytes it uploads and verified before anything unpacks the archive. Fails closed |
 | **A2-04** ↑/↓ on a focused slider do nothing | `onKeyPress(.upArrow/.downArrow)` on `LumenSlider`, and a cross-file check: the dispatcher stands down for all four arrows the moment a slider takes focus, so the slider must catch all four or the key is SWALLOWED — worse than either alternative, because the photographer cannot tell an ignored key from an eaten one |
 | **J1-02** `ftsEnabled` is a `let`, so a broken index fails the write | `private var`, and `reindexText` no longer throws: it logs once, turns the index off for the session, and every text query takes the LIKE fallback `isTextIndexAvailable` already exists to describe |
+| **L-04** the "your build is untouched" alert on the path where it is gone | the installed bundle is never moved aside: the new one is staged BESIDE it (same volume, so the atomic call works) and `replaceItemAt` swaps them, which leaves the original in place on failure. The message is true by construction now rather than by assertion, and there is no `try?` rollback whose failure could be discarded |
 
 ## S2 / S3 — verified FIXED by the U and engine landings
 
@@ -94,8 +95,7 @@ means an id-based sweep can only ever mislead.
 - `G1-01/02/04/05/06` the layout truncations. These need MEASUREMENT at 320/380/520 pt
   and cannot be verified from source; they are the one group where the audit's evidence
   is stronger than anything this pass could add without a running app.
-- `L-02` the coalescing suite is green under L-01 because every fixture drives one key ·
-  `L-04` the "your build is untouched" alert on the path where it is not.
+- `L-02` the coalescing suite is green under L-01 because every fixture drives one key.
 
 **S3** — 37 rows, none of them load-bearing. `A2-12` (the coalescing window is 1.2 s
 where docs/12 §12.10 says 2 s) is verified still 1.2 and is a one-constant change nobody

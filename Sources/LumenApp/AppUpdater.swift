@@ -286,16 +286,35 @@ final class AppUpdater {
             // made by anybody satisfies it. The digest above is the identity check.
             try run("/usr/bin/codesign", "--verify", "--deep", "--strict", newApp.path)
 
+            // THE INSTALLED BUNDLE IS NEVER MOVED OUT OF THE WAY (L-04).
+            //
+            // It used to be: move `current` to a backup, move the new one into its
+            // place, and on failure `try?` the old one back. Three things were wrong
+            // with that, and the third is the one that would have hurt.
+            //
+            // The backup lived in `FileManager.temporaryDirectory` while `current`
+            // lives wherever the app is installed, so BOTH moves were cross-volume
+            // whenever those differ — cross-volume moves are copy-then-delete, not
+            // renames, and they fail for ordinary reasons like space. The rollback was
+            // `try?`, so its failure was discarded. And the handler it threw into told
+            // the photographer "The running build is untouched" and suggested
+            // rebuilding from source — on the one path where the installed app had
+            // been moved away and nothing had replaced it. An alert asserting the
+            // opposite of the truth, then a Finder with no Lumen in it.
+            //
+            // `replaceItemAt` is the API for this and it leaves the original in place
+            // when it fails, so "untouched" is now true by construction rather than by
+            // assertion. It is atomic only WITHIN a volume, which is why the new bundle
+            // is staged beside the installed one first: the copy is the part that can
+            // fail slowly and it happens before anything is at risk.
             let current = Bundle.main.bundleURL
-            let backup = work.appendingPathComponent("Lumen-previous.app")
-            try FileManager.default.moveItem(at: current, to: backup)
-            do {
-                try FileManager.default.moveItem(at: newApp, to: current)
-            } catch {
-                // Roll the old bundle back before surfacing anything.
-                try? FileManager.default.moveItem(at: backup, to: current)
-                throw error
-            }
+            let staged = current.deletingLastPathComponent()
+                .appendingPathComponent("Lumen-update-\(UUID().uuidString).app")
+            // On success `replaceItemAt` consumes the staged bundle, so this cleans up
+            // after a failure and is a no-op after a success.
+            defer { try? FileManager.default.removeItem(at: staged) }
+            try FileManager.default.copyItem(at: newApp, to: staged)
+            _ = try FileManager.default.replaceItemAt(current, withItemAt: staged)
 
             let alert = NSAlert()
             alert.messageText = "Updated to build \(String(commit.prefix(12)))"

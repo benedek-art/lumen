@@ -105,6 +105,45 @@ final class UpdateDecisionTests: XCTestCase {
         XCTAssertNil(UpdateDecision.commit(inReleaseBody: "sha256: \(real)"))
     }
 
+    /// THE INSTALLED BUNDLE IS NEVER MOVED OUT OF THE WAY (L-04).
+    ///
+    /// The swap cannot be reached from a test — it replaces the running app — so the
+    /// property is asserted where it can be: the installer must not move `current`
+    /// anywhere, because the moment it does there is a window in which the photographer
+    /// has no Lumen, and the failure handler's "The running build is untouched" becomes
+    /// a claim rather than a fact.
+    ///
+    /// `replaceItemAt` leaves the original in place when it fails. That is the whole
+    /// fix: the message is true by construction instead of by assertion, and there is
+    /// no rollback to discard with a `try?`.
+    func testTheInstallerNeverMovesTheRunningBundleAside() {
+        let updater = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/LumenApp/AppUpdater.swift")
+        guard let raw = try? String(contentsOf: updater, encoding: .utf8) else {
+            return XCTFail("AppUpdater.swift not found — move this scan with it")
+        }
+        // Comments out: this file now explains at length what it used to do, and the
+        // explanation contains the very call the check is looking for. `DesignSystemTests`
+        // and `EditRevisionRuleTests` were each caught by exactly this.
+        let code = raw.split(separator: "\n", omittingEmptySubsequences: false)
+            .map { line -> Substring in
+                guard let slashes = line.range(of: "//") else { return line }
+                return line[..<slashes.lowerBound]
+            }
+            .joined(separator: "\n")
+
+        XCTAssertFalse(code.contains("moveItem(at: current"),
+                       "the installer moves the running bundle aside again — that is "
+                           + "the window in which the photographer has no Lumen, and "
+                           + "the failure alert's \"running build is untouched\" stops "
+                           + "being true")
+        XCTAssertTrue(code.contains("replaceItemAt(current"),
+                      "the atomic replacement is gone; whatever took its place has to "
+                          + "leave the original in place on failure or the alert lies")
+    }
+
     /// THE WORKFLOW PUBLISHES IT. A parser that fails closed against a body CI never
     /// writes is an updater that has quietly stopped updating, which is the failure
     /// this pair of assertions exists to make loud.
