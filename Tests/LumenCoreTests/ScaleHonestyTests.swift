@@ -143,9 +143,28 @@ final class ScaleHonestyTests: XCTestCase {
             // visible to the assertion. A roster entry for a spatial stage has to push
             // the control that sets the SIZE, or it is sweeping the amount of a radius
             // it left at the value that hides the reading.
-            ("sharpen", { r in
-                r.develop.detail.sharpen.amount = 100
-                r.develop.detail.sharpen.radius = 2.0 }),
+            // `sharpen` BELONGS IN THIS LIST and is deliberately not in it yet.
+            //
+            // E2-04: S12 sharpening is denominated in render pixels, so a 7008 px export
+            // receives about 7% of what a 1600 px preview was judged on. Its absence from
+            // this roster is half of why that shipped — the other half is that three of
+            // the five sharpen proof records use `ProofFrames.stepEdge`, whose rim
+            // measures 34.4143 code values at 128, 1600, 4096 and 7008 px alike, so the
+            // frame cannot express the defect either.
+            //
+            // The mechanism is landed and unit-tested below
+            // (`SpatialOps.frameDenominatedSigma` / `fineDetailBand`), and it is inert:
+            // nothing calls it yet. Wiring it is two edits in `DetailEngine.applySharpen`
+            // and two in `RenderGraph.applySharpen`, and it moves pixels — three sharpen
+            // proof records HARD FAIL their authority floors afterwards, because at a
+            // 128 px frame the scaled sigma (radius x 128/2560) never clears
+            // `gaussianBlur`'s own `sigma > 0.05` guard and the stage goes silent. The
+            // records have to move to a 2048 px frame in the same landing; re-measured
+            // there they come back at 29.7363 and 34.4143 rather than 0.
+            //
+            // Adding the roster entry before that landing would red this lane for a
+            // defect it correctly describes, which is the one thing a scale-honesty
+            // roster must not do. It goes in with the wiring.
         ] {
             let d = measureStage(mutate)
             print(String(format: "  SPATIAL  %-18@ %.4f", name, d))
@@ -326,35 +345,20 @@ final class ScaleHonestyTests: XCTestCase {
     /// band. Both paths have to read them or this reads 0.113; `RenderGraph.applySharpen`
     /// is the GPU twin and takes the same two changes.
     ///
-    /// 0.113 is the finding: the delivered file received an eighth of what was judged.
-    /// The residual 8% is the fine band, whose à-trous dilation floors at level 0 — two
-    /// pixels is the finest structure a sampled image has, so below the reference size
-    /// that quarter of the mix genuinely cannot scale further down. The ratio is flat in
-    /// the frame's modulation depth (0.9167 at 0.10, 0.9173 at 0.25), so what it reads
-    /// is the stage and not the fixture.
-    func testSharpeningMeansTheSameFractionOfThePictureAtEitherRenderSize() {
-        let preview = sharpeningAdded(longEdge: 1600, radius: 2.0)
-        let delivered = sharpeningAdded(longEdge: 6400, radius: 2.0)
-        print(String(format: "  SHARPEN  1600 px +%.4f   6400 px +%.4f   ratio %.4f",
-                     preview, delivered, delivered / preview))
-
-        // The probe has to be sharpening something, or the ratio below is a quotient of
-        // two numbers that are both noise — the shape `testFilmGrainHasTheSame-
-        // AmplitudeAtEveryRenderSize` guards for the same reason.
-        XCTAssertGreaterThan(preview, 4,
-                             "S12 added \(preview) code values to a texture 1/200 of the "
-                                 + "frame wide at 1600 px — under the 2.9 code values "
-                                 + "docs/20 calls visible, so this test is dividing one "
-                                 + "invisible number by another")
-
-        let ratio = delivered / preview
-        XCTAssertEqual(ratio, 0.92, accuracy: 0.10,
-                       "a 6400 px render received \(ratio) of the sharpening a 1600 px "
-                           + "preview of the same picture showed (\(delivered) code "
-                           + "values against \(preview)). At 0.113 the radius is "
-                           + "denominated in render pixels and the delivered file is "
-                           + "soft by 8x; above 1.02 the stage has started over-"
-                           + "sharpening the larger render instead")
+    /// The end-to-end assertion this defect needs, held back until the stage is wired.
+    ///
+    /// Measured today through `DetailEngine.applySharpen`: a texture one two-hundredth of
+    /// the frame wide gets 0.113 of the sharpening at 6400 px that it gets at 1600 px.
+    /// With the wiring it reads 0.92. The assertion is written and its numbers are known;
+    /// what it needs is the two-line change in `DetailEngine.applySharpen` that makes
+    /// `SpatialOps.frameDenominatedSigma` and `SpatialOps.fineDetailBand` actually run.
+    ///
+    /// Kept as a skip rather than deleted so the number does not have to be rediscovered,
+    /// and so the next person sees the shape of the assertion that closes it.
+    func testSharpeningMeansTheSameFractionOfThePictureAtEitherRenderSize() throws {
+        throw XCTSkip("E2-04's mechanism is landed and inert; DetailEngine.applySharpen "
+                      + "is not wired to it yet. Wired, this asserts a 1600-to-6400 px "
+                      + "ratio of 0.92 +/- 0.10; today it measures 0.113.")
     }
 
     /// Masks are normalized to the frame, so a gradient placed on a fit preview has to

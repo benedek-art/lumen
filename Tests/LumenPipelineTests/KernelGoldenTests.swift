@@ -224,6 +224,19 @@ final class KernelGoldenTests: XCTestCase {
     /// carries no flip, so a wrap there should be exact; asserting it is how that stays
     /// true.
     ///
+    /// IF THE 96-ROW CASE IS RED ON ITS FIRST RUN, THAT IS THE FINDING AND NOT A BROKEN
+    /// TEST. The arithmetic above was derived from the source on a machine with no GPU,
+    /// so it is a prediction; what the run settles is whether it is right. A red 96 with
+    /// a green 128, and a worst figure on the order of the grain's own amplitude rather
+    /// than of 1e-6, is that prediction confirmed, and the fix is one line of geometry
+    /// in `RenderGraph.grainPlate` — either flip the plate's rows when it is built, or
+    /// translate the tiling by the frame's height — not a change to anything here.
+    /// Note that the divergence is a TRANSLATION and not a mirror: the image and the
+    /// plate cross the top-down/bottom-up boundary in the same direction, so `y`'s
+    /// coefficient survives with its sign and only the offset moves. That distinction
+    /// matters for the fix, and it is the one thing the printed offset above says that
+    /// the assertion message cannot.
+    ///
     /// WHAT THIS DOES NOT COVER, so the next reader is not told more than is true. At
     /// one texel per pixel every octave resolves, so the band limit is inert here and
     /// C2-01b cannot fail this test. It is held instead by

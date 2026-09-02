@@ -116,7 +116,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p "$CORPUS_DIR"
-          cat > "$CORPUS_DIR/corpus.tsv" <<'MANIFEST'
+          cat > "$RUNNER_TEMP/corpus.tsv" <<'MANIFEST'
           1346;1346.CR2;b30089172973388d03e192a14a63f750e22914dfc01db5713b6b3bce3c9baeee;12841893;Canon;1;-;CC0;Canon EOS 5D · CR2 lossless-JPEG Bayer · the control case;https://raw.pixls.us/getfile.php/1346/nice/Canon%20-%20EOS%205D%20-%20RAW%20%283%3A2%29.CR2
           2102;2102.CR2;ba644e7dd2abe74eca260e67f0206ff113bf0f62e710f8130611e964d6be5bf1;5805950;Canon;1;-;CC0;Canon EOS 40D · CR2 sRAW2 · delivery 1936x1288 is NOT the sensor — the dimensions trap;https://raw.pixls.us/getfile.php/2102/nice/Canon%20-%20EOS%2040D%20-%20sRAW2%20%28sRAW%29%20%283%3A2%29.CR2
           4671;4671.CR3;4a859ab137f792aedaf3416b0aad1497ebaab02052a49453902e226699154aa7;7395184;Canon;-;-;CC0;Canon EOS RP · CR3 ISO-BMFF · no exiv2 sidecar exists for it, which is the point;https://raw.pixls.us/getfile.php/4671/nice/Canon%20-%20EOS%20RP%20-%203%3A2.CR3
@@ -136,8 +136,8 @@ jobs:
           MANIFEST
           # THE CACHE KEY. Hashing the manifest and not this workflow file: editing a
           # comment here must not throw away 234 MB, and changing a URL or a digest must.
-          echo "digest=$(shasum -a 256 "$CORPUS_DIR/corpus.tsv" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
-          echo "count=$(grep -c ';' "$CORPUS_DIR/corpus.tsv")" >> "$GITHUB_OUTPUT"
+          echo "digest=$(shasum -a 256 "$RUNNER_TEMP/corpus.tsv" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          echo "count=$(grep -c ';' "$RUNNER_TEMP/corpus.tsv")" >> "$GITHUB_OUTPUT"
 
       # NO `restore-keys`, on purpose. A partial restore from an older corpus hands the
       # tests a directory missing files or holding the wrong ones, and the symptom is a
@@ -154,6 +154,26 @@ jobs:
         with:
           path: ${{ env.CORPUS_DIR }}
           key: raw-corpus-v1-${{ steps.manifest.outputs.digest }}
+
+      # THE MANIFEST IS INSTALLED AFTER THE RESTORE, and that ordering is the whole
+      # point of writing it to RUNNER_TEMP above.
+      #
+      # `corpus.tsv` lives inside CORPUS_DIR, which is the cached path. Written before
+      # the restore, it is a 16-row file that the restore then OVERWRITES with the
+      # previous run's copy — 18 rows, because the negatives step appends two. The
+      # verify step then reaches the `truncated` row, whose digest column is "-",
+      # compares that against the real digest, prints `CORRUPT truncated` and exits 1
+      # before a single test runs. The negatives step would then append the two rows a
+      # second time, giving 20 rows and four negatives.
+      #
+      # So: hash it in RUNNER_TEMP (the cache key must not depend on the cache), and
+      # copy the canonical sixteen rows into place once the restore cannot clobber
+      # them. Every run now starts from the same manifest whether it hit or missed.
+      - name: Install the canonical manifest
+        shell: bash
+        run: |
+          cp "$RUNNER_TEMP/corpus.tsv" "$CORPUS_DIR/corpus.tsv"
+          echo "manifest rows: $(grep -c ';' "$CORPUS_DIR/corpus.tsv")"
 
       # The fetch. Only on a miss.
       #

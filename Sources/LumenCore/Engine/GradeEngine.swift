@@ -842,12 +842,13 @@ public struct ColorBalanceGrid: Sendable {
         for i in 1..<zoned.count {
             let previous: Double = zoned[i - 1]
             let fall: Double = ratio * previous - zoned[i]
-            // Non-positive: this interval satisfies the bound at every scale, however
+            // Nothing to bound: this interval holds the ratio at every scale, however
             // far the axis is pushed. Flat and rising intervals land here.
             guard fall > 0 else { continue }
+            // The scale at which this interval first breaks it…
             let folds: Double = rest * (1 - ratio) / fall
-            // …and the gain it falls FROM is black by then, so the fall takes nothing
-            // with it. A crush, not an inversion.
+            // …unless the gain it falls FROM has itself reached black by then, in
+            // which case the fall takes nothing with it. A crush, not an inversion.
             guard rest + folds * previous > blackGain else { continue }
             cap = Swift.min(cap, folds)
         }

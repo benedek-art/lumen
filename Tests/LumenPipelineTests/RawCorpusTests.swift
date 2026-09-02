@@ -303,28 +303,55 @@ final class RawCorpusTests: XCTestCase {
             return
         }
 
-        entries = parseManifest(text, root: root)
+        // CONTRACT 2, and it happens BEFORE anything that could hang or trap. ONE
+        // `corpus-file:` line per line the workflow's `grep -c ';'` counts — including a
+        // line this parser could not read, which is reported as unparseable rather than
+        // silently dropped: a row that vanishes between the YAML's count and this
+        // suite's would fail the guard with no explanation of which row it was.
+        var parsed: [CorpusEntry] = []
+        var seenIDs = Set<String>()
+        var duplicates: [String] = []
+        for (index, line) in countedLines(text).enumerated() {
+            guard let row = parseRow(line, root: root) else {
+                emit("corpus-file: line-\(index + 1) UNPARSEABLE — ten "
+                    + "semicolon-separated columns expected; got \(line)")
+                continue
+            }
+            let exists = FileManager.default.fileExists(atPath: row.url.path)
+            let presence = exists ? "yes" : "no (the fetch step did not leave it)"
+            emit("corpus-file: \(row.id) file=\(row.local) "
+                + "exists=\(presence) bytes=\(row.bytes) "
+                + "licence=\(row.licence) · \(row.label)")
+            // A repeated id is not a reason to test the same file twice.
+            //
+            // It is also not hypothetical: the lane APPENDS the two synthetic negatives
+            // to corpus.tsv, and corpus.tsv lives inside the directory `actions/cache`
+            // saves — so a cache hit can restore a manifest that already carries them
+            // and the append runs again. The `corpus-file:` line above is still emitted
+            // for the duplicate, so the guard's count stays right; the suite below sees
+            // each file once.
+            if seenIDs.contains(row.id) {
+                duplicates.append(row.id)
+                continue
+            }
+            seenIDs.insert(row.id)
+            let probe = Probe(id: row.id)
+            probe.existsOnDisk = exists
+            probes[row.id] = probe
+            parsed.append(row)
+        }
+        if !duplicates.isEmpty {
+            let list = duplicates.joined(separator: commaSpace)
+            emit("corpus-note: corpus.tsv carries repeated ids (\(list)); each file is "
+                + "tested once. See raw-corpus.yml's negatives step and the cache.")
+        }
+        entries = parsed
         guard !entries.isEmpty else {
             let note = "\(manifest.path) parsed to zero rows — the manifest is "
                 + "semicolon-separated with ten columns; see raw-corpus.yml."
             loadFailure = note
             emit("corpus-error: \(note)")
             return
-        }
-
-        // CONTRACT 2, and it happens BEFORE anything that could hang or trap. The
-        // workflow counts these lines; if the first file killed the process, the count
-        // is still right and the failure is attributed to the decode rather than to a
-        // suite that "did not see the corpus".
-        for entry in entries {
-            let exists = FileManager.default.fileExists(atPath: entry.url.path)
-            let probe = Probe(id: entry.id)
-            probe.existsOnDisk = exists
-            probes[entry.id] = probe
-            let presence = exists ? "yes" : "no (the fetch step did not leave it)"
-            emit("corpus-file: \(entry.id) file=\(entry.local) "
-                + "exists=\(presence) bytes=\(entry.bytes) "
-                + "licence=\(entry.licence) · \(entry.label)")
         }
 
         // CONTRACT 3. Opening is cheap — `CIRAWFilter(imageURL:)` plus one
@@ -464,41 +491,47 @@ final class RawCorpusTests: XCTestCase {
         try? FileManager.default.removeItem(at: exportDir)
     }
 
+    /// The lines the workflow's skip-guard counts.
+    ///
+    /// It runs `grep -c ';'` over corpus.tsv, so the set of rows this suite must report
+    /// reaching is exactly "non-empty lines containing a semicolon" — matched here
+    /// character for character rather than approximated, because a mismatch either
+    /// fails a green run or lets a silent skip through.
+    private static func countedLines(_ text: String) -> [String] {
+        text.split(separator: "\n", omittingEmptySubsequences: true)
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && $0.contains(";") }
+    }
+
     /// Semicolon-separated, ten columns; the label is joined back up so a stray `;`
     /// inside it shifts nothing. Every field but the label is trimmed, because the
     /// manifest is written by a heredoc and a leading space in an id is exactly the
     /// class of defect that cost this lane its first run (BSD `wc` right-aligns).
-    private static func parseManifest(_ text: String, root: URL) -> [CorpusEntry] {
-        var out: [CorpusEntry] = []
-        for rawLine in text.split(separator: "\n", omittingEmptySubsequences: true) {
-            let line = String(rawLine).trimmingCharacters(in: .whitespacesAndNewlines)
-            if line.isEmpty { continue }
-            let parts = line.components(separatedBy: ";")
-            guard parts.count >= 10 else { continue }
-            func field(_ index: Int) -> String {
-                parts[index].trimmingCharacters(in: .whitespaces)
-            }
-            let id = field(0)
-            let local = field(1)
-            guard !id.isEmpty, !local.isEmpty else { continue }
-            let flags = Set(field(6).components(separatedBy: ",")
-                .map { $0.trimmingCharacters(in: .whitespaces) }
-                .filter { !$0.isEmpty && $0 != "-" })
-            let label = parts[8..<(parts.count - 1)].joined(separator: ";")
-                .trimmingCharacters(in: .whitespaces)
-            out.append(CorpusEntry(
-                id: id,
-                local: local,
-                sha: field(2),
-                bytes: Int(field(3)) ?? 0,
-                makeToken: field(4),
-                orientation: Int(field(5)),
-                flags: flags,
-                licence: field(7),
-                label: label,
-                url: root.appendingPathComponent(local)))
+    private static func parseRow(_ line: String, root: URL) -> CorpusEntry? {
+        let parts = line.components(separatedBy: ";")
+        guard parts.count >= 10 else { return nil }
+        func field(_ index: Int) -> String {
+            parts[index].trimmingCharacters(in: .whitespaces)
         }
-        return out
+        let id = field(0)
+        let local = field(1)
+        guard !id.isEmpty, !local.isEmpty else { return nil }
+        let flags = Set(field(6).components(separatedBy: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty && $0 != dash })
+        let label = parts[8..<(parts.count - 1)].joined(separator: ";")
+            .trimmingCharacters(in: .whitespaces)
+        return CorpusEntry(
+            id: id,
+            local: local,
+            sha: field(2),
+            bytes: Int(field(3)) ?? 0,
+            makeToken: field(4),
+            orientation: Int(field(5)),
+            flags: flags,
+            licence: field(7),
+            label: label,
+            url: root.appendingPathComponent(local))
     }
 
     /// Skips the whole class when the corpus is absent, and fails loudly when it is
@@ -715,6 +748,11 @@ final class RawCorpusTests: XCTestCase {
         // R-8. A full-decode export, which is the path a delivered file actually takes.
         RawCorpusTests.exportAndReopen(entry: entry, source: source, recipe: recipe,
                                        into: p)
+        // The export decodes at scaleFactor 1.0, so the source is now holding a
+        // full-sensor half-float plane — 330 MB on the 40 MP X-H2. Sixteen of those
+        // outliving each other on a 7 GB runner is how this lane starts swapping
+        // instead of measuring, and nothing below reads the decode again.
+        _ = source.releaseDecodes()
 
         // R-11's stability half: a second reader over the same bytes must report the
         // same pin. The VALUE is never asserted — it moves when Apple ships a decoder.

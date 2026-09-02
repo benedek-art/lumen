@@ -465,7 +465,12 @@ final class GrainParityScanTests: XCTestCase {
     /// The first `"""…"""` literal after `name`, with its delimiters.
     private static func stringLiteral(after name: String, in source: Source) -> String? {
         guard let start = offsets(of: name, in: source.code).first else { return nil }
-        let quotes = offsets(of: "\"\"\"", in: source.code).filter { $0 > start }
+        // The fence is spelled with escapes rather than as three escaped quote
+        // characters: `check-swift-surface.py` reads argument labels by scanning
+        // the call text, and an argument that is nothing but quotes reads to it as
+        // the end of the call.
+        let fence = "\u{22}\u{22}\u{22}"
+        let quotes = offsets(of: fence, in: source.code).filter { $0 > start }
         guard quotes.count >= 2 else { return nil }
         return String(source.code[quotes[0]...(quotes[1] + 2)])
     }
