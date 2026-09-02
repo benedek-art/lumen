@@ -219,7 +219,6 @@ public enum PlanTableCache {
         while true {
             if var slotEntries = entries[slot],
                let index = slotEntries.firstIndex(where: { $0.key == key }) {
-                hit = slotEntries[index].table
                 // An exact hit means THIS photograph just rendered with this very
                 // table, so the entry adopts this photograph: the next draft frame's
                 // stale borrow then finds the picture this photo was showing a moment
@@ -228,6 +227,15 @@ public enum PlanTableCache {
                 // hits shared across photographs (the key describes the table
                 // completely) while the STALE door stays per-photograph.
                 slotEntries[index].identity = activeIdentity
+                // AND MOVE IT TO THE FRONT. Eviction is `removeLast`, so without this
+                // the eight slots are ordered by INSERTION and not by use: a drag's
+                // drain inserts a fresh key every ~24 ms, so two seconds of dragging
+                // evicts the table the compare pane keeps coming back to, and that
+                // pane's next frame pays a cold blocking bake for no reason the
+                // photographer can attribute to anything they did.
+                let hitEntry = slotEntries.remove(at: index)
+                slotEntries.insert(hitEntry, at: 0)
+                hit = hitEntry.table
                 entries[slot] = slotEntries
                 break
             }
@@ -352,11 +360,13 @@ public enum PlanTableCache {
         if let index = slotEntries.firstIndex(where: { $0.key == key }) {
             stats.hits += 1
             slotTraffic[slot, default: Stats()].hits += 1
-            // Adopt on hit, exactly as `table` does — an exact hit IS this
-            // photograph's picture, whoever baked it.
+            // Adopt on hit, and promote on hit, exactly as `table` does — an exact hit
+            // IS this photograph's picture, whoever baked it, and it is the entry least
+            // deserving of being the next one evicted.
             slotEntries[index].identity = activeIdentity
+            let hit = slotEntries.remove(at: index)
+            slotEntries.insert(hit, at: 0)
             entries[slot] = slotEntries
-            let hit = slotEntries[index]
             lock.unlock()
             // The STORED scalar, not the caller's, even on an exact hit. They agree
             // whenever the key covers the scalar, which is the invariant this cache

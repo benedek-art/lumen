@@ -96,6 +96,19 @@ fill, modified border in the 0.72 grey), `valueWidth` 44→48 with the pill's ai
 the column. Badge → HUD pill. `DesignSystemTests`: three prohibitions (no hover/ring on
 the slider row, headings through the token, cursor pushes only through the modifier) and
 five ratchets (raw font sizes 199, 9 pt 37, raw radii 34, hand-rolled HUD fills 19).
+**Correction to d15e663's own message:** it says the slider row's pitch becomes 28. It
+does not — the row is 24, its padding makes 28, and the panels stack rows at
+`VStack(spacing: 2)`, so the pitch is 30. The touch target (28) and the owner's row
+number (24) are both right; the stack's two points are U2 item 5's, changed per file
+with each stack's contents read rather than by a blind sweep of thirty-one sites. The
+comment in `LumenControls.swift` now carries the arithmetic.
+
+**And `valueWidth` is 52, not the 48 that first landed.** G1 §2 measured the binding
+case — Black target's `15.000` at three decimals, 41.2 pt while scrubbing, where the
+readout goes medium weight — and said a pill needs ≥ 52. At 11 pt that is ~37.8, which
+makes 48 sufficient by two tenths of a point: inside the error of estimating a font
+metric, for four points of track worth 0.03 pt per unit at the default width.
+
 **Deferred to U5:** toggle-row keyboard focus — space is a global hold key in `Keymap`,
 so the row would need the dispatcher yield the slider has.
 

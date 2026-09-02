@@ -334,12 +334,22 @@ enum Lumen {
     /// `SliderDragTests` re-proves the drag's properties parametrically from 100 to
     /// 400 pt of track, so nothing here is pinned to a width.
     static let labelWidth: CGFloat = 86
-    /// 48, up from 44: the readout is a pill now and five points of each side are the
-    /// pill's own air, which leaves 38 for the digits — enough for "−100" and "5500"
-    /// in tabular figures at 11 pt with room to spare, and the four points come out of
-    /// the track at 380 wide as 0.03 points per unit, which is below anything a hand
-    /// can feel.
-    static let valueWidth: CGFloat = 48
+    /// 52, up from 44, because the readout is a PILL now and a pill's padding comes out
+    /// of the digits' own room.
+    ///
+    /// The binding case is not the one you would guess. It is Black target — hard range
+    /// 0…15 at three decimals, so `15.000` — which measures 38.9 pt at 12 pt and 41.2
+    /// while scrubbing, where the readout goes medium weight. That was the tightest
+    /// readout in the app at 44 with three points to spare, and the G1 audit measured it
+    /// and said in as many words: a pill needs ≥ 52 or Black target clips while
+    /// scrubbing.
+    ///
+    /// The type scale moved to 11 pt, which brings the scrubbing case to about 37.8 and
+    /// would make 48 arithmetically sufficient by two tenths of a point. That is not a
+    /// margin — it is inside the error of estimating a font metric — and the thing it
+    /// buys is four points of track, which at the 380 pt default is 0.03 points per unit
+    /// on a ±100 control. Nobody can feel that; everybody can see a clipped number.
+    static let valueWidth: CGFloat = 52
 }
 
 // MARK: - Coloured track stop
@@ -616,9 +626,15 @@ struct LumenSlider: View {
         // beat the mockup, so the air stays. But the outer point existed to put a
         // gutter between two HOVER fills, and hover left this row a review ago; only
         // one row can hold focus, so the gutter was separating a fill from nothing.
-        // Dropping it puts the pitch at 28 — on the 4-point grid the rest of the layout
-        // is drawn to, and exactly the pitch he approved — with the row itself two
-        // points taller at the number he named.
+        //
+        // THE ARITHMETIC, WRITTEN OUT, because the commit that landed this said 28 and
+        // 28 is wrong. The row is 24 tall, this padding makes it 28, and the panels
+        // stack their rows at `VStack(spacing: 2)` — so the pitch on screen is 30. The
+        // touch target is 28 and the row he named is 24; both of those are right. The
+        // stack's two points are what stand between 28 and the grid, and moving them is
+        // U2 item 5's job rather than this one's: there are thirty-one of those stacks
+        // and they hold headers, notes and disclosures as well as rows, so they are
+        // changed per file with their contents read, not by a blind sweep from here.
         .padding(.vertical, 2)
         // THE ROW ANSWERS THE KEYBOARD, and — since the owner's third review — no longer
         // answers the pointer.

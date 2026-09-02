@@ -662,6 +662,70 @@ extension PlanTableCacheTests {
     }
 }
 
+// MARK: - Eviction by use, not by arrival (I1-05)
+
+extension PlanTableCacheTests {
+
+    /// The cache holds eight per slot and evicts with `removeLast`, so the order of the
+    /// array IS the eviction policy. A hit adopted the photograph and wrote the array
+    /// back but left the entry where it was, which made the policy "oldest arrival"
+    /// rather than "least recently used".
+    ///
+    /// A drag's drain inserts a fresh key roughly every 24 ms. Two seconds of dragging
+    /// is eighty new keys through an eight-slot cache — so the table a compare pane or
+    /// a before/after view keeps returning to is evicted while it is still in use, and
+    /// that pane's next frame pays a cold blocking bake the photographer cannot
+    /// attribute to anything they did.
+    func testAHitKeepsAnEntryAliveAcrossCapacityChurn() {
+        freshCache()
+
+        var builds = 0
+        func ask(_ key: String) {
+            _ = PlanTableCache.table(.finish, key: key, size: 5) {
+                builds += 1
+                return LUT3D(size: 5) { $0 }
+            }
+        }
+
+        ask("keeper")
+        // Seven more fills the slot; touching `keeper` between each is what a second
+        // pane does, and what must keep it alive.
+        for i in 0..<7 {
+            ask("churn-\(i)")
+            ask("keeper")
+        }
+        // The eighth eviction: with promotion, `keeper` is at the front and the oldest
+        // churn key goes; without it, `keeper` is the oldest and goes first.
+        ask("churn-7")
+
+        let before = builds
+        ask("keeper")
+        XCTAssertEqual(builds, before,
+                       "the table the second pane keeps asking for was evicted while it "
+                       + "was in use — eviction was ordered by arrival, not by use")
+    }
+
+    /// And the policy still EVICTS. A promotion that never dropped anything would keep
+    /// the slot growing without bound, which is the other way to pass the test above.
+    func testTheSlotStillEvictsWhatNobodyAsksFor() {
+        freshCache()
+        var builds = 0
+        func ask(_ key: String) {
+            _ = PlanTableCache.table(.finish, key: key, size: 5) {
+                builds += 1
+                return LUT3D(size: 5) { $0 }
+            }
+        }
+        ask("forgotten")
+        for i in 0..<8 { ask("fill-\(i)") }
+        let before = builds
+        ask("forgotten")
+        XCTAssertEqual(builds, before + 1,
+                       "a key nobody has asked for in eight insertions must be gone — "
+                       + "otherwise the cache has no capacity at all")
+    }
+}
+
 /// A build counter that is safe to bump from `bakeQueue` and read from the test.
 final class BuildCounter: @unchecked Sendable {
     private let lock = NSLock()
