@@ -207,7 +207,12 @@ final class DragProbeTests: XCTestCase {
         let events = allowStaleTables ? Self.events : Self.settleEvents
         var samples: [Double] = []
         samples.reserveCapacity(events)
-        PlanTableCache.resetStats()
+        // Accumulated PER TIMED FRAME rather than once around the whole row, because a
+        // settle row now renders an untimed draft before each sample (below) and that
+        // draft's traffic is not the settle's.
+        var traffic = PlanTableCache.Stats()
+        let options = RenderGraph.Options(longEdge: longEdge,
+                                          lutSize: LUT3D.interactiveSize)
 
         // IOSurface-backed, so the frame can be produced without ever crossing back to
         // the CPU — the comparison the readback line below is for.
@@ -239,6 +244,34 @@ final class DragProbeTests: XCTestCase {
             let t = (Double(index) + 0.5) / Double(Self.events)
             let recipe = control.recipe(at: t)
 
+            // A SETTLE IS THE FRAME AFTER A DRAG ENDS, and this is the half of I1-02
+            // that sampling a subset of the draft's values did not fix.
+            //
+            // The settle row renders 12 frames at spread values with nothing before
+            // them, so the cache it meets is whatever the previous row left. The draft
+            // row before it visited 48 values re-keying the finish table at each, and
+            // the cache holds EIGHT entries per slot — so by the time the draft ends,
+            // only its last eight keys are resident, and a settle sampling the whole
+            // travel can address at most one of them. `0h/36b` on Whites was
+            // arithmetically guaranteed before the first frame ran, and it has been
+            // read for three rounds as "the settle path is not wired to the cache".
+            //
+            // What a settle actually meets is the cache the drag that just ended left
+            // one mouse event ago. So each settle sample now renders its own draft
+            // frame first, untimed, at the same value: the drag's last event, then the
+            // settle. That is the pair the photographer performs, and it is the only
+            // arrangement in which this row's hit count means anything.
+            if !allowStaleTables {
+                let lastDragFrame = RenderPlan(recipe: recipe,
+                                               lutSize: LUT3D.interactiveSize,
+                                               allowStaleTables: true)
+                let warm = RenderGraph().build(source, plan: lastDragFrame,
+                                               options: options)
+                _ = context.createCGImage(warm, from: warm.extent, format: .RGBA8,
+                                          colorSpace: CGColorSpace(name: CGColorSpace.sRGB))
+            }
+
+            PlanTableCache.resetStats()
             let t0 = DispatchTime.now().uptimeNanoseconds
             // `allowStaleTables` is the whole difference between a DRAFT and a SETTLE,
             // and getting it wrong makes this probe measure the wrong pass entirely:
@@ -246,8 +279,6 @@ final class DragProbeTests: XCTestCase {
             // settle does once per gesture and what a drag must never do.
             let plan = RenderPlan(recipe: recipe, lutSize: LUT3D.interactiveSize,
                                   allowStaleTables: allowStaleTables)
-            let options = RenderGraph.Options(longEdge: longEdge,
-                                              lutSize: LUT3D.interactiveSize)
             let out = RenderGraph().build(source, plan: plan, options: options)
             if let destination {
                 context.render(out, to: destination, bounds: out.extent,
@@ -257,12 +288,18 @@ final class DragProbeTests: XCTestCase {
                                           colorSpace: CGColorSpace(name: CGColorSpace.sRGB))
             }
             let ms = Double(DispatchTime.now().uptimeNanoseconds - t0) / 1e6
+            let frame = PlanTableCache.currentStats
+            traffic.hits += frame.hits
+            traffic.bakes += frame.bakes
+            traffic.staleServes += frame.staleServes
+            traffic.deferredBakes += frame.deferredBakes
+            traffic.joinedBakes += frame.joinedBakes
 
             // The first event of a gesture pays warm-up the rest of the drag does not,
             // and it is not what "the slider ticks" describes.
             if event > 0 { samples.append(ms) }
         }
-        return Distribution(samples, traffic: PlanTableCache.currentStats)
+        return Distribution(samples, traffic: traffic)
     }
 
     private func context() -> CIContext {
@@ -332,6 +369,60 @@ final class DragProbeTests: XCTestCase {
     /// THE HEADLINE. Every control, at the size a real loupe asks for at fit, timed per
     /// frame with a fresh plan — the number the owner's "tick by tick" is a description
     /// of.
+    /// THE SETTLE ROW HAS TO BE ABLE TO HIT THE CACHE (I1-02).
+    ///
+    /// N-002 — "the settle path bakes tables with zero cache hits" — has been read off
+    /// this probe for three rounds, and for three rounds it was arithmetic rather than
+    /// a measurement. Two separate reasons, both in the sampling:
+    ///
+    /// 1. The settle used to sample `(e + 0.5) / 12` against the draft's
+    ///    `(e + 0.5) / 48` — odd ninety-sixths against even ones, two sets that can
+    ///    never coincide. `0h` was guaranteed before the first frame ran.
+    /// 2. Fixing that to a subset was not enough. The cache holds EIGHT entries per
+    ///    slot; a Whites drag re-keys the finish table at all 48 values, so only its
+    ///    last eight survive, and a settle spread across the whole travel can address
+    ///    at most one of them.
+    ///
+    /// Both are fixed — the values are a subset, and each settle sample now renders its
+    /// own draft frame first, which is what a settle IS. These assertions are the
+    /// arithmetic, so they fail without a GPU and without waiting for the probe.
+    func testTheSettleRunCanAddressWhatTheDraftRunLeftBehind() {
+        let stride = Self.events / Self.settleEvents
+        XCTAssertGreaterThan(stride, 0,
+                             "settleEvents must divide into events, or the settle's "
+                                 + "sample values stop being draft values at all")
+        XCTAssertEqual(stride * Self.settleEvents, Self.events,
+                       "\(Self.events) draft events do not divide evenly into "
+                           + "\(Self.settleEvents) settle events, so the last settle "
+                           + "sample walks off the end of the drag")
+
+        let draftValues = Set((0..<Self.events).map { (Double($0) + 0.5) / Double(Self.events) })
+        let settleValues = (0..<Self.settleEvents)
+            .map { (Double($0 * stride) + 0.5) / Double(Self.events) }
+        for v in settleValues {
+            XCTAssertTrue(draftValues.contains(v),
+                          "the settle prices \(v), which the draft never visits — so "
+                              + "the cache cannot hold a table for it however well the "
+                              + "render path is wired")
+        }
+
+        // And the second half: a settle must not be asked to hit a table the drag
+        // pushed out. Whites re-keys the finish slot at every one of the 48 values and
+        // the slot holds 8, so the ONLY settle sample the drag could still be holding
+        // is one inside its last eight events — which is why each settle sample renders
+        // its own draft frame instead of relying on the row before it.
+        let reachableWithoutItsOwnDraft = settleValues.filter {
+            $0 > Double(Self.events - 8) / Double(Self.events)
+        }
+        XCTAssertLessThanOrEqual(
+            reachableWithoutItsOwnDraft.count, 1,
+            "this assertion exists to record WHY the settle renders its own draft "
+                + "frame: with an 8-entry slot and a control that re-keys on every "
+                + "event, at most one of these \(Self.settleEvents) samples could "
+                + "survive the drag. If that stops being true the pairing can be "
+                + "revisited — but do not remove it on the strength of a green row")
+    }
+
     func testWhatADragFrameCostsPerControl() throws {
         let ctx = context()
         // ≈ a 16-inch MacBook Pro's loupe at fit: a 1180 pt centre pane at 2× buckets

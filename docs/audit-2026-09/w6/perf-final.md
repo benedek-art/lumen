@@ -50,6 +50,29 @@ that it works at all.
 
 **Until I1-02 lands, N-002's row is not measurable and must not be reported as closed.**
 
+### Addendum — I1-02 landed after this run
+
+The probe is fixed and these numbers are the LAST ones taken before it. Two reasons the
+settle row could not hit, and only the first had been dealt with:
+
+1. The settle used to sample `(e + 0.5) / 12` against the draft's `(e + 0.5) / 48` — odd
+   ninety-sixths against even ones, two sets that can never coincide. Fixed earlier, by
+   sampling every fourth draft value.
+2. **That was not enough, and it is why this run still reads `0h`.** The cache holds
+   eight entries per slot. A Whites drag re-keys the finish table at all 48 values, so
+   when it ends only its last eight are resident — and a settle spread across the whole
+   travel can address at most one of them. `0h/36b` was still arithmetic.
+
+Each settle sample now renders its own draft frame first, untimed, at the same value:
+the drag's last event, then the settle. That is the pair a photographer performs, and it
+is the only arrangement in which this row's hit count means anything. Traffic is also
+accumulated per timed frame now, so the untimed draft's stale serves are not counted as
+the settle's.
+
+`testTheSettleRunCanAddressWhatTheDraftRunLeftBehind` pins both halves as arithmetic, so
+it fails without a GPU and without waiting for the probe. **The next gpu-parity run's
+Whites settle row is the real re-measurement of N-002.**
+
 ## PERFPROBE — full pipeline, synthetic frame
 
 | long edge | baseline | final | Δ |
