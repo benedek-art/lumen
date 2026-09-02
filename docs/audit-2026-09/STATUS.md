@@ -150,6 +150,16 @@ with two new fixtures pinning the hole shut.
 run `check-swift-surface.py` AND look at `build-macos` on the pushed SHA before starting
 the next landing.** A green local triad is not a build.
 
+## Landed, batch 4
+| SHA | Landing |
+|---|---|
+| f586762 | **U3 type**: the ten shell files onto the scale; the 10 pt floor is now zero, not a ratchet; `.lumenCaptionNumeric` for counts. Raw font calls 199 → 84. |
+| 0158776 | **C2-01b** the plate is band-limited to the resolution it is sampled at — the real mechanism behind the red/green grain parity loss; ceremony re-pinned `film.grain.size` alone of twelve. |
+
+**Report published** for the owner: https://claude.ai/code/artifact/07e0620e-84bc-4b25-844a-662d4d840395
+— what to test in ten steps, the twenty-four landings, and what I got wrong (the red
+streak included).
+
 ## Queued next, in order
 1. **U3 shell** — sidebar regroup, status bar with the query sentence, filter bar →
    popover with live counts, grid/filmstrip cells, `⌘C`/`⌘V` contextual
