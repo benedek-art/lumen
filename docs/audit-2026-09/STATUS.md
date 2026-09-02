@@ -353,13 +353,26 @@ past `GrainPlan` for a raw plate. **Lesson: a test that pins two implementations
 together has to exercise them the way the renderer does, not the way that makes them
 easy to compare.**
 
-**The three "independent" dye-layer plates are not independent.** `plateSeed(channel:)`
-separates the three seeds by adding a golden-ratio constant, and the fields that come
-back correlate at r ≈ 0.088 / 0.044 / −0.040 over 16 384 samples — the first is about
-eleven standard errors out, so it is structure and not sampling. It makes C2-02's defect
-smaller rather than larger, so it is not urgent, and it is the reason the C2-02 mix's
-amplitude preservation is a few percent rather than exact. Worth a plate-generator look
-in W3.
+**~~The three "independent" dye-layer plates are not independent.~~ N-005 is REFUTED,
+and it was my error.** I measured `plateSeed(channel:)`'s three fields correlating at
+r ≈ 0.088 / 0.044 / −0.040 over 16 384 samples and called the first "about eleven
+standard errors out, so it is structure and not sampling".
+
+The standard error was wrong. I computed it as 1/√16384 — the figure for 16 384
+INDEPENDENT samples — and the plate's samples are not independent: it is a smooth
+field, and its effective degrees of freedom are about 64. The I2 audit did the thing I
+should have done and built a null distribution from 200 unrelated seed pairs: its
+standard deviation is 0.110, which puts 0.088 at the **57th percentile**. That is the
+middle of the distribution. There is no structure here.
+
+What survives: the three seeds ARE separated by a merely additive offset, which is the
+weakest form of separation available (D2 noted the same thing independently, without
+claiming it produced a defect). That is a code-smell worth a look and not a finding, and
+C2-02's few-percent amplitude behaviour needs a different explanation than this one.
+
+Recorded at length rather than deleted, because the failure is instructive: a
+correlation coefficient with a confidently wrong denominator reads exactly like a
+result, and nothing about the number itself says which it is.
 
 ## Notes
 - **U0 mockup published**: https://claude.ai/code/artifact/d2b27d8f-e938-4f72-a402-2d638cd52f9b

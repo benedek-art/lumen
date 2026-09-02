@@ -948,7 +948,16 @@ public enum KernelLibrary {
             ("guidedCoefficients", guidedCoefficients),
             ("guidedCrossCoefficients", guidedCrossCoefficients),
             ("guidedApply", guidedApply),
-            ("blendMask", blendMask), ("grain", grain), ("vignette", vignette),
+            // `blendMaskMode` sits beside `blendMask` and not in `unavailableMaskKernels`
+            // because it is the OTHER BRANCH of the same call, and neither branch has a
+            // fallback: `RenderGraph`'s `guard let blended = composite else { continue }`
+            // drops the mask's whole local adjustment, silently. The mask-kernel roster
+            // is for the parametric fast path, which falls back to `MaskRaster` — this
+            // one has nothing to fall back to, so it belongs on the list that gates the
+            // GPU path. It was in NEITHER, which is the fifth instance of exactly the
+            // defect the comment on `unavailableMaskKernels` below describes.
+            ("blendMask", blendMask), ("blendMaskMode", blendMaskMode),
+            ("grain", grain), ("vignette", vignette),
             ("detailGain", detailGain), ("dehaze", dehaze), ("addGlow", addGlow),
             ("sharpenDelta", sharpenDelta), ("lumaRatio", lumaRatio),
             ("subtract", subtract), ("thresholdMask", thresholdMask), ("detailRemap", detailRemap),
