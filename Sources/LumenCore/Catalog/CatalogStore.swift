@@ -1028,6 +1028,7 @@ public final class CatalogStore {
 
         try migrate()
         try seedMetaIfNeeded()
+        try rebuildTextIndexIfNeeded()
     }
 
     deinit {
@@ -1295,6 +1296,16 @@ public final class CatalogStore {
             }
             return removed
         }
+    }
+
+    // MARK: - Test hooks
+
+    /// Raw SQL against the open connection, for tests that need to put the database
+    /// into a state the store would never create itself — an index emptied behind the
+    /// store's back, a row a broken build left. Internal, `@testable` only; the app has
+    /// no business here.
+    func debugExecute(_ sql: String) throws {
+        try db.execute(sql)
     }
 
     // MARK: - meta
@@ -3076,6 +3087,58 @@ public final class CatalogStore {
 
     /// Keeps the FTS row for one photo in step with the catalog. rowid == photo.id, so
     /// the delete is a rowid lookup rather than a scan.
+    /// THE TEXT INDEX LIVES IN THE DISPOSABLE DATABASE; THE ROWS IT INDEXES DO NOT.
+    ///
+    /// `cache.db` is recreated empty in three places in `init` — a cache from a newer
+    /// build, a corrupt cache, and a cache that is simply absent, which is the first run
+    /// and also what a photographer gets by emptying `~/Library/Caches`, exactly as
+    /// `defaultCachePath`'s own comment invites. All three land on `CREATE VIRTUAL
+    /// TABLE IF NOT EXISTS`, which succeeds, so `ftsEnabled` is true for an index that
+    /// holds nothing. Every text query then prefers it over the LIKE fallback, and
+    /// the search chip matches nothing, permanently: the only writer is the per-photo
+    /// `reindexText`, and it is reached from edit paths, never from a scan of what is
+    /// already there.
+    ///
+    /// So: if the catalog has photographs and the index has none of them, refill it.
+    /// One statement, one transaction, in SQL rather than a Swift loop, because a
+    /// hundred-thousand-frame catalog must not pay a round trip per row at launch. The
+    /// condition also repairs a catalog that is ALREADY in the broken state — shipped
+    /// builds have been creating them — which is why it is a check on emptiness rather
+    /// than a flag from the recreate paths.
+    ///
+    /// `EXISTS … LIMIT 1` on both sides: FTS5 keeps no row count, so `COUNT(*)` on the
+    /// index is a scan, and this runs on every open.
+    private func rebuildTextIndexIfNeeded() throws {
+        guard ftsEnabled else { return }
+        let indexHasRows = try db.scalarInt(
+            "SELECT EXISTS(SELECT 1 FROM cache.photo_fts LIMIT 1);") == 1
+        let catalogHasRows = try db.scalarInt(
+            "SELECT EXISTS(SELECT 1 FROM main.photo LIMIT 1);") == 1
+        if catalogHasRows && !indexHasRows { try rebuildTextIndex() }
+    }
+
+    /// Repopulate `cache.photo_fts` from `main`, wholesale. Internal so a test can
+    /// drive it directly; the app reaches it through `init`.
+    ///
+    /// The SELECT is `reindexText`'s row, written once for every photograph: the same
+    /// five columns, the same keyword join (`keywords(photoID:)`), COALESCEd because a
+    /// NULL camera must index as an empty string and not as no row.
+    func rebuildTextIndex() throws {
+        guard ftsEnabled else { return }
+        try db.transaction {
+            _ = try self.db.run("DELETE FROM cache.photo_fts;")
+            _ = try self.db.run("""
+            INSERT INTO cache.photo_fts (rowid, filename, ext, camera, lens, job, keywords)
+            SELECT p.id, p.filename, COALESCE(p.ext, ''),
+                   COALESCE(p.camera, ''), COALESCE(p.lens, ''), COALESCE(p.job, ''),
+                   COALESCE((SELECT group_concat(k.name, ' ')
+                               FROM photo_keyword pk JOIN keyword k ON k.id = pk.keyword_id
+                              WHERE pk.photo_id = p.id), '')
+              FROM main.photo p;
+            """)
+        }
+    }
+
     private func reindexText(photoID: Int64) throws {
         if !ftsEnabled { return }
         guard let fields = try firstRow(

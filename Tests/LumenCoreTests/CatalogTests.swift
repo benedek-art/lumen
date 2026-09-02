@@ -478,6 +478,63 @@ final class CatalogTests: XCTestCase {
         store.close()
     }
 
+    /// K-052: the text index survives the cache database being recreated.
+    ///
+    /// `photo_fts` lives in `cache.db`, which is disposable by design and recreated
+    /// empty by three paths in `init`. `CREATE VIRTUAL TABLE IF NOT EXISTS` succeeds on
+    /// the empty file, `ftsEnabled` goes true, every text query prefers the index over
+    /// the LIKE fallback, and the search chip returns nothing forever — because the
+    /// only writer is per-photo and reached from edits, never from a scan. Deleting
+    /// `cache.db` here is exactly what macOS storage tooling does, and what the
+    /// `schemaTooNew` branch does on its own.
+    ///
+    /// Skips only when FTS5 is absent — NOT on the index being empty, which is the
+    /// green-lane trap the finding warns about.
+    func testTextIndexIsRebuiltAfterTheCacheDatabaseIsRecreated() throws {
+        let store = try makeStore()
+        let (folderID, ids) = try seed(store, count: 3)
+        try XCTSkipUnless(store.isTextIndexAvailable, "no FTS5 in this SQLite")
+        try store.setMetadata(PhotoMetadata(camera: "Sony A7 IV"), photoID: ids[0])
+        var q = PhotoQuery()
+        q.text = "sony"
+        XCTAssertEqual(try store.photos(matching: q, folderID: folderID).map(\.id), [ids[0]])
+        store.close()
+
+        try FileManager.default.removeItem(at: directory.appendingPathComponent("cache.db"))
+
+        let reopened = try makeStore()
+        XCTAssertTrue(reopened.isTextIndexAvailable)
+        XCTAssertEqual(try reopened.photos(matching: q, folderID: folderID).map(\.id),
+                       [ids[0]],
+                       "the text index was recreated empty and nothing refilled it — "
+                       + "every text search returns nothing, permanently")
+        // The count path shares the builder and has to agree.
+        XCTAssertEqual(try reopened.countPhotos(matching: q, folderID: folderID), 1)
+        reopened.close()
+    }
+
+    /// And a catalog ALREADY in the broken state — an index that exists and is empty
+    /// beside a catalog that is not — is repaired on open, because shipped builds have
+    /// been creating exactly those.
+    func testAnEmptyTextIndexBesideAPopulatedCatalogIsRepairedOnOpen() throws {
+        let store = try makeStore()
+        let (folderID, ids) = try seed(store, count: 2)
+        try XCTSkipUnless(store.isTextIndexAvailable, "no FTS5 in this SQLite")
+        try store.setMetadata(PhotoMetadata(camera: "Leica M11"), photoID: ids[1])
+        // Empty the index behind the store's back, as a broken build would have left it.
+        try store.debugExecute("DELETE FROM cache.photo_fts;")
+        var q = PhotoQuery()
+        q.text = "leica"
+        XCTAssertEqual(try store.photos(matching: q, folderID: folderID).map(\.id), [],
+                       "the fixture must start broken, or the repair proves nothing")
+        store.close()
+
+        let reopened = try makeStore()
+        XCTAssertEqual(try reopened.photos(matching: q, folderID: folderID).map(\.id),
+                       [ids[1]])
+        reopened.close()
+    }
+
     /// LIB-10: the text chip's fast path has to learn what the backfill learned.
     ///
     /// The FTS row is built at upsert time, minutes before any EXIF exists, so
