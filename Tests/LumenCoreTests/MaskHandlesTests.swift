@@ -12,6 +12,31 @@ import XCTest
 
 final class MaskHandlesTests: XCTestCase {
 
+    /// THE DRAWN DOT IS A SIGHT, NOT THE TARGET.
+    ///
+    /// `grabRadius`'s own comment has said so since it was written — "more than twice
+    /// the 4.5 pt the handle dots are DRAWN at" — and until the two numbers lived in
+    /// the same file that was a claim about a literal in `Sources/LumenApp` that
+    /// nothing could check, in a project whose recorded history is two constants
+    /// drifting apart in two files. A grab radius that matched the ink is precisely
+    /// the fiddliness the owner reported.
+    func testTheDrawnDotIsASightNotTheTarget() {
+        XCTAssertGreaterThan(MaskHandles.grabRadius, 2 * MaskHandles.dotRadius,
+                             "the grab tolerance has fallen to the size of the ink — "
+                                 + "every handle in the canvas is now as fiddly as its "
+                                 + "dot is small")
+        XCTAssertLessThan(MaskHandles.smallDotRadius, MaskHandles.dotRadius,
+                          "the secondary marks — a centre, a midpoint, the feather "
+                              + "ring — are drawn smaller than the primary ones because "
+                              + "they are not what the hand is aiming at")
+        XCTAssertGreaterThan(MaskHandles.smallDotRadius, 0)
+        // And the same hand, the same number: a slider thumb and a mask rim ask the
+        // pointer for the same thing, and answering it twice is how they diverge.
+        XCTAssertEqual(MaskHandles.grabRadius, SliderDrag.thumbGrabRadius,
+                       "the mask canvas and the sliders have stopped agreeing about "
+                           + "how close a press has to land")
+    }
+
     // A plausible ellipse on a plausible preview: the default a new radial is seeded
     // with (centre 0.5/0.5, radii 0.3/0.3) drawn on a 1600×1100 fit, which puts the
     // centre at (800, 550) and the axes at 480 and 330 points.

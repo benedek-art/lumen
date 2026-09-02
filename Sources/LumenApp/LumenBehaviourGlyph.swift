@@ -254,6 +254,12 @@ struct LumenBehaviourGlyph: View {
         // rounded rectangle. The number that keeps a diagram reading as the shape it
         // depicts is proportional to the diagram, and 2.5 on 8 is the same proportion as
         // 6 on a 16-point chip.
+        //
+        // `Lumen.swatchRadius(_:)` is the rule for the small FIXED-size indicators — the
+        // colour swatches, the label tag, the clipping bar — and it is deliberately not
+        // used here: this rect is computed from the canvas at draw time, and a diagram
+        // is not an indicator. It is named so the next reader finds the rule beside the
+        // one exception to it rather than concluding there is no rule.
         let path = Path(roundedRect: rect, cornerRadius: 2.5)
         context.stroke(path, with: .color(stroke),
                        style: StrokeStyle(lineWidth: 1.1, dash: dashed ? [2.5, 2.5] : []))

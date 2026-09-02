@@ -65,6 +65,20 @@ public struct RenderGraph {
     public var maskImages: [String: CIImage] = [:]
     /// The film grain plate, tiled, supplied by the film stage's cache.
     public var grainPlate: CIImage?
+    /// THE EXPORT PATH IS GRAINING THIS FRAME ITSELF, after the resize — so this graph
+    /// must not.
+    ///
+    /// Withholding `grainPlate` used to be the whole of the signal, and for a stock it
+    /// was enough: no plate, no grain. A CREATIVE grain has a fallback three lines
+    /// below that builds its own plate when none was supplied, so it grained anyway —
+    /// at the decode's long edge, before `applyGeometry` and before the resize. The
+    /// footprint survives a resample unchanged (`plateScale` is linear in the long
+    /// edge), so this is not the "grain gets finer" story it looks like; what it
+    /// bypasses is the HALF-PIXEL FLOOR. Creative Size 0 on a 6000 px decode delivered
+    /// at 1200 px lands at 1.167 px, resamples to 0.233, and the delivered file carries
+    /// aliased speckle where the model says 0.5 px is the finest thing that may exist
+    /// (C2-03 / K-065).
+    public var defersGrain: Bool = false
 
     public init() {}
 
@@ -243,15 +257,13 @@ public struct RenderGraph {
         // already has, reading `plan.grain` instead of `plan.filmChain` — and it belongs
         // in that file, which is not this change's to edit. Until then this is where a
         // creative grain lands, and it is right for every preview and every 1:1 view.
-        if let grain = plan.grain, grain.amount > 0 {
+        if let grain = plan.grain, grain.amount > 0, !defersGrain {
             if let plate = grainPlate {
-                image = applyGrain(image, plate: plate, amount: grain.amount,
-                                   dMax: grain.dMax)
+                image = applyGrain(image, plate: plate, grain: grain)
             } else if grain.isCreative,
-                      let plate = Self.creativeGrainPlate(grain, extent: image.extent,
-                                                          longEdge: options.longEdge) {
-                image = applyGrain(image, plate: plate, amount: grain.amount,
-                                   dMax: grain.dMax)
+                      let plate = Self.grainPlate(grain, extent: image.extent,
+                                                    longEdge: options.longEdge) {
+                image = applyGrain(image, plate: plate, grain: grain)
             }
         }
 
@@ -1359,27 +1371,40 @@ public struct RenderGraph {
             ?? image
     }
 
-    /// The film path's spelling, kept verbatim because `PipelineRenderer` calls it on
-    /// the export path with a `FilmChain` in hand and that file is not this change's to
-    /// edit. It delegates to the two scalars the kernel actually takes, so there is one
-    /// implementation and the export path's grain is bit-for-bit what it was.
-    func applyGrain(_ image: CIImage, plate: CIImage, film: FilmChain) -> CIImage {
-        applyGrain(image, plate: plate, amount: film.grainAmount, dMax: film.grainDMax)
-    }
-
-    /// The grain kernel, in the two scalars it has always taken: the peak amplitude in
-    /// density units and the Dmax that normalizes the density into `p`. Whether they
-    /// came from an emulsion or from three sliders is settled before this line.
-    func applyGrain(_ image: CIImage, plate: CIImage, amount: Double,
-                    dMax: Double) -> CIImage {
+    /// The grain kernel, from the plan both renderers hold: the peak amplitude in
+    /// density units, the Dmax that normalizes the density into `p`, and the two
+    /// weights that decide how much of the three layers' independence reaches the
+    /// picture. Whether they came from an emulsion or from three sliders is settled
+    /// before this line.
+    ///
+    /// It takes the PLAN rather than loose scalars because the weights have to be the
+    /// same two numbers `ReferenceRenderer.applyGrain` computes, and the way for two
+    /// renderers to disagree about a number is for each to be handed it separately.
+    func applyGrain(_ image: CIImage, plate: CIImage, grain: GrainPlan) -> CIImage {
         KernelLibrary.apply(KernelLibrary.grain, extent: image.extent,
-                            [image, plate, Float(amount), Float(dMax)])
+                            [image, plate, Float(grain.amount), Float(grain.dMax),
+                             Float(grain.noiseLumaWeight), Float(grain.noiseOwnWeight)])
             ?? image
     }
 
-    /// A tiled plate for a CREATIVE grain, packed the way `lumenGrain` reads it.
+    /// A tiled plate for ANY grain — a stock's or the Effects panel's — packed the way
+    /// `lumenGrain` reads it.
     ///
-    /// This is the same construction `PipelineRenderer.grainPlate` performs for a film
+    /// THERE WAS A SECOND COPY OF THIS, in `PipelineRenderer`, for the film path. Same
+    /// generator, same seeds, same packing, same tiling, same 128 — a duplicate that
+    /// this comment used to describe as producing identical bytes "by construction".
+    /// It stopped being true the moment the plate learned to band-limit itself
+    /// (C2-01b): the reference renderer and this builder skipped the octaves a render
+    /// cannot resolve, and the film path's copy did not, so a stock's GPU grain went
+    /// back to carrying the aliasing the fix had just removed — on the export path as
+    /// well as the preview. Nothing failed, because the test that pinned the two
+    /// builders together compares the UNLIMITED plates and both are still unlimited
+    /// when you ask them that way.
+    ///
+    /// So there is one builder now. `GrainPlan.film` makes a plan out of a `FilmChain`
+    /// and the film path comes through here.
+    ///
+    /// This is the same construction `PipelineRenderer.grainPlate` used to perform for a film
     /// stock, and the duplication is deliberate and bounded rather than accidental: the
     /// film builder lives in a file this change does not own, and the alternative was
     /// either to ship a creative grain that renders on the CPU reference and silently
@@ -1402,8 +1427,8 @@ public struct RenderGraph {
     /// No `saturate` on the stored value, for the reason the film builder gives: the
     /// texture is RGBAf and a clamp to 0…1 would flatten the 3.4% of the plate beyond
     /// ±2σ, which is precisely the strongest grains.
-    static func creativeGrainPlate(_ grain: GrainPlan, extent: CGRect,
-                                   longEdge: Int) -> CIImage? {
+    static func grainPlate(_ grain: GrainPlan, extent: CGRect,
+                           longEdge: Int) -> CIImage? {
         let size = GrainPlan.plateSize
         guard extent.width > 0, extent.height > 0 else { return nil }
 

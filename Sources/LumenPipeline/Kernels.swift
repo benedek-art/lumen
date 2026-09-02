@@ -603,13 +603,26 @@ public enum KernelLibrary {
     /// number `grainPlate` divides by. It used to be hardcoded as 2.0 against a store
     /// that divided by 4, so the GPU saw half the amplitude the reference defines.
     /// Interpolated rather than written out, so the pair cannot drift again.
+    /// `lumaW` and `ownW` are `GrainPlan.noiseLumaWeight` / `noiseOwnWeight` — how much
+    /// of the three dye layers' independence reaches the picture (C2-02). Three
+    /// unit-variance fields laid at full amplitude put 2.45x as much noise into colour
+    /// as into luminance, and at export the cells are big enough to see it; at preview
+    /// they are sub-display-pixel, so the app could never show what the file carries.
+    /// The weights are derived on `FilmGrainProfile.noiseMixWeights`, and they are
+    /// scaled so the luminance grain does not move — only its colour does. At the
+    /// shipped colour default they
+    /// are not (0, 1), so this line changes pixels — deliberately, and identically in
+    /// `ReferenceRenderer.applyGrain`, which is what gpu-parity checks.
     static let grainSource = """
-    kernel vec4 lumenGrain(__sample image, __sample noise, float amount, float dmax) {
+    kernel vec4 lumenGrain(__sample image, __sample noise, float amount, float dmax,
+                           float lumaW, float ownW) {
         vec3 c = max(image.rgb, vec3(1e-5));
         vec3 d = -log(c) / log(10.0);
         vec3 p = clamp(d / dmax, 0.0, 1.0);
         vec3 amp = sqrt(max(p * (vec3(1.0) - p), vec3(0.0)));
         vec3 n = (noise.rgb - vec3(0.5)) * \(Float(FilmGrainProfile.plateEncodeScale));
+        float nShared = (n.r + n.g + n.b) * lumaW;
+        n = vec3(nShared) + n * ownW;
         vec3 d2 = d + amp * n * amount;
         vec3 shifted = pow(vec3(10.0), -d2);
         return vec4(shifted, image.a);

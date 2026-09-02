@@ -1059,7 +1059,11 @@ enum ProofRegistry {
             id: "film.grain.amount", panel: "Film Lab", displayName: "Grain",
             low: 0, high: 100,
             frameName: "grainField", frame: { ProofFrames.grainField() },
-            // Measured 19.43.
+            // Measured 19.43, then 16.32 once the dye layers stopped laying their
+            // noise at full independence (C2-02) — the same per-channel measurement
+            // effect `film.grain.size` explains at length below, a third of the size
+            // because this control sweeps amount at one pitch rather than sweeping the
+            // pitch itself. It still clears its floor with room.
             authorityFloor: 13,
             apply: { r, v in
                 var film = portra()
@@ -1082,12 +1086,39 @@ enum ProofRegistry {
             id: "film.grain.size", panel: "Film Lab", displayName: "Grain size",
             low: 0.5, high: 2.0, neutral: 1.0,
             frameName: "grainField", frame: { ProofFrames.grainField() },
-            // Measured 40.69, against 0.00 on the ramp.
-            authorityFloor: 28,
+            // Measured 40.69, against 0.00 on the ramp; 40.13 after the plate was
+            // band-limited (C2-01b); **26.19** after the dye layers stopped laying
+            // their noise at full independence (C2-02), which is where both numbers
+            // below now come from.
+            //
+            // THE FLOOR MOVED BECAUSE THE METRIC MOVED, not because the control did.
+            // `authority` is measured in sRGB code values, which is per-CHANNEL
+            // movement — and C2-02 deliberately removed the part of that movement that
+            // was colour. The grain a photographer SEES is luminance grain and it is
+            // held to within 0.04% (`FilmGrainProfile.noiseMixWeights`); what left the
+            // measurement is the coloured speckle that only ever reached the delivered
+            // file. The floor is restated at the same fraction of the measurement it
+            // was set at — 28 of 40.69 is 0.69, and 0.69 of 26.19 is 18 — so it still
+            // means "this control has visibly stopped working" and not "this control
+            // was changed".
+            //
+            // The evidence that the drop is the speckle and nothing else is one line of
+            // the record: `hueRotation` went **179.99° → 0**. Sweeping grain SIZE used
+            // to rotate the frame's hue half a turn. It no longer moves it at all.
+            authorityFloor: 18,
             // A grain cell's footprint is a boundary too: past the size where one cell
             // spans more than the measured field's own detail, the pattern coarsens back
             // toward flat rather than continuing to add structure.
-            declaredReversal: 15.462,
+            //
+            // 15.462 → 21.183 for a reason that is the same change seen from the other
+            // side. Three near-independent layers made the sweep a walk in three
+            // dimensions, where excursions partly cancel; one shared luminance field
+            // makes it a walk in ONE, where they do not. Same wandering boundary, fewer
+            // dimensions to wander in, so a larger share of the travel is spent going
+            // back. The fraction it declares is now 81% of its authority against 37%,
+            // which is high and is what a boundary control on a random field looks like
+            // when its randomness is one-dimensional.
+            declaredReversal: 21.183,
             apply: { r, v in
                 var film = portra()
                 film.grain = FilmGrain(size: v, amount: 100)

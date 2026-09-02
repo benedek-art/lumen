@@ -166,9 +166,11 @@ streak included).
 2. **U4 canvas** — on-canvas radial/linear handles to the mockup, before/after and
    compare chrome, the collapsed mask column
 3. **U5** — hover/focus sweep, motion, empty states, help sheet and keyboard reference
-4. **Engine leftovers** — C2-01b band-limited plate (the real red/green grain parity
-   fix) · C2-02 colour stocks lay three decorrelated fields · K-065 grain before resize ·
-   I1-04 the settle loop
+4. **Engine leftovers** — ~~C2-01b band-limited plate~~ **0158776** ·
+   ~~I1-04 the settle loop~~ **abab18a** · ~~C2-02 three decorrelated fields~~ and
+   ~~C2-03/K-065 grain before the export resize~~ in the current batch · still open:
+   I1-02 (fix the DragProbe so N-002's row can be re-measured), C2-05 halation Size and
+   Redness unreachable, C2-07 two recipe fields under one binder key
 5. **W3/W4** verification and triage of the ~70 W2 findings not yet landed
 6. **W6 close** — re-audit each landing against its finding, perf probes against
    `w0/perf-baseline.md`, `docs/38-the-grind.md`, and the owner's report
@@ -202,6 +204,30 @@ lens applies to every finding.
 
 ## Streams (W5)
 _not started_
+
+## Two things found while landing, both worth their own row
+
+**C2-01b did not reach the film path's GPU plate, and no test could see it.** The
+band-limited plate landed in `ReferenceRenderer` and in `RenderGraph`'s creative
+builder; the film path had a SECOND CIImage plate builder in `PipelineRenderer`, and it
+kept asking for the unlimited plate. So a stock's grain on screen and in the exported
+file went back to carrying exactly the aliasing that fix removes. `GrainPlateTests`
+pinned the two builders together and stayed green throughout, because it compared what
+both of them asked for when asked for the *unlimited* plate. Fixed by deleting the
+duplicate: there is one builder now, `RenderGraph.grainPlate`, and
+`testThereIsOneGPUPlateBuilderAndItAsksThePlanForItsScale` reads
+`Sources/LumenPipeline` as text and fails if a second one appears or if anybody reaches
+past `GrainPlan` for a raw plate. **Lesson: a test that pins two implementations
+together has to exercise them the way the renderer does, not the way that makes them
+easy to compare.**
+
+**The three "independent" dye-layer plates are not independent.** `plateSeed(channel:)`
+separates the three seeds by adding a golden-ratio constant, and the fields that come
+back correlate at r ≈ 0.088 / 0.044 / −0.040 over 16 384 samples — the first is about
+eleven standard errors out, so it is structure and not sampling. It makes C2-02's defect
+smaller rather than larger, so it is not urgent, and it is the reason the C2-02 mix's
+amplitude preservation is a few percent rather than exact. Worth a plate-generator look
+in W3.
 
 ## Notes
 - **U0 mockup published**: https://claude.ai/code/artifact/d2b27d8f-e938-4f72-a402-2d638cd52f9b

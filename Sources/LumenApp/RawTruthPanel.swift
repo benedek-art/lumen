@@ -141,9 +141,9 @@ struct RawTruthPanel: View {
                 .frame(width: 16, alignment: .leading)
             GeometryReader { geometry in
                 ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 2)
+                    RoundedRectangle(cornerRadius: Lumen.swatchRadius(6))
                         .fill(Lumen.trackColor)
-                    RoundedRectangle(cornerRadius: 2)
+                    RoundedRectangle(cornerRadius: Lumen.swatchRadius(6))
                         .fill(line.isClipped ? Lumen.accent : Lumen.fillColor)
                         .frame(width: geometry.size.width * Self.barFraction(line))
                 }

@@ -106,7 +106,7 @@ struct FilterBar: View {
                              ? Lumen.primaryText : Lumen.secondaryText)
             .background(state.filter.hiddenCriteriaCount > 0
                         ? Lumen.fillColor.opacity(0.35) : Lumen.controlBackground)
-            .clipShape(RoundedRectangle(cornerRadius: 4))
+            .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusChip))
         }
         .buttonStyle(.plain)
         .help("Flag, rating, label, file and metadata criteria")
@@ -219,11 +219,11 @@ struct FilterBar: View {
                     toggleLabel(label)
                 } label: {
                     VStack(spacing: 2) {
-                        RoundedRectangle(cornerRadius: 3)
+                        RoundedRectangle(cornerRadius: Lumen.swatchRadius(14))
                             .fill(label.color)
                             .frame(width: 14, height: 14)
                             .overlay(
-                                RoundedRectangle(cornerRadius: 3)
+                                RoundedRectangle(cornerRadius: Lumen.swatchRadius(14))
                                     .strokeBorder(state.filter.labels.contains(label)
                                                   ? Lumen.primaryText : Color.black.opacity(0.35),
                                                   lineWidth: state.filter.labels.contains(label) ? 2 : 1)
@@ -441,7 +441,7 @@ struct FilterBar: View {
         .padding(.horizontal, 5)
         .padding(.vertical, 3)
         .background(Lumen.controlBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 4))
+        .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusChip))
     }
 
     // MARK: View controls
@@ -537,7 +537,7 @@ struct FilterBar: View {
                 .padding(.horizontal, 5)
                 .padding(.vertical, 3)
                 .background(Lumen.controlBackground)
-                .clipShape(RoundedRectangle(cornerRadius: 4))
+                .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusChip))
         }
         .buttonStyle(.plain)
         .help(state.sortAscending ? "Ascending" : "Descending")
@@ -675,7 +675,7 @@ struct FilterBar: View {
             .padding(.vertical, 3)
             .foregroundStyle(isOn ? Lumen.primaryText : Lumen.secondaryText)
             .background(isOn ? Lumen.fillColor.opacity(0.35) : Lumen.controlBackground)
-            .clipShape(RoundedRectangle(cornerRadius: 4))
+            .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusChip))
         }
         .buttonStyle(.plain)
     }

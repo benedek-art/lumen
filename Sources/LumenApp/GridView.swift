@@ -324,7 +324,7 @@ struct PhotoCell: View {
             if showsStars { stars }
             Spacer(minLength: 0)
             if photo.label != .none {
-                RoundedRectangle(cornerRadius: 2)
+                RoundedRectangle(cornerRadius: Lumen.swatchRadius(7))
                     .fill(photo.label.color)
                     .frame(width: 12, height: 7)
             }

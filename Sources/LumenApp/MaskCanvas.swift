@@ -1589,7 +1589,9 @@ struct MaskCanvas: View {
 
     private func handle(_ context: inout GraphicsContext, _ point: CGPoint,
                         small: Bool = false) {
-        let r: CGFloat = small ? 3 : 4.5
+        // The two drawn radii live on `MaskHandles` beside the grab radius they are
+        // deliberately smaller than: the dot is a sight, the tolerance is the target.
+        let r = CGFloat(small ? MaskHandles.smallDotRadius : MaskHandles.dotRadius)
         let rect = CGRect(x: point.x - r, y: point.y - r, width: r * 2, height: r * 2)
         context.fill(Path(ellipseIn: rect.insetBy(dx: -1, dy: -1)),
                      with: .color(Color.black.opacity(0.45)))

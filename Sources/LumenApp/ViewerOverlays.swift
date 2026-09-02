@@ -134,10 +134,10 @@ struct BeforeAfterSplit<Before: View, After: View>: View {
     }
 
     private var handle: some View {
-        RoundedRectangle(cornerRadius: 3)
+        RoundedRectangle(cornerRadius: Lumen.swatchRadius(12))
             .fill(Lumen.controlBackground.opacity(0.95))
             .overlay {
-                RoundedRectangle(cornerRadius: 3).strokeBorder(Lumen.separator)
+                RoundedRectangle(cornerRadius: Lumen.swatchRadius(12)).strokeBorder(Lumen.separator)
             }
             .frame(width: 12, height: 34)
             .overlay {
@@ -311,11 +311,11 @@ struct ReadoutHUD: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 6) {
-                RoundedRectangle(cornerRadius: 2)
+                RoundedRectangle(cornerRadius: Lumen.swatchRadius(11))
                     .fill(swatchColor)
                     .frame(width: 11, height: 11)
                     .overlay {
-                        RoundedRectangle(cornerRadius: 2)
+                        RoundedRectangle(cornerRadius: Lumen.swatchRadius(11))
                             .strokeBorder(Lumen.separator, lineWidth: 0.5)
                     }
                 Text(numbers)

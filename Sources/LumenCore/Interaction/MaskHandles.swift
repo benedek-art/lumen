@@ -78,6 +78,18 @@ public enum MaskHandles {
     /// exactly the way the owner reported.
     public static let grabRadius: Double = 11
 
+    /// The radius the handle dots are DRAWN at, and the smaller one for the marks that
+    /// are not primary targets — the ellipse's centre, a gradient's midpoint, the
+    /// feather ring.
+    ///
+    /// Here rather than in `MaskCanvas` because the sentence above — "more than twice
+    /// the 4.5 pt the handle dots are drawn at" — was a claim about a number in a
+    /// different module, which is a claim nothing could check. It is now
+    /// `testTheDrawnDotIsASightNotTheTarget`, and the relationship it pins is the whole
+    /// design: the ink says where to aim, the tolerance is what catches you.
+    public static let dotRadius: Double = 4.5
+    public static let smallDotRadius: Double = 3
+
     /// How far OUTSIDE a shape a press must land before it is allowed to mean "discard
     /// this one and draw another".
     ///

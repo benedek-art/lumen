@@ -187,6 +187,27 @@ extension Lumen {
     static let radiusControl: CGFloat = 9
     static let radiusChip: CGFloat = 6
 
+    /// A SMALL DRAWN INDICATOR'S radius, from its short side — not a fifth rung on the
+    /// ladder above, which is why it is a function and not a constant.
+    ///
+    /// The three tokens are surface radii: they answer "how round is this control, this
+    /// card". A colour swatch, a label tag, a clipping bar and a split handle are not
+    /// surfaces — they are 6 to 20 points across, and `radiusChip`'s 6 on an 11-point
+    /// swatch is a circle. So they were all written by hand, and by four different
+    /// hands: 3 on the filter bar's 14-point swatch and the mask panel's 20 × 14 one,
+    /// 2 on the grid cell's 12 × 7 label tag and the viewer's 11 × 11 swatch and
+    /// `RawTruthPanel`'s 6-point clipping bar, 2.5 on the behaviour glyph, 3 on the
+    /// compare view's 12 × 34 handle. Six values, one decision, invisibly different —
+    /// the same finding that produced the ladder, one scale down.
+    ///
+    /// The rule is a QUARTER OF THE SHORT SIDE, which is what `radiusChip` already is
+    /// on the ~24-point control it was sized for, so the small things round in
+    /// proportion to the big ones rather than to nothing. Capped at `radiusChip` so
+    /// this can never overtake the surface ladder from below.
+    static func swatchRadius(_ shortSide: CGFloat) -> CGFloat {
+        Swift.min(Swift.max(shortSide, 0) * 0.25, radiusChip)
+    }
+
     /// The workspace rail's own, and the only radius that is nearly a capsule.
     ///
     /// Sized against the horizontal strip's 28-point tab, where 12 left four points of

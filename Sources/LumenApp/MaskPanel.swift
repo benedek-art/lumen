@@ -1131,7 +1131,7 @@ struct MaskPanel: View {
         }
         .padding(.horizontal, 4).frame(height: Lumen.rowHeight)
         .background(isSelected ? Lumen.fillColor.opacity(0.16) : Color.clear)
-        .clipShape(RoundedRectangle(cornerRadius: 3))
+        .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusChip))
         .contentShape(Rectangle())
         // SELECTS THE MASK TOO. Tapping a part of a mask is a statement about which
         // mask you are working on, and without the first line this row moved the
@@ -1542,9 +1542,9 @@ struct MaskPanel: View {
         let samples = c.samples ?? []
         return HStack(spacing: 4) {
             ForEach(Array(samples.indices), id: \.self) { s in
-                RoundedRectangle(cornerRadius: 3).fill(MaskPanel.chipColor(samples[s]))
+                RoundedRectangle(cornerRadius: Lumen.swatchRadius(14)).fill(MaskPanel.chipColor(samples[s]))
                     .frame(width: 20, height: 14)
-                    .overlay(RoundedRectangle(cornerRadius: 3)
+                    .overlay(RoundedRectangle(cornerRadius: Lumen.swatchRadius(14))
                         .strokeBorder(Lumen.separator, lineWidth: 0.5))
             }
             Spacer(minLength: 0)
@@ -1870,10 +1870,10 @@ struct MaskPanel: View {
                     HStack(spacing: 4) {
                         ForEach(Array(swatches.indices), id: \.self) { s in
                             Button { selectedSwatch = s } label: {
-                                RoundedRectangle(cornerRadius: 3)
+                                RoundedRectangle(cornerRadius: Lumen.swatchRadius(14))
                                     .fill(MaskPanel.chipColor(swatches[s].sample))
                                     .frame(width: 20, height: 14)
-                                    .overlay(RoundedRectangle(cornerRadius: 3)
+                                    .overlay(RoundedRectangle(cornerRadius: Lumen.swatchRadius(14))
                                         .strokeBorder(s == index ? Lumen.primaryText : Lumen.separator,
                                                       lineWidth: s == index ? 1.5 : 0.5))
                             }
@@ -2659,7 +2659,7 @@ struct MaskPanel: View {
             }
             .padding(.horizontal, 6).padding(.vertical, 3)
             .background(Lumen.controlBackground)
-            .clipShape(RoundedRectangle(cornerRadius: 4))
+            .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusChip))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain).foregroundStyle(Lumen.primaryText)
@@ -3174,9 +3174,9 @@ struct MaskThumbnail: View {
             }
         }
         .frame(width: width, height: height)
-        .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusChip, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 3, style: .continuous)
+            RoundedRectangle(cornerRadius: Lumen.radiusChip, style: .continuous)
                 .strokeBorder(selected ? Lumen.accent : Lumen.separator,
                               lineWidth: selected ? 1.5 : 0.5)
         )

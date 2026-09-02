@@ -122,7 +122,8 @@ final class KernelGoldenTests: XCTestCase {
         let extent = CGRect(x: 0, y: 0, width: width, height: height)
         let chain = FilmChain(FilmChain.defaultRecipe(for: FilmStock.portra400),
                               displayWhite: 1.0)
-        guard let plate = PipelineRenderer.grainPlate(film: chain, extent: extent),
+        guard let plate = RenderGraph.grainPlate(GrainPlan.film(chain), extent: extent,
+                                          longEdge: width),
               let channels = plateChannels(plate, width: width, height: height)
         else { return XCTFail("no grain plate") }
 
@@ -151,7 +152,8 @@ final class KernelGoldenTests: XCTestCase {
         XCTAssertTrue(FilmStock.triX400.monochrome, "this test needs a monochrome stock")
         let chain = FilmChain(FilmChain.defaultRecipe(for: FilmStock.triX400),
                               displayWhite: 1.0)
-        guard let plate = PipelineRenderer.grainPlate(film: chain, extent: extent),
+        guard let plate = RenderGraph.grainPlate(GrainPlan.film(chain), extent: extent,
+                                          longEdge: width),
               let channels = plateChannels(plate, width: width, height: height)
         else { return XCTFail("no grain plate") }
 
@@ -3468,7 +3470,9 @@ final class KernelGoldenTests: XCTestCase {
                               + "the flag cannot be judged on it")
 
         var graph = RenderGraph()
-        graph.grainPlate = PipelineRenderer.grainPlate(film: film, extent: extent)
+        graph.grainPlate = RenderGraph.grainPlate(GrainPlan.film(film),
+                                                  extent: extent,
+                                                  longEdge: width)
         XCTAssertNotNil(graph.grainPlate, "no grain plate — this test needs grain")
         let output = graph.build(ciImage(from: source), plan: plan, options: options)
         guard let gpu = readBack(output, width: width, height: height) else {

@@ -640,6 +640,100 @@ public struct FilmGrainProfile: Sendable {
     /// bit-for-bit what it always was. The creative grain's Roughness moves it.
     public let persistence: Double
 
+    /// HOW MUCH OF THE THREE LAYERS' INDEPENDENCE REACHES THE PICTURE. 1 is three
+    /// fully decorrelated fields; 0 is one shared field wearing three amplitude
+    /// envelopes.
+    ///
+    /// `plateSeed(channel:)` gives a colour stock three independent unit-variance
+    /// fields, because that is the physics — three dye layers, three sets of crystals.
+    /// What it does not say is how much of that survives development, the print, and
+    /// a scan. Laid at full amplitude the answer is arithmetic: three independent
+    /// unit fields give σ(luma) = A/√3 and σ(R−G) = A√2, so the chroma noise is
+    /// **2.45×** the luminance noise in the model — and **2.06× (R−G) and 2.28×
+    /// (B−G)** when measured through the real stage on Portra 400, which is a little
+    /// below the model because the per-channel Dmax and the three cell sizes differ.
+    /// Portra 400's cells are 0.68/0.85/1.71 px at a
+    /// 2560 px preview — sub-display-pixel, so they integrate back to luminance and
+    /// the screen never shows it — and 2.13/2.67/5.33 px at 8000. The delivered file
+    /// carries coloured speckle that no preview in the app can display.
+    ///
+    /// Which is the same thing the owner rejected in the creative grain: "the grain is
+    /// absolutely ridiculously bad. It just turns into rainbow splotches." That path
+    /// answered by collapsing to one field. A stock cannot — its layers ARE its
+    /// character — so it gets a fraction instead.
+    ///
+    /// 1 is what shipped and is reproduced bit-for-bit (see `noiseMixWeights`), so
+    /// this is a dial with an identity setting, not a rewrite — and below 1 it takes
+    /// the noise OUT of colour rather than moving it into luminance: the mix is scaled
+    /// to hold the luminance grain where it was, so the picture's grain looks the same
+    /// and its speckle is gone.
+    public let chroma: Double
+
+    /// Dye-layer decorrelation surviving into the picture, by stock kind.
+    ///
+    /// A colour NEGATIVE is printed, and the print's own emulsion re-integrates the
+    /// three records; a REVERSAL is the taking film itself, viewed directly, where the
+    /// layers stay more separate but the grain is finer to begin with — so the
+    /// reversal number is lower because a lot less of it is visible at all. These are
+    /// the audit's proposed defaults (docs C2 §3) and they are the first two numbers
+    /// in this file that are taste rather than measurement; they are named here, once,
+    /// so that when they move they move for every stock at the same time.
+    public static let dyeLayerChromaNegative: Double = 0.30
+    public static let dyeLayerChromaReversal: Double = 0.15
+
+    /// The two scalars the grain stage mixes the three sampled fields with:
+    /// `n'ᵢ = luma·(n_R + n_G + n_B) + own·nᵢ`.
+    ///
+    /// Derived rather than chosen. Write the mix as `n'ᵢ = (1−χ)·n_L + χ·nᵢ` with
+    /// `n_L = k·Σn`, `k = 1/√Var(Σn)`, then divide by `M` — and the whole design is in
+    /// what `M` is chosen to hold constant.
+    ///
+    /// **`M` holds the LUMINANCE amplitude, and the picture's grain therefore does not
+    /// change at all — only its colour goes.** That is the point. Removing noise from
+    /// colour has to put it somewhere or take it away; there is no convention that
+    /// leaves both halves alone. The obvious one, holding each layer's own amplitude,
+    /// was tried first and is wrong: the luminance noise rises 51%, because the three
+    /// layers stop cancelling each other, and every colour stock's grain gets loudly
+    /// more visible at its shipped default. `film.grain.size`'s proof record caught it
+    /// — authority 40.1 → 44.1 and the non-monotone hand-back 14.9 → 33.7, both from a
+    /// sweep metric that reads luminance. Holding the luminance instead, a photographer
+    /// sees exactly what they saw, minus the speckle.
+    ///
+    /// The arithmetic. The mix's luminance is `Σn·[(1−χ)k + χ/3]`, whose σ is
+    /// `(1−χ) + χ/(3k)` since `σ(Σn) = 1/k`; at χ = 1 that is `1/(3k)`. So
+    /// `M = 3k(1−χ) + χ`, one expression that gives `√3(1−χ) + χ` for three
+    /// independent layers and exactly 1 for a monochrome profile, whose three "layers"
+    /// are one field and whose luminance the mix cannot move.
+    ///
+    /// Folding `k` and `M` into the two weights leaves the kernel one multiply-add per
+    /// channel and no square roots, and χ = 1 gives `M = 1`, luma = 0, own = 1 — the
+    /// expression is `nᵢ`, bit-for-bit, so the sum of the three samples is not even
+    /// formed. A monochrome stock is therefore untouched twice over: it ships at χ = 1,
+    /// and `M = 1` would leave it alone at any χ.
+    ///
+    /// What this convention does cost is per-layer amplitude: 0.60 of what it was at
+    /// χ = 0.3, which is the noise that WAS the colour speckle, now not being laid.
+    ///
+    /// One measured departure from the model, for honesty. The premise is three
+    /// INDEPENDENT unit-variance fields; the shipped plates are not quite that.
+    /// `plateSeed(channel:)` separates the three seeds by adding a golden-ratio
+    /// constant, and the fields come back correlated at r ≈ 0.088 / 0.044 / −0.040
+    /// (16 384 samples, so the first is real and not sampling noise), and a bilinearly
+    /// sampled plate does not carry exactly the plate's variance — 1.025 / 1.023 /
+    /// 0.982 at a 2560 px render. So the luminance is held to a few percent rather than
+    /// exactly. The residual seed correlation is worth its own look — three
+    /// "independent" dye layers that agree 9% of the time are less independent than the
+    /// model this file is written around — but it makes the defect being fixed here
+    /// SMALLER, not larger, and it is a plate-generator question.
+    public var noiseMixWeights: (luma: Double, own: Double) {
+        let x: Double = Num.clamp(chroma, 0, 1)
+        // Three independent unit fields sum to variance 3; three identical ones to 9.
+        let k: Double = monochrome ? 1.0 / 3.0 : 1.0 / 3.0.squareRoot()
+        let m: Double = 3 * k * (1 - x) + x
+        guard m > 1e-12 else { return (luma: 0, own: 1) }
+        return (luma: (1 - x) * k / m, own: x / m)
+    }
+
     /// The gate a CREATIVE grain's pitch is denominated on: 35 mm, long edge 36 mm.
     ///
     /// `plateScale` reaches pixels through pixels-per-gate-millimetre, so a pitch in
@@ -749,6 +843,11 @@ public struct FilmGrainProfile: Sendable {
         // later chroma component, if one is ever argued for, needs to ask.
         _ = monochrome
         self.monochrome = true
+        // One field means there is nothing to decorrelate, so the mix is the identity
+        // at every value. 1 is written rather than 0 because 1 is the value whose
+        // weights are exactly (0, 1) — the sum of the three samples is not even
+        // formed, so a creative grain is bit-for-bit what it was.
+        self.chroma = 1
         self.persistence = FilmGrainProfile.creativePersistence(
             roughness: creative.roughness)
     }
@@ -768,6 +867,11 @@ public struct FilmGrainProfile: Sendable {
         self.dMax = stock.negative.dMax
         self.gateLongEdgeMM = Swift.max(stock.gateLongEdgeMM, 1e-3)
         self.monochrome = stock.monochrome
+        // A monochrome emulsion's three "layers" are one field (`plateSeed`), so it
+        // takes the identity setting; the two colour numbers are named constants above.
+        self.chroma = stock.monochrome ? 1
+            : (stock.kind == .reversal ? FilmGrainProfile.dyeLayerChromaReversal
+                                       : FilmGrainProfile.dyeLayerChromaNegative)
         // The plate a stock has always been given. Written as the named default rather
         // than as 0.5 so that if the plate's own default ever moves, the emulsions move
         // with it instead of silently keeping a number that used to be the default.
@@ -1148,6 +1252,13 @@ public struct GrainPlan: Sendable, Equatable {
                                persistence: profile.persistence,
                                renderPixelsPerCell: renderPixelsPerCell)
     }
+
+    /// The two scalars the grain stage mixes the three sampled fields with — the
+    /// profile's, surfaced on the plan because the plan is what both renderers hold.
+    /// `RenderGraph` hands them to `lumenGrain` and `ReferenceRenderer` performs the
+    /// same multiply-add; they must be the same two numbers or gpu-parity fails.
+    public var noiseLumaWeight: Double { profile.noiseMixWeights.luma }
+    public var noiseOwnWeight: Double { profile.noiseMixWeights.own }
 
     /// The plate's cell size in pixels for one layer, at a render's long edge.
     public func plateScale(longEdgePixels: Int, channel: Int) -> Double {

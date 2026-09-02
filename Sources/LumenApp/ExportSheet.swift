@@ -935,7 +935,7 @@ private struct ExportTextEntry: View {
             .padding(.horizontal, 5)
             .padding(.vertical, 3)
             .background(Lumen.controlBackground)
-            .clipShape(RoundedRectangle(cornerRadius: 4))
+            .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusChip))
             .frame(maxWidth: 300)
     }
 }

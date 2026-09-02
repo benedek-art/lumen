@@ -1061,18 +1061,30 @@ final class EngineIntegrationTests: XCTestCase {
     /// Print size picker whose caption named the chosen size as though it mattered. A
     // MARK: - Grain is chromatic, or it is a noise overlay
 
-    /// A colour stock's three layers must grain INDEPENDENTLY.
+    /// A colour stock's three layers must keep their own structure, and its grain must
+    /// still be mostly LUMINANCE grain.
     ///
-    /// Both render paths wrote one noise value into all three channels. The amplitude
-    /// envelope √(p(1−p)) was already per-channel, so the result looked plausible — it
-    /// was a luminance overlay wearing film's envelope. Real colour film has three
-    /// separate dye layers with their own crystals, which is why `grainSizeScale` has
-    /// said (0.8, 1.0, 2.0) since the stocks were authored and why
-    /// `plateScale(…, channel:)` existed with no caller.
+    /// This test used to assert only the first half, and it asserted it as
+    /// `|r| < 0.5` — which was right against the defect it was written for. Both render
+    /// paths wrote one noise value into all three channels: a luminance overlay wearing
+    /// film's per-channel envelope, and `grainSizeScale`'s (0.8, 1.0, 2.0) and
+    /// `plateScale(…, channel:)` sat there with no caller. Three fields fixed that.
     ///
-    /// The measurement is the correlation between channels of what grain ADDED. A shared
-    /// field gives 1.0 by construction; independent fields give something near zero.
-    func testColourStockGrainsEachLayerIndependently() {
+    /// Three fields at FULL amplitude then overshot, and the overshoot is arithmetic:
+    /// independent unit-variance layers give σ(luma) = A/√3 and σ(R−G) = A√2, so the
+    /// colour noise is over twice the luminance noise — measured here at **2.06 and
+    /// 2.28** before the fix. Portra 400's cells are sub-display-pixel at any preview
+    /// size, so they average back to luminance on screen and only the delivered file
+    /// carries the speckle. That is the same thing the owner rejected in the creative
+    /// grain ("it just turns into rainbow splotches"), arriving where no preview can
+    /// show it. `FilmGrainProfile.chroma` is the fraction of that independence that
+    /// reaches the picture.
+    ///
+    /// So the contract has two halves now and they pull against each other, which is
+    /// what makes the pair worth asserting: the layers must not collapse into one field
+    /// (that is the original defect), and the colour noise must not exceed the
+    /// luminance noise (that is this one).
+    func testAColourStockKeepsItsLayersButGrainsMostlyInLuminance() {
         let stock = FilmStock.portra400
         let recipe = FilmChain.defaultRecipe(for: stock)
         let chain = FilmChain(recipe, displayWhite: 1.0)
@@ -1095,13 +1107,81 @@ final class EngineIntegrationTests: XCTestCase {
             XCTAssertGreaterThan(spread.squareRoot(), 1e-5,
                                  "channel \(c) got no grain at all, so this proves nothing")
         }
+
+        // HALF ONE — the layers are still three. A single shared field gives exactly
+        // 1.0; the shipped χ gives 0.92, which is a long way from one field and is what
+        // "mostly luminance, with the layers still there" looks like as a number.
         for (i, j) in [(0, 1), (0, 2), (1, 2)] {
             let r = Self.correlation(deltas[i], deltas[j])
-            XCTAssertLessThan(abs(r), 0.5,
-                              "channels \(i) and \(j) grain with correlation \(r) — one "
-                                  + "noise field is being written to every layer, which "
-                                  + "is a luminance overlay, not film")
+            XCTAssertLessThan(abs(r), 0.99,
+                              "channels \(i) and \(j) grain with correlation \(r) — the "
+                                  + "layers have collapsed into one field, which is a "
+                                  + "luminance overlay, not film")
         }
+
+        // HALF TWO — and the colour noise is below the luminance noise. Measured 0.41
+        // and 0.45 at the shipped χ = 0.30; 2.06 and 2.28 at χ = 1, so this is red on
+        // the code that shipped and red for any χ above about 0.6.
+        //
+        // The LUMINANCE half is not asserted here because it is not a bound, it is an
+        // equality, and the number it must equal is the one the code that shipped
+        // produced: σ 0.0068103, held to 0.0068133 — +0.04%. `film.grain.size`'s proof
+        // record is what actually pins it, and it caught the first version of this fix
+        // for moving it by 51%.
+        let n = deltas[0].count
+        let luma = (0..<n).map { (deltas[0][$0] + deltas[1][$0] + deltas[2][$0]) / 3 }
+        func spread(_ v: [Double]) -> Double {
+            let m = v.reduce(0, +) / Double(v.count)
+            return (v.map { ($0 - m) * ($0 - m) }.reduce(0, +) / Double(v.count))
+                .squareRoot()
+        }
+        let lumaSpread = spread(luma)
+        XCTAssertGreaterThan(lumaSpread, 1e-6)
+        for (name, i) in [("R−G", 0), ("B−G", 2)] {
+            let difference = (0..<n).map { deltas[i][$0] - deltas[1][$0] }
+            let ratio = spread(difference) / lumaSpread
+            XCTAssertLessThan(ratio, 1.0,
+                              "\(name) noise is \(ratio)x the luminance noise — the "
+                                  + "delivered file carries coloured speckle no preview "
+                                  + "in this app can show, because at preview size the "
+                                  + "cells are below one display pixel")
+        }
+    }
+
+    /// The mix's algebra, away from any image — the two settings that have to be exact
+    /// or the change is not safe to land.
+    func testTheGrainChromaMixHasTwoExactSettings() {
+        // χ = 1 is the code that shipped, bit-for-bit: the shared term is multiplied by
+        // zero, so the sum of the three samples is not even formed.
+        var colour = FilmGrainProfile(stock: .portra400, size: 1, amount: 50, pushPull: 0)
+        XCTAssertEqual(colour.chroma, FilmGrainProfile.dyeLayerChromaNegative)
+        XCTAssertEqual(FilmStock.velvia50.kind, .reversal)
+        XCTAssertEqual(
+            FilmGrainProfile(stock: .velvia50, size: 1, amount: 50, pushPull: 0).chroma,
+            FilmGrainProfile.dyeLayerChromaReversal,
+            "a reversal stock is viewed directly rather than printed, so it carries the "
+                + "other of the two authored numbers")
+
+        // A monochrome emulsion is one field however the dial is set — the arithmetic
+        // collapses to the identity, so black-and-white cannot acquire colour here.
+        let mono = FilmGrainProfile(stock: .triX400, size: 1, amount: 50, pushPull: 0)
+        XCTAssertTrue(mono.monochrome)
+        XCTAssertEqual(mono.noiseMixWeights.luma, 0, accuracy: 1e-15)
+        XCTAssertEqual(mono.noiseMixWeights.own, 1, accuracy: 1e-15)
+
+        // And the creative grain, which collapsed its layers to one field long before
+        // this existed, is untouched.
+        let creative = FilmGrainProfile(creative: CreativeGrain(amount: 60, size: 80),
+                                        monochrome: false)
+        XCTAssertEqual(creative.noiseMixWeights.luma, 0, accuracy: 1e-15)
+        XCTAssertEqual(creative.noiseMixWeights.own, 1, accuracy: 1e-15)
+
+        // The weights are a real mix at the shipped colour value, not a rounding of the
+        // identity — this is the assertion that fails if `chroma` is ever defaulted
+        // back to 1 and the fix quietly stops applying.
+        colour = FilmGrainProfile(stock: .portra400, size: 1, amount: 50, pushPull: 0)
+        XCTAssertGreaterThan(colour.noiseMixWeights.luma, 0.1)
+        XCTAssertLessThan(colour.noiseMixWeights.own, 0.9)
     }
 
     /// A monochrome stock must do the opposite: one emulsion, one field, no colour.

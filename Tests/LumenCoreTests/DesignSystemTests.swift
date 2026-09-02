@@ -229,7 +229,17 @@ final class DesignSystemTests: XCTestCase {
                       + offenders.joined(separator: "\n"))
     }
 
-    /// Raw corner radii off the 6 / 9 / 14 ladder. 34 at landing.
+    /// Raw corner radii off the 6 / 9 / 14 ladder. 34 at U1's landing, 22 after U2,
+    /// **1** now — and the one that is left argues for itself in a comment
+    /// (`LumenBehaviourGlyph`, a drawn miniature whose box is about eight points, where
+    /// `radiusChip` is a capsule).
+    ///
+    /// The 21 that went were two different mistakes wearing one shape. The controls —
+    /// the filter bar's buttons, the ingest and export sheets' fields and wells, the
+    /// mask panel's rows and tiles — were on Aqua's 3/4/5 and are now on the ladder.
+    /// The small drawn indicators were on 2, 2.5 and 3 chosen by four different hands
+    /// for one decision, and are now on `Lumen.swatchRadius(_:)`: a quarter of the short
+    /// side, which is what `radiusChip` already is on the control it was sized for.
     func testRawCornerRadiiOnlyEverDecrease() {
         var n = 0
         for (_, text) in Self.sources {
@@ -241,9 +251,11 @@ final class DesignSystemTests: XCTestCase {
                 }
             }
         }
-        XCTAssertLessThanOrEqual(n, 34,
-                                 "\(n) numeric cornerRadius literals, up from 34 — use "
-                                 + "Lumen.radiusChip / radiusControl / radiusCard")
+        XCTAssertLessThanOrEqual(n, 1,
+                                 "\(n) numeric cornerRadius literals, up from 1 — use "
+                                 + "Lumen.radiusChip / radiusControl / radiusCard for a "
+                                 + "surface, Lumen.swatchRadius(shortSide) for a small "
+                                 + "drawn indicator")
     }
 
     /// Hand-rolled dark overlays. The HUD material exists so these fall to zero.

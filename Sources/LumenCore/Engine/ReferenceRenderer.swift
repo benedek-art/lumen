@@ -552,14 +552,35 @@ public enum ReferenceRenderer {
         var out = image
         let dmax = Swift.max(grain.dMax, 0.1)
         let amount = grain.amount
+        // HOW MUCH OF THE THREE LAYERS' INDEPENDENCE REACHES THE PICTURE (C2-02).
+        // Three unit-variance fields laid at full amplitude put 2.45× as much noise
+        // into colour as into luminance, in cells up to 5.3 px at export and
+        // sub-display-pixel at preview — so the delivered file carries coloured
+        // speckle the app can never show. The mix is one multiply-add per channel, and
+        // it is scaled to hold the LUMINANCE grain exactly where it was (measured on
+        // Portra 400: σ 0.0068103 → 0.0068133, +0.04%), so what a photographer sees is
+        // what they saw minus the speckle. The derivation is on
+        // `FilmGrainProfile.noiseMixWeights`. `lumenGrain` performs the identical two
+        // lines from the identical two scalars; gpu-parity is what holds them together.
+        let lumaWeight = grain.noiseLumaWeight
+        let ownWeight = grain.noiseOwnWeight
         for y in 0..<image.height {
             for x in 0..<image.width {
                 let c = image[x, y]
+                var noise = RGB.zero
+                for channel in 0..<3 {
+                    noise[channel] = FilmGrainProfile.sample(
+                        plates[channel], size: plateSize,
+                        x: Double(x) / scales[channel],
+                        y: Double(y) / scales[channel])
+                }
+                // The three samples first, then the mix: the fields are sampled at
+                // three DIFFERENT cell sizes, so the shared component has to be formed
+                // here, after scaling, and not baked into the plates.
+                let shared = (noise.r + noise.g + noise.b) * lumaWeight
                 var result = RGB.zero
                 for channel in 0..<3 {
-                    let n = FilmGrainProfile.sample(plates[channel], size: plateSize,
-                                                    x: Double(x) / scales[channel],
-                                                    y: Double(y) / scales[channel])
+                    let n = shared + ownWeight * noise[channel]
                     let v = Swift.max(c[channel], 1e-5)
                     let density = -log10(v)
                     let p = Num.saturate(density / dmax)

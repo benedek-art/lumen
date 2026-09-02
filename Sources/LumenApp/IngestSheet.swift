@@ -169,7 +169,7 @@ struct IngestSheet: View {
             }
             .padding(8)
             .background(Lumen.controlBackground)
-            .clipShape(RoundedRectangle(cornerRadius: 5))
+            .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusControl))
             .padding(.bottom, 6)
         }
     }
@@ -266,7 +266,7 @@ struct IngestSheet: View {
             .scrollIndicators(.never)
             .frame(height: 120)
             .background(Lumen.controlBackground)
-            .clipShape(RoundedRectangle(cornerRadius: 5))
+            .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusControl))
         }
     }
 
@@ -362,7 +362,7 @@ struct IngestSheet: View {
                 }
                 .padding(8)
                 .background(Lumen.controlBackground)
-                .clipShape(RoundedRectangle(cornerRadius: 5))
+                .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusControl))
                 .padding(.vertical, 4)
             }
 
@@ -708,7 +708,7 @@ private struct IngestTextEntry: View {
             .padding(.horizontal, 5)
             .padding(.vertical, 3)
             .background(Lumen.controlBackground)
-            .clipShape(RoundedRectangle(cornerRadius: 4))
+            .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusChip))
             .frame(maxWidth: 340)
     }
 }

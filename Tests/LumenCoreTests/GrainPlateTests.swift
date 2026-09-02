@@ -11,46 +11,131 @@
 // defines — in every preview and every export — and clamped away the strongest 3.4% of
 // the grains on the way.
 //
-// There are now TWO CIImage plate builders: `PipelineRenderer.grainPlate`, which the
-// film path has always used, and `RenderGraph.creativeGrainPlate`, which the creative
-// grain needs because the file the first one lives in was not this change's to edit.
-// Neither can be run on this lane. What CAN be run, and what this file does, is pin
-// every input the two share — the noise itself, the seeds, the packing arithmetic and
-// the cell size — so that if the two ever disagree it is about CoreImage plumbing and
-// not about what the grain is. When somebody merges them, these assertions are the
-// statement of what must not change in the merge.
+// There is now ONE CIImage plate builder, `RenderGraph.grainPlate`, and the history of
+// how it got there is the reason this file is written the way it is. There were two —
+// the film path had its own copy in `PipelineRenderer` — and the assertion below used
+// to pin them together by comparing the noise each one asks for. It compared the
+// UNLIMITED plates, because that is the call the hand-rolled copy made, and so it went
+// on passing after the plate learned to band-limit itself to the resolution it is about
+// to be sampled at (C2-01b): the reference renderer band-limited, the film path's GPU
+// copy did not, and a stock's grain on screen and in the exported file went back to
+// carrying the aliasing that fix had just removed. Nothing failed.
+//
+// The builders are one now, so they cannot drift. What this file pins instead is the
+// property that made the duplicate dangerous: that a plate built for a render is NOT
+// the unlimited plate, so a caller reaching past the plan for a raw one is making a
+// different grain and can be seen to be.
 
 import XCTest
 @testable import LumenCore
 
 final class GrainPlateTests: XCTestCase {
 
-    /// `GrainPlan.plate` is exactly the call `PipelineRenderer.grainPlate` makes by
-    /// hand for a film stock: same generator, same size, same per-channel seed, unit
-    /// sigma, and — since a stock's profile carries the default persistence — the same
-    /// octave weights.
+    /// A plate built for a RENDER is not the unlimited plate, and the difference is
+    /// exactly what a second builder that forgot to band-limit would hand the GPU.
     ///
-    /// This is the assertion that makes the two builders' noise identical by
-    /// construction rather than by inspection.
-    func testTheFilmPlateIsTheSameNoiseTheHandRolledCallProduces() {
+    /// This is the assertion the version it replaces could not make. That one compared
+    /// `GrainPlan.plate()` — no scale, every octave — against the same unlimited call
+    /// written out by hand, which is true of any two callers who both ask for the
+    /// unlimited plate and says nothing about the one the renderer actually samples.
+    func testAPlateBuiltForARenderIsNotTheUnlimitedPlate() {
         let chain = FilmChain(FilmChain.defaultRecipe(for: .portra400),
                               displayWhite: 1.0)
         let plan = GrainPlan.film(chain)
-        for channel in 0..<3 {
-            let viaPlan = plan.plate(channel: channel)
-            // The literal expression the GPU builder writes out.
-            let handRolled = FilmGrainProfile.plate(
-                size: 128,
-                seed: chain.grain.plateSeed(channel: channel),
-                sigma: 1)
-            XCTAssertEqual(viaPlan, handRolled,
-                           "channel \(channel)'s plate differs between the plan and the "
-                               + "hand-rolled call the GPU builder makes — one recipe, "
-                               + "two grains")
+
+        // A 2560 px working render. Portra's cells are 0.68 / 0.85 / 1.71 px and the
+        // plate's four octaves span 16 / 8 / 4 / 2 texels, so the finest octave covers
+        // 1.37 / 1.71 / 3.41 render pixels — under two for the red and green records,
+        // which is past Nyquist and is aliasing rather than grain, and comfortably over
+        // it for the blue.
+        //
+        // So the answer is TWO of three, and the third is the half of the contract that
+        // matters just as much: the limit removes what cannot be seen and never more.
+        // (An earlier draft of this test asserted three and was wrong about the blue
+        // record, which is a fair warning about how easily this arithmetic is guessed.)
+        func plate(_ channel: Int, at longEdge: Int) -> [Float] {
+            plan.plate(channel: channel,
+                       renderPixelsPerCell: plan.plateScale(longEdgePixels: longEdge,
+                                                            channel: channel))
         }
+        for (name, channel) in [("red", 0), ("green", 1)] {
+            XCTAssertNotEqual(plan.plate(channel: channel), plate(channel, at: 2560),
+                              "the \(name) record's plate at a 2560 px render is "
+                                  + "bit-identical to the unlimited one — either "
+                                  + "band-limiting has stopped happening, or a caller is "
+                                  + "reaching past `GrainPlan` for a raw plate, which is "
+                                  + "the shape of the bug that survived C2-01b for a day")
+        }
+        XCTAssertEqual(plan.plate(channel: 2), plate(2, at: 2560),
+                       "the blue record's finest octave is 3.4 render pixels across at "
+                           + "2560 — it resolves, and dropping it would be the limit "
+                           + "eating grain the screen can show")
+
+        // And at an EXPORT size every octave resolves on every layer, so all three
+        // plates are the unlimited bytes again.
+        for channel in 0..<3 {
+            XCTAssertEqual(plan.plate(channel: channel), plate(channel, at: 12000),
+                           "channel \(channel)'s plate is being band-limited at a size "
+                               + "that resolves every octave — the limit is eating grain "
+                               + "the delivered file can carry")
+        }
+
         XCTAssertEqual(GrainPlan.plateSize, 128,
-                       "128 is the plate edge both builders have always used; a plate of "
+                       "128 is the plate edge every builder has always used; a plate of "
                            + "a different size is a different grain")
+    }
+
+    /// AND THERE IS ONE BUILDER. Read as text, because `Sources/LumenPipeline` is
+    /// `#if os(macOS)` and no test in this package can call into it — the same reason
+    /// `SettleGateTests` reads the viewer's settle gate.
+    ///
+    /// A second builder is not a style problem. The one that existed produced identical
+    /// bytes for a year and then silently stopped, because band-limiting was added to
+    /// the plan and the copy did not go through the plan.
+    func testThereIsOneGPUPlateBuilderAndItAsksThePlanForItsScale() {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/LumenPipeline")
+        let fm = FileManager.default
+        guard let names = try? fm.contentsOfDirectory(atPath: root.path) else {
+            return XCTFail("Sources/LumenPipeline not found")
+        }
+        var builders: [String] = []
+        var buildsRawPlates: [String] = []
+        for name in names.filter({ $0.hasSuffix(".swift") }).sorted() {
+            guard let text = try? String(
+                contentsOf: root.appendingPathComponent(name), encoding: .utf8) else {
+                continue
+            }
+            for (offset, line) in text.split(separator: "\n",
+                                             omittingEmptySubsequences: false).enumerated() {
+                let code = line.contains("//") ? line[..<line.range(of: "//")!.lowerBound]
+                                               : line[...]
+                if code.contains("func ") && code.contains("GrainPlate") {
+                    builders.append("\(name):\(offset + 1): \(code.trimmingCharacters(in: .whitespaces))")
+                }
+                if code.contains("func grainPlate(") {
+                    builders.append("\(name):\(offset + 1): \(code.trimmingCharacters(in: .whitespaces))")
+                }
+                // The raw generator, reached around the plan: the plan is what carries
+                // the persistence, the seed base and — the point of this test — the
+                // render scale.
+                if code.contains("FilmGrainProfile.plate(") {
+                    buildsRawPlates.append("\(name):\(offset + 1): \(code.trimmingCharacters(in: .whitespaces))")
+                }
+            }
+        }
+        XCTAssertEqual(builders.count, 1,
+                       "\(builders.count) GPU plate builders in Sources/LumenPipeline — "
+                           + "there is one, and a second one is how the film path kept "
+                           + "an unlimited plate after C2-01b:\n"
+                           + builders.joined(separator: "\n"))
+        XCTAssertTrue(buildsRawPlates.isEmpty,
+                      "a caller in Sources/LumenPipeline is building a plate straight "
+                          + "from FilmGrainProfile instead of through GrainPlan, so it "
+                          + "carries neither the profile's persistence nor the render's "
+                          + "band limit:\n" + buildsRawPlates.joined(separator: "\n"))
     }
 
     /// A creative plate is NOT the same noise as a film plate at the same seed unless

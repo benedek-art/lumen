@@ -694,10 +694,16 @@ public final class PipelineRenderer {
             croppedLongEdge: Int(Swift.max(extent.width, extent.height).rounded()),
             deliveredLongEdge: Int(Swift.max(image.extent.width,
                                              image.extent.height).rounded()))
-        if let film = plan.filmChain, film.grainAmount > 0,
-           let plate = Self.grainPlate(film: film, extent: image.extent,
-                                       plateLongEdge: plateLongEdge) {
-            image = graph.applyGrain(image, plate: plate, film: film)
+        // WHICHEVER GRAIN THE PLAN RESOLVED, not just a stock's. This read
+        // `plan.filmChain`, so a creative grain fell through to the graph and was laid
+        // before the resize — see `RenderGraph.defersGrain` for what that costs. The
+        // two cases were never different: one `GrainPlan`, one plate builder, one
+        // kernel, and `plateLongEdge` is the uncropped equivalent of this delivery for
+        // both of them.
+        if let grain = plan.grain, grain.amount > 0,
+           let plate = RenderGraph.grainPlate(grain, extent: image.extent,
+                                              longEdge: plateLongEdge) {
+            image = graph.applyGrain(image, plate: plate, grain: grain)
         }
         image = Self.applyOutputSharpen(image, exportRecipe.sharpen,
                                         resolutionPPI: exportRecipe.resolutionPPI)
@@ -1248,9 +1254,19 @@ public final class PipelineRenderer {
             }
         }
 
-        if let film = plan.filmChain, film.grainAmount > 0, !deferGrain {
-            graph.grainPlate = Self.grainPlate(film: film, extent: extent)
+        // ONE PLATE BUILDER, in `RenderGraph`, band-limited to the resolution it is
+        // about to be sampled at. This file had its own copy for the film path; see
+        // that function's header for what the duplicate cost when the plate learned
+        // to band-limit itself.
+        if let grain = plan.grain, grain.amount > 0, !deferGrain, !grain.isCreative {
+            graph.grainPlate = RenderGraph.grainPlate(
+                grain, extent: extent,
+                longEdge: Int(Swift.max(extent.width, extent.height)))
         }
+        // And the graph is told, rather than left to infer it from a missing plate: a
+        // creative grain builds its own when none is supplied, so withholding the plate
+        // withheld nothing (C2-03).
+        graph.defersGrain = deferGrain
         return graph
     }
 
@@ -1429,98 +1445,6 @@ public final class PipelineRenderer {
         return image.transformed(by: CGAffineTransform(scaleX: sx, y: sy))
             .transformed(by: CGAffineTransform(translationX: targetExtent.origin.x,
                                                y: targetExtent.origin.y))
-    }
-
-    /// A tileable unit-variance grain plate, mapped into [0,1] because the kernel
-    /// re-centres it. Deterministic: the same frame grains the same way every render.
-    ///
-    /// THREE plates on a colour stock, one per emulsion layer, each at its own crystal
-    /// size and from its own seed — `lumenGrain` already samples `noise.rgb` per
-    /// channel, so the kernel needed no change; it was being handed a grey plate. See
-    /// `ReferenceRenderer.applyGrain` for why decorrelated layers are what makes grain
-    /// read as film. A monochrome stock takes the single-plate path, both because its
-    /// layers must stay correlated and because building three identical ones would be
-    /// waste.
-    /// `plateLongEdge` is the long edge `plateScale` is asked about, which is NOT
-    /// always the extent's. `plateScale` converts a gate pitch into pixels through
-    /// pixels-per-gate-millimetre, so it assumes the long edge it is given covers the
-    /// whole gate. A cropped delivery does not: it has fewer pixels AND covers less of
-    /// the negative, and those cancel — the grain keeps its pixel footprint, exactly as
-    /// it does in a darkroom. So a caller holding a crop has to hand over the long edge
-    /// the delivery WOULD have if it were uncropped. Defaults to the extent's own long
-    /// edge, which is right whenever the image being grained is the whole frame.
-    static func grainPlate(film: FilmChain, extent: CGRect,
-                           plateLongEdge: Int? = nil) -> CIImage? {
-        let size = 128
-        let long = plateLongEdge ?? Int(Swift.max(extent.width, extent.height))
-
-        /// One channel's tile: its noise in `channel`, zero in the others, so the three
-        /// sum to a packed RGB plate. Alpha is carried by the red tile alone — addition
-        /// compositing adds alpha too, and three opaque tiles would sum to 3.
-        func tile(channel: Int) -> CIImage? {
-            let plate = FilmGrainProfile.plate(
-                size: size, seed: film.grain.plateSeed(channel: channel), sigma: 1)
-            var pixels = [Float](repeating: 0, count: size * size * 4)
-            for i in 0..<(size * size) {
-                // No `saturate`: the texture is RGBAf and the clamp was flattening the
-                // 3.4% of the plate beyond ±2σ — precisely the strongest grains.
-                pixels[i * 4 + channel] =
-                    Float(Double(plate[i]) / FilmGrainProfile.plateEncodeScale + 0.5)
-                pixels[i * 4 + 3] = channel == 0 ? 1 : 0
-            }
-            let data = pixels.withUnsafeBufferPointer { Data(buffer: $0) }
-            let image = CIImage(bitmapData: data, bytesPerRow: size * 16,
-                                size: CGSize(width: size, height: size),
-                                format: .RGBAf, colorSpace: nil)
-            let scale = Swift.max(film.grain.plateScale(
-                longEdgePixels: long, printSizeInches: film.printLongEdgeInches,
-                channel: channel), 0.5)
-            let scaled = image.transformed(
-                by: CGAffineTransform(scaleX: CGFloat(scale), y: CGFloat(scale)))
-            let tiler = CIFilter.affineTile()
-            tiler.inputImage = scaled
-            tiler.transform = .identity
-            return tiler.outputImage ?? scaled
-        }
-
-        if film.grain.monochrome {
-            // One plate, written to all three channels: no dye layers, no colour.
-            let plate = FilmGrainProfile.plate(
-                size: size, seed: FilmGrainProfile.defaultPlateSeed, sigma: 1)
-            var pixels = [Float](repeating: 1, count: size * size * 4)
-            for i in 0..<(size * size) {
-                let v = Float(Double(plate[i]) / FilmGrainProfile.plateEncodeScale + 0.5)
-                pixels[i * 4] = v
-                pixels[i * 4 + 1] = v
-                pixels[i * 4 + 2] = v
-            }
-            let data = pixels.withUnsafeBufferPointer { Data(buffer: $0) }
-            let image = CIImage(bitmapData: data, bytesPerRow: size * 16,
-                                size: CGSize(width: size, height: size),
-                                format: .RGBAf, colorSpace: nil)
-            let scale = Swift.max(film.grain.plateScale(
-                longEdgePixels: long, printSizeInches: film.printLongEdgeInches), 0.5)
-            let scaled = image.transformed(
-                by: CGAffineTransform(scaleX: CGFloat(scale), y: CGFloat(scale)))
-            let tiler = CIFilter.affineTile()
-            tiler.inputImage = scaled
-            tiler.transform = .identity
-            return (tiler.outputImage ?? scaled).cropped(to: extent)
-        }
-
-        guard let red = tile(channel: 0), let green = tile(channel: 1),
-              let blue = tile(channel: 2) else { return nil }
-        // Addition compositing is exact here rather than approximate: it works on
-        // premultiplied colour, and premultiplying by an alpha of 1 or 0 leaves the
-        // one contributing channel of each tile untouched.
-        func add(_ a: CIImage, _ b: CIImage) -> CIImage? {
-            let filter = CIFilter.additionCompositing()
-            filter.inputImage = a
-            filter.backgroundImage = b
-            return filter.outputImage
-        }
-        guard let rg = add(red, green), let packed = add(rg, blue) else { return nil }
-        return packed.cropped(to: extent)
     }
 
     // MARK: - Geometry (S16)
