@@ -1910,6 +1910,24 @@ struct LumenToggleRow: View {
     @Binding var isOn: Bool
     var help: String?
 
+    /// `.disabled(…)` on this row used to stop the TAP and nothing else.
+    ///
+    /// SwiftUI's `disabled` blocks the gesture and sets `\.isEnabled` in the
+    /// environment — and this row read neither. `LumenSwitch` takes an `isEnabled` it
+    /// was never handed (so it drew at full opacity, tracked hover, and answered its own
+    /// tap), and `lumenInteractive` takes an `enabled` it was never handed (so the row
+    /// still filled on hover and still put a POINTING HAND under the cursor).
+    ///
+    /// A row that lights up, offers the click cursor, and then does nothing is the same
+    /// defect as a live control that reaches nothing — the class this app calls S1 — just
+    /// quieter, because the photographer reads the affordance rather than the result. It
+    /// was found while closing E2-02, where the Capture-sharpening toggle is disabled on
+    /// rendered files: the fix stopped the write and left the row looking pressable.
+    ///
+    /// Every `.disabled` on a `LumenToggleRow` in the app inherits this, which is why it
+    /// belongs here and not at the one call site that exposed it.
+    @Environment(\.isEnabled) private var isEnabled
+
     var body: some View {
         HStack {
             Text(title)
@@ -1924,7 +1942,7 @@ struct LumenToggleRow: View {
             // `sliderFillModified` instead, which is already this app's word for "you
             // changed this" — so an ON switch and a moved slider now say the same thing
             // the same way.
-            LumenSwitch(isOn: $isOn)
+            LumenSwitch(isOn: $isOn, isEnabled: isEnabled)
         }
         .frame(height: Lumen.rowHeight)
         // The same air as a slider row, so a toggle dropped between two sliders keeps
@@ -1948,7 +1966,7 @@ struct LumenToggleRow: View {
         // pointing hand in one call. It lifts from the PANEL value, because that is
         // what the row sits on — the old literal 0.27 was a step for a control at
         // 0.24 and a jump for a row at 0.20.
-        .lumenInteractive(on: Lumen.panelValue)
+        .lumenInteractive(on: Lumen.panelValue, enabled: isEnabled)
         .help(help ?? "")
     }
 }

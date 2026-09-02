@@ -338,13 +338,17 @@ struct ContentView: View {
 /// catalog structures that had complete store APIs and no way in from the app at all:
 /// albums, keywords and stacks.
 ///
-/// The keyboard verbs are Command-modified rather than the bare `B` / `S` / `⇧S` that
-/// docs/10 §10.9 specifies. The bare-key dispatcher in Keymap.swift already spends
-/// those two letters on the Basic panel and the scopes, and moving them is a change to
-/// the culling grammar that belongs in one deliberate pass over the whole keymap, not
-/// as a side effect of giving albums a sidebar. `⌘B`, `⌘G`, `⇧⌘G` and `⌘K` are free,
-/// they are attached to visible controls, and every one of them is disabled — visibly —
-/// when there is nothing for it to act on.
+/// The keyboard verbs here are Command-modified — `⌘G`, `⇧⌘G`, `⇧⌘K` — attached to
+/// visible controls and every one of them disabled, visibly, when there is nothing for
+/// it to act on.
+///
+/// ALBUMS IS THE EXCEPTION AND IT IS NOT A CHORD. This comment used to say that `⌘B`
+/// was free and spend it on the album button, because bare `B` was the Basic panel at
+/// the time. K-104 took `B` and `L` back for docs/10 §10.9's culling grammar, so
+/// add-to-album is the bare `B` in `Keymap.swift` and `⌘B` is the assessment surround
+/// in the View menu. Nothing in this file may attach `⌘B` again: two attachments of one
+/// chord is a dead shortcut, and `KeyGrammarAttachmentTests` in LumenAppTests now fails
+/// when any chord is attached twice.
 private struct Sidebar: View {
     @EnvironmentObject var state: AppState
 
@@ -503,7 +507,15 @@ private struct Sidebar: View {
         VStack(alignment: .leading, spacing: 4) {
             LumenSectionHeader(title: "Albums", isExpanded: $albumsExpanded,
                                isModified: state.selectedCollectionID != nil)
-            // Above the fold: the section's one-click verb, and the holder of ⌘B.
+            // Above the fold: the section's one-click verb. It holds NO chord.
+            //
+            // It held ⌘B until K-104 settled the keymap the other way round: bare `B`
+            // is add-to-album (`Keymap.swift`, `case "b"`) and ⌘B is the assessment
+            // surround (`LumenApp.swift`, the View menu). Both were attached and only
+            // one can win — a menu item's key equivalent is offered by the main menu
+            // before the window's view hierarchy sees the event — so this button's ⌘B
+            // was a dead shortcut, and its `.help` advertised it anyway. The tooltip
+            // now names the bare key it actually has.
             Button {
                 state.addSelectionToTargetCollection()
             } label: {
@@ -511,9 +523,8 @@ private struct Sidebar: View {
                     .font(.lumenBody)
             }
             .buttonStyle(.borderless)
-            .keyboardShortcut("b", modifiers: [.command])
             .disabled(state.targetCollection == nil || state.editTargets.isEmpty)
-            .help("Add the selection to the target album (⌘B)")
+            .help("Add the selection to the target album (B)")
 
             if albumsExpanded { albums }
         }

@@ -177,6 +177,66 @@ public enum PreviewCache {
         source == .embedded ? "" : current
     }
 
+    /// The rung a payload may be FILED at, derived from the pixels it actually holds
+    /// rather than from the size that was asked for.
+    ///
+    /// The largest rung whose stored size the payload can fill, and nil when it cannot
+    /// fill even `thumb` — a payload is never filed at a rung it would have to be
+    /// stretched into.
+    ///
+    /// This is the writer's half of `decide`'s **never upward** rule. `decide` refuses
+    /// to answer a 1024 request with a 256 row; this refuses to let a 256 payload BE a
+    /// 1024 row, which is the same lie written from the other end and the only one of
+    /// the two that `decide` cannot catch. A `PreviewRow` carries a level, a path and a
+    /// byte count and NO pixel count, so once a soft payload is filed at a tall rung
+    /// nothing downstream can tell — the image arrives, the loupe fills in, the cache
+    /// reports a hit, and the rule in the paragraph above is enforced against a number
+    /// that was never true.
+    ///
+    /// What this is NOT for, stated because the distinction is the whole finding. An
+    /// ImageIO extraction made AT the request size — every `.embedded` write this cache
+    /// takes — may legitimately come back smaller (many Sony bodies embed about
+    /// 1616×1080), and `rowForDecode` files it at the rung that was asked for. That is
+    /// not a lie, for the reason `rowForDecode` gives: the payload is by construction
+    /// exactly what decoding the ORIGINAL at that request size would have produced, so
+    /// serving it back is never softer than the miss it replaced. A frame the VIEWER
+    /// settled at is not that. Its size is the WINDOW's — the same photograph, the same
+    /// recipe, a wider pane, and more pixels come back — so filing it at the ask files
+    /// the window size as if it were a property of the photograph.
+    ///
+    /// Filed at the rung it fills rather than refused outright. Refusing would leave the
+    /// develop writer doing nothing at all in the common case — a windowed loupe settles
+    /// somewhere between 640 and 1600 — which is a second quiet lie: a cache that
+    /// reports a write it did not make. A downgraded row is honest and servable, the
+    /// browse rungs are where a 900 px render of the user's own edit is genuinely worth
+    /// having, and a `fit` request simply falls through to the camera's own row exactly
+    /// as it did before this writer existed.
+    ///
+    /// `oneToOne` can never be the answer: it has no size (`ThumbnailLadder.pixels`),
+    /// so no payload can fill it, however large.
+    public static func rungFilled(byPayloadLongEdge longEdge: Int) -> PreviewLevel? {
+        guard longEdge > 0 else { return nil }
+        var best: (level: PreviewLevel, pixels: Int)?
+        for level in PreviewLevel.allCases {
+            guard let pixels = ThumbnailLadder.pixels(for: level),
+                  pixels <= longEdge else { continue }
+            if let best, pixels <= best.pixels { continue }
+            best = (level, pixels)
+        }
+        return best?.level
+    }
+
+    /// The same rule expressed as the SIZE to file at, for a caller that has to name one.
+    ///
+    /// `ThumbnailLoader.recordDeveloped` hands this to `PreviewStore.plan`, which turns
+    /// it straight back into a level. One call rather than two, so a writer cannot pick
+    /// the rung and the size independently and have them disagree — which is the shape
+    /// the defect had: a rung named as a constant beside pixels nobody measured.
+    public static func pixelsFilled(byPayloadLongEdge longEdge: Int) -> Int? {
+        guard let level = rungFilled(byPayloadLongEdge: longEdge) else { return nil }
+        return ThumbnailLadder.pixels(for: level)
+    }
+
     /// The row a finished decode should record, or nil when this decode does not belong
     /// on disk.
     ///
@@ -189,6 +249,19 @@ public enum PreviewCache {
     /// softer than the miss it replaced. The `never upward` rule in `decide` is about
     /// rungs, and it still holds; this note is about the gap between a rung and the
     /// pixels a particular camera put in the file.
+    ///
+    /// That argument covers exactly one kind of caller: an extraction made AT `pixels`.
+    /// It does NOT cover a frame rendered at a size of the renderer's own choosing — a
+    /// viewer settle is the size of the WINDOW, so the ask says nothing about what came
+    /// back — and routing one of those through here unexamined is the defect this
+    /// paragraph was added for: a 640 px settle filed as a 2560 `fit` row, winning
+    /// `decide`'s tie against the camera's own full-size row and serving the loupe a
+    /// picture four times softer than it asked for, on the one rung where the 50 ms goal
+    /// is measured. Such a caller picks its `pixels` with
+    /// `pixelsFilled(byPayloadLongEdge:)` above, which is what keeps the promise in the
+    /// paragraph above true for it. Enforced at the writer rather than in here because a
+    /// row records no pixel count: by the time a payload reaches this function the
+    /// evidence of how big it was is gone.
     ///
     /// Nil for `oneToOne`, because that rung is unbuilt (see `ThumbnailLadder.pixels`),
     /// and nil for a size that is not a rung at all — a caller that invented its own

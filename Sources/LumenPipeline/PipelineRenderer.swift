@@ -1169,22 +1169,61 @@ public final class PipelineRenderer {
             // the recipe subtrees `localStageInput` reads (S6–S10; S3/S8 are skipped
             // for a mask source), OVER-keyed on whole subtrees deliberately: an extra
             // rebake costs a background raster, an under-key shows last week's mask.
-            // FILE identity comes first in the key: the raster's pixels come from
-            // THIS photo's decode and THIS photo's Vision mattes, and mask ids
-            // travel verbatim across photos via Paste Settings — so without the url,
-            // pasting a Luma-Range or Subject mask onto a same-sized frame served
-            // photo A's rasterized selection for photo B, in the loupe and in the
-            // exported file, until an edit happened to move the fingerprint.
+            // FILE identity is in the key UNCONDITIONALLY, and `maskRasterKey` is the
+            // only place a key is spelled: it takes the photograph as a REQUIRED
+            // parameter, so a raster key with no photograph in it is not something
+            // this file can express any more.
+            //
+            // The url used to be spliced in here instead, inside `if source != nil`,
+            // on the reasoning that a nil picture source "means the raster is pure
+            // geometry, which is legitimately identical across photos". That is
+            // false, and false in a way that no second conditional fixes. `source`
+            // is nil exactly when `maskSource`'s `needsPicture` is false, and
+            // `needsPicture` asks `MaskKind.readsSourceImage` — which returns false
+            // for every AI kind and for `depthRange`, CORRECTLY, because those read a
+            // cached Vision matte rather than the decode. A matte is the most
+            // photograph-specific thing in this engine, so the one question the
+            // condition asked was the one question that does not decide this.
+            //
+            // Concretely, before this: a Subject mask with Follow at 0 — the value
+            // that row resets to (`MaskPanel:1645`), and `refineRadius` is 0 for any
+            // feather ≤ 2 at the 1024 proxy, so the seeded 10 only has to be nudged
+            // down — keyed as `maskJSON|1024x682||aiSubject|-`. Nothing in that names
+            // the file. `mattesKey` is the matte KIND NAMES, identical across
+            // photographs; `WxH` is 1024x682 for every 3:2 frame at draft, whatever
+            // the sensor; Paste Settings copies mask ids verbatim; and
+            // `MaskRasterCache.plane` serves an exact key hit to any identity. So the
+            // next frame's subject brightened where the PREVIOUS frame's subject was,
+            // in the loupe and in the delivered JPEG, with nothing badged.
+            //
+            // What the unconditional url costs, stated rather than waved past: a
+            // geometry-only raster (a polygon, or a gradient stack `MaskGPU`
+            // declined) genuinely IS identical across photographs at the same size,
+            // and that reuse is given up. It is worth one bake — 12.8 ms for a
+            // geometry-only stack at the proxy, docs/23 probe (b) — per mask, on the
+            // first frame after a photograph switch, and never again, because this
+            // cache holds ONE entry per mask id: a cross-photograph hit could only
+            // ever have been the frame immediately after the switch. Within a
+            // photograph the hit rate is unchanged. The alternative — keying the url
+            // only for kinds that "can depend on the picture" — is the code that was
+            // here, one level down: the same list, the same omission, and the next
+            // matte kind added silently outside it.
+            //
+            // The picture-source fingerprint stays its own term and keeps its own
+            // copy of the url, because `BrushPlaneCache` keys on this string too
+            // (`sourceKey:` in `bake` below) and that cache has the same door.
+            let photograph = PlanTableCache.renderIdentity(for: sourceURL)
             let sourceKey: String?
             if source != nil {
-                // `sourceURL`, the FILE's identity, threaded in from the caller — the
-                // local `source` here is the staged ImageBuffer, which has no url (the
-                // first draft of this fix asked it for one and the macOS compiler
-                // said no). A nil picture source means the raster is pure geometry,
-                // which is legitimately identical across photos, so "-" stays.
+                // `sourceURL` is threaded in from the caller — the local `source` is
+                // the staged ImageBuffer, which has no url (the first draft of this
+                // asked it for one and the macOS compiler said no).
                 sourceKey = Self.maskSourceFingerprint(recipe: plan.recipe)
-                    .map { sourceURL.absoluteString + "|" + $0 }
+                    .map { photograph + "|" + $0 }
             } else {
+                // No stage input was built, so there is no fingerprint to state. This
+                // term says that and nothing else; WHICH photograph is the key
+                // builder's business now, not this branch's.
                 sourceKey = "-"
             }
 
@@ -1236,11 +1275,18 @@ public final class PipelineRenderer {
                     let strokesKey = mask.components.compactMap(\.strokesRef)
                         .map { "\($0):\(strokeSets[$0]?.strokes.count ?? 0)" }
                         .joined(separator: ",")
+                    // The matte KIND NAMES, not the matte pixels — which is why this
+                    // term cannot stand in for the photograph, and why it was so easy
+                    // to mistake for a term that could.
                     let mattesKey = aiMattes.keys.sorted().joined(separator: ",")
-                    let key = [maskJSON, "\(width)x\(height)", strokesKey, mattesKey,
-                               sourceKey].joined(separator: "|")
+                    let key = Self.maskRasterKey(sourceURL: sourceURL,
+                                                 maskJSON: maskJSON,
+                                                 width: width, height: height,
+                                                 strokesKey: strokesKey,
+                                                 mattesKey: mattesKey,
+                                                 sourceKey: sourceKey)
                     alpha = maskRasters.plane(maskID: mask.id, key: key,
-                                              identity: sourceURL.absoluteString,
+                                              identity: photograph,
                                               allowStale: allowStaleRasters,
                                               bakeExact: bake)
                 } else {
@@ -1406,6 +1452,44 @@ public final class PipelineRenderer {
             parts.append(CanonicalJSON.serialize(tree))
         }
         return parts.joined(separator: "|")
+    }
+
+    /// One mask raster's `MaskRasterCache` key — the ONLY place a raster key is
+    /// spelled, and the reason the photograph can no longer fall out of one.
+    ///
+    /// `sourceURL` is a required, non-optional parameter, deliberately, and it is the
+    /// first term. The defect this replaced was not a missing `if`; it was a key
+    /// assembled inline from whatever terms happened to be in scope, where the
+    /// photograph was one OPTIONAL contributor among five and the branch that dropped
+    /// it looked locally reasonable (see `makeGraph`, at the `sourceKey` block, for
+    /// the full account). A key that omits the photograph is now unwriteable: there is
+    /// no call to this function without a URL in hand.
+    ///
+    /// The consequence of getting it wrong is not a stale mask, it is the WRONG
+    /// PHOTOGRAPH's mask. `MaskRasterCache.plane` serves an exact key hit to any
+    /// identity, mask ids travel between photographs verbatim through Paste Settings,
+    /// and at draft every 3:2 frame rasterizes at 1024x682 — so two frames that share
+    /// a pasted mask definition share a key, and one frame wears the other's
+    /// rasterized selection in the loupe and in the delivered file.
+    ///
+    /// None of the other terms can stand in for it. `maskJSON` is the mask DEFINITION,
+    /// which Paste Settings makes identical on purpose. `WxH` is the raster size, which
+    /// collides across every frame of the same aspect. `strokesKey` is stroke refs and
+    /// counts. `mattesKey` is the matte KIND names — `aiSubject`, not the subject.
+    /// `sourceKey` is the picture-source fingerprint, which is absent ("-") for
+    /// precisely the matte-backed kinds where being wrong is most visible.
+    static func maskRasterKey(sourceURL: URL,
+                              maskJSON: String,
+                              width: Int, height: Int,
+                              strokesKey: String,
+                              mattesKey: String,
+                              sourceKey: String) -> String {
+        // The same spelling of "which photograph" the cache's own identity check uses
+        // (`PlanTableCache.renderIdentity`, which the renderer already stamps at
+        // `:284`), so the key term and the identity term cannot drift apart.
+        [PlanTableCache.renderIdentity(for: sourceURL),
+         maskJSON, "\(width)x\(height)", strokesKey, mattesKey,
+         sourceKey].joined(separator: "|")
     }
 
     /// Long edge a DRAFT frame's mask raster is computed at — and only a draft's.

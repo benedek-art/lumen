@@ -18,6 +18,121 @@
 
 import Foundation
 
+// MARK: - Tolerant decoding
+
+/// TOLERANCE THAT REACHES THE NESTED TYPES.
+///
+/// `ExportRecipe.init(from:)` below already makes every top-level key optional (K-016),
+/// and that tolerance was one level deep. `decodeIfPresent` returns nil for a key that
+/// is ABSENT; a key that is PRESENT is handed to its type's own decoder and everything
+/// that decoder objects to is rethrown straight through. So a stored `sharpen` object
+/// written before a field this build added throws `keyNotFound` from inside
+/// `OutputSharpen`'s synthesised decoder, and a `"format":"avif"` written by a later
+/// build throws `dataCorrupted` from `ExportFormat`'s — both out of the recipe, and out
+/// of `JSONDecoder.decode([ExportRecipe].self)`, which decodes an array atomically, so
+/// one entry takes all of them. `AppState.loadExportRecipes` reads that with `try?` and
+/// answers `ExportRecipe.defaults`; the first edit afterwards fires `didSet` and
+/// `saveExportRecipes` overwrites the stored blob with the stock four. Every delivery
+/// preset the photographer ever built, gone, with no error and nothing to restore from.
+///
+/// ONE helper rather than a fallback written out per field, because the defect is not
+/// any of the six enums or the four nested structs — it is that reading stored preset
+/// text can throw at all. Every decoder in this file reads through `tolerant`, which
+/// makes the guarantee structural rather than enumerated: once `ExportRecipe.init(from:)`
+/// holds its container, nothing it does can throw, whatever a nested type does — a
+/// nested type nobody has written yet included. The four nested types get tolerant
+/// decoders of their own anyway, for GRANULARITY, not for safety: without them the outer
+/// fallback would swallow a whole `sharpen` object over one added key and quietly reset
+/// a medium and an amount the photographer chose. Braces for the door we know about,
+/// belt for the one we do not.
+///
+/// This is deliberately the OPPOSITE rule from `RecipeDecoding.swift`, which refuses to
+/// substitute a default for a value somebody's tool actually wrote, on two grounds: a
+/// mask that silently becomes another kind of mask renders a picture nobody asked for,
+/// and its caller can contain the failure to the one photo it belongs to. Neither holds
+/// here. A preset is an instruction that is VISIBLE — a format that came back JPEG
+/// because this build has never heard of AVIF shows as JPEG in the export sheet, beside
+/// the name and subfolder the photographer gave it, and is one click from right. And the
+/// caller can contain nothing: the list is a single blob, decoded atomically, with the
+/// stock four waiting behind it. The choice is not "the stored value or a default", it
+/// is "the preset with one field defaulted or no presets at all".
+///
+/// The one door this cannot close from here: an array element that is not an object at
+/// all throws before `init(from:)` is ever given a container. Only an element-by-element
+/// decode in the caller survives that, and the caller is `AppState.loadExportRecipes`.
+///
+/// The ENCODER stays synthesised everywhere, as it was. Writing is this build's job and
+/// this build knows all its own fields; only reading has to survive the other builds.
+extension ExportRecipe {
+
+    /// A stored preset list, decoded ELEMENT BY ELEMENT.
+    ///
+    /// The tolerant decoder below makes any one `ExportRecipe` survive a field it does
+    /// not understand. It cannot make the ARRAY survive, and that is the other half of
+    /// J3-01: `JSONDecoder` decodes an array atomically, so a single element that is not
+    /// even a JSON object — a null, a string, a shape from a format this build predates —
+    /// throws, and the caller's `try?` hands back the stock four. Every delivery preset
+    /// the photographer ever made, replaced, with no error anywhere. The next edit's
+    /// `didSet` then writes those four over the stored blob, so it is not recoverable by
+    /// relaunching either.
+    ///
+    /// Decoding through an unkeyed container makes the blast radius one entry: a bad
+    /// element is skipped and named in the log, and the presets either side of it live.
+    /// `decodeIfPresent` on a failed element still advances `currentIndex`, which is what
+    /// stops a malformed entry becoming an infinite loop.
+    ///
+    /// It returns the list even when EMPTY, and the distinction matters: "the file has no
+    /// presets" is a thing a photographer can mean by deleting them all, and answering
+    /// that with the stock four resurrects four presets he threw away. Only a MISSING or
+    /// unreadable blob deserves the defaults, and that is the caller's `nil`.
+    public static func decodeList(_ data: Data) -> [ExportRecipe]? {
+        struct Wire: Decodable {
+            var recipes: [ExportRecipe] = []
+            var skipped = 0
+            init(from decoder: Decoder) throws {
+                var c = try decoder.unkeyedContainer()
+                while !c.isAtEnd {
+                    if let one = try? c.decode(ExportRecipe.self) {
+                        recipes.append(one)
+                    } else {
+                        // The element is consumed either way — `decodeIfPresent` advances
+                        // the index even when the decode inside it failed — so this
+                        // cannot spin.
+                        _ = try? c.decodeNil()
+                        skipped += 1
+                    }
+                }
+            }
+        }
+        guard let wire = try? JSONDecoder().decode(Wire.self, from: data) else { return nil }
+        if wire.skipped > 0 {
+            NSLog("Lumen: %d stored export preset(s) could not be read and were skipped; "
+                  + "the other %d are intact", wire.skipped, wire.recipes.count)
+        }
+        return wire.recipes
+    }
+}
+
+fileprivate extension KeyedDecodingContainer {
+
+    /// The stored value, or `fallback` when the key is absent, null, or unreadable —
+    /// wrong type, unknown enum raw value, or a nested object whose own decode threw.
+    ///
+    /// `try?` flattens the optional `decodeIfPresent` already returns (SE-0230), which
+    /// is why one `??` covers all four: absent, null and unreadable are deliberately the
+    /// same answer here, because the fallback is the right answer to all of them.
+    func tolerant<T: Decodable>(_ type: T.Type, forKey key: Key,
+                                default fallback: @autoclosure () -> T) -> T {
+        (try? decodeIfPresent(type, forKey: key)) ?? fallback()
+    }
+
+    /// The same for a field whose absence is itself the value — `watermark`, `subfolder`,
+    /// `hdr`. Unreadable and absent answer alike here, which is what "no watermark" means.
+    func tolerant<T: Decodable>(_ type: T.Type, forKey key: Key) -> T? {
+        try? decodeIfPresent(type, forKey: key)
+    }
+}
+
 // MARK: - Format
 
 public enum ExportFormat: String, Codable, Sendable, CaseIterable {
@@ -119,6 +234,23 @@ public struct MetadataPolicy: Codable, Equatable, Sendable {
         self.copyright = copyright
         self.contact = contact
     }
+
+    /// Tolerant, per the note at the top of this file: a policy stored before this
+    /// build grew a key keeps the four flags and two strings it does carry, rather
+    /// than costing the recipe it belongs to — and the whole list behind it.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let fallback = MetadataPolicy()
+        includeEXIF = c.tolerant(Bool.self, forKey: .includeEXIF,
+                                 default: fallback.includeEXIF)
+        includeCameraSerial = c.tolerant(Bool.self, forKey: .includeCameraSerial,
+                                         default: fallback.includeCameraSerial)
+        includeGPS = c.tolerant(Bool.self, forKey: .includeGPS, default: fallback.includeGPS)
+        includeKeywords = c.tolerant(Bool.self, forKey: .includeKeywords,
+                                     default: fallback.includeKeywords)
+        copyright = c.tolerant(String.self, forKey: .copyright)
+        contact = c.tolerant(String.self, forKey: .contact)
+    }
 }
 
 // MARK: - Output sharpening
@@ -160,6 +292,17 @@ public struct OutputSharpen: Codable, Equatable, Sendable {
     public init(medium: Medium = .none, amount: Amount = .standard) {
         self.medium = medium
         self.amount = amount
+    }
+
+    /// Tolerant, per the note at the top of this file. Both fields are raw-value enums,
+    /// which is the half that matters here: a `medium` this build has no case for falls
+    /// back to Off and leaves `amount` exactly as the photographer set it, instead of
+    /// throwing `dataCorrupted` and taking every preset in the list with it.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let fallback = OutputSharpen()
+        medium = c.tolerant(Medium.self, forKey: .medium, default: fallback.medium)
+        amount = c.tolerant(Amount.self, forKey: .amount, default: fallback.amount)
     }
 
     /// Base radius in output pixels, before the amount scale.
@@ -245,6 +388,21 @@ public struct Watermark: Codable, Equatable, Sendable {
         self.sizePercent = sizePercent
         self.insetPercent = insetPercent
     }
+
+    /// Tolerant, per the note at the top of this file. The text is the part with the
+    /// photographer's work in it — a studio name typed once and used for years — so an
+    /// unreadable `position` costs a corner, not the mark.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let fallback = Watermark()
+        text = c.tolerant(String.self, forKey: .text, default: fallback.text)
+        position = c.tolerant(Position.self, forKey: .position, default: fallback.position)
+        opacity = c.tolerant(Double.self, forKey: .opacity, default: fallback.opacity)
+        sizePercent = c.tolerant(Double.self, forKey: .sizePercent,
+                                 default: fallback.sizePercent)
+        insetPercent = c.tolerant(Double.self, forKey: .insetPercent,
+                                  default: fallback.insetPercent)
+    }
 }
 
 // MARK: - The recipe
@@ -320,7 +478,8 @@ public struct ExportRecipe: Codable, Equatable, Sendable, Identifiable {
     }
 
     /// A TOLERANT DECODE, because the strict one loses every preset the photographer
-    /// ever built (K-016).
+    /// ever built (K-016) — and a decode tolerant only of THIS level loses them too,
+    /// which is the note at the top of this file.
     ///
     /// `Codable`'s synthesised decoder requires every one of the seventeen stored
     /// properties above. `AppState.loadExportRecipes` reads the list with `try?` and
@@ -341,37 +500,37 @@ public struct ExportRecipe: Codable, Equatable, Sendable, Identifiable {
     /// render as a blank row, and both are recoverable states rather than reasons to
     /// discard the list.
     ///
-    /// The ENCODER stays synthesised. Writing is this build's job and this build knows
-    /// all its own fields; only reading has to survive the other builds.
+    /// Every read goes through `tolerant` rather than `decodeIfPresent`, so the same
+    /// sentence covers the key that is missing, the key whose type has changed, the
+    /// enum case a later build invented and the nested object that objected to
+    /// something inside itself. All four used to be one thrown error and no presets.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let fallback = ExportRecipe(name: "")
-        id = try c.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
-        name = try c.decodeIfPresent(String.self, forKey: .name) ?? "Untitled"
-        enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? fallback.enabled
-        format = try c.decodeIfPresent(ExportFormat.self, forKey: .format)
-            ?? fallback.format
-        quality = try c.decodeIfPresent(Double.self, forKey: .quality) ?? fallback.quality
-        bitDepth = try c.decodeIfPresent(Int.self, forKey: .bitDepth) ?? fallback.bitDepth
-        colorSpace = try c.decodeIfPresent(ExportColorSpace.self, forKey: .colorSpace)
-            ?? fallback.colorSpace
-        resizeMode = try c.decodeIfPresent(ResizeMode.self, forKey: .resizeMode)
-            ?? fallback.resizeMode
-        resizeValue = try c.decodeIfPresent(Double.self, forKey: .resizeValue)
-            ?? fallback.resizeValue
-        allowUpscale = try c.decodeIfPresent(Bool.self, forKey: .allowUpscale)
-            ?? fallback.allowUpscale
-        resolutionPPI = try c.decodeIfPresent(Double.self, forKey: .resolutionPPI)
-            ?? fallback.resolutionPPI
-        sharpen = try c.decodeIfPresent(OutputSharpen.self, forKey: .sharpen)
-            ?? fallback.sharpen
-        metadata = try c.decodeIfPresent(MetadataPolicy.self, forKey: .metadata)
-            ?? fallback.metadata
-        watermark = try c.decodeIfPresent(Watermark.self, forKey: .watermark)
-        filenameTemplate = try c.decodeIfPresent(String.self, forKey: .filenameTemplate)
-            ?? fallback.filenameTemplate
-        subfolder = try c.decodeIfPresent(String.self, forKey: .subfolder)
-        hdr = try c.decodeIfPresent(HDRSettings.self, forKey: .hdr)
+        id = c.tolerant(String.self, forKey: .id, default: UUID().uuidString)
+        name = c.tolerant(String.self, forKey: .name, default: "Untitled")
+        enabled = c.tolerant(Bool.self, forKey: .enabled, default: fallback.enabled)
+        format = c.tolerant(ExportFormat.self, forKey: .format, default: fallback.format)
+        quality = c.tolerant(Double.self, forKey: .quality, default: fallback.quality)
+        bitDepth = c.tolerant(Int.self, forKey: .bitDepth, default: fallback.bitDepth)
+        colorSpace = c.tolerant(ExportColorSpace.self, forKey: .colorSpace,
+                                default: fallback.colorSpace)
+        resizeMode = c.tolerant(ResizeMode.self, forKey: .resizeMode,
+                                default: fallback.resizeMode)
+        resizeValue = c.tolerant(Double.self, forKey: .resizeValue,
+                                 default: fallback.resizeValue)
+        allowUpscale = c.tolerant(Bool.self, forKey: .allowUpscale,
+                                  default: fallback.allowUpscale)
+        resolutionPPI = c.tolerant(Double.self, forKey: .resolutionPPI,
+                                   default: fallback.resolutionPPI)
+        sharpen = c.tolerant(OutputSharpen.self, forKey: .sharpen, default: fallback.sharpen)
+        metadata = c.tolerant(MetadataPolicy.self, forKey: .metadata,
+                              default: fallback.metadata)
+        watermark = c.tolerant(Watermark.self, forKey: .watermark)
+        filenameTemplate = c.tolerant(String.self, forKey: .filenameTemplate,
+                                      default: fallback.filenameTemplate)
+        subfolder = c.tolerant(String.self, forKey: .subfolder)
+        hdr = c.tolerant(HDRSettings.self, forKey: .hdr)
     }
 
     /// The depth the encoder will actually use.
@@ -568,6 +727,19 @@ public struct HDRSettings: Codable, Equatable, Sendable {
         self.headroomEV = headroomEV
         self.mapScale = mapScale
         self.deliberateSDRBase = deliberateSDRBase
+    }
+
+    /// Tolerant, per the note at the top of this file. This is the nested type most
+    /// likely to grow — the gain map it describes is half-written (`hdrIsWritable`) and
+    /// the ISO 21496-1 fields it still needs are not invented yet — so it is the one
+    /// whose next field would otherwise be the one that empties the preset list.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let fallback = HDRSettings()
+        headroomEV = c.tolerant(Double.self, forKey: .headroomEV, default: fallback.headroomEV)
+        mapScale = c.tolerant(Double.self, forKey: .mapScale, default: fallback.mapScale)
+        deliberateSDRBase = c.tolerant(Bool.self, forKey: .deliberateSDRBase,
+                                       default: fallback.deliberateSDRBase)
     }
 
     public var whiteTargetPercent: Double { 100 * pow(2, Num.clamp(headroomEV, 0, 4)) }

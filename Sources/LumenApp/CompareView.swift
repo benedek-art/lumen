@@ -98,7 +98,25 @@ struct CompareView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Lumen.viewerBackground)
+        // THE FIELD THE PHOTOGRAPHS SIT ON, read from the state rather than from the
+        // palette — the same correction as `LoupeView`'s, for the same reason.
+        //
+        // `⌘B` and `L` write one value, `AppState.surroundValue`, and `ContentView`
+        // painted it once on the outermost stack. Every viewer surface then covered
+        // that stack opaquely with the `Lumen.viewerBackground` constant: four of the
+        // six painters were in this file — the audit that found this counted three and
+        // missed the empty second pane below, which is the kind of thing a constant
+        // spread across four grounds does. So assessment mode announced ISO 12646
+        // mid-grey and compare kept showing both frames on 0.165, which is the wrong
+        // field for the judgement the mode exists to support — and comparing two
+        // frames IS that judgement, so of the two surfaces this is the one that
+        // could least afford the no-op.
+        //
+        // Nothing changes for ordinary use: with neither control on,
+        // `ViewingConditions.surround` returns `Lumen.surroundCanvasValue` (0.165) and
+        // `AppState.surroundColor` builds the same `NSColor(white: 0.165, alpha: 1)`
+        // that `Lumen.surroundCanvas` — hence `Lumen.viewerBackground` — is defined as.
+        .background(state.surroundColor)
     }
 
     /// What is being compared. The rule lives on `AppState` because the arrow keys move
@@ -139,7 +157,11 @@ struct CompareView: View {
             if pair.count == 1 {
                 LumenEmptyState(symbol: "plus.rectangle",
                                 headline: "Select a second photo")
-                .background(Lumen.viewerBackground)
+                // The empty half of a 2-up is still half the field the other pane's
+                // photograph is judged against, so it follows the surround too. The
+                // group background above already paints it; this is here so the two
+                // halves cannot ever disagree, not because they currently would.
+                .background(state.surroundColor)
             }
         }
         .overlay(alignment: .topTrailing) {
@@ -208,7 +230,9 @@ private struct ComparePane: View {
             let container = geometry.size
             let longEdge: Int = requestedLongEdge(container: container)
             ZStack(alignment: .bottomLeading) {
-                Lumen.viewerBackground
+                // The pane's own ground, and the layer that used to hide the surround
+                // from the photograph it is drawn closest to. See `CompareView.body`.
+                state.surroundColor
 
                 if let cg = model.image, model.imageURL == photo.id {
                     plate(cg, container: container)
@@ -429,7 +453,10 @@ private struct SurveyCell: View {
             let container = geometry.size
             let longEdge: Int = requestedLongEdge(container: container)
             ZStack(alignment: .bottomLeading) {
-                Lumen.viewerBackground
+                // As in `ComparePane`: the cell's ground is the surround, so a survey
+                // in assessment mode sits every frame on the same reference grey
+                // instead of on the constant this used to be.
+                state.surroundColor
 
                 if let cg = model.image, model.imageURL == photo.id {
                     Image(decorative: InspectionGain.displayed(cg,

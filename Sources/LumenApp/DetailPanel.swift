@@ -75,39 +75,108 @@ struct DetailPanel: View {
                            $0.develop.detail.capture = CaptureSharpen()
                        } }) {
             VStack(alignment: .leading, spacing: Lumen.rowGap) {
-                // DISABLED ON A RENDERED FILE, because it reaches nothing there. Both
-                // this toggle and the Amount row below write fields whose ONLY reader is
-                // `AppleRawSource` — the raw decoder — and a JPEG, HEIC or TIFF goes
-                // through `RenderedImageSource`, whose whole `decode` reads nothing out
-                // of the recipe but the scale factor. So on every non-raw file in the
-                // library these two controls moved, lit the section's modified dot, wrote
-                // the recipe and the sidecar, and changed no pixel. The AI-denoise row
-                // three sections down already branches its help text on exactly this; it
-                // was the only one that did.
                 LumenToggleRow(title: "Capture sharpening",
-                               isOn: binder.flag(\.develop.detail.capture.auto,
-                                                 "detail.capture.auto"),
-                               // The RL story is docs/06's, and RL does not run:
-                               // `DetailEngine.captureSharpen` has no caller. Saying so
-                               // here rather than selling the algorithm the panel wishes
-                               // it were running.
-                               //
-                               // It also said "written and TESTED". It is not tested:
-                               // `richardsonLucy`, `estimatePSFSigma` and
-                               // `captureSharpen` appear in no file under Tests/, so
-                               // nothing has ever observed them produce a pixel. Code
-                               // with no caller and no test is written, and that is the
-                               // whole of what may be claimed for it — "tested" is the
-                               // word that turns an honest disclosure into a second
-                               // claim the reader has no way to check.
-                               help: "Scales the decoder's own at-demosaic sharpener. "
-                                   + "Lumen's measured-PSF deconvolution is written but "
-                                   + "has no caller and no test, so it does not run and "
-                                   + "there is no per-frame radius measurement in this "
-                                   + "build.")
-                if recipe.develop.detail.capture.auto { captureOverrides }
+                               isOn: captureToggleBinding,
+                               help: captureToggleHelp)
+                if isRenderedFile {
+                    renderedCaptureNote
+                } else if recipe.develop.detail.capture.auto {
+                    captureOverrides
+                }
             }
+            // DISABLED ON A RENDERED FILE — ON THIS STACK, WHICH IS THE FIX.
+            //
+            // The comment that used to stand above the toggle said the section was
+            // disabled here. It was not: the only `.disabled(isRenderedFile)` in this
+            // file sat on `captureOverrides`, so the badge row and Amount went grey and
+            // THE TOGGLE STAYED LIVE. On every JPEG, HEIC and TIFF in the library it
+            // moved, lit the section's modified dot, wrote the recipe and the sidecar
+            // and spent an undo step, and changed the photograph by not one code value.
+            // A comment is not a modifier, and this is how that survived: nothing could
+            // fail. `CaptureSharpenScopeTests` now reads this line.
+            //
+            // Why it reaches nothing: both the toggle and the Amount row write fields
+            // whose ONLY reader is `AppleRawSource` — the raw decoder — and a rendered
+            // file goes through `RenderedImageSource`, whose whole `decode` reads
+            // nothing out of the recipe but the scale factor. docs/06 §Capture
+            // Sharpening has said so from the start: "on (raw only)", "off for
+            // JPEG/HEIC (already sharpened in camera)". Only the code disagreed.
+            //
+            // `PhotoFormats.isRendered` is the SAME predicate
+            // `RenderCoordinator.source(for:)` uses to choose between those two
+            // decoders. That is deliberate and tested: a second copy of "is this file
+            // already demosaiced" is a panel that can drift out of step with the
+            // pipeline one extension at a time.
+            //
+            // The header's Reset is outside this stack and stays live, deliberately. A
+            // recipe written by another build can arrive carrying capture edits, the
+            // dot lights for them truthfully — the recipe really does differ — and the
+            // photographer has to be able to put them back.
+            .disabled(isRenderedFile)
         }
+    }
+
+    /// The switch's binding — a constant OFF on a rendered file, rather than the
+    /// recipe's `auto`.
+    ///
+    /// `CaptureSharpen()` defaults `auto` to true, so simply disabling the row would
+    /// leave a switch stuck in the ON position on every JPEG in the library: the same
+    /// claim the live toggle was making — that a stage is running on this photograph —
+    /// said more quietly. Off is what is true of the picture, and it is what docs/06
+    /// specifies for these files. The recipe field is untouched either way; nothing
+    /// here writes, which is the point.
+    ///
+    /// Computed rather than a ternary in the argument list, with the two `help`
+    /// strings below and for the same reason: `check-swift-surface.py` has a verified
+    /// blind spot on multi-line ternary ARGUMENTS (docs/31 postscript), so branching
+    /// stays out of call sites in this file.
+    private var captureToggleBinding: Binding<Bool> {
+        guard !isRenderedFile else { return .constant(false) }
+        return binder.flag(\.develop.detail.capture.auto, "detail.capture.auto")
+    }
+
+    /// The toggle's tooltip.
+    ///
+    /// The non-raw branch is new; the raw branch had a claim in it that stopped being
+    /// true. It read "has no caller and no test", and half of that is now false:
+    /// `FieldBaselineProbeTests` renders a blurred edge through
+    /// `DetailEngine.captureSharpen` — and so through `richardsonLucy` — and asserts it
+    /// recovers the edge. What survives is narrower and worth stating exactly, because
+    /// the argument for this panel is that its disclosures can be checked: the
+    /// deconvolution has a baseline probe and no caller, and the per-frame radius
+    /// measurement has neither, since that probe pins a radius rather than measuring
+    /// one.
+    private var captureToggleHelp: String {
+        if isRenderedFile {
+            return "Capture sharpening happens inside the raw decode, which this file "
+                + "does not go through — it was demosaiced and sharpened in the camera, "
+                + "so there is nothing here for this stage to undo. Sharpening below "
+                + "does run on this file."
+        }
+        return "Scales the decoder's own at-demosaic sharpener. Lumen's own "
+            + "measured-PSF deconvolution has a baseline probe in the test suite but no "
+            + "caller, and the per-frame radius measurement has neither, so no radius "
+            + "is measured for this frame in this build."
+    }
+
+    /// The reason, on the panel rather than only in a tooltip.
+    ///
+    /// A greyed row says "you cannot use this" and nothing else; a photographer who has
+    /// to hover a dead control to learn why it is dead has already spent the time the
+    /// disable was meant to save him. This is the same shape as the badge row it stands
+    /// in for — caption left, badge right, one row tall — so the section keeps its
+    /// rhythm as the selection moves between a raw file and a JPEG, and the Amount
+    /// slider is not drawn at all rather than drawn grey.
+    private var renderedCaptureNote: some View {
+        HStack(spacing: 6) {
+            Text("Already demosaiced — no capture stage to scale")
+                .font(.lumenCaption)
+                .foregroundStyle(Lumen.secondaryText)
+            Spacer()
+            LumenBadge(text: "Raw only")
+        }
+        .frame(height: Lumen.rowHeight)
+        .help(captureStateHelp)
     }
 
     private var captureOverrides: some View {
@@ -151,17 +220,24 @@ struct DetailPanel: View {
                         help: captureAmountHelp,
                         onReset: { clearCaptureOverrides() })
         }
-        .disabled(isRenderedFile)
+        // No `.disabled(isRenderedFile)` here any more. It moved up to the section's
+        // stack, which is what covers the toggle as well — and leaving a copy behind
+        // would be a second answer to the same question in the same file, which is the
+        // shape of the defect this fix closed. These rows are not drawn at all on a
+        // rendered file now; `renderedCaptureNote` stands where they were.
     }
 
-    /// What the Auto/Manual badge row means, said on the row itself. Three states, so
-    /// it is a computed property rather than a ternary in the argument —
+    /// What the Auto/Manual badge row means, said on the row itself — and, in its first
+    /// branch, what the "Raw only" row that replaces it on a rendered file means. Three
+    /// states, so it is a computed property rather than a ternary in the argument —
     /// `check-swift-surface.py` has a verified blind spot on multi-line ternary
     /// arguments (docs/31 postscript), so branching help stays out of call sites.
     private var captureStateHelp: String {
         if isRenderedFile {
-            return "Capture sharpening is part of the raw decode, which this file "
-                + "does not go through — these rows are disabled."
+            return "Capture sharpening is part of the raw decode, which a JPEG, HEIC or "
+                + "TIFF does not go through — so no capture stage runs on this "
+                + "photograph and the switch above is off and disabled. Manual "
+                + "sharpening below does run."
         }
         if hasCaptureOverride {
             return "Manual — a hand-set Amount is overriding the strength the decode "
@@ -175,6 +251,11 @@ struct DetailPanel: View {
     /// Amount's tooltip, branching on file type the way the AI-denoise row already
     /// does — and kept out of the argument for the same checker-blind-spot reason as
     /// `captureStateHelp`.
+    ///
+    /// The `isRenderedFile` branch is no longer reachable from this panel: the row it
+    /// belongs to is not drawn on a rendered file at all now. Kept rather than deleted
+    /// because it is the true sentence for that state, and it is the row's own answer
+    /// if the gate above it is ever loosened.
     private var captureAmountHelp: String {
         if isRenderedFile {
             return "Capture sharpening is part of the raw decode, which this file "
@@ -276,7 +357,16 @@ struct DetailPanel: View {
                 // Nothing when capture sharpening is on: it owns the baseline, which
                 // is why Amount above starts at 0. The hint is for the refugee who has
                 // no capture stage and no starting point.
-                if !recipe.develop.detail.capture.auto { lightroomClassicHint }
+                //
+                // `isRenderedFile` first, because on a JPEG there is never a capture
+                // stage whatever the recipe's `auto` says. While the hint keyed on that
+                // field alone, an inert toggle decided whether the one piece of real
+                // help on this screen appeared — the second-order cost of the toggle
+                // being live, and it survives the toggle being disabled, because a
+                // recipe from another build can still arrive with `auto` true.
+                if isRenderedFile || !recipe.develop.detail.capture.auto {
+                    lightroomClassicHint
+                }
             }
         }
     }

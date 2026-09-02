@@ -18,11 +18,53 @@
 // THE PARTITION, and why each side is where it is:
 //
 //   look        TRAVELS. Grading wheels, printer lights, the Film Lab, primaries, the
-//               B&W treatment, vignette, the display transform's preset and overrides,
-//               and the (inert) LUT slot. Every one of them is an expression of intent
-//               about a set of frames, and each reads a develop-normalized,
+//               B&W treatment, vignette, creative grain, the display transform's five
+//               overrides, and the (inert) LUT slot. Every one of them is an expression
+//               of intent about a set of frames, and each reads a develop-normalized,
 //               scene-referred image (docs/14 §3), so it computes the same thing on
 //               every frame it lands on.
+//
+//   look.render.preset
+//               TRAVELS ONLY WITHIN A REGISTER — the one field on the travelling side
+//               that the paragraph above is not true of. The exception is written out
+//               here rather than left inside `applied(to:)` because the sentence it
+//               breaks is this file's entire justification, and a reader who believes
+//               that sentence will not go looking for a counterexample.
+//
+//               Four of the five preset names — "Neutral", "Soft", "Punchy", "Film
+//               Base" — are curve choices, and those really are intents about a set of
+//               frames. The fifth, "Linear", is not a curve at all. docs/04 §6.1 put it
+//               there as the escape hatch for a file that has ALREADY been tone-mapped,
+//               and `AppState.startingRecipe` writes it onto every JPEG, HEIC and TIFF
+//               at ingest for exactly that reason: "a JPEG … is clipped at display
+//               white and carries a manufacturer's S-curve. Handing it the default
+//               sigmoid applies a SECOND." `RenderedImageSource` says the same thing
+//               about the pixels and `WorkspaceSection.nonDefault` a third time. So on
+//               a rendered file the preset is not an expression of intent about a set
+//               of frames at all; it is a fact about THIS one, of the same kind as its
+//               white balance — and a rendered file is the one input to this pipeline
+//               that is not scene-referred, which is precisely the property the
+//               travelling side is justified by.
+//
+//               Carrying it whole therefore moves the target between two registers, and
+//               the cost is not subtle. Measured through the shipping curve
+//               (`DisplayTransform.tone`, neutral preset, white target 100, black
+//               0.0152, anchors −9/+5 EV): a RAW-born look landing on a JPEG takes sRGB
+//               code value 32 → 13, 48 → 27, 255 → 222 — plugged shadows, and a white
+//               that is no longer white. The reverse, a JPEG-born look landing on a
+//               RAW, clips everything above +2.47 EV to paper white: two and a half
+//               stops of highlight the display transform was holding, gone. It is the
+//               same defect the Looks header's Reset had (audit K-027, fixed at
+//               `DevelopColumn.swift:596` by re-applying the photograph's own starting
+//               render per target), arriving instead through the two doors the feature
+//               exists for — Apply Look and Paste Look.
+//
+//               So the rule is a boundary rather than a ban: the preset travels unless
+//               it would carry the frame across the line between tone-mapped and not,
+//               and in that case the target keeps its own. "Punchy" still travels RAW
+//               to RAW and JPEG to JPEG — every case where the two frames agree about
+//               what they are, which is nearly every case, and which is why this went
+//               unnoticed. `carriedRenderPreset` is the rule; `applied(to:)` applies it.
 //
 //   develop     STAYS. White balance is derived from THIS camera's as-shot neutral;
 //               exposure and tone are THIS frame's light; geometry is THIS frame's
@@ -95,6 +137,13 @@ public struct LookSubset: Codable, Equatable, Sendable {
     // MARK: - The partition, as data
 
     /// Top-level recipe keys a look TAKES from the photograph it is saved off.
+    ///
+    /// TOP-LEVEL is the whole claim. One leaf inside `look` is qualified —
+    /// `look.render.preset` travels only within its register, see the header and
+    /// `carriedRenderPreset` — and that is not expressible here, because this set
+    /// answers "which subtrees" and the preset question is "which of two frames does
+    /// this field describe". Written down at both ends rather than at one, so the set
+    /// is not read as a promise it does not make.
     public static let carriedRecipeKeys: Set<String> = ["look"]
 
     /// Top-level recipe keys a look leaves behind. `pipelineVersion` is here because it
@@ -118,7 +167,50 @@ public struct LookSubset: Codable, Equatable, Sendable {
 
     // MARK: - Putting it onto another
 
-    /// This look applied to one recipe: the Look layer replaced whole, develop and
+    /// The preset name that means "this frame has already been tone-mapped once",
+    /// spelled once here because three modules have to agree about the string and two
+    /// of them (`AppState.startingRecipe`, `DisplayTransformParams.preset(named:)`) are
+    /// not visible from this one.
+    ///
+    /// Anything that is NOT this name is treated as a tone-mapping preset, which is the
+    /// same reading `DisplayTransformParams.preset(named:)` gives — its `default:` case
+    /// resolves an unrecognised name to Neutral. So a preset written by a later build
+    /// is a curve, not a second escape hatch, and it travels. That is the conservative
+    /// answer for an unknown name: mistaking a curve for a curve costs a different
+    /// grade, mistaking an escape hatch for a curve costs a second tone map.
+    public static let linearPresetName = "Linear"
+
+    /// Which preset a frame ends up on when a look carrying `carried` lands on a frame
+    /// currently sitting on `own`. The header explains why the answer is not simply
+    /// `carried`.
+    ///
+    /// It reads the TARGET RECIPE's preset rather than the target photograph's format,
+    /// because a `Recipe` records no format and this is a pure function over two values
+    /// — which is the property that makes the rule testable at all, and the reason it
+    /// is here rather than in the view layer where it started. The recipe's preset is
+    /// the format's own statement in the first place: `AppState.startingRecipe` writes
+    /// "Linear" onto every rendered file at ingest, and nothing else writes it unless
+    /// the photographer picks it.
+    ///
+    /// The two readings differ in exactly one case — a RAW the photographer deliberately
+    /// parked on Linear to inspect the data — and there this rule is the conservative
+    /// one: that frame keeps Linear, and a look cannot pull it off. A look that silently
+    /// took a frame off the honesty control would be the same class of surprise in the
+    /// other direction, and the preset picker is the affordance for changing registers
+    /// on purpose. No look moves a frame across the boundary, either way.
+    ///
+    /// Public and named because it is a RULE, not an implementation detail: `applied(to:)`
+    /// is not the only door a look comes through — `AppState.pasteLook` assigns
+    /// `recipe.look` directly — and a second copy of this decision written at the other
+    /// call site is how the two drift apart.
+    public static func carriedRenderPreset(_ carried: String, onto own: String) -> String {
+        let carriedIsRendered = carried == LookSubset.linearPresetName
+        let ownIsRendered = own == LookSubset.linearPresetName
+        return carriedIsRendered == ownIsRendered ? carried : own
+    }
+
+    /// This look applied to one recipe: the Look layer replaced whole — save for the one
+    /// leaf in it that describes the target rather than the look — with develop and
     /// masks untouched.
     ///
     /// The version is raised, never lowered, and never simply overwritten. Lowering it
@@ -130,9 +222,27 @@ public struct LookSubset: Codable, Equatable, Sendable {
     /// v2 or it lies about what it holds. `max` is the only rule that is right at both
     /// ends, and it is safe because no version-1 recipe renders differently under
     /// version 2 (see `currentPipelineVersion`).
+    ///
+    /// `render`'s five OVERRIDES — contrast, skew, huePreservation, blackTarget,
+    /// whiteTarget — travel unconditionally and are deliberately NOT part of the preset
+    /// exception. Each is a number the photographer dialled on top of whatever curve is
+    /// in force, each means the same thing under every preset, and none of them names a
+    /// register: `blackTarget` and `whiteTarget` are display targets in % of SDR white,
+    /// true of the screen rather than of the file, and `contrast`, `skew` and
+    /// `huePreservation` shape a curve that a rendered frame simply does not run. A look
+    /// that dropped them would apply a different picture than it saved, which is the
+    /// same argument `vignetteFeather` and `grain` are carried under. Only `preset`
+    /// answers "what kind of file is this", so only `preset` is guarded.
+    ///
+    /// `applied(toAll:)` needs no rule of its own for any of this. The decision is taken
+    /// against each target recipe, so a selection mixing RAWs with delivered JPEGs — a
+    /// real job, and the case that makes this worth guarding rather than a curiosity —
+    /// gets the right answer per frame for free.
     public func applied(to recipe: Recipe) -> Recipe {
         var copy = recipe
         copy.look = look
+        copy.look.render.preset = LookSubset.carriedRenderPreset(look.render.preset,
+                                                                 onto: recipe.look.render.preset)
         copy.pipelineVersion = max(recipe.pipelineVersion, pipelineVersion)
         return copy
     }
@@ -144,6 +254,13 @@ public struct LookSubset: Codable, Equatable, Sendable {
     /// and the property worth pinning is about the whole set: every frame ends up
     /// expressing the same look while keeping its own normalization. A `map` in a view
     /// cannot be asserted; this can.
+    ///
+    /// "The same look" is exact for a selection of one kind of file and has one stated
+    /// exception for a mixed one: a rendered frame keeps its own `render.preset`, per
+    /// `applied(to:)`. That is not a weaker promise, it is the promise — a selection
+    /// dropped on a shoot folder holds the RAWs and the delivered JPEGs together, and
+    /// "the same look" cannot mean "the same tone-mapping register" for files that
+    /// arrive in different ones.
     public func applied(toAll recipes: [Recipe]) -> [Recipe] {
         recipes.map(applied(to:))
     }

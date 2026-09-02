@@ -1661,9 +1661,17 @@ final class AppState: ObservableObject {
     private static var storedExportRecipes: [ExportRecipe] { loadExportRecipes() }
 
     private static func loadExportRecipes() -> [ExportRecipe] {
+        // `decodeList` and not `JSONDecoder().decode([ExportRecipe].self, …)`: an array
+        // decodes atomically, so ONE unreadable element used to take the whole list with
+        // it and this `guard` answered with the stock four. The tolerant per-field
+        // decoding in `ExportRecipe` cannot reach that — it is the container that throws.
+        //
+        // `nil` here means the blob is missing or is not an array at all, which is the
+        // only case the defaults are right for. An EMPTY list is returned as itself: a
+        // photographer who deleted all his presets meant it, and handing back four he
+        // threw away is the same class of wrong as losing the ones he made.
         guard let data = UserDefaults.standard.data(forKey: exportRecipesKey),
-              let stored = try? JSONDecoder().decode([ExportRecipe].self, from: data),
-              !stored.isEmpty else {
+              let stored = ExportRecipe.decodeList(data) else {
             return ExportRecipe.defaults
         }
         return stored
@@ -3512,7 +3520,20 @@ final class AppState: ObservableObject {
         guard let source = copiedRecipe else { return }
         updateRecipe(label: "Paste Settings") { recipe in
             recipe.develop = source.develop
+            // `.look` whole EXCEPT the one leaf in it that describes the target rather
+            // than the look. `LookSubset.carriedRenderPreset` is that rule, and it lives
+            // in LumenCore precisely because there are four doors into a look — this
+            // one, Paste Settings Without Masks, Paste Look, and `LookSubset.applied` —
+            // and a copy of the decision at each is how they drift. See that function's
+            // header: carrying `render.preset` across the tone-mapped boundary applies a
+            // second tone map (sRGB 32 goes to 13, 255 to 222) or clips two and a half
+            // stops, depending on direction.
+            // `own` is read BEFORE the assignment: after it, `recipe.look` IS
+            // `source.look` and the target's own preset is already gone.
+            let own = recipe.look.render.preset
             recipe.look = source.look
+            recipe.look.render.preset =
+                LookSubset.carriedRenderPreset(source.look.render.preset, onto: own)
             recipe.masks = source.masks
             // The folders come with their masks. Without this line every pasted mask
             // names a group the target photograph has not got, which `Recipe.effective`
@@ -3535,7 +3556,10 @@ final class AppState: ObservableObject {
         guard let source = copiedRecipe else { return }
         updateRecipe(label: "Paste Settings Without Masks") { recipe in
             recipe.develop = source.develop
+            let own = recipe.look.render.preset
             recipe.look = source.look
+            recipe.look.render.preset =
+                LookSubset.carriedRenderPreset(source.look.render.preset, onto: own)
         }
     }
 
@@ -3571,7 +3595,12 @@ final class AppState: ObservableObject {
 
     func pasteLook() {
         guard let look = copiedLook else { return }
-        updateRecipe(label: "Paste Look") { $0.look = look }
+        updateRecipe(label: "Paste Look") { recipe in
+            let own = recipe.look.render.preset
+            recipe.look = look
+            recipe.look.render.preset =
+                LookSubset.carriedRenderPreset(look.render.preset, onto: own)
+        }
     }
 
     // MARK: Saved looks

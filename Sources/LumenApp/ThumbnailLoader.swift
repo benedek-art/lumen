@@ -161,8 +161,8 @@ final class ThumbnailLoader: ObservableObject {
         self.previews = previews
     }
 
-    /// File a SETTLED develop frame at the fit rung, so returning to this photograph
-    /// does not read the RAW again.
+    /// File a SETTLED develop frame at the rung ITS OWN PIXELS FILL, so returning to
+    /// this photograph does not read the RAW again.
     ///
     /// The rung, the freshness rule and the edit-invalidation were all built for this
     /// and never connected: `PreviewLevel.fit` is documented in `PreviewCache.Freshness`
@@ -172,10 +172,33 @@ final class ThumbnailLoader: ObservableObject {
     /// camera's own embedded JPEG, so the loupe's instant path opened a photograph you
     /// had edited and showed you the camera's rendering of it.
     ///
-    /// Nothing needs to change on the read side. `PreviewCache.decide` already refuses
-    /// a fit row whose fingerprint does not match the recipe, so a stale frame cannot be
-    /// served; with a `.lumen` row present and current it is served instead of the
-    /// embedded one, and the settle that follows replaces it with the full-size render.
+    /// WHY THE RUNG IS NOT NAMED HERE, which is the whole of I3-01. This function used
+    /// to file every settle under `ThumbnailLadder.pixels(for: .fit)` — the constant
+    /// 2560 — without once reading `image.width`. The settle is not 2560. It is
+    /// `requestedLongEdge`, which is the container's long edge in device pixels narrowed
+    /// by `DraftResolution.visibleCeiling` to "not one pixel more than the panel draws",
+    /// so a portrait frame in a landscape pane or a windowed loupe on a 1× display
+    /// settles somewhere between 640 and 1600. Filed as a `fit` row under the current
+    /// fingerprint it scored `.current` and won `PreviewCache.decide`'s tie against the
+    /// camera's own full-size embedded row, and `decodePayload` never upscales — so the
+    /// next launch answered a 2560 request with 900 pixels and reported a hit. The
+    /// photograph the owner had EDITED came back softer than the one he had not, the
+    /// smaller the window the softer it was, and nothing downstream could see it: a row
+    /// carries a level and a path and no pixel count.
+    ///
+    /// So the size is derived from the image and cannot be omitted — there is no rung
+    /// parameter to get wrong, and `PreviewCache.pixelsFilled(byPayloadLongEdge:)` is
+    /// the rule, in LumenCore where it is tested. It answers the largest rung these
+    /// pixels can FILL and nil below `thumb`, which is `decide`'s "never upward" rule
+    /// enforced at the writing end. A frame too small to fill any rung is not filed at
+    /// all; one that fills `grid` is a grid row, and the loupe's `fit` request then falls
+    /// through to the camera's row exactly as it did before this writer existed —
+    /// slower, and true.
+    ///
+    /// This is the one writer in the loader whose payload is not an extraction made at
+    /// the size that was asked for; `start`'s `record` hands over exactly what
+    /// `decodeEmbeddedThumbnail` produced for `key.pixels`, which is the case
+    /// `PreviewCache.rowForDecode` argues is honest at the ask.
     ///
     /// `source: .lumen` is what files this under the CURRENT fingerprint —
     /// `PreviewCache.rowForDecode` files a camera render as as-shot whatever the photo's
@@ -186,7 +209,10 @@ final class ThumbnailLoader: ObservableObject {
     /// stall.
     func recordDeveloped(url: URL, image: CGImage) {
         guard let previews else { return }
-        guard let pixels = ThumbnailLadder.pixels(for: .fit) else { return }
+        let longEdge = max(image.width, image.height)
+        guard let pixels = PreviewCache.pixelsFilled(byPayloadLongEdge: longEdge) else {
+            return
+        }
         Task { [weak self] in
             guard self != nil,
                   let plan = await previews.plan(for: url, pixels: pixels) else { return }

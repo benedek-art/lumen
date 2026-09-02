@@ -376,21 +376,7 @@ struct ColorPanel: View {
                     // mixer's band strip above, and for the same owner sentence. The
                     // ring is the selection state; the hand is the affordance.
                     ForEach(Array(swatches.indices), id: \.self) { i in
-                        RoundedRectangle(cornerRadius: Lumen.radiusChip, style: .continuous)
-                            .fill(ColorPanel.chipColor(swatches[i]))
-                            .frame(width: 22, height: 16)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: Lumen.radiusChip,
-                                                 style: .continuous)
-                                    .strokeBorder(i == index ? Lumen.primaryText : Lumen.separator,
-                                                  lineWidth: i == index ? 1.5 : 0.5)
-                            )
-                            .contentShape(Rectangle())
-                            .onTapGesture { selectedSwatch = i }
-                            .lumenClickCursor()
-                            .help("Swatch \(i + 1) — a colour picked from the photo. "
-                                  + "Click it to edit this one; the ring marks the "
-                                  + "swatch the sliders and the − button act on.")
+                        swatchChip(i, color: swatches[i], ringed: i == index)
                     }
                     Spacer(minLength: 0)
                     // THE EYEDROPPER IT ALWAYS WAS. This button never appended a
@@ -479,6 +465,92 @@ struct ColorPanel: View {
         .onChange(of: swatches.count) { old, new in
             if new > old { selectedSwatch = new - 1 }
         }
+    }
+
+    /// One swatch chip: the colour, the ring that marks the selection, and — on the
+    /// chip the ring is already on — the eyedropper that re-samples it.
+    ///
+    /// Branched into locals rather than written as ternaries in the argument lists,
+    /// which is this file's own ground rule (see `pointColorSection`).
+    private func swatchChip(_ i: Int, color: PointColor, ringed: Bool) -> some View {
+        let armed = state.pickTarget == .pointColor(index: i)
+        let border: Color
+        if armed {
+            border = Lumen.accent
+        } else if ringed {
+            border = Lumen.primaryText
+        } else {
+            border = Lumen.separator
+        }
+        let borderWidth: CGFloat = (armed || ringed) ? 1.5 : 0.5
+        let help: String
+        if armed {
+            help = "Click the colour in the photograph to re-sample swatch \(i + 1) — "
+                + "or click this chip again to cancel the pick."
+        } else if ringed {
+            help = "Swatch \(i + 1), the one the sliders and the − button act on. "
+                + "Click it again to re-pick its colour from the photograph, keeping "
+                + "the Hue, Saturation, Luminance, Range and Variance already dialled "
+                + "into it."
+        } else {
+            help = "Swatch \(i + 1) — a colour picked from the photo. "
+                + "Click it to edit this one; the ring marks the "
+                + "swatch the sliders and the − button act on."
+        }
+        return RoundedRectangle(cornerRadius: Lumen.radiusChip, style: .continuous)
+            .fill(ColorPanel.chipColor(color))
+            .frame(width: 22, height: 16)
+            .overlay(
+                // The armed state has to be visible ON the chip: the ring alone says
+                // "selected", and a photographer who cannot see which pick is armed
+                // finds out by changing the picture.
+                Image(systemName: "eyedropper")
+                    .font(.lumenGlyphCaptionStrong)
+                    .foregroundStyle(Lumen.accent)
+                    .opacity(armed ? 1 : 0)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: Lumen.radiusChip, style: .continuous)
+                    .strokeBorder(border, lineWidth: borderWidth)
+            )
+            .contentShape(Rectangle())
+            .onTapGesture { tapSwatch(i) }
+            .lumenClickCursor()
+            .help(help)
+    }
+
+    /// A click on a chip. An unringed one SELECTS; the ringed one ARMS A RE-PICK.
+    ///
+    /// `PickTarget.pointColor(index:)` — "re-sample an existing swatch" — was fully
+    /// implemented on both ends and had no producer anywhere in the app, so the only
+    /// route to fixing a mis-aimed swatch was − then the eyedropper again: that
+    /// appends a fresh swatch at the tail and throws away the five slider values
+    /// already dialled into the old one. Eyedropping a shirt and catching the fold
+    /// instead of the fabric cost the whole edit.
+    ///
+    /// The gesture is the chip itself rather than a third button in the row, because
+    /// the row is already 264 pt of a 292 pt column at eight swatches (G1's measured
+    /// widths) and a 24 pt button would take the last of it. A click on the ringed
+    /// chip means nothing today — it re-selects what is already selected — so this
+    /// takes a press that is currently inert, not one that already did something.
+    ///
+    /// Arming, disarming and the armed paint follow the two eyedroppers this panel
+    /// already has (`addSwatch`, `pickBandButton`): pressing an armed affordance again
+    /// cancels rather than stacking a second pick.
+    private func tapSwatch(_ i: Int) {
+        // The ring sits on the CLAMPED selection, and `removalTarget` is that clamp —
+        // shared rather than restated, because "the chip the ring is on" is one fact
+        // and two copies of it drift (which is the defect `removalTarget` exists for).
+        let count = state.currentRecipe.develop.pointColors.count
+        guard ColorPanel.removalTarget(selected: selectedSwatch, count: count) == i else {
+            selectedSwatch = i
+            return
+        }
+        if state.pickTarget == .pointColor(index: i) {
+            state.cancelPick()
+            return
+        }
+        state.beginPick(.pointColor(index: i))
     }
 
     /// Whether the point-colour eyedropper is armed — the button reads its state from
@@ -1032,6 +1104,22 @@ struct MixerHueRing: View {
     /// feather anyone can drag, so the colour never reads as stepped.
     static let steps: Int = 180
 
+    /// The radius the arc and its four handles are DRAWN at, for a square box of the
+    /// given side. A function rather than a number inlined in the Canvas, because the
+    /// hit test below has to ask the same question from outside that closure and a hit
+    /// test that recomputes the geometry is a hit test that drifts off the ink.
+    static func arcRadius(box: CGFloat) -> CGFloat { box / 2 - 5 }
+
+    /// How far either side of `arcRadius` a press still counts as landing ON the arc.
+    ///
+    /// The ring is an ANNULUS, so its gate is two radii and not one: a press has to be
+    /// far enough out to have left the hollow centre and near enough in to have not
+    /// missed the ring entirely. Ten points either side is a 20 pt band around a 2.5 pt
+    /// stroke — the same kind of forgiveness `SliderDrag.thumbGrabRadius` buys the
+    /// thumb, for the same reason: the ink is a sight, the tolerance is what catches
+    /// the hand.
+    static let ringGrabBand: Double = 10
+
     /// Which handle the drag grabbed. Decided once, on the first event: re-deciding on
     /// every event let a fast drag hand the pointer to a neighbouring handle halfway
     /// through, which reads as the arc snapping inside out.
@@ -1054,8 +1142,8 @@ struct MixerHueRing: View {
                 // The arc and its handles live OUTSIDE the colour wheel, in the margin
                 // the frame reserves for them — drawn at the wheel's own radius they
                 // were clipped by the view bounds and the two upper handles vanished.
-                let bound = Swift.min(size.width, size.height) / 2
-                let arcRadius = bound - 5
+                let arcRadius = MixerHueRing.arcRadius(
+                    box: Swift.min(size.width, size.height))
                 let outer = arcRadius - 6
                 let inner = outer - MixerHueRing.ringWidth
                 guard inner > 2 else { return }
@@ -1142,16 +1230,35 @@ struct MixerHueRing: View {
                             return
                         }
                         if pressWasReset { return }
-                        sliderGestureChanged(true)
                         let box = MixerHueRing.diameter + 12
+                        // THE HIT TEST, on the PRESS point and only while nothing is
+                        // held yet — the same shape `LumenSlider` uses
+                        // (`drag.startLocation` into `SliderDrag.grabsThumb`). A press
+                        // that grabbed nothing leaves the whole gesture inert: it does
+                        // not open a gesture epoch, it writes no recipe, and it cannot
+                        // pick a handle up later by wandering over the ring.
+                        //
+                        // Deliberately AFTER the double-click branch above, so a reset
+                        // still lands from anywhere in the box exactly as it does now.
+                        let handle: MixerArcHandle
+                        if let held = grabbed {
+                            handle = held
+                        } else {
+                            guard let taken = MixerHueRing.grab(at: drag.startLocation,
+                                                                box: box,
+                                                                arc: arcList[index])
+                            else { return }
+                            grabbed = taken
+                            handle = taken
+                        }
+                        sliderGestureChanged(true)
                         let dx = Double(drag.location.x - box / 2)
                         let dy = Double(drag.location.y - box / 2)
+                        // Still needed for the REST of the drag: the press is out in
+                        // the annulus, but the pointer is free to cross the centre.
                         guard dx != 0 || dy != 0 else { return }
-                        let degrees = Num.wrapHue(atan2(dy, dx) * 180 / .pi)
-                        let handle = grabbed
-                            ?? MixerHueRing.nearestHandle(to: degrees, in: arcList[index])
-                        if grabbed == nil { grabbed = handle }
-                        onHandleMoved(handle, degrees)
+                        let angle = Num.wrapHue(atan2(dy, dx) * 180 / .pi)
+                        onHandleMoved(handle, angle)
                     }
                     .onEnded { _ in
                         grabbed = nil
@@ -1201,6 +1308,46 @@ struct MixerHueRing: View {
             }
         }
         return best
+    }
+
+    /// What a press at `point` took hold of, or nil for a press that took hold of
+    /// nothing — the hit test the ring did not have.
+    ///
+    /// `contentShape(Rectangle())` claims the whole 130 pt box, so without this every
+    /// press in it — the hollow middle of the wheel, the four corners outside the
+    /// circle — reached `nearestHandle` and threw one end of the selected band's arc
+    /// to the clicked angle. A press one point off centre is the worst of them: its
+    /// `atan2` is the ratio of two sub-pixel numbers, so the handle went somewhere
+    /// arbitrary and the photograph changed with it.
+    ///
+    /// Two gates, in the order the hand fails them. FIRST the annulus, because the
+    /// centre has no meaningful angle at all and asking `atan2` about it is the defect.
+    /// THEN the distance along the ring to the nearest handle, measured in points and
+    /// against `SliderDrag.grabsThumb` — the same 11 pt the slider's thumb is caught
+    /// with, called rather than restated, so the two cannot drift apart.
+    ///
+    /// Static and pure: no Canvas, no `NSApp`, no view. The whole decision is testable
+    /// as arithmetic, which is what the defect deserved and never had.
+    static func grab(at point: CGPoint, box: CGFloat,
+                     arc: ColorEngine.BandArc) -> MixerArcHandle? {
+        let radius = Double(arcRadius(box: box))
+        // A box too small to have an annulus has no ring to grab, and the lower bound
+        // below is what keeps the centre — the arbitrary-angle case — outside the gate.
+        guard radius > ringGrabBand else { return nil }
+        let dx = Double(point.x) - Double(box) / 2
+        let dy = Double(point.y) - Double(box) / 2
+        let pressRadius = (dx * dx + dy * dy).squareRoot()
+        guard pressRadius.isFinite,
+              pressRadius >= radius - ringGrabBand,
+              pressRadius <= radius + ringGrabBand else { return nil }
+        let angle = Num.wrapHue(atan2(dy, dx) * 180 / .pi)
+        let handle = nearestHandle(to: angle, in: arc)
+        // Measured as a DELTA and compared against zero, rather than as two positions
+        // along the ring: 359° and 1° are two degrees apart and their arc lengths from
+        // the same origin are not.
+        let apart = abs(Num.hueDelta(degrees(of: handle, in: arc), angle)) * .pi / 180 * radius
+        guard SliderDrag.grabsThumb(pressX: apart, thumbX: 0) else { return nil }
+        return handle
     }
 
     /// Screen point at a hue angle. Same convention as `LumenColorWheel`: hue 0 at three

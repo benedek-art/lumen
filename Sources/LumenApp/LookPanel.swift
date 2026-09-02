@@ -45,6 +45,24 @@ struct LookPanel: View {
     /// The name being typed into the save field. View state, not recipe state: it
     /// belongs to nothing until the photographer presses Save.
     @State private var newLookName: String = ""
+    /// The look whose name is being typed over, and the draft it is being typed into.
+    ///
+    /// The same shape `MaskPanel` uses for the mask name (`renamingMaskID` +
+    /// double-click), because a photographer who has learned to rename a mask has
+    /// already learned to rename a look. Nothing is written until Return; Escape puts
+    /// the row back.
+    @State private var renamingLookID: Int64?
+    @State private var renameDraft: String = ""
+    /// The look whose Delete has been chosen but not yet confirmed.
+    ///
+    /// ONE ROW AT A TIME: arming a second disarms the first, so there is never more
+    /// than one live "Delete?" on screen to mis-click.
+    @State private var pendingDeleteLookID: Int64?
+    /// The typed name Save has already said out loud that it would overwrite.
+    ///
+    /// Nil until the first press on a colliding name, and cleared by a successful
+    /// write — see `saveCurrentLook()` for why the warning is armed rather than modal.
+    @State private var replaceWarnedName: String?
 
     /// nil renders every section this panel owns, which is what the tab did.
     ///
@@ -208,20 +226,40 @@ struct LookPanel: View {
             Button {
                 saveCurrentLook()
             } label: {
-                Text("Save")
+                // THE VERB CHANGES BEFORE THE CLICK DOES ANYTHING. Typing a name that
+                // is already taken is a replace, and a button that says "Save" while
+                // it means "replace two years of a look" is the whole of D1-03's first
+                // half. The word is the cheapest possible warning and it costs no row.
+                Text(collidingName == nil ? "Save" : "Replace")
                     .font(.system(size: 10, weight: .semibold))
             }
             .buttonStyle(.plain)
             .foregroundStyle(canSaveLook ? Lumen.accent : Lumen.secondaryText)
             .disabled(!canSaveLook)
-            .help("Store this photo's grade, film stock and transform under "
-                  + "that name. Its exposure, white balance and crop stay with "
-                  + "the photo.")
+            .help(saveHelp)
         }
         .padding(.horizontal, 5)
         .padding(.vertical, 3)
         .background(Lumen.controlBackground)
         .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusChip))
+
+        // WARN AND OFFER A WAY PAST, rather than block or interrogate.
+        //
+        // Blocking is wrong: save-over is a real gesture and `CatalogStore.saveLook`
+        // is built for it deliberately (its own comment: two rows called "Portra Warm"
+        // are two rows the browser draws identically). A modal is wrong too — there is
+        // not one anywhere in this app, and a sheet that steals the window to ask a
+        // yes/no about a name the photographer can still see and still edit is more
+        // ceremony than the act deserves.
+        //
+        // So the first press on a taken name does not write. It says which look is in
+        // the way, says that a look is not in the undo stack, and puts the one thing
+        // the photographer probably wanted — both versions kept — one click away under
+        // a name that is free. The second press replaces, because he has now read it.
+        if replaceIsArmed, let taken = collidingName,
+           let suggestion = distinctNameSuggestion {
+            replaceWarning(taken, suggestion: suggestion)
+        }
 
         // An empty list draws nothing at all, deliberately. The field and
         // the Save button above it are the affordance; a sentence announcing
@@ -233,44 +271,237 @@ struct LookPanel: View {
         }
     }
 
+    /// One saved look: its name applies it, and everything else about it lives in the
+    /// row's own menu.
+    ///
+    /// THE TRASH GLYPH IS GONE, and both of its defects with it. It was a 10-point
+    /// unlabelled target one row-height from the full-width Apply button, wired
+    /// straight through to `DELETE FROM look` — a pointer slip and a look is gone, with
+    /// the status bar telling you afterwards that it was not undoable (D1-03). And an
+    /// icon with no word beside it is a control the photographer has to try in order to
+    /// learn, which is the worst possible experiment to offer on a destructive verb.
+    ///
+    /// `MaskPanel.maskRowMenu` already settled where a per-row operation belongs in
+    /// this app — "a row's own menu is where an operation on a row belongs" — and it is
+    /// the same three-verb shape: apply, rename, delete, each with a word and a glyph.
+    /// A menu is also the guard: reaching Delete now costs an open and a deliberate
+    /// choice off a named list, so no single slip can reach it.
+    ///
+    /// The row has three states and draws exactly one of them, in the same 24 pt: the
+    /// name, the rename field, or the armed delete.
     private func savedLookRow(_ look: LookRow) -> some View {
         HStack(spacing: 6) {
-            Button {
-                state.applyLook(look)
-            } label: {
-                Text(look.name)
+            if renamingLookID == look.id {
+                // Return commits, Escape puts the row back — `MaskPanel`'s rename, and
+                // every list on macOS. `AppState.renameLook` owns the two failures
+                // underneath (an empty name, a name already taken) and already has the
+                // sentence for the second one.
+                TextField(look.name, text: $renameDraft)
+                    .textFieldStyle(.plain)
+                    .font(.lumenBody)
+                    .foregroundStyle(Lumen.primaryText)
+                    .onSubmit { commitRename(look) }
+                    .onExitCommand { renamingLookID = nil }
+            } else if pendingDeleteLookID == look.id {
+                // THE CONFIRMATION IS THE ROW, not a dialog over the window. It names
+                // the look being thrown away, and the two ways out are the two words
+                // beside it — Keep is first, and it is where the pointer already is
+                // after the menu closes.
+                Text("Delete \u{201C}\(look.name)\u{201D}?")
                     .font(.lumenBody)
                     .foregroundStyle(Lumen.primaryText)
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .help("Apply \"\(look.name)\" to the selection")
+                Button {
+                    pendingDeleteLookID = nil
+                } label: {
+                    Text("Keep")
+                        .font(.system(size: 10, weight: .semibold))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Lumen.secondaryText)
+                .help("Leave \"\(look.name)\" in the library.")
+                Button {
+                    pendingDeleteLookID = nil
+                    state.deleteLook(look)
+                } label: {
+                    Text("Delete")
+                        .font(.system(size: 10, weight: .semibold))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Lumen.accent)
+                // The honesty `AppState.deleteLook` writes into the status bar, said
+                // BEFORE the write instead of after it. Looks are not in `HistoryStack`
+                // — undo replays recipes, not catalog rows — so this really is the last
+                // moment the sentence is worth anything.
+                .help("Throw \"\(look.name)\" away for good. Undo does not reach the "
+                      + "look library. Photos already graded with it keep their grade.")
+            } else {
+                Button {
+                    state.applyLook(look)
+                } label: {
+                    Text(look.name)
+                        .font(.lumenBody)
+                        .foregroundStyle(Lumen.primaryText)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Apply \"\(look.name)\" to the selection")
 
-            Button {
-                state.deleteLook(look)
-            } label: {
-                Image(systemName: "trash")
-                    .font(.lumenGlyphCaption)
-                    .foregroundStyle(Lumen.secondaryText)
+                savedLookRowMenu(look)
             }
-            .buttonStyle(.plain)
-            .help("Delete \"\(look.name)\". Photos already graded with it keep their "
-                  + "grade.")
         }
         .frame(height: Lumen.rowHeight)
+    }
+
+    /// Everything that acts on ONE saved look, attached to that look's row.
+    ///
+    /// Rename is the verb this browser was missing entirely (D1-02): `CatalogStore`,
+    /// `CatalogService` and `AppState` all implement it, `SavedLookCatalogTests` covers
+    /// it twice, and until this menu nothing called it. It is also the only
+    /// non-destructive way to keep a second variant of a look, which is what
+    /// `CatalogStore.saveLook`'s own comment points at — so leaving it unreachable is
+    /// what made Save-over and Delete the browser's only two working verbs.
+    private func savedLookRowMenu(_ look: LookRow) -> some View {
+        LumenMenu(title: "", symbol: "ellipsis", iconOnly: true,
+                  help: "Apply, rename, delete") {
+            LumenMenuHeader(title: "This look")
+            LumenMenuItem(title: "Apply", symbol: "checkmark.circle") {
+                state.applyLook(look)
+            }
+            LumenMenuItem(title: "Rename", symbol: "pencil") {
+                pendingDeleteLookID = nil
+                renameDraft = look.name
+                renamingLookID = look.id
+            }
+            LumenMenuItem(title: "Delete", symbol: "trash") {
+                // Arms the row rather than deleting: see `savedLookRow`.
+                renamingLookID = nil
+                pendingDeleteLookID = look.id
+            }
+        }
+    }
+
+    private func commitRename(_ look: LookRow) {
+        renamingLookID = nil
+        // `AppState.renameLook` normalizes, refuses a name already in use with a
+        // sentence, and no-ops on an unchanged one — none of that is re-implemented
+        // here, so the panel cannot drift from the store's rule.
+        state.renameLook(look, to: renameDraft)
+    }
+
+    /// The warning under the save field, and the way past it that keeps both looks.
+    private func replaceWarning(_ name: String, suggestion: String) -> some View {
+        VStack(alignment: .leading, spacing: Lumen.rowGap) {
+            // `prominent:` because a non-prominent `DevelopNote` draws nothing at all
+            // in this app, and this is the one class of caption that survived that
+            // rule: honesty work no design can carry. It is on screen only while a
+            // press is pending, so it is not furniture either.
+            caption("\u{201C}\(name)\u{201D} is already saved. Replace overwrites it "
+                    + "with this frame's look, and undo does not reach the look "
+                    + "library — press Replace again to go ahead.",
+                    prominent: true)
+            Button {
+                saveUnderDistinctName()
+            } label: {
+                Text("Save as \u{201C}\(suggestion)\u{201D} instead")
+                    .font(.lumenCaption)
+                    .foregroundStyle(Lumen.accent)
+            }
+            .buttonStyle(.plain)
+            .frame(height: Lumen.rowHeight, alignment: .leading)
+            .help("Keeps both: \"\(name)\" stays exactly as it is and this frame is "
+                  + "stored beside it. Rename either one afterwards from its row menu.")
+        }
     }
 
     private var canSaveLook: Bool {
         LookSubset.normalizedName(newLookName) != nil
     }
 
+    /// The typed name, when a look is already stored under it.
+    ///
+    /// The same test `AppState.saveCurrentLook` makes — it computes `replacing` and
+    /// spends it on the past tense of a status message AFTER the write. Made here as
+    /// well because the panel needs the answer BEFORE the press, and the panel is the
+    /// only layer that can still ask.
+    private var collidingName: String? {
+        guard let clean = LookSubset.normalizedName(newLookName) else { return nil }
+        return state.savedLooks.contains { $0.name == clean } ? clean : nil
+    }
+
+    /// Whether Save has already warned about the name that is typed right now.
+    private var replaceIsArmed: Bool {
+        guard let clean = collidingName else { return false }
+        return replaceWarnedName == clean
+    }
+
+    /// A free name near the one that is taken, for the offer in `replaceWarning`.
+    private var distinctNameSuggestion: String? {
+        guard let clean = collidingName else { return nil }
+        return LookPanel.distinctName(clean,
+                                      taken: Set(state.savedLooks.map { $0.name }))
+    }
+
+    private var saveHelp: String {
+        guard let taken = collidingName else {
+            return "Store this photo's grade, film stock and transform under "
+                + "that name. Its exposure, white balance and crop stay with "
+                + "the photo."
+        }
+        return "\"\(taken)\" is already saved. Replacing it overwrites what is stored "
+            + "under that name with this photo's look, and undo does not reach the "
+            + "look library."
+    }
+
     private func saveCurrentLook() {
         guard canSaveLook else { return }
+        // The first press on a taken name spends itself on the warning and writes
+        // nothing. `replaceWarnedName` is keyed to the name, so editing the field
+        // disarms it — the photographer cannot arm one name and replace another.
+        if let taken = collidingName, replaceWarnedName != taken {
+            replaceWarnedName = taken
+            return
+        }
         state.saveCurrentLook(named: newLookName)
         newLookName = ""
+        replaceWarnedName = nil
+    }
+
+    private func saveUnderDistinctName() {
+        guard let suggestion = distinctNameSuggestion else { return }
+        state.saveCurrentLook(named: suggestion)
+        newLookName = ""
+        replaceWarnedName = nil
+    }
+
+    /// A name no saved look is using, derived from one that is.
+    ///
+    /// Static and pure so the rule can be read and reasoned about in one place. The
+    /// truncation is not decoration: `LookSubset.normalizedName` cuts at
+    /// `maximumNameLength`, so appending " 2" to a name already at the limit would
+    /// normalize straight back onto the name it was supposed to avoid — the offer to
+    /// keep both would silently replace instead. The base gives up the characters.
+    static func distinctName(_ base: String, taken: Set<String>) -> String {
+        guard taken.contains(base) else { return base }
+        var suffix = 2
+        var candidate = base
+        repeat {
+            let tag = " \(suffix)"
+            let room = max(LookSubset.maximumNameLength - tag.count, 1)
+            var trimmed = base
+            if base.count > room {
+                trimmed = String(base.prefix(room))
+                    .trimmingCharacters(in: .whitespaces)
+            }
+            candidate = trimmed + tag
+            suffix += 1
+        } while taken.contains(candidate) && suffix < 1000
+        return candidate
     }
 
     // MARK: - Grading wheels

@@ -1119,7 +1119,32 @@ struct LoupeView: View {
             let longEdge: Int = requestedLongEdge(container: container,
                                                   drawnDeviceLongEdge: drawnDevice)
             ZStack(alignment: .bottomLeading) {
-                Lumen.viewerBackground
+                // THE FIELD THE PHOTOGRAPH SITS ON, and it is `state.surroundColor`
+                // rather than the `Lumen.viewerBackground` constant that stood here.
+                //
+                // `⌘B` and `L` both write ONE value — `AppState.surroundValue`, whose
+                // precedence rule (assessment wins over lights-out's black) is argued
+                // at length in `ViewingConditions` — and `ContentView` painted it, once,
+                // on the outermost stack. This layer then covered that stack opaquely
+                // with a `let`, and so did five more like it across the two viewer
+                // surfaces: one writer and six painters over it. The result was that
+                // the status bar announced "Assessment surround on — ISO 12646
+                // mid-grey" while the field immediately around the photograph — the
+                // only region the standard is about — stayed at 0.165, and the
+                // diffuse-white anchor in `plate` was then drawn onto that near-black
+                // ground, where it is a maximum-contrast border rather than a
+                // reference. A mode that announces a viewing condition it does not
+                // create is worse than one that does not exist, which is why this is
+                // read from the state and not from the palette.
+                //
+                // THE ORDINARY PATH DOES NOT MOVE. With neither control on,
+                // `ViewingConditions.surround` returns `Lumen.surroundCanvasValue`
+                // (0.165) and `AppState.surroundColor` wraps it as
+                // `Color(nsColor: NSColor(white: 0.165, alpha: 1))` — the same
+                // expression `Lumen.surroundCanvas`, and therefore
+                // `Lumen.viewerBackground`, is defined as. Identical pixels for
+                // everyone who never presses either key; only the two modes move.
+                state.surroundColor
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 content(container: container)
@@ -1237,7 +1262,11 @@ struct LoupeView: View {
                                        uncropped: deliveringWholeFrame)
             }
         }
-        .background(Lumen.viewerBackground)
+        // The `GeometryReader`'s own ground, under the ZStack above. It shows in the
+        // moments the ZStack does not — a zero-sized container, the pass before the
+        // first layout — so it has to be the same field, or the surround would arrive
+        // one frame late every time the window resolves.
+        .background(state.surroundColor)
         .focusable()
         .focused($focused)
         // The viewer must stay focusable — the whole bare-key culling grammar depends
