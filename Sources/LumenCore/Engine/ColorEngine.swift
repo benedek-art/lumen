@@ -1067,8 +1067,24 @@ public struct ColorEngine: Sendable {
         var C = lch.C
         var h = lch.h
 
+        // THE CHROMA GATE IS THIS ENGINE'S LAW, not Variance's local variable.
+        //
+        // The file's own header states it: every hue-selective tool shares the gate, so
+        // near-neutral pixels — whose hue is numerically noise — are never rotated by
+        // one. `applyMixer` obeys it. Point Colour computed it INSIDE the Variance
+        // branch and left the three shift lines below ungated, so a swatch could rotate
+        // the hue of a pixel the Mixer refuses to touch: measured on a warm grey at
+        // C = 0.02, exactly `gateLoChroma`, a +60° hue shift arrived as +59.8° and
+        // swung sRGB (138,126,117) to (126,130,117) — twelve code values from warm to
+        // green, on a pixel with no hue to speak of.
+        //
+        // Hue only. Saturation on a near-neutral is already almost a no-op (it scales a
+        // chroma near zero), and lightness is legitimate — dodging a grey is a real
+        // thing to want, and the gate exists to protect hue from noise, not to make
+        // neutrals untouchable.
+        let gate = Self.chromaGate(lch.C)
+
         if s.q != 0 {
-            let gate = Self.chromaGate(lch.C)
             // The neighbourhood, in the same coordinates the deviations are measured in.
             // Identical to `lch` on the flat path, so this costs one comparison there.
             let mu: OKLCh = localMean == c ? lch : {
@@ -1085,7 +1101,7 @@ public struct ColorEngine: Sendable {
                                       q: s.q, beta: 0.5, weight: weight, axis: .lightness)
         }
 
-        h += weight * s.shiftH
+        h += weight * gate * s.shiftH
         C = Swift.max(0, C * (1 + weight * s.shiftS / 100))
         // Same chroma-preserving lightness kernel as the Mixer: C is untouched here.
         L += weight * (s.shiftL / 100) * Self.lumKappa * Self.lumShape(L)
