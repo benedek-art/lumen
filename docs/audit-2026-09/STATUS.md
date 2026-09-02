@@ -20,7 +20,50 @@ deferrals lifted · UI: Option B "Modern pro", whole · rows 24 pt · keymap: `L
 Out, `B`→album, `⌘B`→assessment, `F`/`S` stay · denoise: free + best, delivery mine
 (download-on-first-use), timing mine.
 
-## THE SECOND HALF — where the run is now
+## THE FIX WAVE — where the run is now
+
+The audit is COMPLETE: **thirty of thirty areas, 254 findings — 24 S1, 125 S2, 105 S3**,
+108 of them measured rather than reasoned. All thirty files are in `w2/` and pushed.
+
+The run is now landing fixes. Fifteen agents were launched, **the container restarted and
+killed all fifteen** — the working tree survived, and the work was re-launched as eleven.
+
+### The rule that changed because of that restart
+Commit locally the moment an agent reports, push once the suite has validated. A partial
+commit that never gets pushed still costs nothing; an unbanked tree costs the night.
+
+### Landed, with a substitution proof each
+`M-01` · `J1-03` · `J3-02` · `KG-02`/`G3-02` · `I2-01`/`F2-02` (blendMaskMode in no
+roster, plus `KernelRosterTests` diffing declarations against rosters mechanically)
+
+### Written and proved, awaiting the final suite
+`D1-01` (a look no longer moves a frame between tone registers — and the rule now guards
+ALL FOUR doors, three of which the agent could not reach) · `F2-01` · `H1-01` ·
+`G3-01`/`J2-01` · `J3-01` (both halves: tolerant nesting AND element-wise list decode) ·
+`E2-02` · `B3-02`/`B3-03` · `I3-01` · `D1-02`/`D1-03`
+
+### Found while integrating — not by the audit
+- **`LumenToggleRow` never forwarded `isEnabled`.** `.disabled(…)` blocked the tap and
+  nothing else: the switch drew at full opacity, tracked hover, and put a POINTING HAND
+  under the cursor. Every `.disabled` toggle in the app inherited it. Fixed at the row.
+- **`J3-01` was only half fixed.** Tolerant per-field decoding cannot save the ARRAY —
+  `JSONDecoder` decodes arrays atomically, so one element that is not an object still
+  reverted every preset. `ExportRecipe.decodeList` now decodes element by element.
+- **The `.look` assignment has four doors, not one.** `applied(to:)` plus three direct
+  assignments in `AppState`. And the obvious wiring is wrong: reading the target's preset
+  AFTER `recipe.look = source.look` yields the SOURCE's, which makes the guard a no-op
+  that still compiles and still reads correctly. Pinned by a test.
+
+### Corrections the reviewers made to the audit
+- **`I3-02` has NO fix in the tree.** `RenderCoordinator.swift` is unmodified. The 1792 MB
+  floor reproduces exactly (and is unit-clean MiB where the audit mixed MB); the row stays
+  OPEN and must not be reported as closed.
+- **`B3-03`'s "zero producers" was wrong** — 3 constructions exist, 1 of them arming.
+- **`I3-01`'s fix has three consequences worth knowing**: the feature is now largely inert
+  below a 2560 px loupe; the downgrade lands on `thumb`, the one rung nothing reclaims;
+  and browse-rung ties became order-dependent. All three are pinned by tests.
+
+## THE SECOND HALF — how it got here
 
 The plan for this stretch is `/root/.claude/plans/enchanted-skipping-rocket.md`. The
 mission, in one line: **audit the seventeen areas that were never audited, land what
