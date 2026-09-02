@@ -253,7 +253,7 @@ struct LookPanel: View {
                 state.deleteLook(look)
             } label: {
                 Image(systemName: "trash")
-                    .font(.lumenCaption)
+                    .font(.lumenGlyphCaption)
                     .foregroundStyle(Lumen.secondaryText)
             }
             .buttonStyle(.plain)
@@ -1431,7 +1431,7 @@ struct PrinterLightRow: View {
                          help: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.lumenBody)
+                .font(.lumenGlyphBody)
                 .frame(width: 24, height: Lumen.rowHeight)
                 .contentShape(Rectangle())
         }

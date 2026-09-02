@@ -457,7 +457,7 @@ struct CropSection: View {
                 }
             } label: {
                 Image(systemName: isLocked ? "lock.fill" : "lock.open")
-                    .font(.lumenCaption)
+                    .font(.lumenGlyphCaption)
                     .foregroundStyle(isLocked ? Lumen.accent : Lumen.secondaryText)
                     .frame(width: 16, height: Lumen.rowHeight)
                     .contentShape(Rectangle())
@@ -516,7 +516,7 @@ struct CropSection: View {
                 swapOrientation()
             } label: {
                 Image(systemName: "arrow.up.arrow.down")
-                    .font(.lumenCaption)
+                    .font(.lumenGlyphCaption)
                     .foregroundStyle(Lumen.secondaryText)
                     .frame(width: 16, height: Lumen.rowHeight)
                     .contentShape(Rectangle())

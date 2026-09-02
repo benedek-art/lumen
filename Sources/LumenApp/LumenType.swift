@@ -95,6 +95,82 @@ extension Font {
     /// A number that is the subject rather than an annotation — the slider readout while
     /// it is being scrubbed, the histogram's clipping percentages.
     static let lumenNumericStrong: Font = .system(size: 11, weight: .medium).monospacedDigit()
+
+    // MARK: - The two steps above the panel scale
+
+    /// 10, SEMIBOLD — the one weight the scale was missing, and the reason six panels
+    /// were still writing their own.
+    ///
+    /// `lumenCaption` is 10 regular and `LumenCapsLabel` is 10 semibold with capitals
+    /// and tracking. Between them sat a real role with no token: a short mixed-case
+    /// label that has to hold its own against the row beside it — a mask component's
+    /// name, a swatch's count, the viewer's mode badge. Every one of those was
+    /// `.system(size: 10, weight: .semibold)` written out, which is how a scale
+    /// re-fragments one call site at a time.
+    static let lumenCaptionStrong: Font = .system(size: 10, weight: .semibold)
+
+    /// 13 — the LEAD LINE of a surface that is not a panel.
+    ///
+    /// An empty state's headline and the control palette's rows are the same role: the
+    /// one line a photographer reads first on a surface that has taken over the window.
+    /// 13 rather than the panel scale's 11 because these are not panel chrome competing
+    /// with a photograph — they are the only thing on screen — and `ControlPalette`'s
+    /// own comment already argued for the number ("the row's type is 13 point rather
+    /// than 12"). Naming it is what stops the next such surface picking 12 or 14.
+    static let lumenLead: Font = .system(size: 13, weight: .regular)
+
+    /// 15, SEMIBOLD — a sheet's title, and nothing else.
+    ///
+    /// The scale tops out at `lumenHeading`'s 12 because a panel section heading sits
+    /// beside a photograph and must not shout. A modal sheet has no photograph beside
+    /// it and one job, which is to say what it is; 12 there reads as a form label.
+    static let lumenTitle: Font = .system(size: 15, weight: .semibold)
+
+    // MARK: - Glyphs, which are not type
+
+    /// AN SF SYMBOL'S POINT SIZE IS NOT A TYPE SIZE, and putting the two on one scale is
+    /// most of why the app still measured 89 raw `.system(size:)` calls after the type
+    /// migration had done its job.
+    ///
+    /// `.font(.system(size: 40))` on an `Image` sets a glyph's drawn extent. It is a
+    /// graphic decision — how big is this mark against the space it sits in — and it
+    /// answers to the icon's container, not to the reading distance of the text around
+    /// it. Held on one scale with body copy, the two argue: a 12 pt row icon and 12 pt
+    /// body text are the same number for unrelated reasons, and moving either drags the
+    /// other. Held apart, each can move.
+    ///
+    /// THE SAME LADDER, MIRRORED — every glyph token is the exact face of the text
+    /// token it is named after, so separating the scales moved not one pixel. That is
+    /// deliberate and it is the point: the two are identical TODAY and now have
+    /// somewhere to diverge, where before a glyph could only get bigger by dragging
+    /// body copy with it.
+    ///
+    /// The mirror also made the migration provable. 37 glyphs were already wearing text
+    /// tokens — U1's type pass swept them up along with the prose, which is how the two
+    /// scales became one in the first place — and every one of them could be moved
+    /// across on the guarantee that `lumenGlyphCaption` IS `lumenCaption`'s face.
+    /// `DesignSystemTests.testAnImageDoesNotTakeATextToken` is what found them and what
+    /// stops the next one.
+    static let lumenGlyphCaption: Font = .system(size: 10, weight: .regular)
+    static let lumenGlyphCaptionStrong: Font = .system(size: 10, weight: .semibold)
+    static let lumenGlyphBody: Font = .system(size: 11, weight: .regular)
+    static let lumenGlyphBodyStrong: Font = .system(size: 11, weight: .medium)
+    /// A row's leading icon, one step above the text beside it — the only step with no
+    /// text counterpart, because 12 pt of prose is a heading and this is not one.
+    static let lumenGlyphRow: Font = .system(size: 12, weight: .regular)
+    /// A tile's icon above its label.
+    static let lumenGlyphLarge: Font = .system(size: 15, weight: .regular)
+    /// An empty state's mark.
+    static let lumenGlyphDisplay: Font = .system(size: 40, weight: .regular)
+
+    /// A CHECKMARK AT 10 POINTS, bold — the one glyph whose weight is a contrast
+    /// argument rather than a stylistic one.
+    ///
+    /// `LumenSwitch`'s own comment measured it: "a white tick on 0.72 grey is 1.3:1 and
+    /// disappears at this size", which is why that tick is dark and bold. Semibold at 10
+    /// loses it again. Two call sites — the switch and the menu's selected row — and a
+    /// third would be a third place where a tick has to survive being small.
+    static let lumenGlyphTick: Font = .system(size: 10, weight: .bold)
 }
 
 /// The one ALL-CAPS label, replacing five — and now at ONE SIZE, which is what it was

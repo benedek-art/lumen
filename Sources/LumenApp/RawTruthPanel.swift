@@ -43,14 +43,14 @@ struct RawTruthPanel: View {
                 content(RawTruth.readout(stats, plan: state.rawTruthPlan))
             } else if state.rawTruthMeasuring {
                 Text("Measuring…")
-                    .font(.system(size: 11))
+                    .font(.lumenBody)
                     .foregroundStyle(Lumen.secondaryText)
             } else {
                 Text(state.primarySelection == nil
                      ? "No photo selected."
                      : "This photograph could not be decoded, so there is nothing to "
                         + "measure.")
-                    .font(.system(size: 11))
+                    .font(.lumenBody)
                     .foregroundStyle(Lumen.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -69,13 +69,13 @@ struct RawTruthPanel: View {
     private var header: some View {
         HStack(spacing: 6) {
             Text("Clipping")
-                .font(.system(size: 11, weight: .semibold))
+                .font(.lumenHeading)
             Spacer()
             Button {
                 state.showRawTruth = false
             } label: {
                 Image(systemName: "xmark")
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.lumenGlyphCaptionStrong)
             }
             .buttonStyle(.borderless)
             .foregroundStyle(Lumen.secondaryText)
@@ -90,12 +90,10 @@ struct RawTruthPanel: View {
         // The provenance, first and unmissable. It is the answer to "these numbers are
         // of what?", and it is printed from the measurement rather than from a literal
         // in this file so it cannot describe a reading the row does not carry.
-        Text(readout.provenanceLabel.uppercased())
-            .font(.system(size: 10, weight: .medium))
-            .foregroundStyle(Lumen.accent)
+        LumenCapsLabel(text: readout.provenanceLabel, color: Lumen.accent)
 
         Text(readout.verdict.summary)
-            .font(.system(size: 12, weight: .medium))
+            .font(.lumenHeading)
             .fixedSize(horizontal: false, vertical: true)
 
         VStack(alignment: .leading, spacing: 2) {
@@ -107,7 +105,7 @@ struct RawTruthPanel: View {
         }
 
         Text(readout.headline)
-            .font(.system(size: 10).monospacedDigit())
+            .font(.lumenCaptionNumeric)
             .foregroundStyle(Lumen.secondaryText)
             .textSelection(.enabled)
 
@@ -137,7 +135,7 @@ struct RawTruthPanel: View {
     private func row(_ line: RawTruth.Line) -> some View {
         HStack(spacing: 6) {
             Text(line.name)
-                .font(.system(size: 10, weight: .medium).monospaced())
+                .font(.lumenCaptionStrong)
                 .frame(width: 16, alignment: .leading)
             GeometryReader { geometry in
                 ZStack(alignment: .leading) {
@@ -150,7 +148,7 @@ struct RawTruthPanel: View {
             }
             .frame(height: 6)
             Text(RawTruth.percent(line.clippedPercent))
-                .font(.system(size: 10).monospacedDigit())
+                .font(.lumenCaptionNumeric)
                 .frame(width: 46, alignment: .trailing)
             Text(RawTruth.percent(line.nearClippedPercent))
                 .font(.lumenCaptionNumeric)

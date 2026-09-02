@@ -202,13 +202,55 @@ final class DesignSystemTests: XCTestCase {
     // MARK: - Ratchets
 
     /// Raw `.system(size:)` calls. 199 after U1, 166 after U2's migration of the ten
-    /// owned panels; the type scale exists so this keeps falling.
+    /// owned panels, 84 after U3's shell, **39** after U5 separated the two scales.
+    ///
+    /// That last drop is where the number stopped being about laziness. Most of what
+    /// survived U3 was not text at all: `.font(.system(size: 40))` on an `Image` sets a
+    /// GLYPH's drawn extent, and a glyph answers to the box it sits in, not to the
+    /// reading distance of the prose around it. Held on one scale the two argue — a
+    /// 12 pt row icon and 12 pt body copy are the same number for unrelated reasons —
+    /// so `lumenGlyph*` is a second, four-step scale and the type tokens are for type.
+    /// The rest were three genuine gaps: 10 semibold (`lumenCaptionStrong`), the lead
+    /// line of a surface that has taken over the window (`lumenLead`), and a sheet's
+    /// title (`lumenTitle`).
+    ///
+    /// What is left is mostly honest: a `design:` that varies with a flag, a size held
+    /// in a variable, and the four state marks at 26 / 30 / 34 / 40 — which want one
+    /// decision made with all four on screen, not a batch rename.
     func testRawFontSizesOnlyEverDecrease() {
         let n = total(".system(size:")
-        XCTAssertLessThanOrEqual(n, 84,
+        XCTAssertLessThanOrEqual(n, 39,
                                  "\(n) raw .system(size:) calls in Sources/LumenApp, up "
-                                 + "from 84 — use .lumenHeading / .lumenBody / "
-                                 + ".lumenCaption / .lumenNumeric")
+                                 + "from 39 — use .lumenHeading / .lumenBody / "
+                                 + ".lumenCaption / .lumenNumeric / .lumenCaptionStrong "
+                                 + "/ .lumenLead / .lumenTitle for TEXT, and "
+                                 + ".lumenGlyph* for a glyph")
+    }
+
+    /// AND A GLYPH SIZE IS NOT A TYPE TOKEN. The separation only holds while nobody
+    /// reaches across it: an `Image` wearing `.lumenBody` is the two scales rejoining,
+    /// and it is invisible in review because it renders fine.
+    func testAnImageDoesNotTakeATextToken() {
+        let textTokens = ["lumenHeading", "lumenBody", "lumenBodyStrong", "lumenCaption",
+                          "lumenCaptionStrong", "lumenNumeric", "lumenCaptionNumeric",
+                          "lumenNumericStrong", "lumenLead", "lumenTitle"]
+        var offenders: [String] = []
+        for (name, text) in Self.sources {
+            let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+            for (offset, line) in lines.enumerated() where line.contains(".font(.lumen") {
+                // The glyph is on the line above in every shape this app writes:
+                // `Image(systemName: …)` then `.font(…)`.
+                let previous = offset > 0 ? String(lines[offset - 1]) : ""
+                guard previous.contains("Image(systemName:") else { continue }
+                for token in textTokens where line.contains(".font(.\(token))") {
+                    offenders.append("\(name):\(offset + 1): \(token) on a glyph — "
+                                     + previous.trimmingCharacters(in: .whitespaces))
+                }
+            }
+        }
+        XCTAssertTrue(offenders.isEmpty,
+                      "a text token is sizing an SF Symbol, which puts the two scales "
+                          + "back on one number:\n" + offenders.joined(separator: "\n"))
     }
 
     /// THE FLOOR IS THE FLOOR. The app set 10 pt as its own minimum, shipped 46 sites

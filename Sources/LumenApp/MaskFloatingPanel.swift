@@ -199,7 +199,7 @@ struct MaskFloatingPanel: View {
             }
         } label: {
             Image(systemName: "plus")
-                .font(.system(size: 10, weight: .bold))
+                .font(.lumenGlyphCaptionStrong)
                 .foregroundStyle(state.maskCreateBoardOpen
                                  ? Lumen.primaryText : Lumen.secondaryText)
                 .frame(width: 18, height: 18)

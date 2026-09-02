@@ -423,7 +423,7 @@ private struct Sidebar: View {
                 if let folder = state.folderURL {
                     VStack(alignment: .leading, spacing: 1) {
                         Text(folder.lastPathComponent)
-                            .font(.system(size: 11, weight: .semibold))
+                            .font(.lumenBodyStrong)
                             .lineLimit(1)
                         Text(folder.deletingLastPathComponent().path)
                             .font(.lumenCaption)
@@ -538,7 +538,7 @@ private struct Sidebar: View {
                     createAlbum()
                 } label: {
                     Image(systemName: "plus")
-                        .font(.lumenCaption)
+                        .font(.lumenGlyphCaption)
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(Lumen.secondaryText)
@@ -595,7 +595,7 @@ private struct Sidebar: View {
                     addKeyword()
                 } label: {
                     Image(systemName: "plus")
-                        .font(.lumenCaption)
+                        .font(.lumenGlyphCaption)
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(Lumen.secondaryText)
@@ -659,7 +659,7 @@ private struct Sidebar: View {
                             state.removeKeyword(word)
                         } label: {
                             Image(systemName: "xmark")
-                                .font(.lumenCaption)
+                                .font(.lumenGlyphCaption)
                         }
                         .buttonStyle(.plain)
                         .foregroundStyle(Lumen.secondaryText)
@@ -768,7 +768,7 @@ private struct Sidebar: View {
             HStack(spacing: 4) {
                 if isTarget {
                     Image(systemName: "target")
-                        .font(.lumenCaption)
+                        .font(.lumenGlyphCaption)
                         .foregroundStyle(Lumen.secondaryText)
                 }
                 Text(title)
@@ -832,7 +832,7 @@ private struct StatusBar: View {
                 .truncationMode(.tail)
                 .help(sentence)
             Text(countText)
-                .font(.system(size: 10).monospacedDigit())
+                .font(.lumenCaptionNumeric)
                 .foregroundStyle(Lumen.secondaryText)
             Spacer()
             if state.isExporting {
@@ -860,7 +860,7 @@ private struct StatusBar: View {
                 state.showFilmstrip.toggle()
             } label: {
                 Image(systemName: "film")
-                    .font(.lumenCaption)
+                    .font(.lumenGlyphCaption)
                     .foregroundStyle(state.showFilmstrip
                                      ? Lumen.primaryText : Lumen.secondaryText)
                     .contentShape(Rectangle())
@@ -895,10 +895,10 @@ private struct EmptyState: View {
     var body: some View {
         VStack(spacing: 10) {
             Image(systemName: "photo.on.rectangle.angled")
-                .font(.system(size: 40))
+                .font(.lumenGlyphDisplay)
                 .foregroundStyle(Lumen.secondaryText)
             Text("Open a folder of photographs")
-                .font(.system(size: 13))
+                .font(.lumenLead)
                 .foregroundStyle(Lumen.primaryText)
             Text("Folders are the library. Nothing is copied, moved, or modified.")
                 .font(.lumenBody)
@@ -919,7 +919,7 @@ private struct KeyReferenceSheet: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Text("Keyboard")
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.lumenTitle)
                 Spacer()
                 Button("Done") { state.showKeyReference = false }
                     .keyboardShortcut(.defaultAction)
@@ -939,7 +939,7 @@ private struct KeyReferenceSheet: View {
                             ForEach(group.entries) { entry in
                                 HStack(alignment: .top, spacing: 10) {
                                     Text(entry.keys)
-                                        .font(.system(size: 11).monospacedDigit())
+                                        .font(.lumenNumeric)
                                         .frame(width: 84, alignment: .leading)
                                         .foregroundStyle(Lumen.primaryText)
                                     Text(entry.action)

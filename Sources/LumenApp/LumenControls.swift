@@ -637,7 +637,7 @@ struct LumenSlider: View {
             if let wand {
                 Button(action: wand) {
                     Image(systemName: "wand.and.stars")
-                        .font(.lumenCaption)
+                        .font(.lumenGlyphCaption)
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(Lumen.secondaryText)
@@ -1444,7 +1444,7 @@ struct LumenSectionHeader: View {
                     // enclosing animation a continuous property to carry, so the hinge
                     // now turns at the speed the drawer opens.
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(.lumenGlyphCaptionStrong)
                         .rotationEffect(.degrees(isExpanded.wrappedValue ? 90 : 0))
                         // An 11x10 target was the smallest in the app — under half the
                         // 24pt minimum in both dimensions. It survived only because the

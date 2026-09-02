@@ -144,7 +144,7 @@ struct LumenCheckbox: View {
                         lineWidth: 1))
             .overlay(
                 Image(systemName: "checkmark")
-                    .font(.system(size: 10, weight: .bold))
+                    .font(.lumenGlyphTick)
                     // Dark on the light fill, which is the only way round that works:
                     // a white tick on 0.72 grey is 1.3:1 and disappears at this size.
                     .foregroundStyle(Color(nsColor: NSColor(white: 0.12, alpha: 1)))

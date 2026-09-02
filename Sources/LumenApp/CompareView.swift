@@ -472,7 +472,7 @@ private struct SurveyCell: View {
                     state.selection.remove(photo.id)
                 } label: {
                     Image(systemName: "xmark")
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(.lumenGlyphCaptionStrong)
                         .padding(4)
                         .background(Color.black.opacity(0.55), in: Circle())
                         .foregroundStyle(Lumen.primaryText)

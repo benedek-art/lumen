@@ -171,7 +171,7 @@ struct FilmstripView: View {
                              action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.lumenBodyStrong)
+                .font(.lumenGlyphBodyStrong)
                 .frame(width: 20, height: 16)
                 .contentShape(Rectangle())
         }

@@ -352,7 +352,7 @@ struct BasicPanel: View {
                 }
             } label: {
                 Image(systemName: "eyedropper")
-                    .font(.lumenBody)
+                    .font(.lumenGlyphBody)
                     .padding(.horizontal, 5)
                     .padding(.vertical, 3)
                     .background(Lumen.controlBackground)

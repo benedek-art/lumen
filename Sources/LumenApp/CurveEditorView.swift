@@ -389,7 +389,7 @@ struct CurveEditorView: View {
     private var readoutLine: some View {
         HStack(spacing: 6) {
             Text(readoutText)
-                .font(.system(size: 10).monospacedDigit())
+                .font(.lumenCaptionNumeric)
                 .foregroundStyle(Lumen.secondaryText)
                 .lineLimit(1)
             Spacer(minLength: 4)

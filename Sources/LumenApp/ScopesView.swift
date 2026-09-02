@@ -69,7 +69,7 @@ struct ScopesView: View {
             LumenSegmented(options: kindOptions, selection: $kind)
             content
             Text(caption)
-                .font(.system(size: 10))
+                .font(.lumenCaption)
                 .foregroundStyle(Lumen.secondaryText)
                 .lineLimit(1)
         }
@@ -174,7 +174,7 @@ struct ScopesView: View {
 
     private func emptyPlate(_ message: String) -> some View {
         Text(message)
-            .font(.system(size: 10))
+            .font(.lumenCaption)
             .foregroundStyle(Lumen.secondaryText)
             .frame(maxWidth: .infinity)
             .frame(height: ScopesView.panelHeight)

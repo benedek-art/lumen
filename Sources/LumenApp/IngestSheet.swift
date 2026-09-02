@@ -145,7 +145,7 @@ struct IngestSheet: View {
     private var header: some View {
         HStack(spacing: 8) {
             Text("Ingest")
-                .font(.system(size: 15, weight: .semibold))
+                .font(.lumenTitle)
                 .foregroundStyle(Lumen.primaryText)
             Spacer()
             Button("Close") { dismiss() }
@@ -159,7 +159,7 @@ struct IngestSheet: View {
         if let reason = driver.unavailableReason {
             HStack(alignment: .top, spacing: 6) {
                 Image(systemName: "exclamationmark.triangle")
-                    .font(.lumenBody)
+                    .font(.lumenGlyphBody)
                     .foregroundStyle(Lumen.primaryText)
                 Text(reason)
                     .font(.lumenBody)
@@ -247,12 +247,12 @@ struct IngestSheet: View {
                     ForEach(files) { file in
                         HStack(spacing: 6) {
                             Text(file.filename)
-                                .font(.system(size: 10).monospacedDigit())
+                                .font(.lumenCaptionNumeric)
                                 .foregroundStyle(Lumen.primaryText)
                                 .lineLimit(1)
                             Spacer(minLength: 8)
                             Text(ingestByteString(file.byteSize))
-                                .font(.system(size: 10).monospacedDigit())
+                                .font(.lumenCaptionNumeric)
                                 .foregroundStyle(Lumen.secondaryText)
                         }
                         .padding(.horizontal, 8)
@@ -336,7 +336,7 @@ struct IngestSheet: View {
 
             IngestFieldRow("Preview") {
                 Text(pathPreview)
-                    .font(.system(size: 11).monospacedDigit())
+                    .font(.lumenNumeric)
                     .foregroundStyle(Lumen.primaryText)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
@@ -347,7 +347,7 @@ struct IngestSheet: View {
                     ForEach(templateProblems, id: \.self) { problem in
                         HStack(alignment: .top, spacing: 5) {
                             Image(systemName: "xmark.octagon")
-                                .font(.lumenCaption)
+                                .font(.lumenGlyphCaption)
                             Text(problem)
                                 .font(.lumenCaption)
                                 .fixedSize(horizontal: false, vertical: true)

@@ -207,7 +207,7 @@ struct LumenMenu<Content: View>: View {
             HStack(spacing: 5) {
                 if let symbol {
                     Image(systemName: symbol)
-                        .font(.lumenCaption)
+                        .font(.lumenGlyphCaption)
                         .foregroundStyle(Lumen.secondaryText)
                 }
                 if !iconOnly {
@@ -223,7 +223,7 @@ struct LumenMenu<Content: View>: View {
                     // rotates when the list opens says the same thing with a third of the
                     // ink AND reports state, which the double glyph cannot do at all.
                     Image(systemName: "chevron.down")
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(.lumenGlyphCaptionStrong)
                         .foregroundStyle(Lumen.secondaryText)
                         .rotationEffect(.degrees(isOpen ? 180 : 0))
                 }
@@ -286,13 +286,13 @@ struct LumenMenuItem: View {
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: "checkmark")
-                    .font(.system(size: 10, weight: .bold))
+                    .font(.lumenGlyphTick)
                     .foregroundStyle(Lumen.primaryText)
                     .opacity(isSelected ? 1 : 0)
                     .frame(width: 10, alignment: .leading)
                 if let symbol {
                     Image(systemName: symbol)
-                        .font(.lumenCaption)
+                        .font(.lumenGlyphCaption)
                         .foregroundStyle(isEnabled ? Lumen.secondaryText : Lumen.tertiaryText)
                         .frame(width: 14, alignment: .center)
                 }

@@ -90,7 +90,7 @@ struct ExportSheet: View {
     private var header: some View {
         HStack(spacing: 8) {
             Text("Export")
-                .font(.system(size: 15, weight: .semibold))
+                .font(.lumenTitle)
                 .foregroundStyle(Lumen.primaryText)
             Text(sourceSummary)
                 .font(.lumenBody)
@@ -114,10 +114,7 @@ struct ExportSheet: View {
     private var recipeColumn: some View {
         VStack(spacing: 0) {
             HStack {
-                Text("RECIPES")
-                    .font(.system(size: 10, weight: .semibold))
-                    .tracking(0.6)
-                    .foregroundStyle(Lumen.secondaryText)
+                LumenCapsLabel(text: "Recipes")
                 Spacer()
             }
             .padding(.horizontal, 10)
@@ -666,7 +663,7 @@ private struct ExportRecipeEditor: View {
             }
             ExportFieldRow("Preview") {
                 Text(filenamePreview)
-                    .font(.system(size: 11).monospacedDigit())
+                    .font(.lumenNumeric)
                     .foregroundStyle(Lumen.primaryText)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)

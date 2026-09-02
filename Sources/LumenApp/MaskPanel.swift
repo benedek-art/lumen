@@ -272,7 +272,7 @@ struct MaskPanel: View {
                 state.maskPanelMinimized = false
             } label: {
                 Image(systemName: "square.on.square.dashed")
-                    .font(.lumenCaption)
+                    .font(.lumenGlyphCaption)
             }
             .buttonStyle(.plain)
             .foregroundStyle(Lumen.secondaryText)
@@ -329,7 +329,7 @@ struct MaskPanel: View {
             if list.count >= MaskPanel.searchAppearsAt {
                 HStack(spacing: 5) {
                     Image(systemName: "magnifyingglass")
-                        .font(.system(size: 10))
+                        .font(.lumenGlyphCaption)
                         .foregroundStyle(Lumen.secondaryText)
                     TextField("Filter", text: $maskSearch)
                         .textFieldStyle(.plain)
@@ -337,7 +337,7 @@ struct MaskPanel: View {
                     if !maskSearch.isEmpty {
                         Button { maskSearch = "" } label: {
                             Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 10))
+                                .font(.lumenGlyphCaption)
                                 .foregroundStyle(Lumen.secondaryText)
                         }
                         .buttonStyle(.plain)
@@ -553,14 +553,14 @@ struct MaskPanel: View {
                 editGroup(group.id) { $0.collapsed.toggle() }
             } label: {
                 Image(systemName: group.collapsed ? "chevron.right" : "chevron.down")
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.lumenGlyphCaptionStrong)
                     .frame(width: 12)
             }
             .buttonStyle(.plain)
             .help(group.collapsed ? "Open this group" : "Close this group")
 
             Image(systemName: group.collapsed ? "folder.fill" : "folder")
-                .font(.system(size: 10))
+                .font(.lumenGlyphCaption)
                 .foregroundStyle(Lumen.secondaryText)
 
             TextField("Group", text: groupName(group.id))
@@ -587,7 +587,7 @@ struct MaskPanel: View {
             }
             Button { editGroup(group.id) { $0.enabled.toggle() } } label: {
                 Image(systemName: group.enabled ? "eye" : "eye.slash")
-                    .font(.system(size: 10))
+                    .font(.lumenGlyphCaption)
                     .foregroundStyle(group.enabled ? Lumen.primaryText
                                                    : Lumen.secondaryText)
             }
@@ -716,7 +716,7 @@ struct MaskPanel: View {
                     // in the app draws at — this one was 8, which is two points under
                     // the app's own stated minimum and visibly lighter than the
                     // chevrons in the develop column beside it.
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.lumenCaptionStrong)
                     .rotationEffect(.degrees(isOpen ? 90 : 0))
                     .frame(width: 16, height: 20)
                     .contentShape(Rectangle())
@@ -786,7 +786,7 @@ struct MaskPanel: View {
 
             Button { editMask(mask.id, key: nil) { $0.enabled.toggle() } } label: {
                 Image(systemName: mask.enabled ? "eye" : "eye.slash")
-                    .font(.system(size: 10))
+                    .font(.lumenGlyphCaption)
                     .frame(width: 16, height: 16)
                     .contentShape(Rectangle())
             }
@@ -980,7 +980,7 @@ struct MaskPanel: View {
             } label: {
                 HStack(spacing: 4) {
                     Image(systemName: showing ? "eye.fill" : "eye")
-                        .font(.lumenCaption)
+                        .font(.lumenGlyphCaption)
                     Text("Overlay").font(.lumenCaption)
                 }
                 .padding(.horizontal, 7).padding(.vertical, 3)
@@ -1306,7 +1306,7 @@ struct MaskPanel: View {
                 // and a per-person matte the wire format cannot express, which is a
                 // fact for this comment to carry and not a row in the panel.
                 Text("Entire Person, for everyone in the frame.")
-                    .font(.system(size: 10))
+                    .font(.lumenCaption)
                     .foregroundStyle(.secondary)
                 modelNote(c)
             }
@@ -1523,7 +1523,7 @@ struct MaskPanel: View {
                     }
                 } label: {
                     Image(systemName: negative ? "minus.circle.fill" : "plus.circle.fill")
-                        .font(.system(size: 12))
+                        .font(.lumenGlyphRow)
                         .foregroundStyle(negative ? Lumen.secondaryText : Lumen.primaryText)
                         .frame(width: 20, height: 14)
                         .contentShape(Rectangle())
@@ -1549,13 +1549,13 @@ struct MaskPanel: View {
             }
             Spacer(minLength: 0)
             Button { addSample(id, i) } label: {
-                Image(systemName: "plus").font(.system(size: 10, weight: .semibold))
+                Image(systemName: "plus").font(.lumenGlyphCaptionStrong)
             }
             .buttonStyle(.plain).disabled(samples.count >= 8)
             .foregroundStyle(samples.count < 8 ? Lumen.primaryText : Lumen.secondaryText)
             .help("Add a sample (up to 8); the eyedropper lands with the sampler")
             Button { removeSample(id, i) } label: {
-                Image(systemName: "minus").font(.system(size: 10, weight: .semibold))
+                Image(systemName: "minus").font(.lumenGlyphCaptionStrong)
             }
             .buttonStyle(.plain).disabled(samples.count <= 1)
             .foregroundStyle(samples.count > 1 ? Lumen.primaryText : Lumen.secondaryText)
@@ -1608,7 +1608,7 @@ struct MaskPanel: View {
                            emphasized: status == .needsModel || status == .notFound)
             }
             Text(text)
-                .font(.system(size: 10)).foregroundStyle(Lumen.secondaryText)
+                .font(.lumenCaption).foregroundStyle(Lumen.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.vertical, 2)
@@ -2514,10 +2514,10 @@ struct MaskPanel: View {
                     HStack(spacing: 6) {
                         Spacer(minLength: 0)
                         Image(systemName: "plus")
-                            .font(.system(size: 12, weight: .semibold))
+                            .font(.lumenGlyphRow)
                         Text(label).font(.lumenBody)
                         Image(systemName: "chevron.down")
-                            .font(.system(size: 10, weight: .semibold))
+                            .font(.lumenGlyphCaptionStrong)
                             .rotationEffect(.degrees(isOpen.wrappedValue ? 180 : 0))
                         Spacer(minLength: 0)
                     }
@@ -2596,7 +2596,7 @@ struct MaskPanel: View {
         Button { action(kind) } label: {
             VStack(spacing: 4) {
                 Image(systemName: MaskPanel.kindSymbol(kind))
-                    .font(.system(size: 15, weight: .regular))
+                    .font(.lumenGlyphLarge)
                 Text(MaskPanel.kindName(kind))
                     .font(.lumenCaption)
                     .lineLimit(2)
@@ -2626,7 +2626,7 @@ struct MaskPanel: View {
     private func tintTargetRow(_ mask: Mask) -> some View {
         HStack(spacing: 6) {
             Text("Colorize to")
-                .font(.system(size: 11))
+                .font(.lumenBody)
                 .foregroundStyle(Lumen.secondaryText)
             Spacer(minLength: 0)
             ColorPicker("Colorize to", selection: tintBinding(mask.id),
@@ -2655,7 +2655,7 @@ struct MaskPanel: View {
         Button(action: action) {
             HStack(spacing: 3) {
                 Image(systemName: systemImage).font(.lumenCaption)
-                Text(title).font(.system(size: 10))
+                Text(title).font(.lumenGlyphCaption)
             }
             .padding(.horizontal, 6).padding(.vertical, 3)
             .background(Lumen.controlBackground)

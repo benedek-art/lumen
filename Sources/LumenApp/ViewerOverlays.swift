@@ -142,7 +142,7 @@ struct BeforeAfterSplit<Before: View, After: View>: View {
             .frame(width: 12, height: 34)
             .overlay {
                 Image(systemName: "arrow.left.and.right")
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.lumenGlyphCaptionStrong)
                     .foregroundStyle(Lumen.primaryText)
             }
     }

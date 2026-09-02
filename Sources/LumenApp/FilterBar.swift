@@ -87,7 +87,7 @@ struct FilterBar: View {
         } label: {
             HStack(spacing: 4) {
                 Image(systemName: "line.3.horizontal.decrease")
-                    .font(.lumenCaption)
+                    .font(.lumenGlyphCaption)
                 Text("Filter")
                     .font(.lumenCaption)
                 // Criteria, not chips: three flag chips lit is ONE clause of the query,
@@ -197,7 +197,7 @@ struct FilterBar: View {
                 } label: {
                     VStack(spacing: 2) {
                         Image(systemName: "star.fill")
-                            .font(.lumenCaption)
+                            .font(.lumenGlyphCaption)
                             .foregroundStyle(value <= state.filter.minRating
                                              ? Lumen.primaryText : Lumen.trackColor)
                         Text("\(ratingCount(value))")
@@ -420,7 +420,7 @@ struct FilterBar: View {
     private var textFilter: some View {
         HStack(spacing: 3) {
             Image(systemName: "magnifyingglass")
-                .font(.lumenCaption)
+                .font(.lumenGlyphCaption)
                 .foregroundStyle(Lumen.secondaryText)
             TextField(textPlaceholder, text: $state.filter.text)
                 .textFieldStyle(.plain)
@@ -432,7 +432,7 @@ struct FilterBar: View {
                     state.filter.text = ""
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.lumenCaption)
+                        .font(.lumenGlyphCaption)
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(Lumen.secondaryText)
@@ -532,7 +532,7 @@ struct FilterBar: View {
             state.sortAscending.toggle()
         } label: {
             Image(systemName: state.sortAscending ? "arrow.up" : "arrow.down")
-                .font(.lumenCaption)
+                .font(.lumenGlyphCaption)
                 .foregroundStyle(Lumen.primaryText)
                 .padding(.horizontal, 5)
                 .padding(.vertical, 3)
@@ -550,7 +550,7 @@ struct FilterBar: View {
         HStack(spacing: 5) {
             HStack(spacing: 3) {
                 Image(systemName: "forward.end.alt.fill")
-                    .font(.lumenCaption)
+                    .font(.lumenGlyphCaption)
                 Text("Auto-advance")
                     .font(.lumenCaption)
                     .lineLimit(1)
@@ -660,7 +660,7 @@ struct FilterBar: View {
             HStack(spacing: 3) {
                 if let systemImage {
                     Image(systemName: systemImage)
-                        .font(.lumenCaption)
+                        .font(.lumenGlyphCaption)
                 }
                 Text(title)
                     .font(.lumenCaption)

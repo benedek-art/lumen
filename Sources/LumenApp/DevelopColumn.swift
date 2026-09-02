@@ -205,9 +205,9 @@ struct MaskingReturnBar: View {
             } label: {
                 HStack(spacing: 3) {
                     Image(systemName: "chevron.left")
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(.lumenGlyphCaptionStrong)
                     Image(systemName: panel.layout.workspace.symbolName)
-                        .font(.lumenBody)
+                        .font(.lumenGlyphBody)
                     Text(panel.layout.workspace.title)
                         .font(.lumenBody)
                 }

@@ -402,7 +402,7 @@ struct ColorPanel: View {
                     // picker in BasicPanel.
                     Button(action: addSwatch) {
                         Image(systemName: "eyedropper")
-                            .font(.system(size: 10, weight: .semibold))
+                            .font(.lumenGlyphCaptionStrong)
                             // The glyph's own bounds are no hit target. The printer
                             // rows measured this exact defect (docs/30 §2.3): 24 points
                             // by the row's height, paid for out of the Spacer.
@@ -422,7 +422,7 @@ struct ColorPanel: View {
                         Image(systemName: "minus")
                             // 10, the app's own stated floor, which it set and then
                             // never enforced.
-                            .font(.system(size: 10, weight: .semibold))
+                            .font(.lumenGlyphCaptionStrong)
                             // The old hit area was the glyph itself — a bar a couple of
                             // points tall, the least hittable target in the app, which
                             // is most of why this button "did nothing".
@@ -521,7 +521,7 @@ struct ColorPanel: View {
         } label: {
             HStack(spacing: 4) {
                 Image(systemName: "eyedropper")
-                    .font(.lumenCaption)
+                    .font(.lumenGlyphCaption)
                 Text(armed ? "Click a colour" : "Pick a colour")
                     .font(.lumenCaption)
                     .lineLimit(1)

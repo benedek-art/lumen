@@ -57,7 +57,7 @@ struct ControlPalette: View {
 
             if results.isEmpty {
                 Text("No control by that name")
-                    .font(.system(size: 12))
+                    .font(.lumenLead)
                     .foregroundStyle(Lumen.secondaryText)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 10)
@@ -135,18 +135,18 @@ struct ControlPalette: View {
             // sixteen because the row's type is 13 point rather than 12, and the glyph
             // is scaled to sit under it.
             Image(systemName: control.section.symbolName)
-                .font(.system(size: 12))
+                .font(.lumenGlyphRow)
                 .foregroundStyle(Lumen.secondaryText)
                 .frame(width: 18)
             Text(control.title)
-                .font(.system(size: 13))
+                .font(.lumenLead)
                 .foregroundStyle(Lumen.primaryText)
             Spacer()
             // WHERE IT WILL TAKE YOU, always. A palette that jumps somewhere unnamed is
             // a palette a photographer stops trusting after the first surprise, and this
             // line is also how they learn the four workspaces without being taught.
             Text("\(control.section.workspace.title) · \(control.section.title)")
-                .font(.system(size: 11))
+                .font(.lumenBody)
                 .foregroundStyle(Lumen.secondaryText)
         }
         .padding(.horizontal, 12)

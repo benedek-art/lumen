@@ -629,7 +629,7 @@ private struct DevelopFooterButton: View {
         Button(action: action) {
             HStack(spacing: 5) {
                 Image(systemName: systemImage)
-                    .font(.lumenCaption)
+                    .font(.lumenGlyphCaption)
                 Text(title)
                     .font(.lumenBody)
                     .lineLimit(1)
