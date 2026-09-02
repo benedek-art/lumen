@@ -946,9 +946,20 @@ public struct ManualSharpen: Codable, Equatable, Sendable {
 /// NOTHING HERE IS A SECOND GRAIN. Every one of these three numbers lands on
 /// `FilmGrainProfile`, the density-domain model `docs/14 §5.7` specifies and the Film Lab
 /// already uses: amplitude ∝ √(p(1−p)) so it peaks at mid densities and vanishes at both
-/// Dmin and Dmax, three decorrelated layers on a colour picture, one plate on a
-/// monochrome one, the same deterministic value-noise generator and the same kernel on
-/// the GPU. What is new is a way to state the profile without a stock, which is
+/// Dmin and Dmax, the same deterministic value-noise generator and the same kernel on
+/// the GPU.
+///
+/// ONE LUMINANCE FIELD, though — not the stock path's three layers. This paragraph said
+/// "three decorrelated layers on a colour picture" for as long as the struct has
+/// existed, and it has been wrong since the owner tested that version:
+/// `FilmGrainProfile.init(creative:monochrome:)` sets `sizeScale = RGB(1, 1, 1)` and
+/// `monochrome = true` unconditionally, discarding the flag it is handed. The reason is
+/// written out at that initializer and is worth reading before "fixing" this back: a
+/// stock's pitch is a few microns and its three layers land sub-pixel, where Size here
+/// runs to 56 µm and the blue layer's 2× crystal doubles it again — "rainbow splotches
+/// is an exact description of that arithmetic". `CreativeGrainTests
+/// .testCreativeGrainIsOneLuminanceField` is what actually holds it; this sentence is
+/// what a reader believes. What is new is a way to state the profile without a stock, which is
 /// `FilmGrainProfile.init(creative:monochrome:)` and nothing else.
 ///
 /// THE NAMES ARE LIGHTROOM'S — Amount, Size, Roughness — because that is the vocabulary
@@ -985,7 +996,7 @@ public struct ManualSharpen: Codable, Equatable, Sendable {
 /// prunes the whole subtree, and no fingerprint in any catalog moves.
 public struct CreativeGrain: Codable, Equatable, Sendable {
     public var amount: Double      // 0…100, 0 = off
-    public var size: Double        // 0…100 → 4…32 µm pitch at a 35 mm gate
+    public var size: Double        // 0…100 → 7…56 µm pitch at a 35 mm gate
     public var roughness: Double   // 0…100 → 0.25…0.75 octave persistence
 
     public init(amount: Double = 0, size: Double = 50, roughness: Double = 50) {

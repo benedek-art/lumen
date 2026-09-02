@@ -418,24 +418,60 @@ public struct FilmLab: Codable, Equatable, Sendable {
     public var exposure: Double
     public var pushPull: Double     // −1…+2 stops (couples curve+grain+crossover, docs/05)
     public var halation: Double     // 0…100
+    /// The halo's RADIUS against the stock's own, 0.5…2.0. 1.0 is the emulsion's
+    /// measured 65 µm at the gate.
+    ///
+    /// `HalationProfile.init` has taken this and used it for real — `sigma1 = 65µm/1000
+    /// × size / gate × px` — since it was written, and both of its callers passed the
+    /// default. Two working controls, no way to reach them: every stock's halo was the
+    /// same radius scaled only by its gate, so CineStill's large red bloom could not be
+    /// asked for (C2-05). Denominated at the GATE like grain's Size, so the halo is the
+    /// same fraction of the picture at every delivery size.
+    ///
+    /// OPTIONAL, like `printSize` and `halationRedness` beside it, and for a reason
+    /// this file's sparse-serialization contract makes load-bearing: `look.filmLab` is
+    /// itself nil on a default `Recipe`, so `CanonicalJSON.sparse` has no default
+    /// subtree to diff a present film lab against and EVERY non-optional key in it
+    /// serializes. A plain `Double = 1.0` would therefore have written a new key into
+    /// every recipe that has ever loaded a stock. Nil means 1.0 — read it through
+    /// `effectiveHalationSize`.
+    public var halationSize: Double?
+    /// How far the halo is pulled toward pure red, 0…100, or nil for the stock's own
+    /// measured `halationRedness`.
+    ///
+    /// Optional rather than defaulted to a number because "the emulsion's" is a real
+    /// answer and not a value: a stock's redness is a property of its anti-halation
+    /// layer, and writing 15 into every recipe that loads Portra would silently pin it
+    /// if the stock were ever re-measured.
+    public var halationRedness: Double?
     public var grain: FilmGrain
     public var printSize: String?   // grain anchor, e.g. "8x10"; nil = long-edge default
 
     public init(stock: String, amount: Double = 100, exposure: Double = 0,
                 pushPull: Double = 0,
-                halation: Double = 0, grain: FilmGrain = FilmGrain(),
+                halation: Double = 0,
+                halationSize: Double? = nil, halationRedness: Double? = nil,
+                grain: FilmGrain = FilmGrain(),
                 printSize: String? = nil) {
         self.stock = stock
         self.amount = amount
         self.exposure = exposure
         self.pushPull = pushPull
         self.halation = halation
+        self.halationSize = halationSize
+        self.halationRedness = halationRedness
         self.grain = grain
         self.printSize = printSize
     }
 
+    /// The halo radius multiplier the engine uses: the recipe's, or the emulsion's own
+    /// 1.0. One accessor, so no caller spells the fallback for itself.
+    public var effectiveHalationSize: Double { halationSize ?? 1.0 }
+
     private enum CodingKeys: String, CodingKey {
-        case stock, amount, exposure, pushPull, halation, grain, printSize
+        case stock, amount, exposure, pushPull, halation
+        case halationSize, halationRedness
+        case grain, printSize
     }
 
     /// Tolerant of an absent key. `stock` has no default in the memberwise initializer,
@@ -449,6 +485,12 @@ public struct FilmLab: Codable, Equatable, Sendable {
         self.exposure = try c.decodeIfPresent(Double.self, forKey: .exposure) ?? 0
         self.pushPull = try c.decodeIfPresent(Double.self, forKey: .pushPull) ?? 0
         self.halation = try c.decodeIfPresent(Double.self, forKey: .halation) ?? 0
+        // Both absent from every recipe written before they existed, and both stay
+        // absent from one that never sets them: they are optional precisely so that a
+        // present `filmLab` — whose keys all serialize, since a default `Recipe` has no
+        // film lab to diff against — does not gain two on the way back out.
+        self.halationSize = try c.decodeIfPresent(Double.self, forKey: .halationSize)
+        self.halationRedness = try c.decodeIfPresent(Double.self, forKey: .halationRedness)
         self.grain = try c.decodeIfPresent(FilmGrain.self, forKey: .grain) ?? FilmGrain()
         self.printSize = try c.decodeIfPresent(String.self, forKey: .printSize)
     }

@@ -475,6 +475,7 @@ final class RecipeCodecToleranceTests: XCTestCase {
             printerLights: PrinterLights(master: 1, r: 2, g: -3, b: 4),
             filmLab: FilmLab(stock: "lumen/portra400", amount: 80, exposure: 0.5,
                              pushPull: 1, halation: 30,
+                             halationSize: 1.4, halationRedness: 70,
                              grain: FilmGrain(size: 1.2, amount: 40), printSize: "8x10"),
             primaries: Primaries(rHue: 1, rPurity: 2, gHue: 3, gPurity: 4,
                                  bHue: 5, bPurity: 6, tintHue: 7, tintPurity: 8),

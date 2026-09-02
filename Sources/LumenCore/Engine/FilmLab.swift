@@ -1540,17 +1540,23 @@ public struct FilmChain: Sendable {
     // nothing of the kind. docs/14 §5.7 now describes the shipped tap point.
 
     /// Halation parameters for this recipe at a given render size, or nil without a
-    /// stock. Size and Redness are the format additions docs/05 §8.1 flags as missing
-    /// from `FilmLab`; they are arguments here until the wire format catches up.
+    /// stock.
+    ///
+    /// Size and Redness default to THE RECIPE'S, which is what this comment used to say
+    /// they could not: "they are arguments here until the wire format catches up". It
+    /// has caught up (`FilmLab.halationSize` / `.halationRedness`), and the arguments
+    /// stay so that a caller measuring the profile's response to one of them — which is
+    /// how `HalationControlTests` proves Size reaches the radius at all — can vary it
+    /// without assembling a recipe.
     public func halationProfile(longEdgePixels: Int,
-                                size: Double = 1.0,
+                                size: Double? = nil,
                                 redness: Double? = nil,
                                 clipLevel: Double = 1.0) -> HalationProfile? {
         guard let s = stock else { return nil }
         return HalationProfile(stock: s,
                                amount: recipe.halation,
-                               size: size,
-                               redness: redness,
+                               size: size ?? recipe.effectiveHalationSize,
+                               redness: redness ?? recipe.halationRedness,
                                longEdgePixels: longEdgePixels,
                                clipLevel: clipLevel)
     }
@@ -1589,14 +1595,20 @@ public struct FilmChain: Sendable {
         return Swift.max((d.r + d.g + d.b) / 3.0, 1e-6)
     }
 
-    /// Halation parameters at a render size, using this recipe's Amount and the
-    /// stock's own Redness. Never nil: without a stock the strengths are zero, which
-    /// the caller's `strengths.maxComponent > 0` guard already handles.
+    /// Halation parameters at a render size, from this recipe's Amount, Size and
+    /// Redness. Never nil: without a stock the strengths are zero, which the caller's
+    /// `strengths.maxComponent > 0` guard already handles.
+    ///
+    /// THE ONE ACCESSOR BOTH RENDERERS USE, which is why the two new controls had to
+    /// arrive here rather than at `halationProfile` above: this is the call
+    /// `ReferenceRenderer.applyHalation` and `RenderGraph.applyHalation` each make, and
+    /// it hardcoded `size: 1.0, redness: nil`. `HalationProfile.init` has taken both and
+    /// used them for real since it was written; nothing could reach them (C2-05).
     public func halation(longEdgePixels: Int) -> HalationProfile {
         HalationProfile(stock: stock ?? FilmStock.portra400,
                         amount: stock == nil ? 0 : recipe.halation,
-                        size: 1.0,
-                        redness: nil,
+                        size: recipe.effectiveHalationSize,
+                        redness: recipe.halationRedness,
                         longEdgePixels: longEdgePixels,
                         clipLevel: 1.0)
     }

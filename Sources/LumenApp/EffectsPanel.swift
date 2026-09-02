@@ -249,8 +249,19 @@ struct EffectsPanel: View {
                   + "Strength to 0 and these rows are replaced by a creative "
                   + "grain you shape by hand.")
 
+            // `film.grain.amount`, NOT `look.grain.amount` — the same key `LookPanel`
+            // binds this field under, and a different one from the creative row below
+            // (C2-07). The old key was wrong twice over: it named a recipe path this
+            // row does not write, and the creative Amount row twenty lines down used
+            // the identical string for a different field. The two rows are never on
+            // screen together, so nothing looked wrong — but a binder key is an
+            // IDENTITY, and everything that resolves one (undo coalescing, the
+            // last-edited-control record) could not tell a stock's grain from a
+            // creative one. Sharing `LookPanel`'s key is the other half of the comment
+            // below: two panels binding one value must not disagree about it, and a key
+            // is part of what they agree on.
             LumenSlider(title: "Amount",
-                        value: binder.custom("look.grain.amount",
+                        value: binder.custom("film.grain.amount",
                                              get: { r in r.look.filmLab?.grain.amount ?? 0 },
                                              set: { r, v in r.look.filmLab?.grain.amount = v }),
                         // The stock's own grain, matching LookPanel — the
@@ -271,9 +282,10 @@ struct EffectsPanel: View {
             // `plateScale`, pinned to 1e-12 by
             // `testGrainFollowsTheGateAndTheRenderSizeNotThePrintSize`. Kept as
             // a comment because `LookPanel` binds this same field, and two
-            // panels binding one value must not tell opposite stories about it.
+            // panels binding one value must not tell opposite stories about it —
+            // which is also why this row now carries `LookPanel`'s key.
             LumenSlider(title: "Size",
-                        value: binder.custom("look.grain.size",
+                        value: binder.custom("film.grain.size",
                                              get: { r in r.look.filmLab?.grain.size ?? 1 },
                                              set: { r, v in r.look.filmLab?.grain.size = v }),
                         range: 0.5...2.0, hardRange: nil, defaultValue: 1.0,

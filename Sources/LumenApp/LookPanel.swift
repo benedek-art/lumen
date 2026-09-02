@@ -997,7 +997,43 @@ struct LookPanel: View {
                                         set: { $0.halation = Num.clamp($1, 0, 100) }),
                         range: 0...100,
                         defaultValue: stock?.halationDefault ?? 0,
-                        step: 1, decimals: 0, bipolar: false)
+                        step: 1, decimals: 0, bipolar: false,
+                        help: "How much of the highlight energy passes through the "
+                            + "emulsion and scatters back off the film base.")
+            // SIZE AND REDNESS, which `HalationProfile` has computed from since it was
+            // written and which nothing could reach until now (C2-05). Both callers
+            // passed the defaults, so every stock's halo was the same 65 µm radius
+            // scaled only by its gate, and no halo could be pulled toward or away from
+            // red. Indented under Halation because they shape the halo Amount decides
+            // the strength of — the same relationship Sharpen Radius has to Amount.
+            LumenSlider(title: "Halo Size",
+                        value: bindFilm("film.halationSize",
+                                        get: { $0.effectiveHalationSize },
+                                        set: { $0.halationSize = Num.clamp($1, 0.5, 2.0) }),
+                        range: 0.5...2.0, hardRange: nil, defaultValue: 1.0,
+                        step: 0.05, decimals: 2, bipolar: true, indented: true,
+                        help: "The halo's radius against the stock's own — 1.00 is the "
+                            + "emulsion's measured 65 µm at the film gate, and like "
+                            + "grain it stays the same fraction of the picture at every "
+                            + "delivery size.")
+            // Redness is OPTIONAL on the wire — nil means the stock's own measured
+            // value — and a slider cannot express nil, so the binding reads the stock's
+            // number when the recipe has none and writes a real one the moment the
+            // photographer moves it. Double-clicking to the default puts it back to the
+            // stock's number rather than to nil, which is one recipe key's worth of
+            // difference and no visible difference at all.
+            LumenSlider(title: "Halo Redness",
+                        value: bindFilm("film.halationRedness",
+                                        get: { $0.halationRedness
+                                               ?? (stock?.halationRedness ?? 0) },
+                                        set: { $0.halationRedness = Num.clamp($1, 0, 100) }),
+                        range: 0...100, hardRange: nil,
+                        defaultValue: stock?.halationRedness ?? 0,
+                        step: 1, decimals: 0, bipolar: false, indented: true,
+                        help: "How far the halo is pulled toward pure red. The stock's "
+                            + "own value is the default; a colour negative's "
+                            + "anti-halation layer leaks red first, which is why the "
+                            + "glow around a bright window is warm.")
             // NO PRINT SIZE CONTROL, and no caption apologising for one. A menu of
             // five sizes shipped once, above a sentence explaining that choosing one
             // does nothing; the caption has now gone after the menu, so the reasoning

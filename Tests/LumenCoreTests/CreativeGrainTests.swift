@@ -478,6 +478,56 @@ final class CreativeGrainTests: XCTestCase {
                        "after Reset the section must read clean")
     }
 
+    /// THE TWO GRAINS DO NOT SHARE A BINDER KEY, and the stock's rows use the key the
+    /// panel that also binds them uses (C2-07).
+    ///
+    /// A binder key is an identity: undo coalescing and the last-edited-control record
+    /// resolve one. `EffectsPanel` keyed its stock Amount and Size rows
+    /// `look.grain.amount` / `look.grain.size` — the literal string the creative rows
+    /// twenty lines below use for a completely different field, and a recipe path the
+    /// stock rows do not write. Nothing looked wrong, because the two sets of rows are
+    /// never on screen together; that is exactly what makes it the kind of defect a
+    /// test has to hold rather than a person.
+    ///
+    /// Read as text, for the reason `DesignSystemTests` and `KeyGrammarTests` are:
+    /// `Sources/LumenApp` is `#if os(macOS)` and no test here can construct a panel.
+    func testTheStockAndCreativeGrainRowsUseDifferentBinderKeys() {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("Sources/LumenApp")
+        func text(_ name: String) -> String {
+            guard let s = try? String(contentsOf: root.appendingPathComponent(name),
+                                      encoding: .utf8) else {
+                XCTFail("\(name) not found — if it moved, move this scan with it")
+                return ""
+            }
+            return s
+        }
+        let effects = text("EffectsPanel.swift")
+        let look = text("LookPanel.swift")
+        XCTAssertFalse(effects.isEmpty)
+        XCTAssertFalse(look.isEmpty)
+
+        // The creative rows own `look.grain.*`; the stock rows must not also claim it.
+        XCTAssertTrue(effects.contains("creativeBinding(\"look.grain.amount\""),
+                      "the creative Amount row's key moved — move this scan with it")
+        XCTAssertFalse(effects.contains("binder.custom(\"look.grain.amount\""),
+                       "the stock's Amount row is keyed `look.grain.amount` again — the "
+                           + "same string the creative row uses, for a different field")
+        XCTAssertFalse(effects.contains("binder.custom(\"look.grain.size\""),
+                       "the stock's Size row is keyed `look.grain.size` again — the same "
+                           + "string the creative row uses, for a different field")
+
+        // And they agree with the other panel that binds the same two fields.
+        for key in ["film.grain.amount", "film.grain.size"] {
+            XCTAssertTrue(effects.contains("binder.custom(\"\(key)\""),
+                          "the Effects stock row no longer carries \(key)")
+            XCTAssertTrue(look.contains("bindFilm(\"\(key)\""),
+                          "LookPanel no longer carries \(key) — the two panels bind one "
+                              + "field and have stopped agreeing about its identity")
+        }
+    }
+
     /// Roughness alone counts as an edit even at Amount 0, where it renders nothing —
     /// the recipe differs from its defaults and a dot that ignored it would leave the
     /// Reset unoffered with a moved slider on screen. `Look.vignetteFeather`'s own rule,

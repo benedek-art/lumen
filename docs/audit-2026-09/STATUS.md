@@ -161,16 +161,26 @@ the next landing.** A green local triad is not a build.
 streak included).
 
 ## Queued next, in order
-1. **U3 shell** — sidebar regroup, status bar with the query sentence, filter bar →
-   popover with live counts, grid/filmstrip cells, `⌘C`/`⌘V` contextual
-2. **U4 canvas** — on-canvas radial/linear handles to the mockup, before/after and
-   compare chrome, the collapsed mask column
-3. **U5** — hover/focus sweep, motion, empty states, help sheet and keyboard reference
-4. **Engine leftovers** — ~~C2-01b band-limited plate~~ **0158776** ·
-   ~~I1-04 the settle loop~~ **abab18a** · ~~C2-02 three decorrelated fields~~ and
-   ~~C2-03/K-065 grain before the export resize~~ in the current batch · still open:
-   I1-02 (fix the DragProbe so N-002's row can be re-measured), C2-05 halation Size and
-   Redness unreachable, C2-07 two recipe fields under one binder key
+1. ~~**U3 shell**~~ — **done, and this entry was stale for two batches.** The sidebar
+   regroup, the status bar's query sentence, the filter bar's move into a popover with
+   live counts and the type-scale migration all landed with U2; the last piece was the
+   radius pass (21 of 22 raw corner radii onto the 6/9/14 ladder or onto
+   `Lumen.swatchRadius(_:)`). Re-check a queue entry against the code before working it.
+2. ~~**U4 canvas**~~ — **also largely done.** The on-canvas radial and linear handles
+   are built to the mockup: four rim dots, the feather-ring handle on the hit test's own
+   two conditions, no rotation knob (the owner: "I just don't want this little lever at
+   the edge"). What landed this batch is the drawn dot radii moving onto `MaskHandles`
+   beside the grab radius they must stay smaller than. Left: before/after chrome and the
+   collapsed mask column.
+3. **U5** — hover/focus sweep, motion, empty states, help sheet and keyboard reference.
+   **The real remaining UI stream.**
+4. **Engine leftovers** — all of C2 is landed: ~~C2-01b~~ **0158776** ·
+   ~~C2-02~~ / ~~C2-03/K-065~~ **6425f60** · ~~C2-05 halation Size and Redness~~,
+   ~~C2-06~~, ~~C2-07~~ in the current batch. ~~I1-04 the settle loop~~ **abab18a**.
+   Still open: **I1-02** (fix the DragProbe so N-002's row can be re-measured),
+   **C2-04** (the floor's own test asserts the divergence), **N-005** (the three
+   "independent" plate seeds correlate), **N-006** (halation's unused
+   `normalizedWeights`, so Amount is scaled by 1.75)
 5. **W3/W4** verification and triage of the ~70 W2 findings not yet landed
 6. **W6 close** — re-audit each landing against its finding, perf probes against
    `w0/perf-baseline.md`, `docs/38-the-grind.md`, and the owner's report
