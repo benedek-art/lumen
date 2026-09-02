@@ -70,8 +70,56 @@ accumulated per timed frame now, so the untimed draft's stale serves are not cou
 the settle's.
 
 `testTheSettleRunCanAddressWhatTheDraftRunLeftBehind` pins both halves as arithmetic, so
-it fails without a GPU and without waiting for the probe. **The next gpu-parity run's
-Whites settle row is the real re-measurement of N-002.**
+it fails without a GPU and without waiting for the probe.
+
+## N-002, measured at last — run 33670297669, `db43c41`
+
+| control | path | baseline | before I1-02 | **after I1-02** |
+|---|---|---|---|---|
+| Whites | settle | 388.0 · `0h/36b/0s` | 375.8 · `0h/36b/0s` | **212.6 · `34h/2b/0s`** |
+| Saturation | settle | 269.4 · `24h/12b` | 315.7 · `25h/11b` | **180.0 · `36h/0b/0s`** |
+| Exposure | settle | 57.3 · `24h/12b` | 47.7 · `24h/12b` | **19.0 · `36h/0b/0s`** |
+| Texture | settle | 38.3 | 28.2 | **21.1 · `36h/0b/0s`** |
+| Sharpen | settle | 29.3 | 16.8 | **19.7 · `36h/0b/0s`** |
+
+**Whites' settle goes from zero cache hits to thirty-four of thirty-six, and from
+thirty-six bakes to two.** Every other settle row is at `36h/0b` — no bakes at all.
+
+**Read this correctly, because the obvious reading is wrong.** The time column is NOT
+"the app got 45% faster in this commit". Before I1-02 the settle row priced a *cold
+settle at a value no drag had visited*, which is not an event the application performs.
+After it, the row prices *the settle after the drag that ended on that value*, which is
+the only settle a photographer ever sees. The two numbers are of different events, and
+the second one is the one that was always meant.
+
+What the hits column does establish is N-002's actual answer, and it is the opposite of
+how the row read for three rounds: **the settle path is wired to the cache, and it hits.**
+"Zero hits and thirty-six bakes" was an artifact of asking the cache for tables no drag
+had ever put in it. The finding's own W2 verdict — "PARTLY REJECTED by I1: the `0h` is a
+probe artifact" — was right, and this is the measurement that shows it.
+
+The two bakes Whites still pays are real and are the interesting residue: 34 of 36 tables
+are resident and two are not, which is the finish table being re-keyed by the white
+anchor at a value the drag's last frame had not yet finished baking. That is
+stale-while-bake working as designed.
+
+## PERFPROBE, corrected: the regression above was noise
+
+Three runs of the same probe on the same lane, all DEBUG, one sample per row:
+
+| long edge | `cc82116` | `1df319f` | `db43c41` | spread |
+|---|---|---|---|---|
+| 1024 | 22.0 | 26.7 | 21.0 | 5.7 |
+| 1536 | 24.3 | 28.0 | 34.3 | 10.0 |
+| 2048 | 38.0 | 40.9 | 34.0 | 6.9 |
+
+The run-to-run spread is larger than the "+21% / +15% / +8%" reported above, and the
+direction is not consistent. **The PERFPROBE regression recorded in this document does
+not survive a third sample, and the paragraph above that offered "real added work from
+the grain changes" as a competing explanation should be read as what it was: a
+hypothesis about a number that turned out to be noise.** One sample per row on a shared
+runner cannot support a claim either way, which is what that paragraph said and what I
+should have weighted more heavily than the arrow's direction.
 
 ## PERFPROBE — full pipeline, synthetic frame
 
