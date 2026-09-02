@@ -44,6 +44,8 @@ verify as fixed. Fixes in this project name the defect, not the audit row.
 | **I1-06** `ContentView` reads `currentRecipe` without observing `EditRevision` | the declaration, with the reason: `showsMaskPanel` gates the floating Masks box on `!masks.isEmpty` and had no invalidation source — it re-bodied only because `addMask` also writes published selection state, which is coincidence holding up a contract |
 | **I1-07** the `EditRevision` rule is enforced by comment only | `EditRevisionRuleTests` — per-declaration scan with the two non-`View` helpers carved out by name and by their callers. **Its own first draft passed its substitution proof**, because the doc comment explaining the rule contains the word `EditRevision`; comments are stripped now |
 | **L-03** the updater checks the bundle is *signed*, never *whose* signature | a `sha256:` line in the release body, published by CI from the bytes it uploads and verified before anything unpacks the archive. Fails closed |
+| **A2-04** ↑/↓ on a focused slider do nothing | `onKeyPress(.upArrow/.downArrow)` on `LumenSlider`, and a cross-file check: the dispatcher stands down for all four arrows the moment a slider takes focus, so the slider must catch all four or the key is SWALLOWED — worse than either alternative, because the photographer cannot tell an ignored key from an eaten one |
+| **J1-02** `ftsEnabled` is a `let`, so a broken index fails the write | `private var`, and `reindexText` no longer throws: it logs once, turns the index off for the session, and every text query takes the LIKE fallback `isTextIndexAvailable` already exists to describe |
 
 ## S2 / S3 — verified FIXED by the U and engine landings
 
@@ -58,17 +60,32 @@ font calls · `G2-08` the animations over the 120 ms ceiling (three motions now)
 `I1-05` `table` not promoting on hit · `A2-01`/`L-01` the gesture epoch · `C1-04` halation
 Size and Redness (= C2-05, landed `f67582b`).
 
+## Corrections to the audit
+
+**J1-02 named the wrong callers.** It said `photo_fts` write failures reach `setRating`
+and `setLabel` and surface as the culling write's "Could not save the flag or rating".
+They do not. A rating is not in the text index — the FTS columns are filename, ext,
+camera, lens, job and keywords — and `setRating`, `setLabel` and `setFlag` all go through
+`batchUpdate`, which never reindexes. The first version of the test asserted the audit's
+claim and failed, which is how the claim got checked.
+
+The finding narrows and survives: the seven paths that DO reindex are `upsertPhoto`,
+`setJob`, `scan`, `setMetadata` (both forms), `addKeyword` and `removeKeyword`. So the
+real failure is a keyword the photographer typed, a job name, or the EXIF backfill
+mid-scan — quieter than a rating keystroke and no less wrong, since all three are
+committed to `main` before the index is touched.
+
+**The automated triage was worse than useless.** Asking "does any file name this finding
+id" reported F1-01, F3-04, F4-01, F4-02 and J1-01 as unmarked; all five verify as fixed.
+Fixes in this project name the defect, not the audit row — which is the right habit and
+means an id-based sweep can only ever mislead.
+
 ## Still open, ranked
 
 **S2, with a mechanism named and no owner yet**
 
-- `J1-02` `ftsEnabled` is a `let` fixed at open — verified still `private let` at
-  `CatalogStore.swift:690`. A cache.db that goes read-only turns every rating keystroke
-  into an error banner about a rating that was in fact saved.
 - `J1-03` `flushSidecars` writes from a stale in-memory read · `J1-04` `close()` does not
   back up · `J1-05` the grid query has no LIMIT and no debounce.
-- `A2-04` ↑/↓ on a focused slider — verified: `LumenSlider` handles `.leftArrow` and
-  `.rightArrow` only, so the vertical pair is still unbound.
 - `B1-04…08` the colour-science group (band ring authority, Density's hue rotation,
   the H-K term's magnitude, B&W level normalisation, band naming). Each moves pixels
   and each wants its own proof ceremony.

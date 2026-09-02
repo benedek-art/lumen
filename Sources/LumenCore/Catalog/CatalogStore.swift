@@ -687,7 +687,20 @@ public final class CatalogStore {
     // MARK: Stored state
 
     private let db: SQLiteDatabase
-    private let ftsEnabled: Bool
+    /// A VAR, because the text index can stop being available while the app is running
+    /// and there was no way to say so (J1-02).
+    ///
+    /// It was a `let` fixed at open: FTS5 present, index created, true for the session.
+    /// A `cache.db` that goes read-only afterwards — a full disk, an external volume
+    /// unmounted — then failed every `photo_fts` write, and those failures propagated
+    /// out of `setRating` and `setLabel` into the culling write's `catch`, which
+    /// reported "Could not save the flag or rating" for a rating that HAD been saved.
+    /// Every keystroke an error banner about a cache.
+    ///
+    /// Guarded by whatever serialises the rest of this class — `CatalogService` owns the
+    /// queue — which is the same guarantee every other mutable field here has, and the
+    /// honest claim rather than a stronger one.
+    private var ftsEnabled: Bool
 
     public let path: String
     public let cachePath: String
@@ -1456,7 +1469,7 @@ public final class CatalogStore {
                 [.integer(row.folderID), .text(row.filename)]) else {
                 throw CatalogError.notFound("photo \(row.filename) after upsert")
             }
-            try self.reindexText(photoID: id)
+            self.reindexText(photoID: id)
             return id
         }
     }
@@ -1496,7 +1509,7 @@ public final class CatalogStore {
                 try statement.run()
             }
             statement.reset()
-            for id in photoIDs { try self.reindexText(photoID: id) }
+            for id in photoIDs { self.reindexText(photoID: id) }
         }
     }
 
@@ -1650,7 +1663,7 @@ public final class CatalogStore {
                           .optionalText(file.ext
                                         ?? CatalogStore.fileExtension(of: file.filename)),
                           .integer(id)])
-                    try self.reindexText(photoID: id)
+                    self.reindexText(photoID: id)
                     result.relocated.append(id)
                     continue
                 }
@@ -1963,7 +1976,7 @@ public final class CatalogStore {
             // while the slower LIKE fallback found it. Re-indexing belongs next to the
             // write and inside the same transaction, so the index cannot end up
             // describing a photo the catalog no longer holds.
-            try self.reindexText(photoID: photoID)
+            self.reindexText(photoID: photoID)
         }
     }
 
@@ -2029,7 +2042,7 @@ public final class CatalogStore {
             // LIB-10, the batch half. This is the writer the backfill pass actually
             // calls, so an index kept in step only by the single-photo entry point
             // would still have been empty on every real launch.
-            for entry in batch { try self.reindexText(photoID: entry.photoID) }
+            for entry in batch { self.reindexText(photoID: entry.photoID) }
         }
     }
 
@@ -2364,7 +2377,7 @@ public final class CatalogStore {
                 try statement.run()
             }
             statement.reset()
-            for photoID in photoIDs { try self.reindexText(photoID: photoID) }
+            for photoID in photoIDs { self.reindexText(photoID: photoID) }
             return id
         }
     }
@@ -2403,7 +2416,7 @@ public final class CatalogStore {
                 try statement.run()
             }
             statement.reset()
-            for photoID in photoIDs { try self.reindexText(photoID: photoID) }
+            for photoID in photoIDs { self.reindexText(photoID: photoID) }
         }
     }
 
@@ -3165,22 +3178,44 @@ public final class CatalogStore {
         }
     }
 
-    private func reindexText(photoID: Int64) throws {
-        if !ftsEnabled { return }
-        guard let fields = try firstRow(
-            "SELECT filename, ext, camera, lens, job FROM photo WHERE id = ?;",
-            [.integer(photoID)], { statement in
-                (statement.string(0) ?? "", statement.string(1) ?? "",
-                 statement.string(2) ?? "", statement.string(3) ?? "",
-                 statement.string(4) ?? "")
-            }) else { return }
-        let keywordList = try keywords(photoID: photoID).joined(separator: " ")
-        try db.run("DELETE FROM cache.photo_fts WHERE rowid = ?;", [.integer(photoID)])
-        try db.run("""
-        INSERT INTO cache.photo_fts (rowid, filename, ext, camera, lens, job, keywords)
-        VALUES (?, ?, ?, ?, ?, ?, ?);
-        """, [.integer(photoID), .text(fields.0), .text(fields.1), .text(fields.2),
-              .text(fields.3), .text(fields.4), .text(keywordList)])
+    /// NEVER THROWS. The text index is DERIVED DATA — every row in it is recomputable
+    /// from `photo` and `photo_keyword` — and derived data must not be able to fail a
+    /// photographer's write (J1-02).
+    ///
+    /// This used to throw, and its callers are `setRating`, `setLabel`, `setFlag` and
+    /// the scan's upsert. So an unwritable `cache.db` turned a rating that had already
+    /// been committed to `main` into "Could not save the flag or rating", once per
+    /// keystroke, with no recovery short of a relaunch.
+    ///
+    /// A failure here turns the index OFF for the rest of the session instead. Every
+    /// text query then takes the parameterized-LIKE fallback, which
+    /// `isTextIndexAvailable` already exists to describe and which is correct, just
+    /// slower — the degradation this store was designed for, finally reachable.
+    private func reindexText(photoID: Int64) {
+        guard ftsEnabled else { return }
+        do {
+            guard let fields = try firstRow(
+                "SELECT filename, ext, camera, lens, job FROM photo WHERE id = ?;",
+                [.integer(photoID)], { statement in
+                    (statement.string(0) ?? "", statement.string(1) ?? "",
+                     statement.string(2) ?? "", statement.string(3) ?? "",
+                     statement.string(4) ?? "")
+                }) else { return }
+            let keywordList = try keywords(photoID: photoID).joined(separator: " ")
+            try db.run("DELETE FROM cache.photo_fts WHERE rowid = ?;", [.integer(photoID)])
+            try db.run("""
+            INSERT INTO cache.photo_fts (rowid, filename, ext, camera, lens, job, keywords)
+            VALUES (?, ?, ?, ?, ?, ?, ?);
+            """, [.integer(photoID), .text(fields.0), .text(fields.1), .text(fields.2),
+                  .text(fields.3), .text(fields.4), .text(keywordList)])
+        } catch {
+            // Once, and then quiet: the same unwritable cache is about to be hit by
+            // every following keystroke, and a log line per photograph is how a disk
+            // problem becomes a second disk problem.
+            NSLog("Lumen catalog: text index unavailable (%@) — searches fall back to "
+                  + "LIKE for the rest of this session", String(describing: error))
+            ftsEnabled = false
+        }
     }
 
     // MARK: - Row helpers

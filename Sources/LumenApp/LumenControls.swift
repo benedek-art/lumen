@@ -726,6 +726,19 @@ struct LumenSlider: View {
         }
         .onKeyPress(.leftArrow) { nudge(-1) }
         .onKeyPress(.rightArrow) { nudge(1) }
+        // UP AND DOWN NUDGE TOO (A2-04). They did nothing at all, which is the worst of
+        // the three possible behaviours: the dispatcher already stands down for ALL FOUR
+        // arrows the moment a slider takes focus (`sliderHoldsFocus` in `Keymap`), so
+        // ↑/↓ reached the responder chain, found no handler here, and were swallowed —
+        // they neither moved the value nor paged the photograph. A focused control that
+        // eats a key is worse than one that ignores it, because the photographer cannot
+        // tell which of the two is happening.
+        //
+        // Up is positive, matching right, which is the macOS convention for a stepper
+        // and the same direction the value pill's own scrub takes. ⇧ multiplies by ten
+        // through `nudge` exactly as it does for the horizontal pair.
+        .onKeyPress(.upArrow) { nudge(1) }
+        .onKeyPress(.downArrow) { nudge(-1) }
         .onKeyPress(.escape) {
             rowFocused = false
             return .handled

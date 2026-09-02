@@ -318,6 +318,52 @@ final class KeyGrammarTests: XCTestCase {
                            + "that the dispatcher does not")
     }
 
+    /// A KEY THE DISPATCHER STANDS DOWN FOR MUST BE CAUGHT BY WHATEVER IT STOOD DOWN
+    /// FOR. Otherwise it is swallowed, which is worse than either alternative.
+    ///
+    /// `Keymap`'s monitor sits in front of the responder chain, so it yields all four
+    /// arrows the moment `sliderHoldsFocus` — without that, `LumenSlider`'s
+    /// `onKeyPress` would be unreachable code and an arrow would page the photograph
+    /// while a control sat focused and apparently broken. The file says so at length.
+    ///
+    /// It yielded FOUR and the slider handled TWO (A2-04). ↑ and ↓ reached the
+    /// responder chain, found no handler, and did nothing at all: they neither moved
+    /// the value nor paged the photograph. A focused control that eats a key is worse
+    /// than one that ignores it, because the photographer cannot tell which is
+    /// happening — and this is the failure shape the yield itself was written to
+    /// prevent, arriving through the other end of the same handshake.
+    func testEveryArrowTheDispatcherYieldsIsHandledByTheSlider() {
+        let root = Self.repositoryRoot
+        guard let keymap = try? String(
+                contentsOf: root.appendingPathComponent("Sources/LumenApp/Keymap.swift"),
+                encoding: .utf8),
+              let slider = try? String(
+                contentsOf: root.appendingPathComponent("Sources/LumenApp/LumenControls.swift"),
+                encoding: .utf8)
+        else { return XCTFail("Keymap.swift or LumenControls.swift not found") }
+
+        // The yield is one guard covering whichever arrows the case above it lists.
+        guard let range = keymap.range(of: "if state.sliderHoldsFocus { return nil }"),
+              let caseStart = keymap.range(of: "case NSRightArrowFunctionKey",
+                                           options: .backwards,
+                                           range: keymap.startIndex..<range.lowerBound)
+        else { return XCTFail("the dispatcher's arrow yield has moved — move this with it") }
+        let yielded = String(keymap[caseStart.lowerBound..<range.upperBound])
+
+        let arrows = [("NSUpArrowFunctionKey", ".upArrow"),
+                      ("NSDownArrowFunctionKey", ".downArrow"),
+                      ("NSLeftArrowFunctionKey", ".leftArrow"),
+                      ("NSRightArrowFunctionKey", ".rightArrow")]
+        for (dispatcherName, sliderName) in arrows {
+            guard yielded.contains(dispatcherName) else { continue }
+            XCTAssertTrue(slider.contains(".onKeyPress(\(sliderName))"),
+                          "the dispatcher stands down for \(dispatcherName) when a "
+                              + "slider holds focus, and `LumenSlider` has no "
+                              + "`onKeyPress(\(sliderName))` — so that key reaches the "
+                              + "responder chain, finds nothing, and is swallowed")
+        }
+    }
+
     // MARK: 3 — the escape hatch is data
 
     func testAComputedShortcutOnlyExistsInAFileThatSaysWhy() {

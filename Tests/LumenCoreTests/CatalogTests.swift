@@ -602,6 +602,56 @@ final class CatalogTests: XCTestCase {
         reopened.close()
     }
 
+    /// A BROKEN TEXT INDEX MUST NOT FAIL THE WRITE IT IS DERIVED FROM (J1-02).
+    ///
+    /// `ftsEnabled` was a `let` fixed at open, so once the index existed it existed for
+    /// the session and there was no way to say it had stopped working. Every
+    /// `photo_fts` write failure propagated out of the call that triggered it.
+    ///
+    /// THE AUDIT NAMED THE WRONG CALLERS, and the correction narrows the finding
+    /// without removing it. J1-02 said the failures reach `setRating` and `setLabel`
+    /// and surface as the culling write's "Could not save the flag or rating". They do
+    /// not: a rating is not in the index — the FTS columns are filename, ext, camera,
+    /// lens, job and keywords — and `setRating`, `setLabel` and `setFlag` all go
+    /// through `batchUpdate`, which never reindexes. The first version of this test
+    /// asserted the audit's claim and failed, which is how the claim got checked.
+    ///
+    /// The seven paths that DO reindex are `upsertPhoto`, `setJob`, `scan`,
+    /// `setMetadata` (both forms), `addKeyword` and `removeKeyword`. So the real
+    /// failure is a keyword the photographer typed, a job name, or the EXIF backfill
+    /// mid-scan — quieter than a rating keystroke and no less wrong: all three are
+    /// committed to `main` before the index is touched.
+    ///
+    /// The failure is injected by dropping the table rather than by making the file
+    /// unwritable: `chmod` is uncooperative when the suite runs as root, and the
+    /// property under test is "the index cannot be written", which a missing table is a
+    /// perfectly good instance of.
+    func testAnUnwritableTextIndexDegradesInsteadOfFailingTheWrite() throws {
+        let store = try makeStore()
+        let (folderID, ids) = try seed(store, count: 2)
+        try XCTSkipUnless(store.isTextIndexAvailable, "no FTS5 in this SQLite")
+        defer { store.close() }
+
+        try store.debugExecute("DROP TABLE cache.photo_fts;")
+
+        XCTAssertNoThrow(try store.addKeyword("headland", photoIDs: [ids[0]]),
+                         "a keyword is committed to `main` before the index is touched, "
+                             + "and cannot be failed by a cache derived from it")
+        XCTAssertFalse(store.isTextIndexAvailable,
+                       "the store still claims a text index it just failed to write — "
+                           + "every following query takes a path that cannot work")
+        XCTAssertEqual(try store.keywords(photoID: ids[0]), ["headland"],
+                       "the keyword did not survive the cache failure")
+
+        // And the fallback carries the search it was always the fallback for.
+        var q = PhotoQuery()
+        q.text = "DSC0000"
+        XCTAssertEqual(try store.photos(matching: q, folderID: folderID).map(\.id),
+                       [ids[0]],
+                       "with the index gone the LIKE branch has to answer, which is the "
+                           + "degradation this store was designed for")
+    }
+
     /// LIB-10: the text chip's fast path has to learn what the backfill learned.
     ///
     /// The FTS row is built at upsert time, minutes before any EXIF exists, so
