@@ -64,6 +64,64 @@ final class UpdateDecisionTests: XCTestCase {
             "commit: not-a-hex-value"),
             "prose after the key must not be mistaken for an identity")
     }
+
+    /// THE DIGEST IS THE ONLY IDENTITY CHECK THESE UPDATES HAVE (L-03).
+    ///
+    /// The bundles are ad-hoc signed — `scripts/build-app.sh` runs
+    /// `codesign --force --sign -`, because an unsigned binary will not launch on Apple
+    /// Silicon and there is no Developer ID to sign with. So the installer's
+    /// `codesign --verify --deep --strict` answers "is this signature internally
+    /// consistent with these contents", which an ad-hoc signature made by ANYBODY
+    /// satisfies. The only other check on the payload was a byte count read from the
+    /// same JSON that supplied the download URL.
+    ///
+    /// A 64-hex `sha256:` line in the release body, published by CI from the bytes it
+    /// uploaded, is what closes that. These assertions are the parser half; the
+    /// installer half is `install(asset:commit:digest:)`, which hashes the download
+    /// before anything unpacks it.
+    func testTheDigestLineIsParsedAndAMissingOneIsRefused() {
+        let real = String(repeating: "ab", count: 32)          // 64 hex characters
+        XCTAssertEqual(UpdateDecision.digest(inReleaseBody:
+            "commit: abcdef1234567890\nsha256: \(real)\nRolling build."), real)
+        XCTAssertEqual(UpdateDecision.digest(inReleaseBody:
+            "  SHA256:  \(real.uppercased())  "), real,
+            "the key is case-insensitive and the value is normalised, because a digest "
+                + "that fails to match on case is a broken updater, not a caught attack")
+
+        // FAILS CLOSED, every way it can be absent or malformed.
+        XCTAssertNil(UpdateDecision.digest(inReleaseBody:
+            "commit: abcdef1234567890\nRolling development build."),
+            "a body with no digest must not install — an attacker shaping the feed "
+                + "would otherwise just omit the line")
+        XCTAssertNil(UpdateDecision.digest(inReleaseBody: "sha256: \(real)cd"),
+                     "65 characters is not a digest")
+        XCTAssertNil(UpdateDecision.digest(inReleaseBody: "sha256: abcdef"),
+                     "a short value is a truncated line, not a weaker digest")
+        XCTAssertNil(UpdateDecision.digest(inReleaseBody: "sha256: " + String(repeating: "z", count: 64)),
+                     "64 non-hex characters is not a digest")
+
+        // And the two keys do not read each other's lines.
+        XCTAssertNil(UpdateDecision.digest(inReleaseBody: "commit: \(real)"))
+        XCTAssertNil(UpdateDecision.commit(inReleaseBody: "sha256: \(real)"))
+    }
+
+    /// THE WORKFLOW PUBLISHES IT. A parser that fails closed against a body CI never
+    /// writes is an updater that has quietly stopped updating, which is the failure
+    /// this pair of assertions exists to make loud.
+    func testTheReleaseWorkflowPublishesADigest() {
+        let ci = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent(".github/workflows/ci.yml")
+        guard let text = try? String(contentsOf: ci, encoding: .utf8) else {
+            return XCTFail("ci.yml not found — if it moved, move this scan with it")
+        }
+        XCTAssertTrue(text.contains("shasum -a 256 Lumen.app.zip"),
+                      "the release step no longer computes the asset's digest, so every "
+                          + "published build now fails the installer's own check")
+        XCTAssertTrue(text.contains("sha256: ${DIGEST}"),
+                      "the digest is computed and not written into the release body")
+    }
 }
 
 #endif

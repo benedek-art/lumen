@@ -144,8 +144,9 @@ jobs:
         # One moving pre-release, `dev-latest`, holding the newest build of the
         # working branch. The app's updater polls the PUBLIC releases API for it —
         # release assets need no auth on a public repo, unlike Actions artifacts,
-        # which is the whole reason this exists. The body's `commit:` line is the
-        # updater's contract; change it and the updater goes blind.
+        # which is the whole reason this exists. The body's `commit:` and `sha256:`
+        # lines are the updater's contract; change either and the updater goes blind —
+        # `sha256:` fails CLOSED, so a release published without it cannot install.
         if: github.ref == 'refs/heads/claude/photo-editor-design-plan-8ahzmm'
           || github.ref == 'refs/heads/main'
         env:
@@ -154,10 +155,17 @@ jobs:
           git tag -f dev-latest
           git push -f origin dev-latest
           gh release delete dev-latest -y || true
+          # THE DIGEST OF THE ASSET WE ARE ABOUT TO UPLOAD. The app verifies against
+          # this and refuses the install if it does not match, which is the only
+          # identity check available to an ad-hoc-signed bundle: `codesign --verify`
+          # answers "is this signature internally consistent", and an ad-hoc signature
+          # made by anybody passes it (L-03).
+          DIGEST=$(shasum -a 256 Lumen.app.zip | cut -d' ' -f1)
           gh release create dev-latest Lumen.app.zip \
             --prerelease \
             --title "Dev build ${GITHUB_SHA}" \
             --notes "commit: ${GITHUB_SHA}
+          sha256: ${DIGEST}
           Rolling development build, replaced on every push. Installed copies of
           Lumen update themselves from this release."
 

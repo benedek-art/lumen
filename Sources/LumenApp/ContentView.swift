@@ -12,6 +12,18 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject var state: AppState
+    /// `showsMaskPanel` reads `state.currentRecipe.masks`, and `AppState.recipes` is not
+    /// `@Published` — so without this declaration that expression has NO invalidation
+    /// source (I1-06). It happened to re-body because `addMask` also writes selection
+    /// and overlay state, which is coincidence rather than mechanism: the empty →
+    /// non-empty transition this line gates is exactly the one the coincidence covers
+    /// least reliably, so the floating Masks box could fail to appear when the first
+    /// mask was created, or fail to leave when the last was deleted, depending on which
+    /// unrelated published property the surrounding action happened to touch.
+    ///
+    /// The rule is stated in `EditRevision`'s own header and was, until now, enforced by
+    /// nothing. `EditRevisionRuleTests` is the mechanism.
+    @EnvironmentObject private var edits: EditRevision
 
     /// THE SIDEBAR CAN BE HIDDEN, AND THAT IS THE LARGEST SINGLE THING THIS WINDOW CAN
     /// DO FOR THE PHOTOGRAPH.

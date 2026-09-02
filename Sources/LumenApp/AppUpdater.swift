@@ -15,6 +15,7 @@
 #if os(macOS)
 
 import AppKit
+import CryptoKit
 import Foundation
 
 // MARK: - The decision, as data
@@ -48,10 +49,36 @@ enum UpdateDecision: Equatable {
     /// The release body's contract: a line reading `commit: <hex>`. Anything else in
     /// the body is prose for humans.
     static func commit(inReleaseBody body: String) -> String? {
+        hexValue(of: "commit:", inReleaseBody: body)
+    }
+
+    /// THE OTHER HALF OF THE CONTRACT: `sha256: <64 hex>`, the digest of the asset.
+    ///
+    /// This is the only identity check available to this app's updates, and the reason
+    /// is in `scripts/build-app.sh`: the bundle is signed AD HOC (`codesign --sign -`),
+    /// because an unsigned binary will not launch on Apple Silicon and there is no
+    /// Developer ID to sign with. `codesign --verify --deep --strict` — which the
+    /// installer runs and will keep running — answers "is this signature internally
+    /// consistent with these contents". An ad-hoc signature made by ANYBODY passes it,
+    /// so it proves the download is not corrupt and proves nothing about who built it.
+    ///
+    /// The only other check on the payload was a byte count taken from the same JSON
+    /// that supplied the download URL, which is not a check at all. Whatever the feed
+    /// served was moved over the running app and relaunched (L-03).
+    ///
+    /// 64 hex characters exactly, because a short one is a truncated line rather than a
+    /// weaker digest, and this is the wrong place to be generous.
+    static func digest(inReleaseBody body: String) -> String? {
+        guard let value = hexValue(of: "sha256:", inReleaseBody: body),
+              value.count == 64 else { return nil }
+        return value.lowercased()
+    }
+
+    private static func hexValue(of key: String, inReleaseBody body: String) -> String? {
         for line in body.split(separator: "\n") {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
-            guard trimmed.lowercased().hasPrefix("commit:") else { continue }
-            let value = trimmed.dropFirst("commit:".count)
+            guard trimmed.lowercased().hasPrefix(key) else { continue }
+            let value = trimmed.dropFirst(key.count)
                 .trimmingCharacters(in: .whitespaces)
             let isHex = !value.isEmpty && value.allSatisfy(\.isHexDigit)
             return isHex ? value : nil
@@ -196,19 +223,50 @@ final class AppUpdater {
                 }
                 return
             }
-            await install(asset: asset, commit: remoteCommit ?? "?")
+            // FAILS CLOSED. A release body with no `sha256:` line cannot be installed,
+            // and that is deliberate: the alternative — verify it if present — leaves an
+            // attacker who can shape the feed the option of simply omitting the line.
+            // CI publishes the digest on every release (`ci.yml`), so the only body
+            // without one is a body this project did not write.
+            guard let digest = release.body.flatMap(UpdateDecision.digest(inReleaseBody:))
+            else {
+                if interactive {
+                    inform("The release feed didn't say what to expect",
+                           "The dev-latest release body is missing its `sha256:` line, "
+                           + "so there is no way to check that the download is the "
+                           + "build CI made. Nothing was installed.")
+                }
+                return
+            }
+            await install(asset: asset, commit: remoteCommit ?? "?", digest: digest)
         }
     }
 
     /// Download → verify → extract → verify → swap → offer relaunch. Every failure
     /// leaves the running app untouched.
-    private func install(asset: Release.Asset, commit: String) async {
+    private func install(asset: Release.Asset, commit: String, digest: String) async {
         do {
             let (tempFile, _) = try await URLSession.shared
                 .download(from: asset.browser_download_url)
             let attrs = try FileManager.default.attributesOfItem(atPath: tempFile.path)
             guard (attrs[.size] as? Int) == asset.size else {
                 throw UpdateError("the download's size doesn't match the release's")
+            }
+            // THE DIGEST, BEFORE ANYTHING IS UNPACKED. The size check above compares the
+            // download against a number from the same JSON that supplied its URL, which
+            // is arithmetic rather than verification; this compares it against a hash CI
+            // computed from the bytes it uploaded.
+            //
+            // It has to be here rather than after extraction because `ditto -x -k` runs
+            // over the archive, and an archive is a program's input: verifying afterwards
+            // means the unpacker has already read whatever arrived.
+            let downloaded = try Data(contentsOf: tempFile, options: .mappedIfSafe)
+            let actual = SHA256.hash(data: downloaded)
+                .map { String(format: "%02x", $0) }.joined()
+            guard actual == digest else {
+                throw UpdateError("the download's SHA-256 doesn't match the release's "
+                                  + "(expected \(digest.prefix(12))…, got "
+                                  + "\(actual.prefix(12))…)")
             }
 
             let work = FileManager.default.temporaryDirectory
@@ -221,6 +279,11 @@ final class AppUpdater {
             guard FileManager.default.fileExists(
                 atPath: newApp.appendingPathComponent("Contents/MacOS/Lumen").path)
             else { throw UpdateError("the archive doesn't contain a runnable Lumen.app") }
+            // Kept, and worth being precise about what it is worth: this proves the
+            // extracted bundle's signature is internally consistent with its contents,
+            // which catches a truncated or tampered EXTRACTION. It proves nothing about
+            // who signed it — these builds are ad-hoc signed, so an ad-hoc signature
+            // made by anybody satisfies it. The digest above is the identity check.
             try run("/usr/bin/codesign", "--verify", "--deep", "--strict", newApp.path)
 
             let current = Bundle.main.bundleURL
