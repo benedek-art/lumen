@@ -1411,7 +1411,13 @@ public struct RenderGraph {
         /// a packed RGB plate. Alpha rides on the red tile alone — addition compositing
         /// adds alpha too, and three opaque tiles would sum to 3.
         func tile(channel: Int) -> CIImage? {
-            let values = grain.plate(channel: channel)
+            // BAND-LIMITED to the resolution this plate is about to be sampled at, and
+            // through the SAME `plateScale` call `ReferenceRenderer` makes, because the
+            // two plates have to be identical bytes or gpu-parity fails (C2-01b).
+            let values = grain.plate(
+                channel: channel,
+                renderPixelsPerCell: grain.plateScale(longEdgePixels: longEdge,
+                                                      channel: channel))
             var pixels = [Float](repeating: 0, count: size * size * 4)
             for i in 0..<(size * size) {
                 pixels[i * 4 + channel] =
@@ -1435,7 +1441,10 @@ public struct RenderGraph {
             // One field written to all three channels. A black-and-white photograph has
             // no dye layers to grain independently, and three decorrelated fields on one
             // would be coloured speckle on a picture with no colour in it.
-            let values = grain.plate(channel: 0)
+            let values = grain.plate(
+                channel: 0,
+                renderPixelsPerCell: grain.plateScale(longEdgePixels: longEdge,
+                                                      channel: 0))
             var pixels = [Float](repeating: 1, count: size * size * 4)
             for i in 0..<(size * size) {
                 let v = Float(Double(values[i]) / FilmGrainProfile.plateEncodeScale + 0.5)

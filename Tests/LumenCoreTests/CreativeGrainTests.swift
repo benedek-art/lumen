@@ -598,3 +598,96 @@ extension CreativeGrainTests {
         }
     }
 }
+
+// MARK: - The plate is band-limited to the resolution it is sampled at (C2-01b)
+//
+// The plate is four octaves of value noise on a 128-texel field: octave `k` spans
+// `128 / (8 << k)` texels, so 16, 8, 4 and 2. Multiplied by `plateScale` those become
+// render pixels, and an octave whose features fall below two render pixels is past
+// Nyquist — what reaches the screen is aliasing, not grain.
+//
+// Velvia 50's green record is 0.5 render pixels per texel at the 2560 px working
+// resolution, so its finest octave has ONE-pixel features in the fit view; at 8000 the
+// same octave is 2.67 pixels and resolves cleanly. The preview was showing false
+// high-frequency detail the delivered file does not contain — which is the half of the
+// grain parity loss that reordering the half-pixel floor did not touch, and which the
+// finding that prescribed that reordering attributed to it.
+
+extension CreativeGrainTests {
+
+    /// Energy above the sampling limit, measured as the mean absolute difference between
+    /// neighbouring texels. An aliasing octave shows up here and nowhere else.
+    private func neighbourEnergy(_ plate: [Float], size: Int) -> Double {
+        var total = 0.0
+        var count = 0
+        for y in 0..<size {
+            for x in 0..<(size - 1) {
+                total += abs(Double(plate[y * size + x + 1] - plate[y * size + x]))
+                count += 1
+            }
+        }
+        return count > 0 ? total / Double(count) : 0
+    }
+
+    // MARK: The defect
+
+    /// At a scale where the finest octave cannot be sampled, it is not built.
+    func testTheFinestOctaveIsDroppedWhenItCannotBeSampled() {
+        let full = FilmGrainProfile.plate(size: 128, seed: 7, sigma: 1)
+        // 0.5 render pixels per texel: the 2-texel octave spans one pixel. Past Nyquist.
+        let limited = FilmGrainProfile.plate(size: 128, seed: 7, sigma: 1,
+                                             renderPixelsPerCell: 0.5)
+        XCTAssertLessThan(neighbourEnergy(limited, size: 128),
+                          neighbourEnergy(full, size: 128) * 0.95,
+                          "the plate carries the same texel-to-texel energy at a scale "
+                          + "where its finest octave cannot be resolved — that energy "
+                          + "reaches the screen as aliasing")
+    }
+
+    /// And at a scale where every octave resolves, nothing is dropped: the plate must be
+    /// byte-identical to the unlimited one, or the export's grain has silently changed.
+    func testAnExportResolutionPlateIsUnchanged() {
+        let full = FilmGrainProfile.plate(size: 128, seed: 7, sigma: 1)
+        // 1.333 px per texel — Velvia's green at 8000, where the finest octave is 2.67.
+        let limited = FilmGrainProfile.plate(size: 128, seed: 7, sigma: 1,
+                                             renderPixelsPerCell: 1.3333)
+        XCTAssertEqual(limited, full,
+                       "an octave was dropped at a resolution that can resolve all four")
+    }
+
+    // MARK: What must NOT change
+
+    /// AMPLITUDE IS PRESERVED. The plate renormalises to unit variance by measurement,
+    /// so dropping an octave makes the texture coarser and not quieter. A band-limited
+    /// plate that also lost energy would read as the grain slider having moved.
+    func testDroppingAnOctaveDoesNotChangeTheAmplitude() {
+        for perCell in [0.25, 0.5, 1.0, 2.0] {
+            let plate = FilmGrainProfile.plate(size: 128, seed: 7, sigma: 1,
+                                               renderPixelsPerCell: perCell)
+            let mean = plate.reduce(0.0) { $0 + Double($1) } / Double(plate.count)
+            let variance = plate.reduce(0.0) { $0 + pow(Double($1) - mean, 2) }
+                / Double(plate.count)
+            XCTAssertEqual(variance.squareRoot(), 1, accuracy: 1e-6,
+                           "at \(perCell) px per texel the plate's amplitude moved")
+        }
+    }
+
+    /// Nil is the old behaviour exactly, so every caller that does not know its
+    /// resolution is untouched.
+    func testNoScaleMeansEveryOctave() {
+        XCTAssertEqual(FilmGrainProfile.plate(size: 128, seed: 11, sigma: 1,
+                                              renderPixelsPerCell: nil),
+                       FilmGrainProfile.plate(size: 128, seed: 11, sigma: 1))
+    }
+
+    /// A degenerate scale is ignored rather than dropping every octave and leaving a
+    /// flat plate — a hand-edited sidecar can produce one.
+    func testADegenerateScaleIsIgnored() {
+        let full = FilmGrainProfile.plate(size: 128, seed: 3, sigma: 1)
+        for bad in [0.0, -1.0, Double.nan, Double.infinity] {
+            XCTAssertEqual(FilmGrainProfile.plate(size: 128, seed: 3, sigma: 1,
+                                                  renderPixelsPerCell: bad),
+                           full, "a scale of \(bad) changed the plate")
+        }
+    }
+}

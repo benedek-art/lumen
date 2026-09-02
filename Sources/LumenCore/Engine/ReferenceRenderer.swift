@@ -538,9 +538,16 @@ public enum ReferenceRenderer {
         // arguments itself would have had to remember to pass it — which is precisely
         // how the GPU plate ended up with a different seed from this one, back when both
         // spelled the seed themselves.
-        let plates = (0..<3).map { grain.plate(channel: $0, size: plateSize, seed: seed) }
+        // The scales first: each layer's plate is BAND-LIMITED to the resolution it is
+        // about to be sampled at, so a preview is the low-pass of the export rather
+        // than a differently-pitched pattern (C2-01b). `RenderGraph` passes the same
+        // value from the same function, and gpu-parity is what holds the two together.
         let scales = (0..<3).map {
             grain.plateScale(longEdgePixels: longEdge, channel: $0)
+        }
+        let plates = (0..<3).map {
+            grain.plate(channel: $0, size: plateSize, seed: seed,
+                        renderPixelsPerCell: scales[$0])
         }
         var out = image
         let dmax = Swift.max(grain.dMax, 0.1)

@@ -930,8 +930,30 @@ public struct FilmGrainProfile: Sendable {
     /// energy across scales and leaves the amplitude alone.
     public static let defaultPersistence: Double = 0.5
 
+    /// - Parameter renderPixelsPerCell: how many RENDER pixels one plate texel spans,
+    ///   or nil to build every octave regardless.
+    ///
+    ///   BAND-LIMITING, and it is the difference between a preview that is the
+    ///   low-pass of the export and one that is a different pattern (C2-01b).
+    ///
+    ///   The plate is four octaves of value noise on a 128 texel field: octave `k` has
+    ///   features spanning `128 / (8 << k)` texels, so 16, 8, 4 and 2. Multiplied by
+    ///   this scale they become render pixels, and an octave whose features fall below
+    ///   two render pixels is past Nyquist — it cannot be sampled, so what reaches the
+    ///   screen is aliasing rather than grain.
+    ///
+    ///   That is not a hypothetical. Velvia 50's green record is 0.5 render pixels per
+    ///   texel at the 2560 px working resolution, so its finest octave has ONE-pixel
+    ///   features in the fit view; at 8000 the same octave is 2.67 pixels and resolves
+    ///   cleanly. The preview was showing false high-frequency detail the delivered file
+    ///   does not contain, which is most of the parity loss the grain audit measured.
+    ///
+    ///   Dropping an octave costs no amplitude: the plate is renormalised to unit
+    ///   variance by measurement at the end, so the surviving octaves are scaled back up
+    ///   to the same energy. The texture gets coarser and correct rather than quieter.
     public static func plate(size: Int, seed: UInt64, sigma: Double,
-                             persistence: Double = FilmGrainProfile.defaultPersistence)
+                             persistence: Double = FilmGrainProfile.defaultPersistence,
+                             renderPixelsPerCell: Double? = nil)
         -> [Float] {
         let n: Int = Swift.max(size, 2)
         let count: Int = n * n
@@ -950,6 +972,13 @@ public struct FilmGrainProfile: Sendable {
             var freq: Int = baseFrequency << octave
             if freq > n { freq = n }
             if freq < 1 { freq = 1 }
+            // Past Nyquist for the resolution this plate will be sampled at? Then it is
+            // aliasing, not grain. See `renderPixelsPerCell`.
+            if let perCell = renderPixelsPerCell, perCell.isFinite, perCell > 0,
+               Double(n) / Double(freq) * perCell < 2 {
+                octave += 1
+                continue
+            }
             let amp: Double = pow(p, Double(octave))
             let step: Double = Double(freq) / Double(n)
 
@@ -1106,12 +1135,18 @@ public struct GrainPlan: Sendable, Equatable {
     /// builder in `PipelineRenderer` predates this and still assembles its own; it
     /// produces the same bytes for a film profile by construction (persistence 0.5,
     /// `defaultPlateSeed`) and `GrainPlateTests` pins that it does.
+    /// - Parameter renderPixelsPerCell: this layer's own `plateScale` at the resolution
+    ///   being rendered, or nil to build every octave. Both renderers must pass the SAME
+    ///   value or their plates differ and gpu-parity fails — which is the check that
+    ///   keeps them honest.
     public func plate(channel: Int, size: Int = GrainPlan.plateSize,
-                      seed: UInt64 = FilmGrainProfile.defaultPlateSeed) -> [Float] {
+                      seed: UInt64 = FilmGrainProfile.defaultPlateSeed,
+                      renderPixelsPerCell: Double? = nil) -> [Float] {
         FilmGrainProfile.plate(size: size,
                                seed: profile.plateSeed(channel: channel, base: seed),
                                sigma: 1.0,
-                               persistence: profile.persistence)
+                               persistence: profile.persistence,
+                               renderPixelsPerCell: renderPixelsPerCell)
     }
 
     /// The plate's cell size in pixels for one layer, at a render's long edge.
