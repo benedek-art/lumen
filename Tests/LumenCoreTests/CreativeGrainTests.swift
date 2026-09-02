@@ -488,3 +488,113 @@ final class CreativeGrainTests: XCTestCase {
         XCTAssertTrue(WorkspaceSection.nonDefault(in: recipe).contains(.effects))
     }
 }
+
+// MARK: - The half-pixel floor, applied once (C2-01)
+//
+// `plateScale(…, channel:)` read the already-floored whole-frame scale and floored its
+// own product on top. Two floors in a chain that ends in one sample.
+//
+// For the red and green records that is provably a no-op — `sizeScale` 0.8 and 1.0, and
+// scaling a floored value down still lands on the floor — which is where the audit that
+// found this had the channel wrong. For BLUE, at 2.0, it is a real distortion: a base
+// of 0.43 px floors to 0.5 and doubles to a full pixel, where one floor gives 0.85. On
+// Velvia 50 at the 2560 px working resolution that is a blue plate 17 % coarser than the
+// exported file's, and on Ektar 100 0.45 % — so the fit view's grain has a different
+// COLOUR texture from the delivered frame, on precisely the two stocks somebody chooses
+// for being fine-grained.
+//
+// What this does NOT fix, and the audit claimed it would: the red record's 46 % and the
+// green's 17 % divergence on Velvia. Those are the floor itself — the working resolution
+// sits below it and the export does not — and they need the band-limited plate from
+// R7 C.2.3, not a rearrangement of the max().
+
+extension CreativeGrainTests {
+
+    private func profile(_ stock: FilmStock) -> FilmGrainProfile {
+        FilmGrainProfile(stock: stock, size: 1.0, amount: 50, pushPull: 0)
+    }
+
+    /// Cells per long edge — the resolution-independent quantity. Preview and export
+    /// must agree on it, because it is what the texture looks like.
+    private func cellsPerEdge(_ p: FilmGrainProfile, _ edge: Int, _ channel: Int) -> Double {
+        p.plateScale(longEdgePixels: edge, printSizeInches: 8, channel: channel) / Double(edge)
+    }
+
+    /// The defect: the blue record drawn 17 % coarser in the fit view than in the file.
+    func testTheBlueRecordHasTheSameTextureInThePreviewAndTheExport() {
+        let velvia = profile(FilmStock.velvia50)
+        let preview = cellsPerEdge(velvia, 2560, 2)
+        let export = cellsPerEdge(velvia, 8000, 2)
+        XCTAssertEqual(preview / export, 1.0, accuracy: 1e-9,
+                       "Velvia's blue plate is \((preview / export - 1) * 100)% coarser "
+                       + "at 2560 than at 8000 — the double floor took a 0.43 px base to "
+                       + "0.5 and then doubled it")
+
+        let ektar = profile(FilmStock.ektar100)
+        XCTAssertEqual(cellsPerEdge(ektar, 2560, 2) / cellsPerEdge(ektar, 8000, 2),
+                       1.0, accuracy: 1e-9)
+    }
+
+    /// And the number, so a future change that re-floors early is caught by value and
+    /// not only by ratio: Velvia's blue at 2560 is 0.4267 × 2.0.
+    func testVelviasBlueCellIsTheScaledBaseAndNotTheScaledFloor() {
+        let velvia = profile(FilmStock.velvia50)
+        XCTAssertEqual(velvia.plateScale(longEdgePixels: 2560, printSizeInches: 8, channel: 2),
+                       0.8533333333, accuracy: 1e-6,
+                       "flooring before the ×2.0 gave 1.0 px — a fifth of a stop of "
+                       + "coarseness invented by the order of two max()es")
+    }
+
+    // MARK: What must NOT change
+
+    /// THE FLOOR IS STILL THERE. It exists because a cell below half a render pixel
+    /// cannot be sampled, and removing it rather than moving it would alias the plate
+    /// into a fixed pattern.
+    func testACellIsNeverAllowedBelowHalfAPixel() {
+        for stock in FilmStock.all {
+            let p = profile(stock)
+            for channel in 0...2 {
+                let tiny = p.plateScale(longEdgePixels: 200, printSizeInches: 8,
+                                        channel: channel)
+                XCTAssertGreaterThanOrEqual(tiny, 0.5,
+                                            "\(stock.id) channel \(channel) at 200 px")
+            }
+            XCTAssertGreaterThanOrEqual(p.plateScale(longEdgePixels: 200,
+                                                     printSizeInches: 8), 0.5)
+        }
+    }
+
+    /// The red and green records do not move at all. This is the honest half of the
+    /// finding: had they moved, every film proof record would drift, and they do not.
+    func testTheRedAndGreenRecordsAreUntouchedByTheReordering() {
+        for stock in FilmStock.all {
+            let p = profile(stock)
+            for edge in [800, 2560, 4000, 8000] {
+                for channel in [0, 1] {
+                    let once = p.plateScale(longEdgePixels: edge, printSizeInches: 8,
+                                            channel: channel)
+                    // What the two-floor form computed, written out.
+                    let base = p.plateScale(longEdgePixels: edge, printSizeInches: 8)
+                    let twice = Swift.max(base * Swift.max(p.sizeScale[channel], 0.05), 0.5)
+                    XCTAssertEqual(once, twice, accuracy: 1e-12,
+                                   "\(stock.id) ch\(channel) at \(edge)")
+                }
+            }
+        }
+    }
+
+    /// Above the floor everything is unchanged for every channel — the reordering only
+    /// ever speaks where the base was being clamped.
+    func testWellAboveTheFloorNothingMovesAtAll() {
+        for stock in FilmStock.all {
+            let p = profile(stock)
+            for channel in 0...2 {
+                let base = p.plateScale(longEdgePixels: 8000, printSizeInches: 8)
+                XCTAssertGreaterThan(base, 0.5, "\(stock.id) must be above the floor here")
+                XCTAssertEqual(p.plateScale(longEdgePixels: 8000, printSizeInches: 8,
+                                            channel: channel),
+                               base * p.sizeScale[channel], accuracy: 1e-12)
+            }
+        }
+    }
+}

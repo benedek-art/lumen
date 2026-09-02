@@ -822,11 +822,28 @@ public struct FilmGrainProfile: Sendable {
     /// enlargement and the print's pixel density scale together. Change the *gate*
     /// (35mm → Super 35 → 120) and it moves, exactly as it does in a darkroom.
     public func plateScale(longEdgePixels: Int, printSizeInches: Double) -> Double {
+        Swift.max(rawPlateScale(longEdgePixels: longEdgePixels,
+                                printSizeInches: printSizeInches), 0.5)
+    }
+
+    /// The same cell size WITHOUT the half-pixel floor.
+    ///
+    /// The floor belongs at the end of the chain, once, on the number that is actually
+    /// going to be sampled — not in the middle of it. The per-channel form multiplies
+    /// this by `sizeScale`, and the blue record's is 2.0, so flooring first and scaling
+    /// after took a sub-half-pixel base up to 0.5 and then doubled it to a full pixel
+    /// where one floor gives 0.85. A pixel-wide blue cell at 2560 against 2.67 at 8000
+    /// is a 17% coarser blue grain in the fit view than in the delivered file, on
+    /// exactly the two stocks a photographer picks for their fineness.
+    ///
+    /// Private, and the two public forms below floor their own results, so no caller
+    /// can accidentally sample an un-floored scale.
+    private func rawPlateScale(longEdgePixels: Int, printSizeInches: Double) -> Double {
         let printLongEdgeMM: Double = Swift.max(printSizeInches, 0.1) * 25.4
         let mag: Double = printLongEdgeMM / gateLongEdgeMM
         let pitchOnPrintMM: Double = (pitchMicrons / 1000.0) * mag
         let pixelsPerPrintMM: Double = Double(Swift.max(longEdgePixels, 1)) / printLongEdgeMM
-        return Swift.max(pitchOnPrintMM * pixelsPerPrintMM, 0.5)
+        return pitchOnPrintMM * pixelsPerPrintMM
     }
 
     /// The long edge to hand `plateScale` for a file that has been CROPPED, RESIZED,
@@ -859,9 +876,15 @@ public struct FilmGrainProfile: Sendable {
     }
 
     /// Per-channel plate cell size in pixels — the blue record is coarsest.
+    ///
+    /// ONE FLOOR, at the end. This used to read the already-floored `plateScale` and
+    /// floor its own product on top, which is a no-op for the red and green records
+    /// (`sizeScale` 0.8 and 1.0 — scaling a floored value down still lands on the
+    /// floor) and a real distortion for the blue one at 2.0. See `rawPlateScale`.
     public func plateScale(longEdgePixels: Int, printSizeInches: Double, channel: Int) -> Double {
         let i: Int = Swift.min(Swift.max(channel, 0), 2)
-        let base: Double = plateScale(longEdgePixels: longEdgePixels, printSizeInches: printSizeInches)
+        let base: Double = rawPlateScale(longEdgePixels: longEdgePixels,
+                                         printSizeInches: printSizeInches)
         return Swift.max(base * Swift.max(sizeScale[i], 0.05), 0.5)
     }
 
