@@ -116,6 +116,25 @@ final class CatalogService: @unchecked Sendable {
         self.store = try CatalogStore(
             path: directory.appendingPathComponent("lumen.db").path,
             cachePath: directory.appendingPathComponent("cache.db").path)
+
+        // AND THE STROKES COME BACK WITH IT (K-018). A restore that returns the catalog
+        // and not the blob store returns a library whose every brush mask rasterizes to
+        // nothing — the recipes are intact and each one references a payload that is not
+        // there. `restore(from:)` never overwrites a payload the live store already
+        // holds: content addressing means a file of the same name is the same bytes, and
+        // anything the live store has that the backup does not is newer work.
+        if case .restored(let backup, _) = recovery.outcome {
+            // `fromBackup` is a full path — `CatalogRecovery.notice` takes its
+            // `lastPathComponent` for display — so the payload directory is that path
+            // with its extension swapped, which is how `backUpCatalog` named it.
+            let blobBackup = URL(fileURLWithPath: backup)
+                .deletingPathExtension()
+                .appendingPathExtension("blobs")
+            if let restored = try? blobs.restore(from: blobBackup), restored > 0 {
+                NSLog("Lumen catalog: restored %d brush payload(s) alongside %@",
+                      restored, URL(fileURLWithPath: backup).lastPathComponent)
+            }
+        }
     }
 
     private static func backupDirectory(in directory: URL) -> URL {
@@ -645,12 +664,41 @@ final class CatalogService: @unchecked Sendable {
             // them the sidecar carries a `strokesRef` and nothing the reference points
             // at, so a restored sidecar gives brush masks that rasterize empty forever
             // (docs/35 §7.1).
-            let payload = BrushStrokeSidecar.payload(for: recipe) {
+            // THREE ANSWERS, NOT TWO (F3-02). `payload` returns nil both for "this
+            // photograph has no brush masking" and for "its painting is past the
+            // sidecar's size cap", and this call then passed `.some(nil)` — "drop the
+            // key" — for either. So painting past about 22,300 points DELETED the
+            // payload a previous flush had written: the photographer kept working and
+            // the sidecar's copy of the whole painting went away, silently.
+            //
+            // Overflow now means "this call has nothing to say about the strokes",
+            // which is what `nil` means to `enqueueSidecar`, so whatever is already in
+            // the file stays there. The catalog and — since K-018 — the blob backup are
+            // the copies that actually carry a painting this size; the sidecar's job is
+            // to carry what it can and never to destroy what it cannot.
+            let strokes: String??
+            switch BrushStrokeSidecar.decision(for: recipe, blob: {
                 self.blobs.strokeSet(for: $0)
+            }) {
+            case .none:
+                strokes = .some(nil)
+            case .payload(let p):
+                strokes = .some(p)
+            case .tooLarge(let characters):
+                strokes = nil
+                NSLog("Lumen catalog: %@'s brush painting is %d characters, past the "
+                      + "%d the sidecar can carry — the sidecar keeps its previous copy "
+                      + "and the catalog holds the current one",
+                      url.lastPathComponent, characters,
+                      BrushStrokeSidecar.payloadLimit)
+                self.onFailure?(
+                    "\(url.lastPathComponent) has more brush strokes than a sidecar can "
+                    + "hold, so its .xmp keeps an earlier copy. The catalog and its "
+                    + "backups have the current painting.")
             }
             self.enqueueSidecar(for: url, photoID: catalogID, rating: nil, label: nil,
                                 recipe: (json, fingerprint, recipe.pipelineVersion),
-                                strokes: .some(payload))
+                                strokes: strokes)
         }
     }
 
@@ -1285,6 +1333,16 @@ final class CatalogService: @unchecked Sendable {
                     at: target.deletingLastPathComponent(),
                     withIntermediateDirectories: true)
                 try self.store.backup(to: target.path)
+                // AND THE STROKES, which are not in the catalog (K-018).
+                // `VACUUM main INTO` snapshots the database; the brush paintings live
+                // in the blob store beside it, so a backup without them restored every
+                // recipe intact with every brush mask rasterizing to nothing. Named
+                // after the snapshot it belongs to, so a restore knows which set of
+                // payloads goes with which catalog.
+                let blobBackup = target.deletingPathExtension()
+                    .appendingPathExtension("blobs")
+                let copied = try self.blobs.backUp(to: blobBackup)
+                NSLog("Lumen catalog: backed up with %d brush payload(s)", copied)
             } catch {
                 NSLog("Lumen catalog: backup failed — %@", String(describing: error))
                 self.report("The catalog could not be backed up "

@@ -242,8 +242,48 @@ public enum BrushStrokeSidecar {
     /// brush masking does not grow a sidecar key. A reference `blob` cannot resolve is
     /// SKIPPED rather than failing the whole map — one unreadable blob must not cost the
     /// nineteen that are fine.
+    /// What `payload(for:blob:)` decided, when the caller needs to tell the three
+    /// answers apart.
+    ///
+    /// `payload` returns `String?` and collapses two of them — "this photograph has no
+    /// brush masking" and "its painting is too big for a sidecar" both come back nil —
+    /// and the caller then writes `.some(nil)`, which means "drop the key". So passing
+    /// the cap DELETED the payload a previous flush had written: the photographer
+    /// painted for a few more minutes and the sidecar's copy of the whole painting went
+    /// away, with no log line and nothing on screen. The catalog was still the primary
+    /// copy, which is why this was survivable and why it was invisible.
+    ///
+    /// Measured: the cap is about 22,300 points with a mouse and 20,200 with a tablet —
+    /// roughly three minutes of brush time on one photograph at 120 Hz.
+    public enum PayloadDecision: Equatable, Sendable {
+        /// No brush masking; the key should be dropped.
+        case none
+        /// Write this.
+        case payload(String)
+        /// Too large to embed. The caller must leave whatever is already in the file
+        /// alone, and say so. Carries the size it would have been, for the message.
+        case tooLarge(characters: Int)
+    }
+
+    /// The same resolution as `payload(for:blob:)`, with the three answers kept apart.
+    public static func decision(for recipe: Recipe,
+                                blob: (String) -> BrushStrokeSet?) -> PayloadDecision {
+        guard let encoded = encodedSets(for: recipe, blob: blob) else { return .none }
+        guard encoded.count <= payloadLimit else {
+            return .tooLarge(characters: encoded.count)
+        }
+        return .payload(encoded)
+    }
+
+    /// Nil for "nothing to write", for the callers that cannot act on the difference.
     public static func payload(for recipe: Recipe,
                                blob: (String) -> BrushStrokeSet?) -> String? {
+        if case .payload(let p) = decision(for: recipe, blob: blob) { return p }
+        return nil
+    }
+
+    private static func encodedSets(for recipe: Recipe,
+                                    blob: (String) -> BrushStrokeSet?) -> String? {
         var sets: [String: BrushStrokeSet] = [:]
         for mask in recipe.masks {
             for component in mask.components where component.kind == .brush {
@@ -257,9 +297,7 @@ public enum BrushStrokeSidecar {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         guard let data = try? encoder.encode(sets) else { return nil }
-        let base64 = data.base64EncodedString()
-        guard base64.count <= payloadLimit else { return nil }
-        return base64
+        return data.base64EncodedString()
     }
 
     /// The stroke sets in a sidecar payload, keyed by the reference each one belongs to.

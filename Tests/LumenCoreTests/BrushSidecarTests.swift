@@ -191,3 +191,90 @@ final class BrushSidecarTests: XCTestCase {
         XCTAssertEqual(read.strokesPayload, payload)
     }
 }
+
+// MARK: - The size cap, and what it must not destroy (F3-02)
+//
+// `payload(for:blob:)` returns `String?` and collapses two very different answers:
+// "this photograph has no brush masking" and "its painting is past the sidecar's size
+// cap" both come back nil. `CatalogService` then passed `.some(nil)` — "drop the key" —
+// for either, so painting past the cap DELETED the payload a previous flush had written.
+// No log line, no notice, nothing on screen.
+//
+// Measured elsewhere: the cap falls at about 22,300 points with a mouse and 20,200 with
+// a tablet, roughly three minutes of brush time on one photograph at 120 Hz. No test
+// covered it — `grep payloadLimit Tests/` returned nothing.
+
+extension BrushSidecarTests {
+
+    /// The reference is the set's OWN content hash, not an invented string: `decode`
+    /// drops any entry whose key does not address its contents, because restoring one
+    /// under the wrong reference would put somebody else's painting into this mask.
+    /// A fixture with a made-up ref tests the filter, not the cap.
+    private func painted(points: Int) throws -> (Recipe, [String: BrushStrokeSet]) {
+        var stroke = BrushStroke(size: 0.25, feather: 50, flow: 100, density: 100)
+        stroke.points = (0..<points).map {
+            BrushPoint(x: Double($0 % 997) / 997.0, y: Double($0 % 991) / 991.0)
+        }
+        let set = BrushStrokeSet(strokes: [stroke])
+        let ref = try set.blobRef()
+        var component = MaskComponent(op: .add, kind: .brush)
+        component.strokesRef = ref
+        var recipe = Recipe()
+        recipe.masks = [Mask(id: "m", components: [component])]
+        return (recipe, [ref: set])
+    }
+
+    /// The three answers are distinguishable, which is the whole fix: the caller can
+    /// only decline to touch the file if it can tell overflow from absence.
+    func testOverflowIsNotTheSameAnswerAsNoBrushMasking() throws {
+        let (empty, _) = (Recipe(), 0)
+        XCTAssertEqual(BrushStrokeSidecar.decision(for: empty, blob: { _ in nil }),
+                       .none)
+
+        let (recipe, sets) = try painted(points: 60_000)
+        let decision = BrushStrokeSidecar.decision(for: recipe, blob: { sets[$0] })
+        guard case .tooLarge(let characters) = decision else {
+            return XCTFail("a 60,000-point painting should not fit a sidecar: \(decision)")
+        }
+        XCTAssertGreaterThan(characters, BrushStrokeSidecar.payloadLimit)
+    }
+
+    /// A painting that fits still writes, and still decodes to the same points — the
+    /// fix must not have made the ordinary path conditional on anything.
+    func testAPaintingThatFitsStillRoundTrips() throws {
+        let (recipe, sets) = try painted(points: 500)
+        guard case .payload(let base64) =
+                BrushStrokeSidecar.decision(for: recipe, blob: { sets[$0] })
+        else { return XCTFail("a 500-point painting must fit") }
+        let back = BrushStrokeSidecar.decode(base64)
+        XCTAssertEqual(back.first?.value.strokes.first?.points.count, 500)
+        XCTAssertEqual(back.first?.value.strokes.first?.points.first?.x,
+                       sets.first?.value.strokes.first?.points.first?.x)
+    }
+
+    /// And the nil-returning form keeps its old meaning for the callers that cannot act
+    /// on the difference — it must not start returning an oversized payload.
+    func testTheNilFormStillRefusesAnOversizedPayload() throws {
+        let (recipe, sets) = try painted(points: 60_000)
+        XCTAssertNil(BrushStrokeSidecar.payload(for: recipe, blob: { sets[$0] }),
+                     "the sidecar would carry a payload no other tool will open")
+    }
+
+    /// Where the cap actually falls, pinned so a format change that moves it is a
+    /// decision somebody made rather than one they discover in a support thread.
+    func testTheCapFallsWhereItWasMeasured() throws {
+        for points in [15_000, 25_000] {
+            let (recipe, sets) = try painted(points: points)
+            let decision = BrushStrokeSidecar.decision(for: recipe, blob: { sets[$0] })
+            if points < 20_000 {
+                guard case .payload = decision else {
+                    return XCTFail("\(points) points should still fit: \(decision)")
+                }
+            } else {
+                guard case .tooLarge = decision else {
+                    return XCTFail("\(points) points should not fit: \(decision)")
+                }
+            }
+        }
+    }
+}
