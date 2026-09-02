@@ -722,6 +722,13 @@ public struct ColorBalanceGrid: Sendable {
         return Swift.max(0, 1 + sum / 100)
     }
 
+    /// `Num.safeLog2`'s own floor, in stops. A gain at or below `2^this` is BLACK
+    /// rather than small: three stops of light below it is 2^−60, and every log in this
+    /// file already reads it as the floor value rather than as a number. Named here
+    /// because `solveBrillianceScale` has to decide what "already black" means, and it
+    /// must mean the same thing there as it does in the logs it replaced.
+    static let blackFloorEV: Double = -20
+
     /// What Brilliance's ZONE components are multiplied by so the grid cannot invert
     /// the tone response — the grid's own copy of `GradeEngine.solveLumScale`'s rule,
     /// which the wheels have had since the Blending-0 fold and this disclosure never
@@ -729,10 +736,54 @@ public struct ColorBalanceGrid: Sendable {
     ///
     /// Brilliance scales the H-K brightness `B`, and B — like the wheels' J — cubes
     /// back to light, so the realised tone response of a per-zone gain `G(x)` is
-    /// `1 + 3·d(log2 G)/dEV`. Unlike the wheels' the response is not linear in the
-    /// scale (`G` sits inside the log), so the largest safe multiplier is found by
-    /// bisection over the same sampled axis instead of in closed form: ~40 samples at
-    /// the default Blending, once per engine build, never per pixel.
+    /// `1 + 3·d(log2 G)/dEV`.
+    ///
+    /// SOLVED, NOT SEARCHED — which is the fix for B2-01. The response is not linear in
+    /// the scale (`G` sits inside a log), and this function used to conclude from that
+    /// that the largest safe multiplier had to be found by bisection. The RESPONSE is
+    /// not linear in the scale; the CONSTRAINT is. Writing `c = 1 + global` and `z_i`
+    /// for the zone-weighted term at sample `i`, the gain is `G_i = max(0, c + s·z_i)`,
+    /// and the monotonicity bound
+    ///
+    ///     1 + 3·(log2 G_i − log2 G_(i−1))/ΔEV ≥ margin
+    ///
+    /// is a RATIO bound between two quantities each affine in `s`:
+    ///
+    ///     G_i ≥ ρ·G_(i−1),  ρ = 2^((margin − 1)·ΔEV/3)
+    ///     ⟺ c·(1 − ρ) + s·(z_i − ρ·z_(i−1)) ≥ 0
+    ///
+    /// — one division per sampled interval for the exact scale at which that interval
+    /// first folds, and no search over `s` at all.
+    ///
+    /// THE SEARCH IS WHAT WAS BROKEN, and a wider one would not have fixed it: the
+    /// predicate it searched is not monotone in `s`. Push the scale far enough and
+    /// every sample hits the gain floor at zero, the sampled profile goes flat, and a
+    /// flat profile reads as monotone — so the old test at the 64× ceiling reported
+    /// "nothing to limit" on exactly the settings that fold hardest, and the bisection
+    /// under it was left with no bracket to close on. Measured over shadows/mid/high ∈
+    /// {−100, −50, 0, +50, +100}: 12 of 125 combinations ran the tone scale backwards
+    /// at EVERY Blending, the shipped 50 included, while this function handed back 1.
+    /// Brilliance −50 / −50 / −100 was brightest at −0.71 EV and pure black by
+    /// +1.88 EV: 28.5 sRGB code values of reversal, with the highlights rendering BELOW
+    /// the midtones.
+    ///
+    /// WHAT MONOTONE HAS TO MEAN ONCE A GAIN HAS FLOORED, which is the question the old
+    /// predicate answered wrongly. A flat run of zero gain is not evidence about the
+    /// composed curve; it is the picture already at black. Read off
+    /// `Y = 0.18·2^t·G³` rather than off the profile:
+    ///
+    ///   · black → black and black → lit are both legitimate. A crush at the bottom of
+    ///     the scale is what Brilliance −100 on the shadows IS, and nothing there
+    ///     renders darker than anything below it.
+    ///   · lit → black is the steepest fall there is, never a plateau. That is the
+    ///     highlights going out while the midtones still render.
+    ///
+    /// So an interval is bound only while the sample it falls FROM is still lit. The
+    /// ratio bound already forbids reaching zero from a lit sample (`ρ > 0`), so the
+    /// two collapse into one test: take the interval's own fold scale, and ignore it if
+    /// the gain it falls from has itself reached black by then. That is the whole of
+    /// the special case, and it leaves the one genuinely flat setting — every zone at
+    /// −100, the whole frame crushed together — exactly unlimited, as it already was.
     ///
     /// Measured before the limiter existed, at the shipped defaults: Brilliance
     /// Highlights −100 walks its gain to zero across the crossfade — 87 sRGB code
@@ -748,13 +799,20 @@ public struct ColorBalanceGrid: Sendable {
         guard axis.shadows != 0 || axis.mid != 0 || axis.high != 0 else { return 1 }
         let span: Double = windows.spanEV
         let global: Double = Num.clamp(axis.global, -100, 100) / 100
+        // What the gain is where the zone term contributes nothing. At Global −100 it
+        // is zero, the gain becomes a pure multiple of the zone term, and the ratio
+        // between any two samples stops depending on the scale at all — there is no
+        // multiplier that changes the shape, so there is nothing to solve.
+        let rest: Double = 1 + global
+        guard rest > 0 else { return 1 }
         // Step from the narrowest feature, for `solveLumScale`'s reason: a fixed step
         // walks straight over a hard crossfade and reports a slope far gentler than
         // the real peak.
         let narrowest: Double = Swift.min(windows.shadowHalfWidth,
                                           windows.highlightHalfWidth)
         let step: Double = Num.clamp(narrowest / 8, 1e-4, 0.01)
-        // The zone-weighted term, sampled once; the bisection re-reads the samples.
+        // The zone-weighted term, sampled once; the solve below reads the samples in
+        // adjacent pairs.
         var zoned: [Double] = []
         var x: Double = 0
         while x < 1 {
@@ -770,36 +828,29 @@ public struct ColorBalanceGrid: Sendable {
             + wEnd.high * Num.clamp(axis.high, -100, 100)) / 100)
 
         let margin: Double = 0.05
-        // Composed slope `1 + 3·Δlog2(G)/ΔEV ≥ margin` at every sampled interval.
-        // The gain floor keeps a legitimate crush (G → 0 on a plateau) a flat black
-        // rather than a −∞ that would refuse every scale.
-        func isMonotone(at s: Double) -> Bool {
-            var previous: Double = Num.safeLog2(Swift.max(1 + global + s * zoned[0], 0))
-            for i in 1..<zoned.count {
-                let g: Double = Num.safeLog2(Swift.max(1 + global + s * zoned[i], 0))
-                let slope: Double = GradeEngine.realisedStopsPerJStop
-                    * (g - previous) / (step * span)
-                if 1 + slope < margin { return false }
-                previous = g
-            }
-            return true
-        }
+        // The steepest fall one sampled interval may carry, as a ratio of gains: the
+        // composed bound `1 + 3·Δlog2(G)/ΔEV ≥ margin`, rearranged.
+        let ratio: Double = pow(2.0, (margin - 1) * (step * span)
+            / GradeEngine.realisedStopsPerJStop)
+        let blackGain: Double = pow(2.0, ColorBalanceGrid.blackFloorEV)
 
-        // The largest safe multiplier, unbounded above (`solveLumScale`'s reason: the
-        // knee needs to know how far below the cap a gentle setting sits, or every
-        // unlimited setting lands exactly at the knee's engagement point). 64× the
-        // request is far past anything the knee can distinguish from infinity.
-        let ceiling: Double = 64
-        guard !isMonotone(at: ceiling) else { return 1 }
-        var lo: Double = 0
-        var hi: Double = ceiling
-        var i: Int = 0
-        while i < 40 {
-            let mid: Double = 0.5 * (lo + hi)
-            if isMonotone(at: mid) { lo = mid } else { hi = mid }
-            i += 1
+        // The smallest scale at which any interval folds. Unbounded above, for
+        // `solveLumScale`'s reason: the knee needs to know how far below the cap a
+        // gentle setting sits, or every unlimited setting lands exactly at the knee's
+        // engagement point.
+        var cap: Double = .infinity
+        for i in 1..<zoned.count {
+            let previous: Double = zoned[i - 1]
+            let fall: Double = ratio * previous - zoned[i]
+            // Non-positive: this interval satisfies the bound at every scale, however
+            // far the axis is pushed. Flat and rising intervals land here.
+            guard fall > 0 else { continue }
+            let folds: Double = rest * (1 - ratio) / fall
+            // …and the gain it falls FROM is black by then, so the fall takes nothing
+            // with it. A crush, not an inversion.
+            guard rest + folds * previous > blackGain else { continue }
+            cap = Swift.min(cap, folds)
         }
-        let cap: Double = lo
         guard cap.isFinite, cap > 0 else { return 1 }
         // Ease onto the cap exactly as `solveLumScale` does, so the axis's realised
         // strength keeps growing over its travel instead of clipping into a dead band.

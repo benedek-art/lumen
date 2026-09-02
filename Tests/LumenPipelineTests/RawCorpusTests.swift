@@ -1511,20 +1511,25 @@ final class RawCorpusTests: XCTestCase {
             }
 
             guard let delivered = p.delivered else { continue }
-            if delivered.longEdge >= RawCorpusTests.exportLongEdge {
+            // The ask is measured against the SOURCE, not against `delivered`. The
+            // export decodes at scaleFactor 1.0 while `delivered` is the 1024 px
+            // preview these tests share, so comparing the two would assert that a
+            // 1600 px file is 1024 px wide on every single row of the corpus.
+            let sourceLongEdge = p.native?.longEdge ?? 0
+            if sourceLongEdge >= RawCorpusTests.exportLongEdge {
                 XCTAssertLessThanOrEqual(
                     abs(pixels.longEdge - RawCorpusTests.exportLongEdge), 1,
                     "\(entry.id) · \(entry.label): asked for a long edge of "
                         + "\(RawCorpusTests.exportLongEdge) and got \(pixels.longEdge).")
             } else {
-                // `allowUpscale` is false, so a delivery already shorter than the ask
-                // must come back at its own size rather than stretched.
-                XCTAssertEqual(pixels.longEdge, delivered.longEdge,
-                               "\(entry.id) · \(entry.label): the delivered frame is "
-                                   + "\(delivered.text), shorter than the "
-                                   + "\(RawCorpusTests.exportLongEdge) px ask, and "
-                                   + "allowUpscale is false — so the export must not "
-                                   + "have resized it. It wrote \(pixels.text).")
+                // `allowUpscale` is false, so a frame already shorter than the ask must
+                // come back at its own size rather than stretched.
+                XCTAssertEqual(pixels.longEdge, sourceLongEdge,
+                               "\(entry.id) · \(entry.label): the sensor frame is "
+                                   + "\(sourceLongEdge) px on the long edge, shorter "
+                                   + "than the \(RawCorpusTests.exportLongEdge) px ask, "
+                                   + "and allowUpscale is false — so the export must "
+                                   + "not have resized it. It wrote \(pixels.text).")
             }
             let deliveredAspect = Double(delivered.w) / Double(delivered.h)
             let writtenAspect = Double(pixels.w) / Double(pixels.h)

@@ -405,7 +405,7 @@ extension AppState {
     /// out of this count. That is a real under-report of a few tens of percent on a
     /// large flat blown area; it is not the hundred percent this function removes.
     nonisolated static func clipCounts(in tap: ScopeTap) -> ScopeClipCounts? {
-        let total: Int = tap.width * tap.height
+        let total: Int = tap.sampleCount
         guard total > 0, tap.bytes.count >= total * 4 else { return nil }
 
         let epsilon: Double = Histogram.clipEpsilon
