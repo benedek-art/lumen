@@ -54,7 +54,11 @@ public enum PlanTableCache {
     /// 1.4 MB, so a full cache is under 24 MB.
     private static let capacity = 8
 
-    private static let lock = NSLock()
+    /// An `NSCondition` rather than an `NSLock` because one caller now needs to WAIT
+    /// on another's bake instead of starting a second copy of it — see `table`. Every
+    /// existing `lock()`/`unlock()` pair means what it always did; the condition only
+    /// adds `wait(until:)` and `broadcast()` on top of the same mutex.
+    private static let lock = NSCondition()
 
     /// `pairedValue` is the scalar the table was BAKED WITH, carried beside it.
     ///
@@ -111,10 +115,26 @@ public enum PlanTableCache {
     /// A drag produces a fresh key on every mouse event; baking each of them would
     /// just replay the drag in the background at 23.7 ms a step, seconds behind the
     /// hand. Only the newest can ever be shown, so only the newest is kept.
-    private static var inFlight: Set<Slot> = []
+    ///
+    /// The two pieces of state below answer two different questions, and collapsing
+    /// them into one `Set<Slot>` is what let a settle frame bake a table that was
+    /// already baking. `draining` is loop ownership — one drain per slot, nobody else
+    /// starts a second. `inFlightKey` is the key that drain is baking RIGHT NOW, which
+    /// is the only thing that lets another thread recognise its own table in someone
+    /// else's work and wait for it.
+    private static var draining: Set<Slot> = []
+    private static var inFlightKey: [Slot: String] = [:]
     private static var pending: [Slot: (key: String, pairedValue: Double,
                                         identity: String,
                                         bakeExact: () -> LUT3D)] = [:]
+
+    /// How long a settle will wait to join a bake before giving up and baking its own.
+    ///
+    /// A bound, not a timeout anybody should hit: the bake it is joining is 15–24 ms.
+    /// It exists so that a missed broadcast — a future edit that stores without waking
+    /// the waiters — degrades to today's redundant bake instead of a frozen window.
+    /// Slow is a performance bug; hung is a lost afternoon.
+    private static let joinTimeout: TimeInterval = 0.5
     private static let bakeQueue = DispatchQueue(label: "lumen.plantable.bake",
                                                  qos: .userInitiated)
 
@@ -128,6 +148,15 @@ public enum PlanTableCache {
         public var hits = 0
         public var bakes = 0
         public var staleServes = 0
+        /// Bakes performed on `bakeQueue` for a stale serve. Counted separately
+        /// because they are not on the render path — but they are real CPU competing
+        /// with it, and until they were counted the HUD read `48b` for a drag that was
+        /// performing up to 96 more bakes behind the line it was drawing.
+        public var deferredBakes = 0
+        /// Bakes NOT performed because this thread joined one already in flight, or
+        /// took one off the queue before the drain could repeat it. The fix's own
+        /// meter: a drag that ends in a settle should show one of these.
+        public var joinedBakes = 0
     }
     private static var stats = Stats()
 
@@ -151,9 +180,20 @@ public enum PlanTableCache {
         return stats
     }
 
+    /// Zero every counter — the aggregate AND the per-slot traffic.
+    ///
+    /// It used to reset only `stats`, leaving `slotTraffic` accumulating since launch.
+    /// A caller that reset and then read `traffic(.finish)` got a number that included
+    /// everything before the reset, which is the same shape of lie this cache's
+    /// counters were audited for: a measurement that reads plausible and means
+    /// something else. Note what it still does NOT do — it does not clear `entries`, so
+    /// a run measured after a reset is measured against a warm cache. That is
+    /// deliberate (`clear()` is the other tool) and it is the trap the drag probe fell
+    /// into, so it is written down here.
     public static func resetStats() {
         lock.lock()
         stats = Stats()
+        slotTraffic.removeAll()
         lock.unlock()
     }
 
@@ -174,25 +214,67 @@ public enum PlanTableCache {
 
         lock.lock()
         var hit: LUT3D?
-        if var slotEntries = entries[slot],
-           let index = slotEntries.firstIndex(where: { $0.key == key }) {
-            hit = slotEntries[index].table
-            // An exact hit means THIS photograph just rendered with this very
-            // table, so the entry adopts this photograph: the next draft frame's
-            // stale borrow then finds the picture this photo was showing a moment
-            // ago, instead of paying a blocking bake at the start of every drag
-            // that follows a photo switch. Adopting on hit is what keeps exact
-            // hits shared across photographs (the key describes the table
-            // completely) while the STALE door stays per-photograph.
-            slotEntries[index].identity = activeIdentity
-            entries[slot] = slotEntries
+        var joined = false
+        let deadline = Date().addingTimeInterval(joinTimeout)
+        while true {
+            if var slotEntries = entries[slot],
+               let index = slotEntries.firstIndex(where: { $0.key == key }) {
+                hit = slotEntries[index].table
+                // An exact hit means THIS photograph just rendered with this very
+                // table, so the entry adopts this photograph: the next draft frame's
+                // stale borrow then finds the picture this photo was showing a moment
+                // ago, instead of paying a blocking bake at the start of every drag
+                // that follows a photo switch. Adopting on hit is what keeps exact
+                // hits shared across photographs (the key describes the table
+                // completely) while the STALE door stays per-photograph.
+                slotEntries[index].identity = activeIdentity
+                entries[slot] = slotEntries
+                break
+            }
+            // NOT HELD — but it may already be somebody's work in progress, and this
+            // is the door that had no idea. A drag's last mouse event posts the exact
+            // table for the value the hand stopped on; the settle frame that follows
+            // wants precisely that key, arrives here a few milliseconds later, saw
+            // only `entries`, and baked a second copy of a table that was already
+            // being made. Then the drain popped its own entry and made a third.
+            //
+            // Queued but not started: take it. Removing it from `pending` is the half
+            // that matters — the bake below is the same closure over the same key, and
+            // the drain can no longer repeat it after we store.
+            if let queued = pending[slot], queued.key == key {
+                pending.removeValue(forKey: slot)
+                joined = true
+                break
+            }
+            // Baking right now: wait for it rather than racing it. `drainPending`
+            // broadcasts after it stores, so the next pass around this loop finds the
+            // table in `entries` and takes the hit branch.
+            if inFlightKey[slot] == key {
+                joined = true
+                if lock.wait(until: deadline) { continue }
+                // The bound elapsed. Fall through and bake — slower than joining,
+                // identical to what this function did before the join existed.
+                joined = false
+                break
+            }
+            break
         }
         if hit != nil {
             stats.hits += 1
             slotTraffic[slot, default: Stats()].hits += 1
+            if joined {
+                stats.joinedBakes += 1
+                slotTraffic[slot, default: Stats()].joinedBakes += 1
+            }
         } else {
             stats.bakes += 1
             slotTraffic[slot, default: Stats()].bakes += 1
+            if joined {
+                // Stolen off the queue: this thread bakes it, but one bake was
+                // saved — the drain's repeat of the same key.
+                stats.joinedBakes += 1
+                slotTraffic[slot, default: Stats()].joinedBakes += 1
+            }
         }
         lock.unlock()
         if let hit { return hit }
@@ -206,6 +288,11 @@ public enum PlanTableCache {
                             identity: activeIdentity), at: 0)
         if slotEntries.count > capacity { slotEntries.removeLast(slotEntries.count - capacity) }
         entries[slot] = slotEntries
+        // This key is now held, so nothing should bake it again: drop a pending
+        // request for it that arrived while we were baking, and wake anyone who chose
+        // to wait for it rather than start their own copy.
+        if pending[slot]?.key == key { pending.removeValue(forKey: slot) }
+        lock.broadcast()
         lock.unlock()
 
         return built
@@ -295,8 +382,7 @@ public enum PlanTableCache {
         // Replace, never append: only the newest deferred bake can ever be shown.
         pending[slot] = (key: key, pairedValue: value, identity: activeIdentity,
                          bakeExact: build)
-        let mustStart = !inFlight.contains(slot)
-        if mustStart { inFlight.insert(slot) }
+        let mustStart = draining.insert(slot).inserted
         lock.unlock()
 
         if mustStart { bakeQueue.async { drainPending(slot) } }
@@ -304,15 +390,23 @@ public enum PlanTableCache {
     }
 
     /// Bake the latest pending key for `slot`, and keep going if another arrived while
-    /// baking. Runs on `bakeQueue`; `inFlight` guarantees one drain per slot.
+    /// baking. Runs on `bakeQueue`; `draining` guarantees one drain per slot.
     private static func drainPending(_ slot: Slot) {
         while true {
             lock.lock()
             guard let next = pending.removeValue(forKey: slot) else {
-                inFlight.remove(slot)
+                draining.remove(slot)
+                inFlightKey[slot] = nil
+                // A settle can be waiting on a key this drain no longer holds — it was
+                // stolen off the queue, or stored by another path. Wake it: its own
+                // loop re-reads `entries` and decides.
+                lock.broadcast()
                 lock.unlock()
                 return
             }
+            // Publish WHICH key is baking, so `table` can recognise its own table in
+            // this work and wait for it instead of starting a second copy.
+            inFlightKey[slot] = next.key
             lock.unlock()
 
             let built = next.bakeExact()
@@ -327,6 +421,14 @@ public enum PlanTableCache {
                 slotEntries.removeLast(slotEntries.count - capacity)
             }
             entries[slot] = slotEntries
+            // Counted at last. These are not on the render path, but they are real CPU
+            // competing with it — a drag reporting `48b` was performing up to 96 more
+            // bakes behind the frame it was drawing, and the HUD's whole purpose is to
+            // make a defeated cache visible on a live machine.
+            stats.deferredBakes += 1
+            slotTraffic[slot, default: Stats()].deferredBakes += 1
+            inFlightKey[slot] = nil
+            lock.broadcast()
             lock.unlock()
         }
     }
@@ -337,7 +439,7 @@ public enum PlanTableCache {
     static func hasPendingBake(_ slot: Slot) -> Bool {
         lock.lock()
         defer { lock.unlock() }
-        return inFlight.contains(slot) || pending[slot] != nil
+        return draining.contains(slot) || pending[slot] != nil
     }
 
     /// Any slot at all — the app-facing form of the question above, public because

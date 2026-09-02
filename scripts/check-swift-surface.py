@@ -208,7 +208,7 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     "FileManager", "FileHandle", "ProcessInfo", "FileWrapper", "Bundle", "JSONEncoder", "JSONDecoder",
     "JSONSerialization", "PropertyListEncoder", "PropertyListDecoder",
     "PropertyListSerialization", "NSError", "NSString", "NSNumber", "NSObject",
-    "NSLock", "NSRecursiveLock", "NSRegularExpression", "NSRange",
+    "NSCondition", "NSLock", "NSRecursiveLock", "NSRegularExpression", "NSRange",
     "NSLog", "NSAttributedString",
     "NSItemProvider", "NSSize", "NSPoint", "Notification", "NotificationCenter", "Locale",
     "Calendar", "TimeZone", "ISO8601DateFormatter", "NumberFormatter",

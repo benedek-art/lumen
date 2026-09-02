@@ -240,8 +240,18 @@ struct LatencyHUDView: View {
     /// hit+stale share is not ~100% after its first frame means a cache key is being
     /// defeated, and no eye can see that without the counter.
     private func cacheLine(_ label: String, hits: Int, bakes: Int,
-                           stale: Int) -> String {
-        "\(label) \(hits)h \(bakes)b \(stale)s"
+                           stale: Int, deferred: Int? = nil,
+                           joined: Int? = nil) -> String {
+        var out = "\(label) \(hits)h \(bakes)b \(stale)s"
+        // `d` is bakes performed on the background queue for a stale serve. They are
+        // off the render path but they are real CPU competing with it, and while they
+        // went uncounted this line could read a healthy `48b` for a drag that was
+        // quietly performing up to 96 more. `j` is bakes NOT performed because a
+        // settle joined one already in flight — one per gesture is the shape of a
+        // cache doing its job.
+        if let deferred { out += " \(deferred)d" }
+        if let joined { out += " \(joined)j" }
+        return out
     }
 
     /// Events the app SAW per second against frames it delivered per second, on one
@@ -292,7 +302,9 @@ struct LatencyHUDView: View {
             Text(line("settle     ", hud.settleMs, hud.settleLongEdge))
             Text(line("decode     ", hud.decodeMs, nil) + "  (last real)")
             Text(cacheLine("tables     ", hits: tables.hits, bakes: tables.bakes,
-                           stale: tables.staleServes))
+                           stale: tables.staleServes,
+                           deferred: tables.deferredBakes,
+                           joined: tables.joinedBakes))
             // The same two counters as RATES, which is the only form in which they can
             // be read during a drag. On Whites and Blacks every event re-keys the finish
             // table, so `stale/s` tracks the hand and `bakes/s` is how often the picture

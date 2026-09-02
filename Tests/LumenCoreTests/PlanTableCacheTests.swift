@@ -468,3 +468,204 @@ final class PlanTableCacheTests: XCTestCase {
         waitForBakes()
     }
 }
+
+// MARK: - Joining a bake instead of repeating it (I1-01, I1-03)
+//
+// The two doors into this cache did not know about each other. A drag frame goes
+// through `tableAllowingStale`: on a miss it serves the newest table and posts the
+// EXACT one to `pending` for the background queue. The settle frame that follows goes
+// through `table`, which read `entries` and nothing else — so it missed, and baked a
+// second copy of the table `bakeQueue` was already making. Then `drainPending` popped
+// its own entry, found the key it had queued, and baked a third.
+//
+// Measured on the release build: a Saturation settle is 269.4 ms against a 24.1 ms
+// draft, a Whites settle 388.0 against 69.0 — 245 and 319 ms of one and two 33³ bakes
+// the machine had already started. That is the third of a second of nothing between
+// letting go of a slider and the picture sharpening.
+//
+// The counters could not see it either. `drainPending` never touched `stats`, so the
+// HUD line added to make a defeated cache visible on a live machine was structurally
+// blind to every background bake.
+
+extension PlanTableCacheTests {
+
+    /// A build that announces itself and then takes its time, so the test can put a
+    /// settle inside the window where the bake is genuinely in flight.
+    private func slowBuild(_ mark: Double, started: DispatchSemaphore,
+                           counter: BuildCounter,
+                           seconds: Double = 0.25) -> LUT3D {
+        counter.bump()
+        started.signal()
+        Thread.sleep(forTimeInterval: seconds)
+        return LUT3D(size: 5) { rgb in RGB(mark, rgb.g, rgb.b) }
+    }
+
+    private func freshCache() {
+        PlanTableCache.clear()
+        waitForBakes()
+        PlanTableCache.clear()
+    }
+
+    /// Warm the slot so the next miss has something to be stale from — otherwise the
+    /// draft path bakes synchronously and there is no background bake to join.
+    private func warmSlot() {
+        _ = PlanTableCache.table(.finish, key: "warm", size: 5) {
+            LUT3D(size: 5) { rgb in RGB(0, rgb.g, rgb.b) }
+        }
+    }
+
+    // MARK: The defect
+
+    /// THE ONE THAT COSTS THE THIRD OF A SECOND. The settle asks for the key the drag
+    /// just queued, while that bake is running, and must wait for it rather than start
+    /// its own copy of it.
+    func testASettleJoinsTheDragsBackgroundBakeInsteadOfRepeatingIt() {
+        freshCache()
+        warmSlot()
+        PlanTableCache.resetStats()
+
+        let started = DispatchSemaphore(value: 0)
+        let counter = BuildCounter()
+
+        // The drag's last event: serves stale, posts "final" to the bake queue.
+        _ = PlanTableCache.tableAllowingStale(.finish, key: "final", size: 5) {
+            self.slowBuild(2, started: started, counter: counter)
+        }
+        // Do not race the queue: wait until that bake has actually begun.
+        XCTAssertEqual(started.wait(timeout: .now() + 5), .success,
+                       "the background bake never started, so this proves nothing")
+
+        // The settle, on the same key, mid-bake.
+        _ = PlanTableCache.table(.finish, key: "final", size: 5) {
+            counter.bump()
+            return LUT3D(size: 5) { rgb in RGB(9, rgb.g, rgb.b) }
+        }
+        waitForBakes()
+
+        XCTAssertEqual(counter.count, 1,
+                       "the settle baked its own copy of a table that was already "
+                       + "baking — 245 ms on Saturation, 319 ms on Whites, for a table "
+                       + "the machine was seconds from having")
+        XCTAssertEqual(PlanTableCache.traffic(.finish).bakes, 0,
+                       "no bake belongs on the render path here")
+        XCTAssertEqual(PlanTableCache.traffic(.finish).joinedBakes, 1,
+                       "and the join must be visible on the HUD, or the next round "
+                       + "cannot tell whether it is still happening")
+    }
+
+    /// The other half: the bake is QUEUED but not started, so there is nothing to wait
+    /// for. The settle must take it off the queue, or the drain pops the same key
+    /// afterwards and bakes it a second time on top of the settle's own.
+    func testASettleTakesAQueuedBakeSoTheDrainCannotRepeatIt() {
+        freshCache()
+        warmSlot()
+        PlanTableCache.resetStats()
+
+        let firstStarted = DispatchSemaphore(value: 0)
+        let busy = BuildCounter()
+        // Occupy the drain with a different key, so the next request only ever queues.
+        _ = PlanTableCache.tableAllowingStale(.finish, key: "mid-drag", size: 5) {
+            self.slowBuild(3, started: firstStarted, counter: busy)
+        }
+        XCTAssertEqual(firstStarted.wait(timeout: .now() + 5), .success)
+
+        let target = BuildCounter()
+        // The drag's LAST event lands while the drain is busy: queued, not started.
+        _ = PlanTableCache.tableAllowingStale(.finish, key: "final", size: 5) {
+            target.bump()
+            return LUT3D(size: 5) { rgb in RGB(4, rgb.g, rgb.b) }
+        }
+        // The settle for that same last value.
+        _ = PlanTableCache.table(.finish, key: "final", size: 5) {
+            target.bump()
+            return LUT3D(size: 5) { rgb in RGB(4, rgb.g, rgb.b) }
+        }
+        waitForBakes()
+
+        XCTAssertEqual(target.count, 1,
+                       "the final table was baked twice: once by the settle and once "
+                       + "again by the drain, which still held the queued request")
+    }
+
+    /// Background bakes are real CPU competing with the render thread, and until they
+    /// were counted the HUD read `48b` for a drag performing up to 96 more.
+    func testADeferredBakeIsCounted() {
+        freshCache()
+        warmSlot()
+        PlanTableCache.resetStats()
+
+        _ = PlanTableCache.tableAllowingStale(.finish, key: "deferred", size: 5) {
+            LUT3D(size: 5) { rgb in RGB(5, rgb.g, rgb.b) }
+        }
+        waitForBakes()
+
+        XCTAssertEqual(PlanTableCache.currentStats.deferredBakes, 1,
+                       "the bake the stale serve queued happened, and the counter "
+                       + "that exists to make a defeated cache visible did not see it")
+        XCTAssertEqual(PlanTableCache.currentStats.staleServes, 1)
+    }
+
+    // MARK: What must NOT change
+
+    /// The join must not turn into "wait for anything". A settle for a DIFFERENT key
+    /// than the one baking has nothing to join and must bake immediately — waiting for
+    /// an unrelated table would be the same third of a second, spent differently.
+    func testASettleForADifferentKeyDoesNotWaitForTheBakeInFlight() {
+        freshCache()
+        warmSlot()
+        PlanTableCache.resetStats()
+
+        let started = DispatchSemaphore(value: 0)
+        let other = BuildCounter()
+        _ = PlanTableCache.tableAllowingStale(.finish, key: "in-flight", size: 5) {
+            self.slowBuild(6, started: started, counter: other, seconds: 0.6)
+        }
+        XCTAssertEqual(started.wait(timeout: .now() + 5), .success)
+
+        let clock = Date()
+        _ = PlanTableCache.table(.finish, key: "unrelated", size: 5) {
+            LUT3D(size: 5) { rgb in RGB(7, rgb.g, rgb.b) }
+        }
+        let elapsed = Date().timeIntervalSince(clock)
+        XCTAssertLessThan(elapsed, 0.3,
+                          "a settle waited \(elapsed)s on a bake for a key it will "
+                          + "never ask for")
+        waitForBakes()
+    }
+
+    /// And the table a joining settle receives is the RIGHT one — the exact table for
+    /// its key, not the stale one the drag frame was served.
+    func testTheJoinedSettleReceivesTheExactTableAndNotTheStaleOne() {
+        freshCache()
+        warmSlot()
+
+        let started = DispatchSemaphore(value: 0)
+        let counter = BuildCounter()
+        let draft = PlanTableCache.tableAllowingStale(.finish, key: "exact", size: 5) {
+            self.slowBuild(2, started: started, counter: counter)
+        }
+        XCTAssertEqual(started.wait(timeout: .now() + 5), .success)
+
+        let settle = PlanTableCache.table(.finish, key: "exact", size: 5) {
+            XCTFail("the settle should have joined the bake in flight")
+            return LUT3D(size: 5) { $0 }
+        }
+        waitForBakes()
+
+        // `data` is size³ × 4 interleaved floats, so element 0 is the first sample's
+        // red — which is where `markedLUT` writes its mark.
+        XCTAssertEqual(draft.data.first, 0,
+                       "the draft frame is served the warm table — one event stale")
+        XCTAssertEqual(settle.data.first, 2,
+                       "the settle must land on the exact table it waited for; serving "
+                       + "it the stale one would rest a wrong picture at rest")
+    }
+}
+
+/// A build counter that is safe to bump from `bakeQueue` and read from the test.
+final class BuildCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = 0
+    func bump() { lock.lock(); value += 1; lock.unlock() }
+    var count: Int { lock.lock(); defer { lock.unlock() }; return value }
+}
