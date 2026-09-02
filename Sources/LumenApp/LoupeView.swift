@@ -1041,7 +1041,11 @@ struct LoupeView: View {
     /// True while the crop tool is live on this surface: armed AND in its workspace —
     /// the same two-part gate the overlay, the render request and the panel share.
     private var cropArmed: Bool {
-        viewport.showCrop && panel.layout.workspace == .crop
+        // The third clause is defence in depth rather than a behaviour change: the entry
+        // verbs now make "armed while masking" unreachable, and this makes the stranded
+        // state unrepresentable if a future route reaches past them again. It has
+        // happened twice (KG-02's `O`, G3-02's `R`).
+        viewport.showCrop && panel.layout.workspace == .crop && !panel.layout.isMasking
     }
 
     /// What the render request carries. While the crop tool is armed, the crop AND the

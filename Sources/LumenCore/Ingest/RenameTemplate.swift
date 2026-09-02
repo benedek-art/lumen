@@ -66,6 +66,33 @@ public enum RenameTemplate {
         return sanitize(out)
     }
 
+    /// A rendered name that can safely become a file inside a directory, or nil.
+    ///
+    /// `sanitize` maps the filesystem-hostile characters and collapses runs of spaces,
+    /// and that was mistaken for the whole rule. Three results survive it and are not
+    /// names: the empty string, `.` and `..`.
+    ///
+    /// The empty one is the reachable defect (J3-02). `URL.appendingPathComponent("")`
+    /// leaves the directory unchanged, so the extension then lands on the DIRECTORY:
+    /// a delivery folder `/Deliveries` and a filename template that renders empty —
+    /// `{recipe}` with a cleared recipe name is enough — writes the whole batch to
+    /// `/Deliveries.jpg`, one file, each frame overwriting the last, BESIDE the folder
+    /// the open panel granted rather than inside it. `IngestSheet` already refuses this
+    /// on its own templates ("Filename template renders empty for the first file");
+    /// the export side had no equivalent.
+    ///
+    /// Returns the trimmed name so the caller cannot re-introduce the leading or
+    /// trailing space that made it ambiguous.
+    public static func usableBasename(_ rendered: String) -> String? {
+        let trimmed = rendered.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty, trimmed != ".", trimmed != ".." else { return nil }
+        // Belt and braces: `sanitize` maps these already, but this function is the one
+        // a caller reaches for when it is about to build a path, and a separator here
+        // is the difference between a filename and a traversal.
+        guard !trimmed.contains("/"), !trimmed.contains("\\") else { return nil }
+        return trimmed
+    }
+
     // MARK: - internals
 
     static func tokens(in template: String) -> [String] {

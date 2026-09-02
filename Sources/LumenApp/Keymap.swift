@@ -259,9 +259,10 @@ final class KeyDispatcher {
             }
             // The overlay keys ENTER masking rather than toggling it: pressing O to
             // look at a mask and having it close the editor you are looking at would be
-            // the key undoing its own reason for existing.
-            PanelLayout.shared.setMasking(true)
-            state.showLoupe()
+            // the key undoing its own reason for existing. Through the entry VERB, not
+            // through `setMasking` plus `showLoupe` — those are the first two lines of
+            // it, and the line this route was missing tears the crop tool down.
+            state.enterMasking()
         case "'":
             // Invert the selected COMPONENT, which is what this key means in LR and in
             // docs/08 §8.1. The whole-mask invert is a toggle in the panel, because a

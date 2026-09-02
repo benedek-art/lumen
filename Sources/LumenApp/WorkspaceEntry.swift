@@ -115,8 +115,28 @@ extension AppState {
     /// the column comes back exactly as it was left.
     func toggleMasking() {
         let entering = !PanelLayout.shared.layout.isMasking
-        PanelLayout.shared.setMasking(entering)
-        guard entering else { return }
+        guard entering else {
+            PanelLayout.shared.setMasking(false)
+            return
+        }
+        enterMasking()
+    }
+
+    /// ARRIVING in the mask editor, whichever key or control asks for it.
+    ///
+    /// Split out of `toggleMasking` because it had a second caller that was not going
+    /// through it (KG-02): the overlay keys enter masking rather than toggling — looking
+    /// at a mask must not close the editor you are looking at — and `Keymap` expressed
+    /// that by calling `PanelLayout.setMasking(true)` and `showLoupe()` directly. Those
+    /// are the first two lines of this function and not the rest, so pressing `O` with
+    /// the crop tool armed left `showCrop` on: the picture reverts to uncropped and
+    /// unstraightened, the rectangle is stranded under `MaskCanvas` where the canvas
+    /// takes its drags, and the overlay the key was pressed FOR is never built. The
+    /// comment above `settle(in:)` already says the verbs are the vocabulary and a third
+    /// caller reaching past them would be the next unwired route; this is that route,
+    /// found after the fact.
+    func enterMasking() {
+        PanelLayout.shared.setMasking(true)
         showLoupe()
         let viewport = LoupeViewport.shared
         if viewport.showCrop {
@@ -177,6 +197,20 @@ extension AppState {
     func toggleCropTool() {
         let viewport = LoupeViewport.shared
         let doublePressed = CropTool.shared.noteArming()
+
+        // ARMING THE CROP TOOL LEAVES THE MASK EDITOR, and this is the mirror of
+        // `enterMasking` tearing the crop tool down (G3-02, the same defect one door
+        // over from KG-02). Masking is a FLAG BESIDE the workspace, not a workspace, so
+        // the guard below — which asks only about the workspace — was satisfied while
+        // the mask editor was open: Crop, then `M`, then `R` set `showCrop` with
+        // `isMasking` still true. `cropArmed` is then true, so the render strips the
+        // crop and the angle; `MaskCanvas` still owns the drags; and the rectangle has
+        // no panel. Refusing the key instead would be worse — an ignored key is
+        // indistinguishable from an eaten one — so `R` means what it says and takes you
+        // out of masking to do it.
+        if PanelLayout.shared.layout.isMasking {
+            PanelLayout.shared.setMasking(false)
+        }
 
         guard PanelLayout.shared.layout.workspace == .crop else {
             enter(.crop)

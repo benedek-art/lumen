@@ -328,8 +328,18 @@ extension AppState {
         out = out.replacingOccurrences(of: "{recipe}", with: recipeName)
         out = out.replacingOccurrences(of: "{ext}", with: source.pathExtension)
         // Filesystem-hostile characters never reach a path.
-        return out.replacingOccurrences(of: "/", with: "-")
+        let rendered = out.replacingOccurrences(of: "/", with: "-")
             .replacingOccurrences(of: ":", with: "-")
+        // AND NEITHER DOES AN EMPTY RESULT. The guard above is on the literal template;
+        // this one is on what the template RENDERED, which is a different question and
+        // the one that reaches the filesystem. `{recipe}` with a cleared recipe name
+        // renders nothing, and a nothing appended to the delivery folder puts the
+        // extension on the FOLDER — the whole batch written beside it as one file.
+        // Falling back to the source's own name is what the empty-template branch above
+        // already does; this applies the same answer to the same question one step later.
+        return RenameTemplate.usableBasename(rendered)
+            ?? RenameTemplate.usableBasename(name)
+            ?? "Untitled"
     }
 
     func chooseExportDestination() {
