@@ -172,8 +172,23 @@ streak included).
    the edge"). What landed this batch is the drawn dot radii moving onto `MaskHandles`
    beside the grab radius they must stay smaller than. Left: before/after chrome and the
    collapsed mask column.
-3. **U5** — hover/focus sweep, motion, empty states, help sheet and keyboard reference.
-   **The real remaining UI stream.**
+3. ~~**U5**~~ — **done.** Four landings:
+   · the type scale split from a GLYPH scale, because an SF Symbol's point size is not a
+     type size — which is why 89 raw sizes survived three migrations. 37 glyphs were
+     already wearing text tokens. Now 35 raw sizes, and a check that fails on the next
+     `Image` given a text token.
+   · **one empty state replacing five** — four mark sizes, three text treatments and four
+     stack spacings for one idea. This is the failure the design tests could not see:
+     every one of the five spelled its tokens correctly, and what repeated was a SHAPE.
+   · **three motions replacing eight numbers**, where a fold animated four ways across
+     two curve families in files whose own comments were arguing for one.
+   · the keyboard reference already existed and is held to the dispatcher by
+     `KeyGrammarTests`; `controlHover` is now derived from `controlSurfaceValue +
+     hoverLift` rather than written as 0.27 twice.
+
+   Hover and focus were **already coherent** — the fills go through `Lumen.controlHover`
+   or `Lumen.hovered(on:)`, both tokens — so the "sweep" turned up one derivation and no
+   defects. Recorded rather than invented.
 4. **Engine leftovers** — all of C2 is landed: ~~C2-01b~~ **0158776** ·
    ~~C2-02~~ / ~~C2-03/K-065~~ **6425f60** · ~~C2-05 halation Size and Redness~~,
    ~~C2-06~~, ~~C2-07~~ in the current batch. ~~I1-04 the settle loop~~ **abab18a**.

@@ -84,7 +84,13 @@ enum Lumen {
     static let insetWell = Color(nsColor: NSColor(white: 0.145, alpha: 1))
     /// Buttons and chips at rest / hovered / selected-pressed.
     static let controlSurface = Color(nsColor: NSColor(white: 0.24, alpha: 1))
-    static let controlHover = Color(nsColor: NSColor(white: 0.27, alpha: 1))
+    /// DERIVED, not written. 0.27 is `controlSurfaceValue + hoverLift` and always was —
+    /// the two were the same decision spelled two ways, one as a literal here and one as
+    /// arithmetic in `hovered(on:)`, and the app hovers through BOTH: four sites take
+    /// this constant and one takes the function. They agreed by coincidence of
+    /// authorship, which is the state every pair of constants in this file's history has
+    /// been in just before it stopped agreeing.
+    static let controlHover = hovered(on: controlSurfaceValue)
     static let controlActive = Color(nsColor: NSColor(white: 0.31, alpha: 1))
 
     // THE TEXT RAMP CAME DOWN ONE STEP AT EVERY RUNG (U1).
