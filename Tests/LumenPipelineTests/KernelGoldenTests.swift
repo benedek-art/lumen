@@ -2186,17 +2186,45 @@ final class KernelGoldenTests: XCTestCase {
     /// capture sharpening, vignette and mask rasterization were compared to the
     /// reference renderer NEVER. This is the one that turns them on.
     ///
-    /// The tolerance is a SMOKE-TEST BOUND, not a measurement. These stages are
-    /// separable-kernel approximations of the reference's exact filters and I have no
-    /// GPU to measure the real divergence on, so 0.25 is set to catch a stage wired to
-    /// the wrong input, applied twice, or missing entirely — not to certify the last
-    /// percent of a blur. Tighten it to the measured value on the first green run;
-    /// leaving a number here that was guessed tight would just cost a red cycle.
+    /// THE WHOLE-FRAME TOLERANCE IS 0.25 OF FULL SCALE, which is sixty-four sRGB code
+    /// values per channel per pixel, and it certifies almost nothing. It was written as
+    /// a smoke-test bound — these stages are separable-kernel approximations of the
+    /// reference's exact filters, there was no GPU to measure the real divergence on,
+    /// and 0.25 catches a stage wired to the wrong input, applied twice, or missing
+    /// entirely — with the instruction to "tighten it to the measured value on the first
+    /// green run". There have been many green runs and it has not moved, for a reason
+    /// that is the actual defect: THE TEST NEVER PRINTED THE NUMBER. `worst` lived only
+    /// in an assertion message, which XCTest emits on failure, so no lane log has ever
+    /// carried a value to tighten it to. Compare the colour-path golden above, which
+    /// does the job properly: bound 0.035, measured 0.028001785278320312, and the
+    /// stability of those digits — not the bound — is what guards it.
     ///
-    /// The second half of the test carries the real weight and needs no calibration:
-    /// turning the spatial stages off must move the picture. Without that, this would
-    /// be comparing two copies of the colour path and would pass with every spatial
-    /// kernel unwired.
+    /// So the measurement is now printed on EVERY run, passes included, in the
+    /// PerfProbe house style: worst, RMS, the 99.9th percentile and the share of pixels
+    /// past 0.05. The next lane run records four numbers, and the bound can then be set
+    /// from them with the colour-path golden's reasoning written in. Same discipline as
+    /// the RAW-corpus lane's R-5 and R-7, which log the measured chroma for every file
+    /// on every run precisely so their loose first thresholds can be replaced by
+    /// evidence rather than by another guess. Whoever tightens this: the bound wants to
+    /// sit above the worst figure the lane has printed and below any number a real
+    /// defect produces, and the reason for the gap belongs in this comment.
+    ///
+    /// WHAT DOES NOT NEED CALIBRATION IS A RATIO, and that is the rest of the test.
+    /// Both renderers implement the same contract for each stage, so the GPU's movement
+    /// divided by the reference's movement is near 1 or the contract is not being
+    /// implemented — no measurement required, and no GPU needed to derive the bar. That
+    /// matters because at 0.25 the defect this file records as having shipped is still
+    /// invisible: set `lumenDetailGain`'s clamp to ±0.4 instead of ±4, or drop the
+    /// `perStop = LumenLog.range` conversion in `RenderGraph`, and the picture changes
+    /// by a factor of twenty-four while the worst-pixel figure stays under the bound.
+    /// The Texture and Clarity ratios below are two-sided for that reason; the Clarity
+    /// gate used to be one-sided at 0.2, so the GPU was free to apply anywhere from a
+    /// fifth to an unbounded multiple of the reference's gain — including the crunchy
+    /// over-processed direction the stage was rewritten to escape.
+    ///
+    /// And turning each stage off must still move the picture, measured ONE AT A TIME.
+    /// Without that, this would be comparing two copies of the colour path and would
+    /// pass with every spatial kernel unwired.
     func testGraphMatchesTheReferenceRendererWithTheSpatialStagesOn() throws {
         try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
         var recipe = Recipe()
@@ -2242,14 +2270,35 @@ final class KernelGoldenTests: XCTestCase {
 
         var worst = 0.0
         var worstAt = (0, 0)
+        var differences: [Double] = []
         for y in 0..<source.height {
             for x in 0..<source.width {
                 let d = reference[x, y].maxAbsDifference(gpu[x, y])
+                differences.append(d)
                 if d > worst { worst = d; worstAt = (x, y) }
             }
         }
+        let sorted = differences.sorted()
+        let rms = (differences.map { $0 * $0 }.reduce(0, +)
+                    / Double(differences.count)).squareRoot()
+        let tail = sorted[Swift.min(Int(Double(sorted.count) * 0.999), sorted.count - 1)]
+        let loud = differences.filter { $0 > 0.05 }.count
+        // PRINTED ON EVERY RUN, PASSES INCLUDED. See this test's docstring: the bound
+        // above has stood at 0.25 through every green lane run because the number to
+        // tighten it to has never been written anywhere. Four numbers rather than one,
+        // because a worst-pixel figure can be a single outlier at a frame edge and the
+        // bound that replaces 0.25 should be set knowing whether it is.
+        print(String(format:
+            "SPATIALPARITY 64x32 texture+clarity+vignette: worst %.6f at (%d, %d)  "
+                + "rms %.6f  p99.9 %.6f  over 0.05 %.2f%% of pixels",
+            worst, worstAt.0, worstAt.1, rms, tail,
+            100 * Double(loud) / Double(differences.count)))
         XCTAssertLessThan(worst, 0.25,
-                          "the spatial path diverged by \(worst) at \(worstAt)")
+                          "the spatial path diverged by \(worst) at \(worstAt) "
+                              + "(rms \(rms), p99.9 \(tail)). 0.25 is a smoke-test bound "
+                              + "worth 64 sRGB code values, so a failure here is a stage "
+                              + "wired to the wrong input, applied twice or missing — "
+                              + "not a blur approximation drifting")
 
         // And each stage actually ran — measured ONE AT A TIME.
         //

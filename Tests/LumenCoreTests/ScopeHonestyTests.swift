@@ -259,7 +259,7 @@ final class ScopeHonestyTests: XCTestCase {
     ///
     /// A pixel the working space genuinely blew, Rec.2020 linear (1.0, 0.2, 0.2), leaves
     /// the encoder clamped into the sRGB gamut. Reconstructed from those 8 bits it reads
-    /// 0.669 in working red — not clipped — while in sRGB it reads code 255, which is
+    /// 0.668 in working red — not clipped — while in sRGB it reads code 255, which is
     /// clipped, and true of the frame. Binning in the requested space would replace a
     /// correct answer with a systematic under-report of every saturated clip: H2-01's
     /// failure class, one space over.
