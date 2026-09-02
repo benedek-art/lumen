@@ -893,20 +893,11 @@ private struct EmptyState: View {
     @EnvironmentObject var state: AppState
 
     var body: some View {
-        VStack(spacing: 10) {
-            Image(systemName: "photo.on.rectangle.angled")
-                .font(.lumenGlyphDisplay)
-                .foregroundStyle(Lumen.secondaryText)
-            Text("Open a folder of photographs")
-                .font(.lumenLead)
-                .foregroundStyle(Lumen.primaryText)
-            Text("Folders are the library. Nothing is copied, moved, or modified.")
-                .font(.lumenBody)
-                .foregroundStyle(Lumen.secondaryText)
-            Button("Open Folder…") { state.chooseFolder() }
-                .padding(.top, 6)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        LumenEmptyState(
+            symbol: "photo.on.rectangle.angled",
+            headline: "Open a folder of photographs",
+            detail: "Folders are the library. Nothing is copied, moved, or modified.",
+            actionTitle: "Open Folder…") { state.chooseFolder() }
     }
 }
 

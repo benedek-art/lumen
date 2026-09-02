@@ -121,18 +121,16 @@ struct GridView: View {
     @ViewBuilder
     private func emptyState(count: Int) -> some View {
         if count == 0 {
-            VStack(spacing: 8) {
-                Text(emptyMessage)
-                    .font(.lumenBody)
-                    .foregroundStyle(Lumen.secondaryText)
-                if state.filter.isActive {
-                    Button("Clear Filter") { state.filter = LibraryFilter() }
-                        .buttonStyle(.plain)
-                        .font(.lumenBody)
-                        .foregroundStyle(Lumen.primaryText)
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // NO MARK HERE, which is the one place the component is asked to draw
+            // without one: this overlay sits on a grid that may still be showing a
+            // filmstrip underneath, and a 40 pt symbol there would be a second subject
+            // on a surface that already has one.
+            LumenEmptyState(symbol: nil,
+                            headline: emptyMessage,
+                            detail: emptyDetail,
+                            actionTitle: state.filter.isActive ? "Clear Filter" : nil,
+                            action: state.filter.isActive
+                                    ? { state.filter = LibraryFilter() } : nil)
             .background(Lumen.viewerBackground)
         }
     }
@@ -141,6 +139,17 @@ struct GridView: View {
         if state.isScanning { return "Scanning…" }
         if state.filter.isActive { return "No photos match this filter" }
         return "Open a folder of RAW files to begin"
+    }
+
+    /// The second line, which this state never had room for while it was one `Text`.
+    /// A filter that matches nothing is the state a photographer is most likely to
+    /// read as "my photographs are gone", so it is the one that gets a sentence.
+    private var emptyDetail: String? {
+        if state.isScanning { return "Reading the folder. Photographs appear as they "
+                                     + "are found." }
+        if state.filter.isActive { return "The photographs are still there — the filter "
+                                          + "is hiding them." }
+        return nil
     }
 }
 

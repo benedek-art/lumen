@@ -1799,13 +1799,10 @@ struct LoupeView: View {
     }
 
     private var unreadable: some View {
-        VStack(spacing: 6) {
-            Image(systemName: "exclamationmark.triangle")
-                .font(.system(size: 30))
-            Text("Can't read \(photo.filename)")
-                .font(.system(size: 12))
-        }
-        .foregroundStyle(Lumen.secondaryText)
+        LumenEmptyState(symbol: "exclamationmark.triangle",
+                        headline: "Can't read \(photo.filename)",
+                        detail: "No RAW decode and no embedded preview. The file is "
+                            + "still on disk and untouched.")
     }
 
     // MARK: Badges

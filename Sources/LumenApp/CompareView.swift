@@ -107,14 +107,10 @@ struct CompareView: View {
     private var comparisonSet: [PhotoItem] { state.comparisonSet }
 
     private var empty: some View {
-        VStack(spacing: 8) {
-            Image(systemName: "rectangle.split.2x1")
-                .font(.system(size: 34))
-            Text("Select two or more photos to compare")
-                .font(.lumenBody)
-        }
-        .foregroundStyle(Lumen.secondaryText)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        LumenEmptyState(symbol: "rectangle.split.2x1",
+                        headline: "Select two or more photos to compare",
+                        detail: "Shift-click in the grid or the filmstrip, or press C "
+                            + "with a selection.")
     }
 
     // MARK: 2-up
@@ -141,14 +137,8 @@ struct CompareView: View {
                     // minimumDistance-0 drag and never fired.
             }
             if pair.count == 1 {
-                VStack(spacing: 6) {
-                    Image(systemName: "plus.rectangle")
-                        .font(.system(size: 26))
-                    Text("Select a second photo")
-                        .font(.lumenBody)
-                }
-                .foregroundStyle(Lumen.secondaryText)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                LumenEmptyState(symbol: "plus.rectangle",
+                                headline: "Select a second photo")
                 .background(Lumen.viewerBackground)
             }
         }

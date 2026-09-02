@@ -199,10 +199,35 @@ final class DesignSystemTests: XCTestCase {
         }
     }
 
+    /// ONE EMPTY STATE. The app had five, written five ways — four mark sizes (26, 30,
+    /// 34, 40), three text treatments and four stack spacings, for one idea.
+    ///
+    /// This is the failure `DesignSystemTests` could not previously see: every one of
+    /// those five spelled its tokens correctly. What repeated was a SHAPE, and a shape
+    /// has no name to grep for until somebody gives it one. `LumenEmptyState` is the
+    /// name; the check is that the display mark — the 40 pt symbol that says "this
+    /// surface has nothing on it" — is drawn in exactly one file.
+    func testTheDisplayMarkIsDrawnInOnePlace() {
+        var sites: [String] = []
+        for (name, text) in Self.sources where name != "LumenEmptyState.swift" {
+            guard name != "LumenType.swift" else { continue }   // the token's own definition
+            for (offset, line) in text.split(separator: "\n",
+                                             omittingEmptySubsequences: false).enumerated()
+            where line.contains("lumenGlyphDisplay") {
+                sites.append("\(name):\(offset + 1): "
+                             + line.trimmingCharacters(in: .whitespaces))
+            }
+        }
+        XCTAssertTrue(sites.isEmpty,
+                      "a surface is drawing its own empty state again — use "
+                          + "LumenEmptyState, which is the shape all five of them were "
+                          + "reaching for:\n" + sites.joined(separator: "\n"))
+    }
+
     // MARK: - Ratchets
 
     /// Raw `.system(size:)` calls. 199 after U1, 166 after U2's migration of the ten
-    /// owned panels, 84 after U3's shell, **39** after U5 separated the two scales.
+    /// owned panels, 84 after U3's shell, **35** after U5 separated the two scales and gave the empty states one shape.
     ///
     /// That last drop is where the number stopped being about laziness. Most of what
     /// survived U3 was not text at all: `.font(.system(size: 40))` on an `Image` sets a
@@ -219,9 +244,9 @@ final class DesignSystemTests: XCTestCase {
     /// decision made with all four on screen, not a batch rename.
     func testRawFontSizesOnlyEverDecrease() {
         let n = total(".system(size:")
-        XCTAssertLessThanOrEqual(n, 39,
+        XCTAssertLessThanOrEqual(n, 35,
                                  "\(n) raw .system(size:) calls in Sources/LumenApp, up "
-                                 + "from 39 — use .lumenHeading / .lumenBody / "
+                                 + "from 35 — use .lumenHeading / .lumenBody / "
                                  + ".lumenCaption / .lumenNumeric / .lumenCaptionStrong "
                                  + "/ .lumenLead / .lumenTitle for TEXT, and "
                                  + ".lumenGlyph* for a glyph")
