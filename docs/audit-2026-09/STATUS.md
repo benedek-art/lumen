@@ -20,6 +20,75 @@ deferrals lifted · UI: Option B "Modern pro", whole · rows 24 pt · keymap: `L
 Out, `B`→album, `⌘B`→assessment, `F`/`S` stay · denoise: free + best, delivery mine
 (download-on-first-use), timing mine.
 
+## THE SECOND HALF — where the run is now
+
+The plan for this stretch is `/root/.claude/plans/enchanted-skipping-rocket.md`. The
+mission, in one line: **audit the seventeen areas that were never audited, land what
+they find, and let the decode path meet a real RAW file.**
+
+W2 was scoped to 30 areas and trimmed to 13 when the owner said "trim discovery, spend
+it on fixes". That was right then and it left seventeen areas unexamined — chosen for
+where work was already queued, not for where risk lives. Every area that HAS been
+audited produced at least one S1 or a real S2. There is no reason to think the other
+half is cleaner; it is just unread.
+
+Six concurrent agents, hard cap, and a commit after every wave. Twenty concurrent
+agents died on a session rate limit earlier tonight, and the commit-per-wave rule is
+what makes a container reset cost one wave instead of the night.
+
+- [x] **Wave 1** — M, J3, A1, K, I3 + the RAW-corpus lane design. `2124941`, `d38ec25`.
+- [ ] **Wave 2** — E1 denoise, E2 sharpening, B2 grading, B3 colour panel, D1 looks &
+      presets, D2 effects. IN FLIGHT.
+- [ ] **Wave 3** — F2 mask engine & perf, G3 navigation, H1 viewer, H2 scopes, I2
+      kernels vs the reference, J2 library & culling UX.
+- [ ] **Wave 4+** — the fix streams the three waves produce, then the standing S2
+      backlog in `w3/dispositions.md` order.
+
+### Wave 1's harvest — 3 S1, 17 S2, 13 S3 across five areas
+
+| id | sev | what |
+|---|---|---|
+| **M-01** | S1 | `CatalogStore` refuses a recipe from a newer build twice over; the SIDECAR path does neither. A `.xmp` a newer build wrote is reduced to the keys this build's `CodingKeys` name and written back still claiming the newer number. **LANDING NOW.** |
+| **J3-01** | S1 | the tolerant delivery-preset decode is one level deep — a field added to `OutputSharpen`/`MetadataPolicy` throws out of the array decode and `AppState`'s `try?` reverts every preset to the stock four |
+| **J3-02** | S1 | a filename template that renders empty makes `folder.appendingPathComponent("")` yield `.../Deliveries.jpg` — the whole batch is written BESIDE the folder the open panel granted |
+| **KG-01** | S2 | with >1 photo selected every crop/angle/ratio write is computed from the PRIMARY's frame dimensions and stamped on all targets — K-023's exact defect, in the one place its fix does not reach |
+| **KG-02** | S2 | `O` calls `setMasking(true)` instead of the `toggleMasking` entry verb, so the crop tool stays armed inside the mask editor |
+| **A1-01** | S2 | Contrast clips 1.875 stops of highlight and 3.037 of shadow where the tooltip, docs/04 and the test all promise it cannot |
+| **A1-03** | S2 | Whites/Blacks silently drag every Zones pivot; Whites +100 alone moves "Midtones" to −0.96 EV while the strip's handles do not move |
+| **I3-01** | S2 | `recordDeveloped` files a viewer-sized settle at the fixed 2560 rung, so the loupe's first frame after an edit comes back SOFTER — against the "never upward" rule `PreviewCache` states in its own header |
+| **I3-02** | S2 | `trimDecodeResidency`'s 768 MB is not a bound: the two passes spare `sourceOrder.last` and `suffix(4)`, an inspection plane is budget-exempt, so the enforceable floor is 1792 MB |
+
+Full files: `w2/M.md`, `w2/J3.md`, `w2/A1.md`, `w2/K-area.md`, `w2/I3.md`.
+
+### The audits corrected themselves, which is the point of reading them
+
+- **J3 closed five known-open rows** by verifying rather than assuming: K-024, K-025,
+  K-026, K-096, K-065. It also found K-015 FIXED-SINCE, correcting J1's row, and
+  K-103 INVERTED — watermarking is fully built and docs/11 still calls it deferred.
+- **K filed nothing for the thing its brief suspected.** `sourceNormalized` and
+  `displayedNormalized` are exact inverses by construction (one `geometryRects` call
+  feeds both), and the flip/crop composition, the canvas tilt's sign, `usableSize`'s
+  join at 45 degrees and a crop's CanonicalJSON round trip were all verified by hand
+  and recorded as correct. That list is worth as much as the defects.
+- **A1 found its own area's test to be a tautology**: `testContrastPinsTheEndsOfTheScale`
+  probes ±12 EV, exactly where `smoothstep(4, 12, |d|)` is 1 by construction, while the
+  picture is formed against anchors at +5/−9 EV. Green, and blind.
+- **J1-03's audit was half wrong and I checked it before fixing it.** It said
+  `sidecar_mtime` "is not updated by the flush at all". It is — `setSidecarMTime` runs
+  on every successful write with a known `photoID`. The stale-read half was real; the
+  mtime half was not, and the fix does not pretend to close it.
+
+### The RAW corpus lane
+`.github/workflows/raw-corpus.yml` + `w6/raw-corpus-plan.md`. 16 CC0 files, 233.9 MB,
+12 containers, 12 manufacturers, Bayer in three phases plus X-Trans, monochrome and
+Foveon; four real rotated files in both directions. **No goldens** — exactly one number
+is pinned per file (the EXIF orientation tag, which lives in bytes a sha256 already
+froze); every other assertion is a property of any photograph or a cross-check between
+two independent readers. **It has never run.** Read plan §9 before reading a failure.
+Its first run answers a question this project does not currently know the answer to:
+whether `CIRAWFilter.nativeSize` is oriented or in sensor order — several caches and
+ladders quietly assume one.
+
 ## Waves
 - [x] W0 — ledger K-001…K-104, perf baseline, 42 briefs
 - [x] W1 — 7 dossiers + gap table
