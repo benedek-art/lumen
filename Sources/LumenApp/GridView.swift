@@ -310,7 +310,7 @@ struct PhotoCell: View {
             }
         }
         // 120 ms, first appearance only (docs/10 §10.2): never a white flash.
-        .animation(.easeOut(duration: 0.12), value: image == nil)
+        .animation(Lumen.motionState, value: image == nil)
         .frame(width: side, height: wellHeight)
         .overlay(alignment: .bottom) {
             if hasBadges || showsStars { badges }

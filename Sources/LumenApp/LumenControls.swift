@@ -1259,7 +1259,7 @@ struct LumenSlider: View {
                 .strokeBorder(isModified ? Lumen.sliderFillModified : Color.clear,
                               lineWidth: 1))
         .clipShape(Capsule(style: .continuous))
-        .animation(.easeOut(duration: 0.12), value: isModified)
+        .animation(Lumen.motionState, value: isModified)
     }
 
     private var formatted: String {
@@ -1538,7 +1538,7 @@ struct LumenSectionHeader: View {
                     .font(.lumenCaption)
                     .foregroundStyle(Lumen.secondaryText)
                     .opacity(hovering ? 1 : 0)
-                    .animation(.easeOut(duration: 0.1), value: hovering)
+                    .animation(Lumen.motionState, value: hovering)
                     // An empty string is SwiftUI's own "no tooltip", so the nil case
                     // costs nothing and the modifier does not need a branch.
                     .help(resetHelp ?? "")
@@ -1600,7 +1600,7 @@ struct LumenSectionHeader: View {
         // over 20 points of a 300-point target. Gated the same way the hover fill is —
         // a pointing hand over a label that answers no click is a promise broken.
         .lumenClickCursor(isInteractive)
-        .animation(.easeOut(duration: 0.12), value: hovering)
+        .animation(Lumen.motionState, value: hovering)
         .padding(.top, topRhythm)
     }
 
@@ -1680,7 +1680,7 @@ struct LumenSegmented<T: Hashable>: View {
         // the eye that the segments sit DOWN in the panel rather than being three
         // rectangles that happen to be adjacent (`LumenSurface.swift`).
         .lumenWell(radius: Lumen.radiusChip)
-        .animation(.easeOut(duration: 0.12), value: hovered)
+        .animation(Lumen.motionState, value: hovered)
     }
 
     /// The selected segment's chip: inset two points on every side so the fill reads as

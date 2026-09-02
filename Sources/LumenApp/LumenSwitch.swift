@@ -100,7 +100,7 @@ struct LumenSwitch: View {
         // at 1 — a critically damped spring at this duration is a firm click rather than
         // a bounce, and a toggle that overshoots looks like a toy.
         .animation(.spring(response: 0.12, dampingFraction: 1), value: isOn)
-        .animation(.easeOut(duration: 0.12), value: hovering)
+        .animation(Lumen.motionState, value: hovering)
         .accessibilityAddTraits(.isButton)
         .accessibilityValue(isOn ? "on" : "off")
     }
@@ -154,8 +154,8 @@ struct LumenCheckbox: View {
             .contentShape(Rectangle())
             .onHover { hovering = $0 && isEnabled }
             .onTapGesture { if isEnabled { isOn.toggle() } }
-            .animation(.easeOut(duration: 0.12), value: isOn)
-            .animation(.easeOut(duration: 0.12), value: hovering)
+            .animation(Lumen.motionState, value: isOn)
+            .animation(Lumen.motionState, value: hovering)
             .accessibilityAddTraits(.isButton)
             .accessibilityValue(isOn ? "checked" : "unchecked")
     }
@@ -198,7 +198,7 @@ struct LumenProgressBar: View {
             }
         }
         .frame(height: height)
-        .animation(.easeOut(duration: 0.18), value: fraction)
+        .animation(Lumen.motionReadout, value: fraction)
     }
 }
 

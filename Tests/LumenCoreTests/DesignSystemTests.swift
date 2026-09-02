@@ -224,6 +224,56 @@ final class DesignSystemTests: XCTestCase {
                           + "reaching for:\n" + sites.joined(separator: "\n"))
     }
 
+    /// THREE MOTIONS, AND THREE NAMED EXCEPTIONS. Everything else animates through
+    /// `Lumen.motionState`, `.motionFold` or `.motionReadout`.
+    ///
+    /// Motion was already the best-disciplined part of the system — 20 of 34 transitions
+    /// agreed on `easeOut(0.12)` — and the 14 that did not are a subtler failure than the
+    /// type scale's. Those numbers were not careless, they were LOCAL: each argued in a
+    /// comment beside it, and two of those comments are arguing for exactly the
+    /// consistency the tokens now provide. `PanelLayout` wrote "the kind of mismatch
+    /// nobody can name and everybody feels" while fixing it in one file; the mask panel's
+    /// disclosures — the same gesture — were still `easeOut(0.14)` in one place and
+    /// `easeOut(0.16)` in two others, and the menu's fold was a third spring at 0.26.
+    ///
+    /// The allowlist is three sites and each answers a question no other site asks. It is
+    /// spelled out here rather than left to a count, because a count would let a fourth
+    /// in as long as a third went out.
+    func testEverythingAnimatesThroughTheThreeMotions() {
+        let allowed: Set<String> = [
+            // A control's own travel under the finger, argued in place.
+            "LumenSwitch.swift:spring(response: 0.12",
+            // Not a transition: the scan spinner.
+            "LumenSwitch.swift:linear(duration: 0.9",
+            // Near-instant on purpose — the list under the cursor has already changed.
+            "ControlPalette.swift:linear(duration: 0.08",
+        ]
+        var offenders: [String] = []
+        for (name, text) in Self.sources where name != "LumenMotion.swift" {
+            for (offset, line) in text.split(separator: "\n",
+                                             omittingEmptySubsequences: false).enumerated() {
+                for curve in ["easeOut", "easeIn", "easeInOut", "spring", "smooth", "linear"] {
+                    for label in ["duration: ", "response: "] {
+                        let needle = ".\(curve)(\(label)"
+                        guard let r = line.range(of: needle) else { continue }
+                        let number = line[r.upperBound...].prefix(while: { $0.isNumber || $0 == "." })
+                        let key = "\(name):\(curve)(\(label)\(number)"
+                        if allowed.contains(key) { continue }
+                        offenders.append("\(name):\(offset + 1): \(key) — "
+                                         + line.trimmingCharacters(in: .whitespaces))
+                    }
+                }
+            }
+        }
+        XCTAssertTrue(offenders.isEmpty,
+                      "a transition is writing its own timing again. Use "
+                          + "Lumen.motionState for a control changing under the hand, "
+                          + ".motionFold for a surface opening or closing, "
+                          + ".motionReadout for a value settling — or add the site to "
+                          + "this test's allowlist with the reason:\n"
+                          + offenders.joined(separator: "\n"))
+    }
+
     // MARK: - Ratchets
 
     /// Raw `.system(size:)` calls. 199 after U1, 166 after U2's migration of the ten

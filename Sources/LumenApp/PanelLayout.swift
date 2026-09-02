@@ -185,7 +185,7 @@ final class PanelLayout: ObservableObject {
         // inside it opened on visibly different timings — the kind of mismatch nobody
         // can name and everybody feels. Critically damped: leaves immediately, no
         // overshoot, which is right for furniture being moved rather than thrown.
-        withAnimation(.spring(response: 0.28, dampingFraction: 1)) {
+        withAnimation(Lumen.motionFold) {
             layout = next
         }
         persist(next)

@@ -75,7 +75,7 @@ extension View {
             .contentShape(Rectangle())
             // Animated on the value rather than on the view, so losing focus fades out
             // rather than snapping — the asymmetry the eye reads as responsiveness.
-            .animation(.easeOut(duration: 0.12), value: focused)
+            .animation(Lumen.motionState, value: focused)
     }
 
     /// Focus for a control that has no instrument of its own to look engaged.
@@ -100,7 +100,7 @@ extension View {
             RoundedRectangle(cornerRadius: radius, style: .continuous)
                 .strokeBorder(focused ? Lumen.focusRing : Color.clear,
                               lineWidth: Lumen.focusRingWidth))
-            .animation(.easeOut(duration: 0.12), value: focused)
+            .animation(Lumen.motionState, value: focused)
     }
 }
 

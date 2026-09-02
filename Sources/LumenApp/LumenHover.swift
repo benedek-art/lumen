@@ -171,7 +171,7 @@ private struct LumenHoverModifier: ViewModifier {
                     .fill(hovering && enabled ? Lumen.hovered(on: base) : Color.clear))
             .contentShape(Rectangle())
             .onHover { hovering = $0 }
-            .animation(.easeOut(duration: 0.12), value: hovering)
+            .animation(Lumen.motionState, value: hovering)
     }
 }
 #endif

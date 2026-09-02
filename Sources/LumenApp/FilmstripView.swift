@@ -123,7 +123,7 @@ struct FilmstripView: View {
                         lastClickedID = nil
                     } else {
                         lastClickedID = nil
-                        withAnimation(.easeOut(duration: 0.12)) {
+                        withAnimation(Lumen.motionState) {
                             proxy.scrollTo(id, anchor: .center)
                         }
                     }

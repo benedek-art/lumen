@@ -706,7 +706,7 @@ struct MaskPanel: View {
             // mask and selecting one are two different places to press rather than two
             // meanings of one press.
             Button {
-                withAnimation(.easeOut(duration: 0.14)) {
+                withAnimation(Lumen.motionFold) {
                     if isOpen { expandedMaskIDs.remove(mask.id) }
                     else { expandedMaskIDs.insert(mask.id) }
                 }
@@ -2503,7 +2503,7 @@ struct MaskPanel: View {
         VStack(alignment: .leading, spacing: 4) {
             if !prominent {
                 Button {
-                    withAnimation(.easeOut(duration: 0.16)) { isOpen.wrappedValue.toggle() }
+                    withAnimation(Lumen.motionFold) { isOpen.wrappedValue.toggle() }
                 } label: {
                     // THE MOST-PRESSED CONTROL IN THE PANEL, drawn like it. It was a
                     // 22 pt row of secondary text with an 8 pt chevron — "the add mask

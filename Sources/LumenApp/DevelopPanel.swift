@@ -212,7 +212,7 @@ struct DevelopDisclosure<Content: View>: View {
         // lives. Wrapping the binding rather than each of the twenty call sites means a
         // fold cannot be added without the movement coming with it.
         // RE-TIMED, because "the animation for the open and close for the chevrons are
-        // not great" and `.smooth(duration: 0.22)` was the wrong shape for a fold.
+        // not great" and `Lumen.motionReadout` was the wrong shape for a fold.
         //
         // `.smooth` is a bezier: it eases in as well as out, so the first frames of an
         // open barely move and the drawer appears to hesitate before committing — which
@@ -226,8 +226,7 @@ struct DevelopDisclosure<Content: View>: View {
         // furniture being moved, not an object being thrown.
         self._isExpanded = Binding(get: { isExpanded.wrappedValue },
                                    set: { new in
-                                       withAnimation(.spring(response: 0.28,
-                                                             dampingFraction: 1)) {
+                                       withAnimation(Lumen.motionFold) {
                                            isExpanded.wrappedValue = new
                                        }
                                    })
@@ -644,7 +643,7 @@ private struct DevelopFooterButton: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
-        .animation(.easeOut(duration: 0.12), value: hovering)
+        .animation(Lumen.motionState, value: hovering)
         .lumenClickCursor()
         .help(help)
     }

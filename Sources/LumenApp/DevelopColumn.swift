@@ -86,8 +86,8 @@ struct WorkspaceRail: View {
         // rail is furniture, and `windowBase` 0.18 beside the viewer's 0.165 canvas is
         // how two regions divide themselves on this ladder without a drawn rule.
         .background(Lumen.windowBase)
-        .animation(.easeOut(duration: 0.12), value: hovered)
-        .animation(.easeOut(duration: 0.12), value: maskHovered)
+        .animation(Lumen.motionState, value: hovered)
+        .animation(Lumen.motionState, value: maskHovered)
     }
 
     private func railTab(_ workspace: Workspace) -> some View {
@@ -229,8 +229,8 @@ struct MaskingReturnBar: View {
         }
         .padding(.horizontal, 4)
         .padding(.vertical, 4)
-        .animation(.easeOut(duration: 0.12), value: backHovered)
-        .animation(.easeOut(duration: 0.12), value: masksHovered)
+        .animation(Lumen.motionState, value: backHovered)
+        .animation(Lumen.motionState, value: masksHovered)
     }
 
     /// The word that said where the column was, turned into the switch for the box.

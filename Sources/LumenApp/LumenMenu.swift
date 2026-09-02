@@ -143,7 +143,7 @@ struct LumenMenu<Content: View>: View {
             // On the stack rather than on the trigger: what moves when this opens is the
             // list arriving and everything below it being pushed down, and neither of
             // those is inside the button.
-            .animation(.spring(response: 0.26, dampingFraction: 1), value: isOpen)
+            .animation(Lumen.motionFold, value: isOpen)
         } else {
             trigger
                 .popover(isPresented: $isOpen, arrowEdge: .bottom) {
@@ -249,8 +249,8 @@ struct LumenMenu<Content: View>: View {
         .lumenFocusRing(focused: triggerFocused, radius: Lumen.radiusControl)
         .onHover { hovering = $0 }
         .lumenClickCursor()
-        .animation(.easeOut(duration: 0.12), value: hovering)
-        .animation(.spring(response: 0.26, dampingFraction: 1), value: isOpen)
+        .animation(Lumen.motionState, value: hovering)
+        .animation(Lumen.motionFold, value: isOpen)
         .help(help ?? title)
     }
 }
@@ -318,7 +318,7 @@ struct LumenMenuItem: View {
         .buttonStyle(.plain)
         .disabled(!isEnabled)
         .onHover { hovering = $0 }
-        .animation(.easeOut(duration: 0.1), value: hovering)
+        .animation(Lumen.motionState, value: hovering)
     }
 }
 

@@ -1298,7 +1298,7 @@ struct CropOverlayView: View {
         }
         .opacity(visible ? 1 : 0)
         .allowsHitTesting(false)
-        .animation(.easeOut(duration: 0.12), value: visible)
+        .animation(Lumen.motionState, value: visible)
     }
 
     /// The arc itself, in this view's points — see `rotateCueLayer(in:)` above for what
@@ -1378,7 +1378,7 @@ struct CropOverlayView: View {
                                style: StrokeStyle(lineWidth: weight, lineJoin: .miter))
             }
             .allowsHitTesting(false)
-            .animation(.easeOut(duration: 0.12), value: hot)
+            .animation(Lumen.motionState, value: hot)
 
             Rectangle()
                 .fill(Color.clear)
@@ -1431,7 +1431,7 @@ struct CropOverlayView: View {
                            height: horizontal ? weight : bar)
             }
             .allowsHitTesting(false)
-            .animation(.easeOut(duration: 0.12), value: hot)
+            .animation(Lumen.motionState, value: hot)
 
             Rectangle()
                 .fill(Color.clear)

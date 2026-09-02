@@ -189,7 +189,7 @@ struct MaskFloatingPanel: View {
     /// opens the panel first, because a roster board 62 points wide is not a board.
     private var createButton: some View {
         Button {
-            withAnimation(.easeOut(duration: 0.16)) {
+            withAnimation(Lumen.motionFold) {
                 if state.maskPanelMinimized {
                     state.maskPanelMinimized = false
                     state.maskCreateBoardOpen = true

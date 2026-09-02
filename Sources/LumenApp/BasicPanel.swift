@@ -672,7 +672,7 @@ struct BasicPanel: View {
         // Declared against the value rather than wrapped around the write: the write is
         // a drag sample inside `RecipeBinder`, which no panel reaches. Same curve as
         // `PanelLayout.commit`, so a row appearing moves the way a section opening does.
-        .animation(.smooth(duration: 0.22), value: densityIsLive)
+        .animation(Lumen.motionReadout, value: densityIsLive)
     }
 }
 
