@@ -56,17 +56,60 @@ Out, `B`→album, `⌘B`→assessment, `F`/`S` stay · denoise: free + best, del
 **Seven S1s landed.** Four were found tonight (F3-01, F3-03, F4-01, F4-02); two of those
 were regressions in code that shipped this morning.
 
+## Landed, batch 2 (after ac5570d)
+
+| SHA | Landing | Proof |
+|---|---|---|
+| 31ef62a | **L-01 / A2-01** a grading-wheel drag is one undo step, not two per mouse event — gesture epoch as the first coalescing clause | substitution: "480 is not equal to 1 — a four-second wheel drag produced 480 undo steps" |
+| 3fbb096 | **B1-02** Point Colour stops rotating the hue of near-neutrals — chroma gate hoisted out of the Variance branch | substitution: "60.00000000000068 is not less than 1.0", both controls stay green; `pointColor.hue` proof record expected to move — re-pin pending the local drift run |
+| cf9fb58 | **I1-01 + I1-03** a settle joins or steals the bake the drag already queued (245–319 ms off the release of Whites/Saturation); background bakes and joins counted on the HUD (`d`/`j`); `resetStats` zeroes per-slot traffic too | substitution in two rounds: read-side door removed → "2 is not equal to 1"; store-side pending clear removed → "baked twice: once by the settle and once again by the drain" |
+| 56008bf | **C2-01** (corrected) the blue grain record is the same texture in preview and export — one half-pixel floor, not two | 5 tests; the red/green no-op is pinned across 6 stocks × 4 resolutions |
+
+**Audit corrections made while landing** — recorded because W3 would otherwise re-find them:
+- **C2-01 named the wrong channel.** The double floor is provably a no-op for `sizeScale ≤ 1`
+  (red 0.8, green 1.0): `max(max(x,½)·s, ½) = max(x·s, ½)` for `s ≤ 1`. It is real for BLUE
+  at 2.0 (Velvia 17.2 %, Ektar 0.45 % preview↔export divergence → exactly 0 after). The
+  red 46 % / green 17 % divergences the finding headlined are the floor itself and need
+  R7 C.2.3's band-limited plate — **still open**, filed as C2-01b.
+- **G2-12's glyph radius** (2.5 in `LumenBehaviourGlyph`) is correct: the canvas is 14 pt
+  tall, the box ~8, and `radiusChip` on it is a capsule. Reverted with the reasoning in
+  the file.
+- **G2's "pitch = 24" for the slider row** would have made the column tighter than the
+  build the owner called "back to back to back" — his words beat the mockup (third time
+  this round: radii, hover, now pitch). Reconciled: row 24 (his number), inner air kept,
+  the vestigial outer point (it separated HOVER fills, and hover is gone) dropped →
+  pitch 28, on the grid, exactly what he approved.
+- **The mockup's focus ring** on slider rows contradicts *"it gets a blue border around
+  it, which I don't want"* (`LumenFocus.swift`). Scoped: rows keep `lumenFocusSurface`;
+  `lumenFocusRing` exists for controls with no groove (menu trigger, switches).
+
+## U1 — in progress on the tree (uncommitted until the drift run frees `.build`)
+Tokens: text 0.86/0.62/0.48 · `hoverLift` +0.03 additive via `Lumen.hovered(on:)` ·
+`focusRing` accent@60 1.5 pt · `hudFill` black@72 + `lumenHUD()` · `rowHeight` 24 ·
+type 12 semibold / 11 / 10 / 11 tabular. Radii **unchanged** (6/9/14 + `radiusTab` 12 —
+the rail tab's own argument stands). 53 section headers to mixed case through
+`.lumenHeading` (it had zero call sites); `LumenCapsLabel` to one size (10). Cursor leak
+(G2-05) closed by one balanced modifier for all three cursors. Switch spring 0.22→0.12;
+checkbox hover on the surface not `.brightness`. Menu: hairline retired, glyphs to the
+10 pt floor, trigger gets additive hover + focus ring. Slider readout is a pill (well
+fill, modified border in the 0.72 grey), `valueWidth` 44→48 with the pill's air inside
+the column. Badge → HUD pill. `DesignSystemTests`: three prohibitions (no hover/ring on
+the slider row, headings through the token, cursor pushes only through the modifier) and
+five ratchets (raw font sizes 199, 9 pt 37, raw radii 34, hand-rolled HUD fills 19).
+**Deferred to U5:** toggle-row keyboard focus — space is a global hold key in `Keymap`,
+so the row would need the dispatcher yield the slider has.
+
 ## Queued next, in order
-1. K-052 FTS never rebuilt · K-015 same-basename sidecar collision (patch sketches in `w2/J1.md`)
-2. **L-01 / A2-01** the grading-wheel drag: two undo steps per mouse event, evicting the
-   400-step history in ~3.4 s. Fix specified in `w2/L.md` (gesture epoch as the first
-   coalescing clause), three substitution-proof tests.
-3. **B1-01/02/03** Point Colour selects neutral grey at weight 1.000 and bypasses the
-   chroma gate; Saturation −100 flattens the entire B&W mix.
-4. **I1-01** `PlanTableCache.table` never consults `pending`, so a settle blocks on the
-   bake the drag queued and `drainPending` bakes it a third time (245–319 ms).
-5. **C2** the grain floor applied twice — Velvia red preview grain 46.5% coarser than export.
-6. **U1** the design system, then U2 from G1's 20-row checklist.
+1. Commit + push U1 once `DesignSystemTests` runs; watch build-macos closely — twelve
+   app files with no local compiler.
+2. Re-pin `pointColor.hue` if the drift run reports it moved (ceremony per PLAN.md).
+3. K-052 FTS never rebuilt · K-015 same-basename sidecar collision (`w2/J1.md`)
+4. **B1-01** Point Colour sigmas (proof ceremony) · **B1-03** Saturation −100 kills the B&W mix
+5. **I1-02** the DragProbe settle row samples values the draft never visits · **I1-04** the
+   `anyBakePending` settle loop re-renders whole frames while waiting
+6. **C2-01b** band-limited plate (the real red/green parity fix) · **C2-02** colour stocks
+   lay three decorrelated fields (chroma noise 2.45× luma) · **K-065** grain before resize
+7. **U2** panels to the grid from G1's checklist · U3 shell + keymap · U4 viewer/masks · U5
 
 ## Rule learned: docs-only pushes cancelled the code push's CI
 `ci.yml` triggered on every push and its concurrency group cancels in progress, so

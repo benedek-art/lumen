@@ -125,5 +125,24 @@ J library/export, K crop/lens, L state, M recipe).
 | id | area | sev | source | finding | verdict | disposition |
 |---|---|---|---|---|---|---|
 | N-001 | F2/I2 | **S1** | gpu-parity log run 33553464942 + `Kernels.swift:472,491` | `lumenMaskLinear` and `lumenMaskRadial` use `float long` — a reserved word in the CI Kernel Language — so neither compiled on any macOS build; `parametricMasksAvailable` false → `MaskGPU.isParametric` false → every gradient mask rasterized on the CPU. `testEveryKernelCompiles` could not see it (the four mask kernels were in no roster) and `MaskGPUParityTests` skipped 3/5 as "kernels unavailable". Green lane, dead fast path; the direct cause of "the mask is still delayed when I drag it". | CONFIRMED (log + grep) | **LANDED W0.7** in three pushes: d5d7136 `long`→`edge`; 64ae6da `out`→`folded` + checker pass 13; then the parity tests ran for the first time and found the GPU alpha **vertically mirrored** (kernels read `destCoord()` bottom-up, the reference indexes rows from the top) — fixed by `h − (y − oy)` in both generators. 64ae6da's dev build drew mirrored gradient masks for ~8 min. **fce5936: gpu-parity GREEN** — 20 cases × 3 resolutions + mirror + offset-extent all pass; the parametric fast path is live and correct for the first time. CLOSED. |
-| N-002 | I1 | S2 | `w0/perf-baseline.md` DRAGPROBE | Settle path bakes tables on every frame with zero cache hits for Whites (`0h/36b`, p50 388 ms vs 69 ms draft) and Saturation (p50 269 ms vs 24 ms draft) — the settle frame after a drag costs 7–11× the drafts that preceded it. | CONFIRMED (measured) | → I1 audit; engine window 1 candidate |
+| N-002 | I1 | S2 | `w0/perf-baseline.md` DRAGPROBE | Settle path bakes tables on every frame with zero cache hits for Whites (`0h/36b`, p50 388 ms vs 69 ms draft) and Saturation (p50 269 ms vs 24 ms draft) — the settle frame after a drag costs 7–11× the drafts that preceded it. | PARTLY REJECTED by I1: the `0h` is a probe artifact (disjoint sample sets + `resetStats` not clearing entries); the `36b` is real and is a double/triple bake | **LANDED cf9fb58** (I1-01 + I1-03): `table` joins an in-flight bake for its key or steals a queued one; `drainPending` counts `deferredBakes`; `resetStats` zeroes `slotTraffic`. Still open: I1-02 (fix the probe so the row can be re-measured) and I1-04 (the settle loop). Re-measure on gpu-parity's DragProbe after I1-02. |
 | N-003 | C1/I2 | S3 | `w0/perf-baseline.md` HALATION | Halation mass on the GPU is 6.4517 vs 6.8944 in the reference — 6% light, while spread matches (52.31 vs 52.74). | measured | → C1 audit |
+
+## W5 landings from W2 findings (batch 2, 2026-09-02)
+
+Findings that live in `w2/<code>.md` rather than as K-rows, dispositioned here so the
+close-out can walk one table.
+
+| Finding | Area | Sev | Landed | Note |
+|---|---|---|---|---|
+| L-01 / A2-01 | L, A2 | S1 | **31ef62a** | gesture epoch as the first coalescing clause; window rule untouched |
+| B1-02 | B1 | S1 | **3fbb096** | chroma gate applied to Point Colour's hue shift; `pointColor.hue` record may need re-pinning |
+| I1-01 | I1 | S2 | **cf9fb58** | join / steal; bounded 0.5 s wait so a missed broadcast degrades to a redundant bake, never a hang |
+| I1-03 | I1 | S2 | **cf9fb58** | `deferredBakes`, `joinedBakes` on `Stats` and the HUD (`d`, `j`) |
+| C2-01 | C2 | S2 | **56008bf** | CORRECTED: blue record only (Velvia 17 %, Ektar 0.45 % → 0). Red/green divergence is the floor itself → **C2-01b open**: band-limited plate per R7 C.2.3 |
+| G2-05 / K-035 | G2 | S2 | U1 (pending) | one balanced `LumenCursorModifier` for all three cursors |
+| G2-02 | G2 | S2 | U1 (pending) | `.lumenHeading` adopted at 53 headers |
+| G2-11 | G2 | S3 | U1 (pending) | `LumenCapsLabel` at one size |
+| G2-12 | G2 | S3 | **REJECTED** | 2.5 on an 8 pt drawn box is the correct proportion; `radiusChip` makes a capsule |
+| G2-03 | G2 | S1 | **REJECTED as a change** | radii 6/9/14 stand per the owner's recorded request; `radiusTab` stays on the rail tab's own argument |
+| G2-01 | G2 | S1 | resolved by correction | no thumb-on-hover; the modified/unmodified fill separation does the job |

@@ -141,6 +141,13 @@ it is the discipline that produces it.
    > the same wave by another means, so it goes too — the modified/unmodified fill
    > separation already does that job without motion. Focus keeps its surface, because
    > it is the one state with nothing else to show it.
+   >
+   > **And the focus RING is scoped, for the same reason.** The mockup drew a 1.5 pt
+   > accent ring on every focused control including slider rows; the owner rejected
+   > exactly that on a row (*"it gets a blue border around it, which I don't want"*,
+   > `LumenFocus.swift`). So: rows keep `lumenFocusSurface`; `lumenFocusRing` exists
+   > for controls with no groove to carry the state — menu triggers, switches, bare
+   > buttons — where a fill alone would read as "pressed".
 5. **The viewer is the hero**: chrome recedes (thinner bars, rail icons 14 pt with 9 pt
    labels), overlays and the floating Masks panel share one **HUD material** (black @72%,
    radius 10, no border), badges are pills not boxes.
