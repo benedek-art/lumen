@@ -224,7 +224,19 @@ final class DragProbeTests: XCTestCase {
         for event in 0..<events {
             // A hand does not land on round numbers, and a value that repeats would let
             // a cache answer a question the drag never asks.
-            let t = (Double(event) + 0.5) / Double(events)
+            //
+            // THE SETTLE SAMPLES A SUBSET OF THE DRAFT'S OWN VALUES. It used to sample
+            // `(event + 0.5) / 12` against the draft's `(event + 0.5) / 48` — odd
+            // ninety-sixths against even ones — so the two sets could never coincide,
+            // and the settle row was measured against a cache full of tables it was
+            // arithmetically incapable of asking for. `0h` was guaranteed before the
+            // first frame ran, and the row was read for two rounds as "the settle path
+            // is not wired to the cache", which was false. A settle is the frame after
+            // a drag ENDS, on the value the hand stopped at; it is priced here at every
+            // fourth value the draft just visited, which is that frame.
+            let stride = Self.events / Self.settleEvents
+            let index = allowStaleTables ? event : event * stride
+            let t = (Double(index) + 0.5) / Double(Self.events)
             let recipe = control.recipe(at: t)
 
             let t0 = DispatchTime.now().uptimeNanoseconds

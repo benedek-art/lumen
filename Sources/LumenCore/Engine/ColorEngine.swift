@@ -382,8 +382,25 @@ public struct ColorEngine: Sendable {
         let mean: RGB = source == c ? out : applyPrimaries(source)
         out = applyMixer(out, localMean: mean)
         out = applyPointColors(out, localMean: mean)
+        // THE B&W MIX READS ITS BANDS OFF THE COLOUR BEFORE THE CHROMA SCALE.
+        //
+        // Saturation is a chroma scale, and the mix's per-band gain is multiplied by
+        // the chroma gate of the pixel it is handed — so reading it off the
+        // post-saturation value drove the gate to zero as Saturation went down. At
+        // −75 the eight band sliders were 84% dead; at −100, exactly inert, with no
+        // message. "Desaturate, then mix the sky down in B&W" is the ordinary route
+        // into a black-and-white edit and it produced a flat conversion and eight
+        // sliders that moved nothing.
+        //
+        // The value captured here is the colour AFTER the Mixer and Point Colour and
+        // BEFORE Saturation: a deliberate hue edit still steers which band a pixel
+        // falls in (turn a blue sky cyan and mix the cyan band, as you would expect),
+        // while a chroma scale — which changes no hue and selects nothing — cannot
+        // switch the instrument off. The luminance the mix scales is still the
+        // saturated pixel's own.
+        let bandSource: RGB = out
         out = applyVibranceSaturation(out)
-        out = applyBlackAndWhite(out)
+        out = applyBlackAndWhite(out, bandSource: bandSource)
         guard out.isFinite else { return c }
         // NO gamut clip here. Display-gamut mapping is the last colour operation
         // inside S14 (docs/14 §2), and `DisplayTransform.apply` does it there, on
@@ -1239,13 +1256,15 @@ public struct ColorEngine: Sendable {
 
     // MARK: - Black & White (D20)
 
-    private func applyBlackAndWhite(_ c: RGB) -> RGB {
+    /// - Parameter bandSource: the colour whose hue and chroma choose the band — the
+    ///   pre-Saturation pixel, so a chroma scale cannot gate the mix off. See `apply`.
+    private func applyBlackAndWhite(_ c: RGB, bandSource: RGB) -> RGB {
         guard bwEnabled else { return c }
         let base = lumaWeights.r * c.r + lumaWeights.g * c.g + lumaWeights.b * c.b
         guard base.isFinite else { return c }
         var gain: Double = 1
         if bwHasBands {
-            let lch = context.toLCh(c)
+            let lch = context.toLCh(bandSource.isFinite ? bandSource : c)
             if lch.C.isFinite, lch.L.isFinite {
                 // The same smooth periodic band model as the Mixer, which is why an
                 // aggressive mix (Blue −80 skies) darkens cleanly instead of banding —
