@@ -82,6 +82,100 @@ public struct SidecarContent: Equatable, Sendable {
     }
 }
 
+/// Which fields a queued sidecar write actually STATED, as opposed to merely carried.
+///
+/// A pending write is built by seeding a whole `SidecarContent` from a read of the file
+/// and then setting the one or two fields the keystroke changed. Every other field in
+/// that struct is a COPY OF THE FILE, taken at the moment of the keystroke — and the
+/// write happens two seconds later. Anything another tool put in the file during those
+/// two seconds is overwritten by the copy, because `fieldLines` cannot tell a field
+/// this app chose from a field it merely read.
+///
+/// So the intent has to be carried alongside the values. This is the same distinction
+/// `enqueueSidecar`'s double-optionals already draw at the parameter — nil is "nothing
+/// to say", `.some(nil)` is "cleared" — kept alive for the two seconds between the
+/// keystroke and the write instead of being collapsed on the way into the queue.
+public struct SidecarStatedFields: OptionSet, Equatable, Sendable {
+    public let rawValue: Int
+    public init(rawValue: Int) { self.rawValue = rawValue }
+
+    public static let rating = SidecarStatedFields(rawValue: 1 << 0)
+    public static let flag = SidecarStatedFields(rawValue: 1 << 1)
+    public static let label = SidecarStatedFields(rawValue: 1 << 2)
+    /// The recipe trio moves together: `recipeJSON`, `recipeFingerprint` and
+    /// `pipelineVersion` are set by one assignment and are meaningless apart — a
+    /// fingerprint from one build over a recipe from another is worse than either.
+    public static let recipe = SidecarStatedFields(rawValue: 1 << 3)
+    public static let strokes = SidecarStatedFields(rawValue: 1 << 4)
+}
+
+extension XMPSidecar {
+    /// The file as it is NOW, wearing only the fields this batch actually chose.
+    ///
+    /// `stated` is the queued content — part intent, part two-second-old copy of the
+    /// file. `fresh` is a parse of the bytes on disk at flush time. The result keeps
+    /// `fresh` everywhere `fields` is silent, so an edit another tool made during the
+    /// debounce survives Lumen's write instead of being reverted by it.
+    ///
+    /// `writeStamp` is always the new one: this write is what it stamps.
+    ///
+    /// `catalogUUID` is deliberately NOT in `SidecarStatedFields`. Nothing in the
+    /// enqueue path ever sets it, so under the old seed-and-carry it could only ever be
+    /// the value read from the file — taking it from `fresh` preserves that, and does it
+    /// from a read two seconds newer.
+    public static func reseed(_ stated: SidecarContent,
+                              fields: SidecarStatedFields,
+                              onto fresh: SidecarContent) -> SidecarContent {
+        var out = fresh
+        if fields.contains(.rating) { out.rating = stated.rating }
+        if fields.contains(.flag) { out.flag = stated.flag }
+        if fields.contains(.label) { out.label = stated.label }
+        if fields.contains(.recipe) {
+            out.recipeJSON = stated.recipeJSON
+            out.recipeFingerprint = stated.recipeFingerprint
+            out.pipelineVersion = stated.pipelineVersion
+        }
+        if fields.contains(.strokes) { out.strokesPayload = stated.strokesPayload }
+        out.writeStamp = stated.writeStamp
+        return out
+    }
+
+    /// The fields this build is allowed to state, given what the document says it is.
+    ///
+    /// M-01. `CatalogStore` refuses a recipe from a newer build twice over — it clamps
+    /// the stamp it writes and rejects a row whose version exceeds this build's. The
+    /// sidecar path did neither. `SidecarMerge.resolve` decides on mtime and
+    /// fingerprint; `pipelineVersion` is parsed, and written, and never once compared
+    /// against `currentPipelineVersion`.
+    ///
+    /// What that costs: `decodeRecipe` merges a sparse tree onto defaults and hands it
+    /// to a decoder whose `CodingKeys` name the keys THIS build knows, so every key a
+    /// later build added is dropped — deliberately, and harmlessly, as long as the
+    /// reduced recipe stays in memory. It does not. The flush writes it back over the
+    /// document it came from. Edit a frame on a laptop running the newer build, open the
+    /// folder on a desktop that has not updated, nudge Exposure, and the newer build's
+    /// parameters are gone from the `.xmp` — which is the copy that exists precisely for
+    /// when the catalog does not.
+    ///
+    /// So this build declines to state a recipe it cannot represent. Dropping `.recipe`
+    /// from the stated set does not merely skip those elements: `reseed` then takes the
+    /// recipe trio from the parse of the file itself, so the newer build's recipe,
+    /// fingerprint and version are re-emitted VERBATIM. The rating, flag and label the
+    /// photographer just set still land. Nothing is lost in either direction, and the
+    /// document keeps saying what it truthfully is.
+    ///
+    /// It is deliberately a comparison against the FILE, not against the recipe in
+    /// hand. A recipe carries its version forward once decoded, so asking "is my recipe
+    /// newer" answers a question about this session's history; asking "is the document
+    /// newer than this build" answers the one that decides whether a write destroys
+    /// somebody's work.
+    public static func writableFields(_ stated: SidecarStatedFields,
+                                      documentVersion: Int) -> SidecarStatedFields {
+        guard documentVersion > currentPipelineVersion else { return stated }
+        return stated.subtracting(.recipe)
+    }
+}
+
 /// Reconciling what the catalog knows with what the sidecar says.
 ///
 /// The promise this exists to keep is "losing the catalog costs speed, never work"

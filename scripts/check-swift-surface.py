@@ -194,6 +194,7 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     "LocalizedError", "Any",
     "AnyObject", "AnyHashable", "Void", "Never", "Self", "Swift", "Identifiable",
     "CustomStringConvertible", "RawRepresentable", "CaseIterable", "Numeric",
+    "OptionSet",
     "AdditiveArithmetic", "BinaryFloatingPoint", "BinaryInteger", "FloatingPoint",
     "StringProtocol", "ContiguousArray", "ArraySlice", "MemoryLayout", "Mirror",
     "ObjectIdentifier", "OpaquePointer", "UnsafePointer", "UnsafeMutablePointer",
@@ -1483,6 +1484,34 @@ PLATFORM_MEMBERS = {
     },
 }
 
+# What a CONFORMANCE supplies, for the few protocols whose surface this file can
+# enumerate confidently.
+#
+# `_type_index` records each type's declared conformances but has never known what any
+# of them CONTRIBUTES, so a protocol extension's members read as absent. That was
+# invisible while every in-tree type conformed only to protocols whose members it also
+# declares itself (Codable, Equatable, Sendable). The first `OptionSet` in this codebase
+# broke it: `SidecarStatedFields` gets `subtracting` from `SetAlgebra` and declares
+# nothing, so the values pass reported a member that is unquestionably there.
+#
+# The same rule as PLATFORM_MEMBERS applies to what goes in here — a protocol whose
+# surface this file cannot enumerate confidently does not belong, because a checker with
+# false positives gets switched off. This is NOT a fix for K-014 ("the checker cannot see
+# protocol conformance"): it is one table for one protocol family, and a conformance
+# absent from it is treated exactly as before.
+SET_ALGEBRA_MEMBERS = {
+    "contains", "insert", "remove", "update",
+    "union", "intersection", "symmetricDifference", "subtracting",
+    "formUnion", "formIntersection", "formSymmetricDifference", "subtract",
+    "isSubset", "isSuperset", "isStrictSubset", "isStrictSuperset", "isDisjoint",
+    "isEmpty", "rawValue",
+}
+
+PROTOCOL_MEMBERS = {
+    "OptionSet": SET_ALGEBRA_MEMBERS,
+    "SetAlgebra": SET_ALGEBRA_MEMBERS,
+}
+
 # Members every value effectively has, or that are not member lookups at all.
 VALUE_UNIVERSAL = {
     "self", "init", "map", "flatMap", "compactMap", "filter", "reduce", "forEach",
@@ -1628,6 +1657,10 @@ def pass_value_members():
                     if member in VALUE_UNIVERSAL:
                         continue
                     if member in members.get(tname, set()):
+                        continue
+                    # A member the type does not declare but a conformance supplies.
+                    if any(member in PROTOCOL_MEMBERS.get(proto, ())
+                           for proto in conforms.get(tname, [])):
                         continue
                 line = text.count("\n", 0, offset + m.start()) + 1
                 problems.append((path.relative_to(ROOT).as_posix(), line,

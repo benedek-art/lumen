@@ -72,7 +72,9 @@ final class CatalogService: @unchecked Sendable {
     /// because the flush is what learns the sidecar's new mtime, and `photo.sidecar_mtime`
     /// is the clock docs/15 §15.5's conflict rules are evaluated against — a stamp taken
     /// only on reads would call every one of our own writes "the sidecar changed".
-    private var pendingSidecars: [URL: (photoID: Int64?, content: SidecarContent)] = [:]
+    private var pendingSidecars:
+        [URL: (photoID: Int64?, content: SidecarContent,
+               stated: SidecarStatedFields)] = [:]
     private var sidecarFlushScheduled = false
     private let sidecarLock = NSLock()
 
@@ -697,7 +699,9 @@ final class CatalogService: @unchecked Sendable {
                     + "backups have the current painting.")
             }
             self.enqueueSidecar(for: url, photoID: catalogID, rating: nil, label: nil,
-                                recipe: (json, fingerprint, recipe.pipelineVersion),
+                                recipe: (json, fingerprint,
+                                         Swift.min(recipe.pipelineVersion,
+                                                   currentPipelineVersion)),
                                 strokes: strokes)
         }
     }
@@ -1032,7 +1036,21 @@ final class CatalogService: @unchecked Sendable {
         // in the sidecar of a photograph whose brush masks had all been deleted.
         if let strokes { content.strokesPayload = strokes }
         content.writeStamp = ISO8601DateFormatter().string(from: Date())
-        pendingSidecars[url] = (photoID: photoID ?? queued?.photoID, content: content)
+
+        // And the same nil-vs-`.some(nil)` distinction the parameters draw, carried
+        // through to the write instead of being collapsed here. Everything NOT in this
+        // set is a two-second-old copy of the file that the flush re-reads rather than
+        // writes back. Unioned with what was already queued, because a rating and a
+        // label enqueued 200 ms apart are one write and both were stated.
+        var stated = queued?.stated ?? []
+        if rating != nil { stated.insert(.rating) }
+        if flag != nil { stated.insert(.flag) }
+        if label != nil { stated.insert(.label) }
+        if recipe != nil { stated.insert(.recipe) }
+        if strokes != nil { stated.insert(.strokes) }
+
+        pendingSidecars[url] = (photoID: photoID ?? queued?.photoID, content: content,
+                                stated: stated)
         let shouldSchedule = !sidecarFlushScheduled
         sidecarFlushScheduled = true
         sidecarLock.unlock()
@@ -1055,10 +1073,11 @@ final class CatalogService: @unchecked Sendable {
         // or a briefly-offline volume silently left the catalog ahead of the sidecar
         // forever, which quietly falsifies "losing the catalog costs speed, never
         // work" for exactly the frames edited during the outage.
-        var failed: [(url: URL, entry: (photoID: Int64?, content: SidecarContent))] = []
+        var failed: [(url: URL, entry: (photoID: Int64?, content: SidecarContent,
+                                        stated: SidecarStatedFields))] = []
 
         for (url, entry) in batch {
-            let content = entry.content
+            var content = entry.content
             let path = Self.sidecarURL(for: url)
 
             // An existing sidecar is somebody else's document that Lumen is allowed to
@@ -1106,6 +1125,44 @@ final class CatalogService: @unchecked Sendable {
                       path.lastPathComponent)
                 continue
             case .document(let existing):
+                // THE FILE AS IT IS NOW, not as it was when the keystroke landed.
+                //
+                // `content` was seeded from a read taken at enqueue and this write
+                // happens `sidecarDebounce` later, so every field the batch did not
+                // state is a two-second-old copy of this document — and `fieldLines`
+                // re-emits all of them. Lightroom, a sync client or exiftool writing
+                // between the keystroke and here had its work reverted by a rating.
+                //
+                // Re-seeding from the bytes about to be spliced closes the window to
+                // the width of this loop body. It cannot close it entirely — nothing
+                // short of a lock across another process's write can — but the two
+                // seconds the debounce buys are the part that was reachable by hand.
+                if let fresh = XMPSidecar.parse(existing) {
+                    // Same interlock as the stale read's, applied to the fresh one:
+                    // re-seeding from a HALF-READ document would delete whatever lies
+                    // past the damage just as surely, and this read is the one being
+                    // written back.
+                    guard fresh.parsedCleanly else {
+                        NSLog("Lumen: left %@ untouched — it did not parse completely "
+                              + "on re-read, and rewriting it would delete whatever "
+                              + "lies past the damage", path.lastPathComponent)
+                        continue
+                    }
+                    // And a document from a build newer than this one keeps its own
+                    // recipe: `writableFields` drops `.recipe` from what this write may
+                    // state, so the re-seed above carries the file's recipe trio back
+                    // out verbatim instead of the reduced copy this build decoded.
+                    let honoured = XMPSidecar.writableFields(
+                        entry.stated, documentVersion: fresh.pipelineVersion)
+                    if honoured != entry.stated {
+                        NSLog("Lumen: %@ was written by pipeline version %d and this "
+                              + "build implements %d — its recipe is left exactly as it "
+                              + "is; the rating, flag and label still go in",
+                              path.lastPathComponent, fresh.pipelineVersion,
+                              currentPipelineVersion)
+                    }
+                    content = XMPSidecar.reseed(content, fields: honoured, onto: fresh)
+                }
                 guard let merged = XMPSidecar.update(existing, with: content) else {
                     NSLog("Lumen: left %@ untouched — it is not a sidecar this "
                           + "version knows how to edit without losing its contents",
