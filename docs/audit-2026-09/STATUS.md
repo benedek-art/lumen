@@ -112,17 +112,56 @@ metric, for four points of track worth 0.03 pt per unit at the default width.
 **Deferred to U5:** toggle-row keyboard focus — space is a global hold key in `Keymap`,
 so the row would need the dispatcher yield the slider has.
 
+## Landed, batch 3 (after 0816fc4)
+
+| SHA | Landing |
+|---|---|
+| 55d03cc | **I1-05** a table another pane is using stops being evicted mid-drag; `valueWidth` 48→52 and the pitch arithmetic corrected |
+| 2b23c62 | **U2** panels on one rhythm — doubled headings, truncated labels, the last two rules, one pitch, paired insets, 33 font calls to tokens |
+| 80954db | **Lights out (`L`) and the ISO 12646 assessment surround (`⌘B`)** built, so the three keymap moves land on features that exist |
+| 8a299a5 | **Proof ceremony**: `pointColor.hue` and `.range` re-pinned after the chroma gate |
+| 8987690 | **U4 first half**: every overlay, badge and the floating masks panel on one HUD material |
+| 4e11740 | **B1-01** a Point Colour swatch selects its own colour instead of the whole frame, plus its ceremony (all five records) |
+| 796618a | **K-016** export presets survive a build that adds a field · **K-020** a newer build's edit survives you opening it |
+| 7772301 | **K-018** brush strokes are in the backup · **F3-02** a long painting stops deleting the sidecar's copy of itself |
+| cf669c1 | The argument order U2 shipped, and the checker hole that let it through |
+
+**EVERY S1 DATA-LOSS ROW IN THE LEDGER IS NOW CLOSED**: K-015, K-016, K-018, K-020,
+K-052, K-053, K-054, F3-01, F3-02, F3-03.
+
+## The red streak, recorded because it is the lesson of the night
+
+`2b23c62` (U2) added an `indented` parameter to `LumenSlider`, declared after `bipolar`,
+and passed it right after `title:` at four call sites. Swift's memberwise initializer
+requires declaration order. **`build-macos` was red from 2b23c62 to 7772301 — five
+pushes — and `dev-latest` did not move from 0816fc4 for about two hours.**
+
+`swiftc -parse` cannot see it: argument labels are a type-check question. The surface
+checker can, and did not, because `synthesize_memberwise` vetoed `LumenSlider` over
+`@State private var wheelSettleCloser: Task<Void, Never>?` — a private OPTIONAL, which
+has an implicit nil and is not a memberwise parameter at all. A vetoed struct is not
+partly checked; every one of its call sites is silently exempt. Thirteen structs were
+vetoed and they were the most-constructed views in the app.
+
+One condition fixed it: **3977 checked call sites and 13 blind structs → 4099 and zero**,
+with two new fixtures pinning the hole shut.
+
+**The rule for the rest of the grind: after any change to a shared control's signature,
+run `check-swift-surface.py` AND look at `build-macos` on the pushed SHA before starting
+the next landing.** A green local triad is not a build.
+
 ## Queued next, in order
-1. Commit + push U1 once `DesignSystemTests` runs; watch build-macos closely — twelve
-   app files with no local compiler.
-2. Re-pin `pointColor.hue` if the drift run reports it moved (ceremony per PLAN.md).
-3. K-052 FTS never rebuilt · K-015 same-basename sidecar collision (`w2/J1.md`)
-4. **B1-01** Point Colour sigmas (proof ceremony) · **B1-03** Saturation −100 kills the B&W mix
-5. **I1-02** the DragProbe settle row samples values the draft never visits · **I1-04** the
-   `anyBakePending` settle loop re-renders whole frames while waiting
-6. **C2-01b** band-limited plate (the real red/green parity fix) · **C2-02** colour stocks
-   lay three decorrelated fields (chroma noise 2.45× luma) · **K-065** grain before resize
-7. **U2** panels to the grid from G1's checklist · U3 shell + keymap · U4 viewer/masks · U5
+1. **U3 shell** — sidebar regroup, status bar with the query sentence, filter bar →
+   popover with live counts, grid/filmstrip cells, `⌘C`/`⌘V` contextual
+2. **U4 canvas** — on-canvas radial/linear handles to the mockup, before/after and
+   compare chrome, the collapsed mask column
+3. **U5** — hover/focus sweep, motion, empty states, help sheet and keyboard reference
+4. **Engine leftovers** — C2-01b band-limited plate (the real red/green grain parity
+   fix) · C2-02 colour stocks lay three decorrelated fields · K-065 grain before resize ·
+   I1-04 the settle loop
+5. **W3/W4** verification and triage of the ~70 W2 findings not yet landed
+6. **W6 close** — re-audit each landing against its finding, perf probes against
+   `w0/perf-baseline.md`, `docs/38-the-grind.md`, and the owner's report
 
 ## Rule learned: docs-only pushes cancelled the code push's CI
 `ci.yml` triggered on every push and its concurrency group cancels in progress, so
