@@ -1697,6 +1697,19 @@ public final class CatalogStore {
         // `rendersSameAs`, not `!=`: a recipe differing only by a mask name is not an
         // edit, and lighting the pencil badge for one is a lie about the photograph.
         let isEdited = !recipe.rendersSameAs(Recipe(pipelineVersion: recipe.pipelineVersion))
+        // A ROW CANNOT CLAIM A VERSION ITS WRITER DOES NOT IMPLEMENT.
+        //
+        // `Recipe`'s decoder carries a version it reads rather than restamping it, so a
+        // recipe decoded from a newer build's row arrives here still saying it is that
+        // newer thing. Writing that number back would leave a row this build produced
+        // claiming semantics this build does not have — and the next older build to
+        // open the catalog would then demote a row that is, in fact, its own.
+        //
+        // `min`, not `currentPipelineVersion` outright: an OLDER recipe must keep
+        // reporting its own age, which is what migrations read and what
+        // `testARecipeWrittenAtAnOlderVersionStillReportsThatVersion` pins.
+        let storedPipelineVersion = Swift.min(recipe.pipelineVersion,
+                                              currentPipelineVersion)
 
         return try db.transaction {
             if isCurrent {
@@ -1722,10 +1735,23 @@ public final class CatalogStore {
             // older build. So it is demoted to a named `version` row — visible in the
             // edits list, restorable by the build that wrote it — and this save
             // INSERTs a fresh working row of its own.
+            // AGAINST THIS BUILD'S VERSION, not the recipe's own (K-020).
+            //
+            // It compared `rowVersion > recipe.pipelineVersion`, and `Recipe`'s decoder
+            // CARRIES a version it reads rather than restamping it — deliberately, so an
+            // old recipe keeps reporting its own age. So the newer row was decoded, the
+            // in-memory recipe took the newer number with it, the photographer touched a
+            // slider, and the guard compared 7 against 7 and did not fire. The UPDATE
+            // below then overwrote the newer edit with this build's rendering of it, in
+            // the catalog and at the next sidecar flush — which is precisely the loss
+            // the guard was written to prevent, arriving through the guard.
+            //
+            // The question is whether THIS BUILD can safely rewrite the row, and only
+            // this build's own version answers it.
             if let id = editID,
                let rowVersion = try self.db.scalarInt(
                    "SELECT pipeline_version FROM edit WHERE id = ?;", [.integer(id)]),
-               rowVersion > Int64(recipe.pipelineVersion) {
+               rowVersion > Int64(currentPipelineVersion) {
                 try self.db.run("""
                 UPDATE edit SET kind = 'version', is_current = 0,
                   name = COALESCE(name, ?) WHERE id = ?;
@@ -1739,7 +1765,7 @@ public final class CatalogStore {
                 UPDATE edit SET name = ?, is_current = ?, pipeline_version = ?,
                   recipe = ?, recipe_fp = ?, updated_at = ? WHERE id = ?;
                 """, [.optionalText(name), .bool(isCurrent),
-                      .int(recipe.pipelineVersion), .text(json), .text(fingerprint),
+                      .int(storedPipelineVersion), .text(json), .text(fingerprint),
                       .integer(now), .integer(id)])
                 // Only the CURRENT edit decides the badge. Saving a snapshot of a
                 // default recipe used to clear `edited` on a photo whose working edit
@@ -1756,7 +1782,7 @@ public final class CatalogStore {
                               recipe, recipe_fp, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?);
             """, [.integer(photoID), .text(kind.rawValue), .optionalText(name),
-                  .bool(isCurrent), .int(recipe.pipelineVersion), .text(json),
+                  .bool(isCurrent), .int(storedPipelineVersion), .text(json),
                   .text(fingerprint), .integer(now)])
             let inserted = self.db.lastInsertRowID
             if isCurrent {

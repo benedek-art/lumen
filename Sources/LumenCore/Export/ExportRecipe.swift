@@ -319,6 +319,61 @@ public struct ExportRecipe: Codable, Equatable, Sendable, Identifiable {
         self.hdr = hdr
     }
 
+    /// A TOLERANT DECODE, because the strict one loses every preset the photographer
+    /// ever built (K-016).
+    ///
+    /// `Codable`'s synthesised decoder requires every one of the seventeen stored
+    /// properties above. `AppState.loadExportRecipes` reads the list with `try?` and
+    /// falls back to `ExportRecipe.defaults` — so a payload missing ONE key does not
+    /// produce an error, or a warning, or a partial list. It silently replaces the
+    /// photographer's delivery presets with the stock four.
+    ///
+    /// And the missing key arrives by ordinary means: this build adds a field, the
+    /// user's stored payload was written before it existed, and every preset they had
+    /// is gone the first time they launch. The `bitDepth` comment three screens up is
+    /// the previous author noticing the same trap and routing around it by refusing to
+    /// add a field — which is the design being dictated by a decoder.
+    ///
+    /// Every field is optional with the memberwise initializer's own default behind it,
+    /// so an old payload decodes, a new field takes its default, and the preset
+    /// survives. `id` and `name` get generated fallbacks rather than a default value:
+    /// an entry with no id would collide in `Identifiable` and one with no name would
+    /// render as a blank row, and both are recoverable states rather than reasons to
+    /// discard the list.
+    ///
+    /// The ENCODER stays synthesised. Writing is this build's job and this build knows
+    /// all its own fields; only reading has to survive the other builds.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let fallback = ExportRecipe(name: "")
+        id = try c.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
+        name = try c.decodeIfPresent(String.self, forKey: .name) ?? "Untitled"
+        enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? fallback.enabled
+        format = try c.decodeIfPresent(ExportFormat.self, forKey: .format)
+            ?? fallback.format
+        quality = try c.decodeIfPresent(Double.self, forKey: .quality) ?? fallback.quality
+        bitDepth = try c.decodeIfPresent(Int.self, forKey: .bitDepth) ?? fallback.bitDepth
+        colorSpace = try c.decodeIfPresent(ExportColorSpace.self, forKey: .colorSpace)
+            ?? fallback.colorSpace
+        resizeMode = try c.decodeIfPresent(ResizeMode.self, forKey: .resizeMode)
+            ?? fallback.resizeMode
+        resizeValue = try c.decodeIfPresent(Double.self, forKey: .resizeValue)
+            ?? fallback.resizeValue
+        allowUpscale = try c.decodeIfPresent(Bool.self, forKey: .allowUpscale)
+            ?? fallback.allowUpscale
+        resolutionPPI = try c.decodeIfPresent(Double.self, forKey: .resolutionPPI)
+            ?? fallback.resolutionPPI
+        sharpen = try c.decodeIfPresent(OutputSharpen.self, forKey: .sharpen)
+            ?? fallback.sharpen
+        metadata = try c.decodeIfPresent(MetadataPolicy.self, forKey: .metadata)
+            ?? fallback.metadata
+        watermark = try c.decodeIfPresent(Watermark.self, forKey: .watermark)
+        filenameTemplate = try c.decodeIfPresent(String.self, forKey: .filenameTemplate)
+            ?? fallback.filenameTemplate
+        subfolder = try c.decodeIfPresent(String.self, forKey: .subfolder)
+        hdr = try c.decodeIfPresent(HDRSettings.self, forKey: .hdr)
+    }
+
     /// The depth the encoder will actually use.
     ///
     /// The stored `bitDepth` can hold a value the current format cannot write (switch

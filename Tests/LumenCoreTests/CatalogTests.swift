@@ -126,9 +126,17 @@ final class CatalogTests: XCTestCase {
         let (_, ids) = try seed(store, count: 1)
         guard let photo = ids.first else { return XCTFail("no photo") }
 
+        // SEEDED THE WAY ANOTHER BUILD WOULD HAVE WRITTEN IT — through SQL, not
+        // through this build's `saveRecipe`. A newer build stamps the row with ITS
+        // `currentPipelineVersion`; this one now clamps what it writes to its own
+        // (K-020), precisely so a carried-forward future version cannot be re-stamped,
+        // so calling `saveRecipe` with a v+1 recipe no longer simulates a newer writer.
         var newer = Recipe(pipelineVersion: currentPipelineVersion + 1)
         newer.develop.tone.exposure = 2.0
         try store.saveRecipe(newer, photoID: photo, isCurrent: true)
+        try store.debugExecute(
+            "UPDATE edit SET pipeline_version = \(currentPipelineVersion + 1) "
+            + "WHERE photo_id = \(photo);")
         let newerFP = try RecipeFingerprint.fingerprint(newer)
 
         var older = Recipe()
@@ -153,6 +161,65 @@ final class CatalogTests: XCTestCase {
         }
         XCTAssertTrue(working.isCurrent)
         XCTAssertEqual(try store.currentRecipe(photoID: photo), older)
+        store.close()
+    }
+
+    /// THE DEFECT THE GUARD ABOVE LET THROUGH (K-020), which is the app's actual path.
+    ///
+    /// `Recipe`'s decoder CARRIES a version it reads rather than restamping it — on
+    /// purpose, so an old recipe keeps reporting its own age. So opening a photograph
+    /// whose working row a newer build wrote gives an in-memory recipe that says it is
+    /// that newer thing, and when the photographer touches a slider the recipe handed
+    /// to `saveRecipe` still says so. The guard compared the row's version against the
+    /// RECIPE's, which is now the same number, did not fire, and the in-place UPDATE
+    /// replaced the newer build's work — in the catalog, and at the next flush on disk.
+    ///
+    /// The test above could not see it: it saves a plain `Recipe()`, so the two numbers
+    /// differed and the guard fired. This one carries the version forward, exactly as
+    /// the decoder does.
+    func testAnEditCarryingANewerVersionForwardStillPreservesTheNewerRow() throws {
+        let store = try makeStore()
+        let (_, ids) = try seed(store, count: 1)
+        guard let photo = ids.first else { return XCTFail("no photo") }
+
+        var newer = Recipe(pipelineVersion: currentPipelineVersion + 1)
+        newer.develop.tone.exposure = 2.0
+        try store.saveRecipe(newer, photoID: photo, isCurrent: true)
+        try store.debugExecute(
+            "UPDATE edit SET pipeline_version = \(currentPipelineVersion + 1) "
+            + "WHERE photo_id = \(photo);")
+        let newerFP = try RecipeFingerprint.fingerprint(newer)
+
+        // What the app does: the decoded recipe still says v+1, and one slider moves.
+        var carried = newer
+        carried.develop.tone.contrast = 10
+        try store.saveRecipe(carried, photoID: photo, isCurrent: true)
+
+        let edits = try store.edits(photoID: photo)
+        XCTAssertEqual(edits.count, 2,
+                       "the newer build's edit was overwritten by a recipe carrying its "
+                       + "own version number — the guard compared v+1 against v+1")
+        guard let preserved = edits.first(where: { $0.kind == .version }) else {
+            return XCTFail("no preserved version row: \(edits.map(\.kind))")
+        }
+        XCTAssertEqual(preserved.recipeFP, newerFP,
+                       "the preserved row is not the newer build's bytes")
+
+        // And THIS build's own row is stamped with THIS build's version, not the one it
+        // carried in — otherwise every subsequent save would demote it again and the
+        // photograph would collect a version row per edit.
+        guard let working = edits.first(where: { $0.kind == .working }) else {
+            return XCTFail("no fresh working row")
+        }
+        XCTAssertEqual(working.pipelineVersion, currentPipelineVersion,
+                       "this build wrote a row claiming a version it does not implement")
+
+        var again = carried
+        again.develop.tone.contrast = 20
+        try store.saveRecipe(again, photoID: photo, isCurrent: true)
+        XCTAssertEqual(try store.edits(photoID: photo).count, 2,
+                       "a second edit made another version row — the working row is "
+                       + "demoting itself every time it is saved")
         store.close()
     }
 
