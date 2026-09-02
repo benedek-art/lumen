@@ -37,12 +37,50 @@ agents died on a session rate limit earlier tonight, and the commit-per-wave rul
 what makes a container reset cost one wave instead of the night.
 
 - [x] **Wave 1** — M, J3, A1, K, I3 + the RAW-corpus lane design. `2124941`, `d38ec25`.
-- [ ] **Wave 2** — E1 denoise, E2 sharpening, B2 grading, B3 colour panel, D1 looks &
-      presets, D2 effects. IN FLIGHT.
-- [ ] **Wave 3** — F2 mask engine & perf, G3 navigation, H1 viewer, H2 scopes, I2
-      kernels vs the reference, J2 library & culling UX.
+- [x] **Wave 2** — E1, E2, B2, B3, D1, D2. `102c407`, `9982559`, `2882bb7`, `442ad09`.
+- [x] **Wave 3** — F2, G3, H1, H2, J2 (I2 outstanding). `d02c414`.
 - [ ] **Wave 4+** — the fix streams the three waves produce, then the standing S2
       backlog in `w3/dispositions.md` order.
+
+**ALL THIRTY AREAS ARE NOW AUDITED.** The trimmed thirteen plus the seventeen that
+were cut. Wave 2 and 3 found **7 more S1s** and roughly 45 S2s.
+
+### The S1s the second half found
+
+| id | what |
+|---|---|
+| **M-01** | a `.xmp` from a newer build is downgraded in place and rewritten still claiming the newer version — **LANDED** `d386442` |
+| **J3-02** | a filename template that renders empty writes the batch beside the granted folder — **LANDED** `7c0bbb4` |
+| **J3-01** | the tolerant preset decode is one level deep; one added field reverts every delivery preset to the stock four |
+| **D1-01** | `LookSubset.applied(to:)` carries `look.render` whole, so a RAW look overwrites a JPEG's "Linear" and applies a second tone map (measured: sRGB 255 → 222) |
+| **E2-02** | the Capture-sharpening toggle is live on JPEG/HEIC/TIFF, reaches nothing, lights the modified dot |
+| **F2-01** | a mask that does not read the picture has no photograph in its raster cache key — every AI kind; draft keys collide at 1024x682 for any two 3:2 frames |
+| **H1-01** | `⌘B` assessment surround and `L` lights out never reach the field: `surroundColor` is painted once and covered opaquely at five other sites |
+| **G3-01 / J2-01** | `⌘B` is attached TWICE, to two different actions. Found independently by two auditors. `KeyGrammarTests` collects call sites into a `Set`, so a chord attached twice collapses to one member and nothing asks "is any chord attached twice" |
+
+### The strongest thing the second half produced is not a defect
+
+Three separate audits found that **the instrument could not see the defect**:
+- `testContrastPinsTheEndsOfTheScale` probes ±12 EV, exactly where its smoothstep is
+  1 by construction, while the picture is formed against anchors at +5/−9 (A1).
+- Three of five sharpen proof records use `stepEdge`, whose rim measures 34.414 code
+  values at 128, 1600, 4096 and 7008 px alike — the frame cannot express a
+  scale-dependent defect — and `ScaleHonestyTests`' spatial roster omits sharpen (E2).
+- `KeyGrammarTests` collapses duplicate chords into a `Set` (G3, J2).
+
+That is the same failure `MaskGPUParityTests` had when it skipped itself for months.
+**A green lane is not evidence** is not a slogan here; it is the single most common
+finding in this audit.
+
+### Fixes landed in the second half
+| SHA | what |
+|---|---|
+| `d386442` | **J1-03** the sidecar write states its own fields · **M-01** and never a recipe it cannot represent. Checker taught what a conformance supplies; fixtures 25 → 27. |
+| `71d8a78` | the RAW corpus lane |
+| `7c0bbb4` | **J3-02** the empty rendered filename · **KG-02** `O` past the entry verb · **G3-02** `R` past it from the other side |
+
+`71d8a78`: build-macos ✅ app-bundle ✅ fixtures-linux ✅ (test-fast, engine-linux
+running).
 
 ### Wave 1's harvest — 3 S1, 17 S2, 13 S3 across five areas
 
