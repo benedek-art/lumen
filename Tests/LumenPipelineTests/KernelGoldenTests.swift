@@ -2357,6 +2357,59 @@ final class KernelGoldenTests: XCTestCase {
                                  + "band collapsed, a few e-4 means the gain is being "
                                  + "computed in the shaper's encoded units, not stops")
 
+        // AND AGAINST THE REFERENCE, two-sided. The absolute bar above separates a dead
+        // stage from a live one; it cannot separate a live one from one applying
+        // twenty-four times the gain, which is the exact defect this test was written
+        // after and did not catch. A ratio can, and it needs no calibration: both paths
+        // implement the same contract, so the number is near 1 or the contract is not
+        // being implemented.
+        //
+        // Denoise OFF on BOTH sides, for the reason the Clarity block gives below.
+        // `ReferenceRenderer.render` starts at S6 and never denoises, so a GPU render
+        // that does is being compared on a frame whose Nyquist ripple — the one thing
+        // Texture acts on — has been smoothed away on one side only. That is why this
+        // is a second pair rather than a reuse of `plain` and `texture` above, which
+        // both denoise and whose 0.001 bar is derived on that basis.
+        //
+        // The window is 0.1x to 10x, and it is wide on purpose: unlike Clarity, whose
+        // measured GPU-to-reference window is recorded on `lumenDetailRemap` as 0.5x to
+        // 1.3x, Texture's has never been measured. 10x still catches the 24x units
+        // error in either direction with margin, and the measured ratio is printed
+        // below so the next person can replace this with the Clarity gate's rigour
+        // instead of another guess.
+        var textureRecipe = Recipe()
+        textureRecipe.develop.denoise.mode = .off
+        let gpuTexturePlain = try render(source) { $0.develop.denoise.mode = .off }
+        let gpuTexture = movement(source, gpuTexturePlain, try render(source) {
+            $0.develop.denoise.mode = .off
+            $0.develop.detail.texture = 40
+        })
+        let referenceTexturePlain = ReferenceRenderer.render(
+            source, plan: RenderPlan(recipe: textureRecipe))
+        textureRecipe.develop.detail.texture = 40
+        let referenceTexture = movement(
+            source, referenceTexturePlain,
+            ReferenceRenderer.render(source,
+                                     plan: RenderPlan(recipe: textureRecipe)))
+        XCTAssertGreaterThan(referenceTexture, 1e-5,
+                             "the REFERENCE moved this frame by \(referenceTexture) with "
+                                 + "Texture +40, so there is nothing to compare the GPU "
+                                 + "against and the ratio below would be meaningless")
+        let textureRatio = gpuTexture / Swift.max(referenceTexture, 1e-12)
+        XCTAssertGreaterThan(textureRatio, 0.1,
+                             "Texture +40 moved the frame \(gpuTexture) on the GPU where "
+                                 + "the reference moves it \(referenceTexture) — a ratio "
+                                 + "of \(textureRatio). A gain computed in the shaper's "
+                                 + "encoded plane instead of in stops is 1/24 of the "
+                                 + "contract, and the whole-frame bound above cannot see "
+                                 + "it")
+        XCTAssertLessThan(textureRatio, 10.0,
+                          "Texture +40 moved the frame \(gpuTexture) on the GPU where the "
+                              + "reference moves it \(referenceTexture) — a ratio of "
+                              + "\(textureRatio). The over-processed direction is the one "
+                              + "this stage was rewritten to escape, and an untethered "
+                              + "upper end is how it comes back")
+
         // Clarity gets its own frame, and its own bar, measured against the reference
         // on that frame rather than borrowed from Texture's derivation.
         //
@@ -2389,11 +2442,31 @@ final class KernelGoldenTests: XCTestCase {
                                  + "reference moves it \(referenceClarity) — the GPU is "
                                  + "applying \(referenceClarity / clarity)x less gain "
                                  + "than the stage it is supposed to implement")
+        // AND AN UPPER END. This gate was one-sided, so the GPU was free to apply
+        // anywhere from a fifth of the reference's Clarity to an unbounded multiple of
+        // it — and `lumenDetailRemap`'s own comment records the measured window as 0.5x
+        // to 1.3x, so a regression to 3x, the crunchy over-processed direction the
+        // stage was rewritten to escape, was invisible. 2.0 sits above the measured top
+        // of the window with room and well under anything a defect produces.
+        XCTAssertLessThan(clarity / referenceClarity, 2.0,
+                          "Clarity +30 moved the frame by \(clarity) where the reference "
+                              + "moves it \(referenceClarity) — the GPU is applying "
+                              + "\(clarity / referenceClarity)x the gain of the stage it "
+                              + "implements, against a measured window of 0.5x to 1.3x")
 
         let vignette = movement(source, plain,
                                 try render(source) { $0.look.vignette = -1.0 })
         XCTAssertGreaterThan(vignette, 0.05,
                              "a −1 EV vignette moved the frame by \(vignette)")
+
+        // The per-stage numbers, on every run, passes included — the same reason the
+        // whole-frame figures are printed above. A ratio that drifts from run to run
+        // says something a pass/fail line never will.
+        print(String(format:
+            "SPATIALPARITY per stage: texture gpu %.6f reference %.6f ratio %.3f  |  "
+                + "clarity gpu %.6f reference %.6f ratio %.3f  |  vignette gpu %.6f",
+            gpuTexture, referenceTexture, textureRatio,
+            clarity, referenceClarity, clarity / referenceClarity, vignette))
     }
 
     // MARK: - S3 denoise
