@@ -205,9 +205,9 @@ final class DesignSystemTests: XCTestCase {
     /// owned panels; the type scale exists so this keeps falling.
     func testRawFontSizesOnlyEverDecrease() {
         let n = total(".system(size:")
-        XCTAssertLessThanOrEqual(n, 166,
+        XCTAssertLessThanOrEqual(n, 164,
                                  "\(n) raw .system(size:) calls in Sources/LumenApp, up "
-                                 + "from 166 — use .lumenHeading / .lumenBody / "
+                                 + "from 164 — use .lumenHeading / .lumenBody / "
                                  + ".lumenCaption / .lumenNumeric")
     }
 
@@ -238,7 +238,7 @@ final class DesignSystemTests: XCTestCase {
     /// Hand-rolled dark overlays. The HUD material exists so these fall to zero.
     func testHandRolledHUDFillsOnlyEverDecrease() {
         let n = total("Color.black.opacity(0.5") + total("Color.black.opacity(0.6") + total("Color.black.opacity(0.7")
-        XCTAssertLessThanOrEqual(n, 19,
+        XCTAssertLessThanOrEqual(n, 15,
                                  "\(n) hand-rolled black overlays, up from 19 — use "
                                  + "lumenHUD() or Lumen.hudFill")
     }

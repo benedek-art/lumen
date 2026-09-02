@@ -317,8 +317,10 @@ struct LatencyHUDView: View {
         .font(.system(size: 10, design: .monospaced))
         .foregroundStyle(Lumen.primaryText)
         .padding(6)
-        .background(Color.black.opacity(0.65))
-        .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusControl, style: .continuous))
+        // The shared material rather than this file's own 0.65. Four overlays each had
+        // their own black — 0.55, 0.65, 0.66 and 0.75 — so four things that float over
+        // the same photograph read as four near-misses of one layer.
+        .lumenHUD(radius: Lumen.radiusControl)
         .allowsHitTesting(false)
     }
 }

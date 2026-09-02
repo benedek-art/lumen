@@ -337,10 +337,10 @@ struct ReadoutHUD: View {
         .padding(.horizontal, 7)
         .padding(.vertical, 5)
         .frame(width: 190, alignment: .leading)
-        .background(Color.black.opacity(0.66), in: RoundedRectangle(cornerRadius: 5))
-        .overlay {
-            RoundedRectangle(cornerRadius: 5).strokeBorder(Lumen.separator, lineWidth: 0.5)
-        }
+        // The shared material, and the hairline goes with it: an outline over a
+        // photograph is a line drawn on somebody's picture, and the shadow separates
+        // this from the frame behind it without one.
+        .lumenHUD(radius: Lumen.radiusChip)
     }
 
     private var numbers: String {
@@ -1337,12 +1337,11 @@ struct CropOverlayView: View {
     /// follows: the tool sets a visible number rather than hiding behind one.
     private func readout(_ drag: RotationDrag) -> some View {
         Text(String(format: "%+.1f°", drag.degrees))
-            .font(.system(size: 10, design: .monospaced))
+            .font(.lumenNumeric)
             .padding(.horizontal, 5)
             .padding(.vertical, 2)
-            .background(Color.black.opacity(0.65))
             .foregroundStyle(.white)
-            .clipShape(RoundedRectangle(cornerRadius: 3))
+            .lumenHUD(radius: Lumen.radiusChip)
             .position(x: drag.location.x + 34, y: drag.location.y - 18)
             .allowsHitTesting(false)
     }
@@ -1709,12 +1708,11 @@ struct StraightenOverlayView: View {
                     .allowsHitTesting(false)
 
                     Text(readout(from: start, to: end, in: size))
-                        .font(.system(size: 10, design: .monospaced))
+                        .font(.lumenNumeric)
                         .padding(.horizontal, 5)
                         .padding(.vertical, 2)
-                        .background(Color.black.opacity(0.65))
                         .foregroundStyle(.white)
-                        .clipShape(RoundedRectangle(cornerRadius: 3))
+                        .lumenHUD(radius: Lumen.radiusChip)
                         .position(x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 - 16)
                         .allowsHitTesting(false)
                 }

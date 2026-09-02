@@ -76,7 +76,11 @@ struct MaskFloatingPanel: View {
     var body: some View {
         VStack(spacing: 0) {
             titleBar
-            Divider().overlay(Lumen.separator)
+            // No rule under the title bar. This panel floats OVER the photograph, so
+            // its own internal hairline is a line drawn across somebody's picture at
+            // one remove — and the title bar already separates itself by hovering, by
+            // holding the drag, and by the space below it.
+            Color.clear.frame(height: 4)
             if state.maskPanelMinimized {
                 maskRail
             } else {
@@ -90,7 +94,13 @@ struct MaskFloatingPanel: View {
             }
         }
         .frame(width: state.maskPanelMinimized ? Self.railWidth : Self.width)
-        .lumenSurface(radius: Lumen.radiusCard, elevation: .floating, fill: Lumen.panel)
+        // THE SHARED HUD MATERIAL, because this panel floats over the photograph and
+        // everything that does should be made of one thing. It was `panel` 0.20 —
+        // the develop column's opaque grey — sitting on top of a picture, which read
+        // as a piece of the column that had come loose rather than as a layer above
+        // the frame. Black at 72 % holds its text over a blown highlight and still
+        // lets the photograph show at its edges.
+        .lumenHUD(radius: Lumen.radiusCard)
         .offset(x: offset.width, y: offset.height)
         .padding(Self.inset)
     }
@@ -141,7 +151,9 @@ struct MaskFloatingPanel: View {
         }
         .padding(.horizontal, 7)
         .frame(height: Self.barHeight)
-        .background(titleHovered ? Lumen.controlHover : Color.clear)
+        // Additive on the HUD's own black rather than the control ladder's 0.27, which
+        // is a value for a panel and reads as a grey patch over a photograph.
+        .background(titleHovered ? Color.white.opacity(Lumen.hoverLift) : Color.clear)
         .contentShape(Rectangle())
         .onHover { titleHovered = $0 }
         .gesture(
