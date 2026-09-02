@@ -162,8 +162,6 @@ struct MaskCanvas: View {
     /// The rotation the ellipse had when the turn started. Carried rather than re-read,
     /// because a turn computed against a value the previous event wrote compounds.
     @State private var originRotation: Double = 0
-    /// True while this view owns the top of the `NSCursor` stack. See `setDrawCursor`.
-    @State private var pushedDrawCursor = false
     @State private var livePoints: [BrushPoint] = []
     @State private var strokeStarted: Date? = nil
     @State private var hover: CGPoint? = nil
@@ -269,13 +267,15 @@ struct MaskCanvas: View {
                 // being held over a stationary picture.
                 let held = MaskCanvas.optionHeld()
                 if held != eraseHeld { eraseHeld = held }
-                setDrawCursor(true)
             } else {
                 hover = nil
-                setDrawCursor(false)
             }
         }
-        .onDisappear { setDrawCursor(false) }
+        // The crosshair, armed only while the shape being asked for does not exist yet.
+        // This was six lines of hand-rolled push/pop discipline — correct ones — and the
+        // modifier now carries exactly that discipline for every cursor in the app,
+        // including the arming input, so the second copy goes.
+        .lumenPickCursor(needsDrawing)
         .allowsHitTesting(isLive)
         .help(helpText)
     }
@@ -283,24 +283,13 @@ struct MaskCanvas: View {
     /// A CROSSHAIR WHILE THERE IS NOTHING DRAWN YET, which is the whole of what the
     /// canvas can say without words.
     ///
-    /// Shapes are drawn rather than seeded now, so a photographer who chooses Radial
-    /// Gradient sees an unchanged photograph and has to be told, once, that the next
-    /// move is theirs. The panel's note says it in a sentence; this says it where they
-    /// are looking. The moment the shape exists the cursor goes back to the arrow, so it
-    /// is a prompt rather than a mode.
+    /// Shapes are drawn rather than seeded now, so a photographer who chooses Radial and
+    /// looks at the picture sees nothing until they draw — and nothing is exactly what a
+    /// mistake looks like. The crosshair says the next move is theirs. The panel's note
+    /// says it in a sentence; this says it where they are looking. The moment the shape
+    /// exists the cursor goes back to the arrow, so it is a prompt rather than a mode —
+    /// which is why `lumenPickCursor` tracks its arming input and not only its hover.
     ///
-    /// PUSH/POP DISCIPLINE, `ViewerOverlays`' exactly: at most one push outstanding,
-    /// driven off a single boolean, flipped on every hover event so a shape appearing
-    /// mid-hover puts the cursor back — and popped in `onDisappear`, because the one
-    /// thing that unbalances this is the panel switching away while the pointer is
-    /// still inside.
-    private func setDrawCursor(_ inside: Bool) {
-        let wants = inside && needsDrawing
-        guard wants != pushedDrawCursor else { return }
-        if wants { NSCursor.crosshair.push() } else { NSCursor.pop() }
-        pushedDrawCursor = wants
-    }
-
     /// True when the selected component is one you draw and has not been drawn.
     private var needsDrawing: Bool {
         guard let component else { return false }

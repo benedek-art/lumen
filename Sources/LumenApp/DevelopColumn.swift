@@ -246,9 +246,10 @@ struct MaskingReturnBar: View {
                 Image(systemName: state.maskPanelVisible
                       ? "square.on.square.dashed" : "square.on.square")
                     .font(.system(size: 11))
-                LumenCapsLabel(text: "Masks", size: 11,
-                               color: masksHovered || state.maskPanelVisible
-                                   ? Lumen.primaryText : Lumen.secondaryText)
+                Text("Masks")
+                    .font(.lumenHeading)
+                    .foregroundStyle(masksHovered || state.maskPanelVisible
+                                     ? Lumen.primaryText : Lumen.secondaryText)
                 if !masks.isEmpty {
                     Text("\(masks.count)")
                         .font(.lumenCaption)

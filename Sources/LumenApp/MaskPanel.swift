@@ -2565,7 +2565,7 @@ struct MaskPanel: View {
     private func boardGroup(_ title: String, _ kinds: [MaskKind],
                             _ action: @escaping (MaskKind) -> Void) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            LumenCapsLabel(text: title, size: 10, color: Lumen.tertiaryText)
+            LumenCapsLabel(text: title, color: Lumen.tertiaryText)
             // Three across, laid out by hand rather than by `LazyVGrid`: the roster is
             // ten entries and will not grow past a dozen, and a lazy grid inside the
             // column's one ScrollView measures itself badly at this size.

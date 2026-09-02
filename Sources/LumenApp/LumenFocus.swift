@@ -77,6 +77,31 @@ extension View {
             // rather than snapping — the asymmetry the eye reads as responsiveness.
             .animation(.easeOut(duration: 0.12), value: focused)
     }
+
+    /// Focus for a control that has no instrument of its own to look engaged.
+    ///
+    /// A slider row does not need this and must not have it — the owner rejected an
+    /// accent border on a row on sight, the header above holds his words, and the row
+    /// has a groove and a thumb that can carry the state instead. A menu trigger, a
+    /// switch, a checkbox or a bare text button has nothing: they are a word or a small
+    /// shape, and a fill alone on something that small reads as "selected" rather than
+    /// as "the keyboard is here".
+    ///
+    /// So the ring exists, and it is scoped to exactly those. 1.5 pt of accent at 60%,
+    /// drawn as a `strokeBorder` so it grows INWARD and cannot change the control's
+    /// footprint — an outward ring would move every neighbour as focus stepped along a
+    /// row of them.
+    ///
+    /// This is the U1 mockup's focus treatment, admitted for the controls it was right
+    /// about and refused for the one it was not. The mockup showed it on everything.
+    func lumenFocusRing(focused: Bool,
+                        radius: CGFloat = Lumen.radiusControl) -> some View {
+        overlay(
+            RoundedRectangle(cornerRadius: radius, style: .continuous)
+                .strokeBorder(focused ? Lumen.focusRing : Color.clear,
+                              lineWidth: Lumen.focusRingWidth))
+            .animation(.easeOut(duration: 0.12), value: focused)
+    }
 }
 
 #endif

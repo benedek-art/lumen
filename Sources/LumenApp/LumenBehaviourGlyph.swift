@@ -245,6 +245,15 @@ struct LumenBehaviourGlyph: View {
         let rect = CGRect(x: w * 0.3 + inset, y: 3 + inset,
                           width: w * 0.4 - inset * 2, height: h - 6 - inset * 2)
         guard rect.width > 1, rect.height > 1 else { return }
+        // 2.5 IS CORRECT HERE AND IS NOT A TOKEN VIOLATION, which is worth writing down
+        // because an audit read it as one and the mechanical fix is visibly wrong.
+        //
+        // The radius ladder (6 chip / 9 control / 14 card) describes SURFACES a hand can
+        // point at. This is a drawn miniature — the whole canvas is 14 points tall, so
+        // this box is about 8 — and `radiusChip` on an 8-point box is a capsule, not a
+        // rounded rectangle. The number that keeps a diagram reading as the shape it
+        // depicts is proportional to the diagram, and 2.5 on 8 is the same proportion as
+        // 6 on a 16-point chip.
         let path = Path(roundedRect: rect, cornerRadius: 2.5)
         context.stroke(path, with: .color(stroke),
                        style: StrokeStyle(lineWidth: 1.1, dash: dashed ? [2.5, 2.5] : []))

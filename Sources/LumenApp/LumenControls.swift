@@ -87,9 +87,71 @@ enum Lumen {
     static let controlHover = Color(nsColor: NSColor(white: 0.27, alpha: 1))
     static let controlActive = Color(nsColor: NSColor(white: 0.31, alpha: 1))
 
-    static let primaryText = Color(nsColor: NSColor(white: 0.92, alpha: 1))
-    static let secondaryText = Color(nsColor: NSColor(white: 0.66, alpha: 1))
-    static let tertiaryText = Color(nsColor: NSColor(white: 0.50, alpha: 1))
+    // THE TEXT RAMP CAME DOWN ONE STEP AT EVERY RUNG (U1).
+    //
+    // 0.92 on a 0.20 panel is about 11:1. That is roughly twice WCAG AA for body text,
+    // and the surplus is not free: it is the reason the panels read as a field of white
+    // dots beside the photograph. A develop column is not a document — it is chrome
+    // sitting inches from a picture whose tone somebody is judging, and the brightest
+    // thing in the window should be in the picture. 0.86 is ≈8:1, still comfortably
+    // past AA at these sizes, and it lets the accent and the modified-slider fill be
+    // the two things that actually catch the eye.
+    //
+    // Secondary and tertiary come down with it so the RATIOS between the three rungs
+    // are preserved — a ramp that keeps its steps is what makes hierarchy legible, and
+    // moving only the top would have flattened it.
+    static let primaryText = Color(nsColor: NSColor(white: 0.86, alpha: 1))
+    static let secondaryText = Color(nsColor: NSColor(white: 0.62, alpha: 1))
+    static let tertiaryText = Color(nsColor: NSColor(white: 0.48, alpha: 1))
+
+    /// What hovering adds to a surface: one step up the ladder, uniformly.
+    ///
+    /// Hover used to be the 0.24 → 0.27 jump, which only worked for a control already
+    /// sitting at 0.24 — a chip on a well, a header on a panel, and a tab all needed
+    /// their own literal, and each invented one. An ADDITIVE step composes: whatever a
+    /// thing's rest value is, hovered is that plus this, and the family reads as one
+    /// system rather than as five look-alikes.
+    ///
+    /// It paints only on things you can click. The owner asked for slider rows to stop
+    /// lighting up as the pointer crosses them, and `LumenFocus.swift` holds that
+    /// argument in full.
+    static let hoverLift: Double = 0.03
+
+    /// The ladder's rungs as NUMBERS, so `hoverLift` has something to add to.
+    ///
+    /// `Color` has no arithmetic — you cannot ask SwiftUI for "this, plus three
+    /// percent" — so an additive system needs the values themselves. These are the same
+    /// numbers the `Color` constants above are built from, named once so the two can
+    /// never drift apart.
+    static let panelValue: Double = 0.20
+    static let insetWellValue: Double = 0.145
+    static let controlSurfaceValue: Double = 0.24
+
+    /// A surface, hovered: itself plus one lift, clamped so a bright base cannot
+    /// overflow into white.
+    static func hovered(on base: Double) -> Color {
+        Color(nsColor: NSColor(white: Swift.min(base + hoverLift, 1), alpha: 1))
+    }
+
+    /// Focus, for controls with no groove to speak for them.
+    ///
+    /// A 1.5 pt accent ring at 60%. NOT for slider rows — the owner rejected exactly
+    /// that on sight ("when I press on something, for example, highlight, it gets a
+    /// blue border around it, which I don't want") and rows keep the surface fill
+    /// `lumenFocusSurface` paints instead. A menu trigger, a switch or a checkbox has
+    /// no instrument of its own to look engaged, so it gets the ring.
+    static let focusRing = Color(nsColor: NSColor(red: 0.45, green: 0.58, blue: 0.72,
+                                                  alpha: 0.60))
+    static let focusRingWidth: CGFloat = 1.5
+
+    /// The one material every overlay, badge and floating panel shares.
+    ///
+    /// The app had a HUD look invented three times — a badge box, an overlay capsule
+    /// and the masks panel each rolled their own black-with-some-alpha — so three
+    /// things that should read as the same layer read as three near-misses. Black at
+    /// 72% over a photograph is dark enough to hold 0.86 text at any exposure and
+    /// light enough that the picture still shows through the edges of it.
+    static let hudFill = Color(nsColor: NSColor(white: 0, alpha: 0.72))
 
     /// The slider fill's two states, separated for real (~4:1 between them against
     /// the groove): reading "what did I change" down a panel is the modified
@@ -213,7 +275,16 @@ enum Lumen {
         LumenTrackStop(value: 100, color: Color(nsColor: NSColor(white: 0.66, alpha: 1))),
     ]
 
-    static let rowHeight: CGFloat = 22
+    /// THE ROW, at 24 rather than 22.
+    ///
+    /// 22 is not on the 4 pt grid the rest of the layout is drawn to, so every stack of
+    /// rows drifted against every gap and inset around it — the arithmetic reason a
+    /// panel looks "off" without any single element being wrong. 24 is on the grid, it
+    /// is the pitch Lightroom and Capture One both use, and at a 44-inch viewing
+    /// distance it is the difference between rows that touch and rows that sit.
+    ///
+    /// It is a number the owner named directly, so it is not a taste call: 24 pt.
+    static let rowHeight: CGFloat = 24
     /// THE DEFAULT WIDTH, not the only one — the column is draggable and this is where
     /// it starts.
     ///
@@ -263,7 +334,12 @@ enum Lumen {
     /// `SliderDragTests` re-proves the drag's properties parametrically from 100 to
     /// 400 pt of track, so nothing here is pinned to a width.
     static let labelWidth: CGFloat = 86
-    static let valueWidth: CGFloat = 44
+    /// 48, up from 44: the readout is a pill now and five points of each side are the
+    /// pill's own air, which leaves 38 for the digits — enough for "−100" and "5500"
+    /// in tabular figures at 11 pt with room to spare, and the four points come out of
+    /// the track at 380 wide as 0.03 points per unit, which is below anything a hand
+    /// can feel.
+    static let valueWidth: CGFloat = 48
 }
 
 // MARK: - Coloured track stop
@@ -533,6 +609,16 @@ struct LumenSlider: View {
         // target instead of 22, a 4pt gutter between adjacent fills instead of 2, and
         // the pitch up from 24 to 30. The groove, the thumb and the two text columns are
         // untouched — this is space around the instrument, not a resizing of it.
+        //
+        // THEN THE ROW GREW TO 24 AND THE OUTER POINT WENT (U1). The design direction's
+        // mockup wanted a 24-point PITCH, and that would have made the column tighter
+        // than the build the owner had just called "back to back to back" — his words
+        // beat the mockup, so the air stays. But the outer point existed to put a
+        // gutter between two HOVER fills, and hover left this row a review ago; only
+        // one row can hold focus, so the gutter was separating a fill from nothing.
+        // Dropping it puts the pitch at 28 — on the 4-point grid the rest of the layout
+        // is drawn to, and exactly the pitch he approved — with the row itself two
+        // points taller at the number he named.
         .padding(.vertical, 2)
         // THE ROW ANSWERS THE KEYBOARD, and — since the owner's third review — no longer
         // answers the pointer.
@@ -548,7 +634,6 @@ struct LumenSlider: View {
         // there instead of the accent ring the owner reported on sight: the ring fired on
         // mouse-DOWN, so every drag of every slider began with a blue border.
         .lumenFocusSurface(focused: rowFocused)
-        .padding(.vertical, 1)
         // KEYBOARD NUDGE (docs/28 Phase 7), and the three things it needed.
         //
         // One: the row is focusable, with the system's own ring turned off. macOS draws
@@ -1094,7 +1179,33 @@ struct LumenSlider: View {
                     .help("Drag to adjust, click to type — ⇧ for fine")
             }
         }
+        // Padding INSIDE the column's width, so the pill costs the track nothing: the
+        // row's arithmetic — label, two gaps, readout, the rest is groove — is what
+        // decided the panel's default width, and a readout that grew outward would
+        // have quietly taken twelve points off every track in the app.
+        .padding(.horizontal, 5)
         .frame(width: Lumen.valueWidth, alignment: .trailing)
+        // A PILL, NOT A BARE NUMBER. The readout is the app's precision instrument and
+        // its field for typing, and it looked like a caption: a grey number floating at
+        // the end of the row, indistinguishable from a static label. Every tool in this
+        // category that lets you type a value draws the value in a field — Lightroom's
+        // is a box, Capture One's is a box, Figma's is a box — because a box is how a
+        // number says "I am editable" without a tooltip.
+        //
+        // A well rather than a raised surface: it is a place you put something INTO.
+        // Two points of horizontal air keep the digits off the curve of the capsule.
+        // Modified gets a border in the modified-fill grey — the row's own word for
+        // "you changed this", said once more at the number, zero chroma, so a panel of
+        // fifteen rows can be read for its edits down the right-hand edge as well as
+        // along the grooves.
+        .frame(height: 18)
+        .background(Lumen.insetWell)
+        .overlay(
+            Capsule(style: .continuous)
+                .strokeBorder(isModified ? Lumen.sliderFillModified : Color.clear,
+                              lineWidth: 1))
+        .clipShape(Capsule(style: .continuous))
+        .animation(.easeOut(duration: 0.12), value: isModified)
     }
 
     private var formatted: String {
@@ -1312,10 +1423,24 @@ struct LumenSectionHeader: View {
             // takes it from 5.33:1 to 10.56:1 against the panel and buys a real
             // hierarchy step for nothing.
             //
-            // Through `LumenCapsLabel` rather than hand-rolled, because that type exists
-            // precisely to stop a sixth 12pt-semibold-0.7-tracking caps style being
-            // invented next to the five it replaced (`LumenType.swift`).
-            LumenCapsLabel(text: title, size: 12, color: Lumen.primaryText)
+            // MIXED CASE, THROUGH THE TOKEN THAT WAS WRITTEN FOR THIS AND NEVER USED.
+            //
+            // `.lumenHeading` shipped with zero call sites while 53 headers rendered
+            // `LumenCapsLabel` — so the file written to end five caps styles sat unused
+            // and every panel heading was still shouting in tracked capitals. That is
+            // the "caps labels three ways" tell, and it is also simply harder to read:
+            // capitals strip the ascender-and-descender silhouette a word is recognised
+            // by, which is why they cost about 10% in reading speed and why no
+            // instrument in this category sets its panel headings that way. Lightroom,
+            // Capture One and Darkroom all use mixed case.
+            //
+            // The hierarchy it was buying with volume is bought with weight and colour
+            // instead — 12 semibold `primaryText` over 11 regular `secondaryText` rows —
+            // which is a real step and a quiet one. Caps retire to the workspace rail,
+            // where a three-letter label has no word-shape to lose anyway.
+            Text(title)
+                .font(.lumenHeading)
+                .foregroundStyle(Lumen.primaryText)
             if isModified {
                 Circle()
                     .fill(Lumen.accent)
@@ -1707,8 +1832,9 @@ struct LumenToggleRow: View {
             LumenSwitch(isOn: $isOn)
         }
         .frame(height: Lumen.rowHeight)
-        // The same 2-in / 1-out air as a slider row, so a toggle dropped between two
-        // sliders keeps the column's pitch instead of pinching it.
+        // The same air as a slider row, so a toggle dropped between two sliders keeps
+        // the column's pitch instead of pinching it — 24 inside 2, pitch 28, on the
+        // grid.
         .padding(.vertical, 2)
         // THE WHOLE ROW IS THE SWITCH. A mini `Toggle` is a 26-point target at the far
         // end of a 300-point row whose left half is a label naming what it does, and
@@ -1721,9 +1847,13 @@ struct LumenToggleRow: View {
         // switch and never reaches here, which is what stops the two cancelling.
         .contentShape(Rectangle())
         .onTapGesture { isOn.toggle() }
-        .lumenHoverable()
-        .lumenClickCursor()
-        .padding(.vertical, 1)
+        // Hover STAYS on this row, and that is not an inconsistency with the slider
+        // row losing it: a toggle row is a button the width of the panel, and a button
+        // needs hover to say it is pressable. `lumenInteractive` is the fill and the
+        // pointing hand in one call. It lifts from the PANEL value, because that is
+        // what the row sits on — the old literal 0.27 was a step for a control at
+        // 0.24 and a jump for a row at 0.20.
+        .lumenInteractive(on: Lumen.panelValue)
         .help(help ?? "")
     }
 }
@@ -1740,13 +1870,18 @@ struct LumenBadge: View {
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
             .foregroundStyle(.white)
-            // A chip is a small object, and an object has an edge. `lumenSurface` gives
-            // it the lit top the flat `clipShape` never had, at `.flush` because a badge
-            // sits ON the row it annotates rather than above it.
-            .lumenSurface(radius: Lumen.radiusChip,
-                          elevation: .flush,
-                          fill: emphasized ? Lumen.accent.opacity(0.8)
-                                           : Color.black.opacity(0.55))
+            // A PILL, IN THE SHARED HUD MATERIAL. It was a rounded box at its own
+            // black@55%, one of four hand-rolled darks in the tree, so the badge on a
+            // thumbnail and the overlay above it read as two different layers of the
+            // same window. `Capsule` rather than a radius because a badge is a single
+            // line of text in a small box — the one shape where a fully round end is
+            // the honest answer and a corner radius is an approximation of it.
+            //
+            // The emphasized form keeps the accent, and keeps its own fill rather than
+            // the HUD's: it exists to be noticed, and it is the accent policy's
+            // "marker scale, never area" — a badge is a marker.
+            .background(emphasized ? Lumen.accent.opacity(0.8) : Lumen.hudFill)
+            .clipShape(Capsule(style: .continuous))
     }
 }
 

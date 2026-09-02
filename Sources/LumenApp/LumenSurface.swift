@@ -59,6 +59,30 @@ extension View {
     ///
     /// Grooves, histogram wells, text fields. The slider already draws this by hand with
     /// a gradient fill; this is that idea made available to everything else.
+    /// THE ONE MATERIAL EVERYTHING THAT FLOATS OVER THE PHOTOGRAPH IS MADE OF.
+    ///
+    /// Badges, the viewer's overlays, the floating masks panel and the latency HUD each
+    /// rolled their own black-with-some-alpha — 0.55, 0.6, 0.65 and 0.72 were all in
+    /// the tree at once — so four things that should read as one layer read as four
+    /// near-misses, and none of them was tuned against a photograph.
+    ///
+    /// Black at 72% is the number, and it is set by the hardest case rather than the
+    /// average one: it has to hold 0.86 text over a blown highlight without becoming a
+    /// black box over a low-key frame. No border — an outline over a picture is a line
+    /// drawn on somebody's photograph, and this app's whole thesis is light rather than
+    /// lines. The shadow does the separating.
+    ///
+    /// `radius` defaults to the CARD radius, not a smaller one: these are the surfaces
+    /// furthest from the window's own geometry, so they are the ones that most need to
+    /// read as objects rather than as clipped rectangles.
+    func lumenHUD(radius: CGFloat = Lumen.radiusCard) -> some View {
+        background(Lumen.hudFill)
+            .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+            .shadow(color: .black.opacity(Lumen.Elevation.floating.shadowOpacity),
+                    radius: Lumen.Elevation.floating.shadowRadius,
+                    y: Lumen.Elevation.floating.shadowOffset)
+    }
+
     func lumenWell(radius: CGFloat = Lumen.radiusControl) -> some View {
         clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
             .overlay(

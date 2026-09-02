@@ -106,7 +106,9 @@ struct MaskFloatingPanel: View {
         HStack(spacing: 5) {
             createButton
             if !state.maskPanelMinimized {
-                LumenCapsLabel(text: "Masks", size: 11, color: Lumen.primaryText)
+                Text("Masks")
+                    .font(.lumenHeading)
+                    .foregroundStyle(Lumen.primaryText)
                 if !masks.isEmpty {
                     Text("\(masks.count)")
                         .font(.lumenCaption)

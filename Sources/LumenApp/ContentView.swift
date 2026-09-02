@@ -55,7 +55,13 @@ struct ContentView: View {
                     .fill(Color.clear)
                     .frame(width: 6)
                     .contentShape(Rectangle())
-                    .onHover { $0 ? NSCursor.resizeLeftRight.push() : NSCursor.pop() }
+                    // Through the balanced modifier: the raw pair here pushed on
+                    // enter and popped on exit with no record of whether the push had
+                    // happened, so a second enter without an exit — which SwiftUI
+                    // delivers across a re-layout, and this handle sits on a divider
+                    // that re-lays out as the column resizes — left the whole app
+                    // wearing a resize cursor.
+                    .lumenScrubCursor()
                     .gesture(
                         DragGesture(minimumDistance: 0)
                             .onChanged { drag in

@@ -102,9 +102,18 @@ struct LumenMenu<Content: View>: View {
 
     private var fill: Color {
         if isOpen { return Lumen.controlActive }
-        if hovering { return Lumen.controlHover }
+        // Additive, through the same helper every hovered thing in the app uses, so a
+        // trigger and a chip and a header all rise by the same step.
+        if hovering { return Lumen.hovered(on: Lumen.controlSurfaceValue) }
         return Lumen.controlSurface
     }
+
+    /// The trigger holds the keyboard. A `Button` is focusable on its own and answers
+    /// space and return natively; what it lacked was any way to SHOW it — the system
+    /// halo is off app-wide because it is sized for AppKit controls and reads as a bug
+    /// on ours, and nothing was drawn in its place. So a photographer tabbing across
+    /// the export sheet lost track of where they were.
+    @FocusState private var triggerFocused: Bool
 
     @ViewBuilder
     var body: some View {
@@ -214,7 +223,7 @@ struct LumenMenu<Content: View>: View {
                     // rotates when the list opens says the same thing with a third of the
                     // ink AND reports state, which the double glyph cannot do at all.
                     Image(systemName: "chevron.down")
-                        .font(.system(size: 9, weight: .semibold))
+                        .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(Lumen.secondaryText)
                         .rotationEffect(.degrees(isOpen ? 180 : 0))
                 }
@@ -229,6 +238,15 @@ struct LumenMenu<Content: View>: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        // The same three modifiers the slider row uses, in the same order: focusable,
+        // the system's ring off, the state read back. The drawing differs — a RING here
+        // rather than the row's surface — because a trigger has no groove to carry
+        // "engaged" and a fill alone on a button reads as "pressed". `LumenFocus.swift`
+        // holds the argument for which controls get which.
+        .focusable()
+        .focusEffectDisabled()
+        .focused($triggerFocused)
+        .lumenFocusRing(focused: triggerFocused, radius: Lumen.radiusControl)
         .onHover { hovering = $0 }
         .lumenClickCursor()
         .animation(.easeOut(duration: 0.12), value: hovering)
@@ -268,7 +286,7 @@ struct LumenMenuItem: View {
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: "checkmark")
-                    .font(.system(size: 9, weight: .bold))
+                    .font(.system(size: 10, weight: .bold))
                     .foregroundStyle(Lumen.primaryText)
                     .opacity(isSelected ? 1 : 0)
                     .frame(width: 10, alignment: .leading)
@@ -309,7 +327,7 @@ struct LumenMenuHeader: View {
     let title: String
 
     var body: some View {
-        LumenCapsLabel(text: title, size: 10, color: Lumen.tertiaryText)
+        LumenCapsLabel(text: title, color: Lumen.tertiaryText)
             .padding(.horizontal, 6)
             .padding(.top, 6)
             .padding(.bottom, 2)
@@ -317,15 +335,20 @@ struct LumenMenuHeader: View {
     }
 }
 
-/// The rule between two groups. Inset to the rows' own text edge rather than run wall to
-/// wall, so it separates the list rather than cutting the panel in half.
+/// The break between two groups — SPACE, not a rule.
+///
+/// It drew a one-pixel line, which is the last hairline in the menu system and the
+/// idiom this whole design pass exists to remove: partitioning flat grey with rules is
+/// the pre-Yosemite read the owner named as "made in 2008". Every other boundary in the
+/// app is carried by surface value and space now, and a menu is the easiest place of
+/// all to do it, because the group headers above the rows already say where a group
+/// starts.
+///
+/// Kept as a type rather than deleted so the two call sites keep saying "a group ends
+/// here" — the meaning is right, only the drawing was wrong.
 struct LumenMenuDivider: View {
     var body: some View {
-        Rectangle()
-            .fill(Lumen.separator)
-            .frame(height: 1)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 4)
+        Color.clear.frame(height: 8)
     }
 }
 

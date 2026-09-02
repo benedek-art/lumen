@@ -496,7 +496,7 @@ struct LookPanel: View {
             // goes through `LumenCapsLabel` like every other caps heading, one step
             // under the section headers' 12, with the group's formal statement on
             // hover so the label itself can answer "what is this axis".
-            LumenCapsLabel(text: title, size: 10)
+            LumenCapsLabel(text: title)
                 .padding(.top, 6)
                 .help(help)
             LumenSlider(title: "Global",

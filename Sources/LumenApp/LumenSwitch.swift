@@ -94,7 +94,12 @@ struct LumenSwitch: View {
         .onTapGesture { if isEnabled { isOn.toggle() } }
         // Critically damped, matching the accordion and the disclosures: the knob leaves
         // immediately and stops without overshooting. A bouncing switch is a toy.
-        .animation(.spring(response: 0.22, dampingFraction: 1), value: isOn)
+        // 0.12, DOWN FROM 0.22. The design direction's ceiling for anything functional
+        // is 120 ms, and this is the app's most-toggled control: a switch that takes a
+        // fifth of a second to arrive reads as the app thinking about it. Damping stays
+        // at 1 — a critically damped spring at this duration is a firm click rather than
+        // a bounce, and a toggle that overshoots looks like a toy.
+        .animation(.spring(response: 0.12, dampingFraction: 1), value: isOn)
         .animation(.easeOut(duration: 0.12), value: hovering)
         .accessibilityAddTraits(.isButton)
         .accessibilityValue(isOn ? "on" : "off")
@@ -118,8 +123,18 @@ struct LumenCheckbox: View {
     @State private var hovering = false
 
     var body: some View {
+        // A DERIVED RADIUS RATHER THAN A LITERAL, and one step of hover on the SURFACE
+        // rather than a `.brightness` filter over the whole control.
+        //
+        // `.brightness` lifts every pixel it covers, tick included, so hovering a
+        // checked box washed the checkmark toward its own background; and it is a
+        // filter, so it does not compose with the ladder every other hovered thing in
+        // the app moves along. The unchecked box is a well at 0.145 and hovering lifts
+        // it by `Lumen.hoverLift` like everything else.
         RoundedRectangle(cornerRadius: Lumen.radiusChip - 2, style: .continuous)
-            .fill(isOn ? Lumen.sliderFillModified : Lumen.insetWell)
+            .fill(isOn ? Lumen.sliderFillModified
+                       : (hovering ? Lumen.hovered(on: Lumen.insetWellValue)
+                                   : Lumen.insetWell))
             .overlay(
                 RoundedRectangle(cornerRadius: Lumen.radiusChip - 2, style: .continuous)
                     .strokeBorder(
@@ -136,7 +151,6 @@ struct LumenCheckbox: View {
                     .opacity(isOn ? 1 : 0))
             .frame(width: Self.side, height: Self.side)
             .opacity(isEnabled ? 1 : 0.45)
-            .brightness(hovering && !isOn ? 0.06 : 0)
             .contentShape(Rectangle())
             .onHover { hovering = $0 && isEnabled }
             .onTapGesture { if isEnabled { isOn.toggle() } }
