@@ -129,6 +129,9 @@ final class CatalogService: @unchecked Sendable {
     /// background scan task, never from the main actor.
     func registerAndLoad(folder: URL, files: [URL]) -> [URL: StoredState] {
         var result: [URL: StoredState] = [:]
+        // A scan is when a RAW can gain a same-name sibling; the sidecar naming memo
+        // must not outlive it.
+        Self.forgetSiblings()
         queue.sync {
             do {
                 let folderID = try store.registerFolder(path: folder.path)
@@ -1122,11 +1125,49 @@ final class CatalogService: @unchecked Sendable {
     /// browsable, so on a card shot RAW+JPEG editing the JPEG overwrote the RAW's
     /// recipe and vice versa — half the frames on the card, with the promise that
     /// losing the catalog costs speed and never work quietly false for all of them.
+    ///
+    /// AND THEN THE OTHER HALF OF THE SAME DEFECT: two RAWs with one basename —
+    /// `DSC_0001.NEF` beside its `DSC_0001.DNG` after a conversion that kept the
+    /// original — both dropped their extension and met at one `DSC_0001.xmp`. The
+    /// later flush overwrote the earlier recipe, and the next open read the shared
+    /// file back as `.sidecarWins` for the frame whose mtime no longer matched and
+    /// wrote the wrong recipe into its catalog row. The rule that keeps them apart is
+    /// `SidecarNaming`, in LumenCore, where it is tested; this function owns only the
+    /// two facts it needs — is it a RAW, and which other RAWs share its name.
     static func sidecarURL(for photo: URL) -> URL {
-        guard PhotoFormats.isRaw(photo) else {
-            return photo.appendingPathExtension("xmp")
+        SidecarNaming.url(for: photo, isRaw: PhotoFormats.isRaw(photo),
+                          rawSiblingExtensions: rawSiblings(of: photo))
+    }
+
+    /// The other RAW files sharing `photo`'s basename, from one directory listing per
+    /// directory, memoized — this is asked once per sidecar read and per flush, and a
+    /// ten-thousand-frame folder must not stat ten thousand times to learn a fact that
+    /// is the same for all of them. `registerAndLoad` forgets the memo, because a
+    /// rescan is when a sibling can appear.
+    private static let siblingLock = NSLock()
+    private static var siblingNames: [String: [String]] = [:]
+
+    private static func rawSiblings(of photo: URL) -> Set<String> {
+        let directory = photo.deletingLastPathComponent()
+        siblingLock.lock()
+        var names = siblingNames[directory.path]
+        siblingLock.unlock()
+        if names == nil {
+            let listed = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
+            siblingLock.lock()
+            siblingNames[directory.path] = listed
+            siblingLock.unlock()
+            names = listed
         }
-        return photo.deletingPathExtension().appendingPathExtension("xmp")
+        return SidecarNaming.rawSiblingExtensions(
+            of: photo, amongNames: names ?? [],
+            isRawName: { PhotoFormats.raw.contains(URL(fileURLWithPath: $0).pathExtension.lowercased()) })
+    }
+
+    static func forgetSiblings() {
+        siblingLock.lock()
+        siblingNames.removeAll()
+        siblingLock.unlock()
     }
 
     static func readSidecar(for photo: URL) -> SidecarContent? {
