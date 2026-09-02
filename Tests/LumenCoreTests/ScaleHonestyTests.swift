@@ -128,11 +128,35 @@ final class ScaleHonestyTests: XCTestCase {
             ("texture", { (r: inout Recipe) in r.develop.detail.texture = 60 }),
             ("clarity", { r in r.develop.detail.clarity = 50 }),
             ("dehaze", { r in r.develop.detail.dehaze = 45 }),
+            // S12 was missing from this list for its whole life, and it was the one
+            // stage on it that failed. The omission was half of E2-04: this is the
+            // exact harness for "a fixed pixel radius", `RenderGraph.swift:344` names
+            // SHARPENING as a stage that sizes itself off the long edge, and nothing
+            // here ever asked whether it did. `testACompleteEditSurvivesAFourfoldScale-
+            // Change` sets fourteen fields and not `detail.sharpen.amount` either, so
+            // the whole file could go green with S12 denominated in render pixels.
+            //
+            // The entry carries a RADIUS on purpose. The panel default of 1.0 measured
+            // 4.00 against this bar of 5 — under it, so a defect of 14x would have
+            // shipped past an entry that looked complete. Radius 1.5 reads 5.25 and
+            // 2.0 reads 6.07: the same defect, scaled, and only two of the three are
+            // visible to the assertion. A roster entry for a spatial stage has to push
+            // the control that sets the SIZE, or it is sweeping the amount of a radius
+            // it left at the value that hides the reading.
+            ("sharpen", { r in
+                r.develop.detail.sharpen.amount = 100
+                r.develop.detail.sharpen.radius = 2.0 }),
         ] {
             let d = measureStage(mutate)
             print(String(format: "  SPATIAL  %-18@ %.4f", name, d))
             // Measured: texture 2.77, clarity 1.90, dehaze 3.27. Clarity was 7.38
             // before its pyramid depth started tracking the long edge.
+            //
+            // Sharpen, measured on S12 alone at these two sizes (the stage in
+            // isolation, sRGB-encoded, so the display transform is not in the number
+            // and the figure this file prints will differ a little): 6.07 with the
+            // radius in render pixels, 1.43 with it denominated in the frame, against
+            // a resample floor of 0.40 for the same scene with no stage running.
             XCTAssertLessThan(d, 5,
                               "\(name) diverges by \(d) code values across a 4x scale "
                                   + "change — its radius is not tracking the long edge")
@@ -163,6 +187,174 @@ final class ScaleHonestyTests: XCTestCase {
         XCTAssertEqual(DetailEngine.pyramidLevels(longEdge: 0),
                        DetailEngine.pyramidLevels(longEdge: 1),
                        "a zero long edge must not produce a different answer to one pixel")
+    }
+
+    /// Sharpening's radius tracks the frame on the same reference and by the same rule
+    /// Clarity's pyramid and Texture's band do — and its fine band does not JUMP as the
+    /// preview ladder steps, which is the one place the three conventions differ.
+    func testTheSharpenRadiusTracksTheLongEdgeWithoutSteppingAtALadderRung() {
+        XCTAssertEqual(SpatialOps.spatialReferenceLongEdge,
+                       DetailEngine.pyramidReferenceLongEdge,
+                       "the presence stages and sharpening quote their sizes at "
+                           + "different reference frames, so one setting means two "
+                           + "different fractions of the same picture")
+
+        // At the reference the fix is the identity: a 2560 px render is exactly what
+        // every one of these stages was tuned at, and must not have moved.
+        XCTAssertEqual(SpatialOps.frameDenominatedSigma(radius: 1.5, longEdge: 2560),
+                       1.5, accuracy: 1e-12)
+        // One doubling of the frame is one doubling of the radius, unclamped in both
+        // directions: a sigma has no rungs to run out of (see `frameScale`).
+        XCTAssertEqual(SpatialOps.frameDenominatedSigma(radius: 1.0, longEdge: 5120),
+                       2.0, accuracy: 1e-12)
+        XCTAssertEqual(SpatialOps.frameDenominatedSigma(radius: 1.0, longEdge: 320),
+                       0.125, accuracy: 1e-12)
+        XCTAssertEqual(SpatialOps.frameDenominatedSigma(radius: 1.0, longEdge: 0),
+                       SpatialOps.frameDenominatedSigma(radius: 1.0, longEdge: 1),
+                       accuracy: 1e-12,
+                       "a zero long edge must not produce a different answer to one pixel")
+
+        // The band index is continuous and monotone, floors at the finest scale a
+        // sampled image has, and tops out where `DetailEngine.bandCenter`'s own
+        // `clamp(log2(longEdge/2560), -1, 2)` does — 10240 px.
+        let levels = DetailEngine.waveletLevels
+        XCTAssertEqual(SpatialOps.fineBandLevel(longEdge: 2560, levels: levels), 0,
+                       accuracy: 1e-12)
+        XCTAssertEqual(SpatialOps.fineBandLevel(longEdge: 5120, levels: levels), 1,
+                       accuracy: 1e-12)
+        XCTAssertEqual(SpatialOps.fineBandLevel(longEdge: 10240, levels: levels), 2,
+                       accuracy: 1e-12)
+        XCTAssertEqual(SpatialOps.fineBandLevel(longEdge: 40000, levels: levels), 2,
+                       accuracy: 1e-12, "the band left the stack it indexes into")
+        var previous = -1.0
+        for longEdge in [1, 64, 640, 1280, 2560, 3619, 3621, 5120, 11648, 40000] {
+            let level = SpatialOps.fineBandLevel(longEdge: longEdge, levels: levels)
+            XCTAssertGreaterThanOrEqual(level, previous, "\(longEdge) px went finer")
+            XCTAssertLessThanOrEqual(level, Double(levels - 2), "\(longEdge) px")
+            previous = level
+        }
+
+        // The rung that matters. `pyramidLevels` may round because one pyramid level of
+        // Clarity is barely visible; a rounded sharpening band puts a whole octave step
+        // at 2560·√2, and measured on `fractionalTexture` at Radius 2.0 the rounded form
+        // jumps 7.20 -> 8.75 code values (+21.6%) between these two sizes. Blended, both
+        // read 7.977 — and the level difference below is the 0.0008 the sizes ask for.
+        let below = SpatialOps.fineBandLevel(longEdge: 3619, levels: levels)
+        let above = SpatialOps.fineBandLevel(longEdge: 3621, levels: levels)
+        XCTAssertEqual(above - below, 0.0008, accuracy: 0.0005,
+                       "the fine band moved by \(above - below) of a level across two "
+                           + "pixels of render size — it has been rounded to an octave "
+                           + "and the picture now steps as the preview ladder does")
+    }
+
+    // MARK: - S12 sharpening
+
+    /// A texture whose feature size is a fixed FRACTION of the picture — a sinusoid of
+    /// period `longEdge / 200`, so the same photograph is in front of the stage at every
+    /// render size and the only thing that changes is how densely it is sampled.
+    ///
+    /// **Why not `ProofFrames.stepEdge`, which is what three of the five sharpen proof
+    /// records are taken on: a hard step cannot express a scale-dependent sharpener,
+    /// because a step has no scale.** `lum − G_σ(lum)` at an ideal edge peaks at a
+    /// fraction of the step height that does not depend on σ at all: widening the blur
+    /// widens the rim without raising it, so the amplitude a rim metric reads is the
+    /// same number at any radius and at any resolution. Measured, at Amount 30 (below
+    /// the clip, see the next paragraph), the bright rim is 27.1733 code values at 128,
+    /// 1600, 4096 and 7008 px — identical to four decimals.
+    ///
+    /// On that frame at the settings the records actually sweep it is worse than
+    /// scale-free, it is saturated. The step's bright side is `0.18 · 2² = 0.72`, which
+    /// is sRGB code 220.586; any Amount at or above **38** pushes the rim past 1.0, so
+    /// the reading pins at `255 − 220.586 = 34.414` — the same 34.414 at 128, 1600, 4096
+    /// and 7008 px, and the same 34.414 at Amount 40 and at Amount 150. It is a property
+    /// of the white point, not of the photograph. A frame answers the question it can
+    /// express; this one was answering "where is white" while the harness read it as
+    /// "how much did the stage do", which is how a 14x defect sat under five green
+    /// records for the life of the file.
+    func fractionalTexture(longEdge: Int) -> ImageBuffer {
+        let period = Double(longEdge) / 200.0
+        return ImageBuffer(width: longEdge, height: 32) { u, _ in
+            RGB(gray: 0.18 * (1 + 0.20 * sin(2 * .pi * u * Double(longEdge) / period)))
+        }
+    }
+
+    /// Peak-to-peak sRGB contrast across the middle row, away from the border.
+    func rowContrast(_ image: ImageBuffer) -> Double {
+        let y = image.height / 2
+        var lo = Double.infinity, hi = -Double.infinity
+        for x in 16..<(image.width - 16) {
+            let c = Num.saturate(TransferFunction.srgb.encode(Num.saturate(image[x, y].g)))
+            lo = Swift.min(lo, c)
+            hi = Swift.max(hi, c)
+        }
+        return (hi - lo) * 255
+    }
+
+    /// The contrast S12 ADDS to a feature that is 1/200 of the picture wide, in sRGB
+    /// code values, at one render size. The stage alone — no display transform — so the
+    /// number is the sharpener and nothing else.
+    func sharpeningAdded(longEdge: Int, radius: Double) -> Double {
+        let frame = fractionalTexture(longEdge: longEdge)
+        let node = DetailEngine.Decomposition(
+            image: frame,
+            workingRadius: Swift.max(Int(Double(longEdge) * 0.02), 3))
+        let sharpened = DetailEngine.applySharpen(
+            frame, params: ManualSharpen(amount: 100, radius: radius), decomposition: node)
+        return rowContrast(sharpened) - rowContrast(frame)
+    }
+
+    /// Sharpening set on a fit preview has to arrive in the delivered file.
+    ///
+    /// This is the measurement E2-04 was found by and the one the roster entry above
+    /// cannot make: the roster compares a 300 px render against a 1200 px one, and BOTH
+    /// of those sit below the 2560 px reference the frame-denominated stages are quoted
+    /// at, so a stage could pin at the reference floor at both sizes and pass. Here the
+    /// two sizes straddle it — 1600 px is a fit preview and 6400 px is a delivered file
+    /// — and the assertion is on the RATIO, pinned to the number it measures rather than
+    /// to its direction, because "the export got more than the preview" was true of the
+    /// broken stage too.
+    ///
+    /// Measured, Amount 100 / Radius 2.0 / Detail 25:
+    ///
+    ///     added contrast      1600 px    6400 px    ratio
+    ///     render pixels       13.583      1.537     0.113
+    ///     the picture          8.592      7.880     0.917
+    ///
+    /// The denomination itself lives in `SpatialOps.frameDenominatedSigma` and
+    /// `SpatialOps.fineDetailBand`, and `DetailEngine.applySharpen` reads them at two
+    /// call sites — the `gaussianBlur` sigma and the `d.details[0] + 0.5 * d.details[1]`
+    /// band. Both paths have to read them or this reads 0.113; `RenderGraph.applySharpen`
+    /// is the GPU twin and takes the same two changes.
+    ///
+    /// 0.113 is the finding: the delivered file received an eighth of what was judged.
+    /// The residual 8% is the fine band, whose à-trous dilation floors at level 0 — two
+    /// pixels is the finest structure a sampled image has, so below the reference size
+    /// that quarter of the mix genuinely cannot scale further down. The ratio is flat in
+    /// the frame's modulation depth (0.9167 at 0.10, 0.9173 at 0.25), so what it reads
+    /// is the stage and not the fixture.
+    func testSharpeningMeansTheSameFractionOfThePictureAtEitherRenderSize() {
+        let preview = sharpeningAdded(longEdge: 1600, radius: 2.0)
+        let delivered = sharpeningAdded(longEdge: 6400, radius: 2.0)
+        print(String(format: "  SHARPEN  1600 px +%.4f   6400 px +%.4f   ratio %.4f",
+                     preview, delivered, delivered / preview))
+
+        // The probe has to be sharpening something, or the ratio below is a quotient of
+        // two numbers that are both noise — the shape `testFilmGrainHasTheSame-
+        // AmplitudeAtEveryRenderSize` guards for the same reason.
+        XCTAssertGreaterThan(preview, 4,
+                             "S12 added \(preview) code values to a texture 1/200 of the "
+                                 + "frame wide at 1600 px — under the 2.9 code values "
+                                 + "docs/20 calls visible, so this test is dividing one "
+                                 + "invisible number by another")
+
+        let ratio = delivered / preview
+        XCTAssertEqual(ratio, 0.92, accuracy: 0.10,
+                       "a 6400 px render received \(ratio) of the sharpening a 1600 px "
+                           + "preview of the same picture showed (\(delivered) code "
+                           + "values against \(preview)). At 0.113 the radius is "
+                           + "denominated in render pixels and the delivered file is "
+                           + "soft by 8x; above 1.02 the stage has started over-"
+                           + "sharpening the larger render instead")
     }
 
     /// Masks are normalized to the frame, so a gradient placed on a fit preview has to

@@ -137,6 +137,19 @@ final class CatalogService: @unchecked Sendable {
                       restored, URL(fileURLWithPath: backup).lastPathComponent)
             }
         }
+
+        // The other half of J1-04. `close()` takes the snapshot when it is cheap; when
+        // it is not, the debt is still on the stamp and this is where it is paid — off
+        // every lane the user can feel, on a connection of its own, at a moment when
+        // nothing is waiting for the process to exit.
+        //
+        // A snapshot taken here is the one the last quit would have taken: nothing has
+        // edited the catalog between that quit and this launch. What it cannot cover is
+        // damage that happens while the app is not running, which is exactly the case
+        // the quit-path snapshot above exists for.
+        backupQueue.asyncAfter(deadline: .now() + Self.openBackupDelay) { [weak self] in
+            self?.backUp(force: false)
+        }
     }
 
     private static func backupDirectory(in directory: URL) -> URL {
@@ -1362,50 +1375,210 @@ final class CatalogService: @unchecked Sendable {
 
     // MARK: - Maintenance
 
-    /// `VACUUM INTO` gives a consistent snapshot without stopping the world.
+    /// A lane of its own for snapshots, and both exclusions are deliberate.
     ///
-    /// Gated on a full `PRAGMA integrity_check` (§15.8, "before each weekly backup").
-    /// A corrupt catalog that backs itself up rotates the last readable snapshot out of
-    /// existence, and then the open-time restore has nothing to restore FROM — the
-    /// backup rotation quietly converts recoverable damage into permanent loss. The
-    /// check is the only thing standing between those two outcomes, and it had no
-    /// caller at all.
+    /// Not `queue`: that is the catalog's one serial lane, and a `VACUUM INTO` of a
+    /// multi-gigabyte catalog would hold it for tens of seconds — every grid query,
+    /// every preview lookup and every slider write behind it. That is why
+    /// `CatalogStore.snapshot(from:to:)` takes its own connection: WAL lets it read
+    /// beside the app instead of through it.
     ///
-    /// The name is an ISO 8601 stamp with the colons swapped out, which sorts lexically
-    /// and chronologically at once — the ordering `CatalogStore.recoverIfNeeded` walks.
+    /// Not `maintenance` either: that lane drives the metadata backfill, and a backup
+    /// queued behind a folder's worth of EXIF reads — or a backfill queued behind a
+    /// backup — is one of them arriving minutes late for no reason.
+    private let backupQueue = DispatchQueue(label: "dev.lumenapp.catalog.backup",
+                                            qos: .utility)
+
+    /// How big the catalog may be before the QUIT path stops trying to snapshot it.
+    ///
+    /// 32 MiB. The quit-path backup costs an `integrity_check` (reads every page and
+    /// every index) plus a `VACUUM INTO` (reads it again, writes it out compacted) —
+    /// call it three passes over the file. At 32 MiB that is ~100 MB of I/O: a fifth of
+    /// a second on an SSD, about a second on a slow external volume. Above it, the same
+    /// arithmetic says a gigabyte catalog would hold the quit for the better part of a
+    /// minute, and `applicationWillTerminate` is not a place to spend a minute — the
+    /// user is leaving, and the OS's patience is measured in seconds before the process
+    /// is killed anyway, which would leave a half-written snapshot behind.
+    ///
+    /// Deferring is not skipping. The stamp is untouched, so the snapshot is still owed
+    /// and the next launch takes it (see `init`) — and a snapshot taken at the next
+    /// launch is byte-for-byte the one this quit would have taken, because nothing
+    /// edits the catalog between the two.
+    private static let quitBackupBudgetBytes: Int64 = 32 * 1024 * 1024
+
+    /// How long after opening the deferred snapshot starts. Long enough for the first
+    /// folder's grid to be on screen; short enough that a photographer who launches,
+    /// looks at one frame and quits still gets one.
+    private static let openBackupDelay: TimeInterval = 20
+
+    /// One snapshot at a time, across every trigger.
+    ///
+    /// The three triggers — the menu item, the deferred one at open, and the quit path
+    /// — reach `backUp` from three different threads, and two of them overlapping would
+    /// read "due" before either had stamped it, take the same second's filename twice,
+    /// and vacuum a multi-gigabyte catalog twice at once. A flag rather than making the
+    /// quit path wait on `backupQueue`: at quit the right answer to "one is already
+    /// running" is to leave, not to block on a vacuum that has no deadline.
+    private let backupLock = NSLock()
+    private var backupInFlight = false
+
+    private func beginBackup() -> Bool {
+        backupLock.lock()
+        defer { backupLock.unlock() }
+        if backupInFlight { return false }
+        backupInFlight = true
+        return true
+    }
+
+    private func endBackup() {
+        backupLock.lock()
+        backupInFlight = false
+        backupLock.unlock()
+    }
+
+    private var catalogPath: String {
+        directory.appendingPathComponent("lumen.db").path
+    }
+
+    /// The menu item (`Back Up Catalog`). Explicit, so it ignores the stamp: a
+    /// photographer who asks for a backup is not to be told they already had one.
     func backup() {
-        queue.async {
-            let stamp = ISO8601DateFormatter().string(from: Date())
-                .replacingOccurrences(of: ":", with: "-")
-            let target = Self.backupDirectory(in: self.directory)
-                .appendingPathComponent("lumen-\(stamp).db")
-            do {
-                guard try self.store.integrityCheck() else {
-                    self.report("The catalog failed its integrity check, so it was not "
-                                + "backed up — the existing backups are the good copies "
-                                + "and were left alone.")
-                    return
-                }
-                try FileManager.default.createDirectory(
-                    at: target.deletingLastPathComponent(),
-                    withIntermediateDirectories: true)
-                try self.store.backup(to: target.path)
-                // AND THE STROKES, which are not in the catalog (K-018).
-                // `VACUUM main INTO` snapshots the database; the brush paintings live
-                // in the blob store beside it, so a backup without them restored every
-                // recipe intact with every brush mask rasterizing to nothing. Named
-                // after the snapshot it belongs to, so a restore knows which set of
-                // payloads goes with which catalog.
-                let blobBackup = target.deletingPathExtension()
-                    .appendingPathExtension("blobs")
-                let copied = try self.blobs.backUp(to: blobBackup)
-                NSLog("Lumen catalog: backed up with %d brush payload(s)", copied)
-            } catch {
-                NSLog("Lumen catalog: backup failed — %@", String(describing: error))
-                self.report("The catalog could not be backed up "
-                            + "(\(error.localizedDescription)).")
+        backupQueue.async { [weak self] in self?.backUp(force: true) }
+    }
+
+    /// One automatic snapshot, gated, written, stamped and pruned.
+    ///
+    /// **Must not be called from `queue`** — it takes `queue.sync` twice, for the stamp
+    /// read and the stamp write, which are two fast statements either side of work that
+    /// deliberately happens off that lane.
+    ///
+    /// The order is the whole point of the function:
+    ///
+    ///   · gate on the stamp, so quitting four times in an afternoon writes one copy;
+    ///   · vacuum into a `.partial` name, which `CatalogStore.recoverIfNeeded` does not
+    ///     look at (it takes `.db` only), so a snapshot the process does not live to
+    ///     finish is invisible to the restore rather than the newest thing in the
+    ///     directory;
+    ///   · move it into place — the rename is what publishes it;
+    ///   · copy the brush payloads next to it (K-018): a snapshot without them restores
+    ///     every recipe intact with every brush mask rasterizing to nothing;
+    ///   · stamp it, only now, because a backup that failed must be owed again at the
+    ///     next opportunity rather than buying a full disk twenty hours of silence;
+    ///   · prune, only after a successful write, so a failing backup can never be the
+    ///     thing that deletes the good copies.
+    private func backUp(force: Bool) {
+        guard beginBackup() else { return }
+        defer { endBackup() }
+
+        let now = CatalogStore.now()
+        let due = queue.sync {
+            force || ((try? self.store.isBackupDue(now: now)) ?? false)
+        }
+        guard due else { return }
+
+        let folder = Self.backupDirectory(in: directory)
+        // ISO 8601 with the colons swapped out: it sorts lexically and chronologically
+        // at once, which is the ordering `recoverIfNeeded` walks and the one
+        // `BackupRetention` dates.
+        let stamp = ISO8601DateFormatter().string(from: Date())
+            .replacingOccurrences(of: ":", with: "-")
+        let target = folder.appendingPathComponent("lumen-\(stamp).db")
+        let partial = URL(fileURLWithPath: target.path + ".partial")
+
+        do {
+            try FileManager.default.createDirectory(
+                at: folder, withIntermediateDirectories: true)
+            // Integrity-checked inside `snapshot`, on the connection it vacuums: a
+            // corrupt catalog that backs itself up rotates the last readable snapshot
+            // out of existence, and then the open-time restore has nothing to restore
+            // FROM (§15.8).
+            try CatalogStore.snapshot(from: catalogPath, to: partial.path)
+            if FileManager.default.fileExists(atPath: target.path) {
+                try FileManager.default.removeItem(at: target)
+            }
+            try FileManager.default.moveItem(at: partial, to: target)
+
+            let blobBackup = target.deletingPathExtension()
+                .appendingPathExtension("blobs")
+            let copied = try blobs.backUp(to: blobBackup)
+            queue.sync { try? self.store.noteBackupTaken(at: now) }
+            let pruned = Self.pruneBackups(in: folder)
+            NSLog("Lumen catalog: backed up %@ with %d brush payload(s); "
+                  + "pruned %d old snapshot(s)",
+                  target.lastPathComponent, copied, pruned)
+        } catch {
+            // Leave nothing half-written behind, even under a name the restore ignores.
+            try? FileManager.default.removeItem(at: partial)
+            NSLog("Lumen catalog: backup failed — %@", String(describing: error))
+            if let catalogError = error as? CatalogError,
+               case .corrupt = catalogError {
+                report("The catalog failed its integrity check, so it was not backed "
+                       + "up — the existing backups are the good copies and were left "
+                       + "alone.")
+            } else {
+                report("The catalog could not be backed up "
+                       + "(\(error.localizedDescription)).")
             }
         }
+    }
+
+    /// Apply `BackupRetention` to a real directory. Returns how many snapshots went.
+    ///
+    /// The policy itself is in `LumenCore` and is a pure function over filenames, which
+    /// is what makes it testable; this half is the two lines of `FileManager` that
+    /// cannot be.
+    @discardableResult
+    private static func pruneBackups(in folder: URL) -> Int {
+        let manager = FileManager.default
+        guard let names = try? manager.contentsOfDirectory(atPath: folder.path) else {
+            return 0
+        }
+        var removed = 0
+        let plan = BackupRetention.plan(names: names.filter { $0.hasSuffix(".db") })
+        for victim in plan.victims {
+            let file = folder.appendingPathComponent(victim)
+            do {
+                try manager.removeItem(at: file)
+                removed += 1
+            } catch {
+                NSLog("Lumen catalog: could not prune %@ — %@",
+                      victim, String(describing: error))
+                // The payloads stay if the snapshot did: a `.blobs` directory with no
+                // catalog beside it is what K-018 was about, in the other direction.
+                continue
+            }
+            try? manager.removeItem(
+                at: file.deletingPathExtension().appendingPathExtension("blobs"))
+        }
+        // Debris from a snapshot whose process did not live to finish it. Safe to
+        // remove because the rename that publishes a snapshot is the last step, so a
+        // `.partial` that is still here is one nobody is waiting for — with the one
+        // exception of a second Lumen running against the same catalog, which is
+        // already a hazard this file documents at length elsewhere.
+        for name in names where name.hasSuffix(".db.partial") {
+            try? manager.removeItem(at: folder.appendingPathComponent(name))
+        }
+        return removed
+    }
+
+    /// The quit-path snapshot — J1-04's actual fix, with the size gate its own evidence
+    /// argues for.
+    ///
+    /// `close()` runs inside `applicationWillTerminate`. A snapshot here is worth having
+    /// (it is the only one that exists if the catalog is damaged while the app is not
+    /// running, since the launch-time one comes too late to help) but it is not worth
+    /// the quit, so it is taken only when the arithmetic in `quitBackupBudgetBytes` says
+    /// it fits. The `-wal` counts: at quit it can hold a working session's worth of the
+    /// catalog that has not been checkpointed back yet.
+    private func backUpAtQuitIfAffordable() {
+        let size = Self.fileSize(catalogPath) + Self.fileSize(catalogPath + "-wal")
+        guard size > 0, size <= Self.quitBackupBudgetBytes else { return }
+        backUp(force: false)
+    }
+
+    private static func fileSize(_ path: String) -> Int64 {
+        let attributes = try? FileManager.default.attributesOfItem(atPath: path)
+        return (attributes?[.size] as? NSNumber)?.int64Value ?? 0
     }
 
     private func report(_ message: String) {
@@ -1424,6 +1597,17 @@ final class CatalogService: @unchecked Sendable {
         // last one made.
         queue.sync {}
         flushSidecars()
+        // J1-04: the restore path that exists and works used to have, on a typical
+        // install, zero inputs — `backup()`'s only caller was a menu item nobody is
+        // obliged to click. It has one here now, gated twice: on the once-per-N-hours
+        // stamp in `meta`, and on the catalog being small enough that a `VACUUM INTO`
+        // fits in a quit. Anything larger is left owed and taken at the next launch;
+        // see `backUpAtQuitIfAffordable` for why that loses nothing.
+        //
+        // After the drain and the flush, because the snapshot should contain the last
+        // rating pressed before ⌘Q, and before `store.close()` because the stamp it
+        // writes goes through the store.
+        backUpAtQuitIfAffordable()
         queue.sync { store.close() }
     }
 }

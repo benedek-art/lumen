@@ -584,6 +584,231 @@ public struct CatalogRecovery: Equatable, Sendable {
     public init(outcome: Outcome) { self.outcome = outcome }
 }
 
+// MARK: - Backup retention
+
+/// Which snapshots in `backups/` survive, as arithmetic over filenames.
+///
+/// A pure function with no `FileManager` in it. `CatalogService` lists the directory
+/// and does the deleting; this decides, and it decides from a list of strings so the
+/// decision can be exercised exhaustively — including the degenerate shapes a real
+/// `backups/` directory reaches about once in its life and never while anyone is
+/// watching. A retention rule that can only be run against a real directory is a
+/// retention rule that is run rarely, and this one deletes the file the restore path
+/// depends on.
+///
+/// The policy is three sentences:
+///
+///  1. **The newest is never a victim.** Not "K ≥ 1, so it happens to fall out of rule
+///     2" — a separate, unconditional rule, applied under BOTH orderings that matter:
+///     newest by the timestamp in the name, and first under the *name* ordering
+///     `CatalogStore.recoverIfNeeded` actually walks (`sorted(by: >)` over the
+///     directory). Deleting the file the restore reaches first is the only mistake this
+///     type could make that costs somebody a catalog, so it is stated rather than
+///     implied by an arithmetic accident somewhere else.
+///  2. Keep the newest `keepNewest`, for the ordinary "it was fine yesterday" restore.
+///  3. Keep the newest snapshot of each of the most recent `keepWeeks` distinct weeks,
+///     so damage that went unnoticed for a fortnight still has something behind it.
+///
+/// A name this cannot date is retained, always. A file this code did not write is not
+/// this code's to delete, and "I do not understand it" is not a reason to remove
+/// something from the one directory a damaged catalog is restored from.
+public enum BackupRetention {
+
+    /// How many of the newest snapshots survive regardless of age — K.
+    ///
+    /// Three, because a snapshot is a `VACUUM INTO` copy of the whole catalog and the
+    /// ceiling on this policy is `keepNewest + keepWeeks` files on the photographer's
+    /// disk: at three plus four that is seven copies, and a gigabyte catalog is then
+    /// seven gigabytes of backups, which is already the largest number defensible on a
+    /// laptop that is also holding the photographs. Three covers the case the newest
+    /// snapshot is itself damaged (a bad sector rarely respects file boundaries) and
+    /// the case where the damage was noticed one session late.
+    public static let keepNewest = 3
+
+    /// How many distinct weeks keep a representative — W.
+    ///
+    /// Four. The audit's rule is "newest K plus one per week", unbounded; unbounded is
+    /// one full copy of a multi-gigabyte catalog per week forever, which on a three-year
+    /// library is 150 of them. The cap is the part of the rule the audit did not have to
+    /// write because it was not the one shipping it. Four weeks is where the value runs
+    /// out: restoring a catalog more than a month stale is worse than the rescan it
+    /// competes with, because every folder's sidecars have to be merged back in anyway
+    /// and a month of album, stack and keyword work does not live in a sidecar.
+    public static let keepWeeks = 4
+
+    /// The name shape `CatalogService` writes: `lumen-<ISO 8601, colons swapped>.db`.
+    public static let namePrefix = "lumen-"
+    public static let nameSuffix = ".db"
+
+    /// One dated snapshot, as the policy sees it.
+    public struct DatedBackup: Equatable, Sendable {
+        /// The filename, exactly as it appears in the directory.
+        public var name: String
+        /// Unix epoch seconds parsed out of the name — never off the filesystem, which
+        /// a copy, a restore or a sync client rewrites at will.
+        public var timestamp: Int64
+        /// Monday-based week number since the epoch. Integer arithmetic rather than
+        /// `Calendar`, so the bucket a name lands in does not depend on the locale,
+        /// the time zone or the machine.
+        public var weekIndex: Int64
+
+        public init(name: String, timestamp: Int64, weekIndex: Int64) {
+            self.name = name
+            self.timestamp = timestamp
+            self.weekIndex = weekIndex
+        }
+    }
+
+    /// What to keep and what to delete. Both lists are newest-first, and every input
+    /// name appears in exactly one of them.
+    public struct RetentionPlan: Equatable, Sendable {
+        public var retained: [String]
+        public var victims: [String]
+
+        public init(retained: [String] = [], victims: [String] = []) {
+            self.retained = retained
+            self.victims = victims
+        }
+    }
+
+    /// Epoch seconds for a backup filename, or nil when the name is not one of ours.
+    ///
+    /// Accepts the ISO form `CatalogService` writes (`lumen-2026-09-02T14-33-21Z.db`)
+    /// and the compact `lumen-20260902.db` form `CatalogStore.backup(to:)`'s own
+    /// comment names, because a directory can contain both and a name that dates
+    /// perfectly well should not be immortal just because an older build wrote it.
+    public static func timestamp(inBackupName name: String) -> Int64? {
+        guard name.hasPrefix(namePrefix), name.hasSuffix(nameSuffix) else { return nil }
+        let body = String(name.dropFirst(namePrefix.count).dropLast(nameSuffix.count))
+        guard !body.isEmpty else { return nil }
+
+        // Digit runs, in order: 2026-09-02T14-33-21Z -> [2026, 09, 02, 14, 33, 21].
+        var groups: [String] = []
+        var current = ""
+        for character in body {
+            if character.isNumber {
+                current.append(character)
+            } else if !current.isEmpty {
+                groups.append(current)
+                current = ""
+            }
+        }
+        if !current.isEmpty { groups.append(current) }
+
+        var fields: [Int64] = []
+        if groups.count == 1, groups[0].count == 8 {
+            let digits = groups[0]
+            let year = digits.prefix(4)
+            let month = digits.dropFirst(4).prefix(2)
+            let day = digits.dropFirst(6)
+            fields = [Int64(year) ?? -1, Int64(month) ?? -1, Int64(day) ?? -1, 0, 0, 0]
+        } else if groups.count >= 6 {
+            fields = groups.prefix(6).map { Int64($0) ?? -1 }
+        } else {
+            return nil
+        }
+
+        let (year, month, day) = (fields[0], fields[1], fields[2])
+        let (hour, minute, second) = (fields[3], fields[4], fields[5])
+        guard (1970...9999).contains(year), (1...12).contains(month),
+              (1...31).contains(day), (0...23).contains(hour),
+              (0...59).contains(minute), (0...60).contains(second) else { return nil }
+
+        return daysFromCivil(year: year, month: month, day: day) * 86_400
+            + hour * 3_600 + minute * 60 + second
+    }
+
+    /// Every name this understands, newest first. Ties break on the name, descending,
+    /// so two snapshots written inside one second still order deterministically.
+    public static func snapshots(in names: [String]) -> [DatedBackup] {
+        names.compactMap { name -> DatedBackup? in
+            guard let stamp = timestamp(inBackupName: name) else { return nil }
+            return DatedBackup(name: name, timestamp: stamp,
+                               weekIndex: weekIndex(forEpochSeconds: stamp))
+        }
+        .sorted { left, right in
+            left.timestamp == right.timestamp ? left.name > right.name
+                                              : left.timestamp > right.timestamp
+        }
+    }
+
+    /// The policy. `names` is a directory listing filtered to `.db`; order is ignored.
+    public static func plan(names: [String],
+                            keepNewest: Int = BackupRetention.keepNewest,
+                            keepWeeks: Int = BackupRetention.keepWeeks) -> RetentionPlan {
+        // At least one, always. A configuration that keeps nothing is not a retention
+        // policy, it is a delete, and no caller gets to ask for it by passing 0.
+        let newestKept = max(keepNewest, 1)
+        let weeksKept = max(keepWeeks, 0)
+
+        let dated = snapshots(in: names)
+        var keep = Set<String>()
+
+        // Rule 1, first and on its own line: the newest survives. Twice over — the
+        // newest by date, and the first name the restore walk reaches, which is a
+        // different file only when somebody has put a name in here that we did not
+        // write, and is exactly the case where being wrong is unrecoverable.
+        if let newest = dated.first { keep.insert(newest.name) }
+        if let firstReached = names.max() { keep.insert(firstReached) }
+
+        // Rule 2: the newest K.
+        for snapshot in dated.prefix(newestKept) { keep.insert(snapshot.name) }
+
+        // Rule 3: the newest of each of the most recent W weeks that has anything in
+        // it. Weeks are counted from the snapshots present, not backwards from a clock,
+        // so this function needs no clock and a gap in the history does not silently
+        // consume a week's allowance.
+        var weeksSeen: [Int64] = []
+        for snapshot in dated where !weeksSeen.contains(snapshot.weekIndex) {
+            if weeksSeen.count < weeksKept { keep.insert(snapshot.name) }
+            weeksSeen.append(snapshot.weekIndex)
+        }
+
+        // A name we cannot date is not ours to remove.
+        let undated = names.filter { timestamp(inBackupName: $0) == nil }
+        keep.formUnion(undated)
+
+        let ordered = names.sorted(by: >)
+        return RetentionPlan(retained: ordered.filter { keep.contains($0) },
+                             victims: ordered.filter { !keep.contains($0) })
+    }
+
+    /// Convenience for the caller that only wants the deletions.
+    public static func victims(among names: [String],
+                               keepNewest: Int = BackupRetention.keepNewest,
+                               keepWeeks: Int = BackupRetention.keepWeeks) -> [String] {
+        plan(names: names, keepNewest: keepNewest, keepWeeks: keepWeeks).victims
+    }
+
+    /// Monday-based weeks since the epoch. Day 0 (1970-01-01) was a Thursday, so the
+    /// Monday that opens its week is day -3; shifting by three and flooring puts every
+    /// Monday-to-Sunday run in one bucket.
+    static func weekIndex(forEpochSeconds seconds: Int64) -> Int64 {
+        floorDivide(floorDivide(seconds, 86_400) + 3, 7)
+    }
+
+    /// Days from 1970-01-01 for a proleptic Gregorian date (Howard Hinnant's
+    /// `days_from_civil`). Here rather than in `Calendar` because the answer must not
+    /// change with the machine's locale or time zone: the names carry UTC.
+    static func daysFromCivil(year: Int64, month: Int64, day: Int64) -> Int64 {
+        let shifted = year - (month <= 2 ? 1 : 0)
+        let era = floorDivide(shifted, 400)
+        let yearOfEra = shifted - era * 400
+        let dayOfYear = (153 * (month + (month > 2 ? -3 : 9)) + 2) / 5 + day - 1
+        let dayOfEra = yearOfEra * 365 + yearOfEra / 4 - yearOfEra / 100 + dayOfYear
+        return era * 146_097 + dayOfEra - 719_468
+    }
+
+    /// Truncating division rounds toward zero, which puts pre-epoch dates in the wrong
+    /// bucket and off by one. Nothing here should ever see one; being right anyway is
+    /// two lines.
+    private static func floorDivide(_ value: Int64, _ divisor: Int64) -> Int64 {
+        let quotient = value / divisor
+        return (value % divisor != 0 && (value < 0) != (divisor < 0)) ? quotient - 1
+                                                                     : quotient
+    }
+}
+
 // MARK: - Query
 
 /// The filter bar compiled to SQL (docs/10 §10.8, D39).
@@ -1160,17 +1385,120 @@ public final class CatalogStore {
         (try db.scalarText("PRAGMA quick_check;")) == "ok"
     }
 
-    /// Full `PRAGMA integrity_check` — the pre-backup gate.
+    /// Full `PRAGMA integrity_check` — the pre-backup gate, against the live handle.
     ///
-    /// It gates `backup(to:)` at the call site in `CatalogService`, and that is the
-    /// whole point of it: a corrupt catalog that backs itself up rotates the last
-    /// readable snapshot out of existence, and then `recoverIfNeeded` has nothing to
-    /// restore from. §15.8 specifies it "before each weekly backup"; there is no
-    /// weekly rotation yet — backups are per quit and per menu command — so it runs
-    /// before every backup instead, which is stricter and cheaper than it sounds
-    /// against a sub-gigabyte catalog.
+    /// The gate itself now lives inside `snapshot(from:to:)`, which runs it on the
+    /// connection it is about to vacuum, because a gate the caller has to remember is
+    /// one the caller eventually forgets. What it is for is unchanged: a corrupt catalog
+    /// that backs itself up rotates the last readable snapshot out of existence, and
+    /// then `recoverIfNeeded` has nothing to restore from. §15.8 specifies it "before
+    /// each weekly backup"; the automatic snapshot is once per
+    /// `automaticBackupInterval`, so it runs before every one of those instead — a
+    /// stricter reading, and cheap enough beside the vacuum it precedes.
+    ///
+    /// This overload stays for a caller that already holds a store and only wants the
+    /// answer. In `Sources` there is now no such caller — the app's every backup goes
+    /// through `snapshot(from:to:)` — so its live users are `CatalogTests`, which uses
+    /// it to prove the full check notices damage a `quick_check` alone would pass.
     public func integrityCheck() throws -> Bool {
         (try db.scalarText("PRAGMA integrity_check;")) == "ok"
+    }
+
+    // MARK: Automatic backup — when, and on whose connection
+
+    /// Where the "when did we last take one" stamp lives. `meta` because it belongs to
+    /// the catalog rather than to the machine: copy the catalog to another Mac and the
+    /// backup rhythm travels with it, which is what `seedMetaIfNeeded` establishes for
+    /// `catalog_uuid` and `created_at` for the same reason.
+    public static let lastBackupMetaKey = "last_backup_at"
+
+    /// N — the shortest gap between two automatic snapshots, in seconds.
+    ///
+    /// Twenty hours, not twenty-four. A photographer's quits cluster in the evening, and
+    /// a strict 24-hour gate phase-drifts against that: yesterday's quit at 21:00 makes
+    /// tonight's at 20:45 only 23.75 hours old, so it is skipped, and the "daily" backup
+    /// silently becomes every second day. Twenty hours absorbs four hours of evening
+    /// jitter while still collapsing a working day of launch-cull-quit cycles — the
+    /// shape of an import session — into one snapshot rather than nine.
+    ///
+    /// The upper bound on N is what a restore costs: everything since the last snapshot
+    /// comes back from sidecars folder by folder as each is rescanned, and the album,
+    /// stack and keyword work that has no sidecar does not come back at all. A day of
+    /// that is a bad evening; a week of it is the thing this project promised would
+    /// never happen.
+    public static let automaticBackupInterval: Int64 = 20 * 3_600
+
+    /// The stamp, or nil on a catalog that has never been backed up.
+    public func lastBackupAt() throws -> Int64? {
+        guard let raw = try metaValue(CatalogStore.lastBackupMetaKey) else { return nil }
+        return Int64(raw)
+    }
+
+    /// Is a snapshot owed? Never-backed-up counts as owed, which is what gives a fresh
+    /// install its first backup at its first quit rather than at its second.
+    ///
+    /// A stamp in the future — a clock that was wrong and has been corrected, a catalog
+    /// carried back across a time zone — also counts as owed, and the write that follows
+    /// repairs the stamp. The alternative is a catalog that quietly stops backing itself
+    /// up until the calendar catches up with the bad stamp, which is a failure mode with
+    /// no symptom until the day it matters.
+    public func isBackupDue(now: Int64 = CatalogStore.now(),
+                            interval: Int64 = CatalogStore.automaticBackupInterval)
+        throws -> Bool {
+        guard let last = try lastBackupAt() else { return true }
+        if last > now { return true }
+        return now - last >= interval
+    }
+
+    /// Record a snapshot. Called only after one has actually landed on disk: a backup
+    /// that failed must leave the stamp alone so the next quit tries again, rather than
+    /// buying a full-disk error twenty hours of silence.
+    public func noteBackupTaken(at when: Int64 = CatalogStore.now()) throws {
+        try setMetaValue(CatalogStore.lastBackupMetaKey, String(when))
+    }
+
+    /// A checked snapshot taken on a connection of this store's own, not on the app's.
+    ///
+    /// `backup(to:)` below runs `VACUUM INTO` on the live handle, which means it runs on
+    /// whatever queue serialises that handle — in the app, the one serial lane that also
+    /// carries every grid query, every preview lookup and the recipe write behind every
+    /// slider event. A full `integrity_check` plus a `VACUUM INTO` of a multi-gigabyte
+    /// catalog holds that lane for tens of seconds, so the automatic backup would have
+    /// been a scheduled stall of the whole browser. SQLite in WAL mode lets a second
+    /// connection read while the first writes, and `VACUUM INTO` needs only a read
+    /// transaction, so the snapshot can be taken beside the running app instead of
+    /// through it.
+    ///
+    /// The integrity gate is inside this function rather than at the call site, where it
+    /// used to live, because it is not optional and a gate a caller can forget is not a
+    /// gate. §15.8's rule: a corrupt catalog that backs itself up rotates the last
+    /// readable snapshot out of existence, turning recoverable damage into permanent
+    /// loss. `integrity_check` is the only thing standing between those two outcomes.
+    ///
+    /// Throws rather than returning false, so "the catalog is damaged" cannot be
+    /// mistaken for "the snapshot is done" by a caller that ignored a Bool.
+    public static func snapshot(from path: String, to destination: String) throws {
+        guard FileManager.default.fileExists(atPath: path) else {
+            throw CatalogError.notFound("catalog at \(path)")
+        }
+        let source = try SQLiteDatabase(path: path)
+        defer { source.close() }
+        // Long enough to sit out a slider gesture's write on the app's own connection,
+        // short enough that a wedged writer fails the backup instead of the quit.
+        try source.execute("PRAGMA busy_timeout=5000;")
+
+        guard (try source.scalarText("PRAGMA integrity_check;")) == "ok" else {
+            throw CatalogError.corrupt(
+                "the catalog failed its integrity check, so it was not backed up — "
+                + "the existing backups are the good copies and were left alone")
+        }
+
+        try CatalogStore.ensureParentDirectory(of: destination)
+        if FileManager.default.fileExists(atPath: destination) {
+            try FileManager.default.removeItem(atPath: destination)
+        }
+        try source.execute(
+            "VACUUM main INTO \(SQLiteDatabase.quoteLiteral(destination));")
     }
 
     /// The open-time integrity check, and the restore §15.8 promises when it fails.
@@ -1273,7 +1601,13 @@ public final class CatalogStore {
         try db.execute("PRAGMA incremental_vacuum;")
     }
 
-    /// `VACUUM INTO` — a compacted, checkpointed, single-file snapshot (§15.8).
+    /// `VACUUM INTO` — a compacted, checkpointed, single-file snapshot (§15.8), on
+    /// **this** connection and therefore on whatever queue serialises it.
+    ///
+    /// The automatic backup uses `snapshot(from:to:)` instead, which opens its own
+    /// connection and checks integrity first. Prefer that one anywhere the app is
+    /// running; this is the unguarded primitive, for a caller that has already decided.
+    ///
     /// The destination is embedded as an escaped SQL string literal because SQLite's
     /// VACUUM grammar does not reliably accept a bound parameter there; the value is
     /// a path this process chose, never user-typed SQL.
@@ -3448,6 +3782,24 @@ public final class CatalogStore {
     public func checkpoint(truncate: Bool = false) throws { throw CatalogError.unavailable }
     public func optimize() throws { throw CatalogError.unavailable }
     public func backup(to path: String) throws { throw CatalogError.unavailable }
+
+    // The automatic-backup surface, kept in step with the SQLite build so a caller
+    // written against one compiles against the other. `BackupRetention` itself is
+    // outside the fence — it is arithmetic over filenames and needs no database.
+    public static let lastBackupMetaKey = "last_backup_at"
+    public static let automaticBackupInterval: Int64 = 20 * 3_600
+    public func lastBackupAt() throws -> Int64? { throw CatalogError.unavailable }
+    public func isBackupDue(now: Int64 = CatalogStore.now(),
+                            interval: Int64 = CatalogStore.automaticBackupInterval)
+        throws -> Bool {
+        throw CatalogError.unavailable
+    }
+    public func noteBackupTaken(at when: Int64 = CatalogStore.now()) throws {
+        throw CatalogError.unavailable
+    }
+    public static func snapshot(from path: String, to destination: String) throws {
+        throw CatalogError.unavailable
+    }
 
     @discardableResult
     public func sweepCacheOrphans() throws -> Int { throw CatalogError.unavailable }
