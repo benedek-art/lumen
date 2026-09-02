@@ -395,7 +395,7 @@ struct CurveEditorView: View {
             Spacer(minLength: 4)
             if channel != .parametric {
                 Text("\(currentPoints.count) pts")
-                    .font(.system(size: 10))
+                    .font(.lumenCaption)
                     .foregroundStyle(Lumen.secondaryText)
             }
         }

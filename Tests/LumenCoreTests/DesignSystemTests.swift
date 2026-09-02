@@ -152,22 +152,70 @@ final class DesignSystemTests: XCTestCase {
                       + "lumenClickCursor / lumenPickCursor:\n" + raw.joined(separator: "\n"))
     }
 
+    /// ONE ROW PITCH. The column had three — 26, 30 and 34 by G1's measurement — and
+    /// none of them was a number anyone had chosen. The row's height and its air are
+    /// tokens; the gap between rows became one in U2, because it was written at
+    /// thirty-six call sites and that is how it came to be three numbers.
+    ///
+    /// The assertion is that no owned panel writes its own: a literal `spacing:` on a
+    /// row stack is exactly how the third pitch arrived.
+    func testTheOwnedPanelsDoNotWriteTheirOwnRowPitch() {
+        let owned = ["BasicPanel.swift", "ZonesPanel.swift", "DetailPanel.swift",
+                     "EffectsPanel.swift", "LookPanel.swift", "ColorPanel.swift",
+                     "CropPanel.swift"]
+        var literal: [String] = []
+        for name in owned {
+            for (offset, line) in source(name)
+                .split(separator: "\n", omittingEmptySubsequences: false).enumerated()
+            where line.contains("VStack(alignment: .leading, spacing: ") {
+                let rest = line.components(separatedBy: "spacing: ")[1]
+                if let first = rest.first, first.isNumber {
+                    literal.append("\(name):\(offset + 1): \(line.trimmingCharacters(in: .whitespaces))")
+                }
+            }
+        }
+        XCTAssertTrue(literal.isEmpty,
+                      "a panel is writing its own row pitch again — use Lumen.rowGap:\n"
+                      + literal.joined(separator: "\n"))
+    }
+
+    /// And the section heading is drawn once. `WorkspaceSection.frame.title` is "Crop"
+    /// and `CropSection`'s own heading was "Crop", so the accordion printed it twice one
+    /// row apart, each with a chevron, a modified dot and a Reset of different scope.
+    /// Every panel the column routes a section to must take `only:` and honour it.
+    func testAPanelTheColumnHeadsDoesNotDrawItsOwnHeadingToo() {
+        let effects = source("EffectsPanel.swift")
+        XCTAssertFalse(effects.isEmpty)
+        for call in ["CropSection("] {
+            guard let range = effects.range(of: call) else {
+                XCTFail("\(call) not found in EffectsPanel.swift — if it moved, move "
+                        + "this scan with it")
+                continue
+            }
+            let site = String(effects[range.lowerBound...].prefix(60))
+            XCTAssertTrue(site.contains("only:"),
+                          "\(call) is constructed without `only:`, so it draws its own "
+                          + "heading under the one the column already drew: \(site)")
+        }
+    }
+
     // MARK: - Ratchets
 
-    /// Raw `.system(size:)` calls. 199 at landing; the type scale exists so this falls.
+    /// Raw `.system(size:)` calls. 199 after U1, 166 after U2's migration of the ten
+    /// owned panels; the type scale exists so this keeps falling.
     func testRawFontSizesOnlyEverDecrease() {
         let n = total(".system(size:")
-        XCTAssertLessThanOrEqual(n, 199,
+        XCTAssertLessThanOrEqual(n, 166,
                                  "\(n) raw .system(size:) calls in Sources/LumenApp, up "
-                                 + "from 203 — use .lumenHeading / .lumenBody / "
+                                 + "from 166 — use .lumenHeading / .lumenBody / "
                                  + ".lumenCaption / .lumenNumeric")
     }
 
     /// Sub-floor text. The app set 10 pt as its own floor and shipped 37 sites under it.
     func testNinePointTextOnlyEverDecreases() {
         let n = total(".system(size: 9")
-        XCTAssertLessThanOrEqual(n, 37,
-                                 "\(n) sites at 9 pt, up from 37 — 10 is the floor")
+        XCTAssertLessThanOrEqual(n, 35,
+                                 "\(n) sites at 9 pt, up from 35 — 10 is the floor")
     }
 
     /// Raw corner radii off the 6 / 9 / 14 ladder. 34 at landing.

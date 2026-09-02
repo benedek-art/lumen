@@ -285,6 +285,23 @@ enum Lumen {
     ///
     /// It is a number the owner named directly, so it is not a taste call: 24 pt.
     static let rowHeight: CGFloat = 24
+
+    /// The gap a panel leaves BETWEEN two rows, on top of the air each row carries.
+    ///
+    /// The pitch is `rowHeight + 2·rowPadding + rowGap` = 24 + 4 + 4 = **32**, and all
+    /// three of those numbers are on the 4 pt grid.
+    ///
+    /// It was 2, for a pitch of 30 — off the grid, and the grid is the whole argument
+    /// for the row being 24. The obvious repair is to take the two points OUT, which
+    /// lands on 28 and is wrong: it makes the column tighter, and the one thing the
+    /// owner has said about this spacing is "everything is super back to back to back,
+    /// so I definitely give a little bit more spacing in between sliders as well as
+    /// components." 32 is the grid answer that moves in the direction he asked for
+    /// rather than against it.
+    ///
+    /// Named rather than written at thirty-six call sites, which is how it came to be
+    /// three different numbers in one column in the first place.
+    static let rowGap: CGFloat = 4
     /// THE DEFAULT WIDTH, not the only one — the column is draggable and this is where
     /// it starts.
     ///
@@ -398,6 +415,23 @@ struct LumenSlider: View {
     /// It costs the label column 46 points, which is why it is opt-in per control rather
     /// than a property of the slider: the row is already the narrowest instrument in the
     /// application, and a shape is only worth that where the shape IS the meaning.
+    /// This row is SUBORDINATE to the one above it — Detail and Contrast under
+    /// Luminance, Detail and Smoothness under Colour.
+    ///
+    /// The indent is inside the label's own 86 pt frame, so it costs the track nothing
+    /// and every groove in the panel still starts at the same x. That is the whole
+    /// reason it is drawn this way rather than as a leading inset on the row: a row
+    /// indented properly would have a shorter track than its neighbours, which is a
+    /// worse defect than the one being fixed.
+    ///
+    /// It exists because the fixed label column made the alternative a truncation.
+    /// `Luminance Contrast` measures 104.3 pt at 11 pt against an 86 pt frame and
+    /// `Colour Smoothness` 102.4 — both past the 0.86 shrink floor, so both were
+    /// rendering as `Luminance C…` and `Colour S…` at every column width, which is
+    /// exactly the "two controls indistinguishable without a hover" failure the column
+    /// was widened to 94 to avoid. Naming them for what they do and subordinating them
+    /// to their master is Lightroom's own layout and it costs nothing.
+    var indented: Bool = false
     var behaviour: BehaviourShape?
     /// The glyph's own value, normalized 0…1 (or −1…1 for a signed shape). Separate from
     /// `value` because a control's units are not the glyph's: Feather is 0…100, Ramp
@@ -550,6 +584,9 @@ struct LumenSlider: View {
                     Text(title)
                         .font(.lumenBody)
                         .foregroundStyle(isModified ? Lumen.primaryText : Lumen.secondaryText)
+                        // Inside the frame below, so the column keeps its width and
+                        // the tracks stay aligned. See `indented`.
+                        .padding(.leading, indented ? 12 : 0)
                         // The glyph is drawn IN the label column's budget, not beside it:
                         // the track is already the narrowest instrument in the app
                         // (docs/30 §2.3) and a picture that cost it forty-six points would
@@ -627,14 +664,14 @@ struct LumenSlider: View {
         // gutter between two HOVER fills, and hover left this row a review ago; only
         // one row can hold focus, so the gutter was separating a fill from nothing.
         //
-        // THE ARITHMETIC, WRITTEN OUT, because the commit that landed this said 28 and
-        // 28 is wrong. The row is 24 tall, this padding makes it 28, and the panels
-        // stack their rows at `VStack(spacing: 2)` — so the pitch on screen is 30. The
-        // touch target is 28 and the row he named is 24; both of those are right. The
-        // stack's two points are what stand between 28 and the grid, and moving them is
-        // U2 item 5's job rather than this one's: there are thirty-one of those stacks
-        // and they hold headers, notes and disclosures as well as rows, so they are
-        // changed per file with their contents read, not by a blind sweep from here.
+        // THE ARITHMETIC, WRITTEN OUT: 24 of row, 2 of this padding on each side, and
+        // `Lumen.rowGap` between one row and the next — 24 + 4 + 4 = a pitch of 32,
+        // every term on the 4 pt grid.
+        //
+        // U2 settled the last term. It was 2, for a pitch of 30, and the tempting
+        // repair was to remove it and land on 28 — which is the grid, and is also a
+        // TIGHTER column than the one the owner called "back to back to back". The
+        // number that is both on the grid and in the direction he asked for is 4.
         .padding(.vertical, 2)
         // THE ROW ANSWERS THE KEYBOARD, and — since the owner's third review — no longer
         // answers the pointer.
@@ -1305,6 +1342,20 @@ struct LumenSectionHeader: View {
     /// header a sheet composes by hand has no such fact to draw.
     var symbol: String? = nil
 
+    /// A short fact ABOUT this section, drawn as a pill beside its name.
+    ///
+    /// It exists because the alternative is a header that is a sentence. Look's
+    /// Display Transform header printed "Display Transform · replaced by Kodak Gold
+    /// 200" as one line, which wants about 399 pt of an available 223 at the narrow
+    /// column: it truncated to `DISPLAY TRANSFORM · REPLACED B…` — eating the stock's
+    /// name, which was the entire point of saying it — and at the default width fitted
+    /// only by shrinking to 7.8 pt, four points under this app's own stated floor.
+    ///
+    /// A heading names the thing; a badge qualifies it. Splitting them lets the name
+    /// stay full size and the qualifier stay legible, and it is what makes the modified
+    /// dot and the Reset readable on that row again.
+    var badge: String? = nil
+
     var isExpanded: Binding<Bool>?
     var isModified: Bool = false
     var onReset: (() -> Void)?
@@ -1457,6 +1508,14 @@ struct LumenSectionHeader: View {
             Text(title)
                 .font(.lumenHeading)
                 .foregroundStyle(Lumen.primaryText)
+                .fixedSize(horizontal: true, vertical: false)
+            if let badge {
+                // After the name and before the dot: it qualifies the heading, so it
+                // reads as part of it rather than as a second piece of state.
+                LumenBadge(text: badge)
+                    .lineLimit(1)
+                    .layoutPriority(-1)
+            }
             if isModified {
                 Circle()
                     .fill(Lumen.accent)

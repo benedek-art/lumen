@@ -92,7 +92,7 @@ struct BasicPanel: View {
     private var recipe: Recipe { state.currentRecipe }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: Lumen.rowGap) {
             if let only {
                 sections(for: only)
             } else {
@@ -207,7 +207,7 @@ struct BasicPanel: View {
         // would otherwise write a fabricated Kelvin and change the picture.
         let unknown = asShotNeutral == nil && display.isAsShot
 
-        return VStack(alignment: .leading, spacing: 2) {
+        return VStack(alignment: .leading, spacing: Lumen.rowGap) {
             presetRow
             // The Kelvin axis is perceptually even in MIREDS, not in Kelvin, which
             // is why every camera UI steps in them underneath and why this
@@ -274,7 +274,7 @@ struct BasicPanel: View {
             // slider and the render agree, so daylight editing never grows a caption.
             if let bounded = boundedTintCaption(display: display) {
                 Text(bounded)
-                    .font(.system(size: 10))
+                    .font(.lumenCaption)
                     .foregroundStyle(Lumen.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -352,12 +352,12 @@ struct BasicPanel: View {
                 }
             } label: {
                 Image(systemName: "eyedropper")
-                    .font(.system(size: 11))
+                    .font(.lumenBody)
                     .padding(.horizontal, 5)
                     .padding(.vertical, 3)
                     .background(Lumen.controlBackground)
                     .foregroundStyle(Lumen.primaryText)
-                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                    .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusChip))
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -427,7 +427,7 @@ struct BasicPanel: View {
     /// The six sliders and Contrast's pivot, without a header of their own — the
     /// accordion's Tone row draws one, and the tab's section wraps these in another.
     private var toneRows: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: Lumen.rowGap) {
             // TWO RAMPS IN THIS BLOCK, AND ONLY TWO. The owner asked for "a dark to
             // light gradient on stuff like the exposure slider or contrast stuff", which
             // overturns the refusal recorded in docs/28 Part 7 item 1 — see the
@@ -531,7 +531,7 @@ struct BasicPanel: View {
 
     /// Texture, Clarity and Dehaze bare, for the same reason as `toneRows`.
     private var presenceRows: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: Lumen.rowGap) {
             LumenSlider(title: "Texture",
                         value: binder.value(\.develop.detail.texture, "detail.texture"),
                         range: -100...100, hardRange: nil, defaultValue: 0,
@@ -627,7 +627,7 @@ struct BasicPanel: View {
     /// Saturation opened it.
     private var saturationRows: some View {
         let densityIsLive = recipe.develop.color.densityIsLive
-        return VStack(alignment: .leading, spacing: 2) {
+        return VStack(alignment: .leading, spacing: Lumen.rowGap) {
             LumenSlider(title: "Vibrance",
                         value: binder.value(\.develop.color.vibrance, "color.vibrance"),
                         range: -100...100, hardRange: nil, defaultValue: 0,

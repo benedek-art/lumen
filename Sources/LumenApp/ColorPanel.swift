@@ -93,7 +93,7 @@ struct ColorPanel: View {
         // supplies all three around whatever a section draws, and a second ScrollView
         // inside a scrolling column is a scroll trap: the wheel would stop moving the
         // column wherever the pointer happened to be over these rows.
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: Lumen.rowGap) {
             if only == nil || only == .color {
                 // The rules between these three are gone: each header carries its own
                 // boundary now (`LumenSectionHeader.topRhythm`, sized by
@@ -120,7 +120,7 @@ struct ColorPanel: View {
         let modified = touched || mixer.uniformity != 0 || reshaped
         let index = min(max(selectedBand, 0), ColorEngine.bandCount - 1)
 
-        return VStack(alignment: .leading, spacing: 2) {
+        return VStack(alignment: .leading, spacing: Lumen.rowGap) {
             LumenSectionHeader(title: "Colour Mixer",
                                isExpanded: $mixerExpanded,
                                isModified: modified,
@@ -188,8 +188,15 @@ struct ColorPanel: View {
                 // reading this row as per-band is a wrong edit, not an ugly one. It is
                 // now the only thing on screen that marks the change of scope, which is
                 // what it was always for.
-                Divider()
-                    .padding(.vertical, 2)
+                // AND THEN IT WENT TOO (U2), with ZonesPanel's twin and for the same
+                // reason: it was the last pair of rules in the owned panels, the
+                // direction says there are none, and eight points of space where the
+                // rows run at two reads as a break without drawing a stroke inches from
+                // a photograph. The claim above — that misreading this row as per-band
+                // is a wrong edit rather than an ugly one — still holds, and if the
+                // space turns out not to carry it, the upgrade is to NAME the scope
+                // with a group marker rather than to bring the line back.
+                Color.clear.frame(height: 8)
 
                 // "Even out hues", not "Uniformity". The coalescing key stays
                 // `mixer.uniformity` and so does the wire field; this is the label doing
@@ -262,7 +269,7 @@ struct ColorPanel: View {
     /// this band reach", grouped so `mixerSection`'s builder stays inside its ten-child
     /// limit and so the three can never be shown without each other.
     private func bandReach(_ arcs: [ColorEngine.BandArc], _ index: Int) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: Lumen.rowGap) {
             MixerHueRing(arcs: arcs,
                          selected: index,
                          allBands: allBands,
@@ -281,7 +288,7 @@ struct ColorPanel: View {
                  : "\(ColorPanel.bandName(index)) — centred on "
                    + String(format: "%.1f°", ColorPanel.bandCentre(index))
                    + " in OKLCh, " + ColorPanel.arcSummary(arcs, index))
-                .font(.system(size: 10))
+                .font(.lumenCaption)
                 .foregroundStyle(Lumen.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.bottom, 2)
@@ -356,7 +363,7 @@ struct ColorPanel: View {
             pickTint = Lumen.secondaryText
         }
 
-        return VStack(alignment: .leading, spacing: 2) {
+        return VStack(alignment: .leading, spacing: Lumen.rowGap) {
             LumenSectionHeader(title: "Point Colour",
                                isExpanded: $pointExpanded,
                                isModified: !swatches.isEmpty,
@@ -413,7 +420,9 @@ struct ColorPanel: View {
 
                     Button(action: removeSwatch) {
                         Image(systemName: "minus")
-                            .font(.system(size: 9, weight: .semibold))
+                            // 10, the app's own stated floor, which it set and then
+                            // never enforced.
+                            .font(.system(size: 10, weight: .semibold))
                             // The old hit area was the glyph itself — a bar a couple of
                             // points tall, the least hittable target in the app, which
                             // is most of why this button "did nothing".
@@ -512,9 +521,9 @@ struct ColorPanel: View {
         } label: {
             HStack(spacing: 4) {
                 Image(systemName: "eyedropper")
-                    .font(.system(size: 10))
+                    .font(.lumenCaption)
                 Text(armed ? "Click a colour" : "Pick a colour")
-                    .font(.system(size: 10))
+                    .font(.lumenCaption)
                     .lineLimit(1)
             }
             .padding(.horizontal, 6)
@@ -584,7 +593,7 @@ struct ColorPanel: View {
         let isOn = state.currentRecipe.look.blackAndWhiteIsOn
         let fold: Binding<Bool>? = isOn ? $bwExpanded : nil
 
-        return VStack(alignment: .leading, spacing: 2) {
+        return VStack(alignment: .leading, spacing: Lumen.rowGap) {
             LumenSectionHeader(title: "Black & White",
                                isExpanded: fold,
                                isModified: bw != nil,
@@ -1153,7 +1162,7 @@ struct MixerHueRing: View {
 
             if allBands {
                 Text("All bands")
-                    .font(.system(size: 9))
+                    .font(.lumenCaption)
                     .foregroundStyle(Lumen.secondaryText)
             }
         }

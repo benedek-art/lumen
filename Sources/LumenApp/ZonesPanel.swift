@@ -68,7 +68,7 @@ struct ZonesPanel: View {
     ]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: Lumen.rowGap) {
             if showsSectionHeader {
                 DevelopSection("Zones", isModified: isModified, onReset: { reset() }) {
                     rows
@@ -88,7 +88,7 @@ struct ZonesPanel: View {
     /// The register's rows with no header of their own: exactly what the section always
     /// wrapped, and the whole of what a caller supplying its own header wants.
     private var rows: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: Lumen.rowGap) {
             ZonePivotStrip(pivots: normalizedPivots,
                            levels: Self.register.map { zones[keyPath: $0.path].ev },
                            onPivotChanged: { index, position in
@@ -113,12 +113,19 @@ struct ZonesPanel: View {
                                 + "of stepping.")
             }
 
-            // Survives the hairline cull (design audit §1.1) for the same reason
-            // the Uniformity rule in ColorPanel does: it marks a change of scope
-            // INSIDE a section — five per-zone rows above, one flat trim across
-            // the whole axis below — rather than fencing two sections, which is
-            // the job space now does.
-            Divider().overlay(Lumen.separator).padding(.vertical, 2)
+            // AND THEN IT DID NOT SURVIVE (U2). It was kept through the hairline cull
+            // because it marks a change of SCOPE inside a section — five per-zone rows
+            // above, one flat trim across the whole axis below — rather than fencing
+            // two sections. The distinction was real and the line was still a line, and
+            // it was the last one left in the owned panels while the direction says
+            // there are none.
+            //
+            // What it was actually saying is "what follows is a different KIND of
+            // thing", and space says that at least as well once nothing else in the
+            // column is drawing rules: eight points where the rows run at two is a
+            // clear break, and it does not put a stroke across a panel sitting inches
+            // from a photograph.
+            Color.clear.frame(height: 8)
 
             // The divider above is what said "this one is different"; the note that
             // used to say it again in words is gone, and so is its closing clause about

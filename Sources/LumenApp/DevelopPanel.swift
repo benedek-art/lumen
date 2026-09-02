@@ -242,7 +242,20 @@ struct DevelopDisclosure<Content: View>: View {
             LumenSectionHeader(title: title, isExpanded: $isExpanded, topRhythm: 10)
             if isExpanded {
                 content()
-                    .padding(.leading, 8)
+                    // BOTH SIDES, OR NEITHER. It was `.leading` alone, so every row
+                    // inside Zones and Noise Reduction started 8 pt right of the rows
+                    // above while the value column did not move: the rows read as
+                    // nudged rather than nested, and their tracks were 8 pt shorter
+                    // than every other track in the panel — which at the narrow column
+                    // is the difference between 0.75 and 0.71 points per unit, on the
+                    // side of the threshold where a one-pixel tremor costs a whole
+                    // unit. Look's hand-built folds take no inset at all, so the column
+                    // had two kinds of fold indenting differently.
+                    //
+                    // Symmetric costs the track the same 8 pt it already cost, and buys
+                    // back the read: a fold that is inset on both sides is nested, and
+                    // one inset on a single side is a mistake.
+                    .padding(.horizontal, 8)
                     .transition(.opacity.combined(
                         with: .scale(scale: 0.97, anchor: .top)))
             }
@@ -383,12 +396,15 @@ struct DevelopPanel: View {
                     // line up with the section edges instead of sitting eight points
                     // inside them. Its own inner padding makes up the difference.
                     .padding(.horizontal, 4)
-                    .padding(.bottom, 6)
+                    // 4 and 4, not a bare bottom 6: the instrument sat flush against
+                    // whatever was above it and floated 6 pt off whatever was below,
+                    // which reads as the histogram having slipped rather than as a gap.
+                    .padding(.vertical, 4)
             }
             if state.showScopes {
                 ScopesView(scopes: state.scopes)
                     .padding(.horizontal, 4)
-                    .padding(.bottom, 6)
+                    .padding(.vertical, 4)
             }
             // NO SWITCHER BAND ANY MORE. The workspace strip that opened the column
             // moved to the window's right edge as `WorkspaceRail` (docs/32 Stream A, the

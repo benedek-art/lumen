@@ -77,7 +77,7 @@ struct EffectsPanel: View {
     var only: WorkspaceSection?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: Lumen.rowGap) {
             // Ordered as the tab ordered them rather than grouped by workspace, so that
             // nil is still exactly the Effects tab, less Retouch — which sat between
             // Lens and Soft Proof, and is deleted rather than moved.
@@ -89,8 +89,15 @@ struct EffectsPanel: View {
             // workspace, and then the column read "Lens" above a sub-section called
             // "Crop" — a heading naming half its own contents. The split also gives each
             // its own Reset, which is the half that was a real defect.
-            if shows(.frame) { CropSection() }
-            if shows(.optics) { lensSection }
+            // The same only-aware split Soft Proof already makes below, for the same
+            // reason: the column has drawn `WorkspaceSection.frame.title` — "Crop" —
+            // and `WorkspaceSection.optics.title` — "Lens" — above these, so a section
+            // wrapper here printed the heading twice, with two chevrons, two modified
+            // dots and two Resets of different scope one row apart.
+            if shows(.frame) { CropSection(only: only) }
+            if shows(.optics) {
+                if only == nil { lensSection } else { lensRows }
+            }
             if shows(.softProof) {
                 // Deliver's own header prints "Soft Proof", so wrapping these in a
                 // section titled "Soft Proof" would print the name twice. The tab has
@@ -112,7 +119,7 @@ struct EffectsPanel: View {
                            $0.look.vignette = 0
                            $0.look.vignetteFeather = Look.vignetteFeatherDefault
                        } }) {
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: Lumen.rowGap) {
                 // The range is the ENGINE's, read rather than restated: it moved from
                 // −3…+1 to −4…+2 and a slider carrying its own copy of a bound is how a
                 // control ends up refusing to reach a value the renderer accepts. The
@@ -225,13 +232,13 @@ struct EffectsPanel: View {
     /// be dragged into a picture that ignores it.
     @ViewBuilder
     private func stockGrainRows(_ film: FilmLab) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: Lumen.rowGap) {
             // The badge is not clickable, so it answers the pointer with an
             // explanation rather than an affordance — the capture-sharpening
             // badge's rule.
             HStack(spacing: 6) {
                 Text("Stock")
-                    .font(.system(size: 10))
+                    .font(.lumenCaption)
                     .foregroundStyle(Lumen.secondaryText)
                 Spacer()
                 LumenBadge(text: FilmStock.named(film.stock)?.name ?? film.stock)
@@ -288,7 +295,7 @@ struct EffectsPanel: View {
     /// secretly change its strength.
     @ViewBuilder
     private var creativeGrainRows: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: Lumen.rowGap) {
             LumenSlider(title: "Amount",
                         value: creativeBinding("look.grain.amount",
                                                get: { $0.amount },
@@ -407,7 +414,13 @@ struct EffectsPanel: View {
                        onReset: { binder.edit("geometry.lens.reset") {
                            $0.develop.geometry.lens = LensCorrections()
                        } }) {
-            VStack(alignment: .leading, spacing: 2) {
+            lensRows
+        }
+    }
+
+    /// The rows with no heading of their own, for when the column has drawn one.
+    private var lensRows: some View {
+        VStack(alignment: .leading, spacing: Lumen.rowGap) {
                 // DISABLED ON A RENDERED FILE, and it matters more here than for its
                 // neighbours because this one DEFAULTS TO ON. `lens.profile`'s only
                 // reader is `AppleRawSource`; a JPEG goes through `RenderedImageSource`,
@@ -444,7 +457,6 @@ struct EffectsPanel: View {
                 // local group: take the controls out. The sentence that stood in for
                 // them has now gone too — a panel owes nobody an inventory of what it
                 // does not contain, and this comment is where such an inventory belongs.
-            }
         }
     }
 
@@ -463,7 +475,7 @@ struct EffectsPanel: View {
     /// Split from the wrapper so there is one definition of the rows and two framings:
     /// the section header under the tab, and the column's own header under `only`.
     private var proofRows: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: Lumen.rowGap) {
             LumenToggleRow(title: "Soft proof", isOn: $state.softProof.enabled,
                            // The second clause is the one that saves a photographer
                            // from concluding the proof is broken: the loupe is handed

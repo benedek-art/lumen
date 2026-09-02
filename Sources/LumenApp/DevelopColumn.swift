@@ -207,7 +207,7 @@ struct MaskingReturnBar: View {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 10, weight: .semibold))
                     Image(systemName: panel.layout.workspace.symbolName)
-                        .font(.system(size: 11))
+                        .font(.lumenBody)
                     Text(panel.layout.workspace.title)
                         .font(.lumenBody)
                 }
@@ -245,7 +245,7 @@ struct MaskingReturnBar: View {
             HStack(spacing: 5) {
                 Image(systemName: state.maskPanelVisible
                       ? "square.on.square.dashed" : "square.on.square")
-                    .font(.system(size: 11))
+                    .font(.lumenBody)
                 Text("Masks")
                     .font(.lumenHeading)
                     .foregroundStyle(masksHovered || state.maskPanelVisible
@@ -681,8 +681,12 @@ struct MaskEditor: View {
             // card, so it has to wear the accordion's gutter or the column's text edge
             // would jump sideways every time masking opened.
             .padding(.horizontal, 10)
-            .padding(.top, 4)
-            .padding(.bottom, 8)
+            // 8 AND 8, which is what `WorkspaceSectionView` uses. It was 4 and 8, so
+            // the masking takeover sat four points higher inside its own card than
+            // every accordion section does inside theirs — and the two cards are
+            // adjacent, one replacing the other, which is the arrangement where four
+            // points read as a jump rather than as nothing.
+            .padding(.vertical, 8)
             // The same card the accordion's sections wear, for the same reason and to
             // keep the column's edges aligned across the takeover: while masking has the
             // column this IS the area, so it should sit on the surface an area sits on

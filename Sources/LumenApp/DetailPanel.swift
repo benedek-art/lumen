@@ -58,7 +58,7 @@ struct DetailPanel: View {
     var only: WorkspaceSection?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: Lumen.rowGap) {
             if only == nil || only == .detail {
                 captureSection
                 manualSection
@@ -74,7 +74,7 @@ struct DetailPanel: View {
                        onReset: { binder.edit("detail.capture.reset") {
                            $0.develop.detail.capture = CaptureSharpen()
                        } }) {
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: Lumen.rowGap) {
                 // DISABLED ON A RENDERED FILE, because it reaches nothing there. Both
                 // this toggle and the Amount row below write fields whose ONLY reader is
                 // `AppleRawSource` — the raw decoder — and a JPEG, HEIC or TIFF goes
@@ -111,7 +111,7 @@ struct DetailPanel: View {
     }
 
     private var captureOverrides: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: Lumen.rowGap) {
             // The badge row explains itself on hover — the owner's report was "the
             // Auto for the measured is just kind of sitting there and I'm not really
             // sure what that does." The caption now says where the values come from,
@@ -120,13 +120,13 @@ struct DetailPanel: View {
             // except the "Use measured values" button, which carries its own help.
             HStack(spacing: 6) {
                 Text(hasCaptureOverride ? "Manual" : "Measured from the file")
-                    .font(.system(size: 10))
+                    .font(.lumenCaption)
                     .foregroundStyle(Lumen.secondaryText)
                 Spacer()
                 if hasCaptureOverride {
                     Button("Use measured values") { clearCaptureOverrides() }
                         .buttonStyle(.plain)
-                        .font(.system(size: 10))
+                        .font(.lumenCaption)
                         .foregroundStyle(Lumen.accent)
                         .help("Clears the hand-set Amount back to the strength the "
                               + "decode measured")
@@ -211,7 +211,7 @@ struct DetailPanel: View {
                        onReset: { binder.edit("detail.sharpen.reset") {
                            $0.develop.detail.sharpen = ManualSharpen()
                        } }) {
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: Lumen.rowGap) {
                 LumenSlider(title: "Amount",
                             value: binder.value(\.develop.detail.sharpen.amount,
                                                 "detail.sharpen.amount"),
@@ -286,12 +286,12 @@ struct DetailPanel: View {
     private var lightroomClassicHint: some View {
         HStack(spacing: 6) {
             Text("No capture stage — try 40 / 1.0 / 25 / 0")
-                .font(.system(size: 10))
+                .font(.lumenCaption)
                 .foregroundStyle(Lumen.secondaryText)
             Spacer()
             Button("Apply") { applyClassicSharpen() }
                 .buttonStyle(.plain)
-                .font(.system(size: 10))
+                .font(.lumenCaption)
                 .foregroundStyle(Lumen.accent)
                 .help("Writes the classic 40 / 1.0 / 25 / 0 into the four rows above")
         }
@@ -353,7 +353,7 @@ struct DetailPanel: View {
                 Text(recipe.develop.denoise == isoDefault
                      ? "Defaults for ISO \(Int(iso))"
                      : "Adjusted from the ISO \(Int(iso)) defaults")
-                    .font(.system(size: 10))
+                    .font(.lumenCaption)
                     .foregroundStyle(Lumen.secondaryText)
                 Spacer()
                 LumenBadge(text: recipe.develop.denoise == isoDefault ? "Auto" : "Manual")
@@ -382,7 +382,7 @@ struct DetailPanel: View {
     /// double-click — which lands on the same ISO-adaptive numbers, one row at a time.
     private var noiseSection: some View {
         DevelopDisclosure("Noise Reduction", isExpanded: $noiseExpanded) {
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: Lumen.rowGap) {
                 LumenSegmented(options: [(value: Denoise.Mode.off, label: "Off"),
                                          (value: Denoise.Mode.classic, label: "Classic"),
                                          (value: Denoise.Mode.ai, label: "AI (stand-in)")],
@@ -405,7 +405,7 @@ struct DetailPanel: View {
             // to say about it.
             EmptyView()
         case .classic:
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: Lumen.rowGap) {
                 isoBadgeRow
                 // The two masters write a `userSet` bit as well as a value. It is the
                 // only record that a number came from the photographer rather than from
@@ -437,11 +437,31 @@ struct DetailPanel: View {
                                     isoDefault.classic.luma
                                 recipe.develop.denoise.classic.lumaUserSet = false
                             } })
-                // These four moved from `.help` modifiers onto the `help:` parameter:
+                // NAMED FOR WHAT THEY DO, AND SUBORDINATE TO THEIR MASTER.
+                //
+                // They were `Luminance Detail`, `Luminance Contrast`, `Colour Detail`
+                // and `Colour Smoothness`, and two of those measure past the label
+                // column's shrink floor: `Luminance Contrast` is 104.3 pt at 11 pt in
+                // an 86 pt frame and `Colour Smoothness` 102.4, so both rendered as
+                // `Luminance C…` and `Colour S…` at every column width — the "two
+                // controls indistinguishable without a hover" failure the column was
+                // widened to avoid, arrived by another route.
+                //
+                // Widening the column again is the wrong lever: `labelWidth` is a fixed
+                // frame that does not vary with the panel, so 104 would buy these two
+                // rows their names at the cost of eighteen points of TRACK on all
+                // ninety-two rows in the app. Naming them for what they do and indenting
+                // them under the master they belong to costs nothing, and it is
+                // Lightroom's own Detail panel layout: Luminance, then Detail and
+                // Contrast; Colour, then Detail and Smoothness. Two rows read "Detail"
+                // and that is correct — each sits directly under the master it details,
+                // which is the whole point of the indent.
+                //
+                // These four also moved from `.help` modifiers onto the `help:` parameter:
                 // the outer modifier is shadowed by the label's composed tooltip, so
                 // hovering the row's NAME showed only the reset hint. The words are
                 // unchanged where they were already right.
-                LumenSlider(title: "Luminance Detail",
+                LumenSlider(title: "Detail", indented: true,
                             value: binder.value(\.develop.denoise.classic.lumaDetail,
                                                 "denoise.classic.lumaDetail"),
                             range: 0...100, hardRange: nil,
@@ -449,7 +469,7 @@ struct DetailPanel: View {
                             step: 1, decimals: 0, bipolar: false,
                             help: "Raises the shrinkage threshold, so texture survives "
                                 + "— and so does the noise beside it.")
-                LumenSlider(title: "Luminance Contrast",
+                LumenSlider(title: "Contrast", indented: true,
                             value: binder.value(\.develop.denoise.classic.lumaContrast,
                                                 "denoise.classic.lumaContrast"),
                             range: 0...100, hardRange: nil,
@@ -478,7 +498,7 @@ struct DetailPanel: View {
                                     isoDefault.classic.chroma
                                 recipe.develop.denoise.classic.chromaUserSet = false
                             } })
-                LumenSlider(title: "Colour Detail",
+                LumenSlider(title: "Detail", indented: true,
                             value: binder.value(\.develop.denoise.classic.colorDetail,
                                                 "denoise.classic.colorDetail"),
                             range: 0...100, hardRange: nil,
@@ -487,7 +507,7 @@ struct DetailPanel: View {
                             help: "Protects thin colour edges.")
                 // The one row here with a cost worth naming, so it is named on the
                 // row rather than in a paragraph four rows below it.
-                LumenSlider(title: "Colour Smoothness",
+                LumenSlider(title: "Smoothness", indented: true,
                             value: binder.value(\.develop.denoise.classic.colorSmoothness,
                                                 "denoise.classic.colorSmoothness"),
                             range: 0...100, hardRange: nil,
@@ -507,7 +527,7 @@ struct DetailPanel: View {
                                 + "vanish; it only ever touches extremes.")
             }
         case .ai:
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: Lumen.rowGap) {
                 // Tier 2 does not exist: no model ships, `AIDenoiseSplice` has no
                 // caller, and Amount reaches the decoder's own denoise instead — which
                 // is why dragging it is slow, the stand-in being part of the decode key,

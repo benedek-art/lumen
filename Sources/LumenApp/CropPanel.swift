@@ -308,13 +308,42 @@ struct CropSection: View {
     private var recipe: Recipe { state.currentRecipe }
     private var photoID: URL? { state.primarySelection?.id }
 
+    /// Nil when this panel supplies its own header, or the `WorkspaceSection` whose
+    /// header the develop column has ALREADY drawn above it.
+    ///
+    /// ROWS, NOT A SECTION, when the column has drawn the heading — the same split
+    /// `BasicPanel` and `LookPanel` both record as a defect they fixed, and the same one
+    /// `EffectsPanel` already makes for Soft Proof. `WorkspaceSection.frame.title` is
+    /// "Crop" and so is this section's, so the accordion printed CROP twice one row
+    /// apart, each with its own chevron, its own modified dot and its own Reset — and
+    /// the two Resets had different scope, the outer clearing the workspace section and
+    /// the inner clearing crop, angle and flip together. Clicking the inner chevron
+    /// collapsed a section inside the section that was already the section.
+    var only: WorkspaceSection?
+
     var body: some View {
-        DevelopSection("Crop", isModified: isGeometryModified,
-                       onReset: { resetGeometry() },
-                       resetHelp: "Clears the whole framing — crop, angle and flip. "
-                           + "Original in the ratio menu brings just the frame back, "
-                           + "keeping the angle.") {
-            VStack(alignment: .leading, spacing: 2) {
+        withSession(sectionOrRows)
+    }
+
+    @ViewBuilder
+    private var sectionOrRows: some View {
+        if only == nil {
+            DevelopSection("Crop", isModified: isGeometryModified,
+                           onReset: { resetGeometry() },
+                           resetHelp: "Clears the whole framing — crop, angle and flip. "
+                               + "Original in the ratio menu brings just the frame back, "
+                               + "keeping the angle.") {
+                cropRows
+            }
+        } else {
+            cropRows
+        }
+    }
+
+    /// What the section holds, with no heading of its own — so the column's header can
+    /// carry it, or this panel's own can.
+    private var cropRows: some View {
+        VStack(alignment: .leading, spacing: Lumen.rowGap) {
                 aspectRow
                 if showsCustomField { customRow }
                 sizeRow
@@ -372,8 +401,14 @@ struct CropSection: View {
                 // No perspective rows: `Upright` is a wire format with no stage behind
                 // it, and a control that reaches nothing is the defect this panel's
                 // Lens section was cut down for.
-            }
         }
+    }
+
+    /// The framing session's lifecycle, on the BODY rather than on the rows: it has to
+    /// run whichever of the two shapes above was drawn.
+    @ViewBuilder
+    private func withSession<V: View>(_ content: V) -> some View {
+        content
         .onAppear {
             guard let photoID, viewport.showCrop else { return }
             tool.beginSession(photo: photoID, geometry: recipe.develop.geometry)
@@ -405,7 +440,7 @@ struct CropSection: View {
     private var aspectRow: some View {
         HStack(spacing: 6) {
             Text("Aspect")
-                .font(.system(size: 11))
+                .font(.lumenBody)
                 .foregroundStyle(Lumen.secondaryText)
                 .frame(width: Lumen.labelWidth, alignment: .leading)
 
@@ -422,7 +457,7 @@ struct CropSection: View {
                 }
             } label: {
                 Image(systemName: isLocked ? "lock.fill" : "lock.open")
-                    .font(.system(size: 10))
+                    .font(.lumenCaption)
                     .foregroundStyle(isLocked ? Lumen.accent : Lumen.secondaryText)
                     .frame(width: 16, height: Lumen.rowHeight)
                     .contentShape(Rectangle())
@@ -455,7 +490,7 @@ struct CropSection: View {
                 }
             } label: {
                 Text(currentAspectName)
-                    .font(.system(size: 10))
+                    .font(.lumenCaption)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             // The second sentence is the whole hand, in the row a photographer opens
@@ -481,7 +516,7 @@ struct CropSection: View {
                 swapOrientation()
             } label: {
                 Image(systemName: "arrow.up.arrow.down")
-                    .font(.system(size: 10))
+                    .font(.lumenCaption)
                     .foregroundStyle(Lumen.secondaryText)
                     .frame(width: 16, height: Lumen.rowHeight)
                     .contentShape(Rectangle())
@@ -499,16 +534,16 @@ struct CropSection: View {
     private var customRow: some View {
         HStack(spacing: 6) {
             Text("Custom")
-                .font(.system(size: 11))
+                .font(.lumenBody)
                 .foregroundStyle(Lumen.secondaryText)
                 .frame(width: Lumen.labelWidth, alignment: .leading)
             TextField("16:9", text: $customRatio)
                 .textFieldStyle(.roundedBorder)
-                .font(.system(size: 10, design: .monospaced))
+                .font(.lumenNumeric)
                 .controlSize(.small)
                 .onSubmit { commitCustomRatio() }
             Button("Set") { commitCustomRatio() }
-                .font(.system(size: 10))
+                .font(.lumenCaption)
                 .disabled(CropGeometry.aspect(fromText: customRatio) == nil)
         }
         .frame(height: Lumen.rowHeight)
@@ -531,11 +566,11 @@ struct CropSection: View {
                                                 geometry: recipe.develop.geometry)
             HStack(spacing: 6) {
                 Text("Size")
-                    .font(.system(size: 11))
+                    .font(.lumenBody)
                     .foregroundStyle(Lumen.secondaryText)
                     .frame(width: Lumen.labelWidth, alignment: .leading)
                 Text("\(resolved.outputWidth) × \(resolved.outputHeight) px")
-                    .font(.system(size: 10, design: .monospaced))
+                    .font(.lumenNumeric)
                     .foregroundStyle(Lumen.primaryText)
                 Spacer()
             }
@@ -549,7 +584,7 @@ struct CropSection: View {
     private var rulerRow: some View {
         HStack(spacing: 6) {
             Text("Ruler")
-                .font(.system(size: 11))
+                .font(.lumenBody)
                 .foregroundStyle(Lumen.secondaryText)
                 .frame(width: Lumen.labelWidth, alignment: .leading)
             Button(viewport.showStraighten ? "Drag a line…" : "Straighten by line") {
@@ -557,7 +592,7 @@ struct CropSection: View {
                 viewport.showCrop = true
                 viewport.showStraighten.toggle()
             }
-            .font(.system(size: 10))
+            .font(.lumenCaption)
             .help("Drag along a horizon or a doorframe and the frame levels to whichever "
                   + "axis that line is nearer. To turn the picture by hand instead, drag "
                   + "outside the rectangle.")
@@ -569,7 +604,7 @@ struct CropSection: View {
     private var guidesRow: some View {
         HStack(spacing: 6) {
             Text("Guides")
-                .font(.system(size: 11))
+                .font(.lumenBody)
                 .foregroundStyle(Lumen.secondaryText)
                 .frame(width: Lumen.labelWidth, alignment: .leading)
             Menu {
@@ -578,7 +613,7 @@ struct CropSection: View {
                 }
             } label: {
                 Text(tool.overlay.title)
-                    .font(.system(size: 10))
+                    .font(.lumenCaption)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .help("Drawn inside the rectangle while you frame. A guide is a way of "

@@ -117,7 +117,7 @@ struct LookPanel: View {
         // inside a scrolling column is a scroll trap: the wheel would stop moving the
         // column wherever the pointer happened to be over these rows, which is most of
         // the column's height.
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: Lumen.rowGap) {
             // Six groups, and until now five hairlines between them. The headers carry
             // their own boundary instead (`LumenSectionHeader.topRhythm`, sized by
             // `innerRhythm`) — design audit §1.1, and the rhythm BasicPanel has always
@@ -179,7 +179,7 @@ struct LookPanel: View {
     @ViewBuilder
     private var savedLooksSection: some View {
         if only == nil {
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: Lumen.rowGap) {
                 LumenSectionHeader(title: "Saved Looks", isExpanded: $looksExpanded,
                                    topRhythm: innerRhythm)
 
@@ -192,7 +192,7 @@ struct LookPanel: View {
             // on, so this fires once per appearance either way.
             .onAppear { state.refreshSavedLooks() }
         } else {
-            VStack(alignment: .leading, spacing: 2) { savedLooksRows }
+            VStack(alignment: .leading, spacing: Lumen.rowGap) { savedLooksRows }
                 .onAppear { state.refreshSavedLooks() }
         }
     }
@@ -203,7 +203,7 @@ struct LookPanel: View {
         HStack(spacing: 4) {
             TextField("Name this look", text: $newLookName)
                 .textFieldStyle(.plain)
-                .font(.system(size: 11))
+                .font(.lumenBody)
                 .onSubmit { saveCurrentLook() }
             Button {
                 saveCurrentLook()
@@ -221,7 +221,7 @@ struct LookPanel: View {
         .padding(.horizontal, 5)
         .padding(.vertical, 3)
         .background(Lumen.controlBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 4))
+        .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusChip))
 
         // An empty list draws nothing at all, deliberately. The field and
         // the Save button above it are the affordance; a sentence announcing
@@ -239,7 +239,7 @@ struct LookPanel: View {
                 state.applyLook(look)
             } label: {
                 Text(look.name)
-                    .font(.system(size: 11))
+                    .font(.lumenBody)
                     .foregroundStyle(Lumen.primaryText)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -253,7 +253,7 @@ struct LookPanel: View {
                 state.deleteLook(look)
             } label: {
                 Image(systemName: "trash")
-                    .font(.system(size: 10))
+                    .font(.lumenCaption)
                     .foregroundStyle(Lumen.secondaryText)
             }
             .buttonStyle(.plain)
@@ -294,7 +294,7 @@ struct LookPanel: View {
     private var wheelsSection: some View {
         if only == nil {
             let wheels = state.currentRecipe.look.wheels
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: Lumen.rowGap) {
                 LumenSectionHeader(title: "Colour Grading",
                                    isExpanded: $wheelsExpanded,
                                    isModified: !LookPanel.isNeutral(wheels),
@@ -399,7 +399,7 @@ struct LookPanel: View {
             brillianceNote = "Perceived brightness without changing colourfulness."
         }
 
-        return VStack(alignment: .leading, spacing: 2) {
+        return VStack(alignment: .leading, spacing: Lumen.rowGap) {
             LumenSectionHeader(title: "Colour balance",
                                isExpanded: $balanceExpanded,
                                isModified: !grid.isZero,
@@ -489,7 +489,7 @@ struct LookPanel: View {
         let high: WritableKeyPath<Look, Double> =
             axis.appending(path: \ColorBalanceAxis.high)
 
-        return VStack(alignment: .leading, spacing: 2) {
+        return VStack(alignment: .leading, spacing: Lumen.rowGap) {
             // A GROUP HEADER, NOT A STRAY WORD. "CHROMA" stood here at 9pt — below
             // `LumenType`'s own 10pt floor, in a sixth hand-rolled caps style — and
             // read as a divider that had wandered in (docs/32 Stream D item 6). It
@@ -497,7 +497,14 @@ struct LookPanel: View {
             // under the section headers' 12, with the group's formal statement on
             // hover so the label itself can answer "what is this axis".
             LumenCapsLabel(text: title)
-                .padding(.top, 6)
+                // A GROUP HEADING NEEDS A GAP UNDER IT AS WELL AS OVER IT. This had
+                // `.top` alone, so the label was pushed away from the group above and
+                // then sat directly on the first row of its own — attached to the wrong
+                // side of itself. 12 over, 4 under, both on the grid: enough above to
+                // read as a new group, little enough below that the rows still belong
+                // to it.
+                .padding(.top, 12)
+                .padding(.bottom, 4)
                 .help(help)
             LumenSlider(title: "Global",
                         value: bindLook(global, key: key + ".global"),
@@ -516,10 +523,14 @@ struct LookPanel: View {
                         range: -100...100, defaultValue: 0, step: 1, decimals: 0,
                         help: help)
             Text(note)
-                .font(.system(size: 10))
+                .font(.lumenCaption)
                 .foregroundStyle(warn ? Lumen.accent : Lumen.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
-                .padding(.bottom, 4)
+                // Paired, and on the grid. It had a bottom inset only, so the note sat
+                // against the last row it annotates and 4 pt clear of the next group —
+                // which reads as belonging to what follows rather than to what it
+                // describes.
+                .padding(.vertical, 4)
         }
     }
 
@@ -591,7 +602,7 @@ struct LookPanel: View {
         let masterLimit = Int(GradeEngine.masterPointLimit)
         let trimLimit = Int(GradeEngine.trimPointLimit)
 
-        return VStack(alignment: .leading, spacing: 2) {
+        return VStack(alignment: .leading, spacing: Lumen.rowGap) {
             LumenSectionHeader(title: "Printer Lights",
                                isExpanded: $printerExpanded,
                                isModified: modified,
@@ -685,7 +696,7 @@ struct LookPanel: View {
         let p = state.currentRecipe.look.primaries
         let modified = p != Primaries()
 
-        return VStack(alignment: .leading, spacing: 2) {
+        return VStack(alignment: .leading, spacing: Lumen.rowGap) {
             LumenSectionHeader(title: "Primaries",
                                isExpanded: $primariesExpanded,
                                isModified: modified,
@@ -735,7 +746,7 @@ struct LookPanel: View {
         // click no longer lights up like one.
         let fold: Binding<Bool>? = only == nil ? $transformExpanded : nil
 
-        return VStack(alignment: .leading, spacing: 2) {
+        return VStack(alignment: .leading, spacing: Lumen.rowGap) {
             // The baseline is the PHOTO's, not the type's: a rendered file starts on
             // the Linear preset, so comparing against RenderParams() marked every
             // untouched JPEG modified — and Reset re-applied the default sigmoid on
@@ -749,13 +760,18 @@ struct LookPanel: View {
             // answer it where the eye already is; the rows below answer it by going
             // dim. Prose was never the only way to be honest about a disabled control.
             //
-            // One line, allowed to shrink, because the loaded form is long: uppercased
-            // at 12 pt semibold with 0.7 tracking it wants about 344 points and the
-            // column offers roughly 271 beside the chevron, less again when a modified
-            // section lays out its Reset. A section header that wrapped to two lines
-            // would read as a bug rather than as emphasis, and one that truncated would
-            // eat the stock's name, which is the whole point of the line.
-            LumenSectionHeader(title: transformTitle,
+            // A NAME AND A BADGE, not a sentence. This was one line —
+            // "Display Transform · replaced by Kodak Gold 200" — which measures about
+            // 399 pt against the 223 the narrow column leaves beside a chevron, a dot
+            // and a Reset. It truncated to `DISPLAY TRANSFORM · REPLACED B…`, eating
+            // the stock's name, which was the only part worth saying; at the default
+            // width it fitted only by shrinking to 7.8 pt, four points below this app's
+            // own floor, in a size no other heading uses.
+            //
+            // The heading names the stage and the pill says what has taken it over. The
+            // rows below still go dim, which is the other half of the same statement.
+            LumenSectionHeader(title: "Display Transform",
+                               badge: replacingStockName,
                                isExpanded: fold,
                                isModified: render != state.currentStartingRecipe.look.render,
                                onReset: { state.updateRecipe { photo, recipe in
@@ -763,8 +779,6 @@ struct LookPanel: View {
                                        for: photo.id, iso: photo.iso).look.render
                                } },
                                topRhythm: innerRhythm)
-                .lineLimit(1)
-                .minimumScaleFactor(0.65)
 
             if only != nil || transformExpanded {
                 // Ghosted, not hidden. The values are still the recipe's, they still
@@ -780,15 +794,15 @@ struct LookPanel: View {
         }
     }
 
-    /// "Display Transform", or the stock that has taken it over.
+    /// The stock that has taken this stage over, for the header's pill — or nil while
+    /// the stage is live and there is nothing to qualify.
     ///
-    /// Printed without the `Lumen ` prefix all six stocks carry: it distinguishes
-    /// nothing when every one of them has it, and this line has to fit beside a
-    /// chevron, a modified dot and a Reset in the width of the column.
-    private var transformTitle: String {
-        guard let stock = replacingStock else { return "Display Transform" }
-        let name = stock.hasPrefix("Lumen ") ? String(stock.dropFirst(6)) : stock
-        return "Display Transform · replaced by " + name
+    /// Without the `Lumen ` prefix all six stocks carry: it distinguishes nothing when
+    /// every one of them has it, and this is the one place in the app where a few
+    /// points of width decide whether the name survives at all.
+    private var replacingStockName: String? {
+        guard let stock = replacingStock else { return nil }
+        return stock.hasPrefix("Lumen ") ? String(stock.dropFirst(6)) : stock
     }
 
     /// The stock standing in for this stage, or nil while the stage is live.
@@ -808,7 +822,7 @@ struct LookPanel: View {
 
     @ViewBuilder
     private func transformControls(base: DisplayTransformParams) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: Lumen.rowGap) {
             // The five presets, drawn by this app and each one carrying the number it
             // is actually made of: `contrast` is the log-log slope at mid-grey, which
             // is the single value that separates Soft from Punchy, and it is read off
@@ -928,7 +942,7 @@ struct LookPanel: View {
     private var filmLabSection: some View {
         if only == nil {
             let film = state.currentRecipe.look.filmLab
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: Lumen.rowGap) {
                 LumenSectionHeader(title: "Film Lab",
                                    isExpanded: $filmExpanded,
                                    isModified: film != nil,
@@ -1259,7 +1273,7 @@ struct ZoneWeightStrip: View {
                 }
             }
             .background(Lumen.controlBackground)
-            .clipShape(RoundedRectangle(cornerRadius: 3))
+            .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusChip))
 
             GeometryReader { geometry in
                 ZStack(alignment: .topLeading) {
@@ -1381,7 +1395,7 @@ struct PrinterLightRow: View {
                          help: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.system(size: 11))
+                .font(.lumenBody)
                 .frame(width: 24, height: Lumen.rowHeight)
                 .contentShape(Rectangle())
         }
