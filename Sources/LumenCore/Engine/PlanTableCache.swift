@@ -54,6 +54,13 @@ public enum PlanTableCache {
     /// 1.4 MB, so a full cache is under 24 MB.
     private static let capacity = 8
 
+    /// The same number, for a caller that needs to reason about eviction rather than
+    /// rely on it — `DragProbeTests` prices a settle after a drag, and whether the
+    /// drag's tables are still resident when the settle asks is entirely this number
+    /// against the number of values the drag re-keyed. Public so that arithmetic can
+    /// be written as arithmetic instead of as a second literal 8.
+    public static var capacityPerSlot: Int { capacity }
+
     /// An `NSCondition` rather than an `NSLock` because one caller now needs to WAIT
     /// on another's bake instead of starting a second copy of it — see `table`. Every
     /// existing `lock()`/`unlock()` pair means what it always did; the condition only

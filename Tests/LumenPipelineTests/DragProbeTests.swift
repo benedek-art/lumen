@@ -408,19 +408,27 @@ final class DragProbeTests: XCTestCase {
 
         // And the second half: a settle must not be asked to hit a table the drag
         // pushed out. Whites re-keys the finish slot at every one of the 48 values and
-        // the slot holds 8, so the ONLY settle sample the drag could still be holding
-        // is one inside its last eight events — which is why each settle sample renders
-        // its own draft frame instead of relying on the row before it.
+        // the slot holds 8, so the only settle samples the drag could still be holding
+        // are the ones inside its last eight events — which is why each settle sample
+        // renders its own draft frame instead of relying on the row before it.
+        //
+        // TWO of twelve, and the first version of this assertion said one and went red
+        // on the lane. The settle values are `(4e + 0.5)/48`, so the last two are 40.5
+        // and 44.5 and BOTH sit inside the final eight events (40…47). Ten of twelve
+        // were unreachable, which is the point and is unchanged; the count was simply
+        // miscounted.
+        let lastResidentEvent = Self.events - PlanTableCache.capacityPerSlot
         let reachableWithoutItsOwnDraft = settleValues.filter {
-            $0 > Double(Self.events - 8) / Double(Self.events)
+            $0 > Double(lastResidentEvent) / Double(Self.events)
         }
-        XCTAssertLessThanOrEqual(
-            reachableWithoutItsOwnDraft.count, 1,
+        XCTAssertEqual(
+            reachableWithoutItsOwnDraft.count, 2,
             "this assertion exists to record WHY the settle renders its own draft "
-                + "frame: with an 8-entry slot and a control that re-keys on every "
-                + "event, at most one of these \(Self.settleEvents) samples could "
-                + "survive the drag. If that stops being true the pairing can be "
-                + "revisited — but do not remove it on the strength of a green row")
+                + "frame: with a \(PlanTableCache.capacityPerSlot)-entry slot and a "
+                + "control that re-keys on every event, only \(reachableWithoutItsOwnDraft.count) "
+                + "of these \(Self.settleEvents) samples could survive the drag. If "
+                + "that stops being true the pairing can be revisited — but do not "
+                + "remove it on the strength of a green row")
     }
 
     func testWhatADragFrameCostsPerControl() throws {
