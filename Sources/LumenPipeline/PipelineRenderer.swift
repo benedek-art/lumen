@@ -281,7 +281,7 @@ public final class PipelineRenderer {
     /// runs next. The identity is the file URL: it names the photograph, and it is
     /// already the identity the mask-raster keys use.
     private static func stampRenderIdentity(_ source: any ImageSource) {
-        PlanTableCache.setRenderIdentity(source.url.absoluteString)
+        PlanTableCache.setRenderIdentity(PlanTableCache.renderIdentity(for: source.url))
     }
 
     // MARK: - Preview

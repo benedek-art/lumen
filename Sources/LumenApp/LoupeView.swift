@@ -857,7 +857,28 @@ final class PhotoRenderModel: ObservableObject {
             // contract forbids it. `anyBakePending` is the caller `hasPendingBake`
             // was written for and never had (docs/23 audit queue item 7); while it
             // answers true, this loop keeps re-settling.
-            if image != nil, !usedEmbeddedPreview, !PlanTableCache.anyBakePending {
+            //
+            // TWO NARROWINGS, because the question as first written was far wider than
+            // the thing it was protecting and each retry costs a full-resolution graph
+            // (I1-04). It asked "is ANY table baking, anywhere", and answered yes for
+            // most of every drag's tail.
+            //
+            // `isDraft` — the staleness contract is a statement about DRAFT frames.
+            // `PlanTableCache`'s own header: "Settle and export must never come
+            // through here; they call `table`, which blocks on the exact bake, so the
+            // picture at rest and the exported file are exact by construction." So an
+            // exact frame on screen cannot be riding a stale table, whatever is baking,
+            // and re-settling cannot improve it. Reaching this line with `isDraft`
+            // false means an earlier settle for this very recipe is up — the drafts
+            // above paint the current edit whenever they run at all.
+            //
+            // The identity — a bake queued under a DIFFERENT photograph cannot change
+            // a pixel of this one, because the stale door refuses to cross photographs.
+            // The compare pane's other half and the tail of the drag on the frame the
+            // photographer just stepped away from were both keeping this loop awake.
+            if image != nil, !usedEmbeddedPreview,
+               !(isDraft && PlanTableCache.anyBakePending(
+                    for: PlanTableCache.renderIdentity(for: url))) {
                 return
             }
             attempt += 1

@@ -467,6 +467,107 @@ final class PlanTableCacheTests: XCTestCase {
                            + "drag may ride it")
         waitForBakes()
     }
+
+    // MARK: - Whose bake is outstanding (I1-04)
+    //
+    // `anyBakePending` used to answer for the ENTIRE cache. The viewer's settle loop
+    // is its only caller, and while it answers true that loop retries — each retry a
+    // full-resolution graph. A bake queued by another photograph therefore bought the
+    // photographer nothing and cost them a render, repeatedly: it cannot change a
+    // pixel of this frame, because the stale door never crosses photographs.
+    //
+    // The question is asked in two states that are a whole bake apart. `pending` is
+    // queued-not-started and has always carried an identity; the in-flight one did
+    // not — `drainPending` popped the request and dropped its identity on the floor,
+    // so for the entire duration of the bake there was nothing to ask.
+
+    func testABakeOutstandingForOnePhotographIsNotOutstandingForAnother() {
+        defer { PlanTableCache.setRenderIdentity("") }
+        PlanTableCache.clear()
+        waitForBakes()
+        PlanTableCache.clear()
+
+        // A gate the deferred bake cannot pass until this test lets it: the drain has
+        // popped the request and stamped it in flight, and stays there. Without a gate
+        // the in-flight window is 15–24 ms of real bake and the assertion is a race.
+        let entered = DispatchSemaphore(value: 0)
+        let release = DispatchSemaphore(value: 0)
+
+        PlanTableCache.setRenderIdentity("photo-A")
+        _ = PlanTableCache.tableAllowingStale(.finish, key: "A-1", size: 5) {
+            self.markedLUT(1)
+        }
+        // A's next drag event: a stale serve, which queues the exact bake and starts
+        // the drain. The drain pops it and blocks in the closure below.
+        _ = PlanTableCache.tableAllowingStale(.finish, key: "A-2", size: 5) {
+            entered.signal()
+            release.wait()
+            return self.markedLUT(2)
+        }
+        XCTAssertEqual(entered.wait(timeout: .now() + 5), .success,
+                       "the deferred bake never started")
+
+        // PHASE 1 — in flight for A, nothing at all for B.
+        XCTAssertTrue(PlanTableCache.anyBakePending(for: "photo-A"),
+                      "A's own exact table is baking right now and A's settle would "
+                          + "find it fresher than the draft on screen")
+        XCTAssertFalse(PlanTableCache.anyBakePending(for: "photo-B"),
+                       "a bake belonging to photograph A kept photograph B's settle "
+                           + "loop retrying full-resolution renders that could not "
+                           + "have changed a pixel")
+
+        // PHASE 2 — B queues one of its own behind A's, on the same slot. Now both
+        // states are live at once and they belong to different photographs, so a
+        // question that reads only one of the two answers wrong for somebody.
+        PlanTableCache.setRenderIdentity("photo-B")
+        _ = PlanTableCache.tableAllowingStale(.finish, key: "B-1", size: 5) {
+            self.markedLUT(3)
+        }
+        _ = PlanTableCache.tableAllowingStale(.finish, key: "B-2", size: 5) {
+            self.markedLUT(4)
+        }
+        XCTAssertTrue(PlanTableCache.anyBakePending(for: "photo-B"),
+                      "B's exact table is queued behind A's — B's draft is riding a "
+                          + "stale table and its settle must not give up yet")
+        XCTAssertTrue(PlanTableCache.anyBakePending(for: "photo-A"),
+                      "A's bake is still in flight")
+
+        release.signal()
+        waitForBakes()
+        XCTAssertFalse(PlanTableCache.anyBakePending(for: "photo-A"))
+        XCTAssertFalse(PlanTableCache.anyBakePending(for: "photo-B"))
+    }
+
+    /// And the drain lets go of its stamp before it goes quiet — a stamp left behind
+    /// pins the settle loop awake forever for that photograph, retrying a full
+    /// render every 60 ms until `qualityAttempts` runs out, on every frame after.
+    ///
+    /// Substituted both ways round while writing it: removing EITHER clear on its own
+    /// leaves this green, because the drain's two exits cover each other (the store
+    /// clears, then the loop goes around and the empty exit clears again). Both are
+    /// kept anyway — the store's clear closes the unlock/lock window between landing
+    /// a table and popping the next request, in which the stamp would otherwise
+    /// describe a bake that has already finished — but the invariant this test is
+    /// allowed to claim is the one it can see, and that is "quiet means unstamped".
+    /// It goes red when both clears go.
+    func testTheInFlightStampIsClearedWhenTheDrainFinishes() {
+        defer { PlanTableCache.setRenderIdentity("") }
+        PlanTableCache.clear()
+        waitForBakes()
+        PlanTableCache.clear()
+
+        PlanTableCache.setRenderIdentity("photo-A")
+        _ = PlanTableCache.tableAllowingStale(.finish, key: "A-1", size: 5) {
+            self.markedLUT(1)
+        }
+        _ = PlanTableCache.tableAllowingStale(.finish, key: "A-2", size: 5) {
+            self.markedLUT(2)
+        }
+        waitForBakes()
+        XCTAssertFalse(PlanTableCache.anyBakePending(for: "photo-A"),
+                       "the drain drained and the settle loop is still being told to "
+                           + "retry — an in-flight stamp outlived its bake")
+    }
 }
 
 // MARK: - Joining a bake instead of repeating it (I1-01, I1-03)

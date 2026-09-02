@@ -33,7 +33,7 @@ import Foundation
 public enum PlanTableCache {
 
     /// Which table, so the two never collide on a key.
-    enum Slot: String {
+    enum Slot: String, CaseIterable {
         case finish
         /// The finish table with a soft proof mapped over it. A separate slot rather
         /// than a variant of `finish`, because the flag overlay needs both at once.
@@ -103,6 +103,15 @@ public enum PlanTableCache {
     /// Stamp the photograph identity for the plans built next. See `activeIdentity`
     /// for why this is ambient. Public because the renderer that knows the
     /// photograph lives in LumenPipeline.
+    /// The one spelling of a photograph's identity.
+    ///
+    /// The renderer stamps it from the `ImageSource` it owns; the viewer's settle loop
+    /// asks `anyBakePending(for:)` about the photograph it is drawing and holds only a
+    /// URL. Deriving the string separately at the second call site is how two spellings
+    /// of one identity come to exist and the question quietly starts answering `false`
+    /// for every photograph — so the cache that keys on it owns it.
+    public static func renderIdentity(for url: URL) -> String { url.absoluteString }
+
     public static func setRenderIdentity(_ identity: String) {
         lock.lock()
         activeIdentity = identity
@@ -124,6 +133,14 @@ public enum PlanTableCache {
     /// else's work and wait for it.
     private static var draining: Set<Slot> = []
     private static var inFlightKey: [Slot: String] = [:]
+    /// The PHOTOGRAPH the in-flight bake belongs to, carried beside its key.
+    ///
+    /// `pending` has always held one (a deferred bake is queued by a stale serve, and
+    /// the stale door never crosses photographs), but the moment the drain pops it the
+    /// identity was dropped on the floor — so between `pending.removeValue` and the
+    /// store there was no way to ask whose work was in flight. That gap is most of a
+    /// bake, and it is exactly the window the viewer's settle loop asks in.
+    private static var inFlightIdentity: [Slot: String] = [:]
     private static var pending: [Slot: (key: String, pairedValue: Double,
                                         identity: String,
                                         bakeExact: () -> LUT3D)] = [:]
@@ -407,6 +424,7 @@ public enum PlanTableCache {
             guard let next = pending.removeValue(forKey: slot) else {
                 draining.remove(slot)
                 inFlightKey[slot] = nil
+                inFlightIdentity[slot] = nil
                 // A settle can be waiting on a key this drain no longer holds — it was
                 // stolen off the queue, or stored by another path. Wake it: its own
                 // loop re-reads `entries` and decides.
@@ -417,6 +435,7 @@ public enum PlanTableCache {
             // Publish WHICH key is baking, so `table` can recognise its own table in
             // this work and wait for it instead of starting a second copy.
             inFlightKey[slot] = next.key
+            inFlightIdentity[slot] = next.identity
             lock.unlock()
 
             let built = next.bakeExact()
@@ -438,6 +457,7 @@ public enum PlanTableCache {
             stats.deferredBakes += 1
             slotTraffic[slot, default: Stats()].deferredBakes += 1
             inFlightKey[slot] = nil
+            inFlightIdentity[slot] = nil
             lock.broadcast()
             lock.unlock()
         }
@@ -452,14 +472,32 @@ public enum PlanTableCache {
         return draining.contains(slot) || pending[slot] != nil
     }
 
-    /// Any slot at all — the app-facing form of the question above, public because
-    /// the viewer's settle loop is the caller `hasPendingBake` was written for and
-    /// never had (docs/23 audit queue item 7): a settle that gives up "because a
-    /// draft of this very recipe is already up" must first know that draft is not
-    /// riding a stale table still baking in the background.
-    public static var anyBakePending: Bool {
-        hasPendingBake(.finish) || hasPendingBake(.finishProofed)
-            || hasPendingBake(.colorGrade) || hasPendingBake(.toneGain)
+    /// Any slot at all, FOR ONE PHOTOGRAPH — the app-facing form of the question
+    /// above, public because the viewer's settle loop is the caller `hasPendingBake`
+    /// was written for and never had (docs/23 audit queue item 7): a settle that gives
+    /// up "because a draft of this very recipe is already up" must first know that
+    /// draft is not riding a stale table still baking in the background.
+    ///
+    /// THE IDENTITY IS THE WHOLE POINT, and the unqualified form of this question was
+    /// the defect. It answered for the entire cache, so a bake queued by ANOTHER
+    /// photograph — the compare pane's other half, a filmstrip prefetch, the tail of
+    /// the drag on the frame the photographer just stepped away from — kept the
+    /// settle loop retrying. Each retry is a full-resolution graph. And it could never
+    /// have helped: the stale door never crosses photographs
+    /// (`pairedTableAllowingStale`), so a table baking under identity B cannot change
+    /// a single pixel of a frame rendered under identity A.
+    ///
+    /// Both halves of "outstanding" are asked, because they are two different states
+    /// and the gap between them is most of a bake: `pending` is queued-not-started,
+    /// `inFlightIdentity` is the drain's current work.
+    public static func anyBakePending(for identity: String) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        for slot in Slot.allCases {
+            if pending[slot]?.identity == identity { return true }
+            if inFlightIdentity[slot] == identity { return true }
+        }
+        return false
     }
 
     /// Drop everything. For tests that want to measure a cold bake, and for a caller
