@@ -1,0 +1,364 @@
+# The lane that answers "does this application actually open a photograph".
+#
+# Three hundred commits of audit and repair and nothing in this repository has ever
+# pointed the decoder at a file a camera made. Every test in Tests/ uses a synthetic
+# frame, a stub `ImageSource`, or a measurement harness — correctly, because those tests
+# are about the graph. The consequence is that `AppleRawSource` (CIRAWFilter),
+# `CaptureMetadataReader` (CGImageSourceCopyPropertiesAtIndex) and the whole decode path
+# have never seen a byte this repository did not generate. Both are `#if os(macOS)`, the
+# work happens on Linux, and the two macOS lanes that COULD see them — `build-macos` and
+# `test-fast` — compile them and then run tests that hand them nothing.
+#
+# So a whole class of defect is invisible: a camera whose orientation tag we mishandle, a
+# decode that returns unexpected dimensions, EXIF that does not land, a colour cast on one
+# manufacturer's files. `PipelineRenderer.applyMetadataPolicy` currently asserts, in a
+# comment, that the pixels it delivers "are already the right way up… by construction".
+# That is a claim about CIRAWFilter's output convention and it has never been checked
+# against a file whose EXIF orientation is anything but 1, because every file this project
+# has rendered was synthetic and upright.
+#
+# WHAT THIS LANE IS NOT. It is not a golden suite. A golden per camera is sixteen
+# maintenance obligations that go stale the first time Apple ships a decoder update, and a
+# lane whose failures are usually noise is a lane people learn to ignore. Every assertion
+# is either a property that must hold of ANY photograph from ANY camera, or a cross-check
+# between two independent readers of the same bytes. Exactly one number is pinned per
+# file — the EXIF orientation tag — and it is pinned because it lives in the file's bytes
+# and the file is pinned by sha256.
+#
+# THIS LANE HAS NEVER RUN. It was written on a Linux box from source reading and fetched
+# remote metadata. Every URL below returns HTTP 200 with the byte count listed and one
+# file was fetched in full and checksummed against the manifest; nothing else about it is
+# proven. The design, the reasoning, the invariants and the first thing to check are in
+# docs/audit-2026-09/w6/raw-corpus-plan.md — read §9 before reading a failure.
+name: RAW corpus
+on:
+  # Dispatch, plus this file's own path, and NOTHING else — deliberately, and the two
+  # halves of that pull against each other.
+  #
+  # This repository has been burned twice by dispatch-only lanes. `gpu-parity.yml`'s
+  # header records that its predecessor "was NEVER dispatched: not once in the project's
+  # history", during which eleven commits touched Sources/LumenPipeline and one changed a
+  # blur radius by a factor of three. `proof.yml` records the same failure mode. A lane
+  # that requires a human at the Actions tab does not run.
+  #
+  # But this lane is UNPROVEN, and putting an unproven lane on `Sources/**` today means
+  # its first red build is probably its own bug, on somebody else's push — and the fastest
+  # way to teach a team to ignore a lane is to make its first three failures noise.
+  #
+  # So it triggers on changes to itself, which is `gpu-parity.yml`'s own precedent ("its
+  # own file is in the paths so the push that lands a lane change also exercises it"), and
+  # the plan names the exact condition for widening it: three consecutive green dispatched
+  # runs with the evidence sheet read by a human, and R-5's and R-7's thresholds re-set
+  # from those measurements. Then `Sources/LumenPipeline/**` joins the paths.
+  push:
+    paths:
+      - ".github/workflows/raw-corpus.yml"
+  workflow_dispatch:
+
+# One run per branch. Same reasoning as every other macOS lane here: the runners are
+# scarce, this job decodes sixteen RAW files at up to 40 MP, and a burst of pushes queues
+# rounds whose answers nobody will read by the time they land.
+concurrency:
+  group: raw-corpus-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  raw-corpus:
+    runs-on: macos-15
+    # Forty-five, matching `gpu-parity`, and not fifteen. Sixteen full-sensor demosaics
+    # plus sixteen exports is real work, and a cache miss adds ~234 MB of fetching on top.
+    # A lane that gets cancelled tells you the runner died, not which file killed it.
+    timeout-minutes: 45
+    env:
+      CORPUS_DIR: ${{ github.workspace }}/.raw-corpus
+    steps:
+      - uses: actions/checkout@v4
+
+      # ---------------------------------------------------------------------------
+      # The manifest. One source of truth for URLs, digests, orientations and flags,
+      # read by BOTH the fetcher below and the Swift test, so the two cannot disagree
+      # about what the corpus is.
+      #
+      # IT IS A HEREDOC HERE ONLY BECAUSE THE EXERCISE THAT PRODUCED THIS LANE COULD
+      # CREATE TWO FILES. When the lane is wired up for real this belongs at
+      # `Tests/LumenPipelineTests/RawCorpus/corpus.tsv`, committed, and the cache key
+      # below becomes `hashFiles(...)` — same semantics, none of the runtime work. The
+      # Swift test already reads the manifest from disk rather than from the environment
+      # precisely so that move is a one-line change.
+      #
+      # Semicolon-separated because labels contain spaces and URLs contain everything
+      # else. Columns:
+      #   id      raw.pixls.us repository row id — appears in every failure message
+      #   local   filename on disk; <id>.<ext>, so no shell quoting hazards and no ':'
+      #   sha256  from the manifest's own checksum column, verified for one file by a
+      #           full fetch (id 3949 → bfd9925…6a9f, exact match)
+      #   bytes   Content-Length as returned by a live HEAD against the URL
+      #   make    the token `CaptureMetadataReader.joinCamera`'s output must contain,
+      #           matched case-insensitively — taken from the file's own Exif.Image.Make
+      #   orient  the EXIF orientation exiv2 read from the file. '-' = the manifest's
+      #           exiv2 sidecar records none, so the test reads it and does not
+      #           cross-check. THE ONLY PINNED NUMBER IN THIS FILE, and it is pinned
+      #           because it is a property of bytes that a sha256 already froze.
+      #   flags   'mono' = no colour filter array at all (R-7b applies, not R-7)
+      #   licence every row must read CC0 or the fetcher refuses it
+      #   label   what this file buys, for the job summary
+      #   url     getfile.php, url-encoded, verified 200
+      #
+      # WHY THESE SIXTEEN. Each buys a decode path, not a camera. Twelve containers,
+      # twelve manufacturers; Bayer in three phases plus X-Trans plus monochrome plus
+      # Foveon plus two already-demosaiced linear files; 12/14/16-bit; uncompressed,
+      # lossless, lossy, JPEG-in-DNG and VC5; orientation 1, 2, 3, 6 and 8 — the two
+      # 90°-class directions from four different manufacturers, because one direction
+      # cannot tell "rotated correctly" from "rotated backwards". The per-file argument
+      # is the table in the plan, §3.1.
+      - name: The corpus manifest
+        id: manifest
+        shell: bash
+        run: |
+          mkdir -p "$CORPUS_DIR"
+          cat > "$CORPUS_DIR/corpus.tsv" <<'MANIFEST'
+          1346;1346.CR2;b30089172973388d03e192a14a63f750e22914dfc01db5713b6b3bce3c9baeee;12841893;Canon;1;-;CC0;Canon EOS 5D · CR2 lossless-JPEG Bayer · the control case;https://raw.pixls.us/getfile.php/1346/nice/Canon%20-%20EOS%205D%20-%20RAW%20%283%3A2%29.CR2
+          2102;2102.CR2;ba644e7dd2abe74eca260e67f0206ff113bf0f62e710f8130611e964d6be5bf1;5805950;Canon;1;-;CC0;Canon EOS 40D · CR2 sRAW2 · delivery 1936x1288 is NOT the sensor — the dimensions trap;https://raw.pixls.us/getfile.php/2102/nice/Canon%20-%20EOS%2040D%20-%20sRAW2%20%28sRAW%29%20%283%3A2%29.CR2
+          4671;4671.CR3;4a859ab137f792aedaf3416b0aad1497ebaab02052a49453902e226699154aa7;7395184;Canon;-;-;CC0;Canon EOS RP · CR3 ISO-BMFF · no exiv2 sidecar exists for it, which is the point;https://raw.pixls.us/getfile.php/4671/nice/Canon%20-%20EOS%20RP%20-%203%3A2.CR3
+          5812;5812.NEF;75249c11a3a845367c7a322a1c4e7076f33c785ec2518fc6594c34c185b41161;19789738;NIKON;8;-;CC0;Nikon Z 30 · NEF 12-bit lossless · ORIENTATION 8 · 5600x3728 RGGB;https://raw.pixls.us/getfile.php/5812/nice/Nikon%20-%20Z%2030%20-%2012bit%2012bit%20compressed%20%28Lossless%29%20%283%3A2%29.NEF
+          824;824.NEF;d468895b0b30a60d05a7f6468d69f2f15830dd49b2d82698b34245072a22e747;16106536;NIKON;1;-;CC0;Nikon D200 · NEF 12-bit UNCOMPRESSED · GRBG — a different Bayer phase from the Z 30;https://raw.pixls.us/getfile.php/824/nice/Nikon%20-%20D200%20-%2012bit%2012bit%20uncompressed%20%283%3A2%29.nef
+          2349;2349.ARW;7c2205a14fbfb05aa22e2e290750ea8894229a52a106a67516b4e797759e37ad;14712832;SONY;6;-;CC0;Sony DSLR-A450 · ARW 12-bit compressed · ORIENTATION 6 — the opposite rotation;https://raw.pixls.us/getfile.php/2349/nice/Sony%20-%20DSLR-A450%20-%2012bit%2012bit%20compressed%20%283%3A2%29.ARW
+          6001;6001.RAF;caeadb2666f6c5d9bbe32fbe692c2079b6a7e028f8514a13173f360656d08507;28948064;FUJIFILM;6;-;CC0;Fujifilm X-H2 · RAF X-TRANS 14-bit · ORIENTATION 6 · 40.9 MP — the worst case;https://raw.pixls.us/getfile.php/6001/nice/Fujifilm%20-%20X-H2%20-%2014bit%2014bit%20compressed%20%283%3A2%29.RAF
+          2607;2607.RW2;c1d55f5f47b97ee2d8064924f3ac3f6e00dbbe47680ca1e85f3550974b24336e;19166720;Panasonic;1;-;CC0;Panasonic DC-GH5S · RW2 4:3 · sensor border and multi-aspect crop;https://raw.pixls.us/getfile.php/2607/nice/Panasonic%20-%20DC-GH5S%20-%204%3A3.RW2
+          5283;5283.ORF;bf2eef6becc0851e48231617c3e2eac27a2cdb44c75b93035c561d837952c18b;21820729;OM;1;-;CC0;OM System OM-1 · ORF 16-bit · Make reads "OM Digital Solutions" — joinCamera's case;https://raw.pixls.us/getfile.php/5283/nice/OM%20System%20-%20OM-1%20-%2016bit%20%284%3A3%29.ORF
+          2239;2239.PEF;e35ae4154a468be3154f5f462e884ba5941f010d3e8f23d347fbec14809f44d3;9561139;PENTAX;1;-;CC0;Pentax K10D · PEF 12-bit compressed · a container almost nothing else writes;https://raw.pixls.us/getfile.php/2239/nice/Pentax%20-%20K10D%20-%2012bit%2012bit%20compressed%20%283%3A2%29.PEF
+          1087;1087.DNG;3fb74d1fc402daaa48a9c3f1d6279d7e85fb58dfdaf816f036927d49ab228977;21700096;LEICA;1;mono;CC0;Leica M Monochrom Typ 246 · DNG · NO COLOUR FILTER ARRAY — R-7b, not R-7;https://raw.pixls.us/getfile.php/1087/nice/Leica%20-%20M%20Monochrom%20%28Typ%20246%29%20-%2012bit%20%283%3A2%29.DNG
+          4264;4264.DNG;e91e77a4533ed7cce551d83330676ea5c47dd5e55fb38adda7819366afdbdfc2;29195592;Apple;6;-;CC0;Apple iPhone 12 Pro · ProRAW LINEAR DNG — already demosaiced · ORIENTATION 6;https://raw.pixls.us/getfile.php/4264/nice/Apple%20-%20iPhone%2012%20Pro%20-%208bit%20%284%3A3%29.DNG
+          6168;6168.DNG;6b921558944db5fdb4f1c63dc64919b6666ef700857a187e18500099c6e7c6c6;12243982;Google;3;-;CC0;Google Pixel 7 Pro · DNG BGGR · ORIENTATION 3 — the case R-4 cannot catch;https://raw.pixls.us/getfile.php/6168/nice/Google%20-%20Pixel%207%20Pro%20-%2016bit%20%284%3A3%29.dng
+          2767;2767.IIQ;69fc81e92360a45920158f7d6238eed0cd6260cd32aa4a0beec2ac79273add80;11591029;Phase One;-;-;CC0;Phase One P65+ · IIQ S medium format · exiv2 itself misreads its primary IFD;https://raw.pixls.us/getfile.php/2767/nice/Phase%20One%20-%20P65%2B%20-%20IIQ%20S%20%284%3A3%29.IIQ
+          1116;1116.X3F;44508f7df4191aacaecb6461e1841dae002e5b71a4f95a00aa3f52d1c6d6bc5f;10317264;SIGMA;-;-;CC0;Sigma DP1 · X3F FOVEON · here to exercise the refusal path on a real file;https://raw.pixls.us/getfile.php/1116/nice/Sigma%20-%20DP1%20-%203%3A2.X3F
+          3949;3949.GPR;bfd992594af380748f3d46e37814dae595356cb6fce182d4188230ca978e6a9f;4073376;GoPro;2;-;CC0;GoPro HERO8 Black · GPR VC5 · ORIENTATION 2 — a MIRROR, self-inverse in aspect;https://raw.pixls.us/getfile.php/3949/nice/GoPro%20-%20HERO8%20Black%20-%2016bit%20%284%3A3%29.GPR
+          MANIFEST
+          # THE CACHE KEY. Hashing the manifest and not this workflow file: editing a
+          # comment here must not throw away 234 MB, and changing a URL or a digest must.
+          echo "digest=$(shasum -a 256 "$CORPUS_DIR/corpus.tsv" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          echo "count=$(grep -c ';' "$CORPUS_DIR/corpus.tsv")" >> "$GITHUB_OUTPUT"
+
+      # NO `restore-keys`, on purpose. A partial restore from an older corpus hands the
+      # tests a directory missing files or holding the wrong ones, and the symptom is a
+      # lane that silently tested twelve files while reporting green. A miss that costs
+      # eighty seconds is cheaper than a green run that proved less than it claimed.
+      #
+      # GitHub evicts entries unused for 7 days, so a dispatch-only lane will pay the
+      # full fetch most times it runs. That is accepted, and it is the argument for
+      # mirroring the sixteen CC0 files into a release asset on this repository once the
+      # lane has earned its keep — see the plan §9.4.
+      - name: Cache the corpus
+        id: corpus-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.CORPUS_DIR }}
+          key: raw-corpus-v1-${{ steps.manifest.outputs.digest }}
+
+      # The fetch. Only on a miss.
+      #
+      # Sequential and not parallel, with backoff, and a User-Agent naming this
+      # repository. raw.pixls.us is a volunteer-run archive whose front page offers itself
+      # to "any projects that need access to a library of raw files" and whose robots.txt
+      # disallows crawlers on every download route. Those two facts do not square
+      # themselves; the honest reading is that they do not want bulk automated traffic and
+      # do want projects to use the files. So this is built to be the second thing: a
+      # fixed, pinned, sixteen-item list that cannot walk the archive, fetched once and
+      # cached. Plan §1.5 states the whole of it, including that nobody has asked them.
+      #
+      # Every row is checked for CC0 before it is fetched. 146 of the archive's 2016 rows
+      # are CC BY-NC-SA 4.0 (all of them imports from rawsamples.ch), and a non-commercial
+      # clause has no business in a CI corpus. All sixteen below are CC0; the guard is so
+      # that stays true if somebody edits the manifest.
+      #
+      # And every file is checksummed AFTER download, with a mismatch deleting the file
+      # and failing the step. A truncated fetch must never reach the cache, because a
+      # cache is where a bad download goes to live forever.
+      - name: Fetch the corpus
+        if: steps.corpus-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          cd "$CORPUS_DIR"
+          UA="lumen-raw-corpus-ci/1 (+https://github.com/${GITHUB_REPOSITORY})"
+          fail=0
+          while IFS=';' read -r id local sha bytes make orient flags lic label url; do
+            [ -n "$id" ] || continue
+            if [ "$lic" != "CC0" ]; then
+              echo "REFUSED $id: licence is '$lic', not CC0"; fail=1; continue
+            fi
+            echo "--- $id  $label"
+            curl -sS --fail --location --retry 3 --retry-delay 5 --max-time 600 \
+                 --user-agent "$UA" "$url" -o "$local" || { echo "  fetch failed"; fail=1; continue; }
+            got=$(shasum -a 256 "$local" | cut -d' ' -f1)
+            if [ "$got" != "$sha" ]; then
+              echo "  DIGEST MISMATCH: expected $sha, got $got — deleting"
+              rm -f "$local"; fail=1; continue
+            fi
+            echo "  ok $(wc -c < "$local") bytes"
+          done < corpus.tsv
+          exit $fail
+
+      # Verified on a HIT as well as a miss, and that is not belt-and-braces. The step
+      # above can only vouch for files it downloaded; this one vouches for a cache entry
+      # that has rotted, or that an older and buggier version of this lane wrote. Twenty
+      # seconds of shasum over 234 MB against a whole class of "the lane was green and
+      # testing the wrong bytes".
+      - name: Every file in the corpus is the file the manifest names
+        shell: bash
+        run: |
+          cd "$CORPUS_DIR"
+          fail=0
+          while IFS=';' read -r id local sha bytes make orient flags lic label url; do
+            [ -n "$id" ] || continue
+            if [ ! -f "$local" ]; then echo "MISSING $id ($local)"; fail=1; continue; fi
+            got=$(shasum -a 256 "$local" | cut -d' ' -f1)
+            [ "$got" = "$sha" ] || { echo "CORRUPT $id ($local)"; fail=1; }
+            size=$(wc -c < "$local")
+            [ "$size" = "$bytes" ] || { echo "SIZE $id: $size != $bytes"; fail=1; }
+          done < corpus.tsv
+          exit $fail
+
+      # The two negatives, made here rather than downloaded.
+      #
+      # A deliberately corrupt RAW that ships in the corpus is a file somebody has to host
+      # and explain, and a file whose corruption drifts as soon as anybody re-saves it.
+      # These are cut from a file the lane already has, so they are byte-deterministic,
+      # free, and reproducible by anybody reading this step.
+      #
+      # TWO OF THEM, AT TWO SEVERITIES, and the split is the point:
+      #   stub      — 512 bytes: a header and nothing else. There is no photograph in 512
+      #               bytes, so this one gets the HARD assertion: it MUST be refused.
+      #   truncated — the first 40%: a valid TIFF header, a valid IFD chain, image data
+      #               that stops mid-stream. A plausible interrupted card copy. This one
+      #               gets the softer assertion — refused, OR a picture that passes the
+      #               tier-2 rules — because nobody can assert that Apple never recovers a
+      #               partial frame. What CAN be asserted is what Lumen does with the
+      #               result, and a half-decoded frame is 60% black, which the "fewer than
+      #               90% of pixels near zero" rule already refuses.
+      - name: Build the two synthetic negatives
+        shell: bash
+        run: |
+          cd "$CORPUS_DIR"
+          src=1346.CR2
+          full=$(wc -c < "$src")
+          head -c $(( full * 40 / 100 )) "$src" > truncated.CR2
+          head -c 512 "$src" > stub.CR2
+          printf 'truncated;truncated.CR2;-;%s;-;-;negative;CC0;40%% of the EOS 5D CR2 — an interrupted copy;-\n' \
+            "$(wc -c < truncated.CR2)" >> corpus.tsv
+          printf 'stub;stub.CR2;-;512;-;-;negative,hard;CC0;512 bytes of header — MUST be refused;-\n' >> corpus.tsv
+          ls -l truncated.CR2 stub.CR2
+
+      # What was actually tested, in front of the human who opens the run, BEFORE any
+      # assertion output. Per the plan §9.2 this is the first thing to read on the first
+      # run: it answers the only question everything else is conditional on — which of the
+      # sixteen files did CIRAWFilter open at all.
+      - name: Inventory
+        shell: bash
+        run: |
+          {
+            echo "## RAW corpus"
+            echo
+            echo "\`$(du -sh "$CORPUS_DIR" | cut -f1)\` on disk · cache-hit: \`${{ steps.corpus-cache.outputs.cache-hit }}\` · manifest \`${{ steps.manifest.outputs.digest }}\`"
+            echo
+            echo "| id | file | MB | make | EXIF orient | what it buys |"
+            echo "|---|---|---:|---|---:|---|"
+            while IFS=';' read -r id local sha bytes make orient flags lic label url; do
+              [ -n "$id" ] || continue
+              mb=$(awk -v b="$bytes" 'BEGIN { printf "%.1f", b / 1048576 }')
+              printf '| %s | `%s` | %s | %s | %s | %s |\n' \
+                "$id" "$local" "$mb" "$make" "$orient" "$label"
+            done < "$CORPUS_DIR/corpus.tsv"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # The tests. Same log shape as `ci.yml` and `gpu-parity.yml`: `set +e`, `tee`, then
+      # compile errors, the executed-count summary, failing test names, and the first two
+      # failures per test — because a hundred lines of XCTest output with the answer in
+      # the middle is not a report.
+      #
+      # `$?` and not `${PIPESTATUS[0]}`: GitHub runs `shell: bash` as
+      # `bash --noprofile --norc -eo pipefail`, so the pipeline already carries the first
+      # non-zero status and `set +e` turns off errexit without touching pipefail. Same
+      # construct and same reasoning as the proof and parity lanes.
+      #
+      # LUMEN_RAW_CORPUS is what gates the test class. Without it every test in
+      # `RawCorpusTests` skips — which is what keeps `swift test` on a developer machine
+      # and `gpu-parity`'s `--filter LumenPipelineTests` unaffected, since that lane runs
+      # the same target and does not set it. The Swift side refuses an EMPTY value as well
+      # as an absent one, for the reason `ControlProofTests.isRecording` already learned:
+      # GitHub sets an unset expression to "", and a check that reads mere presence reads
+      # that as yes.
+      - name: Every invariant, against sixteen real photographs
+        shell: bash
+        env:
+          LUMEN_RAW_CORPUS: ${{ env.CORPUS_DIR }}
+        run: |
+          set +e
+          swift test --filter RawCorpusTests 2>&1 | tee corpus.log
+          status=$?
+          echo "=== compile errors ==="
+          grep -E "error:" corpus.log | grep -v ": error: -\[" \
+            | sed 's#/Users/runner/work/lumen/lumen/##' | sort -u | head -40
+          echo "=== summary ==="
+          grep -E "Executed [0-9]+ test" corpus.log | tail -1
+          echo "=== failing tests ==="
+          grep -E ": error: -\[" corpus.log \
+            | sed -E 's/^.*error: -\[([^]]*)\].*/\1/' | sort | uniq -c | sort -rn | head -30
+          echo "=== first failures per test ==="
+          grep -E ": error: -\[" corpus.log | sed 's#/Users/runner/work/lumen/lumen/##' \
+            | sed 's/^.*error: //' \
+            | awk '{ key = $1 " " $2; if (seen[key]++ < 2) print }' | head -40
+          exit $status
+
+      # THE GUARD ON THE GUARD, and it is not optional.
+      #
+      # `ci.yml` names this trap about CSQLite3 in as many words: a green run that had
+      # never built a third of LumenCore "is the same shape as a check that cannot fail".
+      # A test class gated on an environment variable is exactly that shape — if
+      # LUMEN_RAW_CORPUS fails to reach the process, if the manifest path moves, if the
+      # class is renamed and `--filter` matches nothing, every assertion above silently
+      # does not run and this lane reports green having proved nothing at all.
+      #
+      # So: the log must show that every file in the manifest was reached. The count comes
+      # from the manifest rather than from a constant, so adding a file to the corpus
+      # cannot leave this guard behind.
+      - name: The suite must have SEEN the corpus, not skipped it
+        if: always()
+        shell: bash
+        run: |
+          expected=$(grep -c ';' "$CORPUS_DIR/corpus.tsv")
+          # `|| true` and then a default, because a MISSING corpus.log — the test step
+          # died before it wrote one — must land here as "seen 0 of 18" and not as an
+          # unset variable that turns this guard into a shell error nobody reads.
+          seen=$(grep -cE '^corpus-file: ' corpus.log 2>/dev/null || true)
+          seen=${seen:-0}
+          echo "manifest rows: $expected · files the suite reported reaching: $seen"
+          if [ "$seen" -lt "$expected" ]; then
+            echo "The suite reached $seen of $expected corpus files."
+            echo "A skipped corpus reads exactly like a passing one. Failing on purpose."
+            exit 1
+          fi
+
+      # The evidence sheet, kept whatever the verdict.
+      #
+      # Per file: decoded or refused, the EXIF dimensions, CIRAWFilter's native size, the
+      # delivered extent, orientation in and out, the measured preview correlation, the
+      # measured neutral-patch chroma, and the decoder version pin.
+      #
+      # This is what turns R-5's and R-7's GUESSED thresholds into measured ones. Both
+      # ship loose on purpose and both log on every run including passes, so after the
+      # first green run the numbers get set from sixteen real measurements rather than
+      # guessed at a second time. It is also where the decoder pin lives: the pin is
+      # reported and never asserted against a constant, because it legitimately moves when
+      # Apple ships a new decoder and pinning it would make a runner-image bump a red
+      # build with no defect behind it. Visible, not enforced — which is what D50 needs.
+      - name: Keep the evidence sheet
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: raw-corpus-evidence
+          path: |
+            corpus.log
+            ${{ env.CORPUS_DIR }}/corpus.tsv
+            ${{ env.CORPUS_DIR }}/evidence/
+          if-no-files-found: warn
+          retention-days: 30
