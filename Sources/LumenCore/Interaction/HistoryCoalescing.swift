@@ -23,12 +23,41 @@ public enum HistoryCoalescing {
     /// events) or fewer is a different edit even mid-window. Equality also keeps the
     /// merge closed — folding can never grow the step's photo set, so `before`
     /// stays complete for every photo the step claims to restore.
+    /// - Parameters:
+    ///   - openEpoch: the gesture the open step was recorded during, if any.
+    ///   - epoch: the gesture this edit is arriving during, if any.
+    ///
+    /// WHAT MAKES A GESTURE ONE STEP IS THE GESTURE, NOT THE CONTROL — and that is the
+    /// clause below, which comes first because the key-and-window rule cannot express
+    /// it. The key rule assumes one drag moves one field. A grading wheel moves two:
+    /// its puck writes `hue` and then `sat` inside a single `onChanged`, through two
+    /// bindings with two different coalescing keys. The open step's key therefore
+    /// alternates `…hue`, `…sat`, `…hue`, and never equals the incoming one, so the
+    /// first guard failed on every mouse event and coalescing never happened once.
+    ///
+    /// Two steps per event, sixty events a second, against `HistoryStack.limit` of 400:
+    /// about three and a half seconds of moving a puck fills the ring, and everything
+    /// older — the crop, the white balance, a mask built ten minutes earlier — is
+    /// dropped off the front and can never be undone back to. The photographer holds
+    /// ⌘Z expecting the grade to come off and arrives somewhere in the middle of it,
+    /// with the rest of the session gone from the Edit menu.
+    ///
+    /// The epoch answers the question the key was standing in for. It is monotonic and
+    /// bumped once per gesture, so every edit inside one drag carries the same value
+    /// however many fields the drag writes, and no edit outside it can collide. The
+    /// photo set must still match: a drag that spans a photograph switch must not fold
+    /// the second photograph's edit into the first's step. The time window is
+    /// deliberately NOT applied — a long, careful drag is one decision, and an
+    /// abandoned one is closed by the silence watchdog that already exists.
     public static func shouldCoalesce(openKey: String?, openURLs: Set<URL>,
                                       key: String?, urls: Set<URL>,
                                       sinceLastEdit: TimeInterval,
-                                      window: TimeInterval) -> Bool {
-        guard let key, let openKey, key == openKey else { return false }
+                                      window: TimeInterval,
+                                      openEpoch: Int? = nil,
+                                      epoch: Int? = nil) -> Bool {
         guard urls == openURLs else { return false }
+        if let epoch, let openEpoch, epoch == openEpoch { return true }
+        guard let key, let openKey, key == openKey else { return false }
         return sinceLastEdit < window
     }
 }

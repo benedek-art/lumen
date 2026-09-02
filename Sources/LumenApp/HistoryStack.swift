@@ -40,6 +40,9 @@ final class HistoryStack: ObservableObject {
         let after: [URL: PhotoEdit]
         let coalescingKey: String?
         let label: String
+        /// The drag this step was opened during, or nil outside one. Two edits from
+        /// the same gesture fold together whatever fields they wrote.
+        var gestureEpoch: Int?
     }
 
     /// Deep history is cheap (a recipe is a few kilobytes) but not free, and nobody
@@ -111,8 +114,12 @@ final class HistoryStack: ObservableObject {
     var undoLabel: String? { canUndo ? steps[position - 1].label : nil }
     var redoLabel: String? { canRedo ? steps[position].label : nil }
 
+    /// - Parameter gestureEpoch: the drag this edit belongs to, or nil outside one.
+    ///   It is what makes a gesture one undo step even when the control writes several
+    ///   fields under several keys — see `HistoryCoalescing.shouldCoalesce`.
     func record(before: [URL: PhotoEdit], after: [URL: PhotoEdit],
-                coalescingKey: String?, label: String? = nil) {
+                coalescingKey: String?, label: String? = nil,
+                gestureEpoch: Int? = nil) {
         let now = Date()
         defer { lastEditTime = now }
 
@@ -128,8 +135,9 @@ final class HistoryStack: ObservableObject {
                key: coalescingKey,
                urls: Set(after.keys),
                sinceLastEdit: now.timeIntervalSince(lastEditTime),
-               window: Self.coalescingWindow),
-           let key = coalescingKey {
+               window: Self.coalescingWindow,
+               openEpoch: steps[position - 1].gestureEpoch,
+               epoch: gestureEpoch) {
             // Extend the open step: keep its original `before`, take the new `after`.
             // Field-wise, so folding a recipe edit into an open step cannot erase a
             // culling change already recorded in it for the same photo.
@@ -141,8 +149,12 @@ final class HistoryStack: ObservableObject {
                 if let culling = edit.culling { combined.culling = culling }
                 merged[url] = combined
             }
+            // The open step keeps its own key and epoch: it is still the same step,
+            // and a wheel drag's second field must not rename it.
             steps[position - 1] = Step(before: open.before, after: merged,
-                                       coalescingKey: key, label: open.label)
+                                       coalescingKey: open.coalescingKey,
+                                       label: open.label,
+                                       gestureEpoch: open.gestureEpoch)
             return
         }
 
@@ -156,7 +168,8 @@ final class HistoryStack: ObservableObject {
             // A coalescing key is an identity for merging, not prose: falling back to
             // it put "Undo mask.c.amount.9F3B-…" in the Edit menu.
             steps.append(Step(before: before, after: after,
-                              coalescingKey: coalescingKey, label: label ?? "Edit"))
+                              coalescingKey: coalescingKey, label: label ?? "Edit",
+                              gestureEpoch: gestureEpoch))
             if steps.count > Self.limit {
                 steps.removeFirst(steps.count - Self.limit)
             }

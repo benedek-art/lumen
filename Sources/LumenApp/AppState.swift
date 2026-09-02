@@ -3153,7 +3153,7 @@ final class AppState: ObservableObject {
         }
         guard !after.isEmpty else { return }
         history.record(before: before, after: after, coalescingKey: coalescingKey,
-                       label: label)
+                       label: label, gestureEpoch: recordingEpoch)
         if sliderGestureActive {
             // Mid-gesture: the in-memory recipe is current (the render reads that),
             // the catalog write and the scope re-bin land once at release. The overlay
@@ -3295,11 +3295,24 @@ final class AppState: ObservableObject {
         setRating(rating)
     }
 
+    /// Which drag is in flight, counted rather than flagged.
+    ///
+    /// The undo boundary needs to know that two edits came from the SAME gesture, and
+    /// a bool cannot say that: released and re-pressed inside the coalescing window, it
+    /// reads identical. Monotonic, bumped once when the latch closes, never reused —
+    /// so a wheel drag writing hue and sat under two different coalescing keys still
+    /// folds into one step, and nothing outside the drag can collide with it.
+    private(set) var gestureEpoch: Int = 0
+
+    /// The epoch to attach to an edit recorded right now, or nil outside a gesture.
+    var recordingEpoch: Int? { sliderGestureActive ? gestureEpoch : nil }
+
     func sliderGesture(active: Bool) {
         if active {
             lastGestureEventAt = Date()
             if !sliderGestureActive {
                 sliderGestureActive = true
+                gestureEpoch &+= 1
                 armGestureWatchdog()
             }
             return
