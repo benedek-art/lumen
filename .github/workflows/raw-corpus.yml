@@ -194,7 +194,7 @@ jobs:
               echo "  DIGEST MISMATCH: expected $sha, got $got — deleting"
               rm -f "$local"; fail=1; continue
             fi
-            echo "  ok $(wc -c < "$local") bytes"
+            echo "  ok $(wc -c < "$local" | tr -d "[:space:]") bytes"
           done < corpus.tsv
           exit $fail
 
@@ -213,8 +213,15 @@ jobs:
             if [ ! -f "$local" ]; then echo "MISSING $id ($local)"; fail=1; continue; fi
             got=$(shasum -a 256 "$local" | cut -d' ' -f1)
             [ "$got" = "$sha" ] || { echo "CORRUPT $id ($local)"; fail=1; }
-            size=$(wc -c < "$local")
-            [ "$size" = "$bytes" ] || { echo "SIZE $id: $size != $bytes"; fail=1; }
+            # `tr` and `-eq`, both deliberately. BSD `wc` RIGHT-ALIGNS its count in
+            # a field and GNU `wc` does not, so on this macOS runner `wc -c < f` yields
+            # " 12841893" with a leading space that `$( )` does not strip — and the
+            # string comparison this used to be then failed with the memorable
+            # "SIZE 1346:  12841893 != 12841893", sixteen times, on identical numbers.
+            # That was this lane's entire first run: all sixteen files fetched, all
+            # sixteen digests matched, and the step after them rejected every one.
+            size=$(wc -c < "$local" | tr -d "[:space:]")
+            [ "$size" -eq "$bytes" ] || { echo "SIZE $id: $size != $bytes"; fail=1; }
           done < corpus.tsv
           exit $fail
 
@@ -244,7 +251,7 @@ jobs:
           head -c $(( full * 40 / 100 )) "$src" > truncated.CR2
           head -c 512 "$src" > stub.CR2
           printf 'truncated;truncated.CR2;-;%s;-;-;negative;CC0;40%% of the EOS 5D CR2 — an interrupted copy;-\n' \
-            "$(wc -c < truncated.CR2)" >> corpus.tsv
+            "$(wc -c < truncated.CR2 | tr -d "[:space:]")" >> corpus.tsv
           printf 'stub;stub.CR2;-;512;-;-;negative,hard;CC0;512 bytes of header — MUST be refused;-\n' >> corpus.tsv
           ls -l truncated.CR2 stub.CR2
 
