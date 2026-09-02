@@ -254,6 +254,10 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     "Vision", "VNImageRequestHandler", "VNGenerateForegroundInstanceMaskRequest",
     "VNGeneratePersonSegmentationRequest", "VNInstanceMaskObservation",
     "VNPixelBufferObservation", "VNObservation", "VNRequest",
+    # CryptoKit: the updater's SHA-256 over the downloaded asset (L-03). Named
+    # individually for the same reason Vision's requests are — this tree uses exactly
+    # one primitive from it, and a typo in a second should still fail here.
+    "CryptoKit", "SHA256", "SHA256Digest",
     "CoreVideo", "CVPixelBufferGetWidth", "CVPixelBufferGetHeight",
     "CVPixelBufferGetPixelFormatType", "CVPixelBufferGetBytesPerRow",
     "CVPixelBufferGetBaseAddress", "CVPixelBufferLockBaseAddress",
@@ -1232,6 +1236,9 @@ MODULE_PREFIXES = {
     # would swallow ordinary words the same way a bare `CG` would.
     "Vision": ("VN",),
     "CoreVideo": ("CVPixelBuffer", "kCVPixelFormatType"),
+    # No prefix convention at all — `SHA256` is the whole name — so the import check
+    # matches the two symbols themselves.
+    "CryptoKit": ("SHA256",),
 }
 
 # `import CoreImage.CIFilterBuiltins` imports CoreImage. Submodule paths count.
