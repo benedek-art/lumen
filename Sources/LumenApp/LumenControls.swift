@@ -123,6 +123,7 @@ enum Lumen {
     /// percent" — so an additive system needs the values themselves. These are the same
     /// numbers the `Color` constants above are built from, named once so the two can
     /// never drift apart.
+    static let surroundCanvasValue: Double = 0.165
     static let panelValue: Double = 0.20
     static let insetWellValue: Double = 0.145
     static let controlSurfaceValue: Double = 0.24

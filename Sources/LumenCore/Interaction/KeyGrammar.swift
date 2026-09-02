@@ -129,14 +129,18 @@ public enum KeyGrammar {
             KeyRow(keys: "6–9", action: "Red / yellow / green / blue label"),
             KeyRow(keys: "-", action: "Purple label (outside the loupe)"),
             KeyRow(keys: "A", action: "Toggle auto-advance"),
+            KeyRow(keys: "B", action: "Add the selection to the target album"),
             KeyRow(keys: "← →", action: "Previous / next photo; in Compare and Survey, "
                   + "the next frame of the comparison"),
             KeyRow(keys: "↑ ↓", action: "Previous / next row"),
         ]),
         KeyGroup(title: "Develop", rows: [
-            KeyRow(keys: "B", action: "Basic panel"),
+            // `B` AND `L` LEFT THIS GROUP. docs/12 names them for a culling verb and a
+            // viewing-conditions control, and they had been spent on panel selection
+            // while both of those were unbuilt. Phase 4's workspace rail reaches every
+            // panel without a key; nothing else reaches the target album or the
+            // surround. `D` stays: nothing else wants it.
             KeyRow(keys: "D", action: "Detail panel"),
-            KeyRow(keys: "L", action: "Look panel"),
             KeyRow(keys: "M", action: "Masks"),
             KeyRow(keys: "O", action: "Show the selected mask's overlay"),
             KeyRow(keys: "⇧O", action: "Cycle the overlay colour: red, green, white, black"),
@@ -182,6 +186,7 @@ public enum KeyGrammar {
             KeyRow(keys: "[ ]", action: "In the grid: thumbnail size. In the loupe, "
                   + "Compare and Survey: hold for shadow boost / highlight inspect"),
             KeyRow(keys: "F", action: "Filmstrip"),
+            KeyRow(keys: "L", action: "Lights out: normal → dim chrome → black-out"),
         ]),
         // Every one of these is a `.keyboardShortcut` on a SwiftUI button or menu item,
         // and every one is checked against the sources. Seven of them were in neither
@@ -209,7 +214,8 @@ public enum KeyGrammar {
             KeyRow(KeyBinding("d", command: true), "Select none"),
             KeyRow(KeyBinding("a", command: true, shift: true), "Auto Tone"),
             KeyRow(KeyBinding("e", command: true), "Export"),
-            KeyRow(KeyBinding("b", command: true), "Add the selection to the target album"),
+            KeyRow(KeyBinding("b", command: true),
+                   "Assessment surround (ISO 12646 mid-grey)"),
             KeyRow(KeyBinding("k", command: true), "Go to a control"),
             KeyRow(KeyBinding("k", command: true, shift: true),
                    "Keyword the selection"),

@@ -103,7 +103,16 @@ struct ContentView: View {
                 // below is `surroundCanvas` 0.165, so the surfaces already divide
                 // themselves (design audit §1.1, and Phase 1's rule for the develop
                 // column's own bands).
-                FilterBar()
+                // THE CHROME OBEYS THE SURROUND CONTROLS. Removed at the `out` rung
+                // rather than drawn at zero opacity, so nothing invisible can take a
+                // click; dimmed at `dim` and in assessment mode, where it is still
+                // meant to be reachable. `chromeOpacity` is 1 and `chromeHidden` false
+                // in ordinary use, so every one of these is a no-op until a key is
+                // pressed.
+                if !state.chromeHidden {
+                    FilterBar()
+                        .opacity(state.chromeOpacity)
+                }
                 HStack(spacing: 0) {
                     centre
                         // The clipping panel and the hold badge ride the centre pane
@@ -155,10 +164,11 @@ struct ContentView: View {
                             }
                         }
                         .overlay(alignment: .bottom) { inspectionBadge }
-                    if showsDevelopColumn {
+                    if showsDevelopColumn, !state.chromeHidden {
                         columnResizer
                         DevelopPanel()
                             .frame(width: state.developPanelWidth)
+                            .opacity(state.chromeOpacity)
                     }
                     // THE RAIL, on the window's right edge, outside the `if` above —
                     // which is the whole point. Navigation used to live inside the
@@ -169,19 +179,32 @@ struct ContentView: View {
                     // workspace, masking included, so no state of the app lacks visible
                     // navigation. It observes `PanelLayout` itself — this view still
                     // deliberately does not.
-                    Divider().overlay(Lumen.separator).frame(width: 1)
-                    WorkspaceRail()
+                    if !state.chromeHidden {
+                        Divider().overlay(Lumen.separator).frame(width: 1)
+                        WorkspaceRail()
+                            .opacity(state.chromeOpacity)
+                    }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                if state.showFilmstrip && !state.photos.isEmpty {
+                if state.showFilmstrip, !state.photos.isEmpty, !state.chromeHidden {
                     Divider().overlay(Lumen.separator)
                     // No fixed frame here any more: the strip sizes itself from its
                     // own persisted height step (see `FilmstripView`).
                     FilmstripView()
+                        .opacity(state.chromeOpacity)
                 }
-                StatusBar()
+                if !state.chromeHidden {
+                    StatusBar()
+                        .opacity(state.chromeOpacity)
+                }
             }
-            .background(Lumen.viewerBackground)
+            // THE FIELD THE PHOTOGRAPH SITS ON, which is a control rather than a
+            // constant now: `surroundCanvas` normally, black at the lights-out rung,
+            // and ISO 12646's mid-grey in assessment mode — where it wins over black,
+            // because black is the wrong field for judging tone and judging tone is
+            // the only thing assessment mode is for. `ViewingConditions` holds the
+            // rule and the argument.
+            .background(state.surroundColor)
         }
         .frame(minWidth: 1180, minHeight: 720)
         .keyboardGrammar()

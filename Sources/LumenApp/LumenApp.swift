@@ -221,6 +221,29 @@ private struct LumenCommands: Commands {
                     Button("Filmstrip — F") { state.showFilmstrip.toggle() }
                     Button("Histogram — H") { state.showHistogram.toggle() }
                     Button("Scopes — S") { state.showScopes.toggle() }
+                    // A NESTED GROUP, because a `ViewBuilder` block takes ten children
+                    // and this one had reached it. `KeyGrammarTests` counts them, which
+                    // is the only thing that says so in a sentence: the compiler's own
+                    // answer is that `buildExpression` is unavailable, pointed at the
+                    // whole block.
+                    Group {
+                        Divider()
+                        // THE SURROUND, which docs/00's Law 7 makes part of the
+                        // instrument. Both keys were named in docs/12 and neither was
+                        // bound, because neither feature existed: `L` had been spent on
+                        // the Look panel and ⌘B on the target album. The rules live in
+                        // `ViewingConditions`, in LumenCore, where they are tested.
+                        Button("Lights Out — L") { state.cycleLightsOut() }
+                        // ⌘B rather than a bare key, and through a menu rather than
+                        // through `KeyDispatcher`: command-modified keys are menu
+                        // territory here (`Keymap.swift` returns false for them), which
+                        // is the rule that keeps ⌘C, ⌘V and ⌘E working in a text field.
+                        Button(state.assessmentMode
+                               ? "Assessment Surround (on)" : "Assessment Surround") {
+                            state.toggleAssessmentMode()
+                        }
+                        .keyboardShortcut("b", modifiers: [.command])
+                    }
                 }
             }
 

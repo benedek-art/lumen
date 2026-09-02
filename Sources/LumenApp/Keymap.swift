@@ -275,10 +275,21 @@ final class KeyDispatcher {
         // Through `state.jump` rather than `PanelLayout.reveal` directly, because a key
         // that names a section is a key that names a PLACE: pressed from the grid,
         // `reveal` opened Tone behind a contact sheet and left it there.
+        // `B` AND `L` GO BACK TO WHAT docs/12 NAMES THEM, now that both destinations
+        // exist. They had been spent on panel selection — Tone and Looks — which was
+        // defensible while the alternatives were unbuilt and stopped being so when
+        // Phase 4 made every panel reachable from the workspace rail without a key.
+        //
+        // `B` is a culling verb in the Lightroom-compatible grammar docs/35 promises,
+        // and `addSelectionToTargetCollection` has been sitting here built and unbound
+        // since the target album shipped.
         case "b":
-            state.jump(to: .tone)
+            state.addSelectionToTargetCollection()
+        // `L` is a VIEWING-CONDITIONS control and Law 7 territory, which is the whole
+        // argument for taking it back from a panel: what the photograph is surrounded
+        // by changes the judgement, and which of eight panels is open does not.
         case "l":
-            state.jump(to: .looks)
+            state.cycleLightsOut()
         case "d":
             // Through `click` this key was silent from any other workspace — `jump`
             // (reveal, plus everything arriving somewhere means) opens the section

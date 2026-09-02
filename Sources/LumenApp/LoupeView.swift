@@ -1757,6 +1757,24 @@ struct LoupeView: View {
             .interpolation(resampling.swiftUIInterpolation)
             .antialiased(resampling != .none)
             .frame(width: drawn.width, height: drawn.height)
+            // ISO 12646'S DIFFUSE-WHITE ANCHOR, in assessment mode only.
+            //
+            // The mid-grey field is a reference, and a reference needs something at
+            // display white beside it or the eye adapts to the picture and the grey
+            // stops meaning anything — which is the whole mechanism the standard exists
+            // to defeat. A thin strip at the image edge is the smallest thing that
+            // does it.
+            //
+            // `strokeBorder` so it grows inward and cannot change where the photograph
+            // is drawn: an anchor that moved the picture by two points every time the
+            // mode came on would be its own illusion. Off in ordinary use, because a
+            // white line around a photograph is a border and this app draws none.
+            .overlay(
+                Rectangle()
+                    .strokeBorder(
+                        ViewingConditions.showsWhiteAnchor(assessment: state.assessmentMode)
+                            ? Color.white : Color.clear,
+                        lineWidth: 2))
     }
 
     private var unreadable: some View {

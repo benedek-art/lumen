@@ -1432,6 +1432,52 @@ final class AppState: ObservableObject {
         forKey: "filmstrip.visible") as? Bool ?? true {
         didSet { UserDefaults.standard.set(showFilmstrip, forKey: "filmstrip.visible") }
     }
+    /// THE SURROUND, which docs/00's Law 7 treats as part of the instrument.
+    ///
+    /// `L` cycles lights-out (normal → dim → out) and `⌘B` toggles ISO 12646 assessment
+    /// mode. Both keys were named in docs/12 and neither was bound, because neither
+    /// feature existed; `L` had been spent on the Look panel and `⌘B` on the target
+    /// album. The rules — the cycle order, which control wins the field, what the grey
+    /// actually is — live in `ViewingConditions` in LumenCore, where they are tested.
+    ///
+    /// Neither is persisted. Both are things you turn on to look at something and turn
+    /// off again, and an editor that opened in lights-out because you left it there
+    /// three days ago would read as broken.
+    @Published var lightsOut: LightsOut = .normal
+    @Published var assessmentMode = false
+
+    /// What the viewer paints behind the photograph.
+    var surroundValue: Double {
+        ViewingConditions.surround(lights: lightsOut, assessment: assessmentMode,
+                                   normalSurround: Lumen.surroundCanvasValue)
+    }
+
+    var surroundColor: Color {
+        Color(nsColor: NSColor(white: surroundValue, alpha: 1))
+    }
+
+    /// How loud the chrome is. `1` in ordinary use, so every view that reads it is a
+    /// no-op until one of the two controls is on.
+    var chromeOpacity: Double {
+        ViewingConditions.chromeOpacity(lights: lightsOut, assessment: assessmentMode)
+    }
+
+    /// Whether the chrome is gone from the layout rather than merely quiet — the views
+    /// remove it, so nothing invisible can take a click.
+    var chromeHidden: Bool { lightsOut.hidesChrome }
+
+    func cycleLightsOut() {
+        lightsOut = lightsOut.next
+        statusMessage = "Lights: " + lightsOut.rawValue
+    }
+
+    func toggleAssessmentMode() {
+        assessmentMode.toggle()
+        statusMessage = assessmentMode
+            ? "Assessment surround on — ISO 12646 mid-grey"
+            : "Assessment surround off"
+    }
+
     /// Published by the grid as it lays out, so ↑/↓ move by a real row rather than by
     /// a guess. Never zero — a divide-by-row-count would be a crash in the key path.
     @Published var gridColumns: Int = 6
