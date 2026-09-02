@@ -180,10 +180,48 @@ public struct ColorEngine: Sendable {
 
     // MARK: - Point Colour (docs/06 brief §2.2)
 
-    public static let pointSigmaL: Double = 0.60
-    public static let pointSigmaC: Double = 0.25
-    public static let pointSigmaH: Double = 0.30
-    /// Range = 0 collapses a tolerance to a hard match; this floors the divisor.
+    // THE SELECTION AXES, AND THEY ARE PHOTOGRAPHIC TOLERANCES NOW.
+    //
+    // They were 0.60 / 0.25 / 0.30, and each of those spans most or all of its own
+    // axis: OKLab L runs 0…1, so a sigma of 0.60 cannot exclude anything by lightness,
+    // and photographic chroma tops out near 0.25, so neither could C. Measured on a
+    // swatch sampled on a blue sky at Range 100, the selection weights were 1.000 on
+    // the sampled colour, **1.000 on pure neutral grey**, 0.953 ninety degrees away in
+    // hue, and 0.692 on skin. That is not a selection — it is a global slider with a
+    // colour picker attached, and the photographer has no way to attribute the result:
+    // click a sky, pull Luminance to −100 to deepen it, and the concrete, the wall and
+    // the faces in the same frame darken with it.
+    //
+    // Now: 0.30 of L is about a stop and a half, 0.09 of C is a real chroma tolerance,
+    // and the hue term below is normalized so 0.46 is about 80° of arc. Measured on the
+    // same swatch, every one of grey, near-neutral, ninety-degrees-away, skin and
+    // foliage now weighs 0.000 at EVERY Range, while a blue 30° along still weighs 1.00
+    // and one a stop darker 0.74.
+    public static let pointSigmaL: Double = 0.30
+    public static let pointSigmaC: Double = 0.09
+    /// In NORMALIZED ANGULAR units — see `applySwatch`, where the hue term became
+    /// `gate · Δh/180` rather than a chord. 0.46 is roughly 80° of arc at full Range.
+    public static let pointSigmaH: Double = 0.46
+
+    /// What Range = 0 leaves of the tolerances, as a fraction of Range = 100.
+    ///
+    /// BOTH ENDS OF THIS SLIDER WERE DEAD and this is the half of the fix nobody was
+    /// looking for. The scale was `range/100` straight, floored at 1e-4 — so Range 0
+    /// selected only a bit-exact match, which is no pixels, and Range 100 selected
+    /// everything. A control whose declared 0…100 travel is inert at the bottom and
+    /// non-selective at the top has no useful setting anywhere.
+    ///
+    /// `0.55 + 0.45·r` makes the whole travel a tolerance: Range 0 reaches about 30° of
+    /// hue and a stop of lightness, Range 100 about 60° and two stops, and neither end
+    /// is a degenerate case. It is what lets the sigmas above be tight enough to
+    /// exclude at MAXIMUM range while the default still selects a sky rather than a
+    /// pixel — with a straight `r` those two are not simultaneously satisfiable, which
+    /// is why the first attempt at this fix made Range 50 a point sample.
+    public static let pointRangeBase: Double = 0.55
+
+    /// Kept as a guard on the divisor. With `pointRangeBase` above it can no longer be
+    /// reached from the wire format — the smallest scale is 0.55 — and a floor that
+    /// cannot fire is exactly what this constant used to be relied on to do.
     public static let pointSigmaFloor: Double = 1e-4
     public static let pointHueShiftLimit: Double = 60.0
 
@@ -1035,10 +1073,13 @@ public struct ColorEngine: Sendable {
             // The wire format carries one master Range; the per-axis refine ranges are a
             // documented format gap (brief §2.1), so all three axes share it.
             let r = Num.clamp(pc.range, 0, 100) / 100
+            // Sub-linear, so neither end of the slider is a degenerate case. See
+            // `pointRangeBase`.
+            let scale = pointRangeBase + (1 - pointRangeBase) * r
             out.append(Swatch(target: target,
-                              sigmaL: Swift.max(pointSigmaL * r, pointSigmaFloor),
-                              sigmaC: Swift.max(pointSigmaC * r, pointSigmaFloor),
-                              sigmaH: Swift.max(pointSigmaH * r, pointSigmaFloor),
+                              sigmaL: Swift.max(pointSigmaL * scale, pointSigmaFloor),
+                              sigmaC: Swift.max(pointSigmaC * scale, pointSigmaFloor),
+                              sigmaH: Swift.max(pointSigmaH * scale, pointSigmaFloor),
                               shiftH: shiftH, shiftS: shiftS, shiftL: shiftL, q: q))
         }
         return out
@@ -1067,9 +1108,28 @@ public struct ColorEngine: Sendable {
         let dL = lch.L - s.target.L
         let dC = lch.C - s.target.C
         let dh = Num.hueDelta(s.target.h, lch.h)
-        // Chordal ΔH, the CIEDE-style form: hue distance shrinks correctly as either
-        // colour approaches the neutral axis, where hue stops meaning anything.
-        let dH = 2 * Swift.max(0, lch.C * s.target.C).squareRoot() * sin(dh * .pi / 360)
+        // ANGULAR ΔH, GATED — not the chord.
+        //
+        // The chordal CIEDE form is `2√(C·C_t)·sin(Δh/2)`, and it has the right
+        // behaviour near the neutral axis: hue distance shrinks as either colour
+        // approaches grey, where hue stops meaning anything. What it cannot do is
+        // EXCLUDE. At ordinary photographic chroma its maximum — a full 180° reversal
+        // — is about 0.24, so against any sigma large enough to admit a real
+        // neighbourhood, the opposite hue was still inside the selection. Measured:
+        // 0.953 at ninety degrees away, on the old sigmas.
+        //
+        // The angular form says what the control means — "how far round the wheel" —
+        // and the chroma gate restores the property the chord was bought for: at
+        // `gateLoChroma` and below the term is exactly zero, so a near-neutral is never
+        // excluded BY ITS HUE, which is noise there. `min` of the two chromas, so a
+        // grey pixel and a grey sample are both admitted, and a grey pixel against a
+        // saturated sample is judged on chroma instead — which is the axis that
+        // actually separates them.
+        //
+        // `abs`, because `hueDelta` is signed and this is a distance. The square below
+        // would cancel the sign anyway; writing it out is the difference between an
+        // expression that happens to be right and one that says what it means.
+        let dH = Self.chromaGate(Swift.min(lch.C, s.target.C)) * (abs(dh) / 180)
 
         let tL = dL / s.sigmaL
         let tC = dC / s.sigmaC
