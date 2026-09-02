@@ -188,7 +188,7 @@ final class RawCorpusTests: XCTestCase {
         var verdict: String {
             if !existsOnDisk { return "MISSING" }
             if !hung.isEmpty {
-                let names = hung.joined(separator: comma)
+                let names = hung.joined(separator: RawCorpusTests.comma)
                 return "HUNG(" + names + ")"
             }
             if openFailure != nil { return "refused-at-open" }
@@ -642,8 +642,8 @@ final class RawCorpusTests: XCTestCase {
 
         // R-2. The decode itself, at the same scale `renderPreview` will ask for, so
         // this costs the demosaic once and the render below hits the source's cache.
-        guard let decoded = RawCorpusTests.watched("decode \(entry.id)",
-                                                    seconds: RawCorpusTests.watchdogSeconds, {
+        guard let decoded = RawCorpusTests.watched(
+            "decode \(entry.id)", seconds: RawCorpusTests.watchdogSeconds, {
             source.decode(recipe: recipe, draft: false, scaleFactor: scale)
         }) else {
             p.hung.append("decode")
@@ -675,8 +675,8 @@ final class RawCorpusTests: XCTestCase {
         RawCorpusTests.readFiniteness(decodedImage, into: p)
 
         // R-3/R-4/R-5/R-6/R-7 all read the same delivered frame, rendered once.
-        guard let renderAttempt = RawCorpusTests.watched("render \(entry.id)",
-                                                          seconds: RawCorpusTests.watchdogSeconds, {
+        guard let renderAttempt = RawCorpusTests.watched(
+            "render \(entry.id)", seconds: RawCorpusTests.watchdogSeconds, {
             () -> Result<CGImage, Error> in
             do {
                 let image = try RawCorpusTests.renderer.renderPreview(
@@ -718,8 +718,8 @@ final class RawCorpusTests: XCTestCase {
 
         // R-11's stability half: a second reader over the same bytes must report the
         // same pin. The VALUE is never asserted — it moves when Apple ships a decoder.
-        if let secondAttempt = RawCorpusTests.watched("reopen \(entry.id)",
-                                                    seconds: RawCorpusTests.watchdogSeconds, {
+        if let secondAttempt = RawCorpusTests.watched(
+            "reopen \(entry.id)", seconds: RawCorpusTests.watchdogSeconds, {
             try? AppleRawSource(url: entry.url)
         }), let second = secondAttempt {
             p.pinReadTwice = true
@@ -1040,8 +1040,8 @@ final class RawCorpusTests: XCTestCase {
                                         colorSpace: .srgb, resizeMode: .longEdge,
                                         resizeValue: Double(exportLongEdge))
         let destination = exportDir.appendingPathComponent("\(entry.id).tif")
-        guard let outcome = watched("export \(entry.id)",
-                                    seconds: exportWatchdogSeconds, { () -> String? in
+        guard let outcome = watched(
+            "export \(entry.id)", seconds: exportWatchdogSeconds, { () -> String? in
             do {
                 _ = try renderer.export(source: source, recipe: recipe,
                                         to: destination, using: exportRecipe)
@@ -1645,15 +1645,16 @@ final class RawCorpusTests: XCTestCase {
             }
 
             if let exif = p.exif {
+                let readWidth = RawCorpusTests.fmt(p.metaWidth)
+                let readHeight = RawCorpusTests.fmt(p.metaHeight)
                 XCTAssertEqual(p.metaWidth, exif.w,
-                               "\(entry.id): the reader says width \(String(describing: p.metaWidth)) "
-                                   + "and the same dictionary says \(exif.w). These come "
+                               "\(entry.id): the reader says width \(readWidth) and "
+                                   + "the same dictionary says \(exif.w). These come "
                                    + "from one read, so this is the plumbing, not the "
                                    + "decoder.")
                 XCTAssertEqual(p.metaHeight, exif.h,
-                               "\(entry.id): the reader says height "
-                                   + "\(String(describing: p.metaHeight)) and the same "
-                                   + "dictionary says \(exif.h).")
+                               "\(entry.id): the reader says height \(readHeight) and "
+                                   + "the same dictionary says \(exif.h).")
             }
 
             if let expected = entry.orientation {

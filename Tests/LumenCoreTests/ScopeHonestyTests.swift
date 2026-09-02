@@ -19,6 +19,7 @@
 //   · a TEXT SCAN of `ScopeData.swift` with comments stripped, because a doc comment
 //     naming a symbol would otherwise let the scan pass its own substitution proof.
 
+import Foundation
 import XCTest
 @testable import LumenCore
 
@@ -135,7 +136,7 @@ final class ScopeHonestyTests: XCTestCase {
     /// The long edge the grid path now commissions, pinned to the constant it is
     /// derived from rather than to the number it happens to produce.
     func testTheMeasurementProxyIsTheOneTheCodebaseAlreadyDefines() {
-        let longEdge = Int((1.5 * Double(ScopeProxy.targetPixels)).squareRoot().rounded())
+        let longEdge = Int(sqrt(1.5 * Double(ScopeProxy.targetPixels)).rounded())
         XCTAssertEqual(longEdge, 1225)
         let pixels = longEdge * Int((Double(longEdge) / 1.5).rounded())
         XCTAssertEqual(Double(pixels) / Double(ScopeProxy.targetPixels), 1.0,
@@ -276,6 +277,8 @@ final class ScopeHonestyTests: XCTestCase {
         let codes = (Int((encoded.r * 255).rounded()), Int((encoded.g * 255).rounded()),
                      Int((encoded.b * 255).rounded()))
         XCTAssertEqual(codes.0, 255, "red pinned at the ceiling of the delivered frame")
+        XCTAssertEqual(codes.1, 89)
+        XCTAssertEqual(codes.2, 119)
 
         var tap = ImageBuffer(width: 1, height: 1)
         tap[0, 0] = Self.working(codes)
@@ -289,7 +292,7 @@ final class ScopeHonestyTests: XCTestCase {
                        "H2-02: honouring the picker here reports a blown pixel as clean")
 
         // The reconstructed working value, so the size of the lie is on the record.
-        XCTAssertEqual(tap[0, 0].r, 0.6685, accuracy: 0.002)
+        XCTAssertEqual(tap[0, 0].r, 0.66829, accuracy: 0.0005)
     }
 
     /// And the same for a wider export target: pushing sRGB-clamped data into ProPhoto
