@@ -461,20 +461,22 @@ struct DetailPanel: View {
                 // the outer modifier is shadowed by the label's composed tooltip, so
                 // hovering the row's NAME showed only the reset hint. The words are
                 // unchanged where they were already right.
-                LumenSlider(title: "Detail", indented: true,
+                LumenSlider(title: "Detail",
                             value: binder.value(\.develop.denoise.classic.lumaDetail,
                                                 "denoise.classic.lumaDetail"),
                             range: 0...100, hardRange: nil,
                             defaultValue: isoDefault.classic.lumaDetail,
                             step: 1, decimals: 0, bipolar: false,
+                            indented: true,
                             help: "Raises the shrinkage threshold, so texture survives "
                                 + "— and so does the noise beside it.")
-                LumenSlider(title: "Contrast", indented: true,
+                LumenSlider(title: "Contrast",
                             value: binder.value(\.develop.denoise.classic.lumaContrast,
                                                 "denoise.classic.lumaContrast"),
                             range: 0...100, hardRange: nil,
                             defaultValue: isoDefault.classic.lumaContrast,
                             step: 1, decimals: 0, bipolar: false,
+                            indented: true,
                             help: "Keeps coarse luminance structure, at the cost of "
                                 + "mottling.")
                 LumenSlider(title: "Colour",
@@ -498,21 +500,23 @@ struct DetailPanel: View {
                                     isoDefault.classic.chroma
                                 recipe.develop.denoise.classic.chromaUserSet = false
                             } })
-                LumenSlider(title: "Detail", indented: true,
+                LumenSlider(title: "Detail",
                             value: binder.value(\.develop.denoise.classic.colorDetail,
                                                 "denoise.classic.colorDetail"),
                             range: 0...100, hardRange: nil,
                             defaultValue: isoDefault.classic.colorDetail,
                             step: 1, decimals: 0, bipolar: false,
+                            indented: true,
                             help: "Protects thin colour edges.")
                 // The one row here with a cost worth naming, so it is named on the
                 // row rather than in a paragraph four rows below it.
-                LumenSlider(title: "Smoothness", indented: true,
+                LumenSlider(title: "Smoothness",
                             value: binder.value(\.develop.denoise.classic.colorSmoothness,
                                                 "denoise.classic.colorSmoothness"),
                             range: 0...100, hardRange: nil,
                             defaultValue: isoDefault.classic.colorSmoothness,
                             step: 1, decimals: 0, bipolar: false,
+                            indented: true,
                             help: "Reaches the large blotches. Its guided pass follows "
                                 + "luminance, so it softens a boundary that is pure "
                                 + "colour.")

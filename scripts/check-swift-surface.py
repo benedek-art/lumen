@@ -547,8 +547,24 @@ STRUCT_DECL = re.compile(r"\bstruct\s+([A-Z]\w*)")
 # Wrappers whose no-argument `init()` the compiler reaches for, so the property is no
 # parameter at all. Only wrappers KNOWN to self-initialize belong here; an unknown
 # wrapper is kept in the labels un-required instead, which cannot false-report.
+# Wrappers that build themselves and can therefore never be a memberwise parameter.
+# A PRIVATE stored property with no default otherwise forces `synthesize_memberwise` to
+# bail on the whole struct — and a bailed struct is one whose every call site goes
+# UNCHECKED, silently.
+#
+# `Environment` arrived here the expensive way. `LumenSlider` holds two of them
+# (`@Environment(\.sliderGestureChanged) private var …`), so it was one of thirteen
+# bailed structs, so all ninety-odd `LumenSlider(…)` call sites — the most-used control
+# in the application — were exempt from the init pass. A new parameter was then added in
+# the middle of its property list and called in the wrong position at four sites: the
+# `accepts` walk below would have caught it in a second, and never saw the calls. It
+# cost four red pushes and the dev build with them.
+#
+# The list is a claim about SwiftUI, not a guess: none of these has an
+# `init(wrappedValue:)`, so none can appear in a synthesized memberwise initializer.
 SELF_INITIALIZING_WRAPPERS = {"EnvironmentObject", "Namespace", "GestureState",
-                              "FocusState"}
+                              "FocusState", "Environment", "ScaledMetric",
+                              "FocusedValue", "Query"}
 PROP_ATTR = r"@\w+(?:\([^()]*(?:\([^()]*\)[^()]*)*\))?"
 PROP_MOD = (r"(?:public|internal|open|final|static|lazy|weak|nonisolated|override|"
             r"indirect|dynamic|package|private(?:\(set\))?|fileprivate(?:\(set\))?|"
@@ -633,7 +649,20 @@ def synthesize_memberwise(suppressed):
                 if any(w in SELF_INITIALIZING_WRAPPERS for w in wrapped):
                     continue                       # the wrapper builds itself
                 if private:
-                    if has_default:
+                    # AN OPTIONAL HAS AN IMPLICIT `nil`, which is a default like any
+                    # other. `optional_plain` is computed below for exactly this
+                    # reason and was consulted only for the non-private branch, so
+                    # `@State private var closer: Task<Void, Never>?` — one property,
+                    # in one view — vetoed the whole struct.
+                    #
+                    # That veto is expensive in a way the tally does not show: a bailed
+                    # struct is not "partly checked", it is a struct whose EVERY call
+                    # site is silently exempt. `LumenSlider` bailed on this line, so all
+                    # ninety-odd of its call sites went unchecked, and a parameter added
+                    # in the middle of its property list and passed in the wrong
+                    # position at four sites reached CI as four red pushes. The
+                    # `accepts` walk would have caught it in a second.
+                    if has_default or type_text.rstrip().endswith(("?", "!")):
                         continue                   # not a parameter, and not a veto
                     ok = False                     # signature unknowable from here
                     break
