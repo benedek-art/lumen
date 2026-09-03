@@ -454,7 +454,79 @@ struct WorkspaceSections: View {
                         panel.headerClicked(section, optionHeld: optionHeld)
                     })
             }
+            HistorySection()
         }
+    }
+}
+
+/// THE HISTORY, UNDER THE WORKSPACE'S OWN SECTIONS AND IN EVERY ONE OF THEM.
+///
+/// It wears `WorkspaceSectionView`'s card, gutter and header so that it reads as one
+/// more area in the accordion, and it is deliberately NOT a `WorkspaceSection`. Two
+/// reasons, and the second is the one that decided it:
+///
+///   · A `WorkspaceSection` belongs to exactly one `Workspace` — that is what
+///     `visibleSections` walks — and history belongs to none of them. It is the same
+///     list whether you are toning, cropping or delivering, and choosing a workspace to
+///     file it under would mean the photographer had to remember which.
+///   · The enum carries a `title`, a `canonicalRank` from docs/12 §12.1's panel-order
+///     table, a `reset(_:)` that mutates a recipe and a `nonDefault` clause that reads
+///     one. History has no rank in that table, resets nothing and is not part of a
+///     recipe, so three of the four would have had to be answered with a lie.
+///
+/// LAST IN THE COLUMN, which is where a record of what you did belongs relative to the
+/// controls you did it with. It is closed by default for the reason `ContentView` gives
+/// about the sidebar's own two closed sections: defaults, not options, set perceived
+/// complexity, and a section that is empty until the photograph has been edited is a
+/// card of "nothing here yet" on every fresh folder.
+private struct HistorySection: View {
+    @EnvironmentObject private var state: AppState
+
+    /// `@AppStorage`, exactly as the sidebar's four disclosures do it and for the same
+    /// two reasons: it persists for free, and it invalidates this card rather than the
+    /// window. It is deliberately not part of `WorkspaceLayout` — that value is the
+    /// accordion's arrangement, one `expanded` set keyed by `WorkspaceSection`, and this
+    /// is not one of those. The key sits in the column's `develop.` namespace beside
+    /// `develop.workspace` and `develop.expanded`.
+    @AppStorage("develop.history") private var isExpanded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            // No modified dot and no Reset. The dot means "this section carries a
+            // non-default value" and history carries none — it is a record, not a
+            // setting — and a Reset here would either mean "clear the list", which
+            // throws away the one thing the card exists to offer, or "put the
+            // photograph back", which is what the bottom row already does and says.
+            LumenSectionHeader(title: "History",
+                               symbol: "clock.arrow.circlepath",
+                               isExpanded: .constant(isExpanded),
+                               topRhythm: 0,
+                               onToggle: { _ in
+                                   // The accordion's own animation lives in
+                                   // `PanelLayout.commit`, which this fold does not go
+                                   // through, so it wears the same curve by hand — the
+                                   // way `DevelopDisclosure` wraps its binding. Without
+                                   // it this one card would open as a jump cut beside
+                                   // six that ease.
+                                   withAnimation(Lumen.motionFold) {
+                                       isExpanded.toggle()
+                                   }
+                               })
+            // CLOSED MEANS CLOSED, the rule `WorkspaceSectionView` states one screen up:
+            // the panel's body observes `HistoryStack`, which publishes on every mouse
+            // event of a drag, so a card that collapsed but still CONSTRUCTED its rows
+            // would cost the drag exactly what closing it claims to save.
+            if isExpanded {
+                HistoryPanel(history: state.history)
+                    .transition(.opacity.combined(
+                        with: .scale(scale: 0.97, anchor: .top)))
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 10)
+        .padding(.top, 8)
+        .padding(.bottom, 8)
+        .lumenSurface(radius: Lumen.radiusCard, elevation: .flush, fill: Lumen.panel)
     }
 }
 
