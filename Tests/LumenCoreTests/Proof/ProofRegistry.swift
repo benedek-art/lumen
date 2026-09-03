@@ -399,8 +399,31 @@ enum ProofRegistry {
     /// same step, same four frequencies, one axis changed. `SharpeningFrameTests` asserts
     /// the arithmetic against these specs so a frame cannot quietly shrink back.
     ///
-    /// The records move with them, and the movement is the frame and not a behaviour
-    /// change: a number taken here is a number taken on more pixels of the same picture.
+    /// THE RECORDS MOVE WITH THEM, AND NOT ONLY BECAUSE OF THEM. This paragraph used to
+    /// say the movement "is the frame and not a behaviour change: a number taken here is
+    /// a number taken on more pixels of the same picture". That is wrong, and it is worth
+    /// leaving the correction rather than the sentence, because the two halves of E2-04
+    /// landed thirty-three minutes apart and whoever wrote it had only seen one.
+    ///
+    /// `8880982` wired `SpatialOps.frameDenominatedSigma` into `DetailEngine.applySharpen`
+    /// and `RenderGraph.applySharpen` — the unsharp radius stopped being a pixel count
+    /// and became `radius x longEdge / 2560`. `c11772d`, later the same night, swapped
+    /// these five specs onto the wide frames. The sweep renders through
+    /// `ReferenceRenderer`, which calls `DetailEngine.applySharpen`, so BOTH changes are
+    /// on the path these records measure, and the sigma change is the identity only at
+    /// 2560 px. None of the four frames is 2560.
+    ///
+    /// The second change is also WHY the first was necessary. On the old 128 px
+    /// `stepEdge` the new sigma is 0.025...0.15 px, under `gaussianBlur`'s 0.05 support
+    /// floor, so the stage falls silent: measured there, `radius` and `haloSuppression`
+    /// came back at 0.0000 authority with 20 dead steps, `amount` at 16.19 against a
+    /// floor of 29, `masking` at 4.04 against 10. Frame held constant, engine changed —
+    /// which is the demonstration that the behaviour moved, not merely the measurement.
+    /// Only `detail` passed there, and it passed by reading HIGHER than it should: a dead
+    /// unsharp term made its cross-fade look authoritative.
+    ///
+    /// So a re-pin here has to say both halves. Saying only "the frame changed" would
+    /// describe a measurement that got wider and hide a control that got fixed.
     static let sharpen: [ControlSpec] = [
         ControlSpec(
             id: "sharpen.amount", panel: "Detail", displayName: "Sharpen amount",
