@@ -779,6 +779,16 @@ final class EngineIntegrationTests: XCTestCase {
 
     /// Edge and Blur, on a real mask: each must move it, in the direction its label
     /// promises, and neither may leave the 0…1 range a mask has to stay inside.
+    ///
+    /// THIS IS ONE POINT OF A FOUR-DIMENSIONAL SPACE AND IS NOT THE COVERAGE. One
+    /// radial, one feather, one raster, three settings of the slider — and every
+    /// assertion below stayed green through a defect where Edge −20 on a two-component
+    /// mask GREW the selection by 8.6%, because the dimension that broke (how many ramp
+    /// widths the mask holds) is the one this fixture holds fixed at one. The sweep over
+    /// component count × feather mix × raster size × fine Edge steps is
+    /// `MaskEdgeShiftTests`; read that one for what Edge Shift is actually held to.
+    /// What this test is still good for is the OTHER half — Blur — and as a fast
+    /// smoke check that the single-component path did not move.
     func testEdgeShiftAndBlurMoveTheMaskInTheDirectionTheyClaim() {
         var component = MaskComponent(op: .add, kind: .radial)
         component.center = [0.5, 0.5]

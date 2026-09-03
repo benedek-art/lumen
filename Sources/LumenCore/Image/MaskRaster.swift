@@ -498,8 +498,50 @@ public enum MaskRaster {
     /// Signed-distance dilate/erode. The α ≥ 0.5 set's exact Euclidean distance
     /// transform (Felzenszwalb–Huttenlocher, two separable O(n) passes) gives the
     /// signed distance φ; the boundary moves by `shift` and the measured ramp width
-    /// is preserved. Level-set advection cannot do this — for a near-binary AI matte
-    /// ‖∇α‖ saturates and a 20 px shift would move the edge by one pixel.
+    /// is preserved. Level-set advection along ‖∇α‖ cannot do this — for a near-binary
+    /// AI matte that gradient saturates and a 20 px shift would move the edge by one
+    /// pixel. Advection along ∇φ can, and does, below: a distance field's gradient is
+    /// a unit normal everywhere, however hard or soft the alpha it was built from.
+    ///
+    /// ONE GLOBAL RAMP WIDTH IS A CLAIM ABOUT THE WHOLE PLANE, and on a stack it is
+    /// routinely false. `rampWidth` is the mean gradient over the transition band, and
+    /// a HARD edge contributes NO samples to that mean — no pixel of it lands strictly
+    /// inside 0.02…0.98 — so on a mask holding one hard component and one soft one the
+    /// soft component's ramp wins outright and the hard boundary is rebuilt as a ramp
+    /// tens of pixels wide. Measured on `MaskEdgeShiftTests`' own fixture — two `.add`
+    /// radials at feather 0 and feather 100, 320² raster — the width is 1.00 px for the
+    /// hard radial alone (nothing in the band at all), 54.6 px for the soft one alone,
+    /// and 54.6 px for the two of them together.
+    ///
+    /// What that costs is not a softer edge, it is THE WRONG DIRECTION. The rebuild
+    /// puts a ramp of width W symmetrically about φ = shift, and for a convex region
+    /// the area it adds outside exceeds the area it removes inside by πW²/12 — so an
+    /// EROSION GREW the mask: on that fixture at 320², Edge −12 came back 3.9% LARGER
+    /// than Edge 0, and the whole erode half from −30 to −1 sat above where it started,
+    /// so the slider rose to a hump at −12 and came back down instead of shrinking
+    /// anything. It is worse at higher resolution, because W scales with the frame:
+    /// the same Edge −12 is +1.2% at 96², +1.8% at 160², +3.9% at 320² — which means
+    /// worse in the delivered file than in the loupe, on the same recipe.
+    ///
+    /// So the reconstruction is now bounded by how well one width actually describes
+    /// this plane (`rampWidthSpread`), and where it does not, the boundary is moved by
+    /// ADVECTING the alpha the mask already has instead of rebuilding a new one:
+    ///
+    ///   · coherent (one width) → `rebuilt`, bit-for-bit what this function always did;
+    ///   · incoherent (two or more) → `advected`, each edge shifted by `shift` along
+    ///     the distance field's own normal, which preserves whatever profile that edge
+    ///     has — hard stays hard, soft stays soft — and therefore cannot invert the
+    ///     sign of the control;
+    ///   · in between → a blend, so nothing about the slider steps.
+    ///
+    /// WHY NOT SIMPLY FADE THE RECONSTRUCTION OUT on a mixed mask, which is the smaller
+    /// change: because it cannot work, and the arithmetic says so rather than a taste.
+    /// The output is `mix(a, rebuilt, e)`, so coverage is `(1−e)·cov(a) + e·cov(rebuilt)`
+    /// — LINEAR in the engagement. Wherever the defect is (Edge −30…−1 on the fixture
+    /// above) `cov(rebuilt) > cov(a)`, so EVERY `e > 0` grows the mask and `e = 0`
+    /// leaves it exactly where it was. Fading can reach "Edge does nothing"; it cannot
+    /// reach "Edge −12 erodes", which is the only answer the label permits. A fallback
+    /// that still moves the boundary is not a nicety here, it is the requirement.
     static func edgeShifted(_ a: Plane, edge: Double, longEdge: Int) -> Plane {
         guard edge.isFinite else { return a }
         let e = Num.clamp(edge, -50, 50)
@@ -555,17 +597,213 @@ public enum MaskRaster {
         let dToInside = edt2D(fInside, w, h)
         let dToOutside = edt2D(fOutside, w, h)
 
-        var out = a
+        // How much of the reconstruction this plane has earned. Exactly 1 — and so
+        // exactly the arithmetic that shipped — for every mask whose edges share one
+        // width, which is what keeps this change bounded to the masks that were broken.
+        // Measured after the boundary guard above, because a plane with no boundary has
+        // already returned and there is nothing there to measure.
+        let coherence = rampCoherence(a)
+
+        // φ, held rather than recomputed inline, because the advection below needs its
+        // GRADIENT and a gradient needs the neighbours. The two indicator planes are
+        // released first: they have been consumed, and holding them while φ is allocated
+        // would raise this function's peak by a full plane of doubles on an export-sized
+        // mask for no reason.
+        fInside = []
+        fOutside = []
+        var phi = [Double](repeating: 0, count: n)
         for i in 0..<n {
             let inside = Double(a.values[i]) >= 0.5
-            let phi = inside
+            phi[i] = inside
                 ? -(dToOutside[i].squareRoot() - 0.5)
                 : (dToInside[i].squareRoot() - 0.5)
-            let rebuilt = Num.saturate(0.5 + (shift - phi) / rampWidth)
-            out.values[i] = Float(Num.mix(Double(a.values[i]), rebuilt, engagement))
+        }
+
+        var out = a
+        for y in 0..<h {
+            for x in 0..<w {
+                let i = y * w + x
+                let rebuilt = Num.saturate(0.5 + (shift - phi[i]) / rampWidth)
+                // `coherence < 1` is a guard on the ARITHMETIC, not only on the cost:
+                // `Num.mix(v, rebuilt, 1)` is `v + (rebuilt − v)`, which is not
+                // guaranteed to be `rebuilt` to the last bit, and the one property this
+                // change is required to keep is that a single-width mask renders
+                // exactly as it did before.
+                var target = rebuilt
+                if coherence < 1 {
+                    let moved = advected(a, phi, x, y, w, h, shift)
+                    target = Num.mix(moved, rebuilt, coherence)
+                }
+                out.values[i] = Float(Num.mix(Double(a.values[i]), target, engagement))
+            }
         }
         return out
     }
+
+    /// The alpha this pixel would be holding if the boundary had already moved by
+    /// `shift`, read off the mask itself rather than rebuilt from a model of it.
+    ///
+    /// φ is a signed distance, so ∇φ is a UNIT normal — pointing away from the boundary
+    /// — everywhere except on the medial axis, where the alpha is saturated anyway and
+    /// nothing observable depends on the direction. Stepping `−shift` along it lands on
+    /// the point whose current distance is `φ − shift`; sampling the alpha there moves
+    /// every level set by exactly `shift` and moves NO level set relative to any other.
+    /// That is the whole difference from the reconstruction: this transports the
+    /// profile the mask has, and cannot invent one it does not.
+    ///
+    /// Bilinear, because `shift` is a real number of pixels — Edge ±1 on a 2560 frame
+    /// is half a pixel, and a nearest-neighbour read there would quantize the slider
+    /// into steps the reconstruction never had.
+    static func advected(_ a: Plane, _ phi: [Double],
+                         _ x: Int, _ y: Int, _ w: Int, _ h: Int,
+                         _ shift: Double) -> Double {
+        let row = y * w
+        let rowAbove = (y > 0 ? y - 1 : 0) * w
+        let rowBelow = (y < h - 1 ? y + 1 : h - 1) * w
+        let gx = (phi[row + (x < w - 1 ? x + 1 : w - 1)]
+                  - phi[row + (x > 0 ? x - 1 : 0)]) * 0.5
+        let gy = (phi[rowBelow + x] - phi[rowAbove + x]) * 0.5
+        let m = (gx * gx + gy * gy).squareRoot()
+        // A vanishing gradient is the medial axis (or a one-pixel island): there is no
+        // normal to travel along, and the honest answer is the alpha already here.
+        guard m.isFinite, m > 1e-6 else { return Double(a.values[row + x]) }
+        let sample = a.bilinear(Double(x) + 0.5 - shift * gx / m,
+                                Double(y) + 0.5 - shift * gy / m)
+        return Num.saturate(sample.isFinite ? sample : Double(a.values[row + x]))
+    }
+
+    /// How well ONE ramp width describes this plane: 1 when every edge shares a width,
+    /// falling to 0 when the mask holds edges of wildly different widths.
+    ///
+    /// MEASURED ON THE BOUNDARY, NOT ON THE TRANSITION BAND, and that is the whole
+    /// design. The obvious statistic — the variance of |∇α| over the same 0.02…0.98
+    /// band `rampWidth` averages — is BLIND TO EXACTLY THE CASE THAT BREAKS, because a
+    /// hard edge puts no pixel in that band: measured on the two-radial mask above at
+    /// 320², the band's coefficient of variation is 0.269 for the soft radial alone and
+    /// 0.268 for the soft and hard radials together. The same number to two digits,
+    /// while the mask it is describing went from one ramp width to two.
+    /// `testTheTransitionBandCannotSeeAHardEdge` holds that refutation in place.
+    ///
+    /// Every edge has a boundary, hard or soft, so that is where the question is asked:
+    /// the pixels straddling α = 0.5, each carrying a local width from its own gradient,
+    /// and the spread of the logarithm of those widths as the answer. A log spread is
+    /// the right shape because what matters is the RATIO of the widths present — 1 px
+    /// against 55 px is the same defect at any resolution — and because it is scale-free
+    /// the same two constants hold from a 96 px loupe tile to a 61 MP export.
+    static func rampCoherence(_ a: Plane) -> Double {
+        let measured = rampWidthSpread(a)
+        // Too little boundary to say anything: keep the shipped behaviour rather than
+        // let a four-pixel mask's arithmetic noise disengage the control.
+        guard measured.samples >= minimumBoundarySamples else { return 1 }
+        let s = measured.spread
+        guard s.isFinite else { return 1 }
+        return Num.saturate((rampSpreadLimit - s) / (rampSpreadLimit - rampSpreadKnee))
+    }
+
+    /// Mean absolute deviation of the log local width over the boundary, and how many
+    /// boundary pixels it was measured on.
+    ///
+    /// MEAN ABSOLUTE deviation rather than standard deviation, because one pixel must
+    /// not be able to disengage the control: a plateau grazing α = 0.5 produces a
+    /// boundary pixel whose gradient is 1e-4 and whose width clamps to the frame, and
+    /// squaring that deviation would let a single such pixel outvote a thousand honest
+    /// ones. Under MAD it contributes its share and no more.
+    ///
+    /// TWO PASSES, NOT ONE ARRAY. A deviation about the mean needs the mean first, and
+    /// the alternative — collecting the boundary's widths and reducing them afterwards —
+    /// is a per-pixel allocation on a plane whose boundary is normally O(perimeter) and
+    /// pathologically O(pixels). Two sweeps of arithmetic beat one sweep that can ask
+    /// for half a gigabyte on a 61 MP mask whose alpha happens to hover around 0.5.
+    static func rampWidthSpread(_ a: Plane) -> (spread: Double, samples: Int) {
+        let cap = Double(Swift.max(Swift.max(a.width, a.height), 2))
+        var sum = 0.0
+        var count = 0
+        forEachBoundaryLogWidth(a, cap) { l in
+            sum += l
+            count += 1
+        }
+        guard count > 0 else { return (0, 0) }
+        let mean = sum / Double(count)
+        var deviation = 0.0
+        forEachBoundaryLogWidth(a, cap) { deviation += abs($0 - mean) }
+        return (deviation / Double(count), count)
+    }
+
+    /// Every boundary pixel's local ramp width, logged.
+    ///
+    /// A pixel is on the boundary when one of its four neighbours is on the other side
+    /// of α = 0.5 — the frame's edge repeats rather than reflecting, the same convention
+    /// `clampedSample` gives the rest of this file, so a mask running off the frame does
+    /// not acquire a boundary there that the picture does not have.
+    ///
+    /// THE GRADIENT IS THE LARGER OF TWO ESTIMATES, and it has to be. A central
+    /// difference is rotation-invariant on a smooth ramp — which is why the soft cases
+    /// measure a spread near zero — but on a hard step it reads 0.5 across a face and
+    /// 0.707 across a corner, so a plain hard mask would look 1.4× self-inconsistent
+    /// for no better reason than the pixel grid. A one-sided difference reads exactly 1
+    /// on every hard boundary pixel and understates a smooth ramp by up to √2. Taking
+    /// the maximum takes the estimate each is good at: 1 px for a hard edge, ≈W/1.5 for
+    /// a smooth one, and a spread inside a single edge that stays near zero for both.
+    ///
+    /// Indexed directly rather than through `clampedSample`, and the body is called only
+    /// for the boundary: this runs twice over every pixel of every mask that reaches the
+    /// Edge slider, including the ones it will decide to leave alone.
+    private static func forEachBoundaryLogWidth(_ a: Plane, _ cap: Double,
+                                                _ body: (Double) -> Void) {
+        let w = a.width, h = a.height
+        guard w > 0, h > 0 else { return }
+        a.values.withUnsafeBufferPointer { v in
+            for y in 0..<h {
+                let row = y * w
+                let rowAbove = (y > 0 ? y - 1 : 0) * w
+                let rowBelow = (y < h - 1 ? y + 1 : h - 1) * w
+                for x in 0..<w {
+                    let centre = Double(v[row + x])
+                    let inside = centre >= 0.5
+                    let left = Double(v[row + (x > 0 ? x - 1 : 0)])
+                    let right = Double(v[row + (x < w - 1 ? x + 1 : w - 1)])
+                    let above = Double(v[rowAbove + x])
+                    let below = Double(v[rowBelow + x])
+                    guard (left >= 0.5) != inside || (right >= 0.5) != inside
+                        || (above >= 0.5) != inside || (below >= 0.5) != inside
+                    else { continue }
+                    let gx = (right - left) * 0.5
+                    let gy = (below - above) * 0.5
+                    var g = (gx * gx + gy * gy).squareRoot()
+                    g = Swift.max(g, Swift.max(abs(right - centre), abs(left - centre)))
+                    g = Swift.max(g, Swift.max(abs(below - centre), abs(above - centre)))
+                    guard g.isFinite, g > 0 else { continue }
+                    body(log(Num.clamp(1 / g, 1, cap)))
+                }
+            }
+        }
+    }
+
+    /// Where the reconstruction starts being withdrawn, and where it is gone, in mean
+    /// absolute deviation of log width. [D]
+    ///
+    /// The knee is a DEAD BAND and that is what makes the identity property hold: below
+    /// it `rampCoherence` saturates at exactly 1 and this file's arithmetic is the
+    /// arithmetic that shipped.
+    ///
+    /// It sits at 0.45 because 0.32 is the widest spread any single-edge mask produced
+    /// across a 150-configuration survey — radial, ellipse to 8:1 at every rotation,
+    /// polygon with a spike, linear, feather 0…100, rasters 64…512, both aspects — and
+    /// the widest of those is a strongly eccentric feathered ellipse, whose ramp really
+    /// is wider across the ends than the sides. A knee under that would disengage the
+    /// reconstruction on a shape that has been rendering the same way for a year, which
+    /// is the regression this bound exists to avoid.
+    ///
+    /// The limit at 0.75 is where the reconstruction is gone and the boundary is moved
+    /// by advection alone. It is set by the hardest case rather than the loudest one: a
+    /// SMALL hard component beside a large soft one contributes little to the spread and
+    /// still grew the mask under erosion at 0.386 engagement, so the limit is pulled
+    /// down to the 0.75 that case measures. The two-radial mask that named this defect
+    /// is past it at every raster from 64 px up.
+    static let rampSpreadKnee: Double = 0.45
+    static let rampSpreadLimit: Double = 0.75
+    /// Below this many boundary pixels the spread is noise, not a measurement.
+    static let minimumBoundarySamples: Int = 16
 
     // MARK: - Component rasterizers
 
