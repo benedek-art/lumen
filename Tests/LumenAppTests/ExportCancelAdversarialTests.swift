@@ -204,7 +204,17 @@ final class ExportCancelAdversarialTests: XCTestCase {
     func testTheWriteBranchChecksAfterTheRename() throws {
         let source = try code("AppStateActions.swift")
         let loop = try XCTUnwrap(body(from: "batch: for job in jobs", in: source))
-        let inner = try XCTUnwrap(body(from: "for exportRecipe in active", in: loop))
+        // PAST THE REFUSAL BRANCH FIRST. `for exportRecipe in active` appears twice in
+        // this loop — the refusal branch names every checked recipe in its failure list
+        // before it skips the photograph — and the first match is the one that does no
+        // writing at all. A scan that took it would assert the write-branch property
+        // against a branch with no write in it and pass on an empty subject.
+        let refusal = try XCTUnwrap(body(from: "if let refusal = job.refusal", in: loop))
+        let afterRefusal = try XCTUnwrap(loop.range(of: refusal))
+        let writeBranch = String(loop[afterRefusal.upperBound...])
+        let inner = try XCTUnwrap(body(from: "for exportRecipe in active",
+                                       in: writeBranch),
+                                  "the write branch's recipe loop was renamed")
 
         let write = try XCTUnwrap(inner.range(of: "renderCoordinator.export"))
         let check = try XCTUnwrap(inner.range(of: "exportCancelRequested"))

@@ -155,7 +155,12 @@ final class ScaleHonestyTests: XCTestCase {
             // and it is the right one on the merits rather than by elimination: the
             // radius is the control that sets the SIZE, so a scale-honesty entry has to
             // push THAT and not the amount of a radius it left where the reading hides.
-            // Wired, the same setting reads PENDING_WIRED.
+            // Wired, the same setting reads 1.0041 — against a resample floor of 0.3350
+            // for this scene with no stage running at all, and against 5.8013 with the
+            // radius in render pixels. The wired reading at Radius 2.0 is 1.0865, very
+            // slightly WORSE than at 3.0, because at 300 px a frame-denominated sigma of
+            // 0.23 px has less support than one of 0.35 and the two sizes are then doing
+            // less alike: the residual here is the sampling grid, not the denomination.
             //
             // A number taken on a stage in isolation is not the number a roster entry
             // will read, and the difference here is the whole distance between catching
@@ -168,9 +173,9 @@ final class ScaleHonestyTests: XCTestCase {
             let d = measureStage(mutate)
             print(String(format: "  SPATIAL  %-18@ %.4f", name, d))
             // Measured, through this metric: texture 2.74, clarity 1.84, dehaze 3.29,
-            // sharpen PENDING_WIRED. Clarity was 7.38 before its pyramid depth started tracking
-            // the long edge; sharpen was 5.80 before its radius did, on the same run of
-            // the same file, which is the entry above doing its job.
+            // sharpen 1.00. Clarity was 7.38 before its pyramid depth started tracking
+            // the long edge; sharpen was 5.8013 before its radius did, on this same
+            // metric, which is the entry above doing its job.
             XCTAssertLessThan(d, 5,
                               "\(name) diverges by \(d) code values across a 4x scale "
                                   + "change — its radius is not tracking the long edge")

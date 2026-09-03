@@ -339,10 +339,10 @@ final class CurveAdversarialTests: XCTestCase {
         let shown = GroupMove.mean(withNaN)
         XCTAssertTrue(shown.isFinite, "premise: the row displays \(shown)")
         let moved = GroupMove.moved(withNaN, by: 5, lower: -100, upper: 100)
+        let headroom = GroupMove.allowed(withNaN, requested: 5, lower: -100, upper: 100)
         XCTAssertNotEqual(moved, withNaN,
-                          "the row displays \(shown) but every drag is refused — "
-                          + "allowed() = \(GroupMove.allowed(withNaN, requested: 5, "
-                          + "lower: -100, upper: 100))")
+                          "the row displays \(shown) but every drag is refused: "
+                          + "allowed() = \(headroom)")
     }
 
     func testMeanOnAnEmptySetAndAnAllNaNSet() {
