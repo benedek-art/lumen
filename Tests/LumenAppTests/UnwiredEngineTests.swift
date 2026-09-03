@@ -617,11 +617,15 @@ final class UnwiredEngineTests: XCTestCase {
     /// `title: "<name>"` as it appears in a `LumenSlider(` call, built rather than
     /// written out.
     ///
-    /// The quote is assembled from its code point because an ESCAPED quote inside a
-    /// Swift string reads, to a scanner that is not a Swift parser, as the end of that
-    /// string — and `scripts/check-swift-surface.py` then reports the two words after it
-    /// as identifiers declared nowhere. Writing the literal the honest way filed a false
-    /// finding against this file; this is the same needle with nothing to misread.
+    /// The quote is written as its code point because an ESCAPED quote inside a Swift
+    /// string reads, to a scanner that is not a Swift parser, as the end of that string —
+    /// and `scripts/check-swift-surface.py` then reports the two words after it as
+    /// identifiers declared nowhere and exits 1. Spelling the needle the obvious way
+    /// filed a false finding against this file and failed the check.
+    ///
+    /// `"\u{22}"` rather than a `UnicodeScalar`, which is the other obvious way and
+    /// trips the same script from the other side: `UnicodeScalar` is standard library,
+    /// is not declared in this tree, and is not on that script's known-platform list.
     private static let quote = "\u{22}"
 
     private static func titleArgument(_ name: String) -> String {
