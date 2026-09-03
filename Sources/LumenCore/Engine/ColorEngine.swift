@@ -1280,7 +1280,51 @@ public struct ColorEngine: Sendable {
         let density = Num.clamp(color.density, 0, 100) / 100
         guard density > 0 else { return additive }
         let subtractive = Self.subtractivePush(mid, amount: satAmount)
-        return additive.mix(subtractive, density)
+        let blended = additive.mix(subtractive, density)
+
+        // THE DENSITY MODEL IS ABOUT LIGHTNESS AND CHROMA. IT IS NOT ABOUT HUE.
+        //
+        // The photographic idea is real and worth keeping: colour intensifies by
+        // DENSIFYING, the absorbing layers deepening while the transmitting one holds,
+        // so a saturated colour darkens instead of pushing its channels apart toward
+        // neon. That is a statement about how light and how colourful the result is.
+        // Nothing in the docs, the panel, or this file's own header claims it is a
+        // statement about WHICH colour it is.
+        //
+        // The rotation was never the model. It is an artefact of how the model is
+        // implemented: `subtractivePush` raises the channel ratios to a power in linear
+        // RGB, which multiplies all three log-ratios by the same gamma — and a log-RGB
+        // ray is not an iso-hue line in OKLab. Only the six primaries and secondaries
+        // lie on one. Everything between them turns.
+        //
+        // WHAT IT COST, measured over 720 colours (36 hues x 5 lightnesses x 4 gamut
+        // fills) at the SHIPPED Density default, before this line existed:
+        //
+        //     Saturation  +10 -> 2.14 deg   +25 -> 4.71   +50 -> 7.83   +100 -> 11.57
+        //     on the skin band            +25 -> 2.21     +50 -> 4.15   +100 ->  7.29
+        //
+        // Read charitably as film-likeness it still fails on its own terms. It is
+        // UNBOUNDED — gamma is 1 + satAmount, so the rotation grows with the slider and
+        // never reaches a ceiling in range. It is ASYMMETRIC — exactly zero below zero,
+        // so +50 and -50 are not one instrument seen from two sides. And it is not what
+        // any dye actually does: stacked dye darkens, it does not walk skin four degrees
+        // toward orange.
+        //
+        // So keep the darkening and drop the turn. The hue is restored ONCE, after the
+        // blend, on the colour the two branches are two renderings of — one restore
+        // rather than one per branch, cheaper than either, and exactly zero rotation by
+        // construction rather than approximately zero.
+        //
+        // Gated on `gateLoChroma` because the hue of a near-neutral is the arctangent of
+        // two nearly-zero numbers and carries no information to preserve; below the gate
+        // the blend is returned untouched, which is the same law the rest of this file
+        // applies to every hue-valued term.
+        let source = context.toLCh(mid)
+        let out = context.toLCh(blended)
+        guard source.C > Self.gateLoChroma, source.h.isFinite,
+              out.L.isFinite, out.C.isFinite else { return blended }
+        let held = context.toRGB(OKLCh(L: out.L, C: out.C, h: source.h))
+        return held.isFinite ? held : blended
     }
 
     /// Scale chroma in Lumen UCS — holding H-K-corrected perceived brightness and hue

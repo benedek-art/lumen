@@ -202,75 +202,73 @@ final class HuePreservationTests: XCTestCase {
     /// the wheel, and four degrees off the I-bar is the difference between skin and
     /// orange.
     ///
-    /// This test PINS those numbers rather than asserting the law, because the fix is
-    /// one line in `ColorEngine.subtractivePush` and that file is not this one's to
-    /// write. When it lands, this fails, and what replaces it is
-    /// `testSaturationPreservesHueWhenTheDensityDialIsAtZero` with the Density clause
-    /// struck out.
-    func testDensityIsTheWholeOfSaturationsHueRotation() {
-        let measured: [(amount: Double, degrees: Double)] = [
+    /// THIS TEST USED TO PIN THE DEFECT. It now pins its absence, at the same
+    /// settings and over the same grid, so the numbers above stay falsifiable in-tree
+    /// rather than becoming a story about something that was once true.
+    ///
+    /// The fix is in `ColorEngine`, after the blend: the hue of the colour the two
+    /// branches are two renderings of is restored once, on the blended result. So the
+    /// rotation is not "small now" — it is zero by construction, and the tolerance
+    /// below is a floating-point tolerance rather than a behavioural one. What is left
+    /// is around 1e-12 degrees, which is the round trip through OKLCh and back.
+    func testSaturationNoLongerRotatesHueAtAnyAmount() {
+        // Exactly the amounts that were measured, and the degrees they used to move.
+        let wasRotating: [(amount: Double, wasDegrees: Double)] = [
             (10, 2.14), (25, 4.70), (50, 7.83), (75, 10.07), (100, 11.57),
         ]
-        for m in measured {
+        for m in wasRotating {
             let engine = colorEngine(ColorAdjust(saturation: m.amount))
             let (worst, at) = worstHueMove(engine)
-            XCTAssertEqual(worst, m.degrees, accuracy: 0.05,
-                           String(format: "Saturation +%.0f now rotates hue by %.3f° (was %.2f°) at %@",
-                                  m.amount, worst, m.degrees, at?.label ?? "—"))
+            XCTAssertLessThan(worst, 1e-6,
+                              String(format: "Saturation +%.0f rotates hue by %.6f° — it used to move %.2f° and must now move none, at %@",
+                                     m.amount, worst, m.wasDegrees, at?.label ?? "—"))
         }
 
-        // And on the band the complaint is about.
+        // And on the band the complaint was about. A face pushed +50 landed four
+        // degrees round the wheel, and four degrees off the I-bar is the difference
+        // between skin and orange.
         XCTAssertFalse(Self.skinSamples.isEmpty, "the grid must contain real skin tones")
-        let onSkin: [(amount: Double, degrees: Double)] = [(25, 2.21), (50, 4.15), (100, 7.29)]
+        let onSkin: [(amount: Double, wasDegrees: Double)] = [(25, 2.21), (50, 4.15), (100, 7.29)]
         for m in onSkin {
             let engine = colorEngine(ColorAdjust(saturation: m.amount))
             let (worst, at) = worstHueMove(engine, over: Self.skinSamples)
-            XCTAssertEqual(worst, m.degrees, accuracy: 0.05,
-                           String(format: "Saturation +%.0f now rotates a SKIN hue by %.3f° (was %.2f°) at %@",
-                                  m.amount, worst, m.degrees, at?.label ?? "—"))
+            XCTAssertLessThan(worst, 1e-6,
+                              String(format: "Saturation +%.0f rotates a SKIN hue by %.6f° — it used to move %.2f°, at %@",
+                                     m.amount, worst, m.wasDegrees, at?.label ?? "—"))
         }
     }
 
-    /// The two properties that make the rotation a defect rather than a film-like
-    /// intention: it AMPLIFIES with the slider, and it is ONE-SIDED.
+    /// THE DARKENING SURVIVED. This is the other half of the fix and the half a
+    /// hue-restore can quietly destroy.
     ///
-    /// A deliberate film response could rotate hue — stacked dye really does — but it
-    /// would have to be bounded and symmetric about zero, so that +50 and −50 were the
-    /// same instrument seen from two sides. This one grows without a ceiling in the
-    /// slider's range and does not exist at all below zero, which is the signature of a
-    /// side effect rather than a model. Pinned here so the claim in the report is
-    /// falsifiable in-tree.
-    func testSaturationsHueRotationAmplifiesAndIsOneSided() {
-        var worstGrowth = 0.0
-        var growthDetail = "—"
-        var worstAsymmetry = 0.0
-        var asymmetryDetail = "—"
-        for s in HuePreservationTests.grid {
-            var previous = 0.0
-            for amount in [10.0, 25, 50, 75, 100] {
-                let up = colorEngine(ColorAdjust(saturation: amount))
-                let down = colorEngine(ColorAdjust(saturation: -amount))
-                guard let a = hueMove(s.rgb, up.apply(s.rgb)).map(abs) else { continue }
-                if a - previous > worstGrowth {
-                    worstGrowth = a - previous
-                    growthDetail = String(format: "+%.0f moved %.3f° where the step below moved %.3f°, at %@",
-                                          amount, a, previous, s.label)
-                }
-                previous = a
-                guard let b = hueMove(s.rgb, down.apply(s.rgb)).map(abs) else { continue }
-                if a - b > worstAsymmetry {
-                    worstAsymmetry = a - b
-                    asymmetryDetail = String(format: "±%.0f: %.3f° up against %.3f° down, at %@",
-                                             amount, a, b, s.label)
-                }
-            }
+    /// Density's photographic idea is that colour intensifies by DENSIFYING — the
+    /// absorbing layers deepen while the transmitting one holds, so a saturated colour
+    /// goes darker instead of pushing its channels apart toward neon. Restoring hue
+    /// after the blend must not also restore lightness, or the dial becomes a no-op and
+    /// the fix has thrown out the model along with its artefact.
+    ///
+    /// So: at the shipped Density, a positive Saturation move must still land DARKER
+    /// than the purely additive path does, on colours with enough chroma to have a
+    /// direction at all.
+    func testDensityStillDarkensAfterTheHueIsRestored() {
+        let dense = colorEngine(ColorAdjust(saturation: 60))
+        let additive = colorEngine(ColorAdjust(saturation: 60, density: 0))
+        var darker = 0
+        var compared = 0
+        for sample in HuePreservationTests.grid {
+            let a = lch(additive.apply(sample.rgb))
+            let d = lch(dense.apply(sample.rgb))
+            guard lch(sample.rgb).C > 0.05,
+                  a.L.isFinite, d.L.isFinite else { continue }
+            compared += 1
+            if d.L < a.L - 1e-9 { darker += 1 }
         }
-        // Both are "far larger than the tolerance", not exact numbers: the point is the
-        // shape, and the sizes are pinned in the test above.
-        XCTAssertGreaterThan(worstGrowth, 2.0,
-                             "the rotation stopped amplifying — \(growthDetail)")
-        XCTAssertGreaterThan(worstAsymmetry, 5.0,
-                             "the rotation stopped being one-sided — \(asymmetryDetail)")
+        XCTAssertGreaterThan(compared, 100, "the grid must offer real colours to compare")
+        XCTAssertGreaterThan(Double(darker) / Double(compared), 0.9,
+                             "the subtractive path stopped darkening: only \(darker) of "
+                             + "\(compared) chromatic colours came out darker than the "
+                             + "additive push, so the hue restore has undone the model "
+                             + "rather than its artefact")
     }
 
     /// Density at zero is not merely small, it is the additive path exactly — which is
@@ -471,6 +469,162 @@ final class HuePreservationTests: XCTestCase {
             XCTAssertLessThan(OKLab(L: 0.5, a: 0.1, b: bb).hue, 360,
                               "OKLab reported hue 360 at b = \(bb)")
         }
+    }
+
+    /// The same seam, as a PROPERTY over the whole input domain rather than over the
+    /// inputs somebody already suspected.
+    ///
+    /// `testHueWrappingClosesItsTopEndAcrossTheSeam` above sweeps where the engine's
+    /// hues actually come from. This one sweeps what a `Double` can be, because
+    /// `wrapHue` is `public` and the twenty-one call sites hand it sums, differences
+    /// and `atan2` results rather than curated numbers. It states four things:
+    ///
+    ///   1. RANGE. Every finite input comes back in [0, 360) — never 360, never below
+    ///      zero. Checked on the exact boundary the arithmetic has, on the whole
+    ///      dynamic range of the type, and on a deterministic pseudo-random sweep.
+    ///   2. THE WINDOW ITSELF. The set of inputs that used to return 360 is exactly
+    ///      [−2⁻⁴⁵, 0). `ulp(360)` is 2⁻⁴⁴, so `360 − |h|` rounds up to 360 for every
+    ///      `|h|` at or below half of that, and ties go to 360 because its last
+    ///      mantissa bit is even. Both sides of that boundary are pinned: −2⁻⁴⁵ is the
+    ///      largest magnitude that rounds up, and its `nextDown` is the first that
+    ///      does not. No input of magnitude ≥ 360 can reach the window — `h` is a
+    ///      multiple of its own ulp, which is ≥ 2⁻⁴⁴ there, so a non-zero remainder
+    ///      cannot be smaller than 2⁻⁴⁴ — which is why the multiples of 360 come back
+    ///      as an exact zero rather than as a near miss.
+    ///   3. SAME ANGLE. Wrapping is a change of representative, not of direction: the
+    ///      unit vector at the result is the unit vector at the input.
+    ///   4. WHAT NON-FINITE DOES. Pinned, not asserted to be nice: ±∞ and NaN come back
+    ///      NaN, because `truncatingRemainder` gives NaN and neither comparison fires.
+    ///      Callers that can see one guard first (`Gamut.Boundary.maxChroma` and
+    ///      `GradeEngine.apply` both do). This is here so a change to it is visible.
+    ///
+    /// The sign of zero rides along at the end. `wrapHue(-360)` is −0.0 — the `x < 0`
+    /// test is false for a negative zero, so the `+= 360` never runs — and that is
+    /// tolerated rather than corrected because it cannot be observed: −0.0 compares and
+    /// hashes equal to +0.0, and `CanonicalJSON.canonicalNumber` takes its integer
+    /// branch and emits "0" for both. That last one is the one that matters, since a
+    /// fingerprint split is the whole reason the 360 case was worth closing.
+    func testWrapHueHoldsItsHalfOpenRangeOverTheWholeInputDomain() {
+
+        func check(_ h: Double, _ what: String) {
+            let w = Num.wrapHue(h)
+            guard h.isFinite else {
+                XCTAssertTrue(w.isNaN,
+                              String(format: "wrapHue(%@) returned %.17g, not NaN — %@",
+                                     "\(h)", w, what))
+                return
+            }
+            XCTAssertFalse(w.isNaN, "wrapHue(\(h)) returned NaN — \(what)")
+            XCTAssertGreaterThanOrEqual(w, 0,
+                String(format: "wrapHue(%.17g) = %.17g is below zero — %@", h, w, what))
+            XCTAssertLessThan(w, 360,
+                String(format: "wrapHue(%.17g) = %.17g is not below 360 — %@", h, w, what))
+            XCTAssertNotEqual(w, 360,
+                String(format: "wrapHue(%.17g) returned exactly 360 — %@", h, what))
+        }
+
+        // 1. The window, both sides of its boundary. `-2^-45` is the largest magnitude
+        //    that rounds up to 360 (ties to even, and 360's last mantissa bit is 0);
+        //    one ulp further from zero is the first that does not.
+        let windowEdge = -0x1p-45          // −2.842170943040401e-14
+        check(windowEdge, "the exact top of the rounding window")
+        check(windowEdge.nextDown, "one ulp past the top of the rounding window")
+        XCTAssertEqual(Num.wrapHue(windowEdge.nextDown), 359.99999999999994, accuracy: 0,
+                       "the first input outside the window no longer lands on 359.99999999999994")
+
+        // Everything inside the window, sampled across sixty orders of magnitude down
+        // to the subnormals, plus a walk of the smallest doubles there are.
+        for e in stride(from: -45.0, through: -320.0, by: -5.0) {
+            check(-exp2(e), "inside the window at -2^\(Int(e))")
+        }
+        var tiny = -Double.leastNonzeroMagnitude
+        for _ in 0..<512 {
+            check(tiny, "a subnormal just below zero")
+            XCTAssertEqual(Num.wrapHue(tiny), 0,
+                           String(format: "wrapHue(%.3e) is not zero", tiny))
+            tiny = tiny.nextDown
+        }
+        for h in [-1e-18, -1e-16, -1e-15, -2.8e-14, -5.7e-14, -1e-13, -1e-9] {
+            check(h, "a small negative hue")
+        }
+
+        // 2. Multiples of 360, both signs, out to where the spacing of doubles is
+        //    coarser than a degree. These come back an exact zero, and the negative
+        //    ones come back a NEGATIVE exact zero, which is the pinned part.
+        for k in [1.0, 2.0, 3.0, 7.0, 100.0, 1e6, 1e12, 1e15, 2.5e13] {
+            check(360 * k, "+\(k) turns")
+            check(-360 * k, "−\(k) turns")
+            XCTAssertEqual(Num.wrapHue(360 * k), 0, "+\(k) turns is not a zero hue")
+            XCTAssertEqual(Num.wrapHue(-360 * k), 0, "−\(k) turns is not a zero hue")
+            // The neighbours of a whole turn: the inputs closest to the window that a
+            // number of that size can express.
+            check((360 * k).nextDown, "just under +\(k) turns")
+            check((-360 * k).nextUp, "just inside −\(k) turns")
+        }
+
+        // 3. The dynamic range of the type, and a deterministic pseudo-random sweep of
+        //    it. SplitMix64 rather than `Double.random` so a failure is reproducible.
+        for h in [Double.leastNonzeroMagnitude, -Double.leastNonzeroMagnitude,
+                  Double.leastNormalMagnitude, -Double.leastNormalMagnitude,
+                  1e-300, -1e-300, 1e300, -1e300, 1e15, -1e15, 1e17, -1e17,
+                  Double.greatestFiniteMagnitude, -Double.greatestFiniteMagnitude,
+                  359.99999999999994, 360, -360, 0, -0.0, 180, -180, 29.23, -29.23] {
+            check(h, "a corner of the input range")
+        }
+        var seed: UInt64 = 0x9E37_79B9_7F4A_7C15
+        func next() -> UInt64 {
+            seed &+= 0x9E37_79B9_7F4A_7C15
+            var z = seed
+            z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+            z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+            return z ^ (z >> 31)
+        }
+        for i in 0..<200_000 {
+            // Half the draws are ordinary hue-sized numbers — sums and differences of
+            // degrees, which is what the call sites actually produce — and half are
+            // arbitrary bit patterns, filtered to the finite ones.
+            let h: Double
+            if i % 2 == 0 {
+                let u = Double(next() >> 11) * 0x1p-53          // [0, 1)
+                h = (u - 0.5) * 4000
+            } else {
+                let bits = next()
+                let candidate = Double(bitPattern: bits)
+                h = candidate.isFinite ? candidate : Double(bitPattern: bits & 0x7FEF_FFFF_FFFF_FFFF)
+            }
+            check(h, "pseudo-random draw \(i)")
+        }
+
+        // 4. Same angle, not merely some angle in range. Trig, so the check does not
+        //    reuse the remainder the function under test is built on. Bounded to inputs
+        //    where argument reduction is still meaningful.
+        let toRadians = Double.pi / 180
+        for i in -4000...4000 {
+            let h = Double(i) * 0.37 - 740          // ≈ ±2220°, several turns either way
+            let w = Num.wrapHue(h)
+            XCTAssertEqual(cos(w * toRadians), cos(h * toRadians), accuracy: 1e-9,
+                           String(format: "wrapHue(%.6f) = %.6f is a different angle", h, w))
+            XCTAssertEqual(sin(w * toRadians), sin(h * toRadians), accuracy: 1e-9,
+                           String(format: "wrapHue(%.6f) = %.6f is a different angle", h, w))
+        }
+
+        // 5. Non-finite, pinned rather than wished away.
+        for h in [Double.infinity, -Double.infinity, Double.nan, Double.signalingNaN] {
+            XCTAssertTrue(Num.wrapHue(h).isNaN, "wrapHue(\(h)) is no longer NaN")
+        }
+
+        // 6. The sign of zero, and the only place it could ever have been seen.
+        XCTAssertTrue(Num.wrapHue(-360).sign == .minus,
+                      "wrapHue(-360) no longer returns a negative zero — if this is a "
+                      + "deliberate normalization the comment above needs to change")
+        XCTAssertEqual(Num.wrapHue(-360), Num.wrapHue(360),
+                       "the two zeroes stopped comparing equal")
+        XCTAssertEqual(CanonicalJSON.canonicalNumber(Num.wrapHue(-360)), "0",
+                       "a negative zero hue now reaches canonical text — that is a "
+                       + "recipe_fp split of exactly the kind hue 360 was")
+        XCTAssertEqual(CanonicalJSON.canonicalNumber(Num.wrapHue(-360)),
+                       CanonicalJSON.canonicalNumber(Num.wrapHue(360)),
+                       "the two zeroes serialize differently")
     }
 
     /// The law one level up, through the shipping stage: a Mixer band Hue move of +δ
