@@ -262,6 +262,11 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     # individually for the same reason Vision's requests are — this tree uses exactly
     # one primitive from it, and a typo in a second should still fail here.
     "CryptoKit", "SHA256", "SHA256Digest",
+    # `Darwin` appears only inside `#if canImport(Darwin)`, which is how a test spells
+    # "Apple's XCTest, not swift-corelibs-xctest" — `XCTExpectFailure` exists in one and
+    # not the other, and `swiftc -parse` accepts it either way. The condition names a
+    # platform module rather than an in-tree type, so the symbols pass has to be told.
+    "Darwin",
     "CoreVideo", "CVPixelBufferGetWidth", "CVPixelBufferGetHeight",
     "CVPixelBufferGetPixelFormatType", "CVPixelBufferGetBytesPerRow",
     "CVPixelBufferGetBaseAddress", "CVPixelBufferLockBaseAddress",
