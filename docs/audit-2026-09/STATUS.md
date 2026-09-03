@@ -20,7 +20,58 @@ deferrals lifted · UI: Option B "Modern pro", whole · rows 24 pt · keymap: `L
 Out, `B`→album, `⌘B`→assessment, `F`/`S` stay · denoise: free + best, delivery mine
 (download-on-first-use), timing mine.
 
-## THE FIX WAVE — where the run is now
+## WHERE IT LANDED
+
+**The audit is complete: thirty of thirty areas, 254 findings — 24 S1, 125 S2,
+105 S3**, 108 measured rather than reasoned. **All 24 S1s are addressed; 66
+findings are closed.** Owner's report:
+https://claude.ai/code/artifact/8f442d3f-960c-4167-b115-a288480dfb2b
+
+### Landed in the fix wave
+`M-01` · `J1-03` · `J1-04`/`K-019` · `J3-01` (both halves) · `J3-02` · `D1-01` ·
+`D1-02`/`D1-03` · `F2-01` · `H1-01` · `G3-01`/`J2-01` · `G3-02`/`KG-02` ·
+`E2-02` · `B3-02`/`B3-03` · `I3-01` · `H2-01`/`H2-02` · `B2-01` ·
+`I2-01`/`F2-02` · `I2-03`/`I2-04`/`I2-05` · the RAW-corpus suite
+
+### Deliberately NOT closed, and why — do not report these as fixed
+- **`E2-04`** — mechanism landed and INERT. `SpatialOps.frameDenominatedSigma` and
+  `fineDetailBand` exist and are unit-tested; nothing calls them. Wiring is two
+  edits in `DetailEngine.applySharpen` and two in `RenderGraph.applySharpen`, and
+  it must land WITH a proof-frame migration: at the 128 px `stepEdge` the scaled
+  sigma never clears `gaussianBlur`'s own `sigma > 0.05` guard, so
+  `sharpen.radius` and `sharpen.haloSuppression` fall to 0.0000 authority with 20
+  dead steps. On a 2048 px frame they read 29.7363 and 34.4143.
+- **`I3-02`** — NO fix in the tree. `RenderCoordinator.swift` is unmodified. The
+  1792 MiB floor reproduces exactly (2.333x the advertised 768).
+- **`E2-01`, `E2-03`, `E1-02`, `E1-03`, `D2-01`, `K-090`, `B1-04…08`, `C1-*`** and
+  the rest of the S2 backlog — evidenced, ranked, untouched.
+
+### What the fix wave taught, beyond the fixes
+- **`LumenToggleRow` never forwarded `isEnabled`.** `.disabled(…)` stopped the tap
+  and nothing else: full opacity, hover tracking, pointing-hand cursor. Every
+  disabled toggle in the app inherited it. Found while closing E2-02.
+- **A tolerant decoder cannot save an atomic container.** J3-01 needed BOTH
+  per-field tolerance and `ExportRecipe.decodeList`.
+- **A rule with four doors needs a guard at four doors**, and reading the target's
+  value AFTER overwriting it yields the source's — a no-op that compiles and reads
+  correctly. Pinned by a test.
+- **The ratchet earned its keep.** `test-fast` went red on 37 raw font sizes
+  against a 35 ceiling while `build-macos` was green: three labels written as
+  `.system(size: 10, weight: .semibold)`, which is `lumenCaptionStrong` byte for
+  byte. Now 34, ratchet tightened.
+
+### Corrections the reviewers made to the audit
+- `B3-03`'s "zero producers" was wrong — 3 constructions, 1 arming.
+- `N-005` REFUTED (57th percentile of a proper null; my standard error used the
+  denominator for independent samples on a smooth field).
+- `I3-01`'s fix has three consequences, all pinned: the feature is inert below a
+  2560 px loupe, the downgrade lands on the one rung nothing reclaims, and
+  browse-rung ties became order-dependent.
+- `I2-04`'s "same mirror as N-001" is wrong — grain is a TRANSLATION, not a
+  mirror, and the two agree exactly when frame height is a multiple of 128. A
+  mirror-detector would have found nothing.
+
+## THE FIX WAVE — how it ran
 
 The audit is COMPLETE: **thirty of thirty areas, 254 findings — 24 S1, 125 S2, 105 S3**,
 108 of them measured rather than reasoned. All thirty files are in `w2/` and pushed.
