@@ -18,11 +18,20 @@
 //
 // EVERY SCAN STRIPS COMMENTS FIRST, and in this file that is not a formality. The
 // renames below are all argued for in comments that quote the OLD name — "Max strength",
-// "Smoothness", "Brightness tolerance" all appear in `MaskPanel.swift` today, inside the
-// paragraphs explaining why they are gone. An unstripped scan for those strings would
-// find the explanation and report the defect it explains. `testTheStripperIsWhatMakes
-// TheseScansMeanAnything` asserts both halves of that on the real file rather than on a
-// sample, so the proof cannot drift from the thing it is proving.
+// "Brightness tolerance" and "Colour tolerance" all appear in `MaskPanel.swift` today,
+// inside the paragraphs explaining why they are gone. An unstripped scan for those
+// strings would find the explanation and report the defect it explains.
+//
+// "SMOOTHNESS" IS NOT IN THAT LIST ANY MORE, and why is the whole lesson. The rename
+// that shortened the label to "Smooth" paid for itself by moving the long form onto the
+// row's TOOLTIP — `help: "Smoothness of the band's edges…"` — so the word is live code
+// as well as prose. It had been hand-picked as the canary in
+// `testTheStripperIsWhatMakesTheseScansMeanAnything`, and that test went red the night
+// the tooltip landed: not because the stripper broke, but because a retired label is
+// only comment-only until somebody puts it back on screen. That test no longer picks a
+// canary by hand, and `testTheStripperHandlesEveryCommentShapeSwiftAllows` pins the
+// stripper's edge cases on fixtures it owns rather than on what a panel file happens to
+// contain this week. See both for the reasoning.
 
 #if os(macOS)
 
@@ -479,49 +488,175 @@ final class MaskPanelTests: XCTestCase {
     // MARK: - The scan's own foundation
 
     /// THE STRIPPER IS WHAT MAKES EVERY SCAN ABOVE MEAN ANYTHING, so it is asserted
-    /// against the real file rather than against a sample.
+    /// against the real files and not only against a sample.
     ///
-    /// All three retired labels are still written down in `MaskPanel.swift` — inside the
-    /// comments that argue for their replacements. That is the substitution proof and
-    /// the trap in one: a scan that did not strip would find "Max strength" in the
-    /// paragraph explaining that "Max strength" is gone, and report a defect that had
-    /// been fixed. Both halves are checked, so the day somebody swaps the stripped
-    /// source for the raw one these fail instead of quietly passing.
+    /// HOW THE CANARY IS CHOSEN, WRITTEN DOWN BECAUSE GETTING IT WRONG TURNED CI RED.
+    /// This test used to name four retired labels and require each to vanish under
+    /// stripping — "Max strength", "Smoothness", "Brightness tolerance", "Colour
+    /// tolerance" — on the reasoning that the only place they still appeared was the
+    /// paragraph arguing for their replacements. That reasoning expired for one of them
+    /// the moment its rename shipped: shortening "Smoothness" to "Smooth" was paid for
+    /// by moving the long form onto the row's tooltip, so `help: "Smoothness of the
+    /// band's edges…"` is now CODE. The word survived stripping, this test failed, and
+    /// the stripper was working perfectly the whole time.
+    ///
+    /// So a retired label is never a safe canary. It is exactly the kind of word that
+    /// comes back as drawn text, because that is how this panel pays for a short label.
+    /// The canary is DERIVED from the file instead — the longest line that is nothing
+    /// but a `//` comment — which is comment-only by construction rather than by
+    /// somebody's memory, and re-derives itself every time a paragraph is reworded.
+    ///
+    /// The word list is gone with it. What replaces it is stronger: the properties
+    /// below hold for EVERY comment in the file rather than for four phrases, so a
+    /// stripper that missed a shape cannot pass by having its shape left off a list.
     func testTheStripperIsWhatMakesTheseScansMeanAnything() throws {
-        let raw = try source("LumenApp/MaskPanel.swift")
-        let stripped = stripComments(raw)
-        for retired in ["Max strength", "Smoothness", "Brightness tolerance",
-                        "Colour tolerance"] {
-            XCTAssertTrue(raw.contains(retired),
-                          "\(retired) should still be argued about in a comment")
-            XCTAssertFalse(stripped.contains(retired),
-                           "\(retired) must survive only as prose")
-        }
-        // Both comment shapes, and the code either side of them kept.
-        let sample = """
-        let a = 1 // "Max strength"
-        /* "Smoothness" */ let b = 2
-        let c = "Ceiling"
-        """
-        let out = stripComments(sample)
-        XCTAssertFalse(out.contains("Max strength"))
-        XCTAssertFalse(out.contains("Smoothness"))
-        XCTAssertTrue(out.contains("let a = 1"))
-        XCTAssertTrue(out.contains("let b = 2"))
-        XCTAssertTrue(out.contains("let c = \"Ceiling\""))
-        // WHAT IT CANNOT DO, said here rather than discovered later: it is not string
-        // aware, so a `//` inside a literal would take the rest of that line with it.
-        // No such literal exists in the files scanned above — and this is the assertion
-        // that says the limitation was checked rather than missed.
-        for file in ["LumenApp/MaskPanel.swift", "LumenApp/MaskFloatingPanel.swift"] {
-            for line in try source(file).split(separator: "\n") {
-                guard let slashes = line.range(of: "//") else { continue }
-                let before = line[line.startIndex..<slashes.lowerBound]
-                XCTAssertEqual(before.filter { $0 == "\"" }.count % 2, 0,
-                               "a `//` inside a string literal in \(file) would take "
-                               + "the rest of its line with it: \(line)")
+        for relative in ["LumenApp/MaskPanel.swift", "LumenApp/MaskFloatingPanel.swift"] {
+            let raw = try source(relative)
+            let stripped = stripComments(raw)
+
+            // Comments actually go, said as a property of the whole file: no doc
+            // marker, no block delimiter, and no line still beginning with `//`.
+            //
+            // These three read the WHOLE stripped text, so they also assume neither
+            // file holds a comment marker inside a string literal — true today, and a
+            // literal that survives stripping with its markers intact is CORRECT (see
+            // `testTheStripperHandlesEveryCommentShapeSwiftAllows`). The messages say
+            // so, because a failure here has two very different causes.
+            let markerNote = " — or a string literal in \(relative) now contains one, "
+                + "which the stripper is right to keep; narrow this assertion if so"
+            XCTAssertFalse(stripped.contains("///"),
+                           "a doc comment survived \(relative)" + markerNote)
+            XCTAssertFalse(stripped.contains("/*"),
+                           "a block comment opened in \(relative)" + markerNote)
+            XCTAssertFalse(stripped.contains("*/"),
+                           "a block comment closed in \(relative)" + markerNote)
+            for line in stripped.split(separator: "\n") {
+                XCTAssertFalse(line.trimmingCharacters(in: .whitespaces).hasPrefix("//"),
+                               "a whole-line comment survived \(relative): \(line)")
             }
+
+            // …and they were the bulk of the file, so a stripper that quietly became
+            // the identity function cannot pass by removing nothing. Both files are
+            // well over a quarter prose; the margin is deliberately loose.
+            XCTAssertGreaterThan(raw.count - stripped.count, raw.count / 4,
+                                 "\(relative) is largely comment — stripping should show")
+
+            // The derived canary. Deriving it by line requires that no `//` in this
+            // file is inside a multiline literal, where it would be text; neither file
+            // has one, and this is the assertion that notices the day one arrives.
+            XCTAssertFalse(raw.contains("\"\"\""),
+                           "\(relative) grew a multiline literal — a `//` inside one is "
+                           + "text, so the canary below can no longer be derived by line")
+            guard let canary = Self.longestCommentOnlyLine(in: raw) else {
+                return XCTFail("\(relative) has no whole-line comment to derive a canary from")
+            }
+            XCTAssertTrue(raw.contains(canary), "the canary is drawn from the file itself")
+            XCTAssertFalse(stripped.contains(canary),
+                           "a line that is nothing but comment must not survive "
+                           + "\(relative): \(canary)")
+
+            // THE OTHER DIRECTION, which is the half a stripper fails silently: code has
+            // to still be there. Everything above is satisfied by removing MORE, and
+            // over-removal is the likelier bug — a `//` mishandled inside a string
+            // literal deletes the rest of a real line and no assertion for an ABSENT
+            // word ever notices.
+            XCTAssertTrue(stripped.contains("var body: some View"),
+                          "\(relative) declares a body, and it must survive stripping")
         }
+
+        // The tooltip that ended "Smoothness"'s career as a canary, asserted rather than
+        // described. It is drawn text, it lives in code, and it stays.
+        let panel = try strippedSource("LumenApp/MaskPanel.swift")
+        XCTAssertTrue(panel.contains("help: \"Smoothness of the band's edges"),
+                      "the long form lives in the tooltip now, which is exactly why the "
+                      + "word is live code and cannot serve as a comment-only canary")
+        XCTAssertTrue(panel.contains("LumenSlider(title: \"Ceiling\""),
+                      "and a label the scans above depend on survives stripping")
+    }
+
+    /// THE STRIPPER'S EDGE CASES, PINNED ON FIXTURES THIS TEST OWNS.
+    ///
+    /// The scan above can only exercise the shapes `MaskPanel.swift` happens to contain,
+    /// and today that is `//` lines and nothing else: no block comment, no nested block
+    /// comment, no comment marker inside a literal. Leaving the edge cases to the panel
+    /// file means a slider rename can silently retire one — which is the shape of the
+    /// failure that brought this test to attention in the first place. They are checked
+    /// here on strings written for the purpose, so they cannot be renamed away.
+    func testTheStripperHandlesEveryCommentShapeSwiftAllows() throws {
+        // A `//` at the end of a CODE line: what precedes it is kept.
+        XCTAssertEqual(flat(stripComments("let a = 1 // \"Max strength\"\nlet b = 2")),
+                       "let a = 1 let b = 2")
+
+        // Block comments, and the code either side of them.
+        XCTAssertEqual(flat(stripComments("/* gone */ let a = 1 /* gone too */")),
+                       "let a = 1")
+
+        // NESTED BLOCK COMMENTS. Swift allows them. A stripper that closes on the FIRST
+        // `*/` hands the tail of the comment back as if it were code — so a scan
+        // asserting a word is ABSENT would find it in the prose explaining its absence,
+        // which is the precise failure every scan in this file strips to avoid.
+        XCTAssertEqual(
+            flat(stripComments("let a = 1 /* outer /* in */ Max strength */ let b = 2")),
+            "let a = 1 let b = 2")
+
+        // Both doc-comment spellings.
+        XCTAssertEqual(flat(stripComments("/// gone\n/** gone */\nlet a = 1")), "let a = 1")
+
+        // COMMENT MARKERS INSIDE STRING LITERALS ARE TEXT, and mishandling them is worse
+        // than missing a comment, because it deletes CODE: the stripper would run from
+        // the `//` to the end of the line, taking the closing quote and everything after
+        // it, and every later scan would read a file missing lines nobody removed.
+        XCTAssertEqual(flat(stripComments("let u = \"https://example.com/a\" // gone")),
+                       "let u = \"https://example.com/a\"")
+        XCTAssertEqual(flat(stripComments("let s = \"/* text */\"; let t = 2")),
+                       "let s = \"/* text */\"; let t = 2")
+        // An escaped quote does not end the literal.
+        XCTAssertEqual(flat(stripComments("let q = \"he said \\\"// hi\\\"\"; let r = 3")),
+                       "let q = \"he said \\\"// hi\\\"\"; let r = 3")
+        // A multiline literal carries whole lines, comment-shaped ones included.
+        let multiline = "let s = \"\"\"\n// kept as text\n\"\"\"\nlet v = 4 // dropped"
+        XCTAssertTrue(stripComments(multiline).contains("// kept as text"),
+                      "a `//` line inside a multiline literal is that literal's content")
+        XCTAssertFalse(stripComments(multiline).contains("dropped"),
+                       "and the comment after the literal is still a comment")
+
+        // The mirror mistake: a quote inside a COMMENT must not open a literal, or the
+        // stripper swallows every following line until the next quote turns up.
+        XCTAssertEqual(flat(stripComments("// it is \"gone\"\nlet a = 1 // and \"so\" is this")),
+                       "let a = 1")
+
+        // PROVEN ONCE ON A REAL FILE TOO, because a fixture is only ever what its author
+        // imagined. `AppUpdater.swift` holds an https URL in a string literal — the one
+        // place in the app layer where a `//` sits inside code — and a stripper that is
+        // not string-aware truncates that line at the slashes.
+        let updater = try source("LumenApp/AppUpdater.swift")
+        XCTAssertTrue(updater.contains("\"https://api.github.com"),
+                      "the literal this leans on moved — find another `//` inside a string")
+        XCTAssertTrue(stripComments(updater).contains("\"https://api.github.com"),
+                      "a `//` inside a string literal is text, and stripping must keep "
+                      + "the rest of its line")
+    }
+
+    /// The longest line of `raw` that is nothing but a `//` comment, returned without
+    /// its slashes so the needle is prose rather than a marker.
+    ///
+    /// Derived rather than named, because a named canary is only true until somebody
+    /// puts the word back on screen — see the caller for the night that happened. The
+    /// 40-character floor keeps it long enough that finding it in code would be a
+    /// coincidence rather than a collision.
+    private static func longestCommentOnlyLine(in raw: String) -> String? {
+        raw.split(separator: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { $0.hasPrefix("//") }
+            // `dropFirst`, not `drop(while:)`: two in-tree `drop(_:)` declarations make
+            // `check-swift-surface.py`'s label pass read the stdlib call as a mismatch,
+            // and that script has to stay at exit 0.
+            .map { line -> String in
+                let text = line.hasPrefix("///") ? line.dropFirst(3) : line.dropFirst(2)
+                return text.trimmingCharacters(in: .whitespaces)
+            }
+            .filter { $0.count >= 40 }
+            .max(by: { $0.count < $1.count })
     }
 
     // MARK: - Reading the sources
@@ -575,28 +710,92 @@ final class MaskPanelTests: XCTestCase {
 // MARK: - the scan's foundation
 
 /// `PreviewRungTests.stripComments`, copied — which is itself a copy of
-/// `DeliveryNameTests.strippingComments`. It travels rather than being shared because
-/// each suite's proof should not depend on another suite's helper staying put.
+/// `DeliveryNameTests.strippingComments` — and then taught the two shapes every one of
+/// those copies still gets wrong. It travels rather than being shared because each
+/// suite's proof should not depend on another suite's helper staying put.
 ///
 /// A scan that reads doc comments proves only that somebody wrote the symbol's name
 /// down, and in this file that would be actively wrong: every label this suite checks
 /// for the ABSENCE of is present in a comment eight lines from where it used to be.
+///
+/// TWO THINGS THE COPIES GET WRONG, both fixed here and both pinned by
+/// `testTheStripperHandlesEveryCommentShapeSwiftAllows`:
+///
+///   · SWIFT BLOCK COMMENTS NEST. Closing on the first `*/` hands the tail of the
+///     comment back as code, which is a scan reading prose and calling it a defect —
+///     the exact thing stripping exists to prevent.
+///
+///   · A COMMENT MARKER INSIDE A STRING LITERAL IS TEXT. This is the worse of the two,
+///     because it deletes CODE rather than keeping prose: `URL(string: "https://…")`
+///     read as a line comment loses the closing quote and everything after it, every
+///     later quote in the file pairs off by one, and the damage is silent — no
+///     assertion for an absent word can see a line that is simply gone. It is not
+///     hypothetical: `check-swift-surface.py`'s own `_scan` carries a note about the
+///     investigation this cost in `"http://www.w3.org/…"`, and `AppUpdater.swift` holds
+///     a live example. So the scan below walks strings and comments in ONE pass, the
+///     way that script does — a pass for either alone is wrong in the presence of the
+///     other, since a `"` inside a comment desyncs strings just as a `//` inside a
+///     string desyncs comments.
+///
+/// What it still does not handle, said here rather than discovered later: raw literals
+/// (`#"…"#`), where a `\` is not an escape. Nothing in `Sources/` uses one today.
 private func stripComments(_ source: String) -> String {
     var out = ""
     var index = source.startIndex
-    var inBlock = false
+    var depth = 0
+
+    /// Bounded so a delimiter at the very end of the file cannot walk off it.
+    func skip(_ count: Int, from start: String.Index) -> String.Index {
+        source.index(start, offsetBy: count, limitedBy: source.endIndex) ?? source.endIndex
+    }
+
     while index < source.endIndex {
         let rest = source[index...]
-        if inBlock {
-            if rest.hasPrefix("*/") { inBlock = false; index = source.index(index, offsetBy: 2) }
-            else { index = source.index(after: index) }
+
+        if depth > 0 {
+            if rest.hasPrefix("/*") { depth += 1; index = skip(2, from: index); continue }
+            if rest.hasPrefix("*/") { depth -= 1; index = skip(2, from: index); continue }
+            // Newlines are kept so a stripped file still has the raw file's lines, which
+            // is what lets a scan reason line by line.
+            if source[index] == "\n" { out.append("\n") }
+            index = source.index(after: index)
             continue
         }
-        if rest.hasPrefix("/*") { inBlock = true; index = source.index(index, offsetBy: 2); continue }
+
+        // Literals are copied through whole, delimiters and all. This is the branch the
+        // copies simply do not have: without it the walk never learns it is inside a
+        // literal, so the first `//` or `/*` in one opens a comment.
+        if rest.hasPrefix("\"\"\"") {
+            var end = skip(3, from: index)
+            while end < source.endIndex, !source[end...].hasPrefix("\"\"\"") {
+                if source[end] == "\\" { end = skip(1, from: end) }
+                if end < source.endIndex { end = source.index(after: end) }
+            }
+            end = skip(3, from: end)
+            out += source[index..<end]
+            index = end
+            continue
+        }
+        if source[index] == "\"" {
+            var end = source.index(after: index)
+            // A single-line literal cannot span a newline, so an unterminated quote
+            // stops at the end of its line instead of swallowing the rest of the file.
+            while end < source.endIndex, source[end] != "\"", source[end] != "\n" {
+                if source[end] == "\\" { end = skip(1, from: end) }
+                if end < source.endIndex { end = source.index(after: end) }
+            }
+            if end < source.endIndex, source[end] == "\"" { end = source.index(after: end) }
+            out += source[index..<end]
+            index = end
+            continue
+        }
+
         if rest.hasPrefix("//") {
             while index < source.endIndex, source[index] != "\n" { index = source.index(after: index) }
             continue
         }
+        if rest.hasPrefix("/*") { depth = 1; index = skip(2, from: index); continue }
+
         out.append(source[index])
         index = source.index(after: index)
     }
