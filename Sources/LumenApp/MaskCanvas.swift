@@ -1487,10 +1487,11 @@ struct MaskCanvas: View {
         // gone: the whole band just outside the rim turns the ellipse now, so a knob
         // would be a second, smaller target for something the shape's entire outline
         // already offers. What replaces it is the mark above, which follows the pointer
-        // instead of sitting at a fixed offset the turn itself keeps moving. The owner asked for exactly this — "I just don't want this
-        // little lever at the edge" — and the lever had a defect he did not have to
-        // name: it sat at one fixed offset from ONE end of the axis, so turning the
-        // ellipse meant first hunting for where the handle had rotated to.
+        // instead of sitting at a fixed offset the turn itself keeps moving. The owner
+        // asked for exactly this — "I just don't want this little lever at the edge" —
+        // and the lever had a defect he did not have to name: it sat at one fixed
+        // offset from ONE end of the axis, so turning the ellipse meant first hunting
+        // for where the handle had rotated to.
     }
 
     private func drawBrush(_ context: inout GraphicsContext) {
@@ -1501,8 +1502,8 @@ struct MaskCanvas: View {
                 let p = viewPoint(point.x, point.y)
                 if index == 0 { path.move(to: p) } else { path.addLine(to: p) }
             }
-            context.stroke(path,
-                           with: .color(Color.white.opacity((brush.erase || eraseHeld) ? 0.18 : 0.32)),
+            let wet = (brush.erase || eraseHeld) ? 0.18 : 0.32
+            context.stroke(path, with: .color(Color.white.opacity(wet)),
                            style: StrokeStyle(lineWidth: diameter, lineCap: .round,
                                               lineJoin: .round))
         }

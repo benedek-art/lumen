@@ -144,9 +144,15 @@ public enum MaskHandles {
         /// two falloff lines are draggable — so the radial was the odd one out rather
         /// than the ordinary case.
         case feather
-        /// Turn the ellipse. Only ever returned for a press on the handle drawn beyond
-        /// the major axis; there is no bare-rim gesture for it, because every one that
-        /// suggests itself collides with resize.
+        /// Turn the ellipse. Returned for a press in the band just OUTSIDE the rim —
+        /// the same span `newShapeClearance` reserves, 360° of it, and never for a
+        /// press on the rim itself, where resize is what a press means.
+        ///
+        /// It used to be a lever drawn beyond the major axis, and the owner asked for
+        /// it to go: "I would like to be able to turn it wherever I want… And I just
+        /// don't want this little lever at the edge." The lever had a second fault he
+        /// did not have to name — it sat at a fixed offset from ONE end of the axis, so
+        /// turning the ellipse meant first finding where the handle had rotated to.
         case rotate
         /// Discard this ellipse and draw a new one from the drag. Only ever returned
         /// for a press with clear space around it.
@@ -269,7 +275,6 @@ public enum MaskHandles {
             // would have been for.
             return abs(a) >= abs(b) ? .resizeMajor : .resizeMinor
         }
-        // Inside, or outside by less than the buffer: still this shape.
         // INSIDE, still this shape. Outside, TURN IT.
         //
         // The owner asked for this directly: "I would like to be able to turn it
@@ -535,11 +540,8 @@ public enum MaskHandles {
     /// a trackpad reports, so the thinning still does the job it was added for: a 45 MP
     /// frame at 120 Hz records several thousand samples across one sweep, and every one
     /// is a vertex the rasterizer walks at every pixel inside the bounding box.
-    public static let traceStep: Double = 0.002
+    public static let traceStep: Double = 3
 
-    /// Whether a create gesture has travelled far enough to be a shape rather than a
-    /// click. See `minimumDrawTravel`: below this the caller must leave the component
-    /// it already has alone.
     /// The angles a constrained drag is allowed to land on, in degrees.
     ///
     /// Fifteen, not ninety. What shipped constrained a gradient to the horizontal or the
@@ -613,6 +615,9 @@ public enum MaskHandles {
     /// dot is whole and its grab circle is not half off the picture.
     public static let pinDockInset: Double = 10
 
+    /// Whether a create gesture has travelled far enough to be a shape rather than a
+    /// click. See `minimumDrawTravel`: below this the caller must leave the component
+    /// it already has alone.
     public static func drawsShape(from: CGPoint, to: CGPoint) -> Bool {
         let dx = Double(to.x - from.x)
         let dy = Double(to.y - from.y)
