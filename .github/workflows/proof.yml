@@ -104,7 +104,13 @@ jobs:
           # which. Run 33723153890 is the example: 135 evidence sheets, exit 1, and no
           # diagnosis. Both formats carry `: error: `, and the `sed` strips whatever
           # precedes it either way.
-          grep -E ": error: " proof.log | sed 's/^.*error: //' | head -30
+          # `-A 12` because the assertion message is MULTI-LINE: the first line says
+          # only "A control's measured behaviour moved", and the control's name and its
+          # old-vs-new numbers are on the lines after it. Matching lines alone reported
+          # that something moved and still would not say what — the same failure this
+          # summary already had once, one step further in. The `sed` only rewrites the
+          # first line of each block; the continuation lines pass through as they are.
+          grep -A 12 -E ": error: " proof.log | sed 's/^.*error: //' | head -60
           exit $status
       - name: Keep the evidence sheets
         if: always()
