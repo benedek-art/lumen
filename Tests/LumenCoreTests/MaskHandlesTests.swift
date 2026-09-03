@@ -464,9 +464,17 @@ final class MaskHandlesTests: XCTestCase {
         XCTAssertEqual(lineGrab(795, 304), .endHandle)
     }
 
-    /// Outside the band: a miss stays a move, clear space creates.
+    /// Outside the band: a near miss now TURNS the gradient, and clear space creates.
+    ///
+    /// This assertion used to read `.move`, and it was right until the gradient grew a
+    /// rotate band. 20 pt past the 0% line is inside `newShapeClearance` (33 pt), which
+    /// is exactly the span the band occupies — the owner's report was that there is a
+    /// rotate band he expects to grab and cannot find, and the band had to go somewhere.
+    /// The other two assertions below are unaffected: they sit beyond the clearance,
+    /// where there is nothing to turn and a press still means "make a new one".
     func testOutsideTheBandBuffersThenCreates() {
-        XCTAssertEqual(lineGrab(800, 820), .move, "20 pt past the 0% line is a miss")
+        XCTAssertEqual(lineGrab(800, 820), .rotate,
+                       "20 pt past the 0% line is inside the rotate band")
         XCTAssertEqual(lineGrab(800, 800 + MaskHandles.newShapeClearance + 5), .create)
         XCTAssertEqual(lineGrab(800, 300 - MaskHandles.newShapeClearance - 5), .create)
     }

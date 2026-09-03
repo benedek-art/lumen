@@ -276,7 +276,27 @@ jobs:
           # one. Splitting keeps "did I break something ordinary" at about eight minutes
           # while the drift check still runs on every push, in parallel rather than in
           # series behind it.
-          swift test --filter LumenCoreTests --skip ControlProofTests 2>&1 | tee engine.log
+          #
+          # `--parallel` is NOT here for speed. Without it this lane dies before it runs
+          # a single test:
+          #
+          #   error: posix_spawn error: Argument list too long (7),
+          #   `["...LumenPackageTests.xctest", "LumenCoreTests.AccuracyProbeTests/test..."
+          #
+          # Any `--filter` or `--skip` makes SwiftPM resolve the selection itself and
+          # hand the xctest binary ONE comma-joined argument naming every matching test.
+          # Linux caps a single argument at MAX_ARG_STRLEN, 128 KiB, and at roughly
+          # eighteen hundred tests averaging seventy characters of suite-plus-method that
+          # argument crossed it. The suite had been sitting just under the ceiling for a
+          # while; a wave of new tests pushed it over, and the lane failed in fifty-one
+          # seconds having compiled everything and run nothing.
+          #
+          # In parallel mode SwiftPM spawns per test instead of building that argument,
+          # so the ceiling does not exist. That makes this the fix rather than a
+          # workaround: the serial path fails as a function of how many tests we have,
+          # which is a number that only goes up.
+          swift test --parallel --filter LumenCoreTests --skip ControlProofTests 2>&1 \
+            | tee engine.log
           status=$?
           echo "=== compile errors ==="
           grep -E "error:" engine.log | grep -v ": error: -\[" \
