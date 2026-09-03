@@ -205,6 +205,15 @@ public enum KeyGrammar {
             KeyRow(KeyBinding("z", command: true, shift: true), "Redo"),
             KeyRow(KeyBinding("c", command: true), "Copy settings"),
             KeyRow(KeyBinding("v", command: true), "Paste settings"),
+            // Bound, but only ever to whatever is typing. Replacing SwiftUI's
+            // `.pasteboard` group deleted AppKit's own Cut item, so ⌘X was attached
+            // nowhere at all and a keyword field could not cut a word. It is declared
+            // here because it IS attached and the grammar has to account for every
+            // attached chord; it carries no photograph meaning because Lumen has none
+            // to give it — the folder is the library, files are never moved, and taking
+            // a frame out of an album is a verb on the row.
+            KeyRow(KeyBinding("x", command: true),
+                   "Cut — text fields only; Lumen has no cut for photographs"),
             KeyRow(KeyBinding("v", command: true, shift: true),
                    "Paste settings, leaving this frame's masks alone"),
             KeyRow(KeyBinding("c", command: true, option: true), "Copy Look"),

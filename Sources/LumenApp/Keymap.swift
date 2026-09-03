@@ -84,10 +84,18 @@ final class KeyDispatcher {
 
         // A focused text field owns every key. Nothing below runs while the user is
         // typing a value into a slider or a filter box.
-        if let responder = NSApp.keyWindow?.firstResponder,
-           responder is NSTextView || responder is NSTextField {
-            return false
-        }
+        //
+        // THROUGH THE ONE PREDICATE NOW, in `LumenFocus.swift`. The first-responder test
+        // was written out here and nowhere else, which held for exactly as long as this
+        // monitor was the only thing standing in front of a text field. It was not: the
+        // MENU BAR stands further in front — `NSMenu` offers a key equivalent before the
+        // key window's responder chain sees the event — and the Edit menu had taken ⌘C,
+        // ⌘V and ⌘A for the develop settings in every context, so the app answered the
+        // four oldest chords on the platform while somebody was typing into a keyword
+        // field. Both places ask the same question now, out of the same function, because
+        // two hand-rolled copies of "is the photographer typing" is the exact shape every
+        // drift this codebase has closed began as.
+        if TextEditingFocus.isActive { return false }
 
         // A sheet owns every key too. This monitor sits in FRONT of the responder
         // chain, so without this an X pressed while reading the export sheet rejects

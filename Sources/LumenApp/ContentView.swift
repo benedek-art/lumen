@@ -356,6 +356,13 @@ private struct Sidebar: View {
     @State private var newKeyword: String = ""
     @FocusState private var keywordFieldFocused: Bool
 
+    /// ⇧⌘K now fires from the Scene, which cannot reach a view-local `@FocusState`.
+    /// `KeywordEntry.shared` is a counter it bumps and this column watches; only the
+    /// section that draws the field can put the cursor in it. Named `keywordRequests`
+    /// rather than `keywordEntry` because this struct already has a `keywordEntry`
+    /// view below.
+    @ObservedObject private var keywordRequests = KeywordEntry.shared
+
     // Expansion is `@AppStorage`, deliberately, and never a published field on
     // `AppState` (docs/28 §5.5): it persists for free and it invalidates this column
     // and nothing else, where a publish on AppState re-bodies the whole window.
@@ -366,16 +373,21 @@ private struct Sidebar: View {
     // §12.12 says so about darktable and it is just as true of a sidebar. Neither is
     // ever secret: a closed section whose contents hold state wears the accent dot.
     //
-    // ONE RULE MAKES THIS SAFE, and it is the same rule ⌘\ ran into one commit ago: a
-    // `.keyboardShortcut` on a view that is not in the hierarchy is never registered.
-    // Collapsing a section that contains one leaves the shortcut in the source, still
-    // passing `KeyGrammarTests` — which reads shortcuts as TEXT — and dead in the app.
-    // ⌘B, ⌘K and ⌘G all live in these sections. So every shortcut-bearing button sits
-    // ABOVE THE FOLD, directly under its header and outside the `if`, which is also
-    // exactly what docs/12 §12.12 asks for on its own merits: each section leads with
-    // its one-click entry point and keeps the deeper machinery one triangle away.
-    // (⇧⌘G is the exception and was already one before this change: Unstack lives
-    // inside `if let stack`, because a command to unstack nothing has no meaning.)
+    // THE RULE NOW RUNS THE OTHER WAY, and the fold was only ever half of it. A
+    // `.keyboardShortcut` on a view that is not in the hierarchy is never registered,
+    // so collapsing a section that contains one leaves the shortcut in the source,
+    // still passing `KeyGrammarTests` — which reads shortcuts as TEXT — and dead in
+    // the app. Keeping every shortcut-bearing button above the fold fixed that case
+    // and left the bigger one open: ⌥⌘S hides this entire column, and a chord attached
+    // anywhere in it dies with the column. That is not a fold problem, and no
+    // arrangement inside these sections can solve it.
+    //
+    // So no chord is attached here at all any more. ⌘G, ⇧⌘G and ⇧⌘K live in the
+    // Scene's `CommandMenu("Photo")`, where nothing on screen can take them away, and
+    // ⇧⌘K shows the sidebar before it asks for the cursor. The buttons stay, and their
+    // `.help` still names the chord — the section still leads with its one-click entry
+    // point, which is what docs/12 §12.12 asked for on its own merits. What is gone is
+    // the assumption that this column is always there to hold a key equivalent.
     @AppStorage("sidebar.library") private var libraryExpanded = true
     @AppStorage("sidebar.albums") private var albumsExpanded = true
     @AppStorage("sidebar.keywords") private var keywordsExpanded = false
@@ -600,9 +612,17 @@ private struct Sidebar: View {
         VStack(alignment: .leading, spacing: 4) {
             LumenSectionHeader(title: "Keywords", isExpanded: $keywordsExpanded,
                                isModified: !state.primaryKeywords.isEmpty)
-            // Above the fold: the field you type into, and the button holding ⌘K.
+            // Above the fold: the field you type into, and the button that names ⌘K.
             keywordEntry
             if keywordsExpanded { keywords }
+        }
+        // ⇧⌘K asked for the cursor. The Scene has already shown this column; opening
+        // the section is this view's half of the job, because `keywordEntry` is drawn
+        // whether or not the section is expanded but a collapsed section is a strange
+        // place to land a caret.
+        .onChange(of: keywordRequests.requests) { _, _ in
+            keywordsExpanded = true
+            keywordFieldFocused = true
         }
     }
 
@@ -655,7 +675,6 @@ private struct Sidebar: View {
             }
             .buttonStyle(.borderless)
             .font(.lumenBody)
-            .keyboardShortcut("k", modifiers: [.command, .shift])
             .disabled(state.editTargets.isEmpty)
             .help("Type a keyword for the selection (⌘⇧K)")
         }
@@ -708,29 +727,16 @@ private struct Sidebar: View {
             Button("Stack Selection") { state.stackSelection() }
                 .buttonStyle(.borderless)
                 .font(.lumenBody)
-                .keyboardShortcut("g", modifiers: [.command])
                 .disabled(state.selection.count < 2)
                 .help("Group the selection into one stack (⌘G)")
 
-            // ⇧⌘G HAS TO BE ABOVE THE FOLD, and the comment that used to sit on it
-            // asserted the opposite: "Opening the section is not what makes it live —
-            // selecting a stacked photo is." That was false. `stacks` is constructed only
-            // when `stackExpanded` is true, the key equivalent lives on a button inside
-            // it, and a `.keyboardShortcut` on a view that is not in the hierarchy is
-            // never registered — so on a fresh install, where this section ships closed,
-            // ⇧⌘G did nothing at all while the Help sheet listed it as working. ⌘G worked,
-            // because ITS button is up here.
-            //
-            // Drawn with no label and zero size rather than duplicating the visible
-            // button: the visible one belongs beside the other stack verbs, and two
-            // buttons carrying one chord is how a grammar drifts.
-            Button("") { state.unstackSelection() }
-                .buttonStyle(.plain)
-                .frame(width: 0, height: 0)
-                .opacity(0)
-                .accessibilityHidden(true)
-                .keyboardShortcut("g", modifiers: [.command, .shift])
-                .disabled(state.primaryStack == nil)
+            // ⇧⌘G used to be held here by a zero-size invisible button, because a
+            // `.keyboardShortcut` on a view that is not in the hierarchy is never
+            // registered and this section ships closed. That fixed the fold and left
+            // the larger hole open: every chord in this column dies with ⌥⌘S, which
+            // hides the whole sidebar. ⌘G, ⇧⌘G and ⇧⌘K now live in the Scene's
+            // commands, where nothing on screen can take them away, and the invisible
+            // button is gone with them.
 
             if stackExpanded { stacks }
         }
