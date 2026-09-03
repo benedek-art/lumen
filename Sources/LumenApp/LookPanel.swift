@@ -231,7 +231,7 @@ struct LookPanel: View {
                 // it means "replace two years of a look" is the whole of D1-03's first
                 // half. The word is the cheapest possible warning and it costs no row.
                 Text(collidingName == nil ? "Save" : "Replace")
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.lumenCaptionStrong)
             }
             .buttonStyle(.plain)
             .foregroundStyle(canSaveLook ? Lumen.accent : Lumen.secondaryText)
@@ -317,7 +317,7 @@ struct LookPanel: View {
                     pendingDeleteLookID = nil
                 } label: {
                     Text("Keep")
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(.lumenCaptionStrong)
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(Lumen.secondaryText)
@@ -327,7 +327,7 @@ struct LookPanel: View {
                     state.deleteLook(look)
                 } label: {
                     Text("Delete")
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(.lumenCaptionStrong)
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(Lumen.accent)

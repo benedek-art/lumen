@@ -289,14 +289,22 @@ final class DesignSystemTests: XCTestCase {
     /// line of a surface that has taken over the window (`lumenLead`), and a sheet's
     /// title (`lumenTitle`).
     ///
+    /// **34** after D1-02's rename verb and D1-03's Keep/Delete confirmation went into
+    /// the look browser. Those three arrived as `.system(size: 10, weight: .semibold)` —
+    /// which is `lumenCaptionStrong` spelled out, byte for byte. That is the ordinary way
+    /// this number grows: not by anyone deciding a token is wrong, but by a new row being
+    /// written in the shape of the row beside it. THE RATCHET IS WHAT CAUGHT IT — a red
+    /// `test-fast` on a landing whose fourteen other fixes were sound, which is exactly
+    /// the trade this test exists to make.
+    ///
     /// What is left is mostly honest: a `design:` that varies with a flag, a size held
     /// in a variable, and the four state marks at 26 / 30 / 34 / 40 — which want one
     /// decision made with all four on screen, not a batch rename.
     func testRawFontSizesOnlyEverDecrease() {
         let n = total(".system(size:")
-        XCTAssertLessThanOrEqual(n, 35,
+        XCTAssertLessThanOrEqual(n, 34,
                                  "\(n) raw .system(size:) calls in Sources/LumenApp, up "
-                                 + "from 35 — use .lumenHeading / .lumenBody / "
+                                 + "from 34 — use .lumenHeading / .lumenBody / "
                                  + ".lumenCaption / .lumenNumeric / .lumenCaptionStrong "
                                  + "/ .lumenLead / .lumenTitle for TEXT, and "
                                  + ".lumenGlyph* for a glyph")
