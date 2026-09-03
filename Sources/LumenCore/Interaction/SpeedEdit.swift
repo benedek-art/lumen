@@ -26,6 +26,24 @@ public enum SpeedEdit {
     /// scopes, `H` is histogram — because a hold and a tap are different gestures and
     /// spending eight scarce letters to avoid discriminating between them would be
     /// paying twice.
+    ///
+    /// WHICH RECIPE FIELD EACH ONE WRITES, for whoever lands the dispatcher, because
+    /// seven of these eight are obvious and the eighth is not:
+    ///
+    ///   exposure → `develop.tone.exposure`, contrast → `develop.tone.contrast`,
+    ///   highlights / shadows → `develop.tone.*`, temp / tint → `develop.raw.*`,
+    ///   maskAmount → the selected `Mask.amount`.
+    ///
+    ///   lookAmount → `LookSubset.amount`, AND THAT IS NOT A FIELD OF THE PHOTOGRAPH.
+    ///   A look's strength is spent when the look is applied (`LookSubset.applied(to:)`
+    ///   bakes it into the parameters, which is what lets every render path stay
+    ///   ignorant of it), so there is nothing on the frame under the pointer for a `K`
+    ///   drag to move. The Look panel's Amount slider sets what the NEXT apply lands at;
+    ///   `K` needs an amount that lives on the frame, which means a field on `Look` read
+    ///   at one choke point in the plan — see `LookSubset.applied(to:)`'s closing
+    ///   paragraph for what that costs. Until it exists, `K` must not be wired: a hold
+    ///   that resolves to `.edit` and then writes nothing is worse than an unbound key,
+    ///   because it also swallows whatever `K` would otherwise have done.
     public enum Parameter: String, CaseIterable, Sendable {
         case exposure, contrast, highlights, shadows, temp, tint, lookAmount, maskAmount
 
@@ -48,12 +66,29 @@ public enum SpeedEdit {
         /// The parameter's full travel, used to turn a drag across the window into a
         /// change that feels the same on every control. Exposure is in stops and
         /// everything else is in panel units, which is why this is not one constant.
+        ///
+        /// EVERY RANGE HERE MUST BE THE PANEL CONTROL'S OWN, because `value(from:…)`
+        /// clamps to it: a range short of the slider's does not scale the drag, it
+        /// AMPUTATES the control, and it does so silently — the readout stops at a
+        /// number that is not the end of anything the photographer can see.
+        ///
+        /// `maskAmount` was 0…100 and the mask Amount slider has always been 0…200
+        /// (`MaskPanel`'s row, `Mask.amount`'s own "0…200 multiplier over the whole
+        /// adjust set", and `ReferenceRenderer.applyLocalAdjust`'s clamp all say so).
+        /// Half of that control's travel — the whole over-100 half, which is what the
+        /// D29 multiplier exists FOR — was unreachable by hold-and-drag. It was invisible
+        /// because nothing dispatches these yet; it would not have been invisible for
+        /// long.
+        ///
+        /// `lookAmount` is 0…100 and matches `LookSubset.amountRange`, which is the range
+        /// the Look panel's own Amount slider draws.
         public var range: ClosedRange<Double> {
             switch self {
             case .exposure: return -5...5
             case .temp: return 2000...50000
             case .tint: return -150...150
-            case .lookAmount, .maskAmount: return 0...100
+            case .lookAmount: return LookSubset.amountRange
+            case .maskAmount: return 0...200
             case .contrast, .highlights, .shadows: return -100...100
             }
         }

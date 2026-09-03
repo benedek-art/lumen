@@ -318,6 +318,22 @@ public enum MaskHandles {
         case startBand
         /// The band line through the far end.
         case endBand
+        /// Turn the whole gradient about its midpoint. The band OUTSIDE the strip, on
+        /// either side — the same span, and for the same reason, as the radial's.
+        ///
+        /// THE GRADIENT HAD NO ROTATE AFFORDANCE AT ALL, and that is the finding this
+        /// case closes. Turning it meant grabbing one of the two 11 pt endpoint dots,
+        /// which also changes the spread and pivots on the far end rather than on the
+        /// middle — so "turn this a few degrees" was a target of 380 pt² that moved the
+        /// gradient while you used it. The radial was given a rotate band out of exactly
+        /// this buffer, with exactly this argument written above `newShapeClearance`
+        /// ("rotating is the better answer for a press OUTSIDE a shape whose inside
+        /// already moves it"), and the gradient was left behind — one shape learned the
+        /// grammar and the other did not.
+        ///
+        /// Nothing is lost by spending the buffer here: the buffer existed so a near
+        /// miss on a band line could not create a stray gradient, and it still cannot.
+        case rotate
         /// Discard this gradient and draw a new one from the drag.
         case create
     }
@@ -359,20 +375,167 @@ public enum MaskHandles {
         let ex = Double(press.x - end.x)
         let ey = Double(press.y - end.y)
         let toEnd = (ex * ex + ey * ey).squareRoot()
-        if toStart <= grabRadius { return .startHandle }
-        if toEnd <= grabRadius { return .endHandle }
+        // NEAREST WINS BETWEEN THE TWO DOTS, rather than the first one written down.
+        // The two tests used to run in source order, so on a gradient drawn shorter than
+        // one grab radius — which is exactly what the caller's `minimumSpan` clamp
+        // allows, it stops the two ends at `grabRadius` apart and no closer — a press
+        // dead on the FAR dot was still inside the near dot's tolerance and answered
+        // `.startHandle`. The end you were pointing at could not be grabbed at all, and
+        // which one you got depended on which line came first in this function rather
+        // than on where your hand was. Ordering by distance is the same rule
+        // `MaskCanvas.grabbedPoint` and `grabbedVertex` already use for overlapping
+        // targets: among things you are on, the nearest is the one you meant.
+        if toStart <= grabRadius || toEnd <= grabRadius {
+            return toStart <= toEnd ? .startHandle : .endHandle
+        }
         if abs(along) <= grabRadius { return .startBand }
         if abs(along - length) <= grabRadius { return .endBand }
 
-        // Inside the strip, or outside it by less than the buffer: still this gradient.
+        // Inside the strip: still this gradient, and a press there moves it.
         if along > 0, along < length { return .move }
+        // Outside it by less than the buffer: TURN IT. See `LinearGrab.rotate` — this is
+        // the radial's band, arrived at by the radial's argument, on the shape that was
+        // left out of it.
         if along >= -newShapeClearance, along <= length + newShapeClearance {
-            return .move
+            return .rotate
         }
         return .create
     }
 
+    // MARK: - Precedence against another mask's pin
+
+    /// Whether a press that took hold of THIS part of the mask being edited outranks
+    /// another mask's pin sitting under the same point.
+    ///
+    /// THE PIN USED TO WIN UNCONDITIONALLY, and that is a handle-priority defect rather
+    /// than a policy. `MaskCanvas` tests every foreign pin FIRST, with the same 11 pt
+    /// radius everything else here uses, so a pin that happened to land within 11 pt of
+    /// the rim you were reaching for — and pins sit at the CENTRE of their own mask, so
+    /// two masks placed over the same subject put one squarely inside the other's shape
+    /// — swallowed the press, switched the selection out from under you, and threw the
+    /// drag away. The pin is not drawn on top of anything in the sense that matters:
+    /// both are 11 pt discs and the tie was being broken by which test ran first.
+    ///
+    /// The rule is which press is more specifically about what. A press that has landed
+    /// on a NAMED handle of the shape you are actively editing — a rim, a band line, an
+    /// endpoint, the feather ring, the rotate band — is about that handle; there is
+    /// nothing else it could plausibly mean, and losing it costs the drag. A press that
+    /// resolves to `.move` or `.create` is about a region rather than a target — the
+    /// whole interior of a gradient's strip is `.move` — so a pin inside it is still the
+    /// more specific thing to have aimed at, and it keeps the press.
+    public static func outranksPin(_ grab: LinearGrab) -> Bool {
+        switch grab {
+        case .startHandle, .endHandle, .startBand, .endBand, .rotate: return true
+        case .move, .create: return false
+        }
+    }
+
+    /// The same rule for an ellipse. `.move` is the interior — half the radius — and
+    /// `.create` is open canvas; both lose to a pin, everything named wins.
+    public static func outranksPin(_ grab: RadialGrab) -> Bool {
+        switch grab {
+        case .resizeMajor, .resizeMinor, .feather, .rotate: return true
+        case .move, .create: return false
+        }
+    }
+
+    // MARK: - Turning a gradient
+
+    /// The two endpoints after a rotate drag: both swung about `pivot` by the angle the
+    /// pointer swept from `from` to `to`.
+    ///
+    /// THE SWEPT ANGLE, not the pointer's absolute angle, for the reason the radial's
+    /// rotate branch already gives: taking the absolute angle snaps the axis under the
+    /// finger the instant the band is touched, which is a jump of up to 180° for a
+    /// gesture whose whole purpose is a few degrees. And the pivot is the MIDPOINT
+    /// rather than an endpoint, because the midpoint is where the gradient's pin is
+    /// drawn and is the only point on the shape that a turn should leave where it is —
+    /// pivoting on an endpoint sends the other end across the frame.
+    ///
+    /// `snap` constrains the AXIS to a multiple of `angleSnapDegrees`, not the sweep:
+    /// snapping the sweep would make the result depend on where the gradient started,
+    /// so ⇧ would land on 15° stops measured from an arbitrary origin instead of from
+    /// the horizon. The same twenty-four stops `snapped` uses, so ⇧ means one thing.
+    ///
+    /// Length is preserved exactly — it is a rotation — which is what makes this safe to
+    /// run every event of a drag against the geometry the press started with.
+    public static func turnedLine(start: CGPoint, end: CGPoint, pivot: CGPoint,
+                                  from: CGPoint, to: CGPoint,
+                                  snap: Bool = false,
+                                  step: Double = angleSnapDegrees)
+        -> (start: CGPoint, end: CGPoint) {
+        let fx = Double(from.x - pivot.x), fy = Double(from.y - pivot.y)
+        let tx = Double(to.x - pivot.x), ty = Double(to.y - pivot.y)
+        guard fx.isFinite, fy.isFinite, tx.isFinite, ty.isFinite,
+              start.x.isFinite, start.y.isFinite, end.x.isFinite, end.y.isFinite
+        else { return (start, end) }
+        // A press ON the pivot has no angle, and `atan2(0, 0)` is 0 rather than an
+        // error — so without this a drag that began at the midpoint would measure its
+        // sweep from the positive x axis and snap the gradient there on the first event.
+        guard (fx * fx + fy * fy) > 1e-12, (tx * tx + ty * ty) > 1e-12 else {
+            return (start, end)
+        }
+        var turn = atan2(ty, tx) - atan2(fy, fx)
+        guard turn.isFinite else { return (start, end) }
+
+        if snap, step > 0 {
+            let axis = atan2(Double(end.y - start.y), Double(end.x - start.x))
+            guard axis.isFinite else { return (start, end) }
+            let wanted = (axis + turn) * 180 / Double.pi
+            turn = (wanted / step).rounded() * step * Double.pi / 180 - axis
+            guard turn.isFinite else { return (start, end) }
+        }
+
+        let c = cos(turn), s = sin(turn)
+        func swung(_ p: CGPoint) -> CGPoint {
+            let dx = Double(p.x - pivot.x), dy = Double(p.y - pivot.y)
+            return CGPoint(x: pivot.x + CGFloat(dx * c - dy * s),
+                           y: pivot.y + CGFloat(dx * s + dy * c))
+        }
+        return (swung(start), swung(end))
+    }
+
+    // MARK: - Drawing a new gradient
+
+    /// The two endpoints a create drag lays down, with the two modifiers every
+    /// competitor spells the same way applied to it.
+    ///
+    /// ⌥ DRAWS FROM THE CENTRE, and its absence here was the asymmetry: the radial has
+    /// had ⌥-from-centre since it was written and the gradient never did, so the same
+    /// key meant "centre the shape on the press" on one tool and nothing on the other.
+    /// Placing a gradient's midpoint is the commoner intent of the two — a gradient is
+    /// aimed at the horizon it straddles — and there was no way to ask for it.
+    ///
+    /// ⇧ constrains the direction to `angleSnapDegrees`, which is `snapped`'s job and is
+    /// applied to the far end BEFORE the centring reflection so the two compose: ⇧⌥
+    /// draws a snapped gradient centred on the press rather than a snapped one whose
+    /// reflection has drifted off the stop.
+    public static func drawnLine(from press: CGPoint, to pointer: CGPoint,
+                                 fromCentre: Bool, snap: Bool)
+        -> (start: CGPoint, end: CGPoint) {
+        let far = snap ? snapped(pointer, anchor: press) : pointer
+        guard fromCentre else { return (press, far) }
+        return (CGPoint(x: press.x - (far.x - press.x),
+                        y: press.y - (far.y - press.y)), far)
+    }
+
     // MARK: - Creating
+
+    /// How far apart two recorded lasso vertices have to be, IN VIEW POINTS.
+    ///
+    /// It was 0.002 of the source frame, and that is a zoom-coupling defect of exactly
+    /// the kind this file's header warns about: a fixed fraction of the SOURCE is a
+    /// different number of screen points at every magnification. At fit-to-window on a
+    /// 6000 px frame it is a little over two points and the thinning is invisible; at
+    /// 4:1 the same fraction is 48 screen points, so a hand tracing a curve records one
+    /// vertex every 48 points and the lasso comes back a coarse polygon — the tool gets
+    /// less accurate exactly as the photographer zooms in to be more accurate.
+    ///
+    /// Three points is below what a hand can hold steady and above the sub-pixel noise
+    /// a trackpad reports, so the thinning still does the job it was added for: a 45 MP
+    /// frame at 120 Hz records several thousand samples across one sweep, and every one
+    /// is a vertex the rasterizer walks at every pixel inside the bounding box.
+    public static let traceStep: Double = 0.002
 
     /// Whether a create gesture has travelled far enough to be a shape rather than a
     /// click. See `minimumDrawTravel`: below this the caller must leave the component

@@ -29,6 +29,13 @@
 #if os(macOS)
 
 import SwiftUI
+// For `FacetCounts` and `PhotoQuery`. The counts beside these chips are the
+// catalog's answer to the grid's own query now, not a pass over the roll, so
+// this file names catalog types for the first time. `ColorLabel` and
+// `PhotoFlag` still mean the app's enums here — a declaration in this module
+// shadows the imported one — which is why the two are mapped explicitly through
+// `CatalogService.coreLabel` / `coreFlag` rather than left to read alike.
+import LumenCore
 
 struct FilterBar: View {
     @EnvironmentObject var state: AppState
@@ -36,6 +43,30 @@ struct FilterBar: View {
     private static let labelOrder: [ColorLabel] = [.red, .yellow, .green, .blue, .purple]
 
     @State private var showingFilters = false
+
+    /// The numbers beside the chips, counted by the catalog through the query the grid
+    /// runs. Empty until the popover asks, which is the only place any of them is drawn.
+    @State private var facets = FacetCounts()
+
+    /// Whether `facets` has been read yet, which an empty `facets` cannot say for
+    /// itself — "counted, and this folder has no lens in it" and "not counted yet" are
+    /// the same empty list and the opposite message. The menu is in the second state
+    /// for the round trip after it opens, because these are read when the popover
+    /// appears rather than kept warm behind it, and telling the photographer no lens
+    /// has been read while the answer is in flight is the kind of small lie this whole
+    /// pass is about.
+    @State private var facetsCounted = false
+
+    /// The source `facets` was counted against — folder plus album, the two things that
+    /// change WHICH photographs are being counted rather than merely which of them the
+    /// filter keeps.
+    ///
+    /// A criterion change keeps the previous numbers on screen for the round trip: they
+    /// are this folder's, one filter out of date, and they are replaced before the
+    /// pointer has moved. A SOURCE change must not, because the previous shoot's
+    /// numbers under this shoot's chips is the same lie in a smaller window, and this
+    /// whole pass is about that lie.
+    @State private var countedSource: String?
 
     var body: some View {
         // ONE row of five controls, where there were two rows of fourteen (docs/28
@@ -153,6 +184,65 @@ struct FilterBar: View {
         }
         .padding(14)
         .frame(width: 320, alignment: .leading)
+        // ON THE POPOVER, because the popover is the only thing that draws a count.
+        // An honest count is a statement per value offered rather than one GROUP BY
+        // over the axis (see `CatalogStore.facetDomain`), so where it is asked from
+        // matters: here it is one burst when the sheet opens and one more per chip
+        // clicked, and never anything at all while the photographer is culling.
+        .task(id: countRequest) { await loadFacetCounts() }
+    }
+
+    /// What the numbers depend on, so `.task(id:)` reloads them exactly when they go
+    /// stale and never on a redraw that changed nothing.
+    ///
+    /// `culling` is in here because a flag, star or label written from the keyboard
+    /// changes every count in the popover while changing none of the criteria — and
+    /// `AppState.cullCounts` is already memoised against precisely that, so reading it
+    /// is free and it moves exactly when the roll's cull state does.
+    private struct CountRequest: Equatable {
+        var filter: LibraryFilter
+        var folderPath: String?
+        var albumID: Int64?
+        var culling: AppState.CullCounts
+    }
+
+    private var countRequest: CountRequest {
+        CountRequest(filter: state.filter,
+                     folderPath: state.folderURL?.path,
+                     albumID: state.selectedCollectionID,
+                     culling: state.cullCounts)
+    }
+
+    /// THE SAME QUERY THE GRID IS RUNNING, handed to the counter unchanged.
+    ///
+    /// `filter.query(sort:ascending:albumID:)` is what `AppState.refreshLibraryQuery`
+    /// builds, and it is called here with the same three arguments on purpose: a second
+    /// hand-assembled query would be a second definition of what is on screen, and two
+    /// definitions of what is on screen is the whole defect this closes.
+    private func loadFacetCounts() async {
+        guard let catalog = state.catalog, let folder = state.folderURL else {
+            facets = FacetCounts()
+            facetsCounted = true
+            countedSource = nil
+            return
+        }
+        let source = folder.path + "#"
+            + (state.selectedCollectionID.map { String($0) } ?? "")
+        if countedSource != source {
+            facets = FacetCounts()
+            facetsCounted = false
+        }
+        let query = state.filter.query(sort: state.sortOrder,
+                                       ascending: state.sortAscending,
+                                       albumID: state.selectedCollectionID)
+        let counted = await catalog.facetCounts(for: query, folderPath: folder.path)
+        // A chip clicked while the counts were in flight has already asked for its own
+        // pass; letting this one land would put the previous filter's numbers under the
+        // new filter's chips for as long as the newer read takes.
+        guard !Task.isCancelled else { return }
+        facets = counted
+        facetsCounted = true
+        countedSource = source
     }
 
     private func popoverGroup<Content: View>(
@@ -313,31 +403,33 @@ struct FilterBar: View {
                 VStack(alignment: .leading, spacing: 1) {
                     Group {
                         LumenMenuHeader(title: "Camera")
-                        if state.cameraChoices.isEmpty {
-                            LumenMenuItem(title: "No camera has been read yet",
+                        if facets.cameras.isEmpty {
+                            LumenMenuItem(title: facetsCounted
+                                              ? "No camera has been read yet" : "Counting…",
                                           isEnabled: false) {}
                         }
-                        ForEach(state.cameraChoices) { camera in
-                            LumenMenuItem(title: camera.name,
+                        ForEach(facets.cameras, id: \.value) { camera in
+                            LumenMenuItem(title: camera.value,
                                           detail: "\(camera.count)",
                                           isSelected: state.filter.cameras
-                                              .contains(camera.name)) {
-                                toggle(&state.filter.cameras, camera.name)
+                                              .contains(camera.value)) {
+                                toggle(&state.filter.cameras, camera.value)
                             }
                         }
                     }
                     Group {
                         LumenMenuHeader(title: "Lens")
-                        if state.lensChoices.isEmpty {
-                            LumenMenuItem(title: "No lens has been read yet",
+                        if facets.lenses.isEmpty {
+                            LumenMenuItem(title: facetsCounted
+                                              ? "No lens has been read yet" : "Counting…",
                                           isEnabled: false) {}
                         }
-                        ForEach(state.lensChoices) { lens in
-                            LumenMenuItem(title: lens.name,
+                        ForEach(facets.lenses, id: \.value) { lens in
+                            LumenMenuItem(title: lens.value,
                                           detail: "\(lens.count)",
                                           isSelected: state.filter.lenses
-                                              .contains(lens.name)) {
-                                toggle(&state.filter.lenses, lens.name)
+                                              .contains(lens.value)) {
+                                toggle(&state.filter.lenses, lens.value)
                             }
                         }
                     }
@@ -353,16 +445,17 @@ struct FilterBar: View {
                     }
                     Group {
                         LumenMenuHeader(title: "Keyword")
-                        if state.keywordVocabulary.isEmpty {
-                            LumenMenuItem(title: "No keywords yet",
+                        if facets.keywords.isEmpty {
+                            LumenMenuItem(title: facetsCounted
+                                              ? "No keywords yet" : "Counting…",
                                           isEnabled: false) {}
                         }
-                        ForEach(state.keywordVocabulary) { keyword in
-                            LumenMenuItem(title: keyword.name,
+                        ForEach(facets.keywords, id: \.value) { keyword in
+                            LumenMenuItem(title: keyword.value,
                                           detail: "\(keyword.count)",
                                           isSelected: state.filter.keywords
-                                              .contains(keyword.name)) {
-                                toggle(&state.filter.keywords, keyword.name)
+                                              .contains(keyword.value)) {
+                                toggle(&state.filter.keywords, keyword.value)
                             }
                         }
                     }
@@ -595,25 +688,68 @@ struct FilterBar: View {
 
     // MARK: Counts
 
-    // Flag, rating and label counts come from the roll in memory, which holds the
-    // culling state a keystroke has already written. Asking the catalog would be one
-    // round trip per chip per keystroke to arrive at the same number one frame later.
+    // THE RULE, and it is the only one: the number beside a facet is the number of
+    // rows you get when you click it.
     //
-    // Through `AppState.cullCounts` — ONE memoised pass — because this bar is on
-    // screen in every view mode and these three used to be fourteen separate reduces
-    // over the whole roll per body evaluation, re-run on every publish.
+    // None of these followed it. Flag, rating and label counts came from
+    // `AppState.cullCounts` — one memoised pass over the roll, correct as bookkeeping
+    // and wrong as a promise, because the roll is the FOLDER and the grid is the folder
+    // as every lit chip has already narrowed it. "★4 · 37" beside a bar that was also
+    // filtering on a camera clicked through to six frames. The metadata menu was worse
+    // in the other direction: its keyword numbers came from `allKeywords()`, which
+    // groups `photo_keyword` over the whole catalog — every folder ever opened — so a
+    // term used all season read in the thousands beside a chip that returned eleven.
+    //
+    // All of them now read one `FacetCounts`, produced by `CatalogStore.facetCounts(for:)`
+    // from the SAME `PhotoQuery` the grid ran, with one criterion swapped for the value
+    // being offered. The count and the result are not two queries that agree; they are
+    // one query. What "click it" means precisely — the value as the sole selection of
+    // its own criterion, every other criterion untouched — is written out once, on that
+    // method, so this file and the tests cannot read it two different ways.
+    //
+    // The counts DID have to leave `cullCounts` to do it, and the round trip that note
+    // warned about is real. It is paid where it cannot be felt: only while the popover
+    // that draws these numbers is open, never on the culling path, and `cullCounts`
+    // stays exactly where it was for the status bar and the cell badges, which are
+    // bookkeeping rather than promises.
 
     private func flagCount(_ flag: PhotoFlag) -> Int {
-        state.cullCounts.flags[flag] ?? 0
+        guard state.isLibraryQueryLive else {
+            return memoryCount { $0.flags = [flag] }
+        }
+        return facets.flags[CatalogService.coreFlag(flag)] ?? 0
     }
 
     private func ratingCount(_ minimum: Int) -> Int {
         guard (1...5).contains(minimum) else { return 0 }
-        return state.cullCounts.ratingAtLeast[minimum]
+        guard state.isLibraryQueryLive else {
+            return memoryCount { $0.minRating = minimum }
+        }
+        return facets.ratingAtLeast[minimum]
     }
 
     private func labelCount(_ label: ColorLabel) -> Int {
-        state.cullCounts.labels[label] ?? 0
+        guard state.isLibraryQueryLive else {
+            return memoryCount { $0.labels = [label] }
+        }
+        // "Unlabelled" is its own number rather than a sixth colour, because it is its
+        // own predicate: `label IN (…)` can never match the NULL an unlabelled
+        // photograph stores.
+        guard let core = CatalogService.coreLabel(label) else { return facets.unlabeled }
+        return facets.labels[core] ?? 0
+    }
+
+    /// The same rule, evaluated the only way a session with no catalog can.
+    ///
+    /// Through `LibraryFilter.matches`, which is the exact predicate `memoryOrdered()`
+    /// builds the grid from — so the number and the grid are one thing in this mode
+    /// too, rather than honest in the catalog lane and folklore outside it. It is a
+    /// pass over the roll per chip, which is what the memory path costs for everything
+    /// and is bounded by a session small enough to have no catalog behind it.
+    private func memoryCount(_ click: (inout LibraryFilter) -> Void) -> Int {
+        var clicked = state.filter
+        click(&clicked)
+        return state.allPhotos.filter(clicked.matches).count
     }
 
     // MARK: Mutation

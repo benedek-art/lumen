@@ -106,6 +106,32 @@
 // different question with a different answer. And a LUT is the most look-shaped thing
 // there is, so the day a LUT stage lands, looks carry it with no change here and no
 // second dead-field decision to unwind.
+//
+// HOW MUCH OF IT LANDS — `amount`, and why it is a property of the LOOK rather than of
+// the photograph.
+//
+// Every competitor ships one: Lightroom's profile/preset Amount, DxO's intensity,
+// darktable's per-module opacity. It is how a film emulation goes from the 100% the
+// stock was measured at to the 40% a wedding set can actually take, and Lumen had looks
+// with no way to dial one back at all. `SpeedEdit.Parameter.lookAmount` has named the
+// control since docs/12 §12.4 was written; this is the field it names.
+//
+// It is on the SUBSET, not on `Look`, and that is a real limitation rather than a
+// preference — see the note on `applied(to:)`. The amount is baked into the parameters
+// as the look lands, so no stage reads it and no render path had to learn a new word:
+// every engine downstream sees a legitimate, whole Look, which is exactly what
+// Lightroom's preset Amount does and the reason it composes with the film chain, the
+// grade, the transform and the grain for free.
+//
+// The rule is one sentence, and it is Lightroom's: MAGNITUDES INTERPOLATE, CATEGORICALS
+// LAND WHOLE. A grading wheel's saturation, a printer light, a vignette, a film stock's
+// Strength, a band of a B&W mix — all of those are quantities, and 40% of one is a
+// meaningful thing to ask for. A stock's NAME is not a quantity; neither is "this frame
+// is black and white", nor which display-transform curve is in force. Nothing in the
+// Look layer can express half a monochrome conversion or a crossfade between two
+// emulsions, so an amount that pretended to would be inventing a rendering the pipeline
+// cannot produce. `blended(from:toward:amount:)` is the rule and every field's side of
+// it is argued at the line that implements it.
 
 import Foundation
 
@@ -128,10 +154,22 @@ public struct LookSubset: Codable, Equatable, Sendable {
     /// The pipeline version of the recipe this slice was taken from.
     public var pipelineVersion: Int
     public var look: Look
+    /// How much of this look lands, 0…100. See the header, and `applied(to:)`.
+    ///
+    /// The DEFAULT IS FULL, and that is the whole of the migration story: a look saved
+    /// before this field existed was saved at full strength, so an absent key has to
+    /// read as 100. Reading it as 0 — which is what a `Double` gains by default, and
+    /// what every "add a field, forget the decoder" bug in this format would have
+    /// produced — would silently un-apply every look in every catalog on first open,
+    /// and would do it quietly, because a look that lands as nothing looks exactly like
+    /// a look that was never applied.
+    public var amount: Double
 
-    public init(pipelineVersion: Int = currentPipelineVersion, look: Look = Look()) {
+    public init(pipelineVersion: Int = currentPipelineVersion, look: Look = Look(),
+                amount: Double = LookSubset.fullAmount) {
         self.pipelineVersion = pipelineVersion
         self.look = look
+        self.amount = amount
     }
 
     // MARK: - The partition, as data
@@ -163,6 +201,307 @@ public struct LookSubset: Codable, Equatable, Sendable {
     /// The look this recipe expresses.
     public static func extracted(from recipe: Recipe) -> LookSubset {
         LookSubset(pipelineVersion: recipe.pipelineVersion, look: recipe.look)
+    }
+
+    // MARK: - How much of it lands
+
+    /// The whole look. The default, the value every look saved before `amount` existed
+    /// is read at, and the one value at which `applied(to:)` does not blend at all.
+    public static let fullAmount: Double = 100
+
+    /// What the slider and the speed edit may ask for. Named here rather than spelled
+    /// as a literal at each of the three sites that need it (`LookPanel`'s row,
+    /// `SpeedEdit.Parameter.lookAmount.range`, and this file's own clamp), because a
+    /// control whose bounds are stated in three places is a control that will one day
+    /// be draggable past what the model accepts.
+    public static let amountRange: ClosedRange<Double> = 0...100
+
+    /// An amount from anywhere — a slider, a decoder, a hand-edited sidecar — reduced to
+    /// one this file will act on.
+    ///
+    /// A non-finite amount reads as FULL rather than as zero, on the same grounds as the
+    /// absent key: every unreadable answer to "how much of this look" has to fail toward
+    /// the look being there. `NaN` compares false against every bound, so without this
+    /// guard it would slip past a bare `clamp` and then poison every `Num.mix` below it,
+    /// turning a whole look into NaN — which renders as black rather than as nothing.
+    public static func clampedAmount(_ raw: Double) -> Double {
+        guard raw.isFinite else { return LookSubset.fullAmount }
+        return Num.clamp(raw, LookSubset.amountRange.lowerBound,
+                         LookSubset.amountRange.upperBound)
+    }
+
+    /// One look, `amount` percent of the way from another.
+    ///
+    /// PUBLIC AND SEPARATE FROM `applied(to:)` for the reason `carriedRenderPreset` is:
+    /// it is the rule, it is the part that can be wrong in a way no crash reports, and
+    /// it has to be assertable on its own. `applied(to:)` is plumbing around it.
+    ///
+    /// The two ends are EXACT, by early-out and not by arithmetic. 0 returns `own`
+    /// untouched and 100 returns `carried` untouched — the same objects, not values that
+    /// happen to compare equal — so a look applied at full strength produces the byte
+    /// sequence it produced before this field existed and every pinned render in
+    /// docs/proof stays pinned. The interior does trigonometry (see `blendedWheel`), and
+    /// trigonometry does not round-trip exactly; putting the ends outside it is what
+    /// keeps that from costing a fingerprint.
+    public static func blended(from own: Look, toward carried: Look,
+                               amount raw: Double) -> Look {
+        let t = LookSubset.clampedAmount(raw) / LookSubset.fullAmount
+        guard t > 0 else { return own }
+        guard t < 1 else { return carried }
+
+        // Starting from `carried` rather than from `own` is the categorical half of the
+        // rule, applied by construction: anything not touched below — `render.preset`,
+        // `lut`, a film stock's name, the B&W treatment's switch — is the look's own,
+        // whole, at any amount above zero.
+        var out = carried
+        out.wheels = LookSubset.blendedWheels(from: own.wheels, toward: carried.wheels, t: t)
+        // Printer lights are INTEGER stops on a printer's dial and there is no half
+        // stop: the panel steps them, the engine indexes gains by them. Rounded rather
+        // than truncated so a light walks toward the look's value from both directions.
+        out.printerLights = PrinterLights(
+            master: LookSubset.blendedStop(own.printerLights.master,
+                                           carried.printerLights.master, t),
+            r: LookSubset.blendedStop(own.printerLights.r, carried.printerLights.r, t),
+            g: LookSubset.blendedStop(own.printerLights.g, carried.printerLights.g, t),
+            b: LookSubset.blendedStop(own.printerLights.b, carried.printerLights.b, t))
+        out.primaries = LookSubset.blendedPrimaries(from: own.primaries,
+                                                    toward: carried.primaries, t: t)
+        out.vignette = Num.mix(own.vignette, carried.vignette, t)
+        out.vignetteFeather = Num.mix(own.vignetteFeather, carried.vignetteFeather, t)
+        out.filmLab = LookSubset.blendedFilm(from: own.filmLab, toward: carried.filmLab, t: t)
+        out.bw = LookSubset.blendedTreatment(from: own.bw, toward: carried.bw, t: t)
+        // Through `normalized` for the reason `CreativeGrain` states at length: nil has
+        // to be the only spelling of "no creative grain", or a look landing at 1% would
+        // write a present-but-default grain block whose picture is identical and whose
+        // `recipe_fp` is not — throwing away every preview keyed on the old one.
+        out.grain = CreativeGrain.normalized(
+            LookSubset.blendedGrain(from: own.grain, toward: carried.grain, t: t))
+        out.render = LookSubset.blendedRender(from: own.render, toward: carried.render, t: t)
+        return out
+    }
+
+    /// A grade, part of the way to another grade.
+    ///
+    /// Zone geometry — pivots, blending, balance — INTERPOLATES here, where
+    /// `GradingWheels.scalingShift` deliberately leaves it alone, and the difference is
+    /// not an inconsistency. `scalingShift` scales a delta toward zero, and "where the
+    /// zones sit" has no zero to scale toward. This is a walk between two complete
+    /// grades, both of which state a geometry, so the only rule that arrives at the
+    /// look's own answer at 100 is one that moves every field.
+    private static func blendedWheels(from own: GradingWheels, toward carried: GradingWheels,
+                                      t: Double) -> GradingWheels {
+        var out = carried
+        out.global = LookSubset.blendedWheel(from: own.global, toward: carried.global, t: t)
+        out.shadows = LookSubset.blendedWheel(from: own.shadows, toward: carried.shadows, t: t)
+        out.mid = LookSubset.blendedWheel(from: own.mid, toward: carried.mid, t: t)
+        out.high = LookSubset.blendedWheel(from: own.high, toward: carried.high, t: t)
+        out.blending = Num.mix(own.blending, carried.blending, t)
+        out.balance = Num.mix(own.balance, carried.balance, t)
+        // Indexed against the look's own list rather than zipped, so the result always
+        // has the shape the look declared even if a hand-edited sidecar handed the
+        // target a pivot list of a different length (`RecipeWire.fixedLength` makes that
+        // unreachable through the decoder; nothing makes it unreachable through the API).
+        out.pivots = carried.pivots.enumerated().map { index, pivot in
+            index < own.pivots.count ? Num.mix(own.pivots[index], pivot, t) : pivot
+        }
+        out.colorBalance = LookSubset.blendedGrid(from: own.colorBalance,
+                                                  toward: carried.colorBalance, t: t)
+        return out
+    }
+
+    /// One wheel, part of the way to another — INTERPOLATED AS A PUCK ON THE DISC, which
+    /// is the only reading of a grading wheel that does not change the colour as the
+    /// amount comes down.
+    ///
+    /// `GradingWheels.scalingShift` records the finding this is built on: "scaling
+    /// [hue] would rotate the grade toward red as the mask weakened rather than weaken
+    /// it, so a mask at 50% would be a different colour rather than half as much of the
+    /// same one." Interpolating the hue ANGLE toward the target's reproduces that defect
+    /// exactly — a warm shadow at hue 18° landing on an ungraded frame at 40% would come
+    /// out at 7.2°, a different tint rather than a weaker one — and it is the obvious
+    /// implementation, which is why it is argued against here rather than left for
+    /// somebody to discover in a print.
+    ///
+    /// So the pair (hue, sat) is treated as what the control actually is: a position on
+    /// a disc, in polar coordinates. A puck slides in a straight line from where the
+    /// frame's grade sits to where the look puts it. Through the origin — the case that
+    /// matters, an ungraded target — that line holds the hue exactly and scales the
+    /// radius, which is `scalingShift`'s answer arrived at rather than special-cased.
+    /// `lum` is a signed magnitude on its own axis and simply interpolates.
+    private static func blendedWheel(from own: Wheel, toward carried: Wheel,
+                                     t: Double) -> Wheel {
+        let ownRadians = own.hue * .pi / 180
+        let carriedRadians = carried.hue * .pi / 180
+        let x = Num.mix(own.sat * cos(ownRadians), carried.sat * cos(carriedRadians), t)
+        let y = Num.mix(own.sat * sin(ownRadians), carried.sat * sin(carriedRadians), t)
+        let sat = (x * x + y * y).squareRoot()
+        // A puck at the centre has no direction, and `isNeutral` reads sat and lum
+        // only, so the angle is free. It keeps the look's rather than falling to zero,
+        // which would silently rewrite a stored hue to red on the way through.
+        let hue = sat > 0 ? Num.wrapHue(atan2(y, x) * 180 / .pi) : carried.hue
+        return Wheel(hue: hue, sat: sat, lum: Num.mix(own.lum, carried.lum, t))
+    }
+
+    /// The advanced grid, interpolated field by field — `hueShift` included.
+    ///
+    /// That hue moves where a wheel's does not, for the reason `ColorBalanceParams
+    /// .scaled` gives: this one IS the magnitude ("rotating by 0° is the identity"),
+    /// where a wheel's hue is the direction of a magnitude called `sat`.
+    private static func blendedGrid(from own: ColorBalanceParams,
+                                    toward carried: ColorBalanceParams,
+                                    t: Double) -> ColorBalanceParams {
+        func axis(_ o: ColorBalanceAxis, _ c: ColorBalanceAxis) -> ColorBalanceAxis {
+            ColorBalanceAxis(global: Num.mix(o.global, c.global, t),
+                             shadows: Num.mix(o.shadows, c.shadows, t),
+                             mid: Num.mix(o.mid, c.mid, t),
+                             high: Num.mix(o.high, c.high, t))
+        }
+        return ColorBalanceParams(hueShift: Num.mix(own.hueShift, carried.hueShift, t),
+                                  vibrance: Num.mix(own.vibrance, carried.vibrance, t),
+                                  chroma: axis(own.chroma, carried.chroma),
+                                  saturation: axis(own.saturation, carried.saturation),
+                                  brilliance: axis(own.brilliance, carried.brilliance))
+    }
+
+    /// The primary remap — eight numbers, every one of them a magnitude at zero when it
+    /// is doing nothing, so every one of them interpolates.
+    private static func blendedPrimaries(from own: Primaries, toward carried: Primaries,
+                                         t: Double) -> Primaries {
+        Primaries(rHue: Num.mix(own.rHue, carried.rHue, t),
+                  rPurity: Num.mix(own.rPurity, carried.rPurity, t),
+                  gHue: Num.mix(own.gHue, carried.gHue, t),
+                  gPurity: Num.mix(own.gPurity, carried.gPurity, t),
+                  bHue: Num.mix(own.bHue, carried.bHue, t),
+                  bPurity: Num.mix(own.bPurity, carried.bPurity, t),
+                  tintHue: Num.mix(own.tintHue, carried.tintHue, t),
+                  tintPurity: Num.mix(own.tintPurity, carried.tintPurity, t))
+    }
+
+    /// A printer light, which is a whole stop or it is nothing.
+    private static func blendedStop(_ own: Int, _ carried: Int, _ t: Double) -> Int {
+        Int(Num.mix(Double(own), Double(carried), t).rounded())
+    }
+
+    /// The film chain, part of the way.
+    ///
+    /// THE STOCK IS THE CATEGORICAL and Strength is the magnitude, which is what makes
+    /// this the easy case rather than the hard one: `FilmLab.amount` is already "0…100
+    /// blend with the neutral rendering", so a look carrying Portra at Strength 84,
+    /// landing at 40%, is Portra at Strength 33.6 — a picture the chain has always been
+    /// able to render, on a control the photographer can see move.
+    ///
+    /// TWO DIFFERENT EMULSIONS DO NOT CROSSFADE. There is one film stage and it loads
+    /// one stock; a target already wearing Tri-X, handed a Portra look at 40%, gets
+    /// Portra at Strength 40% of the look's — not a chemistry that does not exist. The
+    /// jump is real and it is stated rather than smoothed, because the alternative is a
+    /// picture no combination of controls in the app could reproduce.
+    ///
+    /// `halationSize`, `halationRedness` and `printSize` follow the look whole. All
+    /// three are optional, and nil there means "the emulsion's own measured value" —
+    /// which is not a number this file can name (it lives on `FilmStock`), so
+    /// interpolating through it would mean inventing one and then PINNING it into the
+    /// recipe, exactly the wire-format cost `FilmLab` argues against at each of them.
+    private static func blendedFilm(from own: FilmLab?, toward carried: FilmLab?,
+                                    t: Double) -> FilmLab? {
+        guard var out = carried else {
+            // The look says no film. Fade the frame's own out by Strength rather than
+            // dropping it at the first percent, so the picture walks: at 100 the
+            // early-out in `blended` has already returned the look's nil.
+            guard var fading = own else { return nil }
+            fading.amount = Num.mix(fading.amount, 0, t)
+            return fading
+        }
+        // Only the SAME stock's numbers are a baseline to walk from; a different one's
+        // Strength describes a different chemistry, and its exposure and push are in
+        // that stock's latitude, not this one's.
+        let base = own?.stock == out.stock ? own : nil
+        out.amount = Num.mix(base?.amount ?? 0, out.amount, t)
+        out.exposure = Num.mix(base?.exposure ?? 0, out.exposure, t)
+        out.pushPull = Num.mix(base?.pushPull ?? 0, out.pushPull, t)
+        out.halation = Num.mix(base?.halation ?? 0, out.halation, t)
+        // Grain SIZE is a pitch, not a strength — it says how big the crystals are, and
+        // there is no "less big", which is the same split `GrainPlan` makes between the
+        // two fields. It walks only between two statements of it, and a frame with no
+        // stock of its own makes no such statement, so there the look's size stands and
+        // Amount alone does the fading.
+        let baseSize = base?.grain.size ?? out.grain.size
+        out.grain = FilmGrain(size: Num.mix(baseSize, out.grain.size, t),
+                              amount: Num.mix(base?.grain.amount ?? 0, out.grain.amount, t))
+        return out
+    }
+
+    /// The black-and-white treatment, part of the way — and THE ONE PART OF A LOOK THIS
+    /// AMOUNT CANNOT DIAL.
+    ///
+    /// `BlackAndWhite` is an eight-band mix plus a switch. The mix is a set of
+    /// magnitudes and interpolates; the switch is the question "is this frame
+    /// monochrome", and nothing in the Look layer can answer it halfway — there is no
+    /// partial-conversion control, and `develop.color.saturation`, which could fake one,
+    /// is on the side of the partition that does not travel. So the look's treatment
+    /// lands whole at any amount above zero and its MIX comes up from the frame's own
+    /// (or from flat, where the frame has none). A look that says colour makes the frame
+    /// colour, for the same reason and in the same direction.
+    ///
+    /// This is Lightroom's behaviour for Treatment under a preset Amount, arrived at for
+    /// the same reason rather than copied: a boolean has no 40%.
+    private static func blendedTreatment(from own: BlackAndWhite?, toward carried: BlackAndWhite?,
+                                         t: Double) -> BlackAndWhite? {
+        guard var out = carried else { return nil }
+        let base = own?.bands ?? []
+        let landing = out.bands
+        out.bands = landing.enumerated().map { index, band in
+            Num.mix(index < base.count ? base[index] : 0, band, t)
+        }
+        return out
+    }
+
+    /// Creative grain, part of the way.
+    ///
+    /// The baseline for a frame that has never been grained is `CreativeGrain()` —
+    /// amount 0, size 50, roughness 50 — and that is exactly right rather than
+    /// convenient: its own decoder argues that the middle of the two texture axes is
+    /// what "no opinion" means, so a look's grain fades in at its own size and roughness
+    /// walking out of the middle, rather than out of the finest possible grain with the
+    /// smoothest possible plate.
+    private static func blendedGrain(from own: CreativeGrain?, toward carried: CreativeGrain?,
+                                     t: Double) -> CreativeGrain? {
+        guard let carried else {
+            guard var fading = own else { return nil }
+            fading.amount = Num.mix(fading.amount, 0, t)
+            return fading
+        }
+        let base = own ?? CreativeGrain()
+        return CreativeGrain(amount: Num.mix(base.amount, carried.amount, t),
+                             size: Num.mix(base.size, carried.size, t),
+                             roughness: Num.mix(base.roughness, carried.roughness, t))
+    }
+
+    /// The display transform, part of the way — which is mostly "not at all", and the
+    /// reason is the same argument `applied(to:)` already makes about this struct.
+    ///
+    /// `preset` names a KIND OF RENDERING, not a quantity, and it is additionally the
+    /// one field in the whole look with a register rule of its own; it lands whole and
+    /// `applied(to:)` then puts it through `carriedRenderPreset` exactly as it does at
+    /// full strength. The five overrides interpolate ONLY where both sides state one.
+    /// Where either side is nil the look's answer is taken whole, because nil is not a
+    /// number — it means "follow whatever the preset says", a value that lives in
+    /// `DisplayTransformParams.preset(named:)` and changes if a preset is ever retuned.
+    /// Resolving it here to interpolate through would write all five overrides into the
+    /// recipe and pin this build's tuning of the preset forever, which is precisely what
+    /// `RenderParams` keeps them optional to avoid.
+    private static func blendedRender(from own: RenderParams, toward carried: RenderParams,
+                                      t: Double) -> RenderParams {
+        func override(_ mine: Double?, _ theirs: Double?) -> Double? {
+            guard let mine, let theirs else { return theirs }
+            return Num.mix(mine, theirs, t)
+        }
+        var out = carried
+        out.contrast = override(own.contrast, carried.contrast)
+        out.skew = override(own.skew, carried.skew)
+        out.huePreservation = override(own.huePreservation, carried.huePreservation)
+        out.blackTarget = override(own.blackTarget, carried.blackTarget)
+        out.whiteTarget = override(own.whiteTarget, carried.whiteTarget)
+        return out
     }
 
     // MARK: - Putting it onto another
@@ -238,9 +577,40 @@ public struct LookSubset: Codable, Equatable, Sendable {
     /// against each target recipe, so a selection mixing RAWs with delivered JPEGs — a
     /// real job, and the case that makes this worth guarding rather than a curiosity —
     /// gets the right answer per frame for free.
+    ///
+    /// `amount` DECIDES HOW MUCH OF IT ARRIVES, and it is spent here rather than read
+    /// by a stage. The look is interpolated onto the target's own before it is written,
+    /// so what lands in `recipe.look` is a whole, ordinary Look that every engine
+    /// downstream already knows how to render. Nothing in `RenderPlan`, `RenderGraph`,
+    /// `DisplayTransform` or `PipelineRenderer` learns a new word, no plan cache key
+    /// grows a term it could forget, and `Recipe.renderIdentity` keeps meaning exactly
+    /// what it meant.
+    ///
+    /// The two ends are exact and deliberately so. 100 takes the same three lines this
+    /// function has always been, so a look applied at full strength writes the bytes it
+    /// wrote before the field existed — no fingerprint moves and no pinned render in
+    /// docs/proof is re-baked. 0 returns the target UNTOUCHED, version included: a look
+    /// that lands as nothing has put nothing into the recipe, so there is no v2
+    /// vocabulary in it to declare, and "apply at 0" reads as the no-op a photographer
+    /// dragging a slider to the bottom expects rather than as a history step that
+    /// silently restamps the document.
+    ///
+    /// WHAT THIS SHAPE COSTS, said out loud because it is the feature's real boundary:
+    /// the amount is spent at the moment of applying and is not kept on the photograph,
+    /// so it cannot be dialled afterwards the way Film Lab Strength can. Re-applying the
+    /// same look at a second amount COMPOUNDS — 40% onto a frame already at 40% is 64%
+    /// of the way, not 40% — because the second apply walks from where the first left
+    /// the frame. Undo then re-apply is the honest gesture, and it is the same one
+    /// Lightroom's preset Amount needs once the preset row loses focus. A live,
+    /// re-draggable amount is a field on `Look` read by the engine, which is a different
+    /// and much larger change: `SpeedEdit.Parameter.lookAmount` is waiting on it.
     public func applied(to recipe: Recipe) -> Recipe {
+        let strength = LookSubset.clampedAmount(amount)
+        guard strength > 0 else { return recipe }
         var copy = recipe
-        copy.look = look
+        copy.look = strength >= LookSubset.fullAmount
+            ? look
+            : LookSubset.blended(from: recipe.look, toward: look, amount: strength)
         copy.look.render.preset = LookSubset.carriedRenderPreset(look.render.preset,
                                                                  onto: recipe.look.render.preset)
         copy.pipelineVersion = max(recipe.pipelineVersion, pipelineVersion)
@@ -286,15 +656,24 @@ public struct LookSubset: Codable, Equatable, Sendable {
     public static let maximumNameLength = 120
 
     private enum CodingKeys: String, CodingKey {
-        case pipelineVersion, look
+        case pipelineVersion, look, amount
     }
 
     /// Tolerant of a recipe written before any of these keys existed: each falls
     /// back to the default in the memberwise initializer above. See RecipeDecoding.swift.
+    ///
+    /// `amount`'s fallback is `fullAmount`, and it is the one in this decoder that would
+    /// destroy work if it were wrong. Every look in every catalog predates the key, so
+    /// the absent case is not an edge — it is all of them — and a fallback of zero would
+    /// read each of them as a look that lands as nothing. It is clamped on the way in as
+    /// well: this is the door a hand-edited sidecar comes through, and `blended` runs
+    /// `Num.mix` over forty fields with whatever arrives here.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.pipelineVersion = try c.decodeIfPresent(Int.self, forKey: .pipelineVersion)
             ?? currentPipelineVersion
         self.look = try c.decodeIfPresent(Look.self, forKey: .look) ?? Look()
+        self.amount = LookSubset.clampedAmount(
+            try c.decodeIfPresent(Double.self, forKey: .amount) ?? LookSubset.fullAmount)
     }
 }

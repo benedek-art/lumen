@@ -284,6 +284,148 @@ public final class PipelineRenderer {
         PlanTableCache.setRenderIdentity(PlanTableCache.renderIdentity(for: source.url))
     }
 
+    // MARK: - Render plans
+    //
+    // THE TWO PLANS, SIDE BY SIDE, because the promise the app makes is that they are
+    // the same picture.
+    //
+    // Each used to be spelled inline in the function that rendered through it, and the
+    // export's spelling was missing one argument: `softProof:`. So ⇧S proofed the loupe
+    // to the destination and the exported file rendered against the working space —
+    // ColorSync then converted it at write time and clipped per channel, which is the
+    // one mapping the whole proof exists to replace. The photographer approved a picture
+    // and received a different one, with nothing on any surface to say so.
+    //
+    // Two builders in one place is what lets a test hold them next to each other and ask
+    // whether they still agree; `ExportSoftProofTests` builds both from ONE settings
+    // value and compares the proof each carries, so the two cannot drift apart again
+    // without a red test rather than a wrong file.
+
+    /// The plan a PREVIEW frame renders through.
+    func previewPlan(source: any ImageSource, recipe: Recipe, draft: Bool,
+                     softProof: SoftProof?) -> RenderPlan {
+        // The photograph's identity, stamped BEFORE the plan is built: the plan's
+        // stale-table door (`PlanTableCache.pairedTableAllowingStale`) may only
+        // borrow a table this photograph rendered with — the newest entry in the
+        // slot, unqualified, is whatever photograph was edited last, which is how
+        // stepping from a B&W edit flashed the next colour frame monochrome
+        // (docs/31 round two §4).
+        Self.stampRenderIdentity(source)
+        return RenderPlan(recipe: recipe,
+                          asShotKelvin: source.asShotTemperature,
+                          asShotTint: source.asShotTint,
+                          // ONE table size for draft and settle.
+                          //
+                          // The draft used to bake at 17 and the settle at 33, and
+                          // that is not a coarser version of the same picture — it
+                          // is a different picture. Measured over 30 000 in-gamut
+                          // colours across -6…+4 EV, worst-channel display-linear
+                          // error: size 17 has a p99 of 0.1465 (37.4 of 255 levels)
+                          // against size 33's 0.0767 (19.6). Concentrated in
+                          // highlights and saturated tones, which is exactly where
+                          // a photographer is looking while they drag.
+                          //
+                          // The owner's report, unprompted and before anyone showed
+                          // him a measurement: "while I'm dragging a different
+                          // colour comes up on the screen and then when I let go it
+                          // applies something different." That is this line.
+                          //
+                          // The bake it saved is not the win it looks like either:
+                          // `PlanTableCache` already serves the whole tone,
+                          // presence, denoise, sharpening, mask and vignette
+                          // register from cache during a drag, so for most controls
+                          // this costs one bake at the start of a gesture rather
+                          // than one per frame.
+                          lutSize: LUT3D.interactiveSize,
+                          captureISO: source.captureMetadata.iso,
+                          // THE VIEWING PROOF, WHOLE — warning and paper simulation
+                          // included. This is the screen, and the screen is where an
+                          // instrument belongs.
+                          softProof: softProof,
+                          // A draft frame may ride the previous event's finish and
+                          // colour-grade tables while the exact bake lands off the
+                          // render path — this is what takes the 23.7 ms
+                          // finish bake (and the colour-grade bake on top of it,
+                          // for Whites and Blacks) out of every frame of a drag.
+                          // The settle render comes through here with draft: false
+                          // and blocks on the exact tables, so the picture at rest
+                          // never shows a stale one.
+                          allowStaleTables: draft,
+                          bandMeanHues: ColorEngine.needsMeasuredBandHues(
+                              recipe.develop.mixer)
+                              ? measuredBandMeanHues(source: source) : nil)
+    }
+
+    /// The plan an EXPORT renders through — the preview's plan at delivery quality,
+    /// carrying the proof the photographer approved.
+    ///
+    /// Everything that differs from `previewPlan` differs for a stated reason: the
+    /// delivery bakes at `LUT3D.exportSize` rather than the interactive size, it takes
+    /// its display white from the recipe being written rather than from the screen, it
+    /// never rides a stale table, and its proof has been through `deliveredProof`.
+    func exportPlan(source: any ImageSource, recipe: Recipe,
+                    using exportRecipe: ExportRecipe,
+                    softProof: SoftProof?) -> RenderPlan {
+        Self.stampRenderIdentity(source)
+        return RenderPlan(recipe: recipe,
+                          asShotKelvin: source.asShotTemperature,
+                          asShotTint: source.asShotTint,
+                          // Not `hdr?.whiteTargetPercent`: raising the ceiling to
+                          // 400% and then encoding 8 bits clipped everything above
+                          // diffuse white. See `ExportRecipe.hdrIsWritable`.
+                          displayWhiteTarget: exportRecipe.renderWhiteTargetPercent,
+                          lutSize: LUT3D.exportSize,
+                          captureISO: source.captureMetadata.iso,
+                          softProof: Self.deliveredProof(softProof),
+                          bandMeanHues: ColorEngine.needsMeasuredBandHues(
+                              recipe.develop.mixer)
+                              ? measuredBandMeanHues(source: source) : nil)
+    }
+
+    /// The soft proof AS DELIVERED: the proofing TRANSFORM, with the two halves of the
+    /// proof that are instruments for the screen taken off.
+    ///
+    /// THE DISTINCTION IS THE WHOLE OF THIS FUNCTION, and it is the one a naive "thread
+    /// the settings through" would get wrong in a way no reader would notice until a
+    /// client opened the file.
+    ///
+    /// KEPT — `space` and `intent`. These are a decision about DATA: which primaries the
+    /// picture has to fit inside, and what happens to the colours that do not. The
+    /// perceptual intent compresses chroma toward the destination boundary along a line
+    /// of constant hue; the alternative, once the file reaches an encoder, is ColorSync
+    /// clipping each channel independently, which rotates a saturated blue toward purple.
+    /// The photographer looked at the compressed rendition and said yes to it. That is
+    /// the file they are owed.
+    ///
+    /// DROPPED — `showGamutWarning`. A flat grey painted over every pixel the
+    /// destination cannot hold is an INSTRUMENT: it exists so a photographer can find
+    /// those pixels and do something about them. Baking it into a delivery replaces the
+    /// photograph with the instrument — grey blocks where the flowers were, in a file
+    /// going to a client. No setting makes that the right answer, which is why this is
+    /// forced rather than offered.
+    ///
+    /// DROPPED — `simulatePaperWhite`. Same argument, one step less obvious. The paper
+    /// simulation compresses the picture into the print's own range (ink black to paper
+    /// white, `SoftProof.inkBlack`…`SoftProof.paperWhite`) so the screen can show how
+    /// flat the print will look. It is a simulation OF the medium, not preparation FOR
+    /// it: the paper does that compression itself, physically, and a file that arrives
+    /// with it already applied gets compressed a second time and prints muddy. The
+    /// photographer's response to a flat proof is to add contrast in Develop — and that
+    /// move IS in the recipe, so it is in the file, which is exactly the division of
+    /// labour this drop preserves.
+    ///
+    /// Note what the drops are NOT: they are not "the proof is a preview thing". The
+    /// mapping stays. `ExportSoftProofTests` asserts both halves of that sentence,
+    /// because a function that dropped everything would pass a test that only checked
+    /// the warning was gone.
+    static func deliveredProof(_ viewing: SoftProof?) -> SoftProof? {
+        guard let viewing, viewing.enabled else { return nil }
+        var delivered = viewing
+        delivered.showGamutWarning = false
+        delivered.simulatePaperWhite = false
+        return delivered
+    }
+
     // MARK: - Preview
 
     /// What a preview render hands back when the caller may have asked for a REGION:
@@ -388,53 +530,8 @@ public final class PipelineRenderer {
 
         let longEdge = Int(Swift.max(decoded.extent.width, decoded.extent.height))
         let planInterval = Self.signposter.beginInterval("plan")
-        // The photograph's identity, stamped BEFORE the plan is built: the plan's
-        // stale-table door (`PlanTableCache.pairedTableAllowingStale`) may only
-        // borrow a table this photograph rendered with — the newest entry in the
-        // slot, unqualified, is whatever photograph was edited last, which is how
-        // stepping from a B&W edit flashed the next colour frame monochrome
-        // (docs/31 round two §4).
-        Self.stampRenderIdentity(source)
-        let plan = RenderPlan(recipe: recipe,
-                              asShotKelvin: source.asShotTemperature,
-                              asShotTint: source.asShotTint,
-                              // ONE table size for draft and settle.
-                              //
-                              // The draft used to bake at 17 and the settle at 33, and
-                              // that is not a coarser version of the same picture — it
-                              // is a different picture. Measured over 30 000 in-gamut
-                              // colours across -6…+4 EV, worst-channel display-linear
-                              // error: size 17 has a p99 of 0.1465 (37.4 of 255 levels)
-                              // against size 33's 0.0767 (19.6). Concentrated in
-                              // highlights and saturated tones, which is exactly where
-                              // a photographer is looking while they drag.
-                              //
-                              // The owner's report, unprompted and before anyone showed
-                              // him a measurement: "while I'm dragging a different
-                              // colour comes up on the screen and then when I let go it
-                              // applies something different." That is this line.
-                              //
-                              // The bake it saved is not the win it looks like either:
-                              // `PlanTableCache` already serves the whole tone,
-                              // presence, denoise, sharpening, mask and vignette
-                              // register from cache during a drag, so for most controls
-                              // this costs one bake at the start of a gesture rather
-                              // than one per frame.
-                              lutSize: LUT3D.interactiveSize,
-                              captureISO: source.captureMetadata.iso,
-                              softProof: softProof,
-                              // A draft frame may ride the previous event's finish and
-                              // colour-grade tables while the exact bake lands off the
-                              // render path — this is what takes the 23.7 ms
-                              // finish bake (and the colour-grade bake on top of it,
-                              // for Whites and Blacks) out of every frame of a drag.
-                              // The settle render comes through here with draft: false
-                              // and blocks on the exact tables, so the picture at rest
-                              // never shows a stale one.
-                              allowStaleTables: draft,
-                              bandMeanHues: ColorEngine.needsMeasuredBandHues(
-                                  recipe.develop.mixer)
-                                  ? measuredBandMeanHues(source: source) : nil)
+        let plan = previewPlan(source: source, recipe: recipe, draft: draft,
+                               softProof: softProof)
         Self.signposter.endInterval("plan", planInterval)
         let rasterInterval = Self.signposter.beginInterval("rasterize")
         let graph = makeGraph(plan: plan, decoded: decoded,
@@ -536,11 +633,28 @@ public final class PipelineRenderer {
     /// Empty means every stage in the graph ran. It is not an error — a missing
     /// non-core kernel leaves a real picture with one stage absent — but it is not a
     /// success either, and the status line said "Exported N files" for both.
+    ///
+    /// `softProof` is the VIEWING proof the session has on — the same value the loupe
+    /// is rendering through — and it is threaded here rather than read from the recipe
+    /// for the reason `renderPreviewDelivery` states: a proof is a viewing mode, not an
+    /// edit. What reaches the file is `deliveredProof(_:)` of it, never the raw value.
+    ///
+    /// It DEFAULTS to nil, which this codebase is otherwise suspicious of — a defaulted
+    /// argument is a silent answer to a question the caller was never asked, and this
+    /// exact silence is what put the defect here in the first place. The default stays
+    /// because every existing caller (the goldens, the corpus suite) is asserting
+    /// something else entirely and must not have to state a proof to do it. What makes
+    /// the silence safe now is that the app's call site is one hop away in
+    /// `RenderCoordinator.export` and `ExportSoftProofTests` compares the plan this
+    /// builds against the plan the preview builds, so a call site that forgets it again
+    /// is a failing test rather than a wrong file.
     public func export(source: any ImageSource, recipe: Recipe, to destination: URL,
                        using exportRecipe: ExportRecipe,
-                       strokeSets: [String: BrushStrokeSet] = [:]) throws -> [String] {
+                       strokeSets: [String: BrushStrokeSet] = [:],
+                       softProof: SoftProof? = nil) throws -> [String] {
         let image = try exportedImage(source: source, recipe: recipe,
-                                      using: exportRecipe, strokeSets: strokeSets)
+                                      using: exportRecipe, strokeSets: strokeSets,
+                                      softProof: softProof)
         try write(image, to: destination, using: exportRecipe,
                   sourceProperties: Self.sourceImageProperties(source.url))
         return availability.unavailable
@@ -566,7 +680,8 @@ public final class PipelineRenderer {
     /// reader chose, which is a poor instrument for asking whether a stage ran.
     func exportedImage(source: any ImageSource, recipe: Recipe,
                        using exportRecipe: ExportRecipe,
-                       strokeSets: [String: BrushStrokeSet] = [:]) throws -> CIImage {
+                       strokeSets: [String: BrushStrokeSet] = [:],
+                       softProof: SoftProof? = nil) throws -> CIImage {
         // An export is a promise in a way a preview is not, so it refuses rather than
         // delivers.
         //
@@ -588,19 +703,8 @@ public final class PipelineRenderer {
             throw RenderError.decodeFailed
         }
         let longEdge = Int(Swift.max(decoded.extent.width, decoded.extent.height))
-        Self.stampRenderIdentity(source)
-        let plan = RenderPlan(recipe: recipe,
-                              asShotKelvin: source.asShotTemperature,
-                              asShotTint: source.asShotTint,
-                              // Not `hdr?.whiteTargetPercent`: raising the ceiling to
-                              // 400% and then encoding 8 bits clipped everything above
-                              // diffuse white. See `ExportRecipe.hdrIsWritable`.
-                              displayWhiteTarget: exportRecipe.renderWhiteTargetPercent,
-                              lutSize: LUT3D.exportSize,
-                              captureISO: source.captureMetadata.iso,
-                              bandMeanHues: ColorEngine.needsMeasuredBandHues(
-                                  recipe.develop.mixer)
-                                  ? measuredBandMeanHues(source: source) : nil)
+        let plan = exportPlan(source: source, recipe: recipe, using: exportRecipe,
+                              softProof: softProof)
 
         let graph = makeGraph(plan: plan, decoded: decoded,
                               sourceURL: source.url,
@@ -801,9 +905,17 @@ public final class PipelineRenderer {
 
     /// Render the SDR base and the HDR rendition off one shared graph, then derive the
     /// gain map from the pair (docs/14 §7: render twice at two peaks, cheaply).
+    ///
+    /// `softProof` is threaded and delivered through `deliveredProof(_:)` for the same
+    /// reason `exportedImage` does it: this is a DELIVERY path, and a delivery path that
+    /// silently renders unproofed is the defect that was found in the one beside it. It
+    /// has no caller today (`ExportRecipe` line 774 records that the gain-map write is
+    /// specified and unbuilt), which is precisely why the argument goes in now — the
+    /// caller that eventually arrives should not have to rediscover this.
     public func renderHDRPair(source: any ImageSource, recipe: Recipe,
                               settings: HDRSettings,
-                              strokeSets: [String: BrushStrokeSet] = [:])
+                              strokeSets: [String: BrushStrokeSet] = [:],
+                              softProof: SoftProof? = nil)
         throws -> (sdr: CIImage, hdr: CIImage) {
         guard let decoded = source.decode(recipe: recipe, draft: false, scaleFactor: 1.0) else {
             throw RenderError.decodeFailed
@@ -814,16 +926,19 @@ public final class PipelineRenderer {
 
         let hues = measuredBandMeanHues(source: source)
         Self.stampRenderIdentity(source)
+        let delivered = Self.deliveredProof(softProof)
         let sdrPlan = RenderPlan(recipe: recipe, asShotKelvin: source.asShotTemperature,
                                  asShotTint: source.asShotTint,
                                  displayWhiteTarget: 100, lutSize: LUT3D.exportSize,
                                  captureISO: source.captureMetadata.iso,
+                                 softProof: delivered,
                                  bandMeanHues: hues)
         let hdrPlan = RenderPlan(recipe: recipe, asShotKelvin: source.asShotTemperature,
                                  asShotTint: source.asShotTint,
                                  displayWhiteTarget: settings.whiteTargetPercent,
                                  lutSize: LUT3D.exportSize,
                                  captureISO: source.captureMetadata.iso,
+                                 softProof: delivered,
                                  bandMeanHues: hues)
 
         let cached = mattes[source.url]?.planes ?? [:]
@@ -999,12 +1114,34 @@ public final class PipelineRenderer {
         return image.settingProperties(properties as [AnyHashable: Any])
     }
 
+    /// THE DELIVERED PATH IS ONLY EVER CREATED BY A RENAME.
+    ///
+    /// Every encoder below used to be handed `destination` directly, so the file a
+    /// photographer is waiting for existed, at its final name, from the first byte the
+    /// encoder wrote until the last. Anything that stopped the write in between — a
+    /// full disk, an unplugged card reader, a quit, and now a cancelled batch — left a
+    /// TRUNCATED file sitting there under the right name. It opens. It shows the top
+    /// third of the photograph and grey below it, or nothing at all, and it is
+    /// indistinguishable from a finished delivery in a Finder window of two hundred.
+    ///
+    /// Worse, it is sticky: `AppStateActions.export` disambiguates against
+    /// `FileManager.fileExists`, so the wreckage permanently claims the name, and the
+    /// re-export lands beside it as `photo-1.jpg`.
+    ///
+    /// So the encode goes to a sibling temp file and the delivery is a rename.
+    /// `moveItem` within one directory is a rename — atomic on APFS and HFS+, which is
+    /// the property being bought, and the reason the temp is a SIBLING rather than
+    /// something under `NSTemporaryDirectory()`: a cross-volume move is a copy, and a
+    /// copy is the half-written file again with an extra step. Every exit that is not
+    /// the rename removes the temp, so a failed export leaves the destination directory
+    /// exactly as it found it.
     private func write(_ image: CIImage, to destination: URL,
                        using recipe: ExportRecipe,
                        sourceProperties: [String: Any]? = nil) throws {
         guard let colorSpace = Self.cgColorSpace(recipe.colorSpace) else {
             throw RenderError.unsupportedFormat(recipe.colorSpace.rawValue)
         }
+        let partial = Self.partialURL(for: destination)
         let prepared = Self.applyMetadataPolicy(image, recipe.metadata,
                                                 resolutionPPI: recipe.resolutionPPI,
                                                 sourceProperties: sourceProperties)
@@ -1014,11 +1151,12 @@ public final class PipelineRenderer {
         let options: [CIImageRepresentationOption: Any] = [qualityKey: quality]
 
         // Every branch writes `prepared`, not `image` — the metadata policy is only
-        // applied if the thing carrying it is the thing that gets encoded.
+        // applied if the thing carrying it is the thing that gets encoded. And every
+        // branch writes to `partial`, never to `destination` — see the header.
         do {
             switch recipe.format {
             case .jpeg:
-                try context.writeJPEGRepresentation(of: prepared, to: destination,
+                try context.writeJPEGRepresentation(of: prepared, to: partial,
                                                     colorSpace: colorSpace,
                                                     options: options)
             case .heif:
@@ -1034,29 +1172,64 @@ public final class PipelineRenderer {
                 // probed true, so the failing path is a recipe carried over from
                 // another machine — rare, and worth a loud error over a wrong file.
                 if recipe.effectiveBitDepth >= 10 {
-                    try context.writeHEIF10Representation(of: prepared, to: destination,
+                    try context.writeHEIF10Representation(of: prepared, to: partial,
                                                           colorSpace: colorSpace,
                                                           options: options)
                 } else {
-                    try context.writeHEIFRepresentation(of: prepared, to: destination,
+                    try context.writeHEIFRepresentation(of: prepared, to: partial,
                                                         format: .RGBA8,
                                                         colorSpace: colorSpace,
                                                         options: options)
                 }
             case .png:
                 try context.writePNGRepresentation(
-                    of: prepared, to: destination,
+                    of: prepared, to: partial,
                     format: recipe.bitDepth >= 16 ? .RGBA16 : .RGBA8,
                     colorSpace: colorSpace, options: [:])
             case .tiff:
                 try context.writeTIFFRepresentation(
-                    of: prepared, to: destination,
+                    of: prepared, to: partial,
                     format: recipe.bitDepth >= 16 ? .RGBA16 : .RGBA8,
                     colorSpace: colorSpace, options: [:])
             }
         } catch {
+            // The encoder may or may not have created the temp before it gave up; both
+            // are handled by one unconditional removal, and `try?` because a temp that
+            // was never created is not a second failure to report over the first.
+            try? FileManager.default.removeItem(at: partial)
             throw RenderError.writeFailed(destination)
         }
+
+        do {
+            if FileManager.default.fileExists(atPath: destination.path) {
+                // The batch loop disambiguates, so this is the direct caller's case (a
+                // test, a re-export to a named path). `replaceItemAt` swaps the two and
+                // consumes the temp; it is what `moveItem` cannot do over an existing
+                // file.
+                _ = try FileManager.default.replaceItemAt(destination, withItemAt: partial)
+            } else {
+                try FileManager.default.moveItem(at: partial, to: destination)
+            }
+        } catch {
+            try? FileManager.default.removeItem(at: partial)
+            throw RenderError.writeFailed(destination)
+        }
+    }
+
+    /// Where the encoder actually writes: a hidden, uniquely named sibling of the
+    /// delivery.
+    ///
+    /// A SIBLING, so the move into place is a same-directory rename rather than a
+    /// cross-volume copy. HIDDEN, because a photographer watching an export folder fill
+    /// up should not see a file appear under a name that is not the one they asked for.
+    /// UNIQUELY named, because two recipes writing the same photograph — the whole point
+    /// of the multi-recipe sheet — would otherwise collide on the temp even though
+    /// `ExportRecipe.disambiguated` kept their deliveries apart.
+    static func partialURL(for destination: URL) -> URL {
+        let unique = String(UUID().uuidString.prefix(8))
+        return destination.deletingLastPathComponent()
+            .appendingPathComponent("." + destination.lastPathComponent
+                                        + ".lumen-" + unique + ".part")
     }
 
     static func cgColorSpace(_ space: ExportColorSpace) -> CGColorSpace? {

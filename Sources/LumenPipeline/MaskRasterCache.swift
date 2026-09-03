@@ -21,6 +21,45 @@
 // mask's adjustment contributes to every frame. Dragging the mask's own feather, the
 // edge animates at the bake rate (5–10 Hz for a refined mask) behind a full-rate
 // picture. Both beat the mask not being there at all, which is what shipped.
+//
+// WHY THE SETTLE RUNG IS STILL NOT HELD, WRITTEN DOWN SO IT STOPS BEING RE-DISCOVERED.
+//
+// `store` refuses every raster above the draft proxy, so a settle — which since docs/31
+// round two §3 rasterizes at the render target's own resolution — re-folds every mask
+// in the stack from nothing, every time, at up to sixteen times the proxy's pixels.
+// That is the larger half of the 1.7–3.0 s settle after a mask edit, and holding it
+// looks like a two-line change: route anything up to
+// `DraftLadder.interactiveLongEdgeCeiling` into a second, byte-budgeted list and serve
+// it on an exact key hit.
+//
+// It is not legal yet, and the reason is in the KEY rather than in this file. THE KEY
+// IS NOT A COMPLETE FUNCTION OF THE RASTER. A `maskRef` component's alpha is another
+// mask's finished alpha — `MaskRaster.referenced` resolves it against `plan.allMasks`,
+// deliberately, including masks that are switched off — and neither that mask's
+// definition nor its stroke set appears anywhere in this mask's key
+// (`PipelineRenderer.maskRasterKey`: the photograph, THIS mask's JSON, the size, THIS
+// mask's stroke refs, the matte kind names, the picture fingerprint). So editing mask A
+// changes mask B's raster without moving B's key.
+//
+// Today that under-key is survivable precisely BECAUSE the settle rung is thrown away:
+// a draft frame can show B stale, and the settle re-folds B from nothing and repairs
+// it. Hold the settle rung and the repair stops happening — B's referenced selection
+// freezes at whatever A last looked like, in the loupe and in the delivered file, with
+// nothing badged. A cache that changes the settled picture is not an optimisation, and
+// no eviction rule inside this class can fix it: the missing dependency is invisible
+// from here, and the mask that carries it (a disabled mask, held only in `allMasks`) is
+// never a client of this cache at all, so it can never announce that it changed.
+//
+// The prerequisite is one change in the key builder, not here: `maskJSON` must become a
+// RASTER identity — the mask's components, whole-mask invert and refine chain, CLOSED
+// OVER every mask reachable through `maskRef` and their stroke sets. That also removes
+// the opposite defect in the same term, which costs a bake on every event of every
+// drag: `maskJSON` today is the WHOLE mask, so `adjust`, `amount`, `enabled`, `blend`,
+// `name` and `group` are all in the key, and not one of them touches the raster
+// (`MaskAlgebra`'s header and `MaskRaster.combine`'s both say so outright). Dragging a
+// mask's own Exposure slider therefore invalidates its raster on every mouse event and
+// re-folds it at settle resolution on release, for an edit that cannot change a pixel
+// of it.
 
 #if os(macOS)
 
@@ -102,6 +141,23 @@ public final class MaskRasterCache {
         }
         let previous = entries.first { $0.maskID == maskID }?.entry
         guard allowStale, let previous, previous.identity == identity else {
+            // A SETTLE CANCELS THE DRAG'S LEFTOVER RASTER.
+            //
+            // `pending` is populated by the stale branch below and by nothing else, so
+            // anything queued here is a DRAFT-rung raster for a frame of a gesture that
+            // has just ended — a frame no one will ask for again, since the next thing
+            // the viewer does is show the settle. Left in the queue it runs concurrently
+            // with the bake on the next line, and the two are scalar passes over planes
+            // large enough that they contend for memory bandwidth rather than sharing
+            // idle cores, while the photographer waits for exactly one of them. Probe
+            // (b)'s numbers say that is 12.8–190 ms of a core spent against the pass
+            // being waited on, per mask, at the end of every drag.
+            //
+            // Dropping it is free in the only sense that matters: `pending` is a
+            // deferral, never a promise, and a draft that does ask for that key again
+            // simply bakes it — the same thing it would have done had the queue not
+            // reached it in time.
+            if !allowStale { pending.removeValue(forKey: maskID) }
             lock.unlock()
             Self.count { $0.bakes += 1 }
             let built = bakeExact()
@@ -155,6 +211,11 @@ public final class MaskRasterCache {
         // 45 MP export raster is ~180 MB of Float plane — sixteen of those is not a
         // cache, it is a leak. The proxy-sized draft rasters are the ones a drag
         // actually revisits, and they still land here.
+        //
+        // The settle rung between those two is the one this rule throws away for a
+        // reason that is no longer the memory argument; see the header for what has to
+        // change in the KEY before it can be held, and why no rule inside this class
+        // can substitute for that.
         guard Swift.max(plane.width, plane.height) <= PipelineRenderer.maskRasterLongEdge
         else { return }
         lock.lock()

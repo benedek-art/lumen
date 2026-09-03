@@ -123,6 +123,16 @@ struct MaskPanel: View {
     /// The mask whose name is being typed, if any. Nil the rest of the time, which is
     /// almost always — see `maskRow`.
     @State private var renamingMaskID: String?
+    /// The mask whose row is showing "Delete … ?", if any.
+    ///
+    /// The confirmation IS THE ROW, which is the shape `LookPanel.savedLookRow` settled
+    /// for the same question — and that file's comment credits this panel's row menu for
+    /// the half it already had. Not a sheet: a modal over the window to ask about a row
+    /// in a floating panel is a second window to dismiss, and it takes the mask's own
+    /// picture off screen at the moment somebody is deciding whether they want it.
+    @State private var pendingDeleteMaskID: String?
+    /// The row a drag is currently over, so the list can say where a drop would land.
+    @State private var dropTargetMaskID: String?
     @State private var maskSearch: String = ""
     /// WHICH MASKS HAVE THEIR OWN SETTINGS OPEN, one entry per mask, empty by default.
     ///
@@ -488,6 +498,10 @@ struct MaskPanel: View {
     /// Where a list stops being scannable and starts needing a filter.
     static let searchAppearsAt = 8
 
+    /// How wide the overlay's mode-and-colour menu is drawn — see `overlayControls` for
+    /// the arithmetic and for which titles have to survive it whole.
+    static let overlayMenuWidth: CGFloat = 128
+
     /// Does this mask answer the filter?
     ///
     /// Everything a row DISPLAYS is searchable — the name the photographer typed, the
@@ -563,6 +577,14 @@ struct MaskPanel: View {
                 .font(.lumenGlyphCaption)
                 .foregroundStyle(Lumen.secondaryText)
 
+            // THE ONE THING ON THIS ROW THAT MAY SHRINK, and the two below say so.
+            //
+            // The header's fixed parts — chevron, folder mark, count, strength, switch,
+            // menu and six gaps — come to about 145 points inside a 244 point row, so
+            // there is room for the name AT its 110 and nothing spare if a group is
+            // switched off at 150 %. Something has to give under pressure, and it must be
+            // the field: a name field that has shrunk is still a name field, where a
+            // count truncated to "12 ma…" has stopped being a count.
             TextField("Group", text: groupName(group.id))
                 .textFieldStyle(.plain)
                 .font(.lumenBody)
@@ -572,9 +594,18 @@ struct MaskPanel: View {
             // "Empty" rather than "0 masks": a folder with nothing in it is a state
             // worth naming, because the next question is whether to fill it or remove
             // it, and a zero reads as a count that failed to load.
+            //
+            // `.fixedSize()` AND `.lineLimit(1)`, which are two different refusals. The
+            // line limit is what stops it wrapping — a `Text` in an `HStack` with no
+            // fixed height will happily take a second line and make the whole header
+            // taller than every other row in the list, which reads as a rendering fault
+            // rather than as a squeeze. The fixed size is what stops it truncating
+            // instead, which for a two-word count is the same as deleting it.
             Text(count == 0 ? "empty" : (count == 1 ? "1 mask" : "\(count) masks"))
                 .font(.lumenCaption)
                 .foregroundStyle(count == 0 ? Lumen.tertiaryText : Lumen.secondaryText)
+                .lineLimit(1)
+                .fixedSize()
 
             Spacer(minLength: 4)
 
@@ -584,6 +615,8 @@ struct MaskPanel: View {
                 Text("\(Int(group.amount.rounded()))%")
                     .font(.lumenCaption)
                     .foregroundStyle(Lumen.accent)
+                    .lineLimit(1)
+                    .fixedSize()
             }
             Button { editGroup(group.id) { $0.enabled.toggle() } } label: {
                 Image(systemName: group.enabled ? "eye" : "eye.slash")
@@ -614,6 +647,10 @@ struct MaskPanel: View {
                 }
             }
         }
+        // A FIXED HEIGHT, so nothing on this row can make it taller. Without it a long
+        // folder name plus a count plus a strength badge could push a `Text` onto a
+        // second line and the header would grow while its neighbours did not.
+        .frame(height: Lumen.rowHeight)
         .padding(.vertical, 2)
         .contentShape(Rectangle())
     }
@@ -684,7 +721,24 @@ struct MaskPanel: View {
     /// moment that sentence cannot help. The only useful thing an empty list can do is
     /// be easy to fill, so the control that fills it is the biggest object on screen.
     private var emptyMaskState: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 6) {
+            // ONE LINE, AND NO MARK. `LumenEmptyState` is the house shape for this — a
+            // mark, a headline, an optional detail and one button — and it is the wrong
+            // shape HERE for a reason its own API already anticipates: `symbol` is
+            // optional "which the grid's overlay wants when it is sitting on top of a
+            // filmstrip that is already showing thumbnails — a mark there would be a
+            // second subject on a surface that has one". The board below is twelve
+            // glyphs. A 40 pt mark over it would be exactly that second subject, and
+            // `LumenEmptyState` also centres its stack and fills its container, which
+            // would put a centred sentence over a left-aligned board.
+            //
+            // What is taken from it is the part that was missing: the headline, at the
+            // same `lumenLead` and in the same voice, saying what this column is for.
+            // Without it the develop column at masking with no masks was a board of tiles
+            // under three group labels and nothing naming the activity.
+            Text("No masks on this photograph yet.")
+                .font(.lumenLead)
+                .foregroundStyle(Lumen.primaryText)
             // `.constant(true)` because `prominent` draws the board unconditionally
             // and never reads the flag — there is nothing here to disclose it WITH, so
             // the board simply is the panel. It used to be handed `$maskPickerOpen`,
@@ -728,10 +782,179 @@ struct MaskPanel: View {
 
             MaskThumbnail(image: state.maskThumbnails[mask.id],
                           enabled: mask.enabled,
-                          width: 44, height: 30,
+                          width: MaskPanel.thumbnailSize.width,
+                          height: MaskPanel.thumbnailSize.height,
+                          // NO RING HERE, and the rail keeps its one. Selection in the
+                          // open list is the row's own tinted background, which is a
+                          // bigger and quieter signal than a border on a 44 pt picture;
+                          // the collapsed rail has no row and no name, so down there the
+                          // ring is the only thing saying which mask the sliders point
+                          // at. Two states, one for each place, rather than the drift
+                          // that had the selected mask marked in the collapsed panel and
+                          // unmarked in the open one.
                           selected: false)
 
-            VStack(alignment: .leading, spacing: 0) {
+            if pendingDeleteMaskID == mask.id {
+                deletePrompt(mask, index: index)
+            } else {
+                maskNameColumn(mask, index: index, isSelected: isSelected)
+                enabledButton(mask)
+                maskRowMenu(mask, index: index)
+            }
+        }
+        // THE ROW'S OWN BUDGET, and the arithmetic is why the panel got wider rather
+        // than why this row got more controls. At 236 points the card gave the content
+        // 216, of which chrome took 120 and the name got 96 — "Radial Gradient 1" needs
+        // about 105, so every default name in the list arrived truncated. The reorder
+        // chevrons that used to sit here have moved into the row's own menu, where
+        // "Move up" and "Move down" are words rather than two 12-point targets a
+        // pixel apart, and that plus the wider card leaves the name 132.
+        //
+        // NOTHING SINCE HAS BEEN ADDED TO THIS LINE. Invert went onto the summary line
+        // underneath, where the row's 30 pt picture is already paying for the height and
+        // the first line's 132 points are untouched — see `maskNameColumn`.
+        .padding(.horizontal, 4).padding(.vertical, 3)
+        .background(rowBackground(isSelected: isSelected,
+                                  isDropTarget: dropTargetMaskID == mask.id))
+        .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusChip))
+        .contentShape(Rectangle())
+        // DRAG TO REORDER, and the payload is the mask's own id.
+        //
+        // Order is a render fact — both renderers walk `plan.masks` front to back, so
+        // where two masks overlap the later one works on the earlier one's output — and
+        // until now the only way to state it was two words in a menu, one place at a
+        // time. Dragging is how every list on this platform is reordered and it is the
+        // only gesture that can move a mask more than one place at once.
+        //
+        // `Move up` and `Move down` STAY in the menu beside it. A drag needs a pointer
+        // that can hold a button down across 30 points of travel; the menu items do not,
+        // and one of them is the only reorder a trackpad user with a tremor can make.
+        .draggable(mask.id)
+        .dropDestination(for: String.self) { ids, _ in
+            guard let dragged = ids.first else { return false }
+            dropTargetMaskID = nil
+            return dropMask(dragged, onto: mask.id)
+        } isTargeted: { inside in
+            if inside { dropTargetMaskID = mask.id }
+            else if dropTargetMaskID == mask.id { dropTargetMaskID = nil }
+        }
+        .onTapGesture {
+            selectedMaskID = mask.id
+            selectedComponent = 0
+            selectedSwatch = 0
+        }
+        // Hovering a row shows what it selects. `hoverMaskOverlay` holds the 120 ms
+        // intent that keeps a pointer crossing the list on its way somewhere else from
+        // strobing ten overlays across the photograph (docs/36 §1.4).
+        .onHover { inside in state.hoverMaskOverlay(inside ? mask.id : nil) }
+    }
+
+    /// The row's ground: selected, or about to receive a drop, or neither.
+    ///
+    /// One function rather than a nested ternary in the modifier, because the two states
+    /// have to be TOLD APART at a glance while a drag is in flight — a drop target drawn
+    /// in the selection's own fill would say "this is the mask you are editing" at the
+    /// exact moment it means "this is where it will land".
+    private func rowBackground(isSelected: Bool, isDropTarget: Bool) -> Color {
+        if isDropTarget { return Lumen.accent.opacity(0.28) }
+        return isSelected ? Lumen.fillColor.opacity(0.20) : Color.clear
+    }
+
+    /// DISABLE, and it is a different verb from delete in every way the row can say it.
+    ///
+    /// A glyph that changes shape (an open eye against a struck-through one), a colour
+    /// that drops a step, and the mask's own picture fading to 40 % — three channels for
+    /// a state that is reversible and costs nothing. Delete is a word, in a menu, behind
+    /// a deliberate open, and where it would throw away hand work it is a second press
+    /// on a row that has stopped looking like a row. Neither is a small target: this is
+    /// 16×16 with its own `contentShape`, and Delete is a full menu row.
+    private func enabledButton(_ mask: Mask) -> some View {
+        Button { editMask(mask.id, key: nil) { $0.enabled.toggle() } } label: {
+            Image(systemName: mask.enabled ? "eye" : "eye.slash")
+                .font(.lumenGlyphCaption)
+                .frame(width: 16, height: 16)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(mask.enabled ? Lumen.secondaryText : Lumen.tertiaryText)
+        .lumenClickCursor()
+        .help(mask.enabled ? "Stop rendering this mask, keeping it" : "Render it again")
+    }
+
+    /// INVERT, ON THE ROW, in one press and readable without a hover.
+    ///
+    /// The word is constant and the glyph carries the state, which is the way round that
+    /// makes a column of these scannable: a label that changed between "Invert" and
+    /// "Inverted" would reflow the summary beside it on every press, and the eye reads a
+    /// filled shape faster than it reads a suffix. `Lumen.accent` is the app's mark for
+    /// "you changed this", at marker scale — the same argument `LumenSwitch` makes for
+    /// filling its capsule with the modified fill.
+    ///
+    /// The menu keeps its "Invert selection" item. Two homes for one decision is
+    /// normally the defect this panel keeps deleting, and this is the exception the row
+    /// menu itself already makes for Rename: the menu is where the operation is NAMED in
+    /// full, and the row is where it is reached while working.
+    private func invertChip(_ mask: Mask) -> some View {
+        Button { editMask(mask.id, key: nil) { $0.invert.toggle() } } label: {
+            HStack(spacing: 3) {
+                Image(systemName: MaskPanel.invertGlyph(mask.invert))
+                    .font(.lumenGlyphCaption)
+                Text("Invert").font(.lumenCaption)
+            }
+            .foregroundStyle(mask.invert ? Lumen.accent : Lumen.tertiaryText)
+            .padding(.vertical, 1)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .lumenClickCursor()
+        .help(mask.invert
+              ? "This mask selects everything its parts do NOT. Press to put it back."
+              : "Select everything this mask's parts do not.")
+    }
+
+    /// The armed row: which mask is about to go, and the two ways out.
+    ///
+    /// It replaces the name and the trailing controls and keeps the mask's own picture,
+    /// because the question being asked is "is this the one you meant" and the picture is
+    /// the only honest answer to it. Keep is first and it is where the pointer already is
+    /// when the menu closes — `LookPanel.savedLookRow`'s arrangement, for the same
+    /// reason.
+    private func deletePrompt(_ mask: Mask, index: Int) -> some View {
+        let name = mask.name.isEmpty ? MaskPanel.autoName(mask, index: index) : mask.name
+        return HStack(spacing: 6) {
+            Text("Delete \u{201C}\(name)\u{201D}?")
+                .font(.lumenBody)
+                .foregroundStyle(Lumen.primaryText)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Button { pendingDeleteMaskID = nil } label: {
+                Text("Keep").font(.lumenCaptionStrong)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(Lumen.secondaryText)
+            .lumenClickCursor()
+            .help("Leave this mask where it is.")
+            Button {
+                pendingDeleteMaskID = nil
+                deleteMask(mask.id)
+            } label: {
+                Text("Delete").font(.lumenCaptionStrong)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(Lumen.accent)
+            .lumenClickCursor()
+            // Undo DOES reach this, and saying so is the difference between a
+            // confirmation that informs and one that frightens. What it protects against
+            // is the deletion nobody notices — see `deletionLosesWork`.
+            .help("Throw this mask and its adjustments away. Undo brings it back.")
+        }
+    }
+
+    /// The mask's name, its rename field, its summary and its invert.
+    @ViewBuilder
+    private func maskNameColumn(_ mask: Mask, index: Int, isSelected: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
                 // TEXT UNTIL YOU ASK FOR A FIELD, and this is the single most confusing
                 // thing in the panel until it is fixed.
                 //
@@ -775,47 +998,51 @@ struct MaskPanel: View {
                 // lines saying one word. The summary earns its line when there is more
                 // than one component, or when a typed name has replaced the kind and the
                 // kind is no longer visible anywhere on the row.
-                if MaskPanel.summaryAddsSomething(mask) {
-                    Text(MaskPanel.stackSummary(mask))
-                        .font(.lumenCaption)
-                        .foregroundStyle(Lumen.tertiaryText)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
+                //
+                // INVERT LIVES ON THIS LINE, and this is where it costs nothing.
+                //
+                // It was reachable only through the row's `⋯` menu — an open, a read and
+                // a choice for a one-bit state — and nothing anywhere on the row said
+                // whether a mask was inverted, so "the sky" and "everything but the sky"
+                // were the same row twice. It is the control a photographer flips most
+                // often after making a mask and it was the most expensive one to reach.
+                //
+                // The SECOND line rather than the first, and that is the whole reason
+                // this fits: the row's height is set by its 30 pt picture, not by its
+                // text, so a name column that draws two lines instead of one is exactly
+                // as tall as before — and the first line's name budget, which
+                // `LayoutMetricTests` measures every default mask name against, is
+                // untouched. What the chip costs is width on the SUMMARY, which already
+                // tail-truncates and is the row's secondary reading.
+                HStack(spacing: 4) {
+                    invertChip(mask)
+                    if MaskPanel.summaryAddsSomething(mask) {
+                        Text(MaskPanel.stackSummary(mask))
+                            .font(.lumenCaption)
+                            .foregroundStyle(Lumen.tertiaryText)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
                 }
-            }
-
-            Button { editMask(mask.id, key: nil) { $0.enabled.toggle() } } label: {
-                Image(systemName: mask.enabled ? "eye" : "eye.slash")
-                    .font(.lumenGlyphCaption)
-                    .frame(width: 16, height: 16)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(mask.enabled ? Lumen.secondaryText : Lumen.tertiaryText)
-            .help(mask.enabled ? "Stop rendering this mask, keeping it" : "Render it again")
-
-            maskRowMenu(mask, index: index)
         }
-        // THE ROW'S OWN BUDGET, and the arithmetic is why the panel got wider rather
-        // than why this row got more controls. At 236 points the card gave the content
-        // 216, of which chrome took 120 and the name got 96 — "Radial Gradient 1" needs
-        // about 105, so every default name in the list arrived truncated. The reorder
-        // chevrons that used to sit here have moved into the row's own menu, where
-        // "Move up" and "Move down" are words rather than two 12-point targets a
-        // pixel apart, and that plus the wider card leaves the name 132.
-        .padding(.horizontal, 4).padding(.vertical, 3)
-        .background(isSelected ? Lumen.fillColor.opacity(0.20) : Color.clear)
-        .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusChip))
-        .contentShape(Rectangle())
-        .onTapGesture {
-            selectedMaskID = mask.id
-            selectedComponent = 0
-            selectedSwatch = 0
+    }
+
+    /// Move `dragged` to where `target` sits, through the pure rule above.
+    ///
+    /// Refused rather than silently ignored when the drop is a no-op, so the panel does
+    /// not record an undo step for a drag that changed nothing — `updateRecipe` already
+    /// drops a write whose recipe is unchanged, but a `false` here also tells AppKit the
+    /// drop was not accepted, which is what stops the drag image snapping into a row it
+    /// did not move to.
+    @discardableResult
+    private func dropMask(_ dragged: String, onto target: String) -> Bool {
+        guard dragged != target, mask(dragged) != nil, mask(target) != nil else {
+            return false
         }
-        // Hovering a row shows what it selects. `hoverMaskOverlay` holds the 120 ms
-        // intent that keeps a pointer crossing the list on its way somewhere else from
-        // strobing ten overlays across the photograph (docs/36 §1.4).
-        .onHover { inside in state.hoverMaskOverlay(inside ? mask.id : nil) }
+        state.updateRecipe(coalescingKey: nil) { recipe in
+            recipe.masks = MaskPanel.reordered(recipe.masks, moving: dragged, onto: target)
+        }
+        return true
     }
 
     /// How this mask's result meets the picture underneath.
@@ -859,12 +1086,27 @@ struct MaskPanel: View {
     /// and a result (docs/35 §4.3). Lightroom has had this for years and it is most of
     /// why its masking reads as approachable despite being the deepest in the market.
     ///
-    /// Its own view rather than a method here, because the collapsed panel is nothing
-    /// BUT a column of these — see `MaskFloatingPanel.maskRail` — and two copies of the
-    /// corner radius and the border would have drifted the moment one of them changed.
+    /// ONE CALLER: `editingRow`, in the develop column. The list builds `MaskThumbnail`
+    /// directly and so does `MaskFloatingPanel.maskRail`, because each passes a different
+    /// `selected:` and neither wants this method's argument list.
+    ///
+    /// The comment that stood here named the collapsed rail as the reason the shared view
+    /// exists — "two copies of the corner radius and the border would have drifted the
+    /// moment one of them changed" — and the rail has never called it. Worse, the drift
+    /// the sentence was written to prevent had already happened in the one dimension the
+    /// method did own: this drew 40×27 while both direct constructions drew 44×30, so the
+    /// picture beside "which mask am I editing" was a different size from the picture of
+    /// the same mask in the list (audit F4-04). `MaskPanel.thumbnailSize` is the one size
+    /// now and all three read it.
+    ///
+    /// The shared VIEW is still worth having, and its own doc comment says why: the
+    /// radius, the border and the disabled opacity really are drawn in three places.
     private func maskThumbnail(_ mask: Mask) -> some View {
         MaskThumbnail(image: state.maskThumbnails[mask.id],
-                      enabled: mask.enabled, width: 40, height: 27, selected: false)
+                      enabled: mask.enabled,
+                      width: MaskPanel.thumbnailSize.width,
+                      height: MaskPanel.thumbnailSize.height,
+                      selected: false)
     }
 
     /// Everything that acts on ONE mask, attached to that mask's row.
@@ -893,7 +1135,23 @@ struct MaskPanel: View {
                           symbol: "plus.square.on.square.dashed") {
                 duplicateMask(mask.id, inverting: true)
             }
-            LumenMenuItem(title: "Delete", symbol: "trash") { deleteMask(mask.id) }
+            // DELETE ASKS ONLY WHERE THE ANSWER COULD BE "no".
+            //
+            // A gradient you dragged or a colour you picked is one gesture to make
+            // again, and a confirmation on those would be a dialog in front of something
+            // cheaper than reading it — which is how an application teaches people to
+            // dismiss its confirmations without looking. Painted strokes, a traced
+            // outline, a stack of parts or a mask you have graded are not one gesture,
+            // and those arm the row instead. `deletionLosesWork` is the whole rule and it
+            // is written down there.
+            LumenMenuItem(title: "Delete", symbol: "trash") {
+                if MaskPanel.deletionLosesWork(mask) {
+                    renamingMaskID = nil
+                    pendingDeleteMaskID = mask.id
+                } else {
+                    deleteMask(mask.id)
+                }
+            }
 
             // REORDER LIVES HERE NOW, as two words rather than two 12-point chevrons
             // wedged into the row. Masks fold in list order — both renderers walk
@@ -969,7 +1227,17 @@ struct MaskPanel: View {
         // Folding the two menus into one fixes it honestly rather than by shrinking
         // type: mode and tint are both "how the overlay draws", they are chosen
         // together, and each is a four-to-six entry list that a menu holds better than a
-        // row does. The row now costs a 76-point toggle and an 84-point menu.
+        // row does.
+        //
+        // AND THE MENU IS 128, NOT 108. `LumenMenu`'s trigger does now truncate — it
+        // carries `.lineLimit(1)` on the title — so the row no longer draws past the
+        // card's edge, and at 108 it paid for that by cutting the title instead: the
+        // trigger spends 16 points on its own padding, 5 on the gap, 4 on the minimum
+        // spacer and about 10 on the chevron, leaving 73 for a word, and "Image on Black"
+        // and "Colour Overlay" both measure past 77 at `lumenBody`. A menu that shortens
+        // its own title is lying about what is selected, which is the exact reason this
+        // row was rebuilt in the first place. The card's content is 244 points wide and
+        // the toggle beside it needs about 65, so the 20 points cost nothing.
         return HStack(spacing: 6) {
             Button {
                 // Through the pin in both directions. The raw `soloMaskOverlay`
@@ -1019,7 +1287,7 @@ struct MaskPanel: View {
                     }
                 }
             }
-            .frame(maxWidth: 108)
+            .frame(maxWidth: MaskPanel.overlayMenuWidth)
         }
         .frame(height: Lumen.rowHeight)
         .padding(.horizontal, 4)
@@ -1047,14 +1315,32 @@ struct MaskPanel: View {
             ForEach(Array(mask.components.indices), id: \.self) { i in
                 componentRow(mask, i)
             }
+            // ONE READ OF THE MODIFIER PER EVALUATION, and the button cannot lie about
+            // what it is going to do.
+            //
+            // `intersecting` is a synchronous poll of `NSEvent.modifierFlags`. It used to
+            // be read three times here — once to title the button, once to decide whether
+            // Subtract exists, and once again INSIDE the action closure, at press time —
+            // so releasing ⌥ between the draw and the click gave you a button reading
+            // "Intersect" that added an Add, and holding it gave you the reverse (audit
+            // F4-03). Bound once, the title and the operation are the same answer by
+            // construction; `opFor` and `opLabel` are the two spellings of that one
+            // value and they cannot come apart.
+            //
+            // THE OTHER HALF IS NOT FIXED HERE. Nothing invalidates this view when a
+            // modifier changes — there is no `flagsChanged` monitor in the app — so the
+            // label can still be STALE until something else re-bodies the panel. That
+            // needs a published flag on `AppState`, fed by one monitor beside `Keymap`'s.
+            // What this closes is the disagreement; what is left is the delay.
+            let modifiesToIntersect = intersecting
             HStack(spacing: 4) {
-                kindMenu(label: intersecting ? "Intersect" : "Add",
+                kindMenu(label: MaskPanel.opLabel(intersecting: modifiesToIntersect),
                          isOpen: pickerBinding($componentPickerOpen, mask.id),
                          offersReference: masks.count > 1) { kind in
                     addComponent(kind: kind, to: mask.id,
-                                 op: intersecting ? .intersect : .add)
+                                 op: MaskPanel.opFor(intersecting: modifiesToIntersect))
                 }
-                if !intersecting {
+                if !modifiesToIntersect {
                     kindMenu(label: "Subtract",
                              isOpen: pickerBinding($subtractPickerOpen, mask.id),
                              offersReference: masks.count > 1) { kind in
@@ -1264,12 +1550,19 @@ struct MaskPanel: View {
                                1, step: 0.1, decimals: 1,
                                behaviour: .luminositySeries(c.series ?? .lights))
             }
-        // Still editable, no longer offerable. Nothing estimates depth and nothing reads
-        // embedded depth — `aiMattes` is a literal empty dictionary at both call sites —
-        // so the kind left `rangeKinds` and the paragraph apologising for it left with
-        // the menu entry. A recipe made elsewhere can still carry one, and when it does
-        // `modelNote` marks it inert in the same badge as every other kind that needs a
-        // model it has not got.
+        // Still editable, no longer offerable. Nothing PRODUCES a depth plane — no depth
+        // estimator, no reader for an embedded one — so the kind left `rangeKinds` and
+        // the paragraph apologising for it left with the menu entry.
+        //
+        // THE PLUMBING IS COMPLETE AND ONLY THE PRODUCER IS MISSING, which is the useful
+        // fact and the opposite of what this comment used to assert. It said "`aiMattes`
+        // is a literal empty dictionary at both call sites", and it is not: the renderer
+        // passes `mattes[source.url]?.planes ?? [:]` at five sites, and `depthRangePlane`
+        // already reads the `depthRange`/`depth` keys out of it. A maintainer reading the
+        // old sentence would conclude depth could not arrive even if a plane existed
+        // (audit F5-10). A recipe made elsewhere can still carry one of these, and when
+        // it does `modelNote` marks it inert in the same badge as every other kind that
+        // needs a model this application has not got.
         case .depthRange:
             VStack(alignment: .leading, spacing: 2) {
                 bandSlider(id, i, "Near", isLow: true, depth: true)
@@ -1548,17 +1841,25 @@ struct MaskPanel: View {
                         .strokeBorder(Lumen.separator, lineWidth: 0.5))
             }
             Spacer(minLength: 0)
+            // Both carry all three channels of "off": the fill drops, the press is
+            // blocked, and the pointing hand is withheld. The colour used to fall only to
+            // `secondaryText`, which is the same step a hovered control takes, so a full
+            // sample list read as an ordinary button that had stopped working.
             Button { addSample(id, i) } label: {
                 Image(systemName: "plus").font(.lumenGlyphCaptionStrong)
             }
-            .buttonStyle(.plain).disabled(samples.count >= 8)
-            .foregroundStyle(samples.count < 8 ? Lumen.primaryText : Lumen.secondaryText)
-            .help("Add a sample (up to 8); the eyedropper lands with the sampler")
+            .buttonStyle(.plain).disabled(samples.count >= MaskPanel.maxSwatches)
+            .foregroundStyle(samples.count < MaskPanel.maxSwatches
+                             ? Lumen.primaryText : Lumen.tertiaryText)
+            .lumenClickCursor(samples.count < MaskPanel.maxSwatches)
+            .help("Add a sample (up to \(MaskPanel.maxSwatches)); the eyedropper lands "
+                  + "with the sampler")
             Button { removeSample(id, i) } label: {
                 Image(systemName: "minus").font(.lumenGlyphCaptionStrong)
             }
             .buttonStyle(.plain).disabled(samples.count <= 1)
-            .foregroundStyle(samples.count > 1 ? Lumen.primaryText : Lumen.secondaryText)
+            .foregroundStyle(samples.count > 1 ? Lumen.primaryText : Lumen.tertiaryText)
+            .lumenClickCursor(samples.count > 1)
             .help("Remove the last sample")
         }
         .frame(height: Lumen.rowHeight)
@@ -1880,8 +2181,15 @@ struct MaskPanel: View {
                             .buttonStyle(.plain)
                         }
                         Spacer(minLength: 0)
-                        smallButton("Add", "plus") { addSwatch(mask.id) }
-                        smallButton("Remove", "minus") { removeSwatch(mask.id) }
+                        // The same ceiling `addSwatch` enforces and the same floor
+                        // `removeSwatch` does, said on the control instead of inside it.
+                        smallButton("Add", "plus",
+                                    enabled: swatches.count < MaskPanel.maxSwatches) {
+                            addSwatch(mask.id)
+                        }
+                        smallButton("Remove", "minus", enabled: !swatches.isEmpty) {
+                            removeSwatch(mask.id)
+                        }
                     }
                     .frame(height: Lumen.rowHeight)
                     // Nothing when there are no swatches: Add is in the row directly
@@ -2114,8 +2422,15 @@ struct MaskPanel: View {
     /// Arms a pick, like the global swatch row. A swatch born neutral is not an
     /// unconfigured control, it is one that selects nothing — the chordal hue term
     /// against a grey target is identically zero.
+    /// How many Point Colour swatches a mask may carry, and how many samples a colour
+    /// component may. One number rather than the `8` that was written into `addSwatch`,
+    /// `sampleChips` and the two `.disabled` predicates separately — a ceiling enforced
+    /// in one place and drawn in another is a ceiling that will disagree with itself.
+    static let maxSwatches = 8
+
     private func addSwatch(_ id: String) {
-        guard (mask(id)?.adjust.pointColors.count ?? 8) < 8 else { return }
+        guard (mask(id)?.adjust.pointColors.count ?? MaskPanel.maxSwatches)
+                < MaskPanel.maxSwatches else { return }
         state.beginPick(.maskPointColor(maskID: id))
     }
 
@@ -2385,14 +2700,31 @@ struct MaskPanel: View {
         }
         .padding(.top, 2)
         if absolute {
-            // The same range and step the global row uses. A mask's temperature is the
-            // same physical quantity as the picture's, and giving it a second scale
-            // would mean two numbers a photographer has to translate between.
+            // THE SAME RANGE, THE SAME STEP, AND NOW THE SAME AXIS.
+            //
+            // This comment used to stop at "the same range and step the global row uses"
+            // and claim that giving a mask "a second scale would mean two numbers a
+            // photographer has to translate between" — while the call underneath passed
+            // no `scale:` at all and therefore took `LumenSlider`'s `.linear` default
+            // against `BasicPanel`'s `.reciprocal`. The ranges did match; the axes did
+            // not, so the two rows printed the same number and answered the same drag
+            // completely differently: 5500 K sat at 7 % of this track and the whole of
+            // 2000–10000 K was crushed into its first sixth, while 10000–50000 K — light
+            // nobody balances for — took the other five (audit F4-05, K-006(a)).
+            //
+            // `MaskPanel.temperatureScale` rather than `.reciprocal` written out, because
+            // the property that has to hold is not "reciprocal" but "whatever the global
+            // row is", and the tracks come with it: the grey stop lands where the mired
+            // axis actually puts 5500 K, which is the whole reason `Lumen.temperatureStops`
+            // was placed in Kelvin rather than at the track's middle.
             optionalAdjustSlider(mask.id, "Temp", \.kelvin,
                                  ColorTemperature.minKelvin...ColorTemperature.maxKelvin,
-                                 neutral.kelvin, step: 10, bipolar: false)
+                                 neutral.kelvin, step: 10, bipolar: false,
+                                 scale: MaskPanel.temperatureScale,
+                                 trackStops: Lumen.temperatureStops)
             optionalAdjustSlider(mask.id, "Tint", \.kelvinTint, -150...150, neutral.tint,
-                                 step: 1, bipolar: true)
+                                 step: 1, bipolar: true,
+                                 trackStops: Lumen.tintStops)
         } else {
             adjustSlider(mask.id, "Temp", \.temp, -100...100)
             adjustSlider(mask.id, "Tint", \.tint, -100...100)
@@ -2407,14 +2739,18 @@ struct MaskPanel: View {
                                       _ p: WritableKeyPath<LocalAdjust, Double?>,
                                       _ r: ClosedRange<Double>, _ standIn: Double,
                                       step: Double = 1, decimals: Int = 0,
-                                      bipolar: Bool = false) -> some View {
+                                      bipolar: Bool = false,
+                                      scale: SliderScale = .linear,
+                                      trackStops: [LumenTrackStop]? = nil) -> some View {
         LumenSlider(title: t,
                     value: maskValue(id, "abs." + t,
                                      get: { $0.adjust[keyPath: p] ?? standIn },
                                      set: { $0.adjust[keyPath: p] =
                                          Num.clamp($1, r.lowerBound, r.upperBound) }),
-                    range: r, defaultValue: standIn, step: step, decimals: decimals,
-                    bipolar: bipolar)
+                    range: r, scale: scale, defaultValue: standIn,
+                    step: step, decimals: decimals,
+                    bipolar: bipolar,
+                    trackStops: trackStops)
     }
 
     private func adjustSlider(_ id: String, _ t: String,
@@ -2650,7 +2986,20 @@ struct MaskPanel: View {
                 })
     }
 
+    /// A DISABLED ONE HAS TO LOOK DISABLED, and these two did not.
+    ///
+    /// Point Colour's Add and Remove had no `enabled` at all: `addSwatch` returns early
+    /// at eight swatches and `removeSwatch` returns early at none, so both buttons drew
+    /// at full weight, took the click and did nothing. That is the same defect
+    /// `LumenToggleRow` was fixed for — "a row that lights up, offers the click cursor,
+    /// and then does nothing… just quieter, because the photographer reads the affordance
+    /// rather than the result" — reproduced in a button this file rolled itself.
+    ///
+    /// All three channels, because `.disabled` on its own only stops the gesture: the
+    /// text drops to tertiary, `.disabled` blocks the press, and `lumenClickCursor` is
+    /// withheld so the pointer stays an arrow.
     private func smallButton(_ title: String, _ systemImage: String,
+                             enabled: Bool = true,
                              action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 3) {
@@ -2662,7 +3011,10 @@ struct MaskPanel: View {
             .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusChip))
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain).foregroundStyle(Lumen.primaryText)
+        .buttonStyle(.plain)
+        .foregroundStyle(enabled ? Lumen.primaryText : Lumen.tertiaryText)
+        .disabled(!enabled)
+        .lumenClickCursor(enabled)
     }
 
     /// The four rows of copy this panel still draws, and none of them is prose.
@@ -2693,6 +3045,16 @@ struct MaskPanel: View {
         Num.saturate((ev - evMin) / (evMax - evMin))
     }
 
+    /// THE ONE SIZE A MASK'S PICTURE IS DRAWN AT, in all three places it is drawn.
+    ///
+    /// `MaskThumbnail` was extracted so that "three copies of a corner radius, a border
+    /// and a disabled opacity" could not drift — and the SIZE was left as a literal at
+    /// each of the three call sites, so it drifted instead: 44×30 in the list, 44×30 in
+    /// the collapsed rail, 40×27 in the develop column's editing strip. The mask picture
+    /// beside "which mask am I editing" was a different size from the mask picture in the
+    /// list of masks, which is the one comparison a photographer makes with it (F4-04).
+    static let thumbnailSize = CGSize(width: 44, height: 30)
+
     static let drawnKinds: [MaskKind] = [.brush, .linear, .radial, .polygon]
 
     /// Depth Range is deliberately not in this list, and there is no `modelKinds` list
@@ -2713,6 +3075,163 @@ struct MaskPanel: View {
     /// end up in the wrong list. Only Vision's three: they come out of an OS framework
     /// on this Mac with no download and no bundled weights.
     static let visionKinds: [MaskKind] = aiKinds.filter { $0.matteProvider == .vision }
+
+    /// THE KINDS THAT CANNOT BE MADE HERE, derived rather than listed.
+    ///
+    /// Four of them, and every one is a kind whose matte would have to come from a Core
+    /// ML model this application does not bundle: Sky, Object, Landscape and Depth
+    /// Range. Each rasterizes to an empty plane, so each is ABSENT from the picker rather
+    /// than present-and-disabled — `kindTile` carries no `.disabled` and no greyed row,
+    /// because a tile a photographer can see, read and never enable is a promise the app
+    /// cannot keep, and it teaches that the app is unfinished rather than that this kind
+    /// is not one of its tools.
+    ///
+    /// Derived from `MaskKind.matteProvider` so the roster cannot go stale in either
+    /// direction: the day a sky model lands and that kind's provider becomes `.vision`,
+    /// it leaves this list and joins `visionKinds` — the picker gains the tile with no
+    /// second edit anywhere. `MaskKind` is not `CaseIterable` (it is a wire format, and
+    /// F5-07 owns that), so the candidates are the kinds that could plausibly need one.
+    static let unofferedKinds: [MaskKind] =
+        (aiKinds + [.depthRange]).filter { $0.matteProvider == .model }
+
+    /// Every kind the picker actually offers, in board order.
+    ///
+    /// One roster rather than three lists read off `kindBoard`'s three groups, so the
+    /// question "what can a photographer reach from here" has an answer that is not a
+    /// reading of a view body. `maskRef` is conditional for the reason `kindBoard` gives:
+    /// a reference offered on a photograph with one mask can only make an empty
+    /// component.
+    static func pickerKinds(maskCount: Int) -> [MaskKind] {
+        drawnKinds + rangeKinds + visionKinds + (maskCount > 1 ? [.maskRef] : [])
+    }
+
+    /// WHICH OPERATION THE ADD BUTTON MAKES, from whether ⌥ is down.
+    ///
+    /// A function rather than a `?:` written twice, and that is the whole finding
+    /// (F4-03): the panel read `intersecting` once to LABEL the button and again, inside
+    /// the action closure, to CHOOSE the op — two reads of a synchronous
+    /// `NSEvent.modifierFlags` poll at two different moments, with nothing between them
+    /// to keep them agreeing. Release ⌥ between the draw and the click and the button
+    /// that said "Intersect" added an Add.
+    ///
+    /// `componentRows` now reads the modifier once per evaluation and passes that one
+    /// value through both of these, so the label and the press are the same answer by
+    /// construction. The other half — that the label can be STALE, because no
+    /// `flagsChanged` monitor invalidates the view — needs a published flag on
+    /// `AppState` and is not this file's to fix.
+    static func opFor(intersecting: Bool) -> MaskOp { intersecting ? .intersect : .add }
+
+    /// What that button is titled, from the same value, so the two cannot disagree.
+    static func opLabel(intersecting: Bool) -> String { opName(opFor(intersecting: intersecting)) }
+
+    /// The mask-level invert's glyph, filled when the selection is inverted.
+    ///
+    /// A half-filled circle for both states, filled or hollow — the same shape the row
+    /// menu's "Invert selection" carries, so the chip on the row and the item in the menu
+    /// are visibly one control reached two ways. Named here rather than written into
+    /// `maskRow` because it is the thing a test can ask for: whether the row carries an
+    /// invert control at all.
+    static func invertGlyph(_ inverted: Bool) -> String {
+        inverted ? "circle.righthalf.filled" : "circle"
+    }
+
+    /// THE AXIS A MASK'S KELVIN ROW IS DRAWN ON, and it is the global row's.
+    ///
+    /// The comment above `whiteBalanceRows`' Temp slider has claimed since it was written
+    /// that it uses "the same range and step the global row uses" — and it passed no
+    /// `scale:` at all, so it took `LumenSlider`'s `.linear` default while
+    /// `BasicPanel.swift` passes `.reciprocal`. The ranges did match; the axis did not,
+    /// and the axis is the entire point of that row. On a linear Kelvin track 5500 K sits
+    /// at 7% and everything between 2000 and 10000 K — the whole of what a photographer
+    /// uses — is crushed into the first sixth of the travel, while the other five sixths
+    /// are 10000–50000 K. Two controls printing the same number answered the same drag
+    /// completely differently (audit F4-05, K-006(a)).
+    ///
+    /// A named constant rather than `.reciprocal` written at the call site, because what
+    /// has to hold is not "this row is reciprocal" but "this row is on the same axis as
+    /// the global one", and a literal cannot say that.
+    static let temperatureScale: SliderScale = .reciprocal
+
+    /// WHETHER DELETING THIS MASK THROWS AWAY SOMETHING THAT WAS MADE BY HAND.
+    ///
+    /// The gate on the row's delete confirmation, and it is deliberately narrow. Undo
+    /// reaches a deleted mask — `AppState.updateRecipe` records every recipe write into
+    /// `HistoryStack` — so a confirmation on every mask would be a dialog protecting
+    /// something already protected, and the app would have taught the photographer to
+    /// dismiss it without reading. What undo does NOT protect against is the deletion
+    /// nobody notices: a misclick on the wrong row, twenty edits before anyone looks at
+    /// the mask list again.
+    ///
+    /// So the line is drawn at ONE GESTURE. A radial you drew, a gradient you dragged, a
+    /// single colour you picked — each is one movement to make again, and stopping to
+    /// confirm those would cost more than losing them. Painted strokes, a traced outline,
+    /// a stack of several parts, several sampled colours, or any adjustment dialled into
+    /// the mask are minutes of work that cannot be reproduced by repeating a gesture, and
+    /// those are what the confirmation is for.
+    static func deletionLosesWork(_ mask: Mask) -> Bool {
+        // A stack is a decision about how several selections fold together, which is not
+        // something a hand repeats — and the fold's order is itself part of the work.
+        if mask.components.count > 1 { return true }
+        if adjustmentsCarryWork(mask) { return true }
+        guard let only = mask.components.first else { return false }
+        // Strokes are the clearest case in the panel: a painted mask is the only thing
+        // here whose input is measured in minutes.
+        if only.strokesRef != nil { return true }
+        // A closed outline is a corner at a time; three is the fewest it can have.
+        if (only.path ?? []).count >= 3 { return true }
+        // One sample is one click of the eyedropper. Several is a colour range somebody
+        // built up by hand, and the samples are the whole of what it selects.
+        if (only.samples ?? []).count > 1 { return true }
+        return false
+    }
+
+    /// Whether this mask carries a grade — anything under Light, Colour, Presence &
+    /// Detail, the local curve, the local wheels or a Point Colour swatch.
+    ///
+    /// Its own function because `LocalAdjust.isModified` answers per GROUP by design (a
+    /// section's dot is a question about that section), and Curve, Grading and Point
+    /// Colour are deliberately outside those groups — each is one optional or one array
+    /// with its own Reset. "Has this mask been graded at all" is a different question and
+    /// it has to name all six.
+    static func adjustmentsCarryWork(_ mask: Mask) -> Bool {
+        for group in LocalAdjust.Group.allCases where mask.adjust.isModified(group) {
+            return true
+        }
+        return mask.adjust.curve != nil || mask.adjust.wheels != nil
+            || !mask.adjust.pointColors.isEmpty
+    }
+
+    /// WHERE A DRAGGED MASK LANDS, as a pure rearrangement of the list.
+    ///
+    /// The rule is the one a photographer can predict without being told: the dragged
+    /// mask ends up at the index the mask it was dropped on used to occupy, and
+    /// everything else keeps its relative order. Drop A on C and A is where C was; C and
+    /// everything between it and A shift one place to make room, in the direction the
+    /// drag came from.
+    ///
+    /// IT ALSO ADOPTS THE TARGET'S FOLDER, and that is not a convenience. The list draws
+    /// each group's members together and the loose masks after them (`groupedRows`), so a
+    /// mask dropped between two members of a folder that did NOT join the folder would be
+    /// drawn somewhere else entirely — the drop would appear to have been refused, or
+    /// worse, to have moved it somewhere at random. Reorder is a real operation on the
+    /// render (both renderers walk `plan.masks` front to back, so where two masks overlap
+    /// the later one works on the earlier one's output), and a real operation that does
+    /// not land where it was aimed is worse than none.
+    static func reordered(_ masks: [Mask], moving id: String, onto target: String) -> [Mask] {
+        guard id != target,
+              let from = masks.firstIndex(where: { $0.id == id }),
+              let to = masks.firstIndex(where: { $0.id == target }) else { return masks }
+        var list = masks
+        var moved = list.remove(at: from)
+        moved.group = masks[to].group
+        // `to` is valid as an insertion index in both directions: dragging down, the
+        // removal has already shifted the target to `to - 1`, so inserting at `to` puts
+        // the dragged mask just after it and therefore AT the target's old index;
+        // dragging up, the target has not moved and inserting at `to` puts it just
+        // before. One expression rather than two because the invariant is one sentence.
+        list.insert(moved, at: to)
+        return list
+    }
 
     static func kindName(_ kind: MaskKind) -> String {
         switch kind {

@@ -1,8 +1,8 @@
 // ViewerOverlays.swift
 // The things the loupe draws on top of the photograph: before/after (flip, split with a
 // draggable divider, and the two-pane side-by-side / top-bottom), the clipping-threshold
-// overlay, the mask tint, the crop tool's rectangle and guides, the straighten ruler,
-// and the on-image colour readout HUD.
+// overlay, the focus-peaking marks, the mask tint, the crop tool's rectangle and guides,
+// the straighten ruler, and the on-image colour readout HUD.
 //
 // Each one is a small `View` the loupe composes at the drawn image's exact size, so a
 // zoomed, panned canvas carries its overlays with it for free rather than each overlay
@@ -11,9 +11,10 @@
 // Two rules the whole file obeys:
 //   · Chrome is zero-chroma (docs/00 Law 7): dividers, handles, guides and HUD ground
 //     come from the `Lumen` theme and nothing here introduces a new hue. The colours
-//     that *are* chromatic — the clipping overlay's channel diagnosis and the readout
-//     swatch — are measurements of the picture, not decoration, and they come straight
-//     from `LumenCore.ClippingOverlay` and the sampled pixel respectively.
+//     that *are* chromatic — the clipping overlay's channel diagnosis, the readout
+//     swatch and the peaking marks — are measurements of the picture, not decoration,
+//     and they come straight from `LumenCore.ClippingOverlay`, the sampled pixel and
+//     `LumenCore.FocusPeaking` respectively.
 //   · An overlay reports what is on screen. The clipping overlay and the readout both
 //     bin the displayed 8-bit proxy, and the HUD names the readout space it is in
 //     (docs/04 D12: an unlabeled readout is the failure mode `ReadoutSpace` ends).
@@ -472,6 +473,394 @@ struct ClippingOverlayView: View {
         guard v.isFinite else { return 0 }
         let scaled = (Swift.min(Swift.max(v, 0), 1) * 255).rounded()
         return UInt8(Swift.min(Swift.max(scaled, 0), 255))
+    }
+}
+
+// MARK: - Focus peaking
+
+/// docs/10 gives peaking three colours — red, green and white, green by default.
+///
+/// The VALUES are `MaskOverlay.Tint`'s rather than three more literals. That type
+/// already had to pick a red, a green and a white that survive being drawn over a
+/// photograph at any exposure, and a second set chosen by a second author is how one
+/// app ends up with two greens a shade apart. `black` is the one member not carried
+/// across: a black mark on a defocused shadow is invisible, and finding the sharp
+/// edges in the dark half of the frame is the case the engine's local-mean divide
+/// exists for — offering a colour that throws that away would be offering a way to
+/// break the instrument.
+///
+/// Law 7 (docs/00) is not breached by any of the three. Chrome is zero-chroma, and a
+/// peaking mark is not chrome: like the clipping overlay's channel diagnosis it is a
+/// reading OF the picture drawn ON the picture, and its whole job is to be a colour
+/// the photograph is unlikely to supply.
+///
+/// TOP-LEVEL AND NOT NESTED AS `FocusPeakingSettings.Tint`, which is where it wants to
+/// live, because a second `Tint` in this module costs a check: the surface script's
+/// switch pass resolves a bare enum name across the whole tree, and two of them make
+/// BOTH ambiguous — so nesting it here silently stopped `MaskOverlay.Tint`'s six
+/// switches being checked for missing cases. A distinct name is cheaper than the
+/// coverage.
+enum PeakingColour: String, CaseIterable, Identifiable, Sendable {
+    case green
+    case red
+    case white
+
+    var id: String { rawValue }
+
+    var label: String { rawValue.capitalized }
+
+    /// The shared definition, mapped rather than copied, so a change to the overlay
+    /// palette reaches the peaking marks too.
+    var overlayTint: MaskOverlay.Tint {
+        switch self {
+        case .green: return .green
+        case .red: return .red
+        case .white: return .white
+        }
+    }
+
+    var colour: RGB { overlayTint.colour }
+
+    var next: PeakingColour {
+        let all = PeakingColour.allCases
+        guard let i = all.firstIndex(of: self) else { return .green }
+        return all[(i + 1) % all.count]
+    }
+}
+
+/// What the peaking overlay is set to — on or off, which edges it counts, and what
+/// colour it marks them in. docs/10 §Focus peaking's whole control table, as one value.
+///
+/// ONE VALUE RATHER THAN THREE PROPERTIES, because the viewer holds this on `AppState`
+/// and the key dispatcher writes it: three published properties would be three
+/// broadcasts for one keystroke, and `DragBroadcastTests` exists because this app has
+/// already been billed for exactly that.
+struct FocusPeakingSettings: Equatable, Sendable {
+
+    var isOn: Bool
+    var sensitivity: FocusPeaking.Sensitivity
+    var tint: PeakingColour
+
+    init(isOn: Bool = false,
+         sensitivity: FocusPeaking.Sensitivity = .normal,
+         tint: PeakingColour = .green) {
+        self.isOn = isOn
+        self.sensitivity = sensitivity
+        self.tint = tint
+    }
+
+    /// The resting state: off, at the sensitivity and colour docs/10's table defaults to.
+    static let off = FocusPeakingSettings()
+
+    /// The chord. Sensitivity and colour are deliberately NOT reset by it — docs/10's
+    /// table says "state persists per session", and a photographer who set fine detail
+    /// for a landscape roll should not have to set it again every time they look away
+    /// from one frame.
+    mutating func toggle() {
+        isOn.toggle()
+    }
+
+    mutating func cycleSensitivity() {
+        sensitivity = sensitivity.next
+    }
+
+    mutating func cycleTint() {
+        tint = tint.next
+    }
+}
+
+extension FocusPeaking.Sensitivity {
+
+    /// The three, in the panel's voice rather than the wire format's. `fineDetail` reads
+    /// "Fine detail" on screen and stays `fineDetail` in anything that ever stores it.
+    var label: String {
+        switch self {
+        case .low: return "Low"
+        case .normal: return "Normal"
+        case .fineDetail: return "Fine detail"
+        }
+    }
+
+    /// Strictest to loosest, wrapping — `allCases` order, which is the order docs/10
+    /// lists them in, so the control walks the way the documentation reads.
+    var next: FocusPeaking.Sensitivity {
+        let all = FocusPeaking.Sensitivity.allCases
+        guard let i = all.firstIndex(of: self) else { return .normal }
+        return all[(i + 1) % all.count]
+    }
+}
+
+/// The focus-peaking overlay (docs/10 §Focus peaking): thin marks on the edges that are
+/// genuinely in focus, so a near-miss can be told from a keeper without zooming to 1:1.
+/// It is the one control that makes culling a manual-focus or wide-open shoot possible
+/// at all, because at grid size a sharp frame and a soft one are the same photograph.
+///
+/// `LumenCore.FocusPeaking` HAS BEEN IN THE TREE, FINISHED, WITH NO CALLER ANYWHERE —
+/// not in `Sources/`, not in `Tests/`. The audit's H2 sheet lists it among eight
+/// declared-and-unreachable scope symbols, and its gap table has it as the viewer's
+/// top-five gap with the note "engine exists". It is real code and not a stub: the
+/// response is `|centre − mean(8 neighbours)| / max(mean(3×3), floor)`, and run against
+/// synthetic frames it gives nothing on a flat field, saturates on a 1 px step, gives
+/// nothing on a 16 px ramp of the same contrast, marks the same texture equally at 0.60
+/// and at 0.03 luminance, and separates its three thresholds on a texture whose response
+/// lands between them. This view is what finally calls it.
+///
+/// DRAWN AS MARKS, NEVER AS A FILL, which the engine's own comment asks for. The output
+/// is a confidence plane that is already zero everywhere except at an edge, so painting
+/// the tint at `alpha = confidence` gives outlines by construction — and the alpha
+/// carries the confidence rather than being flattened to 1, so a barely-passing edge
+/// reads as a hint and a certain one reads as a line. Flattening it would turn the
+/// sensitivity control into a switch.
+struct FocusPeakingOverlayView: View {
+
+    let sampler: PixelSampler
+    var settings: FocusPeakingSettings
+
+    @State private var overlay: CGImage?
+
+    private struct BuildKey: Equatable {
+        let sampler: UUID
+        let sensitivity: FocusPeaking.Sensitivity
+        let tint: PeakingColour
+    }
+
+    var body: some View {
+        Group {
+            if let overlay {
+                Image(decorative: overlay, scale: 1, orientation: .up)
+                    .resizable()
+                    // `.none` and un-antialiased, exactly as the clipping overlay: a
+                    // peaking mark is one pixel of evidence, and smoothing it into its
+                    // neighbours is the overlay inventing sharpness it did not measure.
+                    .interpolation(.none)
+                    .antialiased(false)
+            } else {
+                Color.clear
+            }
+        }
+        .allowsHitTesting(false)
+        .task(id: BuildKey(sampler: sampler.id,
+                           sensitivity: settings.sensitivity,
+                           tint: settings.tint)) {
+            await rebuild()
+        }
+    }
+
+    /// The engine runs off the main actor; only the finished image is applied here.
+    @MainActor
+    private func rebuild() async {
+        let source = sampler
+        let wanted = settings.sensitivity
+        let colour = settings.tint
+        let built: CGImage? = await Task.detached(priority: .userInitiated) {
+            FocusPeakingOverlayView.build(sampler: source, sensitivity: wanted, tint: colour)
+        }.value
+        guard !Task.isCancelled else { return }
+        overlay = built
+    }
+
+    /// The confidence plane the engine returns for the frame on screen, at the
+    /// resolution it is on screen — which is what this file's header says an overlay
+    /// owes: it reports what you are looking at, at the resolution you are looking at it.
+    ///
+    /// LINEARIZED FIRST, and this is the one place the peaking overlay must NOT copy the
+    /// clipping overlay. That one reads the sRGB bytes directly and argues, correctly,
+    /// that the encoding is monotone with 0↔0 and 1↔1 so "at the ceiling" survives it.
+    /// Peaking asks a different question: its response is a RATIO of a local difference
+    /// to a local mean, and a gamma curve rescales differences and means by different
+    /// factors at different levels. Left encoded, the same texture would read as a
+    /// different response in the shadows than in the highlights — which is precisely the
+    /// failure the engine's divide-by-the-local-mean exists to remove, reintroduced one
+    /// layer above it. So the bytes are decoded to display-linear and luminance is taken
+    /// with the sRGB primaries' own weights, which give Y directly for values in that
+    /// space.
+    ///
+    /// The decode is a 256-entry table built per call rather than a `pow` per channel per
+    /// pixel: there are 256 possible byte values and up to sixteen million pixels, so the
+    /// table costs 256 transcendentals against three per pixel without it. Built locally
+    /// rather than cached in a static because 256 `pow`s is nothing beside the pass that
+    /// follows, and a shared table would be shared mutable state for no gain.
+    nonisolated static func confidence(sampler: PixelSampler,
+                                       sensitivity: FocusPeaking.Sensitivity) -> Plane? {
+        let width = sampler.width
+        let height = sampler.height
+        guard width > 0, height > 0 else { return nil }
+        let pixelCount = width * height
+        guard sampler.bytes.count >= pixelCount * 4 else { return nil }
+
+        let linear: [Double] = (0...255).map {
+            TransferFunction.srgb.decode(Double($0) / 255)
+        }
+        let weights = RGBColorSpace.srgb.luminanceWeights
+
+        var luminance = [Float](repeating: 0, count: pixelCount)
+        var p: Int = 0
+        while p < pixelCount {
+            let i = p * 4
+            luminance[p] = Float(weights.r * linear[Int(sampler.bytes[i])]
+                                 + weights.g * linear[Int(sampler.bytes[i + 1])]
+                                 + weights.b * linear[Int(sampler.bytes[i + 2])])
+            p += 1
+        }
+
+        return FocusPeaking.compute(Plane(width: width, height: height, values: luminance),
+                                    threshold: sensitivity.threshold)
+    }
+
+    /// The confidence plane, painted in the chosen colour and transparent everywhere the
+    /// engine found no edge.
+    ///
+    /// PREMULTIPLIED, because the `CGImage` below declares `premultipliedLast` and this
+    /// is the first overlay in the file whose alpha is not 0 or 255. The clipping overlay
+    /// writes straight colour under the same declaration and is right to: every pixel it
+    /// paints is fully opaque, so premultiplying by 1 is the identity. Here it is not,
+    /// and writing unpremultiplied bytes under that flag would draw the marks too bright
+    /// and haloed — the classic version of this bug, shipped by everybody once.
+    nonisolated static func build(sampler: PixelSampler,
+                                  sensitivity: FocusPeaking.Sensitivity,
+                                  tint: PeakingColour) -> CGImage? {
+        guard let confidence = FocusPeakingOverlayView.confidence(sampler: sampler,
+                                                                  sensitivity: sensitivity)
+        else { return nil }
+        let width = confidence.width
+        let height = confidence.height
+        let pixelCount = width * height
+        let colour = tint.colour
+
+        var out = [UInt8](repeating: 0, count: pixelCount * 4)
+        var p: Int = 0
+        while p < pixelCount {
+            let raw = Double(confidence.values[p])
+            let alpha = raw.isFinite ? Swift.min(Swift.max(raw, 0), 1) : 0
+            if alpha > 0 {
+                let i = p * 4
+                out[i] = byte(colour.r * alpha)
+                out[i + 1] = byte(colour.g * alpha)
+                out[i + 2] = byte(colour.b * alpha)
+                out[i + 3] = byte(alpha)
+            }
+            p += 1
+        }
+
+        guard let space = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
+        guard let provider = CGDataProvider(data: Data(out) as CFData) else { return nil }
+        return CGImage(width: width, height: height,
+                       bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: width * 4,
+                       space: space,
+                       bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+                       provider: provider, decode: nil, shouldInterpolate: false,
+                       intent: .defaultIntent)
+    }
+
+    private nonisolated static func byte(_ v: Double) -> UInt8 {
+        guard v.isFinite else { return 0 }
+        let scaled = (Swift.min(Swift.max(v, 0), 1) * 255).rounded()
+        return UInt8(Swift.min(Swift.max(scaled, 0), 255))
+    }
+}
+
+/// Peaking's toggle, and the only thing on screen that says peaking is on.
+///
+/// IT IS NOT A PANEL ROW ON PURPOSE. Peaking is a viewer instrument, like the clipping
+/// overlay and the before/after: it answers a question about the photograph rather than
+/// changing it, it belongs in the cull loop where there is no develop column open, and
+/// docs/10 puts it in the loupe, survey and compare alike. A row in Detail would put a
+/// judgement about focus inside the panel that CHANGES sharpening, which is the confusion
+/// this app spends whole files avoiding.
+///
+/// The badge exists because a chord with no visible state is a trap: green speckle on a
+/// frame, with nothing to name it, is indistinguishable from a rendering fault — and the
+/// photographer who hit `⇧F` an hour ago has no way to find the thing to turn off. So it
+/// names the mode, carries the two settings that change what the marks mean, and closes
+/// itself. Everything it does is also reachable from the keyboard; nothing it does is
+/// ONLY reachable here.
+struct FocusPeakingHUD: View {
+
+    @Binding var settings: FocusPeakingSettings
+
+    /// False when the picture underneath is a stand-in rather than the file's own
+    /// detail — a preview from the embedded JPEG, or a draft render that has not been
+    /// refined yet.
+    ///
+    /// docs/10 asks for this by name: "peaking on a 1616×1080 preview is labeled with the
+    /// shimmer badge because it cannot be trusted at pixel level". An edge measurement
+    /// taken on a resampled stand-in is a measurement of the RESAMPLER, and a focus
+    /// instrument that will not say when it is guessing is worse than no instrument,
+    /// because a keeper gets deleted on its word. It defaults to true so a caller that
+    /// has not worked out its own answer yet cannot silently claim the caveat is handled.
+    var atPixelLevel: Bool = true
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Button {
+                settings.cycleTint()
+            } label: {
+                Circle()
+                    .fill(swatch)
+                    .frame(width: 9, height: 9)
+                    .overlay {
+                        Circle().strokeBorder(Lumen.separator, lineWidth: 0.5)
+                    }
+            }
+            .buttonStyle(.plain)
+            .lumenClickCursor()
+            .help("Peaking colour — \(settings.tint.label)")
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Peaking")
+                    .font(.lumenCaptionStrong)
+                    .foregroundStyle(Lumen.primaryText)
+                if !atPixelLevel {
+                    // Named rather than hinted. "Preview" is the word the rest of the
+                    // app uses for a stand-in rendition, and the second half is what the
+                    // photographer actually needs to know: do not decide on this.
+                    Text("preview — not a pixel-level read")
+                        .font(.lumenCaption)
+                        .foregroundStyle(Lumen.tertiaryText)
+                }
+            }
+
+            Button {
+                settings.cycleSensitivity()
+            } label: {
+                Text(settings.sensitivity.label)
+                    .font(.lumenCaption)
+                    .foregroundStyle(Lumen.secondaryText)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Lumen.controlSurface)
+                    .clipShape(Capsule(style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .lumenInteractive(radius: Lumen.radiusChip)
+            .help("Sensitivity — low, normal, fine detail")
+
+            Button {
+                settings.isOn = false
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.lumenGlyphCaption)
+                    .foregroundStyle(Lumen.secondaryText)
+            }
+            .buttonStyle(.plain)
+            .lumenClickCursor()
+            .help("Turn peaking off (⇧F)")
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        // The one material everything that floats over the photograph is made of. The
+        // chip radius rather than the card's, because this is a strip of controls and
+        // not a surface — the readout HUD two hundred lines up made the same call.
+        .lumenHUD(radius: Lumen.radiusChip)
+    }
+
+    private var swatch: Color {
+        let c = settings.tint.colour
+        return Color(.sRGB,
+                     red: Swift.min(Swift.max(c.r, 0), 1),
+                     green: Swift.min(Swift.max(c.g, 0), 1),
+                     blue: Swift.min(Swift.max(c.b, 0), 1),
+                     opacity: 1)
     }
 }
 

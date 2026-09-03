@@ -27,6 +27,35 @@
 // over a different exposure are a different plane. A brush WITHOUT automask does not
 // read the picture at all, and its `sourceKey` is "-" so a tone edit does not throw the
 // painting away.
+//
+// THE SETTLE RUNG WAS UNREACHABLE, which is the half of docs/36 §1.2 that survived.
+//
+// This file's own header said "two rungs (draft and settle)" and `store` then refused
+// to hold either one of them above `maskRasterLongEdge` — so the settle rung existed in
+// the prose and nowhere else. A brush stroke commits on mouse-up (`MaskCanvas`
+// publishes `livePoints` to the canvas and the STROKE to the recipe, so the set grows
+// by one complete stroke per gesture), the draft frame after it resumes and paints one
+// stroke at 1024, and then the settle — which since docs/31 round two §3 rasterizes at
+// the render target's own resolution — found nothing to resume from and repainted the
+// WHOLE SET at up to 4096 px. Sixty strokes at sixteen times the proxy's pixels, once
+// per stroke drawn, on the pass the photographer is actually waiting for. The docs/36
+// measurement said a session's painting should track the number of strokes drawn and
+// not its square; with the settle rung dropped it tracked the square exactly, one
+// resolution up.
+//
+// So retention above the proxy is a BYTE budget rather than a long edge, and DELIVERIES
+// are still refused: an export paints at the export target, a single 45 MP plane is
+// ~180 MB, and a one-shot render has nothing to resume into.
+// `DraftLadder.interactiveLongEdgeCeiling` is the line between a surface being dragged
+// on and a file being written, read from the ladder rather than restated.
+//
+// `MaskRasterCache` does NOT get the same treatment, and the asymmetry is deliberate
+// rather than an oversight: that cache trusts a key completely, and its key does not
+// name the masks a `maskRef` component resolves against, so holding its settle rung
+// would freeze a referenced selection at whatever the mask it points to last looked
+// like. This cache trusts nothing of the sort — the strokes are COMPARED, entry against
+// request, and the only trusted term is the picture fingerprint that already gates the
+// draft rung. See `MaskRasterCache`'s header for what has to be fixed there.
 
 #if os(macOS)
 
@@ -35,10 +64,25 @@ import LumenCore
 
 final class BrushPlaneCache {
 
-    /// Two rungs (draft and settle) for a handful of components. A 1024 px plane is
-    /// ~2.8 MB of Float; twelve is under 35 MB, and settle-size planes are not held
-    /// (see `store`), for the same reason `MaskRasterCache` does not hold them.
+    /// The draft rung's count cap: a handful of components at the 1024 px proxy. A
+    /// plane there is ~2.8 MB of Float; twelve is under 35 MB.
     private let capacity = 12
+
+    /// WHAT THE SETTLE RUNG MAY HOLD, IN BYTES — because bytes are what is actually
+    /// being bounded and a long edge is a poor proxy for them, which is the argument
+    /// `DraftLadder.materializedDecodeByteCeiling` already makes about held decodes.
+    ///
+    /// The arithmetic, so the number is auditable rather than felt: a 3:2 frame at the
+    /// 4096 interactive ceiling is 4096×2731 = 11.2 M Float = 44.7 MB, so this holds two
+    /// of the largest planes an interactive surface can ask for; at the 2560 rung a fit
+    /// settle on an ordinary display actually uses it holds five, and at 2048, eight.
+    /// The same count cap would be 34 MB at the proxy and 537 MB at the ceiling, which
+    /// is the whole reason the rule cannot be a count.
+    ///
+    /// Against `RenderCoordinator.decodeResidencyBudget` (768 MB) and the 512 MB
+    /// thumbnail cache this is a small share, and what it buys is the difference between
+    /// a settle that repaints sixty strokes and one that paints the stroke just drawn.
+    static let settleResidencyBudget = 96 * 1024 * 1024
 
     private struct Entry {
         var strokes: [BrushStroke]
@@ -50,6 +94,11 @@ final class BrushPlaneCache {
     /// the same reason: the list is short enough that a linear scan beats a dictionary
     /// plus a separate recency list.
     private var entries: [(key: String, entry: Entry)] = []
+    /// The rung above the proxy, split out rather than mixed into `entries` so a
+    /// handful of settle-size planes cannot evict the draft rung the drag is living
+    /// off. The key already carries `WxH`, so an entry belongs to exactly one of the
+    /// two lists and a lookup that misses the first can only ever hit the second.
+    private var settled: [(key: String, entry: Entry)] = []
 
     struct Stats: Equatable, Sendable {
         var resumed = 0
@@ -100,6 +149,14 @@ final class BrushPlaneCache {
                 let moved = entries.remove(at: index)
                 entries.insert(moved, at: 0)
             }
+        } else if let index = settled.firstIndex(where: { $0.key == key }) {
+            let held = settled[index].entry
+            let n = held.strokes.count
+            if n <= set.strokes.count, Array(set.strokes.prefix(n)) == held.strokes {
+                resume = (plane: held.plane, strokes: n)
+                let moved = settled.remove(at: index)
+                settled.insert(moved, at: 0)
+            }
         }
         lock.unlock()
 
@@ -118,19 +175,51 @@ final class BrushPlaneCache {
     func clear() {
         lock.lock()
         entries.removeAll()
+        settled.removeAll()
         lock.unlock()
     }
 
     private func store(key: String, strokes: [BrushStroke], plane: Plane) {
-        // Export-size planes are not held, the same rule `MaskRasterCache` applies:
-        // a single 45 MP plane is ~180 MB, and an export is a one-shot anyway.
-        guard Swift.max(plane.width, plane.height) <= PipelineRenderer.maskRasterLongEdge
-        else { return }
+        let entry = Entry(strokes: strokes, plane: plane)
+        let long = Swift.max(plane.width, plane.height)
+        if long <= PipelineRenderer.maskRasterLongEdge {
+            lock.lock()
+            entries.removeAll { $0.key == key }
+            entries.insert((key: key, entry: entry), at: 0)
+            if entries.count > capacity { entries.removeLast(entries.count - capacity) }
+            lock.unlock()
+            return
+        }
+        // Export-size planes are not held — the surviving half of the rule this
+        // retention replaced, and the half of it that was right: a single 45 MP plane is
+        // ~180 MB, and a one-shot render has nothing to resume into. The line is drawn
+        // at `DraftLadder.interactiveLongEdgeCeiling` because that is where the ladder
+        // already draws it — a render asking above it asked to deliver or to inspect,
+        // not to be dragged on.
+        guard long <= DraftLadder.interactiveLongEdgeCeiling else { return }
         lock.lock()
-        entries.removeAll { $0.key == key }
-        entries.insert((key: key, entry: Entry(strokes: strokes, plane: plane)), at: 0)
-        if entries.count > capacity { entries.removeLast(entries.count - capacity) }
+        settled.removeAll { $0.key == key }
+        settled.insert((key: key, entry: entry), at: 0)
+        trimSettledLocked()
         lock.unlock()
+    }
+
+    /// Bring the settle rung back under `settleResidencyBudget`, oldest first. Called
+    /// with `lock` held.
+    ///
+    /// Newest-first order makes this a prefix scan: keep entries while they fit, drop
+    /// the tail. A single plane larger than the whole budget is dropped rather than
+    /// allowed to evict everything and sit there alone.
+    private func trimSettledLocked() {
+        var total = 0
+        var kept: [(key: String, entry: Entry)] = []
+        for held in settled {
+            let bytes = held.entry.plane.values.count * MemoryLayout<Float>.stride
+            guard total + bytes <= Self.settleResidencyBudget else { break }
+            total += bytes
+            kept.append(held)
+        }
+        settled = kept
     }
 }
 

@@ -142,11 +142,23 @@ struct MaskFloatingPanel: View {
                           : "Collapse to a column of mask pictures") {
                 state.maskPanelMinimized.toggle()
             }
-            if !state.maskPanelMinimized {
-                barButton("xmark",
-                          help: "Hide this panel — the Masks button brings it back") {
-                    state.maskPanelVisible = false
-                }
+            // CLOSE IS REACHABLE IN BOTH STATES, and for one round it was not.
+            //
+            // This button sat inside the `if !state.maskPanelMinimized` above, so
+            // collapsing the panel to the thumbnail rail — the state that exists for the
+            // photographer who wants the picture back — took away the only way to
+            // dismiss it. The way out was expand, close, and then find that it reopens
+            // expanded, having thrown away the collapse that was the whole point. Sixty
+            // two points of permanent chrome over somebody's photograph with no exit of
+            // its own (audit F4-07).
+            //
+            // The collapse control beside it was always outside the guard, and there was
+            // never a width argument for hiding this one — only the accident of where a
+            // brace fell. The rail is 62 points wide and holds a 16 point button twice
+            // over.
+            barButton("xmark",
+                      help: "Hide this panel — the Masks button brings it back") {
+                state.maskPanelVisible = false
             }
         }
         .padding(.horizontal, 7)
@@ -220,12 +232,22 @@ struct MaskFloatingPanel: View {
                            _ action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.system(size: 10, weight: .semibold))
+                // `.lumenGlyphCaptionStrong` IS `.system(size: 10, weight: .semibold)`,
+                // byte for byte — which is exactly why this was written out longhand and
+                // exactly why it must not be. `DesignSystemTests` ratchets the app's raw
+                // `.system(size:)` count and its own comment names this failure mode:
+                // "not by anyone deciding a token is wrong, but by a new row being
+                // written in the shape of the row beside it".
+                .font(.lumenGlyphCaptionStrong)
                 .frame(width: 16, height: 16)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .foregroundStyle(Lumen.secondaryText)
+        // The pointing hand, because this is a button that does not look like one — the
+        // rule `lumenClickCursor` exists for, and the two controls in this bar were the
+        // only glyph buttons in the panel without it.
+        .lumenClickCursor()
         .help(help)
     }
 
@@ -245,9 +267,16 @@ struct MaskFloatingPanel: View {
                         state.activeMaskID = mask.id
                         state.activeComponentIndex = 0
                     } label: {
+                        // ONE SIZE, from `MaskPanel`. This construction and the two in
+                        // `MaskPanel` were three literals for one picture, and two of
+                        // them had already drifted apart (44×30 here and in the list,
+                        // 40×27 in the develop column's editing strip) under a doc
+                        // comment claiming the shared view existed to stop exactly that
+                        // (audit F4-04).
                         MaskThumbnail(image: state.maskThumbnails[mask.id],
                                       enabled: mask.enabled,
-                                      width: 44, height: 30,
+                                      width: MaskPanel.thumbnailSize.width,
+                                      height: MaskPanel.thumbnailSize.height,
                                       selected: mask.id == state.activeMaskID)
                             .contentShape(Rectangle())
                     }
@@ -260,8 +289,13 @@ struct MaskFloatingPanel: View {
             .padding(.vertical, 8)
             .frame(maxWidth: .infinity)
         }
+        // The rail is exactly as tall as its pictures: one thumbnail plus the stack's
+        // 5 pt gap each, plus the 8 pt of air above and below. Derived from the same
+        // constant the thumbnails are drawn at, so resizing them cannot leave the column
+        // measuring a size it no longer draws.
         .frame(height: Swift.min(contentHeight,
-                                 CGFloat(masks.count) * 35 + 16))
+                                 CGFloat(masks.count)
+                                     * (MaskPanel.thumbnailSize.height + 5) + 16))
     }
 
     // MARK: - Placement

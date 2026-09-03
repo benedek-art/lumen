@@ -25,10 +25,13 @@
 // tiny bit out of that center dot, then I have to redraw it"). That file carries the
 // full account. What matters at this end is the shape of the grammar it hands back:
 //
-//   radial   inside → move · the whole rim → resize that axis · clear space → new one
+//   radial   inside → move · the whole rim → resize that axis · just outside → turn it ·
+//            clear space → new one
 //   linear   the strip between the band lines → move · a band line → falloff ·
-//            an endpoint dot → turn it · clear space → new one
-//   both     ⌘ at the press → new one, wherever the press landed
+//            an endpoint dot → swing that end · just outside the strip → turn it ·
+//            clear space → new one
+//   both     ⌘ at the press → new one, wherever the press landed · ⇧ snaps to 15° ·
+//            ⌥ at the press draws the new shape from its centre
 //
 // and the rule underneath all of it: a press that took hold of the shape can never
 // replace it. Every drag below is a pure function of where the pointer is NOW and where
@@ -276,6 +279,13 @@ struct MaskCanvas: View {
         // modifier now carries exactly that discipline for every cursor in the app,
         // including the arming input, so the second copy goes.
         .lumenPickCursor(needsDrawing)
+        // AND THE POINTING HAND OVER A HANDLE. The crosshair above says "draw one
+        // here"; this says "there is something here to take hold of", which is the
+        // other half of the same sentence and the half that was missing — a canvas
+        // whose targets are all invisible until pressed. It arms only on the named
+        // handles, so it appears exactly where a press does something specific,
+        // including the rotate band that has no ink of its own.
+        .lumenClickCursor(hoverIsOnANamedHandle)
         .allowsHitTesting(isLive)
         .help(helpText)
     }
@@ -341,11 +351,13 @@ struct MaskCanvas: View {
         switch component.kind {
         case .linear, .similarityLine:
             return "Drag the band to move it, a line to change the falloff, an end dot "
-                 + "to turn it; Shift constrains to 0/90°. ⌘-drag draws a new gradient."
+                 + "to swing that end, just outside the band to turn the whole thing. "
+                 + "⇧ snaps to 15°; ⌘-drag draws a new gradient, ⌥ from its centre."
         case .radial:
-            return "Drag out an ellipse on the picture. Then: inside to move, the edge "
-                 + "to resize, the inner ring to feather, just outside it to turn it. "
-                 + "⇧ keeps it round or snaps the angle; ⌘-drag draws another."
+            return "Drag out an ellipse on the picture — ⌥ from its centre. Then: "
+                 + "inside to move, the edge to resize, the inner ring to feather, just "
+                 + "outside it to turn it. ⇧ keeps it round or snaps the angle to 15°; "
+                 + "⌘-drag draws another."
         case .brush:
             return "Drag to paint, hold ⌥ to erase, ⇧-click to carry on in a straight "
                  + "line from the last stroke. [ and ] size it, ⇧[ and ⇧] feather it, "
@@ -361,20 +373,122 @@ struct MaskCanvas: View {
         }
     }
 
+    // MARK: What the pointer is over
+
+    // NOTHING ON THIS CANVAS ANSWERED A HOVER, and that is the finding these three
+    // properties close. Every handle here has an 11 pt tolerance around ink drawn at 3
+    // to 4.5 pt, which is the right ratio and is invisible: the picture gave no sign
+    // that the pointer was over anything until the button went down and the shape
+    // moved. The rotate band is the extreme case — it is 22 points of live target with
+    // no ink at all, on both shapes — and the owner's report is exactly what that
+    // produces: "there is a rotate band … I expect to grab and cannot find".
+    //
+    // The fix is to run the SAME hit test on the hover position and let the drawing say
+    // what it found. One rule, asked twice: whatever the press would do is what the
+    // picture shows before the press. A second copy of the tolerances for the ink is
+    // precisely how a canvas ends up drawing affordances where nothing can be grabbed.
+
+    /// What a press at the pointer would take hold of on a gradient — the drag's own
+    /// grab while one is live, so the affordance stays lit for the whole gesture.
+    private var liveLinearGrab: MaskHandles.LinearGrab? {
+        if case .line(let grab) = mode { return grab }
+        guard mode == .idle, let hover, let component,
+              component.kind == .linear || component.kind == .similarityLine,
+              let line = MaskCanvas.optionalLine(component) else { return nil }
+        return lineGrab(at: hover, line: line)
+    }
+
+    /// The same question for an ellipse.
+    private var liveRadialGrab: MaskHandles.RadialGrab? {
+        if case .radial(let grab) = mode { return grab }
+        guard mode == .idle, let hover, let component, component.kind == .radial,
+              MaskCanvas.hasEllipse(component) else { return nil }
+        return radialGrab(at: hover, centre: MaskCanvas.pair(component.center,
+                                                             fallback: [0.5, 0.5]),
+                          radii: MaskCanvas.pair(component.radii, fallback: [0.25, 0.25]),
+                          rotation: component.rotation ?? 0,
+                          feather: component.feather ?? 50, hasGeometry: true)
+    }
+
+    /// Which lasso corner the pointer is over, so the corner can light before the press
+    /// rather than after it. `drawOutline` already enlarged the corner a DRAG had hold
+    /// of; this is the same answer one event earlier, which is the event on which it is
+    /// still useful.
+    private var hoverVertex: Int? {
+        guard mode == .idle, let hover, let component, component.kind == .polygon
+        else { return nil }
+        let path = (component.path ?? []).filter {
+            $0.count == 2 && $0.allSatisfy(\.isFinite)
+        }
+        return grabbedVertex(at: hover, path: path)
+    }
+
+    /// The same for a colour-pick point, which has two targets in the same place — the
+    /// middle moves it and the ring changes its reach — and no way to tell which one the
+    /// pointer was on until the drag had already started changing one of them.
+    private var hoverPoint: PointGrab? {
+        guard mode == .idle, let hover, let component,
+              component.kind == .similarity || component.kind == .similarityLine,
+              let points = component.points, !points.isEmpty else { return nil }
+        return grabbedPoint(at: hover, points: points)
+    }
+
+    /// Whether the pointer is over a NAMED handle rather than a region, which is when
+    /// the cursor is allowed to say so.
+    ///
+    /// For the two gradients this is the set `MaskHandles.outranksPin` names, and
+    /// deliberately the same call: the two questions — "is this press about a specific
+    /// target rather than an area?" — are one question, and answering it twice is how
+    /// the two answers diverge. A `.move` keeps the arrow, because a gradient's strip
+    /// can be most of the frame and a pointing hand over most of the frame says nothing.
+    ///
+    /// A lasso corner, a colour-pick point and another mask's pin are all specific
+    /// targets by construction — each is an 11 pt disc and nothing else — so each of
+    /// them arms it too.
+    private var hoverIsOnANamedHandle: Bool {
+        if hoverVertex != nil || hoverPoint != nil { return true }
+        if let hover, foreignPin(at: hover) != nil { return true }
+        if let grab = liveLinearGrab { return MaskHandles.outranksPin(grab) }
+        if let grab = liveRadialGrab { return MaskHandles.outranksPin(grab) }
+        return false
+    }
+
     // MARK: Gesture
 
     private var dragGesture: some Gesture {
         DragGesture(minimumDistance: 0)
             .onChanged { value in
                 // A press on another mask's pin selects, and does nothing else. Checked
-                // FIRST and only once per gesture: a pin sits on top of whatever
-                // geometry is underneath it, and the press has to mean the pin.
-                if case .idle = mode, let id = foreignPin(at: value.startLocation) {
+                // once per gesture, and now BEHIND the question of whether the press
+                // also landed on a named handle of the mask you are editing.
+                //
+                // IT USED TO WIN UNCONDITIONALLY, and that is a handle-priority defect:
+                // a pin is an 11 pt disc and so is every handle here, so the tie was
+                // being broken by which test ran first rather than by which target the
+                // hand was aiming at. Pins sit at the CENTRE of their own mask, so two
+                // masks over the same subject put one pin squarely inside the other's
+                // shape — reach for that ellipse's rim, land within 11 pt of the pin,
+                // and the selection changed out from under you and the drag was gone.
+                // `MaskHandles.outranksPin` carries the rule: a named handle keeps the
+                // press, a region (`.move`, `.create`) still yields to the pin.
+                if case .idle = mode, !pressTakesAHandle(at: value.startLocation),
+                   let id = foreignPin(at: value.startLocation) {
                     mode = .pin(id)
                     return
                 }
                 if case .pin = mode { return }
                 guard let component = component else { return }
+                // THE POINTER'S POSITION DURING A DRAG, which `onContinuousHover` does
+                // not report. Its tracking area answers `mouseMoved`, and AppKit stops
+                // sending that the moment a button goes down — it sends `mouseDragged`
+                // to the view that took the press instead. So `hover` froze where the
+                // press landed for the whole of every drag, and the brush's cursor ring
+                // sat there while the paint went somewhere else: the one control whose
+                // entire job is to say where the next stamp lands, parked at the last
+                // place it did. The turn mark and the lit handles need it for the same
+                // reason. It is one view-local write per event on a view that is
+                // already redrawing per event, and it touches no shared object.
+                hover = value.location
                 sliderGestureChanged(true)
                 switch component.kind {
                 case .linear, .similarityLine:
@@ -465,9 +579,11 @@ struct MaskCanvas: View {
             // drawing one dot each would paint a solid line over the shape.
             return
         }
+        let lit = outlineGrab ?? hoverVertex
         for (index, entry) in points.enumerated() where entry.count == 2 {
             guard entry[0].isFinite, entry[1].isFinite else { continue }
-            handle(&context, viewPoint(entry[0], entry[1]), small: index != outlineGrab)
+            handle(&context, viewPoint(entry[0], entry[1]), small: index != lit,
+                   hot: index == lit)
         }
     }
 
@@ -564,10 +680,21 @@ struct MaskCanvas: View {
             // one of them is a vertex the rasterizer walks at every pixel inside the
             // bounding box — the difference between a shape that rasterizes in
             // milliseconds and one that does not.
-            if let last = traced.last,
-               hypot(point[0] - last[0], point[1] - last[1])
-                   < MaskCanvas.outlineTraceStep, !ended {
-                return
+            //
+            // MEASURED IN VIEW POINTS, and it was measured in source-normalized units —
+            // a fixed fraction of the SOURCE frame, which is a different number of
+            // screen points at every magnification. At fit-to-window the old 0.002 was
+            // a couple of points and invisible; at 4:1 it is 48 screen points, so the
+            // lasso recorded one vertex every 48 points and came back a coarse polygon
+            // exactly when the photographer had zoomed in to trace something carefully.
+            // `MaskHandles.traceStep` carries the number and the account.
+            if let last = traced.last, last.count == 2, !ended {
+                let previous = viewPoint(last[0], last[1])
+                let dx = Double(value.location.x - previous.x)
+                let dy = Double(value.location.y - previous.y)
+                if (dx * dx + dy * dy) < MaskHandles.traceStep * MaskHandles.traceStep {
+                    return
+                }
             }
             traced.append(point)
             tracing = traced
@@ -604,15 +731,20 @@ struct MaskCanvas: View {
         return best?.index
     }
 
-    /// How far a press may travel and still count as a click that places a corner. Below
-    /// the 11 pt grab radius, so a click near an existing corner grabs it rather than
-    /// stacking a second one on top.
-    static let outlineClickSlop: CGFloat = 4
+    /// How far a press may travel and still count as a click that places a corner.
+    ///
+    /// `MaskHandles.minimumDrawTravel` rather than a 4 written here, because it is the
+    /// same question — how far a hand moves in a press it meant as a click — and this
+    /// file's own rule about `handleRadius` is that a second copy of a tolerance beside
+    /// the rule that owns it is how the two drift apart. It was a bare 4, which happened
+    /// to agree; the agreement was a coincidence nothing held.
+    static let outlineClickSlop: CGFloat = CGFloat(MaskHandles.minimumDrawTravel)
 
-    /// Minimum spacing between recorded lasso vertices, in source-normalized units —
-    /// roughly a fifth of a percent of the frame, which is finer than the edge the
-    /// rasterizer's one-pixel ramp can express at any sane display size.
-    static let outlineTraceStep: Double = 0.002
+    // The lasso's vertex spacing used to live here as 0.002 of the SOURCE frame. It is
+    // gone rather than reworded: a spacing in source fractions is a different distance
+    // on screen at every zoom, which is the defect `MaskHandles.traceStep` records, and
+    // keeping a second copy of a tolerance beside the rule that supersedes it is how the
+    // two drift apart.
 
     // MARK: Similarity points
 
@@ -695,9 +827,13 @@ struct MaskCanvas: View {
     }
 
     /// How near a ring a press has to land to mean "resize" rather than "move".
-    /// The same 11 pt `MaskHandles` uses for a gradient's dots, for the same reason: a
-    /// grab radius smaller than the thing drawn is a target you can see and not hit.
-    static let pointRingGrab: CGFloat = 11
+    ///
+    /// `MaskHandles.grabRadius` rather than an 11 written out again. The comment already
+    /// said "the same 11 pt `MaskHandles` uses", which was a claim about a literal in
+    /// another module that nothing checked — the exact shape of the drift this file
+    /// deleted `handleRadius` to stop. Change the grab radius and every target on the
+    /// canvas moves with it now, including these two.
+    static let pointRingGrab: CGFloat = CGFloat(MaskHandles.grabRadius)
 
     // MARK: Linear gradient
 
@@ -806,6 +942,21 @@ struct MaskCanvas: View {
             let base = updated
             updated = [MaskCanvas.coord(base[0] + dx), MaskCanvas.coord(base[1] + dy),
                        MaskCanvas.coord(base[2] + dx), MaskCanvas.coord(base[3] + dy)]
+        case .rotate:
+            // THE GRADIENT'S ROTATE BAND. Both endpoints swing about the MIDPOINT by the
+            // angle the pointer has swept since the press — see `MaskHandles.turnedLine`
+            // for why the pivot is the middle and why it is the sweep rather than the
+            // pointer's own angle. `updated` is the drag's origin, so this is a pure
+            // function of where the pointer is now and stays one across a dropped event.
+            let p0 = viewPoint(updated[0], updated[1])
+            let p1 = viewPoint(updated[2], updated[3])
+            let pivot = CGPoint(x: (p0.x + p1.x) / 2, y: (p0.y + p1.y) / 2)
+            let turned = MaskHandles.turnedLine(start: p0, end: p1, pivot: pivot,
+                                                from: value.startLocation, to: current,
+                                                snap: isShiftDown)
+            let a = normalized(turned.start)
+            let b = normalized(turned.end)
+            updated = [Double(a.x), Double(a.y), Double(b.x), Double(b.y)]
         case .create:
             // Only reached when the press landed clear of the whole gradient, or with ⌘
             // down. A click is still not a gradient: without the travel guard a 3 pt
@@ -815,8 +966,15 @@ struct MaskCanvas: View {
             guard MaskHandles.drawsShape(from: value.startLocation, to: current) else {
                 return
             }
-            let start = normalized(value.startLocation)
-            let end = normalized(constrained(current, anchor: value.startLocation))
+            // ⇧ constrains the direction and ⌥ centres the gradient on the press, both
+            // in `MaskHandles.drawnLine` where they compose and can be tested. ⌥ is the
+            // modifier the radial has always had here and the gradient never did — one
+            // key meaning "centre it on the press" on one tool and nothing on the other.
+            let drawn = MaskHandles.drawnLine(from: value.startLocation, to: current,
+                                              fromCentre: isOptionDown,
+                                              snap: isShiftDown)
+            let start = normalized(drawn.start)
+            let end = normalized(drawn.end)
             updated = [Double(start.x), Double(start.y), Double(end.x), Double(end.y)]
         }
 
@@ -1131,10 +1289,22 @@ struct MaskCanvas: View {
                                pressure: Self.currentPressure(), t: ms)
         // Sub-pixel resampling is the rasterizer's job (arc-length Catmull-Rom); the
         // recorder only drops events that did not move.
+        //
+        // IN VIEW POINTS, through `viewPoint`, and it was a source-normalized delta
+        // multiplied by the DISPLAYED rect's extent — the mismatch this file's move
+        // branches document, arrived at once more. On a 0.35 crop that product
+        // understates the pointer's real travel by about 2.9×, so the filter rejected
+        // samples that had moved nearly three times the distance it was told to keep;
+        // and multiplying x by the width and y by the height makes the threshold
+        // elliptical on a non-square preview, so the same movement was worth different
+        // amounts in different directions. Two `viewPoint` calls answer both, and the
+        // half-point floor then means half a point on screen at every zoom.
         var accept = true
         if let last = points.last {
-            let dx = (last.x - point.x) * Double(imageRect.width)
-            let dy = (last.y - point.y) * Double(imageRect.height)
+            let previous = viewPoint(last.x, last.y)
+            let now = viewPoint(point.x, point.y)
+            let dx = Double(now.x - previous.x)
+            let dy = Double(now.y - previous.y)
             accept = ended || (dx * dx + dy * dy) >= 0.25
         }
         if accept { points.append(point) }
@@ -1184,20 +1354,66 @@ struct MaskCanvas: View {
         let uy = dy / length
         let reach = Swift.max(imageRect.width, imageRect.height) * 1.5
 
-        var band = Path()
-        for anchor in [p0, p1] {
+        // The two band lines are drawn SEPARATELY now, rather than as one path, so the
+        // one under the pointer can answer. They are the falloff, and which of the two
+        // a press is about is the thing the picture could not say.
+        let grab = liveLinearGrab
+        for (anchor, which) in [(p0, MaskHandles.LinearGrab.startBand),
+                                (p1, MaskHandles.LinearGrab.endBand)] {
+            var band = Path()
             band.move(to: CGPoint(x: anchor.x - uy * reach, y: anchor.y + ux * reach))
             band.addLine(to: CGPoint(x: anchor.x + uy * reach, y: anchor.y - ux * reach))
+            let hot = grab == which
+            stroke(&context, band, width: hot ? 2 : 1, alpha: hot ? 1 : 0.85)
         }
         var axis = Path()
         axis.move(to: p0)
         axis.addLine(to: p1)
-
-        stroke(&context, band, width: 1, alpha: 0.85)
         stroke(&context, axis, width: 1, alpha: 0.55)
-        handle(&context, p0)
-        handle(&context, p1)
-        handle(&context, CGPoint(x: (p0.x + p1.x) / 2, y: (p0.y + p1.y) / 2), small: true)
+        handle(&context, p0, hot: grab == .startHandle)
+        handle(&context, p1, hot: grab == .endHandle)
+        // The midpoint IS the move affordance — the gradient's pin — so it lights for a
+        // move like any other handle rather than sitting there as decoration.
+        handle(&context, CGPoint(x: (p0.x + p1.x) / 2, y: (p0.y + p1.y) / 2),
+               small: true, hot: grab == .move)
+        if grab == .rotate, let hover { rotateGlyph(&context, at: hover) }
+    }
+
+    /// THE TURN MARK: a curved double-headed arrow drawn at the pointer while it is
+    /// standing in a rotate band.
+    ///
+    /// This is the whole of the "I expect to grab it and cannot find it" fix, and it is
+    /// drawn rather than pushed as a cursor because macOS has no rotate cursor to push —
+    /// every application that offers this draws its own. Drawn AT THE POINTER rather
+    /// than at a fixed place on the shape for the reason the radial's old rotate lever
+    /// was removed: a mark at one fixed offset from one end of an axis is a control you
+    /// have to hunt for after every turn. The band is 360° of target on the ellipse and
+    /// the full width of the frame on the gradient, so the mark belongs wherever the
+    /// hand already is.
+    ///
+    /// It appears only while the pointer is actually inside the band, which makes it a
+    /// statement about this position rather than a permanent piece of furniture — the
+    /// same discipline `needsDrawing` applies to the crosshair.
+    private func rotateGlyph(_ context: inout GraphicsContext, at point: CGPoint) {
+        let r = CGFloat(MaskHandles.grabRadius) * 0.72
+        var mark = Path()
+        mark.addArc(center: point, radius: r, startAngle: .degrees(35),
+                    endAngle: .degrees(325), clockwise: false)
+        // A barbed head at each open end, swept back along the way the arc runs there,
+        // so the mark reads as "this turns both ways" rather than as a broken ring.
+        for (degrees, sense) in [(35.0, -1.0), (325.0, 1.0)] {
+            let a = degrees * Double.pi / 180
+            let cosA = CGFloat(cos(a)), sinA = CGFloat(sin(a))
+            let tip = CGPoint(x: point.x + cosA * r, y: point.y + sinA * r)
+            let tx = CGFloat(-sin(a) * sense), ty = CGFloat(cos(a) * sense)
+            for side in [1.0, -1.0] {
+                let bx = tx * -0.85 + cosA * CGFloat(0.5 * side)
+                let by = ty * -0.85 + sinA * CGFloat(0.5 * side)
+                mark.move(to: tip)
+                mark.addLine(to: CGPoint(x: tip.x + bx * 5, y: tip.y + by * 5))
+            }
+        }
+        stroke(&context, mark, width: 1.5, alpha: 0.95)
     }
 
     private func drawRadial(_ context: inout GraphicsContext, _ component: MaskComponent) {
@@ -1210,11 +1426,16 @@ struct MaskCanvas: View {
         let rotation = component.rotation ?? 0
         let feather = Num.clamp(component.feather ?? 50, 0, 100) / 100
 
-        stroke(&context, ellipsePath(centre, radii, rotation, scale: 1), width: 1, alpha: 0.85)
+        // The same hit test the press will run, asked of the hover: whatever it finds is
+        // what the picture lights up. See `liveRadialGrab`.
+        let grab = liveRadialGrab
+        let onRim = grab == .resizeMajor || grab == .resizeMinor
+        stroke(&context, ellipsePath(centre, radii, rotation, scale: 1),
+               width: onRim ? 2 : 1, alpha: onRim ? 1 : 0.85)
         let inner = Swift.max(1 - feather, 0.02)
         if inner < 0.999 {
             stroke(&context, ellipsePath(centre, radii, rotation, scale: inner),
-                   width: 1, alpha: 0.35)
+                   width: grab == .feather ? 2 : 1, alpha: grab == .feather ? 0.9 : 0.35)
             // A HANDLE ON THE RING, on the same two conditions the hit test uses — the
             // file's own rule about the rim's four dots is that a picture showing an
             // affordance where there isn't one is a picture that lies about where the
@@ -1235,7 +1456,7 @@ struct MaskCanvas: View {
                 handle(&context,
                        viewPoint(from: centre, offset: (radii[0] * inner, 0),
                                  rotation: rotation),
-                       small: true)
+                       small: true, hot: grab == .feather)
             }
         }
         // FOUR rim dots, not two. The hit test takes a resize from anywhere on the rim,
@@ -1244,16 +1465,29 @@ struct MaskCanvas: View {
         // the reported defect in the first place. The centre dot stays, drawn small: it
         // is no longer the only way to move the ellipse, it is the mark that says where
         // the ellipse is centred.
-        handle(&context, viewPoint(centre[0], centre[1]), small: true)
+        handle(&context, viewPoint(centre[0], centre[1]), small: true,
+               hot: grab == .move)
         for offset in [(radii[0], 0.0), (-radii[0], 0.0),
                        (0.0, radii[1]), (0.0, -radii[1])] {
-            handle(&context, viewPoint(from: centre, offset: offset, rotation: rotation))
+            // The dominant-axis split the hit test uses, said out loud: the two dots on
+            // the axis a press would resize light together, because both of them do the
+            // same thing and the rim between them does it too.
+            let onThisAxis = offset.1 == 0 ? grab == .resizeMajor : grab == .resizeMinor
+            handle(&context, viewPoint(from: centre, offset: offset, rotation: rotation),
+                   hot: onThisAxis)
         }
+        // THE ROTATE BAND, WHICH HAD NO INK AT ALL. Twenty-two points of live target all
+        // the way round the ellipse, and the only record that it existed was a sentence
+        // in `.help`. The mark appears under the pointer the moment it steps into the
+        // band and goes when it leaves, which is what makes it a discovery rather than
+        // furniture — the same discipline the crosshair follows.
+        if grab == .rotate, let hover { rotateGlyph(&context, at: hover) }
 
         // NO ROTATION KNOB. There was one on a stalk beyond the major axis, and it is
         // gone: the whole band just outside the rim turns the ellipse now, so a knob
         // would be a second, smaller target for something the shape's entire outline
-        // already offers. The owner asked for exactly this — "I just don't want this
+        // already offers. What replaces it is the mark above, which follows the pointer
+        // instead of sitting at a fixed offset the turn itself keeps moving. The owner asked for exactly this — "I just don't want this
         // little lever at the edge" — and the lever had a defect he did not have to
         // name: it sat at one fixed offset from ONE end of the axis, so turning the
         // ellipse meant first hunting for where the handle had rotated to.
@@ -1313,10 +1547,18 @@ struct MaskCanvas: View {
             let r = pointRadiusInView(entry[2])
             guard r.isFinite, r > 1 else { continue }
             let negative = entry.count >= 4 && entry[3] < 0
+            // WHICH OF THE TWO TARGETS THE POINTER IS ON. A point's middle moves it and
+            // its ring changes its reach, they are drawn concentric, and until now the
+            // only way to find out which one a press had taken was to watch which of
+            // the two started changing.
+            let lit = pointGrab ?? hoverPoint
+            let onThis = lit?.index == index
             var ring = Path()
             ring.addEllipse(in: CGRect(x: centre.x - r, y: centre.y - r,
                                        width: r * 2, height: r * 2))
-            if negative {
+            if onThis, lit?.resizing == true, !negative {
+                stroke(&context, ring, width: 2, alpha: 1)
+            } else if negative {
                 context.stroke(ring, with: .color(Color.black.opacity(0.4)),
                                style: StrokeStyle(lineWidth: 3, dash: [5, 4]))
                 context.stroke(ring, with: .color(Color.white.opacity(0.8)),
@@ -1324,7 +1566,8 @@ struct MaskCanvas: View {
             } else {
                 stroke(&context, ring, width: 1, alpha: 0.8)
             }
-            handle(&context, centre, small: index != pointGrab?.index)
+            handle(&context, centre, small: !onThis,
+                   hot: onThis && lit?.resizing == false)
             // The sign, drawn as a bar (and a crossbar for positive) rather than as
             // text: a glyph at this size has to be a shape, not a character.
             let arm: CGFloat = 3
@@ -1337,6 +1580,34 @@ struct MaskCanvas: View {
             }
             context.stroke(mark, with: .color(Color.black.opacity(0.9)),
                            style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+        }
+    }
+
+    /// Whether a press here has taken hold of a NAMED handle of the component being
+    /// edited — the thing that outranks another mask's pin sitting under the same
+    /// point. See `MaskHandles.outranksPin` for the rule and the finding it closes.
+    ///
+    /// The kinds with no on-image handles of their own (a brush, a colour-pick point, a
+    /// lasso) answer false and go on yielding to the pin: a brush has no handle to be
+    /// robbed of, and the stroke a pin costs there is one stroke rather than a placed
+    /// shape. `⌘` is deliberately not consulted — a ⌘-press means "draw another one",
+    /// which is a region gesture and is exactly the case where the pin should still win.
+    private func pressTakesAHandle(at location: CGPoint) -> Bool {
+        guard let component = component else { return false }
+        switch component.kind {
+        case .linear, .similarityLine:
+            guard let line = MaskCanvas.optionalLine(component) else { return false }
+            return MaskHandles.outranksPin(lineGrab(at: location, line: line))
+        case .radial:
+            guard MaskCanvas.hasEllipse(component) else { return false }
+            let centre = MaskCanvas.pair(component.center, fallback: [0.5, 0.5])
+            let radii = MaskCanvas.pair(component.radii, fallback: [0.25, 0.25])
+            return MaskHandles.outranksPin(
+                radialGrab(at: location, centre: centre, radii: radii,
+                           rotation: component.rotation ?? 0,
+                           feather: component.feather ?? 50, hasGeometry: true))
+        default:
+            return false
         }
     }
 
@@ -1357,10 +1628,9 @@ struct MaskCanvas: View {
         return best?.id
     }
 
-    /// How near a pin a press has to land to mean it. The same 11 pt `MaskHandles` uses
-    /// for a gradient's dots — a grab radius smaller than the thing drawn is a target
-    /// you can see and cannot hit.
-    static let pinGrab: CGFloat = 11
+    /// How near a pin a press has to land to mean it. `MaskHandles.grabRadius`, for the
+    /// reason `pointRingGrab` gives: an 11 written here is a copy that can drift.
+    static let pinGrab: CGFloat = CGFloat(MaskHandles.grabRadius)
 
     /// Every other mask's geometry, at a quarter weight.
     ///
@@ -1588,11 +1858,24 @@ struct MaskCanvas: View {
     }
 
     private func handle(_ context: inout GraphicsContext, _ point: CGPoint,
-                        small: Bool = false) {
+                        small: Bool = false, hot: Bool = false) {
         // The two drawn radii live on `MaskHandles` beside the grab radius they are
         // deliberately smaller than: the dot is a sight, the tolerance is the target.
         let r = CGFloat(small ? MaskHandles.smallDotRadius : MaskHandles.dotRadius)
         let rect = CGRect(x: point.x - r, y: point.y - r, width: r * 2, height: r * 2)
+        // HOT DRAWS THE TOLERANCE, not a bigger dot. The ring is the grab radius at its
+        // true size, so the answer to "would this press land?" is on the picture at
+        // actual scale instead of being a fact only the hit test knows. It is the one
+        // moment the target may be shown, and showing it as a swollen dot instead would
+        // teach the wrong size — the dot is a sight and stays one.
+        if hot {
+            let g = CGFloat(MaskHandles.grabRadius)
+            let halo = CGRect(x: point.x - g, y: point.y - g, width: g * 2, height: g * 2)
+            context.stroke(Path(ellipseIn: halo),
+                           with: .color(Color.black.opacity(0.35)), lineWidth: 2.5)
+            context.stroke(Path(ellipseIn: halo),
+                           with: .color(Color.white.opacity(0.65)), lineWidth: 1)
+        }
         context.fill(Path(ellipseIn: rect.insetBy(dx: -1, dy: -1)),
                      with: .color(Color.black.opacity(0.45)))
         context.fill(Path(ellipseIn: rect), with: .color(Color.white.opacity(0.95)))

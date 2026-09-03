@@ -63,6 +63,21 @@ struct LookPanel: View {
     /// Nil until the first press on a colliding name, and cleared by a successful
     /// write — see `saveCurrentLook()` for why the warning is armed rather than modal.
     @State private var replaceWarnedName: String?
+    /// How much of the next look to land, 0…100 (`LookSubset.amount`).
+    ///
+    /// The control every competitor ships and this browser had none of: a film emulation
+    /// measured at 100% is rarely what a set can take, and Lumen could apply a look or
+    /// not apply it. `LookSubset.applied(to:)` does the interpolating; this is the number
+    /// it is handed.
+    ///
+    /// VIEW STATE, and that is the honest shape rather than a shortcut. The amount is
+    /// spent AS the look lands — it is baked into the parameters, which is what lets
+    /// every render path stay ignorant of it — so it belongs to nothing until Apply is
+    /// pressed, exactly like `newLookName`. It is deliberately NOT reset after an apply:
+    /// a photographer who has decided their set takes looks at 60% is about to say so
+    /// again on the next frame, and a control that sprang back to 100 after every use
+    /// would make the decision cost a drag each time.
+    @State private var applyAmount: Double = LookSubset.fullAmount
 
     /// nil renders every section this panel owns, which is what the tab did.
     ///
@@ -261,6 +276,30 @@ struct LookPanel: View {
             replaceWarning(taken, suggestion: suggestion)
         }
 
+        // AMOUNT SITS ON THE LIST IT GOVERNS, not beside the Save field above it, and
+        // the placement is the only thing on screen that says which of the two it
+        // belongs to. Saving is unaffected by it — a look is always stored at full
+        // strength, because a look saved at 40% would be a look nobody could ever get
+        // the other 60% of — so a row drawn above the divider would have read as "save
+        // this at 40%", which is the one meaning it does not have.
+        //
+        // Drawn only when there is something to apply. With no looks stored it would be
+        // a control over an empty list, and the empty list already draws nothing at all
+        // for the reason below.
+        if !state.savedLooks.isEmpty {
+            LumenSlider(title: "Amount", value: $applyAmount,
+                        range: LookSubset.amountRange,
+                        defaultValue: LookSubset.fullAmount, step: 1, decimals: 0,
+                        bipolar: false,
+                        help: "How much of a look lands when you apply it. 100 is the "
+                            + "look as it was saved; 40 puts the frame 40% of the way "
+                            + "from its own grade to the look's. The film stock, the "
+                            + "black-and-white treatment and the transform preset are "
+                            + "choices rather than amounts, so those arrive whole and "
+                            + "this dials their strength. It is spent as the look "
+                            + "lands: move it and apply again to change your mind.")
+        }
+
         // An empty list draws nothing at all, deliberately. The field and
         // the Save button above it are the affordance; a sentence announcing
         // that a list is empty is a caption on absence. The paragraph that used
@@ -339,7 +378,7 @@ struct LookPanel: View {
                       + "look library. Photos already graded with it keep their grade.")
             } else {
                 Button {
-                    state.applyLook(look)
+                    apply(look)
                 } label: {
                     Text(look.name)
                         .font(.lumenBody)
@@ -350,7 +389,25 @@ struct LookPanel: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help("Apply \"\(look.name)\" to the selection")
+                // THE ROW ANSWERS THE POINTER, which it did not. `LumenHover.swift`
+                // opens by counting the defect this is one of — sixty-seven tooltips
+                // against five hover handlers, and "forty-six bare text buttons ...
+                // completely dead to the cursor, no fill, no lift, no cursor change,
+                // nothing at all until the mouse button goes down". A full-width word
+                // that silently regrades eight hundred frames is the worst row in the
+                // app to leave looking like a caption. `lumenInteractive` is the fill
+                // and the pointing hand together, which is the whole "this is clickable"
+                // statement in one call so a new control cannot ship with half of it.
+                //
+                // It is NOT a hover PREVIEW, and the difference is worth keeping
+                // straight: the browser still shows no picture of what a look does,
+                // because that needs a proxy render inside ~100 ms and there is no such
+                // path (audit UX-17, and the comment on `savedLooksSection` that has
+                // named it since). `MaskPanel`'s row is what one looks like when the
+                // path exists — `state.hoverMaskOverlay`, with its own 120 ms intent
+                // hold so a pointer crossing the list does not strobe.
+                .lumenInteractive(radius: Lumen.radiusChip)
+                .help(applyHelp(look))
 
                 savedLookRowMenu(look)
             }
@@ -371,7 +428,7 @@ struct LookPanel: View {
                   help: "Apply, rename, delete") {
             LumenMenuHeader(title: "This look")
             LumenMenuItem(title: "Apply", symbol: "checkmark.circle") {
-                state.applyLook(look)
+                apply(look)
             }
             LumenMenuItem(title: "Rename", symbol: "pencil") {
                 pendingDeleteLookID = nil
@@ -384,6 +441,67 @@ struct LookPanel: View {
                 pendingDeleteLookID = look.id
             }
         }
+    }
+
+    /// Put a saved look on the selection, at the Amount the slider above is showing.
+    ///
+    /// A SECOND COPY OF `AppState.applyLook`'S PLUMBING, said plainly because the house
+    /// rule is against it and this is an exception with a mechanical cause: `applyLook`
+    /// takes a `LookRow` and nothing else, so there is no way to hand it a strength
+    /// without changing its signature — a file this pass does not own. Collapse the two
+    /// the moment it takes `amount:`; two copies of a guard is the shape that let the
+    /// workspace tab become the one route into Crop that did not arm the tool.
+    ///
+    /// WHAT IS NOT DUPLICATED IS THE RULE. `LookSubset.applied(to:)` remains the only
+    /// thing that decides what a look does to a recipe at any strength, and it decides
+    /// it in LumenCore where it is tested. What is copied here is the target guard, the
+    /// history label and two sentences of status.
+    private func apply(_ look: LookRow) {
+        let targets = state.editTargets.count
+        guard targets > 0 else {
+            state.statusMessage = "Select the photos to apply \"\(look.name)\" to"
+            return
+        }
+        // SAID RATHER THAN DONE. `applied(to:)` returns the recipe untouched at zero, so
+        // going ahead would spend a history step on nothing and then report success —
+        // and a photographer who has left the slider at the bottom has almost certainly
+        // not decided to apply nothing. The sentence names the control to move.
+        guard applyAmount > 0 else {
+            state.statusMessage = "\"\(look.name)\" at 0% would change nothing — "
+                + "raise Amount to apply it"
+            return
+        }
+        guard var subset = try? look.subset() else {
+            state.statusMessage = "\"\(look.name)\" could not be read"
+            return
+        }
+        subset.amount = applyAmount
+        state.updateRecipe(label: "Apply Look") { recipe in
+            recipe = subset.applied(to: recipe)
+        }
+        let strength = applyAmount >= LookSubset.fullAmount
+            ? "" : " at \(LookPanel.wholePercent(applyAmount))%"
+        state.statusMessage = targets == 1
+            ? "Applied \"\(look.name)\"\(strength)"
+            : "Applied \"\(look.name)\"\(strength) to \(targets) photos"
+    }
+
+    /// What the row's tooltip promises, which has to change when the Amount does: a
+    /// button that says "Apply Portra" and lands 40% of it is lying about the one thing
+    /// the photographer cannot see from the row.
+    private func applyHelp(_ look: LookRow) -> String {
+        guard applyAmount < LookSubset.fullAmount else {
+            return "Apply \"\(look.name)\" to the selection"
+        }
+        return "Apply \"\(look.name)\" to the selection at "
+            + "\(LookPanel.wholePercent(applyAmount))% — the frame ends up that far "
+            + "from its own grade toward this one"
+    }
+
+    /// The slider steps by 1, so the readout and these sentences must agree on a whole
+    /// number rather than each rounding a Double their own way.
+    static func wholePercent(_ amount: Double) -> Int {
+        Int(LookSubset.clampedAmount(amount).rounded())
     }
 
     private func commitRename(_ look: LookRow) {

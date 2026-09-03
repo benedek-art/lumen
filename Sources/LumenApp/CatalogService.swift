@@ -787,11 +787,37 @@ final class CatalogService: @unchecked Sendable {
         }
     }
 
-    /// The values a metadata chip offers, with live counts.
+    /// The values a metadata chip offers, with UNFILTERED counts — the sidebar's
+    /// vocabulary for a folder, not the filter bar's numbers.
+    ///
+    /// Anything that draws a number the photographer can click wants
+    /// `facetCounts(for:folderPath:)` below instead. This one answers "what is in this
+    /// folder", which is a different and much cheaper question, and the two are the
+    /// same code underneath so they cannot describe the folder two ways.
     func facets(_ facet: PhotoFacet, folderPath: String?) async -> [FacetValue] {
         await onQueue("metadata chip values", fallback: []) { store in
             let folderID = try folderPath.flatMap { try store.folder(path: $0)?.id }
             return try store.facetCounts(facet, folderID: folderID)
+        }
+    }
+
+    /// Every number the filter bar shows, counted through the query the grid runs.
+    ///
+    /// ONE call rather than one per axis, and it takes the live `PhotoQuery` rather
+    /// than just a folder, because those two facts together are the whole fix. The
+    /// numbers all describe the SAME grid: assembled from separately scoped reads —
+    /// keywords from the whole catalog, cameras from the folder, stars from the roll in
+    /// memory — they were three different answers to three different questions, none of
+    /// which was the question the photographer asks by clicking.
+    ///
+    /// Off the main actor like every other catalog read here, and worth saying why it
+    /// matters more for this one: an honest count is a `COUNT(*)` per value offered
+    /// rather than one `GROUP BY`, so this is the most statements any single call in
+    /// this file issues. It is asked only while the filter popover is open.
+    func facetCounts(for query: PhotoQuery, folderPath: String?) async -> FacetCounts {
+        await onQueue("facet counts", fallback: FacetCounts()) { store in
+            let folderID = try folderPath.flatMap { try store.folder(path: $0)?.id }
+            return try store.facetCounts(for: query, folderID: folderID)
         }
     }
 

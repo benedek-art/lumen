@@ -330,8 +330,12 @@ public enum MaskKind: String, Codable, Sendable {
         case .brush, .linear, .radial, .lumaRange, .colorRange, .similarity,
              .similarityLine, .maskRef, .luminosity, .polygon:
             // A reference needs no matte of its OWN. Whether it ends up needing one is a
-            // property of the mask it names, and `VisionMattes.kinds(in:)` walks the
-            // whole recipe, so that question is already answered where it belongs.
+            // property of the mask it names, and that question is answered by
+            // `MaskDependency.wantedMattes`, which follows a reference into a mask that
+            // is switched off. This used to say `VisionMattes.kinds(in:)` "walks the
+            // whole recipe, so that question is already answered where it belongs" —
+            // and it walked `recipe.masks where mask.enabled`, so the one case a
+            // reference exists to serve was the one case it missed (audit F5-01).
             return .none
         case .aiSubject, .aiBackground, .aiPerson:
             // Foreground instances and person instances both come out of Vision.
@@ -864,14 +868,23 @@ public enum BrushStrokes {
     /// Every brush blob reference this recipe's masking depends on, in stack order and
     /// deduplicated.
     ///
-    /// Disabled masks are excluded because `RenderPlan` excludes them: refusing to
-    /// deliver a file over a mask the photographer has already switched off would be a
-    /// refusal with no picture behind it. A brush component carrying no reference is
+    /// A mask the photographer has switched off is excluded because `RenderPlan`
+    /// excludes it: refusing to deliver a file over a mask already switched off would be
+    /// a refusal with no picture behind it. A brush component carrying no reference is
     /// not a missing blob either — it is a component nobody has painted into yet, and
     /// it rasterizes empty because that is what it is.
+    ///
+    /// "SWITCHED OFF" IS NOT THE SAME QUESTION AS "NOT NEEDED", which is why the walk is
+    /// `MaskDependency.contributing` and not `where mask.enabled`. A disabled mask still
+    /// lends its selection to any `maskRef` pointing at it — `MaskRaster.referenced`
+    /// promises exactly that — and it can only lend a BRUSH selection if its blob was
+    /// fetched. Disable the painted mask that "Skin ∩ Painted" is built on and the blob
+    /// stopped being asked for, so the export rasterized the reference empty and wrote
+    /// the file with the retouch missing and no refusal, because the same filter that
+    /// dropped the blob also dropped it from the refusal's roster.
     public static func references(in recipe: Recipe) -> [String] {
         var out: [String] = []
-        for mask in recipe.masks where mask.enabled {
+        for mask in MaskDependency.contributing(in: recipe) {
             for component in mask.components where component.kind == .brush {
                 guard let ref = component.strokesRef, !ref.isEmpty,
                       !out.contains(ref) else { continue }
@@ -892,12 +905,16 @@ public enum BrushStrokes {
     /// Asked once per REFERENCE, not once per component. The predicate reaches the disk
     /// on a miss, and two masks sharing one blob — which is what subtracting the same
     /// painted region from a second mask looks like — would otherwise pay for it twice.
+    ///
+    /// Same walk as `references`, and it has to be the same walk: this is the function
+    /// whose predicate WARMS the session cache the export then reads out of memory, so a
+    /// blob missing from this roster is a blob missing from the delivered file.
     public static func unresolvedReferences(
         in recipe: Recipe, isResolved: (MaskComponent) -> Bool
     ) -> [String] {
         var seen: Set<String> = []
         var out: [String] = []
-        for mask in recipe.masks where mask.enabled {
+        for mask in MaskDependency.contributing(in: recipe) {
             for component in mask.components where component.kind == .brush {
                 guard let ref = component.strokesRef, !ref.isEmpty,
                       seen.insert(ref).inserted else { continue }

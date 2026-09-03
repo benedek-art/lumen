@@ -414,6 +414,27 @@ public struct FacetValue: Equatable, Sendable {
     }
 }
 
+/// Every number the filter bar puts beside a facet, counted once, together.
+///
+/// One value rather than six calls because the numbers are only meaningful as a set:
+/// they all describe the SAME grid, and a bar that assembled them from six independently
+/// scoped reads is a bar whose numbers can be individually stale. `ratingAtLeast` is
+/// indexed by the threshold — index 3 is "★3 or better" — with index 0 unused, so a
+/// chip can look its own number up by the value it sets.
+public struct FacetCounts: Equatable, Sendable {
+    public var flags: [PhotoFlag: Int] = [:]
+    public var ratingAtLeast: [Int] = [Int](repeating: 0, count: 6)
+    public var labels: [ColorLabel: Int] = [:]
+    /// Photographs carrying no colour label — its own field because it is its own
+    /// predicate: `label IN (…)` can never match the NULL an unlabelled photo stores.
+    public var unlabeled: Int = 0
+    public var cameras: [FacetValue] = []
+    public var lenses: [FacetValue] = []
+    public var keywords: [FacetValue] = []
+
+    public init() {}
+}
+
 // MARK: - Scan reconciliation
 
 /// One file as the directory listing found it (docs/15 §15.9: the diff key is
@@ -2723,8 +2744,15 @@ public final class CatalogStore {
                     [.integer(photoID)], { $0.string(0) ?? "" })
     }
 
-    /// Every keyword in the catalog with how many photos carry it — the sidebar's
-    /// list and the keyword chip's live counts read the same rows.
+    /// Every keyword in the catalog with how many photos carry it.
+    ///
+    /// THE CATALOG's, and that word is load-bearing: this counts `photo_keyword` across
+    /// every folder ever opened and every offline frame, which is the right answer for
+    /// a vocabulary list and the wrong one for anything beside a chip. The filter bar
+    /// used to show these numbers next to a chip that queries one folder, and they were
+    /// out by two orders of magnitude on any catalog with more than one shoot in it.
+    /// The bar's keyword counts come from `facetCounts(for:)` now; this is the
+    /// vocabulary only.
     public func allKeywords() throws -> [FacetValue] {
         try allRows("""
         SELECT k.name, COUNT(pk.photo_id) FROM keyword k
@@ -2795,26 +2823,206 @@ public final class CatalogStore {
 
     // MARK: - Metadata chip values
 
+    /// Every number the filter bar shows, counted through the query the grid runs.
+    ///
+    /// THE INVARIANT THIS EXISTS FOR: the number beside a facet is the number of rows
+    /// you get when you click it. Nothing in here counts with SQL of its own. Every
+    /// field is a `countPhotos` over the SAME `PhotoQuery` the grid is about to run,
+    /// with exactly one criterion swapped for the value being offered — so the count
+    /// and the result are not two queries that agree, they are one query.
+    ///
+    /// They used to be two, and they disagreed by two orders of magnitude, in three
+    /// separate ways:
+    ///
+    ///   · keyword counts came from `allKeywords()`, which groups `photo_keyword` over
+    ///     the WHOLE CATALOG — every folder ever opened, offline frames included —
+    ///     while the grid shows one folder. A term used all season read in the
+    ///     thousands beside a chip that returned eleven frames.
+    ///   · camera and lens counts were folder-scoped but chip-blind. They counted the
+    ///     folder, never the folder as the lit chips had already narrowed it.
+    ///   · flag, rating and label counts were a pass over the roll in memory with no
+    ///     filter applied at all. That is the "★4 · 37" that clicks through to six.
+    ///
+    /// WHAT "CLICK IT" MEANS, stated once so the tests and the bar cannot read it two
+    /// ways: the number beside a value is the size of the grid with that value as the
+    /// SOLE selection of its own criterion, every other criterion left exactly as it
+    /// is. For a criterion nothing has narrowed yet — the ordinary case, and the one
+    /// the ★ report was about — that is literally the row count of the next click. For
+    /// a criterion that already has something lit it is that value's own contribution,
+    /// which is the only reading that stays still while its siblings are toggled:
+    /// counting "what you would get AFTER the toggle" would have a lit chip advertise
+    /// the larger number it produces by being switched off.
+    public func facetCounts(for query: PhotoQuery, folderID: Int64? = nil,
+                            limit: Int = 200) throws -> FacetCounts {
+        var counts = FacetCounts()
+
+        for flag in PhotoFlag.allCases {
+            var probe = query
+            probe.flags = [flag]
+            counts.flags[flag] = try countPhotos(matching: probe, folderID: folderID)
+        }
+
+        // `.atLeast` rather than whatever the caller was carrying: the bar offers
+        // "★ r or better" and offers nothing else, so a probe that inherited
+        // `.exactly` would be pricing a chip that does not exist.
+        for stars in 1...5 {
+            var probe = query
+            probe.rating = stars
+            probe.ratingComparison = .atLeast
+            counts.ratingAtLeast[stars] = try countPhotos(matching: probe,
+                                                          folderID: folderID)
+        }
+
+        for label in ColorLabel.allCases {
+            var probe = query
+            probe.labels = [label]
+            probe.includeUnlabeled = false
+            counts.labels[label] = try countPhotos(matching: probe, folderID: folderID)
+        }
+        var unlabeled = query
+        unlabeled.labels = []
+        unlabeled.includeUnlabeled = true
+        counts.unlabeled = try countPhotos(matching: unlabeled, folderID: folderID)
+
+        counts.cameras = try metadataFacetCounts(.camera, matching: query,
+                                                 folderID: folderID, limit: limit)
+        counts.lenses = try metadataFacetCounts(.lens, matching: query,
+                                                folderID: folderID, limit: limit)
+        counts.keywords = try keywordFacetCounts(matching: query, folderID: folderID,
+                                                 limit: limit)
+        return counts
+    }
+
     /// Distinct values of one metadata column with live counts, most-used first.
     ///
-    /// Index-backed by the `photo_camera` / `photo_lens` indexes migration 2 adds, so a
-    /// chip menu on a 100k catalog is a scan of the index rather than of the table.
+    /// The unfiltered case of `facetCounts(for:)` and nothing else, so the two cannot
+    /// drift apart — this used to be a second, independently written GROUP BY, which is
+    /// how the drift started. `includeMissing = false` because that is what this call
+    /// has always meant: a frame that is not on the disk is not something a chip can
+    /// show you.
     public func facetCounts(_ facet: PhotoFacet, folderID: Int64? = nil,
                             limit: Int = 200) throws -> [FacetValue] {
+        var query = PhotoQuery()
+        query.includeMissing = false
+        return try metadataFacetCounts(facet, matching: query, folderID: folderID,
+                                       limit: limit)
+    }
+
+    /// One metadata axis: the values the scope actually contains, each priced by the
+    /// grid's own query with that value swapped in.
+    ///
+    /// One statement per value rather than one GROUP BY over the axis, and deliberately.
+    /// A GROUP BY that respected the other lit chips would need a SECOND copy of the
+    /// predicate set, and a second copy of the predicate set is precisely how the number
+    /// and the result came to disagree. `countPhotos` shares `buildPhotoQuery` with
+    /// `photos(matching:)`, so the tree holds exactly one set of predicates and the
+    /// count is the grid. What that costs is in the class comment on `facetDomain`.
+    private func metadataFacetCounts(_ facet: PhotoFacet, matching query: PhotoQuery,
+                                     folderID: Int64?,
+                                     limit: Int) throws -> [FacetValue] {
+        let selected: Set<String>
+        switch facet {
+        case .camera: selected = Set(query.cameras)
+        case .lens: selected = Set(query.lenses)
+        }
+        var out: [FacetValue] = []
+        for value in try facetDomain(facet, query: query, folderID: folderID,
+                                     limit: limit) {
+            var probe = query
+            switch facet {
+            case .camera: probe.cameras = [value]
+            case .lens: probe.lenses = [value]
+            }
+            let count = try countPhotos(matching: probe, folderID: folderID)
+            // A value that would return nothing is not offered. A row reading "0" is a
+            // control that does nothing, which is the one thing this bar has always
+            // refused to draw. A value already lit stays whatever its count, or there
+            // would be no way left to switch it off.
+            if count > 0 || selected.contains(value) {
+                out.append(FacetValue(value: value, count: count))
+            }
+        }
+        return CatalogStore.rankedFacets(out)
+    }
+
+    /// The vocabulary a menu offers: the values present in the SCOPE — this folder,
+    /// these on-disk frames — not in the catalog.
+    ///
+    /// Ordered by how common they are in the scope because `LIMIT` has to cut somewhere
+    /// and scope frequency is the one ordering available before the honest counts
+    /// exist; with the criteria ANDing, a value's honest count can only be smaller than
+    /// its scope count, so the cut never hides a big number behind a small one. The
+    /// honest counts then re-rank whatever survived.
+    ///
+    /// THE COST, stated plainly: this is one index-backed statement for the domain plus
+    /// one `COUNT(*)` per value offered, where the old wrong answer was a single GROUP
+    /// BY. For camera and lens that is a handful of statements; for keywords it is
+    /// bounded by `limit`. Correct first, fast second — and the whole set is computed
+    /// only when the filter popover is open, never per keystroke.
+    private func facetDomain(_ facet: PhotoFacet, query: PhotoQuery, folderID: Int64?,
+                             limit: Int) throws -> [String] {
+        var conditions = ["photo.\(facet.column) IS NOT NULL"]
         var parameters: [SQLiteValue] = []
-        var scope = "WHERE photo.\(facet.column) IS NOT NULL AND photo.missing = 0"
+        if !query.includeMissing { conditions.append("photo.missing = 0") }
         if let folderID = folderID {
-            scope += " AND photo.folder_id = ?"
+            conditions.append("photo.folder_id = ?")
             parameters.append(.integer(folderID))
         }
         parameters.append(.int(limit))
         return try allRows("""
-        SELECT photo.\(facet.column), COUNT(*) FROM photo
-        \(scope)
+        SELECT photo.\(facet.column) FROM photo
+        WHERE \(conditions.joined(separator: " AND "))
         GROUP BY photo.\(facet.column)
         ORDER BY COUNT(*) DESC, photo.\(facet.column)
         LIMIT ?;
-        """, parameters) { FacetValue(value: $0.string(0) ?? "", count: Int($0.int(1))) }
+        """, parameters) { $0.string(0) ?? "" }
+    }
+
+    /// The keyword axis.
+    ///
+    /// The domain is joined THROUGH `photo` so it is the FOLDER's vocabulary rather
+    /// than the library's. `allKeywords()` is the library's, by design and by name, and
+    /// putting its numbers beside a chip that queries one folder is the two-orders-of-
+    /// magnitude half of this finding.
+    private func keywordFacetCounts(matching query: PhotoQuery, folderID: Int64?,
+                                    limit: Int) throws -> [FacetValue] {
+        var conditions: [String] = []
+        var parameters: [SQLiteValue] = []
+        if !query.includeMissing { conditions.append("photo.missing = 0") }
+        if let folderID = folderID {
+            conditions.append("photo.folder_id = ?")
+            parameters.append(.integer(folderID))
+        }
+        let scope = conditions.isEmpty
+            ? "" : "WHERE " + conditions.joined(separator: " AND ")
+        parameters.append(.int(limit))
+        let domain = try allRows("""
+        SELECT k.name FROM keyword k
+        JOIN photo_keyword pk ON pk.keyword_id = k.id
+        JOIN photo ON photo.id = pk.photo_id
+        \(scope)
+        GROUP BY k.id
+        ORDER BY COUNT(DISTINCT photo.id) DESC, k.name
+        LIMIT ?;
+        """, parameters) { $0.string(0) ?? "" }
+
+        let selected = Set(query.keywords)
+        var out: [FacetValue] = []
+        for name in domain {
+            var probe = query
+            probe.keywords = [name]
+            let count = try countPhotos(matching: probe, folderID: folderID)
+            if count > 0 || selected.contains(name) {
+                out.append(FacetValue(value: name, count: count))
+            }
+        }
+        return CatalogStore.rankedFacets(out)
+    }
+
+    /// Most-used first, ties broken by name so a menu does not reshuffle two equal
+    /// values against each other on every refresh.
+    private static func rankedFacets(_ values: [FacetValue]) -> [FacetValue] {
+        values.sorted { $0.count == $1.count ? $0.value < $1.value : $0.count > $1.count }
     }
 
     // MARK: - Per-source view state (G24)
@@ -4007,6 +4215,10 @@ public final class CatalogStore {
     public func dissolveStack(id: Int64) throws { throw CatalogError.unavailable }
     public func facetCounts(_ facet: PhotoFacet, folderID: Int64? = nil,
                             limit: Int = 200) throws -> [FacetValue] {
+        throw CatalogError.unavailable
+    }
+    public func facetCounts(for query: PhotoQuery, folderID: Int64? = nil,
+                            limit: Int = 200) throws -> FacetCounts {
         throw CatalogError.unavailable
     }
 

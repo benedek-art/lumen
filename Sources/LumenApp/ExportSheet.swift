@@ -65,6 +65,18 @@ struct ExportSheet: View {
 
     @State private var selectedRecipeID: String? = nil
 
+    /// Whether this sheet has already asked for the batch to stop.
+    ///
+    /// LOCAL, not a second published flag on `AppState`, and the distinction is worth a
+    /// line: the app's state is "an export is running" and this is "the button in front
+    /// of me has been pressed". The batch stops between files, so the gap between the
+    /// two is one photograph long — long enough for a photographer to press Cancel four
+    /// more times and wonder why nothing is happening, which is what this disables, and
+    /// short enough that it needs no machinery beyond the view that owns the button.
+    /// Cleared when `isExporting` goes false, so the next batch starts with a live
+    /// button whether this one finished or was stopped.
+    @State private var cancelRequested = false
+
     var body: some View {
         VStack(spacing: 0) {
             header
@@ -224,9 +236,33 @@ struct ExportSheet: View {
                     // a photographer watches instead of watching a photograph, so there
                     // is nothing beside it to judge its hue against.
                     LumenProgressBar(value: clampedProgress)
-                    Text("Exporting — \(Int((clampedProgress * 100).rounded()))%")
-                        .font(.lumenCaption)
-                        .foregroundStyle(Lumen.secondaryText)
+                    HStack(spacing: 8) {
+                        Text(progressCaption)
+                            .font(.lumenCaption)
+                            .foregroundStyle(Lumen.secondaryText)
+                        Spacer(minLength: 0)
+                        // THE WAY OUT. A batch is photos × checked recipes, each one a
+                        // full-resolution develop render, so an accidental Export on a
+                        // folder of two hundred used to be an unstoppable half hour with
+                        // the only exit being to quit the app — which loses the catalog
+                        // write as well. There was no cancel anywhere: not here, not in
+                        // the menu, not by closing this sheet (closing it hides the
+                        // progress bar and the batch keeps writing).
+                        //
+                        // NO KEYBOARD SHORTCUT, deliberately. ⎋ is already this sheet's
+                        // Close, and a photographer who hits ⎋ meaning "put this dialog
+                        // away" must not thereby throw away twenty minutes of finished
+                        // exports. Stopping a delivery is worth the deliberate click.
+                        Button(cancelRequested ? "Cancelling…" : "Cancel") {
+                            cancelRequested = true
+                            state.cancelExport()
+                        }
+                        .disabled(cancelRequested)
+                        .help("Stop the batch after the file now being written. "
+                              + "Files already written are kept, and nothing is left "
+                              + "half-written — every delivery is renamed into place "
+                              + "once it is complete.")
+                    }
                 }
             }
             HStack(spacing: 10) {
@@ -240,6 +276,23 @@ struct ExportSheet: View {
             }
         }
         .padding(14)
+        // The request belongs to ONE batch. Without this the button would stay dead for
+        // the rest of the session after the first cancel, which is the same "a control
+        // that does nothing" failure the cancel exists to remove, arriving one press
+        // later.
+        .onChange(of: state.isExporting) { _, running in
+            if !running { cancelRequested = false }
+        }
+    }
+
+    /// What the caption under the bar says. The percentage stops meaning anything the
+    /// moment a stop has been asked for — the number keeps climbing through the file
+    /// still being written and then the batch ends short of 100% — so the caption says
+    /// what is actually happening instead.
+    private var progressCaption: String {
+        cancelRequested
+            ? "Cancelling — stopping after the file being written"
+            : "Exporting — \(Int((clampedProgress * 100).rounded()))%"
     }
 
     private var clampedProgress: Double { min(max(state.exportProgress, 0), 1) }

@@ -126,6 +126,12 @@ public enum MaskRaster {
     /// `mask.enabled` is likewise the caller's business — the S11 evaluator skips
     /// disabled masks; this stays a pure raster function.
     ///
+    /// THE ONE RESOLVER. The loupe, the export, the overlay and the CPU reference all
+    /// reach a mask's alpha through this function — `ReferenceRenderer` calls it, and
+    /// `PipelineRenderer` calls it for every mask `MaskGPU` declines — so a reference
+    /// cannot mean one thing on screen and another in the delivered file. `alpha` below
+    /// is its body; this signature is what the callers hold.
+    ///
     /// - Parameter strokeSets: brush blobs keyed by the component's `strokesRef` string.
     /// - Parameter brushPlanes: already-painted brush planes, keyed by the same
     ///   `strokesRef`. This is how an incremental painter reaches the fold: the caller
@@ -145,10 +151,34 @@ public enum MaskRaster {
                                brushPlanes: [String: Plane] = [:],
                                masks: [Mask] = [],
                                resolving: Set<String> = []) -> Plane {
+        // "Nothing to lend" reaches a caller as an empty selection, which is what this
+        // function has always returned and what every caller but `referenced` wants.
+        alpha(mask: mask, size: size, source: source, strokeSets: strokeSets,
+              aiMattes: aiMattes, brushPlanes: brushPlanes, masks: masks,
+              resolving: resolving)
+            ?? Plane(width: Swift.max(size.width, 1), height: Swift.max(size.height, 1))
+    }
+
+    /// `combine`'s answer, carrying the ONE distinction a reference has to be able to
+    /// make: nil is "this mask has no selection to lend", a plane is "this is what it
+    /// selects, and it may legitimately be nothing anywhere".
+    ///
+    /// Nobody outside this file needs that distinction — `combine` flattens it to an
+    /// empty plane — but `referenced` does, because it is the whole difference between a
+    /// dependency that is ABSENT and one that selects nothing, and the two fold into a
+    /// stack differently.
+    static func alpha(mask: Mask,
+                      size: (width: Int, height: Int),
+                      source: ImageBuffer?,
+                      strokeSets: [String: BrushStrokeSet],
+                      aiMattes: [String: Plane],
+                      brushPlanes: [String: Plane],
+                      masks: [Mask],
+                      resolving: Set<String>) -> Plane? {
         let w = Swift.max(size.width, 1)
         let h = Swift.max(size.height, 1)
         var acc = Plane(width: w, height: h)
-        if size.width < 1 || size.height < 1 { return acc }
+        if size.width < 1 || size.height < 1 { return nil }
 
         // A MASK NOBODY HAS FINISHED MAKING SELECTS NOTHING, INVERT OR NOT.
         //
@@ -176,22 +206,21 @@ public enum MaskRaster {
         // the paragraph above is about, arriving through the one door it did not close:
         // structurally valid, semantically absent.
         //
-        // So the question both guards ask is `isEvaluable`, which adds to
-        // `validationError()` the one thing the recipe cannot know: whether the data
-        // this rasterization needs was actually handed to it.
-        let usable = mask.components.contains {
-            MaskRaster.isEvaluable($0, strokeSets: strokeSets, aiMattes: aiMattes,
-                                   brushPlanes: brushPlanes)
-        }
-        guard usable else { return acc }
+        // So the question every guard here asks is whether the component CONTRIBUTED —
+        // `isEvaluable` for the kinds that read an input, and `referenced` returning a
+        // plane rather than nil for the one kind that reads another mask. The flag is
+        // read after the fold rather than before it, because the reference's answer is
+        // not knowable until it has been resolved, and resolving it twice would mean two
+        // answers to keep in step.
+        let n = w * h
+        var contributed = false
 
         // Accumulator seeds at 0, so a stack that opens with subtract/intersect stays
         // empty — same as LR, and the property maskalgebra.json pins.
-        let n = w * h
         for c in mask.components {
             // AND THE SAME RULE PER COMPONENT, which is the half that was missing.
             //
-            // The guard above only fires when EVERY component is incomplete. The loop
+            // A whole-mask guard only fires when EVERY component is incomplete. The loop
             // then rasterized the unfinished ones anyway — `rasterize` hands back a zero
             // plane — and folded them in. For `.add` that is invisible, because max(a, 0)
             // is a; for `.subtract` it is also invisible, because min(a, 1) is a. For
@@ -208,22 +237,40 @@ public enum MaskRaster {
             // A component that cannot be evaluated has nothing to contribute to the fold
             // — not zero, nothing — and skipping it is what that sentence means applied
             // one level down.
-            guard MaskRaster.isEvaluable(c, strokeSets: strokeSets, aiMattes: aiMattes,
-                                         brushPlanes: brushPlanes) else { continue }
-            let set: BrushStrokeSet? = c.kind == .brush ? strokeSets[c.strokesRef ?? ""] : nil
-            let held: Plane? = c.kind == .brush ? brushPlanes[c.strokesRef ?? ""] : nil
+            //
+            // AND THE SAME RULE THROUGH A REFERENCE (audit F5-01's neighbour). This is
+            // the door the two paragraphs above left open, because `isEvaluable` cannot
+            // answer for `.maskRef` — what it needs is another mask, and only `referenced`
+            // holds the list. So a reference to a mask that has been DELETED, or one that
+            // closes a cycle, or one whose target has no evaluable component of its own,
+            // used to arrive here as a zero plane and fold in as a selection of nothing:
+            // under `.intersect` it emptied the mask that pointed at it, and under a
+            // whole-mask `invert` it lifted the entire photograph. `referenced` now says
+            // ABSENT with nil, and absent is skipped like any other unfinished component:
+            // deleting the Sky mask leaves "Sky ∩ Person" selecting the Person, which is
+            // the only reading under which a delete is not also a silent edit to every
+            // mask that ever named it.
             let raw: Plane
             if c.kind == .maskRef {
-                raw = referenced(c, size: (width: w, height: h), source: source,
-                                 strokeSets: strokeSets, aiMattes: aiMattes,
-                                 brushPlanes: brushPlanes, masks: masks,
-                                 resolving: resolving.union([mask.id]))
+                guard let lent = referenced(c, size: (width: w, height: h), source: source,
+                                            strokeSets: strokeSets, aiMattes: aiMattes,
+                                            brushPlanes: brushPlanes, masks: masks,
+                                            resolving: resolving.union([mask.id]))
+                else { continue }
+                raw = lent
             } else {
+                guard MaskRaster.isEvaluable(c, strokeSets: strokeSets, aiMattes: aiMattes,
+                                             brushPlanes: brushPlanes) else { continue }
+                let set: BrushStrokeSet? = c.kind == .brush ? strokeSets[c.strokesRef ?? ""] : nil
+                let held: Plane? = c.kind == .brush ? brushPlanes[c.strokesRef ?? ""] : nil
                 raw = rasterize(component: c, size: (width: w, height: h),
                                 source: source, strokes: set, aiMattes: aiMattes,
                                 brushPlane: held)
             }
+            // A plane of the wrong size is not a contribution either — it is an input
+            // this fold cannot read, which is the absent case again rather than a zero.
             if raw.width != w || raw.height != h { continue }
+            contributed = true
             for i in 0..<n {
                 let v = MaskAlgebra.componentAlpha(raw: Double(raw.values[i]),
                                                    invert: c.invert, amount: c.amount)
@@ -236,6 +283,7 @@ public enum MaskRaster {
             }
         }
 
+        guard contributed else { return nil }
         return refined(acc, refine: mask.refine, source: source, invert: mask.invert)
     }
 
@@ -253,9 +301,11 @@ public enum MaskRaster {
     /// two-stop lift on the whole photograph — in the loupe, in the overlay, and in the
     /// thumbnails, which read the memory cache rather than the export path's guard.
     ///
-    /// `.maskRef` is deliberately not consulted here: what it needs is another mask,
-    /// which `referenced` resolves with its own cycle guard, and asking twice would
-    /// mean two answers to keep in step.
+    /// `.maskRef` is not asked here, and the reason is not that a reference cannot be
+    /// absent — it can, and that was the hole this function's own argument left open.
+    /// It is that the answer is only knowable by evaluating another mask, which needs
+    /// the list and the cycle guard. `referenced` asks it, once, and returns nil for
+    /// exactly what `false` means here.
     static func isEvaluable(_ c: MaskComponent,
                             strokeSets: [String: BrushStrokeSet],
                             aiMattes: [String: Plane],
@@ -289,11 +339,25 @@ public enum MaskRaster {
     /// ADJUSTMENTS and never its raster (`MaskAlgebra`'s header). A reference is about
     /// the selection; the strength of the other mask's edit is none of its business.
     ///
-    /// Cycles terminate. `resolving` carries every id on the current chain, so a mask
-    /// that names itself, or A → B → A, selects nothing rather than recursing — and
-    /// "nothing" is the right answer because a cyclic definition has no fixed point to
-    /// be right about. `referenceDepthLimit` is the belt to that brace: a chain longer
-    /// than any photograph could justify stops rather than growing a stack.
+    /// NIL IS "ABSENT", NEVER "SELECTS NOTHING". Four ways a reference has nothing to
+    /// lend, and each of them used to arrive at the fold as a zero plane:
+    ///
+    ///   · the component names no mask at all (`validationError` already says so);
+    ///   · it names a mask that is NOT IN THE RECIPE — deleted, or arriving from another
+    ///     photograph through Paste Settings, which copies ids verbatim;
+    ///   · it closes a CYCLE, which `resolving` catches: `resolving` carries every id on
+    ///     the current chain, so a mask that names itself, or A → B → A, stops rather
+    ///     than recursing, because a cyclic definition has no fixed point to be right
+    ///     about. `referenceDepthLimit` is the belt to that brace — a chain longer than
+    ///     any photograph could justify stops rather than growing a stack;
+    ///   · the target resolves to nothing itself, which is `alpha` returning nil one
+    ///     level down: a Subject mask whose matte was never generated has no selection
+    ///     to lend, and saying it selects nothing would be a claim about the picture
+    ///     that nothing measured.
+    ///
+    /// A zero plane is a CLAIM — this mask selects no pixel — and under `.intersect` it
+    /// empties whatever pointed at it, while under a whole-mask `invert` it selects the
+    /// entire photograph. Neither is an answer a deleted mask is entitled to give.
     static func referenced(_ c: MaskComponent,
                            size: (width: Int, height: Int),
                            source: ImageBuffer?,
@@ -301,19 +365,23 @@ public enum MaskRaster {
                            aiMattes: [String: Plane],
                            brushPlanes: [String: Plane],
                            masks: [Mask],
-                           resolving: Set<String>) -> Plane {
-        let empty = Plane(width: Swift.max(size.width, 1), height: Swift.max(size.height, 1))
+                           resolving: Set<String>) -> Plane? {
         guard let id = c.maskRef, !id.isEmpty,
               !resolving.contains(id),
               resolving.count <= referenceDepthLimit,
               let target = masks.first(where: { $0.id == id })
-        else { return empty }
+        else { return nil }
         // A disabled mask still SELECTS. `enabled` says whether its adjustments reach
         // the picture, and a reference wants its selection — otherwise turning off the
         // Sky mask to look at something would silently empty every mask built on it.
-        return combine(mask: target, size: size, source: source,
-                       strokeSets: strokeSets, aiMattes: aiMattes,
-                       brushPlanes: brushPlanes, masks: masks, resolving: resolving)
+        //
+        // Which is a promise about this function, and `MaskDependency.contributing` is
+        // what makes it keepable: the disabled mask's INPUTS — its Vision matte, its
+        // brush blob — have to be fetched too, and every roster that decides what to
+        // fetch used to stop at `where mask.enabled` (audit F5-01).
+        return alpha(mask: target, size: size, source: source,
+                     strokeSets: strokeSets, aiMattes: aiMattes,
+                     brushPlanes: brushPlanes, masks: masks, resolving: resolving)
     }
 
     /// How long a chain of references may be. Eight is past any composition a
