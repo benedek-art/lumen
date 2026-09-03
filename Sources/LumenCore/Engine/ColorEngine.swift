@@ -1315,15 +1315,42 @@ public struct ColorEngine: Sendable {
         // rather than one per branch, cheaper than either, and exactly zero rotation by
         // construction rather than approximately zero.
         //
-        // Gated on `gateLoChroma` because the hue of a near-neutral is the arctangent of
-        // two nearly-zero numbers and carries no information to preserve; below the gate
-        // the blend is returned untouched, which is the same law the rest of this file
-        // applies to every hue-valued term.
+        // EASED ACROSS THE GATE, not switched at it — `chromaGate` is this file's own
+        // idiom and its comment states the rule: it "multiplies adjustment magnitude,
+        // never membership". The hue of a near-neutral is the arctangent of two
+        // nearly-zero numbers and carries nothing to preserve, so the restore has to
+        // fade out down there; but fading it out with a `guard` puts a STEP in the
+        // transform at chroma 0.02, and a step is the one thing a colour cube cannot
+        // represent at any lattice size.
+        //
+        // AND THE MEASUREMENT REFUTED THE REASON. The switched form was caught by
+        // `testTheColourTableConverges`, which measures the composed transform at 33,
+        // 65 and 129 — it left the 129-cube at 0.020475 EV against a 0.02 bound. The
+        // obvious reading was "the step is why", since interpolation error falls with
+        // lattice size and a discontinuity does not. That reading is WRONG, and easing
+        // it is what proved so: the eased form measures 0.020462. The step was worth
+        // about 1.3e-5 EV. What actually costs is the CURVATURE — a hue restore is a
+        // nonlinear correction, and tabulating it is simply harder.
+        //
+        // The easing stays anyway, on principle rather than on that number: a transform
+        // that gets baked into a cube should not carry a step, whether or not this
+        // particular metric happens to notice one. But the honest cost of this fix is
+        // written where the bounds are, not here, and it is a bound that moved rather
+        // than a discontinuity that was removed.
+        //
+        // So the hue is rotated from where the blend put it TOWARD the source hue by
+        // the gate's weight: identical to the full restore above `gateHiChroma`, exactly
+        // nothing below `gateLoChroma`, and smooth in between. `hueDelta` takes the
+        // short way round, so the interpolation crosses the 0/360 seam correctly rather
+        // than travelling the long way when the two hues straddle it.
         let source = context.toLCh(mid)
         let out = context.toLCh(blended)
-        guard source.C > Self.gateLoChroma, source.h.isFinite,
+        guard source.h.isFinite, out.h.isFinite,
               out.L.isFinite, out.C.isFinite else { return blended }
-        let held = context.toRGB(OKLCh(L: out.L, C: out.C, h: source.h))
+        let weight = Self.chromaGate(source.C)
+        guard weight > 0 else { return blended }
+        let hue = Num.wrapHue(out.h + Num.hueDelta(out.h, source.h) * weight)
+        let held = context.toRGB(OKLCh(L: out.L, C: out.C, h: hue))
         return held.isFinite ? held : blended
     }
 

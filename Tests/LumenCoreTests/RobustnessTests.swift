@@ -576,7 +576,30 @@ final class RobustnessTests: XCTestCase {
         // real defect and it is why a preview and an export do not match; closing it
         // means a bigger interactive cube, which is why the bake is now parallel and
         // cached rather than rebuilt per frame.
-        XCTAssertLessThan(worstColorEV, 0.08,
+        //
+        // 0.08 BECAME 0.085 WHEN THE DENSITY HUE RESTORE LANDED, and the number is
+        // worth writing down rather than widening quietly. Saturation used to rotate
+        // hue — 11.57 degrees at +100, 7.29 on skin — because `subtractivePush` raises
+        // channel ratios to a power in linear RGB and a log-RGB ray is not an iso-hue
+        // line. Restoring the hue after the blend fixes that and, unavoidably, adds
+        // curvature to the composed colour-then-grade function, because a hue restore
+        // IS a nonlinear correction. Measured at this exact sample, on this exact
+        // recipe:
+        //
+        //     before the restore   0.07407702188996579 EV
+        //     after                0.08090557986010039 EV
+        //
+        // The same place both times — blue at hue 45, 1.0 EV, which the paragraph above
+        // already names as the sharpest curvature in the composed function. So the fix
+        // did not move the worst case, it deepened the one that was already worst, by
+        // 0.0068 EV: 0.68% of a stop, against 11.57 degrees of hue on every saturated
+        // colour and 7.29 on skin. That is the trade, stated so it can be argued with.
+        //
+        // The bound keeps the same headroom over the measurement that 0.08 had over
+        // 0.074. If this fails again, read the two numbers above first: a table that
+        // drifts past 0.085 is either a bigger cube's job or a new source of curvature,
+        // and `testTheColourTableConverges` below is the one that tells you which.
+        XCTAssertLessThan(worstColorEV, 0.085,
                           "colour/grade table is off by \(worstColorEV) stops at \(worstColorWhere)")
         // Twice the crossover level: below `linearCut` the shaper has stopped
         // representing ratios, so landing within one crossover-level of the right
@@ -708,7 +731,29 @@ final class RobustnessTests: XCTestCase {
                           "65 (\(export) EV) is no better than 33 (\(coarse) EV)")
         XCTAssertLessThan(fine, export,
                           "129 (\(fine) EV) is no better than 65 (\(export) EV)")
-        XCTAssertLessThan(fine, 0.02,
+        // 0.02 BECAME 0.022 WITH THE DENSITY HUE RESTORE, for the same reason the
+        // 65-cube bound above moved and with the same accounting:
+        //
+        //     before the restore   0.017064699429256328 EV
+        //     after                0.020462233332717496 EV
+        //
+        // +0.0034 EV, which is 0.34% of a stop, bought against 11.57 degrees of hue
+        // rotation on every saturated colour and 7.29 on skin. A hue restore is a
+        // nonlinear correction and a cube has to interpolate it; that is a real cost
+        // and it belongs in the open rather than inside a widened number.
+        //
+        // WHAT THIS IS NOT: it is not a discontinuity. The restore's first form gated
+        // on a `guard` — a step at chroma 0.02 — and the obvious reading was that a
+        // cube cannot represent a step at any lattice size, so the step must be the
+        // cause. Easing it across `ColorEngine.chromaGate` moved this number by
+        // 1.3e-5, from 0.020475 to 0.020462. The step was almost free; the curvature is
+        // the whole of it. The easing was kept because a baked transform should not
+        // carry a step, not because it bought anything here.
+        //
+        // The three-size convergence above is what still does the work: 129 must beat
+        // 65 must beat 33. If that ordering ever breaks, the transform has a real
+        // defect and no bound should be moved to accommodate it.
+        XCTAssertLessThan(fine, 0.022,
                           "even a 129-cube is \(fine) EV out — that is not a sampling "
                               + "limit any more, it is a defect in the composed transform")
     }

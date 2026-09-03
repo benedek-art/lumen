@@ -202,40 +202,97 @@ final class HuePreservationTests: XCTestCase {
     /// the wheel, and four degrees off the I-bar is the difference between skin and
     /// orange.
     ///
-    /// THIS TEST USED TO PIN THE DEFECT. It now pins its absence, at the same
-    /// settings and over the same grid, so the numbers above stay falsifiable in-tree
-    /// rather than becoming a story about something that was once true.
+    /// THIS TEST USED TO PIN THE DEFECT. It now pins its absence — but it pins the
+    /// CONTRACT, which is not "zero everywhere", and the difference is the whole story
+    /// of how this fix reached its final shape.
     ///
-    /// The fix is in `ColorEngine`, after the blend: the hue of the colour the two
-    /// branches are two renderings of is restored once, on the blended result. So the
-    /// rotation is not "small now" — it is zero by construction, and the tolerance
-    /// below is a floating-point tolerance rather than a behavioural one. What is left
-    /// is around 1e-12 degrees, which is the round trip through OKLCh and back.
-    func testSaturationNoLongerRotatesHueAtAnyAmount() {
-        // Exactly the amounts that were measured, and the degrees they used to move.
-        let wasRotating: [(amount: Double, wasDegrees: Double)] = [
+    /// The first version restored hue behind a `guard source.C > gateLoChroma`: full
+    /// restoration above the gate, none below it. That gave exactly zero rotation on
+    /// every sample here and it was WRONG, because a `guard` is a STEP — the transform
+    /// jumped at chroma 0.02 — and a colour cube cannot represent a step at any lattice
+    /// size. `RobustnessTests.testTheColourTableConverges` caught it: the 129-cube
+    /// landed at 0.020475 EV against a 0.02 bound, and that assertion's own message
+    /// says what that means — "not a sampling limit any more, it is a defect in the
+    /// composed transform". Interpolation error falls with lattice size; a discontinuity
+    /// does not.
+    ///
+    /// So the restore is EASED across `ColorEngine.chromaGate`, which is this file's own
+    /// idiom and whose comment states the rule: it multiplies adjustment magnitude,
+    /// never membership. Which means the honest contract is:
+    ///
+    ///   · at or above `gateHiChroma` (0.06) the gate is fully open and the rotation is
+    ///     ZERO — floating-point zero, ~1e-13, the OKLCh round trip.
+    ///   · between `gateLoChroma` and `gateHiChroma` the restore fades, so a residue
+    ///     survives, largest where the gate is half open.
+    ///   · below `gateLoChroma` (0.02) nothing is restored, and nothing needs to be:
+    ///     the hue of a near-neutral is the arctangent of two nearly-zero numbers.
+    ///
+    /// A near-neutral turning four degrees is not the complaint this file was opened
+    /// for. A FACE turning four degrees is, and skin sits at 0.07–0.09 chroma, well
+    /// above the gate. So the test asserts zero where it must be zero, and bounds the
+    /// residue where the gate deliberately allows one.
+    func testSaturationNoLongerRotatesHueAboveTheChromaGate() {
+        let amounts: [(amount: Double, wasDegrees: Double)] = [
             (10, 2.14), (25, 4.70), (50, 7.83), (75, 10.07), (100, 11.57),
         ]
-        for m in wasRotating {
+        // Samples the gate is fully open on — where the contract is exactly zero.
+        let open = HuePreservationTests.grid.filter {
+            ColorEngine.chromaGate(lch($0.rgb).C) >= 1
+        }
+        XCTAssertGreaterThan(open.count, 100,
+                             "the grid must offer plenty of colours above the gate")
+        for m in amounts {
             let engine = colorEngine(ColorAdjust(saturation: m.amount))
-            let (worst, at) = worstHueMove(engine)
+            let (worst, at) = worstHueMove(engine, over: open)
             XCTAssertLessThan(worst, 1e-6,
-                              String(format: "Saturation +%.0f rotates hue by %.6f° — it used to move %.2f° and must now move none, at %@",
+                              String(format: "Saturation +%.0f rotates hue by %.6f° above the chroma gate — it used to move %.2f° and must now move none, at %@",
                                      m.amount, worst, m.wasDegrees, at?.label ?? "—"))
         }
 
-        // And on the band the complaint was about. A face pushed +50 landed four
-        // degrees round the wheel, and four degrees off the I-bar is the difference
-        // between skin and orange.
+        // The band the complaint was about. Skin carries real chroma, so it is inside
+        // the fully-open set and gets the same zero.
         XCTAssertFalse(Self.skinSamples.isEmpty, "the grid must contain real skin tones")
+        let openSkin = Self.skinSamples.filter { ColorEngine.chromaGate(lch($0.rgb).C) >= 1 }
+        XCTAssertGreaterThan(openSkin.count, 0, "some skin must sit above the gate")
         let onSkin: [(amount: Double, wasDegrees: Double)] = [(25, 2.21), (50, 4.15), (100, 7.29)]
         for m in onSkin {
             let engine = colorEngine(ColorAdjust(saturation: m.amount))
-            let (worst, at) = worstHueMove(engine, over: Self.skinSamples)
+            let (worst, at) = worstHueMove(engine, over: openSkin)
             XCTAssertLessThan(worst, 1e-6,
-                              String(format: "Saturation +%.0f rotates a SKIN hue by %.6f° — it used to move %.2f°, at %@",
+                              String(format: "Saturation +%.0f rotates a SKIN hue by %.6f° above the gate — it used to move %.2f°, at %@",
                                      m.amount, worst, m.wasDegrees, at?.label ?? "—"))
         }
+    }
+
+    /// And the residue below the gate is bounded, and far smaller than the defect was.
+    ///
+    /// This is the other side of the contract above. The gate deliberately leaves
+    /// near-neutrals alone, so some rotation survives down there; what must stay true
+    /// is that it is confined to near-neutrals and that it is a fraction of what the
+    /// unfixed engine did to EVERY colour. At Saturation +100 the old engine turned the
+    /// worst colour on this grid by 11.57°; whatever is left must be well under half of
+    /// that, and every sample carrying it must be below `gateHiChroma`.
+    func testWhatSurvivesTheGateIsConfinedToNearNeutrals() {
+        let engine = colorEngine(ColorAdjust(saturation: 100))
+        var worst = 0.0
+        var worstChroma = 0.0
+        var label = "—"
+        for s in HuePreservationTests.grid {
+            let out = engine.apply(s.rgb)
+            guard out.isFinite, let d = hueMove(s.rgb, out).map(abs) else { continue }
+            if d > worst { worst = d; worstChroma = lch(s.rgb).C; label = s.label }
+            if d > 1e-6 {
+                XCTAssertLessThan(ColorEngine.chromaGate(lch(s.rgb).C), 1,
+                                  "a colour the gate is fully open on still rotated "
+                                  + "\(d)° at \(s.label)")
+            }
+        }
+        XCTAssertLessThan(worst, 5,
+                          "the residue grew to \(worst)° at \(label) — it was 11.57° "
+                          + "before the fix and must stay a fraction of that")
+        XCTAssertLessThan(worstChroma, ColorEngine.gateHiChroma,
+                          "the worst residue is at chroma \(worstChroma), which the gate "
+                          + "is fully open on — it should be a near-neutral")
     }
 
     /// THE DARKENING SURVIVED. This is the other half of the fix and the half a
