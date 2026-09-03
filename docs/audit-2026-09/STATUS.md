@@ -20,6 +20,70 @@ deferrals lifted · UI: Option B "Modern pro", whole · rows 24 pt · keymap: `L
 Out, `B`→album, `⌘B`→assessment, `F`/`S` stay · denoise: free + best, delivery mine
 (download-on-first-use), timing mine.
 
+## THE FINAL FIX RUN — 3 September, and what it found on its own
+
+Owner's report for THIS run (defects the audit could not see):
+https://claude.ai/code/artifact/e9067424-d65d-4517-ba09-4839ba183c29
+The audit's own report is the older link further down.
+
+**The lesson of the run, in one line: the audit read code, and every defect below
+needed someone to run it, measure it, or break it on purpose and watch.**
+
+### Landed, each with a substitution proof
+`Ingest` copies bytes · pasteboard carve-out · honest facet counts · cull at scale ·
+whole-photo Reset · history panel · `AppState` test seam · mask rotate band + gestures ·
+mask dependency `F5-01` · curve editor anchors · mixer `B3-01` · Zones precision ·
+soft proof into the export plan · export cancel · layout instrument + its first fixes ·
+mask panel labels and pitch · `isEdited` baseline · CI test-count ceiling ·
+two surface-checker false-finding classes
+
+### The defects that were NOT in the audit
+- **The ingest driver copied zero bytes.** `if bytes < 0 { write(chunk) }` — never true.
+  Every frame a 0-byte file, deleted by its own verification. Its suite recorded
+  `xxh64:ef46db3751d8e999`, which is XXH64 of the empty message, and nobody had run it.
+- **The curve's black and white ANCHORS were deletable** (`points.count > 2`), after
+  which the interpolator extends flat below the new first x — every shadow one value.
+- **The disabled-mask bug had a SECOND source**: `BrushStrokes.unresolvedReferences`
+  both warms the export blob cache and builds the refusal list, so a disabled painted
+  mask shipped a file with the retouch missing AND no refusal.
+- **`traceStep` held `0.002`** while its comment claimed 3 view points — lasso thinning
+  was off entirely. The prose describing the fix had been written; the constant had not.
+- **The rotate band existed and drew nothing.** 33 pt of live target, no ink, no cursor.
+- **The grading wheels' lightness bar** is the app's narrowest track (0.250 pt/step) and
+  was absent from every census. Found by the instrument's own call-site tripwire.
+- **`cancelExport()` was called and never declared** — a macOS build blocker the surface
+  checker structurally cannot see (it checks receiver binding, not member existence).
+
+### Measurements that replaced guesses
+- Mask settle, 60 strokes at fit view: **8,485 ms → ~140 ms** (48×). The settle is
+  **22–25×** the draft, not the 16× every comment in those files assumed.
+- Cull keystroke: the linear searches everyone suspected cost **95 µs against 8.3 ms**.
+  The real cost was 40 `objectWillChange` publishes per cull keystroke.
+- Precision floor: **97 of 142 sliders** under 1.0 pt/step at the minimum column,
+  42 at the default. Three rows unreachable by ANY gesture.
+- Labels: the 56 pt budget claim is false; three violations, all in `MaskPanel`.
+- **0 of 140 value readouts overflow.** The overflow is in the LABEL column.
+
+### Audit claims REFUTED by measurement — do not re-implement these
+- Windowing the grid query with a `LIMIT` **would break the app**: `libraryOrder` is the
+  membership of the whole filtered roll, and arrow navigation past the visible window,
+  range selection, ⌘A and every chrome count read it.
+- Dropping the `enabled` filter to fix `F5-01` trades a silent empty mask for a false
+  "found no clear subject" badge. Reachability, not removal.
+- "Three finished engines with zero callers" was ONE. Colour-range isolation already
+  ships; the LUT engine is a parser waiting on a render STAGE, not a caller.
+- Widening the floating mask panel to 320 buys nothing over 290; a full clear needs 433,
+  and the readout scrub already clears the floor at 272.
+- Three sidebar chords die with ⌥⌘S, not four.
+- `F5-06` and `F5-09` are separate findings, not the dependency bug. Still open.
+
+### Two restarts, and the rule that came out of them
+A container restart killed eleven agents mid-flight for the second time. The tree
+survived both times; the REPORTS did not. The rule is now: **push after every verified
+landing, never batch.** A commit that never leaves the container is worth exactly as
+much as the container. Recovery is cheap — hand each agent its own diff and ask it to
+verify, finish and report, rather than starting over.
+
 ## WHERE IT LANDED
 
 **The audit is complete: thirty of thirty areas, 254 findings — 24 S1, 125 S2,
