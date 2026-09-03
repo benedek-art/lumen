@@ -98,13 +98,17 @@ https://claude.ai/code/artifact/8f442d3f-960c-4167-b115-a288480dfb2b
 `I2-01`/`F2-02` · `I2-03`/`I2-04`/`I2-05` · the RAW-corpus suite
 
 ### Deliberately NOT closed, and why — do not report these as fixed
-- **`E2-04`** — mechanism landed and INERT. `SpatialOps.frameDenominatedSigma` and
-  `fineDetailBand` exist and are unit-tested; nothing calls them. Wiring is two
-  edits in `DetailEngine.applySharpen` and two in `RenderGraph.applySharpen`, and
-  it must land WITH a proof-frame migration: at the 128 px `stepEdge` the scaled
-  sigma never clears `gaussianBlur`'s own `sigma > 0.05` guard, so
-  `sharpen.radius` and `sharpen.haloSuppression` fall to 0.0000 authority with 20
-  dead steps. On a 2048 px frame they read 29.7363 and 34.4143.
+- **`E2-04`** — CLOSED in the final run. The sigma is frame-denominated and the fine
+  band follows the decomposition's grid, on the CPU and the GPU alike. Measured:
+  sharpening set on a 1600 px preview used to arrive in a 6400 px delivery at **0.11**
+  of its strength; it now arrives at **0.92**. At 2560 px — the reference width — both
+  halves are the identity, so a 2560 render is byte-for-byte what it was.
+  FIVE proof records move to wide frames, not three, and FOUR hard-failed their
+  authority floors on the old ones (`radius` and `haloSuppression` at 0.0000 with 20
+  dead steps; `amount` 16.19 against 29; `masking` 4.04 against 10). Only `detail`
+  passed, and it passed by reading HIGHER than it should — a dead unsharp term made its
+  cross-fade look authoritative. **The records are not re-pinned: `ControlProofTests`
+  is skipped on both push lanes and the ceremony must run on the final tree.**
 - **`I3-02`** — CLOSED in the final run, and the claim was corrected UPWARD rather than
   the number gamed. 768 MiB was never achievable: one source may legally hold a 320 MiB
   interactive working set plus a budget-exempt inspection plane of up to 512 MiB, and the

@@ -303,12 +303,15 @@ struct DetailPanel: View {
                                 + "late so masked clarity is never double-sharpened. "
                                 + "It starts at 0 because capture sharpening owns the "
                                 + "baseline.")
-                // Radius here is in RAW PIXELS and the band steps are fixed pixel
-                // counts, while every other spatial stage in the graph sizes itself
-                // off the long edge. A preview is also capped at 4096 px, so no view in
-                // this application — 1:1 included — shows a 45 MP export's sharpening.
-                // The person that costs is the one judging an export by a preview, and
-                // this is the row they are looking at when it costs them.
+                // Radius USED TO BE in raw pixels while every other spatial stage in
+                // the graph sized itself off the long edge, so the same setting meant
+                // less sharpening the larger the render — and no view in this
+                // application, 1:1 included, showed a 45 MP export's sharpening. The
+                // person that cost was the one judging an export by a preview, and this
+                // is the row they were looking at when it cost them. That is E2-04, and
+                // it is closed: the sigma is frame-denominated now, so Radius means the
+                // same fraction of the picture on the preview you judge and on the file
+                // you deliver. Measured 0.11 of its strength before, 0.92 after.
                 //
                 // The warning moved from a `.help` MODIFIER onto the `help:` parameter,
                 // with every other row here: an outer `.help` is shadowed by the
@@ -319,10 +322,10 @@ struct DetailPanel: View {
                                                 "detail.sharpen.radius"),
                             range: 0.5...3.0, hardRange: nil, defaultValue: 1.0,
                             step: 0.1, decimals: 1, bipolar: false,
-                            help: "How wide an edge the sharpening acts on, in pixels "
-                                + "of the render — not a fraction of the frame, so a "
-                                + "full-size export is less sharpened than the preview "
-                                + "it was judged on, and previews cap at 4096 px.")
+                            help: "How wide an edge the sharpening acts on, as a "
+                                + "fraction of the frame — so the same setting means "
+                                + "the same sharpening on the preview you judge it on "
+                                + "and on the file you deliver.")
                 LumenSlider(title: "Detail",
                             value: binder.value(\.develop.detail.sharpen.detail,
                                                 "detail.sharpen.detail"),
