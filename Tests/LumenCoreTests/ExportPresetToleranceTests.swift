@@ -471,6 +471,40 @@ final class ExportPresetListDecodeTests: XCTestCase {
         try JSONSerialization.data(withJSONObject: tree)
     }
 
+    /// TERMINATION FIRST, because a hang is invisible.
+    ///
+    /// The first version of `decodeList` spun forever on exactly the input below: an
+    /// unkeyed container advances only on a decode that succeeds, and `decodeNil()`
+    /// advances only on an actual null, so a string where an object belongs consumed
+    /// nothing and `isAtEnd` never came true. CI reported `=== failing tests ===` with
+    /// nothing under it and exit code 1 — which is what a hang looks like from outside,
+    /// and is strictly harder to read than a failed assertion.
+    ///
+    /// So this runs the decode on a watchdog and fails with a sentence rather than
+    /// hanging the lane. It is deliberately the first test in the file.
+    func testAnUnreadableElementCannotSpinTheDecoder() throws {
+        var tree = try wire(recipes(["A", "B", "C"]))
+        tree[1] = "this is not a preset at all"
+        let blob = try data(tree)
+
+        let done = expectation(description: "decodeList returns")
+        var out: [ExportRecipe]?
+        DispatchQueue.global().async {
+            out = ExportRecipe.decodeList(blob)
+            done.fulfill()
+        }
+        // Two seconds is four orders of magnitude over the real cost; anything that
+        // misses it is not slow, it is not coming back.
+        let verdict = XCTWaiter.wait(for: [done], timeout: 2.0)
+        XCTAssertEqual(verdict, .completed,
+                       "decodeList did not return on a list holding one unreadable "
+                       + "element. An unkeyed container advances only on a decode that "
+                       + "SUCCEEDS — a skip that can fail consumes nothing and the loop "
+                       + "spins. A stored blob with one bad element would hang the app "
+                       + "on launch, which is worse than the defect this function fixes.")
+        XCTAssertEqual(out?.count, 2)
+    }
+
     func testOneUnreadableElementCostsOnlyItself() throws {
         var tree = try wire(recipes(["Client proof", "Album master", "Instagram"]))
         tree[1] = "this is not a preset at all"          // a string where an object belongs

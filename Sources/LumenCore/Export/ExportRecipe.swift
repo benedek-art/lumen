@@ -78,14 +78,36 @@ extension ExportRecipe {
     ///
     /// Decoding through an unkeyed container makes the blast radius one entry: a bad
     /// element is skipped and named in the log, and the presets either side of it live.
-    /// `decodeIfPresent` on a failed element still advances `currentIndex`, which is what
-    /// stops a malformed entry becoming an infinite loop.
+    ///
+    /// SKIPPING IS THE HARD PART, and the obvious spelling is a hang. An unkeyed
+    /// container advances `currentIndex` only on a decode that SUCCEEDS, and
+    /// `decodeNil()` advances only when the value genuinely is null — so on a element
+    /// that is a string, a number, or an object this decoder cannot read, `decodeNil()`
+    /// answers false, consumes nothing, `isAtEnd` never becomes true, and the loop spins
+    /// forever. That is worse than the defect it was written to fix: a stored blob with
+    /// one bad element would hang the app on launch instead of merely losing the list.
+    ///
+    /// The first draft of this function did exactly that, and the comment here asserted
+    /// the property the code did not have. `test-fast` hung on
+    /// `testOneUnreadableElementCostsOnlyItself` and reported no failing test at all,
+    /// which is what a hang looks like from the outside.
+    ///
+    /// `Skipped` is the fix and it cannot fail: its `init(from:)` reads nothing, so
+    /// `decode` always succeeds and the index always advances. One element consumed per
+    /// iteration, whatever the element is.
     ///
     /// It returns the list even when EMPTY, and the distinction matters: "the file has no
     /// presets" is a thing a photographer can mean by deleting them all, and answering
     /// that with the stock four resurrects four presets he threw away. Only a MISSING or
     /// unreadable blob deserves the defaults, and that is the caller's `nil`.
     public static func decodeList(_ data: Data) -> [ExportRecipe]? {
+        /// Consumes exactly one element of an unkeyed container and reads nothing from
+        /// it. `init(from:)` cannot throw, so `decode` cannot fail, so `currentIndex`
+        /// always advances — which is the whole job.
+        struct Skipped: Decodable {
+            init(from decoder: Decoder) throws {}
+        }
+
         struct Wire: Decodable {
             var recipes: [ExportRecipe] = []
             var skipped = 0
@@ -95,10 +117,8 @@ extension ExportRecipe {
                     if let one = try? c.decode(ExportRecipe.self) {
                         recipes.append(one)
                     } else {
-                        // The element is consumed either way — `decodeIfPresent` advances
-                        // the index even when the decode inside it failed — so this
-                        // cannot spin.
-                        _ = try? c.decodeNil()
+                        // Unconditional, and it is what makes the loop terminate.
+                        _ = try? c.decode(Skipped.self)
                         skipped += 1
                     }
                 }
