@@ -340,10 +340,20 @@ final class KernelGoldenTests: XCTestCase {
             // failure becomes an unexpected pass, and the lane goes red asking for this
             // block to be deleted. A skip would have gone quiet instead — which is the
             // failure mode I2-04 exists to end.
-            XCTExpectFailure("GPU grain is translated against the reference whenever the "
-                             + "frame height is not a multiple of 128 — the plate's "
-                             + "placement in RenderGraph.grainPlate. Delete this "
-                             + "expectation when that lands.")
+            // Scoped to the failing case, and the scope IS the mechanism: a height that
+            // is a multiple of the plate size makes the translation zero, so that case
+            // passes today and an unconditional expectation would go unfulfilled on it —
+            // which XCTest reds as an unexpected pass. Guarding on the same modulus the
+            // message names keeps both halves honest: 128 must pass, 96 must fail, and
+            // the day the placement is fixed the 96 case turns into the unexpected pass
+            // that asks for this block to be deleted.
+            if height % GrainPlan.plateSize != 0 {
+                XCTExpectFailure("GPU grain is translated against the reference whenever "
+                                 + "the frame height is not a multiple of "
+                                 + "\(GrainPlan.plateSize) — the plate's placement in "
+                                 + "RenderGraph.grainPlate. Delete this expectation when "
+                                 + "that lands.")
+            }
             XCTAssertLessThan(worst, 1e-3,
                               "the GPU's grain differs from the reference's by \(worst) "
                                   + "at \(worstAt) on the \(width)x\(height) frame. At one "
