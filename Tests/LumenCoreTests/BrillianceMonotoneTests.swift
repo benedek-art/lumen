@@ -31,6 +31,24 @@
 // Every assertion below was reasoned against the pre-fix engine, and the transcription
 // of its search in `previouslyShippedScale` is what lets the last test check — rather
 // than assert — that the fix moved those seven and nothing else.
+//
+// WIDENED, because this file swept 125 Brilliance combinations at five Blending
+// settings with EVERY WHEEL'S `lum` AT ZERO — the mirror of the blind spot in
+// `GradeLuminanceInversionTests`, which swept the wheels with this grid at zero. The
+// wheels' Luminance is a per-zone gain on the same H-K brightness, crossing the same
+// crossfades, inside the same `apply`, and its limiter solved the same
+// `1 + 3·slope ≥ margin` against a full budget of its own. Composed, the two handed
+// away 1.9 of a base slope of 1: wheels ±0.3 with Brilliance ±15 — both limiters
+// reporting exactly 1.0 — folded by 4.4 sRGB code values, and wheels ±1 with
+// Brilliance ±100 by 46.87, larger than the 28.53 this file was written for. The fix
+// is `GradeEngine.solveJointScale` and the composed space has its own file
+// (`GradeJointLimiterTests`); the sweep here now runs against a wheel companion as
+// well as against nothing.
+//
+// The three tests that pin B2-01's own numbers keep the wheels at zero deliberately —
+// they are about THIS solve's history, and `testTheFixMovesTheSevenThatFoldedAndNothing
+// Else` now also states why that history is still readable: the joint correction is
+// exactly 1 on every one of these settings, so not one of the 625 has moved.
 
 import XCTest
 @testable import LumenCore
@@ -41,6 +59,16 @@ final class BrillianceMonotoneTests: XCTestCase {
     private static let levels: [Double] = [-100, -50, 0, 50, 100]
     private static let blendings: [Double] = [0, 25, 50, 75, 100]
 
+    /// What the sweep runs the grid AGAINST. Nothing — the reading this file always
+    /// took — then a gentle Luminance opposition across the mid/highlight crossfade
+    /// (the setting `GradeLuminanceInversionTests` calls "nowhere near the
+    /// monotonicity limit"), then a full one.
+    private static let wheelCompanions: [(String, Double, Double)] = [
+        ("no wheels", 0, 0),
+        ("wheels mid +0.3 / high −0.3", 0.3, -0.3),
+        ("wheels mid +1 / high −1", 1, -1),
+    ]
+
     /// A reversal smaller than this is float noise, not a control changing its mind —
     /// the same millionth of a code value `ProofRecord.agrees` calls agreement.
     private static let noise: Double = 1e-6
@@ -48,9 +76,12 @@ final class BrillianceMonotoneTests: XCTestCase {
     // MARK: - Reading the realised tone response
 
     private func engine(shadows: Double, mid: Double, high: Double,
-                        blending: Double = 50) -> GradeEngine {
+                        blending: Double = 50,
+                        wheelMid: Double = 0, wheelHigh: Double = 0) -> GradeEngine {
         var wheels = GradingWheels()
         wheels.blending = blending
+        wheels.mid.lum = wheelMid
+        wheels.high.lum = wheelHigh
         wheels.colorBalance.brilliance = ColorBalanceAxis(global: 0, shadows: shadows,
                                                           mid: mid, high: high)
         return GradeEngine(wheels: wheels, printerLights: PrinterLights())
@@ -165,29 +196,46 @@ final class BrillianceMonotoneTests: XCTestCase {
 
     // MARK: - The sweep
 
-    /// All 125 zone combinations at five Blending settings, against the engine itself.
+    /// All 125 zone combinations at five Blending settings, against the engine itself —
+    /// and against each of the three wheel companions, which is the widening this file
+    /// needed. 1,875 settings.
     ///
     /// RED BEFORE THE FIX on seven of the 125, at every one of the five Blending
     /// settings: −100/−50/−100 and −50/−50/−100 hand back 28.53 code values, and the
     /// five −50/−100/x hand back 1.46 (at Blending 50; the reversal grows as Blending
     /// falls, to 46.87 at Blending 0). All seven reported `brillianceScale == 1.0`.
+    ///
+    /// RED AGAIN, on the OTHER two thirds of this sweep, until `solveJointScale`
+    /// landed: with a wheel companion in place, combinations this file had always read
+    /// as safe fold too, and both limiters go on reporting their own setting safe while
+    /// they do it.
     func testEveryZoneCombinationIsMonotoneAtEveryBlending() {
         for blending in Self.blendings {
-            for shadows in Self.levels {
-                for mid in Self.levels {
-                    for high in Self.levels {
-                        let graded = engine(shadows: shadows, mid: mid, high: high,
-                                            blending: blending)
-                        let reversal = worstReversal { realisedLuminance(graded, at: $0) }
-                        XCTAssertLessThan(
-                            reversal.code, Self.noise,
-                            "Brilliance \(shadows)/\(mid)/\(high) at Blending "
-                                + "\(blending) renders \(reversal.troughEV) EV darker "
-                                + "than \(reversal.peakEV) EV — \(reversal.code) sRGB "
-                                + "code values handed back, with brillianceScale "
-                                + "reading \(graded.colorBalance.brillianceScale). A "
-                                + "profile flattened by the gain floor is not a "
-                                + "monotone profile.")
+            for (label, wheelMid, wheelHigh) in Self.wheelCompanions {
+                for shadows in Self.levels {
+                    for mid in Self.levels {
+                        for high in Self.levels {
+                            let graded = engine(shadows: shadows, mid: mid, high: high,
+                                                blending: blending,
+                                                wheelMid: wheelMid,
+                                                wheelHigh: wheelHigh)
+                            let reversal = worstReversal {
+                                realisedLuminance(graded, at: $0)
+                            }
+                            XCTAssertLessThan(
+                                reversal.code, Self.noise,
+                                "Brilliance \(shadows)/\(mid)/\(high) at Blending "
+                                    + "\(blending) with \(label) renders "
+                                    + "\(reversal.troughEV) EV darker than "
+                                    + "\(reversal.peakEV) EV — \(reversal.code) sRGB "
+                                    + "code values handed back, with brillianceScale "
+                                    + "reading \(graded.colorBalance.brillianceScale), "
+                                    + "lumScale \(graded.lumScale) and joint scale "
+                                    + "\(graded.jointScale). A profile flattened by "
+                                    + "the gain floor is not a monotone profile, and "
+                                    + "two limiters each solving against a full budget "
+                                    + "are not a limiter.")
+                        }
                     }
                 }
             }
@@ -343,6 +391,18 @@ final class BrillianceMonotoneTests: XCTestCase {
                         let before = previouslyShippedScale(
                             shadows: shadows, mid: mid, high: high, windows: windows)
                         let now = graded.colorBalance.brillianceScale
+                        // Read `brillianceScale` and not `appliedBrillianceScale`
+                        // deliberately, and state why the two are the same number
+                        // here: the joint correction of `GradeEngine.solveJointScale`
+                        // is exactly 1 wherever the wheels' Luminance is untouched, so
+                        // this whole 625-setting record — B2-01's own — is still the
+                        // record of what the grid alone does, unmoved by a later fix
+                        // to what it does beside the wheels.
+                        XCTAssertEqual(
+                            graded.jointScale, 1.0, accuracy: 0,
+                            "the joint correction engaged on a setting with no wheel "
+                                + "Luminance at all, which would move every number in "
+                                + "this file")
                         let reversal = worstReversal {
                             modelledLuminance(shadows: shadows, mid: mid, high: high,
                                               windows: windows, zoneScale: before, at: $0)

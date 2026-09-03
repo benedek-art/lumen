@@ -281,8 +281,15 @@ public struct GradeEngine: Sendable {
     private let midTint: WheelTint
     private let highTint: WheelTint
 
-    /// See `solveLumScale`.
+    /// See `solveLumScale`. The WHEELS' OWN solve, against a full monotonicity budget —
+    /// what the Luminance rings would be scaled by if they were the only thing grading
+    /// this pixel. What `apply` multiplies by is `lumScale · jointScale`.
     public let lumScale: Double
+
+    /// See `solveJointScale`. 1 — exactly, bit for bit — unless BOTH the wheels'
+    /// Luminance and the grid's Brilliance are live, which is what keeps every
+    /// single-tool recipe byte-identical.
+    public let jointScale: Double
 
     public init(wheels: GradingWheels,
                 printerLights: PrinterLights,
@@ -295,9 +302,6 @@ public struct GradeEngine: Sendable {
         self.windows = ZoneWindows(wheels: wheels,
                                    whiteAnchorEV: whiteAnchorEV,
                                    blackAnchorEV: blackAnchorEV)
-        self.colorBalance = ColorBalanceGrid(params: wheels.colorBalance,
-                                             windows: self.windows,
-                                             context: context)
         let g = WheelTint(wheels.global)
         let sh = WheelTint(wheels.shadows)
         let mid = WheelTint(wheels.mid)
@@ -306,8 +310,26 @@ public struct GradeEngine: Sendable {
         self.shadowTint = sh
         self.midTint = mid
         self.highTint = hi
-        self.lumScale = GradeEngine.solveLumScale(
+        // The two independent solves first — each against a full budget, exactly as
+        // before — then the one correction that knows about both. Solved here, and
+        // handed to the grid, rather than left for `ColorBalanceGrid` to work out:
+        // the grid can see its own axis and not the wheels above it, and this engine
+        // is the only object that holds both.
+        let lum = GradeEngine.solveLumScale(
             windows: self.windows, shadows: sh.stops, mid: mid.stops, high: hi.stops)
+        let brilliance = ColorBalanceGrid.solveBrillianceScale(
+            axis: wheels.colorBalance.brilliance, windows: self.windows)
+        let joint = GradeEngine.solveJointScale(
+            windows: self.windows, shadows: sh.stops, mid: mid.stops, high: hi.stops,
+            lumScale: lum, brilliance: wheels.colorBalance.brilliance,
+            brillianceScale: brilliance)
+        self.lumScale = lum
+        self.jointScale = joint
+        self.colorBalance = ColorBalanceGrid(params: wheels.colorBalance,
+                                             windows: self.windows,
+                                             context: context,
+                                             brillianceScale: brilliance,
+                                             jointScale: joint)
     }
 
     /// What the ZONE-weighted lightness contribution is multiplied by so the grade
@@ -385,6 +407,206 @@ public struct GradeEngine: Sendable {
         // untouched — a fix that quietly weakened every wheel to protect one setting
         // would be its own bug.
         let normalized = 1 / scale
+        return Swift.min(Num.softKnee(normalized) / normalized, 1)
+    }
+
+    /// What BOTH limiters' zone components are multiplied by ON TOP of their own
+    /// solves, so the two tools cannot each spend the whole monotonicity budget on the
+    /// same pixel.
+    ///
+    /// THE DEFECT. `solveLumScale` above and `ColorBalanceGrid.solveBrillianceScale`
+    /// below solve the same constraint — `1 + 3·slope ≥ margin`, margin 0.05 — and each
+    /// solves it as if it were the only thing grading the frame. So each is permitted
+    /// to hand away 0.95 of a base slope of 1. They run on the SAME pixel, over the SAME
+    /// crossfades, inside one `apply`, and nothing accounted for both: the composed
+    /// realised slope at the mid/highlight crossfade reached −0.883 — exactly
+    /// `1 − 0.95 − 0.95` — where each limiter alone left +0.057 and +0.049.
+    ///
+    /// Measured through `RenderPlan` on a −9…+5 EV grey ramp, wheels mid/high ±1 with
+    /// Brilliance mid/high ±100: 53.5 sRGB code values of fold, from two controls that
+    /// each fold by 0.0 alone. THE SHARP CASE IS THE GENTLE ONE — wheels ±0.3 with
+    /// Brilliance ±15, where BOTH limiters report exactly 1.0 ("nothing to limit"),
+    /// folds by 4.4 code values. That is a lone Midtones +0.3, which
+    /// `GradeLuminanceInversionTests` calls "nowhere near the monotonicity limit", set
+    /// beside a Brilliance inside the panel's own ±20 warning line
+    /// (LookPanel.swift:865). Neither existing test could see it: the wheels' sweep
+    /// holds colourBalance at zero throughout, and the Brilliance sweep holds every
+    /// wheel's `lum` at zero.
+    ///
+    /// THE COMPOSED RESPONSE, which is what this solves against. On the neutral axis
+    /// both moves are multiplicative and both cube back to light (see `lumRangeStops`):
+    /// ```
+    /// log2 Y_out(t) = t + 3·S(t) + 3·log2 G(t)
+    ///   S = zone-weighted wheel J-stops × lumScale × k
+    ///   G = max(0, (1 + global/100) + k · brillianceScale · Σ w_z·v_z/100)
+    /// ```
+    /// so the realised tone slope is `1 + 3·dS/dEV + 3·dlog2G/dEV`, and the bound is
+    /// that sum — one constraint over two tools, not one constraint each.
+    ///
+    /// THE DESIGN CALL — HOW THE BUDGET IS SPLIT. `1 − margin` is the whole fall the
+    /// response may absorb per EV. On each sampled interval it is divided between the
+    /// two sides IN PROPORTION TO WHAT EACH IS ASKING FOR: with `d_w` and `d_b` the
+    /// realised downward slopes the wheels and the grid contribute at their own solved
+    /// scales, each side is allowed `(1 − margin)·d/(d_w + d_b)`. Both sides therefore
+    /// keep the same FRACTION of the move they asked for, which means the ratio between
+    /// the two controls' realised strengths survives the correction — a colorist who
+    /// balanced a Luminance ring against a Brilliance row keeps the balance and loses a
+    /// little of both, rather than watching one tool get annihilated to protect the
+    /// other. The two alternatives were measured and rejected:
+    ///
+    ///   · "the second solve pays" (fold the wheels' slope into the grid's ratio bound
+    ///     and leave `lumScale` alone) is exact and one line shorter, and it is
+    ///     arbitrary: it punishes whichever tool this file happens to solve second. A
+    ///     Brilliance of +5 beside a full wheel opposition would be scaled to nothing
+    ///     for a fold the wheels caused.
+    ///   · an equal split (0.475 each) punishes the gentle side hardest — the ±15
+    ///     Brilliance in the case above would give up as much as the wheels do.
+    ///
+    /// Proportional is also the split under which a SINGLE shared factor is the honest
+    /// implementation, which is why this returns one number: scaling both sides by the
+    /// same `k` shrinks each side's contribution by that factor, so each gives up an
+    /// amount proportional to its own demand. Exactly so for the wheels, whose slope is
+    /// linear in the scale; for the grid the factor is solved from the ratio bound
+    /// rather than assumed, because `log2 G` is not linear in it.
+    ///
+    /// SOLVED, NOT SEARCHED, for the reason `solveBrillianceScale` is: the constraint
+    /// is affine in the scale even where the response is not. Per interval:
+    ///
+    ///   · the wheels reach their share at exactly `k = (1 − margin)/(d_w + d_b)`;
+    ///   · the grid reaches its share when `G_i ≥ ρ·G_(i−1)` with
+    ///     `ρ = 2^(−share·d_b·ΔEV/3)`, one division away in closed form.
+    ///
+    /// The per-interval factor is the smaller of the two, and — like both siblings —
+    /// it is left UNBOUNDED above so a combined setting that is genuinely far from the
+    /// limit reports how far, and the knee below returns exactly 1 for it instead of
+    /// stepping to 0.918 the instant a second control is touched.
+    ///
+    /// NEITHER SIDE CAN ALREADY BE OVER ITS OWN BUDGET, which is what makes the split
+    /// safe to compute from the demands rather than iterated: `solveLumScale` has
+    /// already guaranteed `d_w ≤ 1 − margin` on every one of these intervals (they are
+    /// its own samples), and `solveBrillianceScale` the same for `d_b`. So the factor
+    /// only falls below 1 when BOTH sides are falling on the same interval, and no
+    /// interval where one side is rising is ever limited by counting headroom that
+    /// would shrink with `k`.
+    static func solveJointScale(windows: ZoneWindows,
+                                shadows: Double, mid: Double, high: Double,
+                                lumScale: Double,
+                                brilliance: ColorBalanceAxis,
+                                brillianceScale: Double) -> Double {
+        // THE PROPERTY THAT BOUNDS THIS CHANGE: either side untouched ⇒ exactly 1, so
+        // every recipe that uses one of the two tools renders bit-identically to what
+        // it rendered before this solve existed (`x * 1.0 == x` in IEEE 754, for every
+        // finite x). Only recipes that use BOTH can move.
+        guard shadows != 0 || mid != 0 || high != 0 else { return 1 }
+        let bShadows: Double = Num.clamp(brilliance.shadows, -100, 100)
+        let bMid: Double = Num.clamp(brilliance.mid, -100, 100)
+        let bHigh: Double = Num.clamp(brilliance.high, -100, 100)
+        guard bShadows != 0 || bMid != 0 || bHigh != 0 else { return 1 }
+        guard lumScale > 0, brillianceScale > 0 else { return 1 }
+        // Where the grid's gain sits with no zone term. At Global −100 it is zero, the
+        // gain becomes a pure multiple of the zone term and the RATIO between two
+        // samples stops depending on any scale at all — there is no multiplier that
+        // changes the grid's shape, so there is nothing joint to solve.
+        // `solveBrillianceScale` bails on the same condition for the same reason.
+        //
+        // MEASURED, because bailing here could have been hiding this defect rather
+        // than declining a fix that does not exist: Brilliance Global −100 with
+        // Midtones +100 / Highlights −100 folds by 84.18 sRGB code values WITH NO
+        // WHEELS AT ALL, and by 112.69 with a full wheel opposition beside it. The
+        // first number is `solveBrillianceScale`'s own hole and predates this solve —
+        // at Global −100 the gain is a multiple of a zone term that crosses zero, so
+        // the picture goes out and no multiplier moves the crossing. Limiting the
+        // WHEELS there would buy nothing: the fold the grid causes survives the wheels
+        // going to zero, so the only thing a joint correction could do on this setting
+        // is weaken a control for a fold it did not cause.
+        let rest: Double = 1 + Num.clamp(brilliance.global, -100, 100) / 100
+        guard rest > 0 else { return 1 }
+
+        let span: Double = windows.spanEV
+        // The same step both siblings take, from the narrowest feature rather than a
+        // round number — and the same one, so this reads the wheels' own intervals
+        // rather than a third grid that could walk over the crossfade they measured.
+        let narrowest: Double = Swift.min(windows.shadowHalfWidth,
+                                          windows.highlightHalfWidth)
+        let step: Double = Num.clamp(narrowest / 8, 1e-4, 0.01)
+        let margin: Double = 0.05
+        let blackGain: Double = pow(2.0, ColorBalanceGrid.blackFloorEV)
+
+        // BOTH profiles on ONE sampling of the axis. The whole defect is that the two
+        // solves each measured this crossfade on a grid of their own and neither added
+        // the two answers up.
+        var positions: [Double] = [0]
+        var x: Double = 0
+        while x < 1 {
+            x = Swift.min(x + step, 1)
+            positions.append(x)
+        }
+        var wheelStops: [Double] = []
+        var gridZone: [Double] = []
+        wheelStops.reserveCapacity(positions.count)
+        gridZone.reserveCapacity(positions.count)
+        for p in positions {
+            let w = windows.weights(atNormalized: p)
+            // The wheels' zone-weighted J-stops, at the scale their own solve chose.
+            wheelStops.append((w.shadows * shadows + w.mid * mid + w.high * high)
+                * lumScale)
+            // The grid's zone term, at the scale its own solve chose — so the gain at
+            // joint factor k is `rest + k · gridZone`.
+            gridZone.append((w.shadows * bShadows + w.mid * bMid + w.high * bHigh)
+                / 100 * brillianceScale)
+        }
+
+        var cap: Double = .infinity
+        for i in 1..<positions.count {
+            let deltaEV: Double = (positions[i] - positions[i - 1]) * span
+            guard deltaEV > 0 else { continue }
+            // Realised slopes per EV at the two solved scales — the 3× of
+            // `realisedStopsPerJStop` on both sides, because both scale a perceptual
+            // brightness that cubes back to light.
+            let wheelSlope: Double = GradeEngine.realisedStopsPerJStop
+                * (wheelStops[i] - wheelStops[i - 1]) / deltaEV
+            let from: Double = rest + gridZone[i - 1]
+            let to: Double = rest + gridZone[i]
+            // A sample already at black carries no slope information — the crush rule
+            // of `solveBrillianceScale`, read here off the gain rather than the log.
+            let gridSlope: Double = from <= blackGain ? 0
+                : GradeEngine.realisedStopsPerJStop
+                    * (Num.safeLog2(Swift.max(to, 0)) - Num.safeLog2(from)) / deltaEV
+            let demandWheels: Double = Swift.max(0, -wheelSlope)
+            let demandGrid: Double = Swift.max(0, -gridSlope)
+            let demand: Double = demandWheels + demandGrid
+            guard demand > 0 else { continue }
+            // The proportional split, as one number: the factor at which the wheels
+            // reach their share is `budget/demand` whatever the shares are, because
+            // the share is `demand_w/demand` of a budget the slope is linear in.
+            let share: Double = (1 - margin) / demand
+
+            var folds: Double = demandWheels > 0 ? share : .infinity
+            if demandGrid > 0 {
+                // The grid's own share, as the steepest gain ratio one interval may
+                // carry: `3·log2(G_i/G_(i−1))/ΔEV ≥ −share·d_b`.
+                let ratio: Double = pow(2.0, -share * demandGrid * deltaEV
+                    / GradeEngine.realisedStopsPerJStop)
+                // `G_i ≥ ρ·G_(i−1)` with both gains affine in k:
+                // `rest·(1 − ρ) + k·(z_i − ρ·z_(i−1)) ≥ 0`.
+                let fall: Double = ratio * gridZone[i - 1] - gridZone[i]
+                if fall > 0 {
+                    folds = Swift.min(folds, rest * (1 - ratio) / fall)
+                }
+            }
+            guard folds.isFinite else { continue }
+            // …unless the grid has taken the sample this interval falls FROM to black
+            // by the factor in question, in which case nothing renders there and the
+            // fall takes nothing with it. `solveBrillianceScale`'s guard, evaluated at
+            // the same place: the candidate factor.
+            guard rest + folds * gridZone[i - 1] > blackGain else { continue }
+            cap = Swift.min(cap, folds)
+        }
+        guard cap.isFinite, cap > 0 else { return 1 }
+        // Eased onto, not clipped at — the third use of the one knee, so a pair of
+        // controls approaching the joint limit keeps doing more over its travel
+        // instead of hitting a dead band, and a pair well below it is exactly 1.
+        let normalized: Double = 1 / cap
         return Swift.min(Num.softKnee(normalized) / normalized, 1)
     }
 
@@ -468,8 +690,14 @@ public struct GradeEngine: Sendable {
             + w.shadows * shadowTint.b + w.mid * midTint.b + w.high * highTint.b
         // Global rides on top of the partition and contributes no slope, so it is
         // outside the monotonicity scale; the zone-weighted part is inside it.
+        //
+        // TWO scales, not one: the wheels' own solve, and the joint correction that is
+        // the only thing in this file that knows the Brilliance row below is grading
+        // the same crossfade (`solveJointScale`). `jointScale` is exactly 1 unless
+        // both are live, so this is the same product it always was for a recipe that
+        // uses one of them.
         let zoned: Double = (w.shadows * shadowTint.stops + w.mid * midTint.stops
-            + w.high * highTint.stops) * lumScale
+            + w.high * highTint.stops) * lumScale * jointScale
         let stops: Double = Num.clamp(globalTint.stops + zoned, -2, 2)
 
         var out: RGB = c
@@ -682,17 +910,43 @@ public struct ColorBalanceGrid: Sendable {
     public let context: OKLabTransform.Context
 
 
-    /// See `solveBrillianceScale`.
+    /// See `solveBrillianceScale`. The GRID'S OWN solve, against a full monotonicity
+    /// budget — what Brilliance would be scaled by if it were the only thing grading
+    /// this pixel. What `apply` multiplies the zone components by is
+    /// `brillianceScale · jointScale`.
     public let brillianceScale: Double
+
+    /// See `GradeEngine.solveJointScale`. 1 — exactly — unless the wheels' Luminance
+    /// is live too; the grid cannot see the wheels above it, so the engine that holds
+    /// both solves this and hands it down.
+    public let jointScale: Double
+
+    /// What the Brilliance zone components are actually multiplied by.
+    public var appliedBrillianceScale: Double { brillianceScale * jointScale }
 
     public init(params: ColorBalanceParams = ColorBalanceParams(),
                 windows: ZoneWindows = ZoneWindows(),
                 context: OKLabTransform.Context = OKLabTransform.working) {
+        self.init(params: params, windows: windows, context: context,
+                  brillianceScale: ColorBalanceGrid.solveBrillianceScale(
+                    axis: params.brilliance, windows: windows),
+                  jointScale: 1)
+    }
+
+    /// The grid with both solves handed in. `GradeEngine` uses this because it has
+    /// already run `solveBrillianceScale` — the joint solve needs its answer as an
+    /// input — and running it a second time here would be the same loop over the same
+    /// crossfade for the same number.
+    init(params: ColorBalanceParams,
+         windows: ZoneWindows,
+         context: OKLabTransform.Context,
+         brillianceScale: Double,
+         jointScale: Double) {
         self.params = params
         self.windows = windows
         self.context = context
-        self.brillianceScale = ColorBalanceGrid.solveBrillianceScale(
-            axis: params.brilliance, windows: windows)
+        self.brillianceScale = brillianceScale
+        self.jointScale = jointScale
     }
 
     /// True when every control in the disclosure is at rest.
@@ -709,9 +963,10 @@ public struct ColorBalanceGrid: Sendable {
     /// Per-zone gain: `1 + (global + zoneScale · Σ w_z · v_z)/100`, floored at 0 so
     /// −100 lands on a true neutral and cannot go through it into negative chroma.
     ///
-    /// `zoneScale` is the Brilliance monotonicity limit — 1 for every other axis, and
-    /// applied to the ZONE components only: global rides on top of the partition and
-    /// contributes no slope, exactly as the Global wheel sits outside `lumScale`.
+    /// `zoneScale` is the Brilliance monotonicity limit — the grid's own solve times
+    /// the joint correction, 1 for every other axis — and applied to the ZONE
+    /// components only: global rides on top of the partition and contributes no slope,
+    /// exactly as the Global wheel sits outside `lumScale`.
     private static func gain(_ axis: ColorBalanceAxis,
                              _ w: (shadows: Double, mid: Double, high: Double),
                              zoneScale: Double = 1) -> Double {
@@ -917,14 +1172,16 @@ public struct ColorBalanceGrid: Sendable {
 
         // Brilliance: scale the H-K brightness at constant ratio — L and C ride the same
         // ray. (m·L·C)·k² + L·k − B·g = 0 in the common scale factor k.
-        // The zone components ride `brillianceScale` so a per-zone brightness gain
-        // cannot fold the tone response across a crossfade — see
-        // `solveBrillianceScale`. Chroma and Saturation above hold perceived
+        // The zone components ride `appliedBrillianceScale` — the grid's own solve
+        // times the joint correction — so a per-zone brightness gain cannot fold the
+        // tone response across a crossfade, alone (`solveBrillianceScale`) or against
+        // the Luminance rings grading the same crossfade above it
+        // (`GradeEngine.solveJointScale`). Chroma and Saturation above hold perceived
         // brightness by construction and need no limiter.
         if !params.brilliance.isZero, L > 1e-6 {
             let brightness: Double = L * (1 + m * C)
             let target: Double = brightness * ColorBalanceGrid.gain(
-                params.brilliance, w, zoneScale: brillianceScale)
+                params.brilliance, w, zoneScale: appliedBrillianceScale)
             let quad: Double = m * L * C
             var k: Double = target / L
             if abs(quad) > 1e-12 {
