@@ -52,6 +52,51 @@ two surface-checker false-finding classes
   INDEPENDENTLY rather than recording what Swift says — three derivations, identical
   doubles (`29.738156229300458` at 2500 K). Daylight keeps its whole range with 2.2
   units of margin, now stated as a margin and pinned from both sides.
+- **Two grade limiters each spend 95% of the SAME slope budget.** `solveLumScale`
+  (the wheels' Luminance rings) and `solveBrillianceScale` (Colour Balance) each solve
+  `1 + 3*slope >= 0.05` — each permitted to hand away 0.95 of a base slope of 1. They
+  run on the same pixel, in one `apply`, and nothing anywhere sets both. Measured
+  through `RenderPlan` on a -9..+5 EV ramp: wheels mid+1.0/high-1.0 alone folds by
+  0.0 cv, brilliance +100/-100 alone folds by 0.0 cv, BOTH folds by **53.455 cv**,
+  composed slope -0.883 where each alone leaves +0.057 and +0.049 — exactly
+  `1 - 0.95 - 0.95`. The sharp case is the gentle one: wheels +/-0.3 with brilliance
+  +/-15, where **both limiters report exactly 1.0** ("nothing to limit") and the picture
+  still folds by 4.4 cv — bigger than the B2-01 defect the Brilliance limiter was built
+  for. `GradeLuminanceInversionTests` sweeps the wheels with colourBalance at zero;
+  `BrillianceMonotoneTests` sweeps a full 5x5x5 brilliance grid with every wheel lum at
+  zero. Neither ever sets both. NOT FIXED: the fix is a joint budget solved once rather
+  than twice, which is a design call with pixel consequences across the grade panel.
+  It has the property a ceremony wants — `k = 1` exactly whenever either side is
+  untouched, so every single-tool recipe stays byte-identical.
+- **Edge Shift runs BACKWARDS on any mask mixing a hard and a soft component.**
+  `edgeShifted` derives ONE global `rampWidth` from the mean gradient over the whole
+  transition band, then rebuilds alpha from the signed distance and that single width.
+  A hard edge contributes zero samples to the mean (no pixel lands in 0.02..0.98), so a
+  soft component's 42-px ramp wins outright and the hard boundary is rebuilt as a 42-px
+  gradient. Two radials, one feather 0 and one feather 100, at 320px: Edge **-40 GROWS
+  coverage x1.0320**, Edge -20 grows it x1.0862. Each component alone shrinks correctly
+  (x0.8642, x0.9438), which is why a one-component sweep cannot see it. Across the whole
+  slider **Edge 0 is the global minimum** — every setting in either direction grows the
+  mask. At Edge -20, 192px: 8058 pixels grew against 5324 shrank, and a pixel entirely
+  outside the mask went alpha 0.0000 -> 0.3611 under an EROSION. It gets worse with
+  resolution, so worse in the delivered file than in the loupe. NOT FIXED: any fix moves
+  rendered pixels for every mask with a non-zero Edge.
+- **The Highlights slider darkens the shadows, and its top 60% does nothing there.**
+  The shared `zonalScale` multiplies Shadows/Whites/Blacks as well as Highlights, so
+  moving Highlights re-scales the other three. At `contrast -100, shadows -100,
+  whites -100, blacks -100`, measured at t = -2 EV where `highlightWeight` is exactly 0:
+  Highlights -100 -> 57.112 cv, 0 -> 42.577, +40 -> 32.721, **+100 -> 32.721, byte
+  identical**. Dragging Highlights UP darkens a shadow by **24.391 sRGB code values**,
+  then the last 60 points of travel do nothing at that tone. 1,979 settings on a reduced
+  6-D grid have a Highlights step that darkens a tone inside the anchors.
+  `testHighlightsAndShadowsStayOutOfEachOthersTerritory` asserts the opposite on a
+  one-slider slice, and skips every case where the scale actually binds.
+- **`effectiveHighlights` — the number the panel shows — runs backwards.** At
+  `contrast -100, whites +20`, ten consecutive settings from -91 to -100 each apply LESS
+  than the one before. Picture impact ~0.01 cv; readout impact 0.44 points of a slider
+  documented as existing precisely so that a slider whose top half does nothing is
+  visible. `RobustnessTests` asserts monotonicity here and never enters the region where
+  `whites != 0`.
 - **A third class of surface-checker false finding, RECORDED NOT FIXED.** The labels
   pass judges a call against in-tree declarations of the same NAME. When a stdlib
   method's name collides with an in-tree one, the stdlib call is reported as a
