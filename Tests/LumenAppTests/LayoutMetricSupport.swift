@@ -511,6 +511,12 @@ enum SliderInventory {
                    step: 0.1, decimals: 1),
 
         // Look — grade, primaries, transform, film lab, grain.
+        // The look-apply strength. It was in no row of this table, so its label,
+        // readout and track were measured by nothing — and the call-site count
+        // could not see the gap, because 97 was already correct: the site existed
+        // and only the row was missing. That is the tripwire's blind spot, found
+        // by an audit of this instrument rather than by the instrument.
+        SliderSpec("Amount", "LookPanel.swift:290", .developTop, 0...100, step: 1),
         SliderSpec("Blending", "LookPanel.swift:583", .developTop, 0...100, step: 1),
         SliderSpec("Balance", "LookPanel.swift:589", .developTop, -100...100, step: 1),
         SliderSpec("Hue shift", "LookPanel.swift:645", .developTop, -180...180, step: 1),
@@ -532,8 +538,8 @@ enum SliderInventory {
         SliderSpec("Skew", "LookPanel.swift:1086", .developTop, -1...1,
                    step: 0.01, decimals: 2),
         SliderSpec("Hue keep", "LookPanel.swift:1095", .developTop, 0...100, step: 1),
-        SliderSpec("Black target", "LookPanel.swift:1104", .developTop, 0...9,
-                   hard: 0...15, step: 0.001, decimals: 3),
+        SliderSpec("Black target", "LookPanel.swift:1200", .developTop, 0...9,
+                   hard: 0...15, step: 0.01, decimals: 2),
         SliderSpec("Strength", "LookPanel.swift:1209", .developTop, 0...100, step: 1),
         SliderSpec("Film Exposure", "LookPanel.swift:1215", .developTop, -2...3,
                    step: 0.25, decimals: 2),
