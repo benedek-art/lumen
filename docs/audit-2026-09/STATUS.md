@@ -52,6 +52,23 @@ two surface-checker false-finding classes
   INDEPENDENTLY rather than recording what Swift says — three derivations, identical
   doubles (`29.738156229300458` at 2500 K). Daylight keeps its whole range with 2.2
   units of margin, now stated as a margin and pinned from both sides.
+- **A third class of surface-checker false finding, RECORDED NOT FIXED.** The labels
+  pass judges a call against in-tree declarations of the same NAME. When a stdlib
+  method's name collides with an in-tree one, the stdlib call is reported as a
+  mismatch: `drop(while:)` against two in-tree `func drop(_:)` declarations. The pass
+  has no type information, so it cannot know the receiver is stdlib. A fix is a narrow,
+  explicit table of stdlib signatures consulted only after the in-tree check fails —
+  deliberately NOT done tonight, with a fleet in flight and the checker at exit 0: a
+  change here that is subtly wrong weakens every future run silently, and nobody is
+  blocked. The call site that hit it was rewritten as `dropFirst` instead.
+- **The naive comment stripper is copied into 21 test files** and is string-blind in
+  all of them. It differs from a correct one on four files in `Sources/`, every case a
+  `//` inside a string literal, never nesting — `AppUpdater.swift`'s GitHub URL,
+  `Kernels.swift`'s shader bodies, and two XMP namespace URLs. NO currently-green test
+  is green for the wrong reason: each of those files is scanned only by suites that
+  already use a conservative or already-correct scanner. The hole is latent, not live,
+  and the next `https://` added to a scanned file lights it. The corrected
+  implementation now lives in `MaskPanelTests.swift` for the others to be copied from.
 - **A test failed because the fix had been explained.** `withoutComments` blanks a
   comment to SPACES OF THE SAME LENGTH so offsets survive stripping. An assertion that
   looked in "the next 320 characters" therefore had eight lines of justifying prose
