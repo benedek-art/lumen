@@ -1531,7 +1531,9 @@ public struct RenderGraph {
             let period = Double(size) * scale
             guard period.isFinite, period > 0 else { return repeated }
             let offset = Double(extent.maxY).truncatingRemainder(dividingBy: period)
-            guard offset != 0 else { return repeated }
+            // An infinite extent — which `CIImage.extent` is entitled to be — makes the
+            // remainder NaN, and a NaN translation would take the whole plate with it.
+            guard offset.isFinite, offset != 0 else { return repeated }
             return repeated.transformed(
                 by: CGAffineTransform(translationX: 0, y: CGFloat(offset)))
         }

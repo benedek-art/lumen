@@ -50,6 +50,25 @@
 // from here, and the mask that carries it (a disabled mask, held only in `allMasks`) is
 // never a client of this cache at all, so it can never announce that it changed.
 //
+// WHAT THE HELD RUNG WOULD BE WORTH, AND WHAT IT WOULD NOT TOUCH. Measured in a release
+// build on this project's Linux container (geometry-only at 1024 runs 32–45 ms there
+// against probe (b)'s 12.8 ms, so it is ~2.5–3.5× slower than probe (b)'s box, which
+// probe (b) itself calls 2–4× slower than an M-series Mac): a luma-range mask through
+// the guided refine chain costs 8.7 s at 4096×2731 and 3.4 s at a fit-view 2560×1707,
+// against 345 ms at the 1024 proxy. That is 0.24–0.67 s per refined mask per settle on
+// the owner's machine, thrown away and paid again every time.
+//
+// It is the second-largest term in the settle, not the largest, and the largest is not
+// in this file: `BrushPlaneCache`'s settle rung was worth 8.5 s of the same measurement
+// for a 60-stroke mask, and that one is held now.
+//
+// The term NEITHER cache touches, stated here because this is where someone will come
+// looking when the settle is still slow: `PipelineRenderer.image(from:)` runs on every
+// mask on every frame AFTER the lookup, hit or miss, and it interleaves a
+// single-channel alpha into an RGBAf bitmap one pixel at a time — 723 ms at 4096×2731
+// on that container, against 97 ms for handing the same plane's `values` over as-is.
+// These caches hold `Plane`s; nothing here can remove that pass.
+//
 // The prerequisite is one change in the key builder, not here: `maskJSON` must become a
 // RASTER identity — the mask's components, whole-mask invert and refine chain, CLOSED
 // OVER every mask reachable through `maskRef` and their stroke sets. That also removes

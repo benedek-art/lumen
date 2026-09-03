@@ -420,9 +420,23 @@ actor RenderCoordinator {
     /// Returns the names of the kernels that were unavailable, so the caller can report
     /// a reduced file instead of counting it as a clean one. Empty means every stage
     /// ran; a throw means nothing was delivered.
+    ///
+    /// THE SOFT PROOF REACHES THE FILE, which is the one input this call was missing.
+    /// `PipelineRenderer.exportedImage` built its plan with no proof at all, so ⇧S
+    /// proofed the preview and the exported file rendered to the working space and let
+    /// ColorSync clip per channel at encode time — the picture the photographer checked
+    /// and the picture he sent to the printer were different pictures, silently. The
+    /// renderer takes it in a DELIVERED form (the proofing transform kept; the
+    /// gamut-warning overlay and paper-white simulation forced off, because those are
+    /// pictures of the medium and must never be baked into a file), and this is the
+    /// parameter that lets the app hand it one.
+    ///
+    /// Defaulted to nil so every existing caller is unchanged: an export nobody proofs
+    /// is byte-for-byte what it was.
     func export(url: URL, recipe: Recipe, to destination: URL,
                 exportRecipe: ExportRecipe,
-                strokeSets: [String: BrushStrokeSet] = [:]) throws -> [String] {
+                strokeSets: [String: BrushStrokeSet] = [:],
+                softProof: SoftProof? = nil) throws -> [String] {
         let source = try self.source(for: url)
         // Same reason as `renderFullSize`, and more so for a batch: two hundred files
         // through this call is two hundred native decodes, each one bounded by the trim
@@ -430,7 +444,8 @@ actor RenderCoordinator {
         defer { trimDecodeResidency() }
         generateMattesNow(source: source, recipe: recipe)
         return try renderer.export(source: source, recipe: recipe, to: destination,
-                                   using: exportRecipe, strokeSets: strokeSets)
+                                   using: exportRecipe, strokeSets: strokeSets,
+                                   softProof: softProof)
     }
 
     /// The matte pass, run INLINE, for the delivery paths.

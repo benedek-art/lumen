@@ -270,7 +270,12 @@ enum ProofFrames {
     /// error above, `SpatialOps.gaussianBlur`'s own support floor, so the unsharp half
     /// of S12 never ran and Detail swept a mix between a dead term and a live one
     /// (E2-04). `SharpeningFrameTests` is the guard that keeps that from coming back.
-    static func wideFineTexture(width: Int = 2048, height: Int = 64) -> ImageBuffer {
+    ///
+    /// 32 rows rather than `fineTexture`'s 64, for the reason `wideStepEdge` dropped
+    /// 128 to 32: the strips vary in x alone, so every row is a copy of every other
+    /// one, and a proof sweep is 24 renders of this frame times however many controls
+    /// stand on it. The frame says the same thing at half the cost.
+    static func wideFineTexture(width: Int = 2048, height: Int = 32) -> ImageBuffer {
         fineTexture(width: width, height: height)
     }
 

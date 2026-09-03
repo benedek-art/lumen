@@ -284,6 +284,15 @@ extension AppState {
         clearExportCancel()
         let total = Double(jobs.count * active.count)
 
+        // Captured on the main actor before the batch starts, and it is the SAME
+        // accessor the loupe reads (`LoupeView.canvas`, `CompareView`), so the file
+        // that lands is the picture ⇧S was showing — by construction, not by two
+        // paths agreeing. Until this was threaded, `exportedImage` built its plan
+        // with no proof at all: the preview proofed against the print profile and
+        // the exported file rendered to the working space, leaving ColorSync to clip
+        // per channel at encode. The proof you approved was not the file you shipped.
+        let proof = activeSoftProof
+
         Task {
             var completed = 0.0
             var failures: [String] = []
@@ -337,7 +346,8 @@ extension AppState {
                             withIntermediateDirectories: true)
                         let missing = try await renderCoordinator.export(
                             url: job.url, recipe: job.recipe, to: destination,
-                            exportRecipe: exportRecipe, strokeSets: job.strokes)
+                            exportRecipe: exportRecipe, strokeSets: job.strokes,
+                            softProof: proof)
                         written += 1
                         if !missing.isEmpty {
                             reducedFiles += 1

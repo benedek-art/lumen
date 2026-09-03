@@ -13,6 +13,13 @@
 // with the stamp radius growing with the long edge on top of it. Both mask caches
 // refused to hold anything above the proxy, so all of it was paid again on every settle.
 //
+// SIXTEEN TIMES THE PIXELS IS 22–25× THE TIME, measured rather than reasoned, in a
+// release build on this project's Linux container: a luma-range mask through the guided
+// refine chain went 345 ms at 1024 → 8.7 s at 4096 (25.3×), and even a pure geometry
+// fold with no radius term in it went 32 ms → 788 ms (24.6×). The refine radius is
+// itself a function of the long edge, and past that the working set stops fitting in
+// cache. Every "sixteen times" in this file and in the two caches is a floor.
+//
 // WHAT IS PROVED HERE AND WHAT IS PROVED NEXT DOOR. `LumenPipeline` is `#if os(macOS)`
 // and has no test target on this lane, so the caches themselves are exercised in
 // `MaskPerfTests`. Two things can be proved here and are:

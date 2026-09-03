@@ -43,6 +43,27 @@
 // not its square; with the settle rung dropped it tracked the square exactly, one
 // resolution up.
 //
+// WHAT IT ACTUALLY COSTS, MEASURED RATHER THAN REASONED. Painting a 60-stroke set with
+// `MaskRaster.accumulatedBrushPlane`, release build, this project's Linux container
+// (whose geometry-only combine at 1024 runs 32–45 ms against docs/23 probe (b)'s
+// 12.8 ms, so read it as ~2.5–3.5× slower than probe (b)'s box and probe (b)'s note as
+// 2–4× slower again than an M-series Mac):
+//
+//     4096×2731  cold repaint of all 60      34,205 ms
+//     4096×2731  resume, paint the 60th         709 ms      48× less
+//     2560×1707  cold repaint of all 60       8,485 ms
+//
+// So the rung this holds is worth roughly 33 s per settle on that container at 4096 and
+// 8 s at a fit-view 2560 — call it 0.6–1.7 s per settle on the owner's machine at a fit
+// view, against a reported stall of 1.7–3.0 s. It is the largest single term in it.
+//
+// AND "SIXTEEN TIMES THE PIXELS" UNDERSTATES IT, which is worth writing down because
+// every argument in this file and the next reached for that ratio. 4096 is 16.0× the
+// pixels of 1024 and, measured, 22–25× the time: a guided refine's radius is itself
+// `feather/100 × 0.02 × longEdge` so its window grows with resolution, and even the
+// pure per-pixel geometry case (no radius term at all) came in at 24.6×, which is the
+// working set falling out of cache. The settle is not 16× the draft. It is about 23×.
+//
 // So retention above the proxy is a BYTE budget rather than a long edge, and DELIVERIES
 // are still refused: an export paints at the export target, a single 45 MP plane is
 // ~180 MB, and a one-shot render has nothing to resume into.
@@ -208,8 +229,17 @@ final class BrushPlaneCache {
     /// with `lock` held.
     ///
     /// Newest-first order makes this a prefix scan: keep entries while they fit, drop
-    /// the tail. A single plane larger than the whole budget is dropped rather than
-    /// allowed to evict everything and sit there alone.
+    /// the tail.
+    ///
+    /// A newest entry that does not fit the budget ALONE would empty the whole list —
+    /// the scan breaks at the first miss, so nothing behind it is reached. That is not
+    /// a case this rung can be in, and the bound is `store`'s rather than this
+    /// function's: nothing above `DraftLadder.interactiveLongEdgeCeiling` is offered
+    /// here at all, and the largest plane under it is a square 4096 × 4096 = 67 MB
+    /// against a 96 MB budget. If that ceiling ever rises past a plane of
+    /// `settleResidencyBudget`, this loop needs to skip the oversized entry rather than
+    /// stop at it — stated here because the failure would look like a cache that
+    /// mysteriously holds nothing.
     private func trimSettledLocked() {
         var total = 0
         var kept: [(key: String, entry: Entry)] = []

@@ -701,6 +701,65 @@ def synthesize_memberwise(suppressed):
     return out, bailed
 
 
+# A raw-value enum's `init?(rawValue:)`, for pass 2.
+#
+# Swift synthesizes a failable `init?(rawValue:)` for every enum with a raw type, and
+# this script did not model it — so EVERY `SomeEnum(rawValue: x)` in the tree was
+# reported as matching no initializer. That was the sole finding standing between the
+# tree and a clean exit code during the final fix wave, and it is a false one: the
+# initializer exists, the compiler wrote it.
+#
+# The raw type is the FIRST entry in the inheritance clause and only when it is a
+# literal-convertible type; everything after it is protocols. Restricting to a known
+# set rather than "anything capitalized" is what keeps `enum Kind: Codable` — which has
+# no raw value and no such initializer — from being handed a signature it does not have,
+# which would hide a real error instead of clearing a false one.
+RAW_TYPES = {"String", "Character", "Double", "Float",
+             "Int", "Int8", "Int16", "Int32", "Int64",
+             "UInt", "UInt8", "UInt16", "UInt32", "UInt64"}
+ENUM_RAW_DECL = re.compile(r"\benum\s+([A-Z]\w*)\s*:\s*([A-Z]\w*)")
+
+
+def synthesize_raw_value_inits():
+    """Enum name -> the synthesized `init?(rawValue:)`, for enums with a raw type."""
+    out = {}
+    for path in FILES:
+        text = strip_all_keep_quotes(path.read_text())
+        for m in ENUM_RAW_DECL.finditer(text):
+            name, first = m.group(1), m.group(2)
+            if first in RAW_TYPES:
+                out.setdefault(name, []).append((["rawValue"], ["rawValue"]))
+    return out
+
+
+CONDITION_HEAD = re.compile(r"\n[ \t]*(?:\}\s*)?(?:if|guard|while)\b")
+
+
+def opens_a_condition_body(text, call_start, close):
+    """True when the `{` after this call opens an if/guard/while body, not a closure.
+
+    `if let section = WorkspaceSection(rawValue: words[1]) {` reads, to a scanner that
+    only looks at the character after the closing paren, exactly like a call with a
+    trailing closure — so the walk below dropped `rawValue` as "the closure fills it"
+    and then reported the site for passing an argument the initializer does not take.
+    Every failable initializer used in an optional binding was affected, which is the
+    idiomatic way to call one.
+
+    The test is structural rather than lexical: find the nearest preceding `if`, `guard`
+    or `while` at the start of a line, and confirm no brace intervenes between it and
+    this call. An intervening `{` means that statement's body has already opened and
+    this call is somewhere inside it, so the brace after us is our own.
+    """
+    window = text[max(0, call_start - 600):call_start]
+    head = None
+    for m in CONDITION_HEAD.finditer(window):
+        head = m.end()
+    if head is None:
+        return False
+    between = window[head:]
+    return "{" not in between and "}" not in between
+
+
 MULTI_TRAILING = re.compile(r"\s*\w+\s*:\s*\{")
 
 
@@ -708,6 +767,9 @@ def pass_inits():
     inits, suppressed = collect_inits()
     synthesized, bailed = synthesize_memberwise(suppressed)
     for name, sigs in synthesized.items():
+        inits.setdefault(name, []).extend(sigs)
+    raw_value = synthesize_raw_value_inits()
+    for name, sigs in raw_value.items():
         inits.setdefault(name, []).extend(sigs)
     problems, checked, skipped = [], 0, 0
 
@@ -722,7 +784,8 @@ def pass_inits():
             if close is None:
                 skipped += 1
                 continue
-            trailing = text[close:close + 40].lstrip().startswith("{")
+            trailing = (text[close:close + 40].lstrip().startswith("{")
+                        and not opens_a_condition_body(text, m.start(), close))
             if trailing:
                 # A second, LABELED trailing closure (`} label: {`) carries its label
                 # outside the parentheses, where the argument walk below cannot see
@@ -770,7 +833,8 @@ def pass_inits():
                                  call_labels, inits[name]))
 
     tally = (f"({skipped} unparseable, skipped; {len(synthesized)} memberwise "
-             f"signatures synthesized, {len(bailed)} structs too odd to synthesize)")
+             f"signatures synthesized, {len(raw_value)} raw-value enums, "
+             f"{len(bailed)} structs too odd to synthesize)")
     if not problems:
         print(f"inits:    {checked} call sites match a declared or memberwise "
               f"initializer {tally}")

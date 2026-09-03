@@ -381,17 +381,37 @@ enum ProofRegistry {
     /// Creative sharpening, on a hard edge — which is both what it acts on and where its
     /// artifact lives. docs/19 found Radius was a seven-position switch across its whole
     /// range and Detail ran backwards; these records are what would have caught both.
+    ///
+    /// ON 2048 px FRAMES, and that migration is half of E2-04's landing rather than a
+    /// tidy-up. S12's radius is denominated in the frame — `radius × longEdge / 2560`,
+    /// `SpatialOps.frameDenominatedSigma` — so at the 128 px `stepEdge` these five used,
+    /// Radius's whole 0.5…3.0 travel scaled to σ = 0.025…0.15 and `SpatialOps.gaussianBlur`
+    /// returned the plane untouched under its own `sigma > 0.05` floor. Every render in
+    /// the Radius and Halo Suppression sweeps came back byte-identical: authority
+    /// 0.0000 with 20 dead steps, on two controls that work. The 256 px `fineTexture`
+    /// the other two used is the same story one octave up.
+    ///
+    /// This is the frame mistake docs/20 names, arriving through SIZE rather than
+    /// content — the same one `ProofFrames`' film-gate paragraph records for halation at
+    /// σ = 0.23 px and for a grain cell under the half-pixel floor, and the same one the
+    /// masking entry below records for a control swept on a frame with nothing to
+    /// withhold. `wideStepEdge` and `wideFineTexture` are the same two frames at 2048 px:
+    /// same step, same four frequencies, one axis changed. `SharpeningFrameTests` asserts
+    /// the arithmetic against these specs so a frame cannot quietly shrink back.
+    ///
+    /// The records move with them, and the movement is the frame and not a behaviour
+    /// change: a number taken here is a number taken on more pixels of the same picture.
     static let sharpen: [ControlSpec] = [
         ControlSpec(
             id: "sharpen.amount", panel: "Detail", displayName: "Sharpen amount",
             low: 0, high: 150,
-            frameName: "stepEdge", frame: { ProofFrames.stepEdge() },
+            frameName: "wideStepEdge", frame: { ProofFrames.wideStepEdge() },
             authorityFloor: 29, mayLeaveRange: false,
             apply: { r, v in r.develop.detail.sharpen.amount = v }),
         ControlSpec(
             id: "sharpen.radius", panel: "Detail", displayName: "Sharpen radius",
             low: 0.5, high: 3.0, neutral: 1.0,
-            frameName: "stepEdge", frame: { ProofFrames.stepEdge() },
+            frameName: "wideStepEdge", frame: { ProofFrames.wideStepEdge() },
             authorityFloor: 17, mayLeaveRange: false,
             apply: { r, v in
                 // Radius does nothing without amount to apply at that radius.
@@ -401,7 +421,7 @@ enum ProofRegistry {
         ControlSpec(
             id: "sharpen.detail", panel: "Detail", displayName: "Sharpen detail",
             low: 0, high: 100,
-            frameName: "fineTexture", frame: { ProofFrames.fineTexture() },
+            frameName: "wideFineTexture", frame: { ProofFrames.wideFineTexture() },
             authorityFloor: 3, mayLeaveRange: false,
             apply: { r, v in
                 r.develop.detail.sharpen.amount = 100
@@ -421,7 +441,7 @@ enum ProofRegistry {
         ControlSpec(
             id: "sharpen.masking", panel: "Detail", displayName: "Sharpen masking",
             low: 0, high: 100,
-            frameName: "fineTexture", frame: { ProofFrames.fineTexture() },
+            frameName: "wideFineTexture", frame: { ProofFrames.wideFineTexture() },
             authorityFloor: 10, mayLeaveRange: false,
             apply: { r, v in
                 r.develop.detail.sharpen.amount = 100
@@ -434,7 +454,7 @@ enum ProofRegistry {
             id: "sharpen.haloSuppression", panel: "Detail",
             displayName: "Halo suppression",
             low: 0, high: 100,
-            frameName: "stepEdge", frame: { ProofFrames.stepEdge() },
+            frameName: "wideStepEdge", frame: { ProofFrames.wideStepEdge() },
             authorityFloor: 25, mayLeaveRange: false,
             apply: { r, v in
                 r.develop.detail.sharpen.amount = 120

@@ -481,9 +481,9 @@ final class ScopeMathTests: XCTestCase {
                                                  coverage: .visibleRegion, proofed: true,
                                                  instrumentPaint: true,
                                                  exactCounts: false)
-        XCTAssertEqual(everything.clauses.count, 4)
-        XCTAssertEqual(everything.note, ScopeReadout.Provenance.noteWidestCase)
-        XCTAssertEqual(ScopeReadout.Provenance.noteWidestCase.count, 53)
+        XCTAssertEqual(everything.clauses.count, 3)
+        XCTAssertEqual(everything.note, "Binned: scope render, no proof · visible region only")
+        XCTAssertEqual(ScopeReadout.Provenance.noteWidestCase.count, 54)
 
         // And the pinned worst case is the longest note the assembly can emit.
         var longest = 0

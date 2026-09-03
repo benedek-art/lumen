@@ -297,10 +297,19 @@ public enum ScopeReadout {
         /// the visible corner, which outranks a proof, which outranks an estimate.
         public var clauses: [String] {
             var out: [String] = []
-            if instrumentPaint { out.append("soft proof + gamut flag") }
-            else if proofed { out.append("soft proof") }
+            // Exactly one clause about WHOSE pixels these are, which is what keeps the
+            // widest case bounded — and is also the truer statement. A commissioned
+            // render does not carry the proof at all, so "scope render, no proof" and
+            // "soft proof" cannot both be facts about one measurement; if a caller hands
+            // over both, the render is the stronger claim and wins.
+            if frame == .commissionedRender {
+                out.append("scope render, no proof")
+            } else if instrumentPaint {
+                out.append("soft proof + gamut flag")
+            } else if proofed {
+                out.append("soft proof")
+            }
             if coverage == .visibleRegion { out.append("visible region only") }
-            if frame == .commissionedRender { out.append("scope render, no proof") }
             if !exactCounts { out.append("clipping % estimated") }
             return out
         }
@@ -319,8 +328,15 @@ public enum ScopeReadout {
 
         /// The widest `note` the assembly above can produce, for a layout budget to be
         /// checked against.
+        ///
+        /// It is asserted to BE the widest, over all thirty-two combinations, rather
+        /// than reasoned about — and that assertion earned itself twice. Reasoning gave
+        /// 52 characters against a real 56, and then 53 against a real 54; the
+        /// enumeration in `ScopeMathTests.testTheNoteNeverGrowsPastTwoClauses` found
+        /// both. A widest case arrived at by argument is a layout budget checked against
+        /// a string the code cannot produce.
         public static let noteWidestCase: String =
-            "Binned: soft proof + gamut flag · visible region only"
+            "Binned: soft proof + gamut flag · clipping % estimated"
 
         /// The whole sentence, for the tooltip: what was measured, in what, counted how.
         public func statement(readout: ReadoutSpace) -> String {
