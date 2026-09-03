@@ -1690,6 +1690,35 @@ final class AppState: ObservableObject {
     @Published var isExporting = false
     @Published var exportProgress: Double = 0
 
+    /// Whether the running batch has been asked to stop.
+    ///
+    /// A flag rather than `Task.cancel()`, and the distinction is the whole design: the
+    /// file being written right now has to finish encoding and rename into place. Tearing
+    /// down mid-encode is how you get the truncated delivery the temp-file-and-rename
+    /// dance in `PipelineRenderer.write` exists to prevent — cancelling into a half-file
+    /// would defeat the thing that makes cancelling safe.
+    @Published private(set) var exportCancelRequested = false
+
+    /// Ask the running batch to stop after the file now being written.
+    ///
+    /// Guarded on `isExporting` so a stale click cannot arm the flag for the NEXT batch,
+    /// which would cancel a run the photographer had just started.
+    func cancelExport() {
+        guard isExporting else { return }
+        exportCancelRequested = true
+    }
+
+    /// Disarm the flag. Called at both ends of a batch — on the way in so a run that was
+    /// cancelled and restarted does not inherit the previous stop, and on the way out so
+    /// the next one starts clean.
+    ///
+    /// A named verb rather than a settable property because the setter is `private(set)`
+    /// and the batch lives in `AppStateActions.swift`: the only way to arm this flag is
+    /// `cancelExport()`, which checks that a batch is actually running first.
+    func clearExportCancel() {
+        exportCancelRequested = false
+    }
+
     /// What the menu bar and the develop footer DISPLAY about history, the catalog and
     /// the selection — kept here so those two surfaces can observe something small
     /// instead of observing this object.

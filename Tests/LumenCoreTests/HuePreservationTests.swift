@@ -163,8 +163,8 @@ final class HuePreservationTests: XCTestCase {
             let up = colorEngine(ColorAdjust(saturation: amount))
             let down = colorEngine(ColorAdjust(saturation: -amount))
             for s in HuePreservationTests.grid {
-                let a = hueMove(s.rgb, up.apply(s.rgb))
-                let b = hueMove(s.rgb, down.apply(s.rgb))
+                guard let a = hueMove(s.rgb, up.apply(s.rgb)),
+                      let b = hueMove(s.rgb, down.apply(s.rgb)) else { continue }
                 let asymmetry = abs(abs(a) - abs(b))
                 if asymmetry > worst {
                     worst = asymmetry
@@ -204,7 +204,7 @@ final class HuePreservationTests: XCTestCase {
             var previous = 0.0
             for amount in [10.0, 25, 50, 75, 100] {
                 let engine = colorEngine(ColorAdjust(saturation: amount))
-                let d = abs(hueMove(s.rgb, engine.apply(s.rgb)))
+                guard let d = hueMove(s.rgb, engine.apply(s.rgb)).map(abs) else { continue }
                 let growth = d - previous
                 if growth > worst {
                     worst = growth

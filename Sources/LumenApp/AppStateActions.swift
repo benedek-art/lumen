@@ -279,6 +279,9 @@ extension AppState {
         }
         isExporting = true
         exportProgress = 0
+        // Cleared here rather than only at the end, so a batch that was cancelled and
+        // restarted does not inherit the previous run's stop.
+        clearExportCancel()
         let total = Double(jobs.count * active.count)
 
         Task {
@@ -291,13 +294,14 @@ extension AppState {
             var claimed: Set<URL> = []
             var renamed = 0
             var written = 0
+            var stopped = false
             // A file that was written with a stage missing is not a failure and is not
             // a clean delivery either, and the status line called it clean. The preview
             // has labelled this since it was written ("Reduced — N GPU kernels
             // unavailable"); the file the photographer keeps said nothing.
             var reducedFiles = 0
             var reducedKernels: Set<String> = []
-            for job in jobs {
+            batch: for job in jobs {
                 // A photo whose masking cannot be honoured is not delivered at all.
                 // Writing it would produce a frame that looks finished with its brush
                 // masks absent — the ".lrcat-data black mask" failure docs/08 §8.7
@@ -311,6 +315,10 @@ extension AppState {
                     }
                     let progress = completed / total
                     await MainActor.run { self.exportProgress = progress }
+                    if await MainActor.run(body: { self.exportCancelRequested }) {
+                        stopped = true
+                        break batch
+                    }
                     continue
                 }
                 for exportRecipe in active {
@@ -341,11 +349,20 @@ extension AppState {
                     completed += 1
                     let progress = completed / total
                     await MainActor.run { self.exportProgress = progress }
+                    // Between files, and only between files. The write above has
+                    // already renamed its temp into place, so stopping here can never
+                    // leave a partial delivery on disk — which is the property that
+                    // makes cancelling safe to offer at all.
+                    if await MainActor.run(body: { self.exportCancelRequested }) {
+                        stopped = true
+                        break batch
+                    }
                 }
             }
             await MainActor.run {
                 self.isExporting = false
                 self.exportProgress = 0
+                self.clearExportCancel()
                 // Count what was actually written, not what was planned. The old
                 // message reported photos × recipes whatever happened, so a run that
                 // overwrote two of its own outputs still claimed every file.
@@ -357,7 +374,16 @@ extension AppState {
                     : " — \(reducedFiles) reduced, GPU "
                         + (reducedKernels.count == 1 ? "kernel" : "kernels")
                         + " unavailable: " + reducedKernels.sorted().joined(separator: ", ")
-                if failures.isEmpty {
+                if stopped {
+                    // Say it was stopped. Reporting "Exported 4 files" for a batch the
+                    // photographer halted at 4 of 200 reads as a finished run, and the
+                    // whole point of the button is that they know it did not finish.
+                    let failureNote = failures.isEmpty ? ""
+                        : " — \(failures.count) failed"
+                    self.statusMessage = "Stopped — \(written) file"
+                        + (written == 1 ? "" : "s") + " of \(Int(total)) written"
+                        + failureNote + renamedNote + reducedNote
+                } else if failures.isEmpty {
                     self.statusMessage = "Exported \(written) file"
                         + (written == 1 ? "" : "s") + renamedNote + reducedNote
                 } else {
@@ -426,7 +452,13 @@ extension AppState {
         panel.canCreateDirectories = true
         panel.prompt = "Export Here"
         if panel.runModal() == .OK, let url = panel.url {
-            showExportSheet = false
+            // The sheet STAYS UP for the run. It used to close here, one line before
+            // the batch started, which put the progress readout and the Stop button
+            // behind a door that shut itself: the only always-visible sign of an export
+            // was a percentage in the status bar with no way to halt it. `ExportSheet`
+            // watches `isExporting` and shows its progress section; closing it is the
+            // photographer's call, and `Close` is still there for a batch they are happy
+            // to leave running.
             export(to: url)
         }
     }

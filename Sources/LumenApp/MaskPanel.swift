@@ -2175,7 +2175,32 @@ struct MaskPanel: View {
                     // Fifty-three words of that were on screen, opening with which
                     // feature Lightroom lacks. A photographer editing a mask is not
                     // reading about Lightroom.
-                    CurveEditorView(target: .mask(mask.id))
+                    // THE HISTOGRAM UNDERNEATH, which this call was not passing.
+                    //
+                    // `CurveEditorView.histogram` defaults to nil and nil "simply draws
+                    // no backdrop", so the mask's curve was a curve over an empty square
+                    // while the develop column's — one argument longer, in
+                    // `DevelopColumn.WorkspaceSectionBody` — drew the frame's
+                    // distribution under it. Placing a point without it is placing it
+                    // against nothing: the whole reason a curve editor has a histogram
+                    // behind it is to show which tones the hand is actually moving. The
+                    // default is what made this invisible; a required argument would
+                    // have made the omission a compile error.
+                    //
+                    // THE FRAME'S HISTOGRAM, NOT THE MASKED REGION'S, and that is a
+                    // limit rather than a choice. The masked region is the more useful
+                    // answer — a sky mask's tones live in the top two stops and the
+                    // frame's distribution says little about them — but nothing in the
+                    // app bins pixels through an alpha: `ScopeData` holds exactly one
+                    // whole-frame `Histogram`, fed by one pass over the viewer's frame.
+                    // A masked one needs a second binning pass weighted by the mask's
+                    // raster, at the resolution the scopes already run at, invalidated
+                    // when either the picture or the mask changes. Until that exists the
+                    // frame's is strictly better than an empty square, and it is honest
+                    // about what it is: the same axis, the same transform and the same
+                    // picture the global curve is judged against.
+                    CurveEditorView(histogram: state.scopes?.histogram,
+                                    target: .mask(mask.id))
                 }
             }
         }
@@ -2787,9 +2812,24 @@ struct MaskPanel: View {
             // row is", and the tracks come with it: the grey stop lands where the mired
             // axis actually puts 5500 K, which is the whole reason `Lumen.temperatureStops`
             // was placed in Kelvin rather than at the track's middle.
+            // AND THE SAME QUANTUM, which is the third thing "the same row" has to
+            // mean and the one this call was still getting wrong.
+            //
+            // 2000…50000 at a 10 K step is 4,800 addressable values, and the best of
+            // the four gestures this control offers — the readout's own 426 pt scrub
+            // under ⇧'s quarter gear, 1,704 points of travel — gives 0.355 points per
+            // step. The readout was printing Kelvin values that no drag could land on.
+            // 50 K is 960 steps at 1.775 pt/step, which clears the floor; typing is not
+            // snapped, so an exact Kelvin off a grey card still goes straight in.
+            //
+            // `BasicPanel`'s Temp row carries the full argument — including why 50 is
+            // half the quantum Canon, Nikon and Sony step their own Kelvin dials at —
+            // and it had already moved. Two rows over one physical quantity quantising
+            // differently is the same defect as two rows on different axes, one step
+            // smaller.
             optionalAdjustSlider(mask.id, "Temp", \.kelvin,
                                  ColorTemperature.minKelvin...ColorTemperature.maxKelvin,
-                                 neutral.kelvin, step: 10, bipolar: false,
+                                 neutral.kelvin, step: 50, bipolar: false,
                                  scale: MaskPanel.temperatureScale,
                                  trackStops: Lumen.temperatureStops)
             optionalAdjustSlider(mask.id, "Tint", \.kelvinTint, -150...150, neutral.tint,

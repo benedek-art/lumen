@@ -257,6 +257,23 @@ enum ProofFrames {
         stepEdge(width: width, height: height)
     }
 
+    /// `fineTexture` at a long edge big enough for a frame-denominated sharpening
+    /// radius — 2048 px, where Radius's 0.5…3.0 travel scales to σ = 0.4…2.4 px against
+    /// the 2, 4, 8 and 16 px periods the strips carry.
+    ///
+    /// The same four frequencies and the same construction, so a number taken here is
+    /// comparable with one taken on `fineTexture`; only the sampling density differs,
+    /// which is precisely the axis this frame exists to change — the same relationship
+    /// `wideStepEdge` has to `stepEdge`, for the same reason one octave down.
+    ///
+    /// At the 256 px original that travel scaled to σ = 0.05…0.15: under, or a rounding
+    /// error above, `SpatialOps.gaussianBlur`'s own support floor, so the unsharp half
+    /// of S12 never ran and Detail swept a mix between a dead term and a live one
+    /// (E2-04). `SharpeningFrameTests` is the guard that keeps that from coming back.
+    static func wideFineTexture(width: Int = 2048, height: Int = 64) -> ImageBuffer {
+        fineTexture(width: width, height: height)
+    }
+
     /// A grey ramp at a long edge big enough that a grain plate cell exceeds a pixel —
     /// 4096 px, where the plate scale runs 0.68…2.7 across Grain Size's 0.5…2.0 travel.
     ///
