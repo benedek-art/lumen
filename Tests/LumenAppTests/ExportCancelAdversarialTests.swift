@@ -11,11 +11,24 @@
 // unchanged from `CullScaleTests`, which ported it from `KeyGrammarTests`; see that
 // file's header for why the two constructs have to be handled in one pass.
 //
-// TWO TESTS IN HERE ARE EXPECTED TO FAIL against the tree as it stands. They are marked
-// `DEFECT` in their own doc comments and they assert the behaviour the shipped prose
-// already promises, not a behaviour somebody invented here. They are written as ordinary
-// failing assertions rather than `XCTExpectFailure` on purpose: a defect parked behind an
-// expectation is a defect nobody sees again.
+// THE THREE DEFECTS THIS FILE RECORDED ARE NOW FIXED, and the tests that recorded them
+// are green against the tree rather than deleted from it. They were written as ordinary
+// failing assertions rather than `XCTExpectFailure` on purpose — a defect parked behind
+// an expectation is a defect nobody sees again — and that is exactly how they were paid
+// off: the halted branch is guarded so a complete delivery cancelled on its final file
+// no longer reports as interrupted, the halted message names its first failure, and the
+// always-visible status bar says "Stopping — finishing this file" instead of a
+// percentage that keeps climbing. Their doc comments still say DEFECT and still describe
+// the failure in the past tense, because the argument for each is the reason its
+// assertion is worth keeping.
+//
+// One warning for anyone editing them. These scans run over source with comments blanked
+// to SPACES OF THE SAME LENGTH, so offsets survive — which means prose sits in the scan
+// as whitespace and still takes up room. An assertion that looks at "the next N
+// characters" is measuring length, not scope, and the eight lines of comment explaining
+// a fix will push that fix outside the window. That is not hypothetical: it is how
+// `testTheStatusBarSaysWhenAStopIsPending` came to fail against a tree that already did
+// what it asked. Anchor on a brace-matched body.
 //
 // Structural rather than behavioural because the properties at issue are ABSENCES — no
 // path out of the inner loop that skips a cancel check, no second writer of the flag, no
@@ -88,6 +101,17 @@ final class ExportCancelAdversarialTests: XCTestCase {
         }
         return String(out)
     }
+
+    /// The head of the halted-status branch, as the source actually spells it.
+    ///
+    /// Three tests below anchor on this line, and it used to be written `if stopped {`
+    /// in each of them. When the branch gained its guard — a run whose written count
+    /// reached the total FINISHED, whatever was clicked on the way — all three stopped
+    /// finding their anchor and failed on the unwrap, reporting "expected non-nil value
+    /// of type Range<Index>" and naming nothing. Three tests failing with an unwrap
+    /// message that cannot say what moved is the argument for the constant: the anchor
+    /// is now in one place, and a branch that is renamed again fails once, here.
+    static let haltedBranchHead = "if stopped, written < Int(total) {"
 
     /// The brace-delimited body that opens at the first `{` at or after `marker`.
     private func body(from marker: String, in code: String) -> String? {
@@ -269,11 +293,16 @@ final class ExportCancelAdversarialTests: XCTestCase {
     /// file is a way to arm the flag without passing it.
     func testOnlyTheTwoNamedVerbsWriteTheFlag() throws {
         let source = try code("AppState.swift")
+        // The DECLARATION is not one of the two verbs. `@Published private(set) var
+        // exportCancelRequested = false` carries an `=` and would otherwise be counted
+        // as a third writer, which is what this assertion used to do — it read three,
+        // asserted two, and failed while describing the very shape it was looking at.
         let writes = lines(containing: "exportCancelRequested", in: source)
             .filter { $0.contains("=") && !$0.contains("==") }
+            .filter { !$0.contains("var exportCancelRequested") }
         XCTAssertEqual(writes.count, 2,
-                       "expected the declaration's initialiser to be joined by exactly "
-                       + "two assignments — found: \(writes)")
+                       "the declaration's initialiser must be joined by exactly two "
+                       + "assignments, one per named verb — found: \(writes)")
 
         let arm = try XCTUnwrap(body(from: "func cancelExport()", in: source))
         XCTAssertTrue(arm.contains("guard isExporting else { return }"),
@@ -375,7 +404,7 @@ final class ExportCancelAdversarialTests: XCTestCase {
         let source = try code("AppStateActions.swift")
         let export = try XCTUnwrap(body(from: "func export(to directory: URL)",
                                         in: source))
-        let stoppedBranch = try XCTUnwrap(export.range(of: "if stopped {"))
+        let stoppedBranch = try XCTUnwrap(export.range(of: Self.haltedBranchHead))
         let cleanBranch = try XCTUnwrap(export.range(of: "} else if failures.isEmpty {"))
         XCTAssertTrue(stoppedBranch.lowerBound < cleanBranch.lowerBound,
                       "`Exported N files` must be unreachable for a halted run")
@@ -401,7 +430,7 @@ final class ExportCancelAdversarialTests: XCTestCase {
         let source = try code("AppStateActions.swift")
         let export = try XCTUnwrap(body(from: "func export(to directory: URL)",
                                         in: source))
-        let condition = try XCTUnwrap(export.range(of: "if stopped {"))
+        let condition = try XCTUnwrap(export.range(of: Self.haltedBranchHead))
         let head = String(export[..<condition.upperBound])
         let guarded = head.contains("stopped && written < Int(total)")
             || head.contains("stopped, written < Int(total)")
@@ -409,6 +438,13 @@ final class ExportCancelAdversarialTests: XCTestCase {
         XCTAssertTrue(guarded,
                       "`if stopped` alone reports a halt for a batch cancelled during "
                       + "its final file, in which every planned file was written")
+
+        // And the anchor is not free to drift back: an `if stopped {` with nothing
+        // after the flag is the defect returning, and would satisfy neither the
+        // constant above nor this.
+        XCTAssertFalse(export.contains("if stopped {"),
+                       "the bare `if stopped {` is back — a complete delivery "
+                       + "cancelled on its final file will report as interrupted")
     }
 
     /// DEFECT — the halted message counts failures without naming one.
@@ -424,7 +460,7 @@ final class ExportCancelAdversarialTests: XCTestCase {
         let source = try code("AppStateActions.swift")
         let export = try XCTUnwrap(body(from: "func export(to directory: URL)",
                                         in: source))
-        let stoppedBranch = try XCTUnwrap(export.range(of: "if stopped {"))
+        let stoppedBranch = try XCTUnwrap(export.range(of: Self.haltedBranchHead))
         let elseBranch = try XCTUnwrap(export.range(of: "} else if failures.isEmpty {"))
         let halted = String(export[stoppedBranch.upperBound..<elseBranch.lowerBound])
         XCTAssertTrue(halted.contains("failures.first"),
@@ -521,10 +557,18 @@ final class ExportCancelAdversarialTests: XCTestCase {
     /// the surface the photographer may well have closed.
     func testTheStatusBarSaysWhenAStopIsPending() throws {
         let content = try code("ContentView.swift")
-        let bar = try XCTUnwrap(content.range(of: "if state.isExporting {"),
+        // THE WHOLE BODY, not a window of characters. This assertion used to take the
+        // 320 characters after the `if`, and `withoutComments` blanks a comment to
+        // SPACES OF THE SAME LENGTH so that offsets and line numbers survive. The eight
+        // lines of prose arguing for this fix therefore sat between the `if` and the
+        // code, and pushed `exportCancelRequested` to 626 characters out — so the test
+        // failed against a tree in which the thing it asks for was already there, and
+        // it failed BECAUSE the fix had been explained. A window measured in characters
+        // over stripped source is a length measurement dressed up as a scope; the
+        // brace-matched body is the scope.
+        let bar = try XCTUnwrap(body(from: "if state.isExporting", in: content),
                                 "the status bar's export readout was moved")
-        let readout = String(content[bar.lowerBound...].prefix(320))
-        XCTAssertTrue(readout.contains("exportCancelRequested"),
+        XCTAssertTrue(bar.contains("exportCancelRequested"),
                       "the one always-visible sign of a running export claims "
                       + "\"Exporting N%\" for a batch that is already stopping, and it "
                       + "is the only sign left once the sheet is closed")
