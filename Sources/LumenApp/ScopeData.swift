@@ -237,7 +237,26 @@ extension AppState {
         // (`measureScopes(fromViewerFrame:)`), so this path is left to the surfaces
         // that have no frame to offer — the grid, and the moment before the first one
         // lands.
-        if viewMode == .loupe { return }
+        //
+        // WITH ONE EXCEPTION, and it is a bug this early return used to have. `S`
+        // toggles the scopes panel, `scopesBecameVisible` calls this method, and this
+        // line stood it down — but the loupe does not re-render on a panel toggle
+        // either: `ViewerRenderKey` (RenderRequest.swift) carries the recipe, the size
+        // and the region, not `showScopes`. So the render task does not re-run, nothing
+        // calls `measureScopes`, and the panel that was just switched on reads "No
+        // waveform yet" until the photographer happens to move a slider or page to
+        // another photograph. The histogram never showed it because it is on by default
+        // and every settle measures it.
+        //
+        // The exception is drawn as narrowly as it can be: fall through ONLY when a
+        // measurement already exists (so the settle has landed and this one-shot is not
+        // racing it), the scopes are on, and that measurement has no traces — which is
+        // exactly the state the toggle creates and nothing else does. One ~1 MP render,
+        // once; the next settle feeds the panel from the viewer's own frame again, and
+        // says so, because the two carry different provenance.
+        let scopesAskForWhatWeDoNotHave: Bool =
+            showScopes && scopes != nil && scopes?.waveform == nil
+        if viewMode == .loupe, !scopesAskForWhatWeDoNotHave { return }
         scopeGeneration &+= 1
         let generation = scopeGeneration
         let recipe = recipe(for: photo)
@@ -537,10 +556,17 @@ extension AppState {
         // .testTheClippingPredicatesAreMonotoneInTheCode` — without it this loop would
         // be a different measurement rather than a cheaper one.
         //
-        // Worth the change because this loop runs over EVERY pixel of the frame on every
-        // settle: measured on the reference box, three code tables cost 113 ms at 6 MP
-        // and 331 ms at 16.8 MP against 94 ms and 267 ms for the comparisons — 17-19 %
-        // of a pass that is already the most expensive thing the instrument does.
+        // WHAT THIS IS AND IS NOT WORTH, measured rather than assumed. Both forms were
+        // benchmarked at 1, 6 and 16 MP, three runs each: they are the same speed, 1-4 %
+        // apart, which is inside this machine's noise. (An early run said 17-19 %; the
+        // box was throttled, and repeating it on a settled machine did not reproduce it.
+        // The number is recorded here because a comment quoting a speed-up that is not
+        // there is the defect this file keeps finding elsewhere.) What the change does
+        // buy is smaller and real: three 256-entry accumulators and their scattered
+        // per-pixel writes are gone, 254 of every 256 bins were written and discarded,
+        // and the loop now says what it measures. The pass itself is the expensive part
+        // either way — about 4.6 ms per megapixel here, so ~28 ms on a 6 MP viewer frame
+        // and ~78 ms at the 16.8 MP whole-frame ceiling, on every settle.
         //
         // `lowCode` is −1 and `highCode` 256 when no code reaches an end; both
         // comparisons are then simply never true, which is the answer.

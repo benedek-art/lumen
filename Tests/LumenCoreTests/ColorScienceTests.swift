@@ -190,15 +190,29 @@ final class ColorScienceTests: XCTestCase {
         XCTAssertEqual(d50.y, 0.35850, accuracy: 1e-3, "5000 K is not at D50")
     }
 
+    /// The round trip is against the tint the RENDER USES, not the tint that was asked
+    /// for — which is what `temperatureAndTint` documents itself as returning: "a
+    /// colour sampled from beyond that bound reports the tint the render would actually
+    /// use rather than one it would silently pull in."
+    ///
+    /// It used to compare against the asked-for value and passed only by luck. Every
+    /// sampled pair was inside the bound except 2500 K / +60, where the bound was
+    /// +56.80 and the ±8 tolerance swallowed the 3.2 of clamping. When the magenta
+    /// bound tightened to +30.00 at 2500 K — see `ColorTemperature.magentaMonotoneLimit`
+    /// — the same lucky pass became a 30-unit failure, and the test was measuring the
+    /// bound rather than the round trip the whole time. Asking `clampedTint` what the
+    /// render will do makes it measure the round trip at every pair, INCLUDING the
+    /// clamped ones, which is strictly more than it checked before.
     func testTemperatureRoundTrip() {
         for kelvin in [2500.0, 3200, 5000, 5500, 6500, 9000, 15000] {
             for tint in [-80.0, 0, 60] {
                 let chroma = ColorTemperature.chromaticity(kelvin: kelvin, tint: tint)
                 let back = ColorTemperature.temperatureAndTint(for: chroma)
+                let rendered = ColorTemperature.clampedTint(kelvin: kelvin, tint: tint)
                 XCTAssertEqual(back.kelvin, kelvin, accuracy: kelvin * 0.03,
                                "K round trip at \(kelvin)/\(tint)")
-                XCTAssertEqual(back.tint, tint, accuracy: 8,
-                               "tint round trip at \(kelvin)/\(tint)")
+                XCTAssertEqual(back.tint, rendered, accuracy: 8,
+                               "tint round trip at \(kelvin)/\(tint), which renders as \(rendered)")
             }
         }
     }

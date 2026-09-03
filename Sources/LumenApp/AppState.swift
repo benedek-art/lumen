@@ -1564,6 +1564,24 @@ final class AppState: ObservableObject {
     @Published var activeMaskID: String?
     @Published var activeComponentIndex: Int = 0
     @Published var clippingOverlay: ClippingOverlay.Mode?
+    /// Focus peaking — the edge-detection overlay that makes a wide-aperture or
+    /// manual-focus roll cullable at all. At grid size a sharp frame and a near miss are
+    /// the same picture; this is the only instrument in the app that tells them apart
+    /// without zooming every frame to 1:1 one at a time.
+    ///
+    /// ONE VALUE, not three published properties. `FocusPeakingSettings` carries the
+    /// switch, the sensitivity and the tint together because `@Published` broadcasts per
+    /// property: three of them would re-body the window three times for the one ⇧F
+    /// keystroke that writes all three, and re-bodying the window while the photograph is
+    /// on screen is the exact bill `DragBroadcastTests` exists to stop this app running
+    /// up again. The struct is `Equatable`, so a write that changes nothing still costs
+    /// one broadcast rather than none — but never more than one.
+    ///
+    /// It lives here beside the clipping overlay and the soft proof rather than in the
+    /// recipe for the reason docs/11 gives for both: peaking is a way of LOOKING at a
+    /// photograph, not an edit of it. Switching frames must not carry it along, and
+    /// copying settings must not paste it.
+    @Published var focusPeaking: FocusPeakingSettings = .off
     /// The soft proof, which is a VIEWING mode and not an edit (docs/11) — so it lives
     /// here beside the clipping overlay rather than in the recipe, and switching photos
     /// or copying settings never carries it along.

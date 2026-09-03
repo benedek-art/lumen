@@ -568,6 +568,16 @@ final class ScopeMathTests: XCTestCase {
                       "and the grid feed records that its render carries no proof")
         XCTAssertTrue(source.contains("let proof = activeSoftProof"),
                       "which requires reading the proof on the main actor")
+        XCTAssertTrue(source.contains("let coverage: ScopeReadout.Provenance.Coverage"),
+                      "and whether the frame is the whole photograph")
+
+        // The loupe's early return has to have the toggle exception, or pressing `S`
+        // opens a panel nothing ever fills: the viewer's render key does not carry
+        // `showScopes`, so no settle follows the toggle.
+        XCTAssertTrue(source.contains("showScopes && scopes != nil && scopes?.waveform == nil"),
+                      "the one state in which the loupe cannot feed itself")
+        XCTAssertFalse(source.contains("if viewMode == .loupe { return }"),
+                       "an unconditional stand-down here is the empty-panel bug")
     }
 
     /// `ScopesView.swift`'s half: the caption names the weighting behind the word it

@@ -331,6 +331,18 @@ final class KeyDispatcher {
                 return true
             }
             state.autoAdvance.toggle()
+        // Focus peaking. ⇧F rather than a bare key because `F` is the filmstrip and has
+        // been since the grammar existed, and because `ViewerOverlays.swift` already
+        // prints "(⇧F)" in the peaking HUD's close-button help — the app was promising
+        // this chord to anyone who hovered the ✕ before anything answered it.
+        //
+        // The chord toggles the SWITCH only. Sensitivity and tint persist across it by
+        // design (`FocusPeakingSettings.toggle` argues that at length): a photographer
+        // who set fine detail for a landscape roll should not have to set it again every
+        // time they look away from one frame. Both are on the HUD and neither is only
+        // there.
+        case "f" where flags.contains(.shift):
+            state.focusPeaking.toggle()
         case "f":
             state.showFilmstrip.toggle()
 

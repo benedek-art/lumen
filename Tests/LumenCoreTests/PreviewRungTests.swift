@@ -349,50 +349,40 @@ final class PreviewRungTests: XCTestCase {
 
 // MARK: - I3-02
 
-/// The process-wide decode budget, whose fix is NOT in this tree:
-/// `RenderCoordinator.trimDecodeResidency` is untouched, and nothing in LumenCore plans
-/// residency, so there is no behaviour here to test. What can be done from this lane —
-/// and what the finding actually rests on — is the arithmetic: four constants, three of
-/// them in targets this lane cannot run, multiplied into a floor the trim cannot reach.
+/// The process-wide decode budget, BEFORE it was fixed. Kept as the record of what the
+/// floor was, not as a claim about what it is.
 ///
-/// Pinned here so the number stops being a sentence in a document. If the trim is later
-/// made exhaustive, the first test below goes red and says so.
+/// These three compute from literals and never read a source, so they stay green while
+/// describing a world that no longer exists — which is why they are labelled here rather
+/// than left to be mistaken for live assertions. The fix landed: the trim is exhaustive,
+/// the budget is derived instead of declared, and the enforceable ceiling is 1344 MiB
+/// reachable where this class measured 1792 MiB unreachable.
+///
+/// The reason 768 MiB was never met is worth keeping too, because it is the whole shape
+/// of the finding: a single source may legally hold a 320 MiB interactive working set
+/// PLUS a budget-exempt inspection plane of up to 512 MiB, and the trim must never take
+/// from the photograph being rendered — that is the 457 ms re-demosaic the decode cache
+/// exists to prevent. 832 > 768 at ONE source, so no trim, however exhaustive, could
+/// have reached the advertised number. The policy was right; the multiplication had
+/// never been done.
+///
+/// What is live now is `DecodeResidencyPlanTests` in LumenCore, which sweeps every
+/// source count against every live-set size at their ceilings and proves the residual
+/// is under budget.
 final class DecodeResidencyBudgetTests: XCTestCase {
 
     private static let mib = 1024 * 1024
+    // `testTheConstantsTheFloorIsBuiltFromAreStillTheseOnes` used to sit here, and it
+    // did exactly what it promised: it went red the day the trim was made exhaustive,
+    // and it said so. Its three assertions asserted that the budget was still the
+    // unreachable 768 MiB, that pass one still spared the newest source, and that pass
+    // two still spared the alternating four. All three are now false by design.
+    //
+    // Deleted rather than updated, because its job is finished and
+    // `DecodeResidencyPlanTests` in LumenCore does the same work properly — it sweeps
+    // 1–12 sources against 1–6 live sets at their ceilings and proves the residual is
+    // under budget, which is a theorem rather than four constants multiplied by hand.
 
-    /// The four constants, where they live. Three are `private` in targets with no test
-    /// on this lane, so they are read as text; the fourth is a LumenCore symbol and is
-    /// asserted directly.
-    func testTheConstantsTheFloorIsBuiltFromAreStillTheseOnes() throws {
-        let coordinator = stripComments(try Self.source("LumenApp/RenderCoordinator.swift"))
-        XCTAssertTrue(coordinator.contains("decodeResidencyBudget = 768 * 1024 * 1024"),
-                      "the advertised budget moved; the derivation below is stale")
-        XCTAssertTrue(coordinator.contains("residencyLiveSources = 4"),
-                      "the number of spared sources moved")
-
-        // The two clauses that make the budget advisory. Red here means the trim was
-        // made exhaustive — I3-02 fixed — and the floor below must be re-derived.
-        XCTAssertTrue(coordinator.contains("Array(sourceOrder.dropLast())"),
-                      "pass one no longer spares the newest source")
-        XCTAssertTrue(coordinator.contains("Array(sourceOrder.suffix(Self.residencyLiveSources))"),
-                      "pass two no longer spares the alternating four")
-
-        let raw = stripComments(try Self.source("LumenPipeline/AppleRawSource.swift"))
-        XCTAssertTrue(raw.contains("decodeCacheByteBudget = 320 * 1024 * 1024"),
-                      "the per-source interactive budget moved")
-        // And the exemption's own ceiling, which is the one number of the four that is
-        // in LumenCore and therefore a symbol rather than a string.
-        XCTAssertEqual(DraftLadder.materializedDecodeByteCeiling, 512 * Self.mib)
-    }
-
-    /// 832 + 3 × 320 = 1792 MiB, against a budget of 768 MiB.
-    ///
-    /// Pass one spares `sourceOrder.last` outright, so the newest source keeps its
-    /// interactive working set (320 MiB) AND its inspection plane, which `evictDecodes`
-    /// exempts from the byte budget and `mayHoldAsPixels` caps at 512 MiB. Pass two
-    /// spares `suffix(4)`, so three more sources keep 320 MiB each — pass one did take
-    /// their planes, which is why they count once rather than twice.
     func testTheEnforceableResidencyFloorIsTwoAndAThirdTimesTheAdvertisedBudget() {
         let advertised = 768 * Self.mib
         let interactive = 320 * Self.mib

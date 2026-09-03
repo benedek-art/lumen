@@ -412,6 +412,66 @@ final class HuePreservationTests: XCTestCase {
         XCTAssertLessThan(worst, 1e-12, "The hue round trip does not return the colour — \(detail)")
     }
 
+    /// The seam. `Num.wrapHue` promises [0, 360) and twenty-one callers across the
+    /// colour engine read it for that, so the top end has to be closed in fact and not
+    /// only in the comment.
+    ///
+    /// The input that breaks it is not exotic: `ulp(360)` is 5.7e-14, so any hue in the
+    /// last few ulps below zero lands on exactly 360 when the wrap adds 360 to it. Two
+    /// grade pucks on opposite sides of red interpolate straight through that point,
+    /// and the sign of the rounding error at `atan2(≈0, +x)` is not the caller's to
+    /// choose — so the same colour came back as 0 half the time and 360 the other half.
+    /// Nothing renders differently, which is exactly why nothing surfaced it: it is the
+    /// canonical text and therefore the fingerprint that splits in two.
+    ///
+    /// Swept three ways — by construction on the ulps themselves, by walking a puck
+    /// across the seam the way a look blend does, and through `OKLab.hue` on the whole
+    /// grid, which is where the engine's own hues come from.
+    func testHueWrappingClosesItsTopEndAcrossTheSeam() {
+        // 1. By construction. Every hue in the last ulps below zero is a hue of zero.
+        // The smallest negative double there is, then a walk further from zero. Every
+        // one of these is `360 − something far below ulp(360)`, so the wrap rounds it
+        // to 360 and the fold has to take it back to 0.
+        var x: Double = -Double.leastNonzeroMagnitude
+        for _ in 0..<64 {
+            XCTAssertEqual(Num.wrapHue(x), 0,
+                           String(format: "wrapHue(%.3e) came back as %.17g", x, Num.wrapHue(x)))
+            x = x.nextDown
+        }
+        for e in [-1e-18, -1e-16, -5.7e-14, -1e-13, -360.0, -720.0] {
+            let wrapped = Num.wrapHue(e)
+            XCTAssertGreaterThanOrEqual(wrapped, 0, "wrapHue(\(e)) went below zero")
+            XCTAssertLessThan(wrapped, 360,
+                              String(format: "wrapHue(%.3e) came back as %.17g", e, wrapped))
+        }
+
+        // 2. The walk a look blend takes: two pucks 350° and 10°, slid in a straight
+        //    line on the disc, which is `LookSubset.blendedWheel`'s geometry.
+        let radiansPerDegree: Double = .pi / 180
+        let a = (x: cos(350 * radiansPerDegree), y: sin(350 * radiansPerDegree))
+        let b = (x: cos(10 * radiansPerDegree), y: sin(10 * radiansPerDegree))
+        for step in 0...4001 {
+            let t = Double(step) / 4001
+            let px = Num.mix(a.x, b.x, t)
+            let py = Num.mix(a.y, b.y, t)
+            let wrapped = Num.wrapHue(atan2(py, px) * 180 / .pi)
+            XCTAssertGreaterThanOrEqual(wrapped, 0, "the seam walk went below zero at t=\(t)")
+            XCTAssertLessThan(wrapped, 360,
+                              String(format: "the seam walk reported %.17g at t=%.6f", wrapped, t))
+        }
+
+        // 3. Where the engine's own hues come from, over the whole grid and over a fine
+        //    sweep of the a/b plane through the seam itself.
+        for s in HuePreservationTests.grid {
+            XCTAssertLessThan(lch(s.rgb).h, 360, "OKLab reported hue 360 at \(s.label)")
+        }
+        for i in -2000...2000 {
+            let bb = Double(i) * 1e-18
+            XCTAssertLessThan(OKLab(L: 0.5, a: 0.1, b: bb).hue, 360,
+                              "OKLab reported hue 360 at b = \(bb)")
+        }
+    }
+
     /// The law one level up, through the shipping stage: a Mixer band Hue move of +δ
     /// and one of −δ must be equal and opposite on the same input. That is the property
     /// a photographer feels when he drags a hue slider past zero and back, and it is

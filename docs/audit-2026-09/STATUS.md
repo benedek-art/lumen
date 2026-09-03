@@ -105,8 +105,12 @@ https://claude.ai/code/artifact/8f442d3f-960c-4167-b115-a288480dfb2b
   sigma never clears `gaussianBlur`'s own `sigma > 0.05` guard, so
   `sharpen.radius` and `sharpen.haloSuppression` fall to 0.0000 authority with 20
   dead steps. On a 2048 px frame they read 29.7363 and 34.4143.
-- **`I3-02`** — NO fix in the tree. `RenderCoordinator.swift` is unmodified. The
-  1792 MiB floor reproduces exactly (2.333x the advertised 768).
+- **`I3-02`** — CLOSED in the final run, and the claim was corrected UPWARD rather than
+  the number gamed. 768 MiB was never achievable: one source may legally hold a 320 MiB
+  interactive working set plus a budget-exempt inspection plane of up to 512 MiB, and the
+  trim must never take from the photograph being rendered. 832 > 768 at ONE source. The
+  honest budget is 1344 MiB — one photograph entire plus a compare pane's working set —
+  and the enforceable ceiling falls from 1792 MiB unreachable to 1344 MiB reachable.
 - **`E2-01`, `E2-03`, `E1-02`, `E1-03`, `D2-01`, `K-090`, `B1-04…08`, `C1-*`** and
   the rest of the S2 backlog — evidenced, ranked, untouched.
 

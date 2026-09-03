@@ -138,28 +138,39 @@ final class ScaleHonestyTests: XCTestCase {
             // denominated in render pixels and a 7008 px export receiving 7% of what
             // the fit preview was judged on.
             //
-            // The entry carries a RADIUS on purpose. The panel default of 1.0 measured
-            // 4.00 against this bar of 5 — under it, so a defect of 14x would have
-            // shipped past an entry that looked complete. Radius 1.5 read 5.25 and
-            // 2.0 read 6.07: the same defect, scaled, and only two of the three were
-            // visible to the assertion. A roster entry for a spatial stage has to push
-            // the control that sets the SIZE, or it is sweeping the amount of a radius
-            // it left at the value that hides the reading.
+            // THE ENTRY CARRIES A RADIUS AT THE TOP OF ITS TRAVEL, and the number that
+            // settled it was measured HERE rather than borrowed. E2-04's own entry was
+            // specified as Radius 2.0 on the strength of 6.07 code values — a figure
+            // taken on S12 ALONE, sRGB-encoded, with the display transform left out.
+            // Through this file's actual metric the same setting reads 4.7001, which is
+            // UNDER the bar of 5: the roster entry the audit prescribed would have gone
+            // green on the defect it was written to catch. Measured on the unwired
+            // engine, this harness, both sizes:
+            //
+            //     radius      1.0     2.0     2.5     3.0
+            //     Amount 100  3.10    4.70    5.25    5.80
+            //     Amount 150  4.45    6.93    7.87    8.74
+            //
+            // 3.0 at Amount 100 is the mildest setting that reads the defect (5.80),
+            // and it is the right one on the merits rather than by elimination: the
+            // radius is the control that sets the SIZE, so a scale-honesty entry has to
+            // push THAT and not the amount of a radius it left where the reading hides.
+            // Wired, the same setting reads PENDING_WIRED.
+            //
+            // A number taken on a stage in isolation is not the number a roster entry
+            // will read, and the difference here is the whole distance between catching
+            // a 14x defect and shipping past it.
             ("sharpen", { r in
                 r.develop.detail.sharpen.amount = 100
-                r.develop.detail.sharpen.radius = 2.0
+                r.develop.detail.sharpen.radius = 3.0
             }),
         ] {
             let d = measureStage(mutate)
             print(String(format: "  SPATIAL  %-18@ %.4f", name, d))
-            // Measured: texture 2.77, clarity 1.90, dehaze 3.27. Clarity was 7.38
-            // before its pyramid depth started tracking the long edge.
-            //
-            // Sharpen, measured on S12 alone at these two sizes (the stage in
-            // isolation, sRGB-encoded, so the display transform is not in the number
-            // and the figure this file prints will differ a little): 6.07 with the
-            // radius in render pixels, 1.43 with it denominated in the frame, against
-            // a resample floor of 0.40 for the same scene with no stage running.
+            // Measured, through this metric: texture 2.74, clarity 1.84, dehaze 3.29,
+            // sharpen PENDING_WIRED. Clarity was 7.38 before its pyramid depth started tracking
+            // the long edge; sharpen was 5.80 before its radius did, on the same run of
+            // the same file, which is the entry above doing its job.
             XCTAssertLessThan(d, 5,
                               "\(name) diverges by \(d) code values across a 4x scale "
                                   + "change — its radius is not tracking the long edge")

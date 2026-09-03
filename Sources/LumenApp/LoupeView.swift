@@ -1157,6 +1157,24 @@ struct LoupeView: View {
                         .position(hudPosition(for: cursor, container: container))
                         .allowsHitTesting(false)
                 }
+
+                // OUT HERE AND NOT IN `badges`, which is where it wants to go and where
+                // it would be dead: that stack ends `.allowsHitTesting(false)`, and this
+                // HUD is three buttons — colour, sensitivity, and the close that is the
+                // only way back for a photographer who does not know the chord. A strip
+                // of controls inside a stack that refuses hits looks exactly like a strip
+                // of controls and answers nothing.
+                //
+                // Bottom-leading, under the badges rather than beside them, so the mode's
+                // name is near the corner the rest of the viewer's status lives in
+                // without the two ever laying over each other.
+                if state.focusPeaking.isOn {
+                    FocusPeakingHUD(settings: $state.focusPeaking,
+                                    atPixelLevel: peakingIsPixelLevel)
+                        .padding(10)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity,
+                               alignment: .bottomLeading)
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .clipped()
@@ -1545,6 +1563,21 @@ struct LoupeView: View {
                     .frame(width: drawn.width, height: drawn.height)
             }
 
+            // FOCUS PEAKING, AND IT GOES ON TOP OF THE MASK WASH ON PURPOSE. The mask
+            // overlay's four opaque modes repaint the unmasked pixels flat, and its two
+            // tinted ones lay a wash over everything; drawn after this, either one buries
+            // the marks under the thing they were measured from. The peaking plane is
+            // zero everywhere except at an edge, so it costs the picture nothing to be
+            // last — it occludes only the pixels it has something to say about.
+            //
+            // `let sampler` is the whole gate: the overlay reads its pixels and draws
+            // `Color.clear` without one. `samplerNeeded` below names `focusPeaking` for
+            // exactly this reason, so the binding is never satisfied by nothing.
+            if state.focusPeaking.isOn, let sampler {
+                FocusPeakingOverlayView(sampler: sampler, settings: state.focusPeaking)
+                    .frame(width: drawn.width, height: drawn.height)
+            }
+
             // No crop overlay here: while the tool is armed, `content` routes to
             // `cropCanvas` below and this canvas is never built.
 
@@ -1884,6 +1917,35 @@ struct LoupeView: View {
             }
         }
         .allowsHitTesting(false)
+    }
+
+    /// Whether the frame the peaking marks were measured ON is the file's own detail,
+    /// so the HUD can say when it is not.
+    ///
+    /// This is the same question the PROXY badge above asks and it is asked with the same
+    /// arithmetic — the rendered frame's full-frame-EQUIVALENT long edge against the
+    /// extent the settle will deliver, so a native-sharp region inspection is not called
+    /// a proxy — plus the embedded-preview case, which is a stand-in the renderer never
+    /// produced at all.
+    ///
+    /// IT DELIBERATELY DOES NOT CARRY THE BADGE'S `zoomLevel >= 1` GATE, and that is the
+    /// one place the two readings part. The badge is answering "does the label 1:1 tell
+    /// the truth", which is only a question once you have asked for 1:1; at fit a
+    /// downsampled preview is the correct thing to be looking at and needs no caveat.
+    /// Peaking is answering something else: an edge measured on a resampled stand-in is a
+    /// measurement of the RESAMPLER, and it is exactly as wrong at fit as it is at 1:1 —
+    /// docs/10's own example ("peaking on a 1616×1080 preview ... cannot be trusted at
+    /// pixel level") is a fitted frame. Inheriting the zoom gate would make the
+    /// instrument confident precisely where culling happens, which is where a keeper gets
+    /// deleted on its word.
+    ///
+    /// False with no image, because `FocusPeakingHUD.atPixelLevel` defaults to true and
+    /// the default that costs a photographer a frame is the one that claims more than it
+    /// knows.
+    private var peakingIsPixelLevel: Bool {
+        guard let cg = model.image else { return false }
+        if model.usedEmbeddedPreview, model.imageURL == photo.id { return false }
+        return effectiveRenderedLongEdge(cg) >= (model.displayFullLongEdge ?? Int.max)
     }
 
     private var soloMaskName: String? {
@@ -2264,6 +2326,14 @@ struct LoupeView: View {
         return (viewport.showReadout && cursor != nil)
             || state.clippingOverlay != nil
             || state.soloMaskOverlay != nil
+            // Peaking reads the sampler exactly as the other two overlays do, and
+            // without this line it is wired and dead: `canvas` binds `let sampler`,
+            // the binding fails, `FocusPeakingOverlayView` is never built, and ⇧F
+            // turns on a HUD over a photograph with no marks on it. That failure is
+            // silent in every direction — the key answers, the HUD appears, the engine
+            // is correct — which is why it is named here rather than left to the
+            // reader to infer from the `let`.
+            || state.focusPeaking.isOn
     }
 
     private struct SamplerKey: Equatable {
