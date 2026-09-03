@@ -225,7 +225,7 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     "XCTest", "XCTestCase", "XCTestExpectation", "XCTSkip", "XCTSkipUnless",
     # `XCTWaiter` for a test that must bound how long it waits rather than
     # assert on a value — a hang produces no failing test to assert on.
-    "XCTWaiter",
+    "XCTWaiter", "XCTExpectFailure",
     "XCTUnwrap", "XCTFail", "XCTAssertEqual", "XCTAssertNotEqual", "XCTAssertTrue",
     "XCTAssertFalse", "XCTAssertNil", "XCTAssertNotNil", "XCTAssertGreaterThan",
     "XCTAssertLessThan", "XCTAssertGreaterThanOrEqual", "XCTAssertLessThanOrEqual",
