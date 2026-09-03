@@ -112,18 +112,30 @@ public struct ToneEngine: Sendable {
     public let effectiveHighlights: Double
     /// The same for Shadows. Solved separately, because the two windows are disjoint.
     public let effectiveShadows: Double
+    /// And for Whites and Blacks, which carry a tonal shelf of their own and are eased
+    /// by the same solve.
+    ///
+    /// These were not exposed and were not solved for separately — `zonalStops` read
+    /// `tone.whites * zonalScale` inline. Two sliders being eased by an amount the type
+    /// would not report is the same silence `effectiveHighlights` exists to break, and
+    /// it hid the coupling: the number that scaled them was solved against windows they
+    /// do not touch.
+    public let effectiveWhites: Double
+    public let effectiveBlacks: Double
 
     public init(tone: Tone = Tone(), zones: Zones = Zones()) {
         self.tone = tone
         self.zones = zones
+        let highlights = Num.clamp(tone.highlights, -100, 100) / 100
+        let shadows = Num.clamp(tone.shadows, -100, 100) / 100
         let whites = Num.clamp(tone.whites, -100, 100) / 100
         let blacks = Num.clamp(tone.blacks, -100, 100) / 100
         let hi = Self.defaultWhiteAnchorEV - Self.whiteBlackRangeEV * whites
         let lo = Self.defaultBlackAnchorEV - Self.whiteBlackRangeEV * blacks
         self.whiteAnchorEV = hi
         self.blackAnchorEV = lo
-        // ONE scale over the whole zonal sum, found by bisection, rather than a cap per
-        // window.
+        // A scale over the zonal contribution, found in closed form, rather than a cap
+        // per window.
         //
         // Per-window caps were never a guarantee about the total — each solved against
         // the contrast slope and ignored the other three windows — and they coupled
@@ -139,23 +151,70 @@ public struct ToneEngine: Sendable {
         // parametric curve first, and its comment says why: a global scale keeps the
         // curve's SHAPE instead of flattening it in patches.
         //
-        // Scoped to the zonal sum, this binds only when the windows genuinely conflict.
-        // A single slider at full deflection is monotone on its own — the shelves are
-        // shaped so it is — so it is never scaled, and the coupling that remains is
-        // between settings that cannot both be honoured.
-        let scale = Self.solveZonalScale(tone: tone, whiteAnchorEV: hi, blackAnchorEV: lo)
-        self.zonalScale = scale
-        self.effectiveHighlights = Num.clamp(tone.highlights, -100, 100) / 100 * scale
-        self.effectiveShadows = Num.clamp(tone.shadows, -100, 100) / 100 * scale
+        // For one round this was ONE scale over the whole zonal sum, and one scale is
+        // exactly as wrong as a per-window cap, in the other direction. It multiplied
+        // Highlights, Shadows, Whites and Blacks together, so a window that could not
+        // reach a tone still had its say about what that tone rendered as. Measured at
+        // `Tone(contrast: -100, shadows: -100, whites: -100, blacks: -100)`, dragging
+        // Highlights from −100 to +40 lightened a shadow at −2 EV by 24.4 sRGB code
+        // values — a tone where `highlightWeight` is EXACTLY zero, so Highlights was
+        // moving a pixel it does not touch — and the last 60 points of its travel were
+        // byte-identical there. `solveZonalLimits` says what replaced it.
+        //
+        // What this file used to claim at this point, and what is actually true. The
+        // claim was "a single slider at full deflection is monotone on its own — the
+        // shelves are shaped so it is — so it is never scaled, and the coupling that
+        // remains is between settings that cannot both be honoured". The first half is
+        // FALSE whenever Contrast is negative, and has been since the shelves landed.
+        // `Tone(contrast: -100, blacks: 100)` is ONE slider and solves to 0.592;
+        // `Tone(contrast: -100, highlights: -100)` to 0.656, `shadows: 100` to 0.594.
+        // `RobustnessTests` names the first of those in its own list of cases expected
+        // to bind, three screens above, so the sentence and the suite contradicted each
+        // other across one file pair. The arithmetic is not subtle: a shelf's steepest
+        // point is `1.5 x range / width`, which for Blacks is 1.5 x 2.2 / 4.94 = 0.669
+        // stops per stop, and `mapped` only rises while the contrast slope exceeds it.
+        // Against the identity's 1.0 it does, with margin — which is the margin the
+        // shelves were shaped for. Against Contrast −100's 0.4 it does not, and the
+        // limiter is right to bind. What is true is the narrower claim the shelves
+        // actually bought: a single slider is never scaled AT CONTRAST 0.
+        //
+        // The SECOND half is true and is now true for a stated reason rather than by
+        // luck: what remains is a shared scale between two windows in the SAME half
+        // that both run downhill, which is exactly a pair of requests that cannot both
+        // be honoured. Nothing crosses mid-grey and nothing that helps is scaled.
+        //
+        // That residue is real and it is measurable rather than hand-waved: at
+        // `Tone(contrast: -100, contrastPivot: 3, whites: -100, ...)`, five points of
+        // Highlights still move Whites' applied amount by 0.037, because both are
+        // pulling the top of the range down harder than a slope of 0.4 will carry. It
+        // never renders as a wrong-way step — over a 972-setting sweep of the other
+        // five controls, no Highlights step darkens any tone anywhere, above mid-grey
+        // or below — and no design that keeps both requests can do better than share.
+        let limits = Self.solveZonalLimits(tone: tone, whiteAnchorEV: hi,
+                                           blackAnchorEV: lo)
+        let upper = Self.easedScale(limit: limits.upper)
+        let lower = Self.easedScale(limit: limits.lower)
+        // Only a window that runs DOWNHILL is eased, and only by its own half's scale.
+        self.effectiveHighlights = highlights * (highlights < 0 ? upper : 1)
+        self.effectiveWhites = whites * (whites < 0 ? upper : 1)
+        self.effectiveShadows = shadows * (shadows > 0 ? lower : 1)
+        self.effectiveBlacks = blacks * (blacks > 0 ? lower : 1)
+        var eased = 1.0
+        if highlights < 0 || whites < 0 { eased = Swift.min(eased, upper) }
+        if shadows > 0 || blacks > 0 { eased = Swift.min(eased, lower) }
+        self.zonalScale = eased
     }
 
-    /// The scale actually applied to the zonal contribution — Highlights, Shadows,
-    /// Whites and Blacks together.
+    /// The smallest scale any window is actually being held to — 1.0 when every slider
+    /// is applied exactly.
     ///
-    /// 1.0 unless the four windows, at the values asked for, cannot all be honoured
-    /// without the tone response running downhill somewhere. Exposed for the same
-    /// reason `effectiveHighlights` is: a slider that has quietly stopped meaning what
-    /// it says should be able to show it.
+    /// A SUMMARY, not the mechanism: there are two scales, one per half of the range,
+    /// and a window that does not run downhill is not scaled at all. `effectiveHighlights`
+    /// and its three siblings are the per-window truth; this is the one number a panel
+    /// needs to answer "is anything being held back at all".
+    ///
+    /// Exposed for the same reason `effectiveHighlights` is: a slider that has quietly
+    /// stopped meaning what it says should be able to show it.
     public let zonalScale: Double
 
     /// Fraction of the limit below which the request is applied exactly.
@@ -171,48 +230,73 @@ public struct ToneEngine: Sendable {
     /// be eased.
     static let searchCeiling: Double = 4
 
-    /// The largest scale on the zonal contribution that keeps `t + stops(t)` increasing,
-    /// then eased onto that limit so the top of every slider still moves.
+    /// A limit, eased so the top of every slider still moves.
     ///
-    /// Two parts, and both are load-bearing.
-    ///
-    /// The LIMIT is closed-form, not searched. Writing the mapping as
-    /// `mapped(t) = contrastMapped(t) + scale x zonalRaw(t)` makes it LINEAR in `scale`,
-    /// so "mapped never falls" is one inequality per sample interval —
-    /// `Δcontrast + scale x Δzonal ≥ 0` — and only the intervals where `Δzonal` is
-    /// negative constrain anything. The smallest ratio over those is the limit exactly.
-    /// This started as a bisection over the same monotonicity predicate; it agreed to
-    /// six figures and cost 23 sweeps and 23 throwaway engines per slider move, which
-    /// on the interactive path is 10 ms of a 33 ms frame spent rediscovering a number
-    /// one pass already knows.
-    ///
-    /// The KNEE exists because a hard limit is a dead control. The limit is inversely
-    /// proportional to the requested magnitude — push a conflicting pair harder and it
-    /// shrinks by exactly the factor you pushed — so `scale x request` is CONSTANT the
-    /// moment a hard cap binds, and the rest of the travel does nothing at all. That is
-    /// what `Num.softKnee` is for, and it takes the reciprocal form here for the same
-    /// reason the grading wheels do: `1 / limit` is the request measured in units of the
+    /// A hard limit is a dead control. The limit is inversely proportional to the
+    /// requested magnitude — push a conflicting pair harder and it shrinks by exactly
+    /// the factor you pushed — so `scale x request` is CONSTANT the moment a hard cap
+    /// binds, and the rest of the travel does nothing at all. That is what
+    /// `Num.softKnee` is for, and it takes the reciprocal form here for the same reason
+    /// the grading wheels do: `1 / limit` is the request measured in units of the
     /// largest safe one, so `limit x softKnee(1/limit)` is exact while the request is
     /// under `zonalKnee x limit` and approaches the limit without reaching it after.
-    static func solveZonalScale(tone: Tone, whiteAnchorEV: Double,
-                                blackAnchorEV: Double) -> Double {
-        let limit = solveZonalLimit(tone: tone, whiteAnchorEV: whiteAnchorEV,
-                                    blackAnchorEV: blackAnchorEV)
+    static func easedScale(limit: Double) -> Double {
         guard limit > 0 else { return 0 }
         return Swift.min(1, limit * Num.softKnee(1 / limit, knee: Self.zonalKnee))
     }
 
-    /// The limit itself, before the knee. Split out so a test can assert the thing that
-    /// matters about it — that the response still rises AT it and stops rising just
-    /// above it — which is the only way to tell a correct limiter from a timid one.
-    static func solveZonalLimit(tone: Tone, whiteAnchorEV: Double,
-                                blackAnchorEV: Double) -> Double {
+    /// TWO limits — one for the windows above mid-grey, one for the windows below —
+    /// before the knee. Split out so a test can assert the thing that matters about
+    /// them: that the response still rises AT a limit and stops rising just above it,
+    /// which is the only way to tell a correct limiter from a timid one.
+    ///
+    /// Three facts about the four windows make this exact rather than a policy choice,
+    /// and all three are asserted by tests rather than left to this comment.
+    ///
+    /// · **The two halves have EXACTLY disjoint support.** `highlightWeight` and
+    ///   `whiteWeight` are `smoothstep`s whose lower edge is at or above mid-grey, so
+    ///   both return a hard zero for every `t <= 0`; `shadowWeight` and `blackWeight`
+    ///   are the mirror image and return a hard zero for every `t >= 0`. Not "nearly
+    ///   zero" — `Num.smoothstep` saturates its argument, so the value is 0.0 exactly.
+    ///   A response that is monotone on each side of mid-grey and continuous at it is
+    ///   monotone, so the two halves can be solved independently with no lost margin,
+    ///   and Highlights cannot reach a shadow through the scale any more than it can
+    ///   through its own weight.
+    ///
+    /// · **Each window's slope has ONE sign, the sign of its slider.** A window is a
+    ///   monotone shelf times a scalar, so Highlights below zero falls across its whole
+    ///   support and never rises; Whites below zero the same; Shadows and Blacks ABOVE
+    ///   zero fall, because their shelves ascend toward the black anchor. So "which
+    ///   windows can pull the mapping downhill" is decided by four signs before the
+    ///   sweep starts, and is the same at every `t`.
+    ///
+    /// · **A window that cannot fall cannot cause an inversion**, so it is never scaled
+    ///   and its full contribution is available as slack to the ones that can. That is
+    ///   what removes the second coupling: with Whites held at its requested amount,
+    ///   `scale x request` for Highlights stops being a ratio of two things that both
+    ///   shrink, and the applied amount rises over the whole slider again instead of
+    ///   peaking at −90 and falling back.
+    ///
+    /// The LIMIT is closed-form, not searched. Writing the mapping as
+    /// `mapped(t) = contrastMapped(t) + rising(t) + scale x falling(t)` makes it LINEAR
+    /// in `scale`, so "mapped never falls" is one inequality per sample interval —
+    /// `Δcontrast + Δrising + scale x Δfalling ≥ 0` — and only the intervals where
+    /// `Δfalling` is negative constrain anything. The smallest ratio over those is the
+    /// limit exactly. This started as a bisection over the same monotonicity predicate;
+    /// it agreed to six figures and cost 23 sweeps and 23 throwaway engines per slider
+    /// move, which on the interactive path is 10 ms of a 33 ms frame spent rediscovering
+    /// a number one pass already knows. Two half-sweeps cover the same stops as the one
+    /// sweep they replaced, so this costs what the single scale cost.
+    static func solveZonalLimits(tone: Tone, whiteAnchorEV: Double,
+                                 blackAnchorEV: Double) -> (upper: Double, lower: Double) {
         let highlights = Num.clamp(tone.highlights, -100, 100) / 100
         let shadows = Num.clamp(tone.shadows, -100, 100) / 100
         let whites = Num.clamp(tone.whites, -100, 100) / 100
         let blacks = Num.clamp(tone.blacks, -100, 100) / 100
-        guard highlights != 0 || shadows != 0 || whites != 0 || blacks != 0 else {
-            return Self.searchCeiling
+        let upperFalls = highlights < 0 || whites < 0
+        let lowerFalls = shadows > 0 || blacks > 0
+        guard upperFalls || lowerFalls else {
+            return (Self.searchCeiling, Self.searchCeiling)
         }
 
         // The zonal sum at scale 1. Built through the private init so this measures the
@@ -220,49 +304,93 @@ public struct ToneEngine: Sendable {
         // that can drift away from it.
         let unit = ToneEngine(tone: tone, zones: Zones(),
                               effectiveHighlights: highlights, effectiveShadows: shadows,
+                              effectiveWhites: whites, effectiveBlacks: blacks,
                               zonalScale: 1)
-
-        let step = Self.monotoneStepEV
         // Two stops past each anchor: the shelves have saturated out there, but an
         // inversion sitting on the last half stop of the range is still an inversion.
-        var t = blackAnchorEV - 2
-        let end = whiteAnchorEV + 2
-        var previousZonal = unit.zonalStops(t)
-        var previousFixed = unit.contrastMapped(t)
+        // Mid-grey is the shared end of both sweeps because it is where all four
+        // windows are exactly zero, so no interval ever straddles the two halves.
+        return (upperFalls ? unit.zonalLimit(from: 0, to: whiteAnchorEV + 2, upper: true)
+                           : Self.searchCeiling,
+                lowerFalls ? unit.zonalLimit(from: blackAnchorEV - 2, to: 0, upper: false)
+                           : Self.searchCeiling)
+    }
+
+    /// One half's limit. Called on the unit engine, which holds the REQUESTED amounts,
+    /// so `falling` and `rising` here are the contributions at scale 1.
+    func zonalLimit(from start: Double, to end: Double, upper: Bool) -> Double {
+        let step = Self.monotoneStepEV
+        var t = start
+        var parts = zonalParts(t, upper: upper)
+        var fixed = contrastMapped(t)
         var limit = Self.searchCeiling
         while t < end {
-            t += step
-            let zonal = unit.zonalStops(t)
-            let fixed = unit.contrastMapped(t)
-            let dZonal = zonal - previousZonal
-            // Only a falling zonal contribution can pull the mapping downhill, and
-            // `dFixed` is the contrast slope, which is positive for every legal
-            // contrast — so the ratio is always a real bound, never a sign trap.
-            if dZonal < 0 {
-                limit = Swift.min(limit, Swift.max((fixed - previousFixed) / -dZonal, 0))
+            t = Swift.min(t + step, end)
+            let next = zonalParts(t, upper: upper)
+            let nextFixed = contrastMapped(t)
+            let dFalling = next.falling - parts.falling
+            // Only a falling window can pull the mapping downhill. The contrast term in
+            // `slack` is the contrast slope over one step, positive for every legal
+            // contrast, and the rising term is non-negative by construction — so the
+            // ratio is always a real bound, never a sign trap.
+            if dFalling < 0 {
+                let slack = (nextFixed - fixed) + (next.rising - parts.rising)
+                limit = Swift.min(limit, Swift.max(slack / -dFalling, 0))
             }
-            previousZonal = zonal
-            previousFixed = fixed
+            parts = next
+            fixed = nextFixed
         }
         return limit
     }
 
-    /// A probe at a scale it did not solve for itself. Internal, and only a test has any
-    /// business calling it: the point of the limiter is that the scale is derived from
-    /// the settings, so an engine holding an unrelated one renders a picture nothing
-    /// asked for.
-    init(tone: Tone, forcingZonalScale scale: Double) {
-        self.init(tone: tone, zones: Zones(),
-                  effectiveHighlights: Num.clamp(tone.highlights, -100, 100) / 100 * scale,
-                  effectiveShadows: Num.clamp(tone.shadows, -100, 100) / 100 * scale,
-                  zonalScale: scale)
+    /// One half's zonal contribution, split by whether the window runs downhill.
+    struct ZonalParts {
+        var falling: Double = 0
+        var rising: Double = 0
     }
 
-    /// The probe the solver bisects on. Private because a `ToneEngine` whose scale was
-    /// not solved for its own settings is a half-built object — it exists to be
+    /// The two windows of one half, sorted into the pair above. Which side a window
+    /// lands on is decided by the sign of its own applied amount and by which way its
+    /// shelf ascends, never by the value of `t` — see `solveZonalLimits`.
+    func zonalParts(_ t: Double, upper: Bool) -> ZonalParts {
+        var parts = ZonalParts()
+        if upper {
+            let h = effectiveHighlights * Self.highlightShadowRangeEV * highlightWeight(t)
+            if effectiveHighlights < 0 { parts.falling += h } else { parts.rising += h }
+            let w = effectiveWhites * Self.whiteToneEV * whiteWeight(t)
+            if effectiveWhites < 0 { parts.falling += w } else { parts.rising += w }
+        } else {
+            let s = effectiveShadows * Self.highlightShadowRangeEV * shadowWeight(t)
+            if effectiveShadows > 0 { parts.falling += s } else { parts.rising += s }
+            let b = effectiveBlacks * Self.blackToneEV * blackWeight(t)
+            if effectiveBlacks > 0 { parts.falling += b } else { parts.rising += b }
+        }
+        return parts
+    }
+
+    /// A probe at scales it did not solve for itself. Internal, and only a test has any
+    /// business calling it: the point of the limiter is that the scales are derived from
+    /// the settings, so an engine holding unrelated ones renders a picture nothing asked
+    /// for. The scales reach the same windows the solve would ease and no others.
+    init(tone: Tone, forcingUpperScale upper: Double, forcingLowerScale lower: Double) {
+        let highlights = Num.clamp(tone.highlights, -100, 100) / 100
+        let shadows = Num.clamp(tone.shadows, -100, 100) / 100
+        let whites = Num.clamp(tone.whites, -100, 100) / 100
+        let blacks = Num.clamp(tone.blacks, -100, 100) / 100
+        self.init(tone: tone, zones: Zones(),
+                  effectiveHighlights: highlights * (highlights < 0 ? upper : 1),
+                  effectiveShadows: shadows * (shadows > 0 ? lower : 1),
+                  effectiveWhites: whites * (whites < 0 ? upper : 1),
+                  effectiveBlacks: blacks * (blacks > 0 ? lower : 1),
+                  zonalScale: Swift.min(upper, lower))
+    }
+
+    /// The probe the solver measures on. Private because a `ToneEngine` whose scales
+    /// were not solved for its own settings is a half-built object — it exists to be
     /// measured, never to render.
     private init(tone: Tone, zones: Zones,
                  effectiveHighlights: Double, effectiveShadows: Double,
+                 effectiveWhites: Double, effectiveBlacks: Double,
                  zonalScale: Double) {
         self.tone = tone
         self.zones = zones
@@ -272,10 +400,12 @@ public struct ToneEngine: Sendable {
         self.blackAnchorEV = Self.defaultBlackAnchorEV - Self.whiteBlackRangeEV * blacks
         self.effectiveHighlights = effectiveHighlights
         self.effectiveShadows = effectiveShadows
+        self.effectiveWhites = effectiveWhites
+        self.effectiveBlacks = effectiveBlacks
         self.zonalScale = zonalScale
     }
 
-    /// The Highlights + Shadows contribution, at the amounts actually applied.
+    /// The four zonal windows, at the amounts actually applied.
     func zonalStops(_ t: Double) -> Double {
         var s = 0.0
         if effectiveHighlights != 0 {
@@ -284,13 +414,11 @@ public struct ToneEngine: Sendable {
         if effectiveShadows != 0 {
             s += effectiveShadows * Self.highlightShadowRangeEV * shadowWeight(t)
         }
-        let whites = Num.clamp(tone.whites, -100, 100) / 100 * zonalScale
-        if whites != 0 {
-            s += whites * Self.whiteToneEV * whiteWeight(t)
+        if effectiveWhites != 0 {
+            s += effectiveWhites * Self.whiteToneEV * whiteWeight(t)
         }
-        let blacks = Num.clamp(tone.blacks, -100, 100) / 100 * zonalScale
-        if blacks != 0 {
-            s += blacks * Self.blackToneEV * blackWeight(t)
+        if effectiveBlacks != 0 {
+            s += effectiveBlacks * Self.blackToneEV * blackWeight(t)
         }
         return s
     }
@@ -408,7 +536,7 @@ public struct ToneEngine: Sendable {
     /// Bake gain against the shaper's encoded domain: the GPU reads the guided mask,
     /// log-encodes it, and fetches this. One texture fetch replaces the whole panel.
     public func bakeGainLUT(size: Int = 1024) -> LUT1D {
-        // The forward clamp below is a BACKSTOP, not the mechanism. `solveZonalScale`
+        // The forward clamp below is a BACKSTOP, not the mechanism. `solveZonalLimits`
         // has already made the response monotone; this catches what it deliberately
         // does not cover — the Zones panel, which is the explicit power tool and would
         // stop being one if it were limited — and the fact that this samples the log

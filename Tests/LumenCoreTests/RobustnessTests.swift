@@ -986,23 +986,11 @@ final class RobustnessTests: XCTestCase {
 
     // MARK: - A slider must keep doing more, and must not move another slider
 
-    /// Two properties the monotonicity limiter broke while fixing an inversion.
-    ///
-    /// The first version solved ONE scale over the whole zonal sum and clipped hard at
-    /// it. Highlights' window lives above mid-grey and Shadows' below — disjoint — so
-    /// the constraint that binds is always in one of them, and multiplying the sum cut
-    /// the other one down with it: Highlights at −100 turned Shadows +60 into an
-    /// effective +33.8, which made the Highlights slider's meaning depend on Shadows,
-    /// Contrast and Whites. And the hard clip left 43 of the top 44 settings of
-    /// Highlights applying one identical value.
-    ///
-    /// Every assertion that existed still passed, because they check fixed points,
-    /// anchor geometry and monotonicity in x — all of which a slider that returns zero
-    /// also satisfies.
-    /// Smallest step the composed response takes over the whole range, at a scale
-    /// forced on it. Negative means a brighter input renders darker somewhere.
-    private func worstStep(_ tone: Tone, scale: Double) -> Double {
-        let forced = ToneEngine(tone: tone, forcingZonalScale: scale)
+    /// Smallest step the composed response takes over the whole range, at scales forced
+    /// on it. Negative means a brighter input renders darker somewhere.
+    private func worstStep(_ tone: Tone, upper: Double, lower: Double) -> Double {
+        let forced = ToneEngine(tone: tone, forcingUpperScale: upper,
+                                forcingLowerScale: lower)
         var t = forced.blackAnchorEV - 2
         var previous = t + forced.stops(at: t)
         var worst = Double.infinity
@@ -1015,57 +1003,138 @@ final class RobustnessTests: XCTestCase {
         return worst
     }
 
+    /// Two properties the monotonicity limiter broke while fixing an inversion, and a
+    /// third it broke while fixing those.
+    ///
+    /// The first version capped each window on its own. Highlights' applied amount then
+    /// moved from 0.218 to 0.857 across the Contrast range, and the hard clip left 43 of
+    /// the top 44 settings of Highlights applying one identical value.
+    ///
+    /// The second solved ONE scale over the whole zonal sum and eased onto it. That
+    /// fixed the dead top and moved the coupling rather than removing it: Highlights'
+    /// window lives above mid-grey and Shadows' below — DISJOINT, both weights exactly
+    /// zero on the other's side — and multiplying the sum cut the far window down
+    /// anyway. Measured at `Tone(contrast: -100, shadows: -100, whites: -100,
+    /// blacks: -100)`, dragging Highlights from −100 to +40 lightened a shadow at −2 EV
+    /// by 24.4 sRGB code values, and the top 60 points of Highlights rendered
+    /// byte-identically there.
+    ///
+    /// The third is the same coupling one level down: with the scale shared, pushing
+    /// Highlights harder also took away the help Whites was giving it, so the applied
+    /// amount peaked at −90 and then fell back over the last ten settings.
+    ///
+    /// Every assertion that existed passed through all three, because they check fixed
+    /// points, anchor geometry and monotonicity in x — all of which a slider that
+    /// returns zero also satisfies — and because the two that could have caught the
+    /// second and third were written to sweep only where the scale does nothing.
     func testHighlightsAndShadowsKeepDoingMoreAndLeaveEachOtherAlone() {
-        for contrast in [0.0, -60, 60] {
-            for direction in [1.0, -1.0] {
-                var previousHigh = -1.0
-                var previousLow = -1.0
-                for setting in 0...100 {
-                    let amount = direction * Double(setting)
-                    let high = abs(ToneEngine(tone: Tone(contrast: contrast,
-                                                         highlights: amount))
-                        .effectiveHighlights)
-                    let low = abs(ToneEngine(tone: Tone(contrast: contrast,
-                                                        shadows: amount))
-                        .effectiveShadows)
-                    if setting >= 2 {
-                        XCTAssertGreaterThan(
-                            high, previousHigh,
-                            "Highlights \(amount) at contrast \(contrast) applied no "
-                                + "more than \(amount - direction) did")
-                        XCTAssertGreaterThan(
-                            low, previousLow,
-                            "Shadows \(amount) at contrast \(contrast) applied no more "
-                                + "than \(amount - direction) did")
+        // A slider must keep doing more OVER ITS WHOLE TRAVEL, with its neighbours
+        // wherever they happen to be.
+        //
+        // This loop used to set exactly one slider and vary Contrast, which is the one
+        // shape of the parameter space where the applied amount cannot run backwards:
+        // with nothing else in the zonal sum the limit is inversely proportional to the
+        // request and `scale x request` rises monotonically by construction. Put a
+        // window that HELPS in the sum and it stops being true. At
+        // `Tone(contrast: -100, highlights: h, whites: 20)` the applied amount peaked at
+        // h = −90 and then fell back over the last ten points, because the shared scale
+        // was taking Whites' help away at the same rate it was easing Highlights — 0.44
+        // slider points of travel spent going the wrong way, on the number the panel
+        // shows precisely so that a dead top half is visible.
+        //
+        // So the sweep now carries the other four sliders through the region where they
+        // help and where they fight, and it counts how much of itself binds.
+        var binding = 0
+        var settings = 0
+        for contrast in [0.0, -100, -60, 60] {
+            for pivot in [-3.0, 0, 3] {
+                for whites in [-100.0, 0, 20, 100] {
+                    for blacks in [-100.0, 0, 100] {
+                        for partner in [-100.0, 0, 100] {
+                            for direction in [1.0, -1.0] {
+                                var previousHigh = -1.0
+                                var previousLow = -1.0
+                                for setting in 0...100 {
+                                    let amount = direction * Double(setting)
+                                    let h = ToneEngine(tone: Tone(
+                                        contrast: contrast, contrastPivot: pivot,
+                                        highlights: amount, shadows: partner,
+                                        whites: whites, blacks: blacks))
+                                    let s = ToneEngine(tone: Tone(
+                                        contrast: contrast, contrastPivot: pivot,
+                                        highlights: partner, shadows: amount,
+                                        whites: whites, blacks: blacks))
+                                    settings += 2
+                                    if h.zonalScale < 1 - 1e-12 { binding += 1 }
+                                    if s.zonalScale < 1 - 1e-12 { binding += 1 }
+                                    let high = abs(h.effectiveHighlights)
+                                    let low = abs(s.effectiveShadows)
+                                    let where_ = "c\(contrast) p\(pivot) w\(whites) "
+                                        + "b\(blacks) partner \(partner)"
+                                    if setting >= 2 {
+                                        XCTAssertGreaterThan(
+                                            high, previousHigh,
+                                            "Highlights \(amount) at \(where_) applied "
+                                                + "no more than \(amount - direction) "
+                                                + "did: \(high) vs \(previousHigh)")
+                                        XCTAssertGreaterThan(
+                                            low, previousLow,
+                                            "Shadows \(amount) at \(where_) applied no "
+                                                + "more than \(amount - direction) did: "
+                                                + "\(low) vs \(previousLow)")
+                                    }
+                                    previousHigh = high
+                                    previousLow = low
+                                }
+                            }
+                        }
                     }
-                    previousHigh = high
-                    previousLow = low
                 }
             }
         }
+        XCTAssertGreaterThan(binding, settings / 20,
+                             "only \(binding) of \(settings) settings bound the zonal "
+                                 + "limiter — this sweep never reaches the region where "
+                                 + "the applied amount can run backwards")
 
-        // Independence, WHERE IT IS AVAILABLE. The windows share no domain, so nothing
-        // couples them until the four of them together would run the response downhill
-        // — and then one of them has to give. `zonalScale` is the whole story: it is
-        // exactly 1 when there is room, and every applied amount is exact there.
-        for contrast in [0.0, -60, 60] {
-            for whites in [0.0, 100] {
-                let alone = ToneEngine(tone: Tone(contrast: contrast, shadows: 60,
-                                                  whites: whites))
-                for highlights in [-100.0, -50, 50, 100] {
-                    let together = ToneEngine(tone: Tone(contrast: contrast,
-                                                         highlights: highlights,
-                                                         shadows: 60, whites: whites))
-                    guard together.zonalScale >= 1 - 1e-12 else { continue }
-                    XCTAssertEqual(together.effectiveShadows, alone.effectiveShadows,
-                                   accuracy: 1e-12,
-                                   "Highlights \(highlights) moved Shadows +60 from "
-                                       + "\(alone.effectiveShadows) to "
-                                       + "\(together.effectiveShadows) with the scale "
-                                       + "at 1")
+        // Independence, WHERE IT WAS NEVER CHECKED. This block used to open with
+        // `guard together.zonalScale >= 1 - 1e-12 else { continue }` — it skipped every
+        // case where the scale actually binds, which is the only place the two windows
+        // can reach each other, and it ran at contrast 0/±60 with Whites at 0 or 100
+        // where hardly anything binds anyway. Now the guard is inverted: the cases that
+        // bind are the ones that must hold, and the count is asserted so the sweep
+        // cannot quietly stop reaching them.
+        var bound = 0
+        for contrast in [0.0, -100, -60, 60] {
+            for whites in [-100.0, 0, 20, 100] {
+                for blacks in [-100.0, 0, 100] {
+                    let alone = ToneEngine(tone: Tone(contrast: contrast, shadows: 60,
+                                                      whites: whites, blacks: blacks))
+                    for highlights in [-100.0, -50, 50, 100] {
+                        let together = ToneEngine(tone: Tone(contrast: contrast,
+                                                             highlights: highlights,
+                                                             shadows: 60, whites: whites,
+                                                             blacks: blacks))
+                        if together.zonalScale < 1 - 1e-12 { bound += 1 }
+                        XCTAssertEqual(together.effectiveShadows, alone.effectiveShadows,
+                                       accuracy: 1e-12,
+                                       "Highlights \(highlights) moved Shadows +60 from "
+                                           + "\(alone.effectiveShadows) to "
+                                           + "\(together.effectiveShadows) at contrast "
+                                           + "\(contrast) whites \(whites) blacks "
+                                           + "\(blacks)")
+                        XCTAssertEqual(together.effectiveBlacks, alone.effectiveBlacks,
+                                       accuracy: 1e-12,
+                                       "Highlights \(highlights) moved Blacks \(blacks) "
+                                           + "from \(alone.effectiveBlacks) to "
+                                           + "\(together.effectiveBlacks) at contrast "
+                                           + "\(contrast) whites \(whites)")
+                    }
                 }
             }
         }
+        XCTAssertGreaterThan(bound, 0, "the independence sweep never bound the limiter, "
+                                 + "so it is back to proving nothing")
 
         // Positive contrast steepens the base slope past anything the four windows can
         // ask for, so nothing binds and every slider is exact — the state a photograph
@@ -1093,6 +1162,9 @@ final class RobustnessTests: XCTestCase {
         // Where it DOES bind, it takes as little as it can. The response still rises at
         // the solved limit and stops rising 2% above it — without this, every other
         // assertion here would also pass if the limiter were simply timid.
+        //
+        // Each half is probed on its own, because each half has its own limit and
+        // pushing both at once would credit either one with the other's inversion.
         for (c, h, sh, w, b) in [(-100.0, -100.0, 100.0, -100.0, 100.0),
                                  (-100.0, 0.0, 0.0, 0.0, 100.0),
                                  (0.0, -100.0, 100.0, -100.0, 100.0)] {
@@ -1103,18 +1175,30 @@ final class RobustnessTests: XCTestCase {
             XCTAssertLessThan(solved.zonalScale, 1,
                               "\(label) was expected to bind and did not")
 
-            // The solved scale, undone, is the limit the knee eased away from.
-            let limit = ToneEngine.solveZonalLimit(tone: tone,
-                                                   whiteAnchorEV: solved.whiteAnchorEV,
-                                                   blackAnchorEV: solved.blackAnchorEV)
-            XCTAssertLessThan(solved.zonalScale, limit,
-                              "\(label) applies the limit exactly, so the top of the "
-                                  + "slider is dead")
-            XCTAssertGreaterThanOrEqual(worstStep(tone, scale: limit), -1e-9,
-                                        "\(label) already falls AT the limit \(limit)")
-            XCTAssertLessThan(worstStep(tone, scale: limit * 1.02), -1e-9,
-                              "\(label) is still monotone 2% above the limit "
-                                  + "\(limit) — the limiter is being timid")
+            let limits = ToneEngine.solveZonalLimits(tone: tone,
+                                                     whiteAnchorEV: solved.whiteAnchorEV,
+                                                     blackAnchorEV: solved.blackAnchorEV)
+            // AT both limits the response still rises. Each half is then pushed 2%
+            // past its own limit on its own, with the other half left at its limit, so
+            // a break is attributable to the half that was moved rather than credited
+            // to whichever half happened to be weaker.
+            XCTAssertGreaterThanOrEqual(
+                worstStep(tone, upper: limits.upper, lower: limits.lower), -1e-9,
+                "\(label) already falls AT its solved limits \(limits)")
+            for (half, upper) in [("upper", true), ("lower", false)]
+            where (upper ? limits.upper : limits.lower) < ToneEngine.searchCeiling {
+                let limit = upper ? limits.upper : limits.lower
+                // The solved scale, undone, is the limit the knee eased away from.
+                XCTAssertLessThan(ToneEngine.easedScale(limit: limit), limit,
+                                  "\(label) \(half) applies the limit exactly, so the "
+                                      + "top of the slider is dead")
+                let past = upper
+                    ? worstStep(tone, upper: limit * 1.02, lower: limits.lower)
+                    : worstStep(tone, upper: limits.upper, lower: limit * 1.02)
+                XCTAssertLessThan(past, -1e-9,
+                                  "\(label) is still monotone 2% above the \(half) "
+                                      + "limit \(limit) — the limiter is being timid")
+            }
         }
 
         // And the limiter is not touching ordinary settings: below the knee the slider
@@ -1124,6 +1208,72 @@ final class RobustnessTests: XCTestCase {
             XCTAssertEqual(ToneEngine(tone: Tone(highlights: -setting))
                 .effectiveHighlights, -setting / 100, accuracy: 1e-12,
                 "Highlights −\(setting) was already being limited")
+        }
+
+        // A window that cannot pull the mapping downhill is never eased at all. This is
+        // the second half of the fix and it is what makes the applied amount rise over
+        // the whole slider: Whites at +20 keeps every bit of its 0.26 EV while
+        // Highlights is being held back, instead of being cut down alongside it.
+        var helperBound = 0
+        for contrast in [-100.0, -60, 0] {
+            for whites in [20.0, 100] {
+                let e = ToneEngine(tone: Tone(contrast: contrast, highlights: -100,
+                                              whites: whites))
+                if e.zonalScale < 1 - 1e-12 { helperBound += 1 }
+                XCTAssertEqual(e.effectiveWhites, whites / 100, accuracy: 1e-12,
+                               "Whites \(whites) rises everywhere it acts, so it cannot "
+                                   + "invert anything, but it was eased to "
+                                   + "\(e.effectiveWhites) at contrast \(contrast)")
+            }
+        }
+        XCTAssertGreaterThan(helperBound, 0,
+                             "Highlights −100 alongside Whites never bound the limiter, "
+                                 + "so nothing above was measured under easing")
+
+        // Whites and Blacks are held to the same bar, now that the type reports what
+        // they apply. They carry a tonal shelf and the solve eases them like any other
+        // window, and until this run nothing anywhere asked whether the amount they end
+        // up applying rises with the slider. It did not: on the shared scale, sweeping
+        // Whites at `Tone(contrast: -100, highlights: -100, shadows: -100)` handed back
+        // 0.00125 of applied amount between +97 and +98, the Highlights defect in a
+        // control nobody had thought to sweep.
+        for contrast in [-100.0, -60, 0] {
+            for highlights in [-100.0, 0] {
+                for shadows in [-100.0, 0, 100] {
+                    for direction in [1.0, -1.0] {
+                        var previousWhites = -1.0
+                        var previousBlacks = -1.0
+                        for setting in 0...100 {
+                            let amount = direction * Double(setting)
+                            let w = ToneEngine(tone: Tone(contrast: contrast,
+                                                          highlights: highlights,
+                                                          shadows: shadows,
+                                                          whites: amount))
+                            let b = ToneEngine(tone: Tone(contrast: contrast,
+                                                          highlights: highlights,
+                                                          shadows: shadows,
+                                                          blacks: amount))
+                            let white = abs(w.effectiveWhites)
+                            let black = abs(b.effectiveBlacks)
+                            let where_ = "c\(contrast) h\(highlights) s\(shadows)"
+                            if setting >= 2 {
+                                XCTAssertGreaterThan(
+                                    white, previousWhites,
+                                    "Whites \(amount) at \(where_) applied no more "
+                                        + "than \(amount - direction) did: \(white) vs "
+                                        + "\(previousWhites)")
+                                XCTAssertGreaterThan(
+                                    black, previousBlacks,
+                                    "Blacks \(amount) at \(where_) applied no more "
+                                        + "than \(amount - direction) did: \(black) vs "
+                                        + "\(previousBlacks)")
+                            }
+                            previousWhites = white
+                            previousBlacks = black
+                        }
+                    }
+                }
+            }
         }
     }
 

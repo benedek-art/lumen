@@ -2715,6 +2715,18 @@ def soft_limited(amount, cap):
     return soft_limit(amount, cap, ZONAL_KNEE)
 
 
+def eased_scale(limit):
+    """A limit, eased so the top of every slider still moves.
+
+    A hard limit is a dead control: the limit is inversely proportional to the request,
+    so `scale * request` is constant the moment it binds. `limit * soft_knee(1 / limit)`
+    is exact while the request is under `ZONAL_KNEE * limit` and approaches the limit
+    without reaching it after."""
+    if limit <= 0:
+        return 0.0
+    return min(1.0, limit * soft_knee(1.0 / limit, ZONAL_KNEE))
+
+
 def raised_cosine(t):
     u = min(max(t, 0.0), 1.0)
     return 0.5 * (1 - math.cos(math.pi * u))
@@ -2734,69 +2746,117 @@ class ToneEngine:
         self.blacks = b
         self.white_anchor_ev = DEFAULT_WHITE_ANCHOR_EV - WHITE_BLACK_RANGE_EV * w
         self.black_anchor_ev = DEFAULT_BLACK_ANCHOR_EV - WHITE_BLACK_RANGE_EV * b
-        self._set_scale(1.0)
-        self._solve_zonal_scale()
+        self._solve_zonal_scales()
+
+    # -- the four zonal windows, as data -------------------------------------
+    #
+    # Written as a table rather than as four branches because every claim the solve
+    # rests on is a property of the table, and a table can be inspected:
+    #
+    #   HALF   which side of mid-grey the shelf lives on. `smoothstep` saturates its
+    #          argument, so `highlight_weight` and `white_weight` return 0.0 EXACTLY for
+    #          every t <= 0 and `shadow_weight` / `black_weight` return 0.0 EXACTLY for
+    #          every t >= 0. Not small — zero. So the two halves never share an interval
+    #          and can be solved apart with nothing lost.
+    #
+    #   FALLS  whether this window pulls the mapping downhill, which is a fact about the
+    #          SIGN of the slider and not about t. Each window is one monotone shelf
+    #          times one scalar, so its slope has one sign over the whole range. The
+    #          upper shelves ascend with t, so they fall when their slider is negative;
+    #          the lower shelves ascend toward the black anchor, so they fall in t when
+    #          their slider is POSITIVE. A window that cannot fall cannot invert
+    #          anything, so it is never eased and its whole contribution is slack for
+    #          the ones that can.
+    def _windows(self):
+        return (
+            ("upper", self.highlights, HL_SH_RANGE_EV, self.highlight_weight,
+             self.highlights < 0),
+            ("upper", self.whites, WHITE_TONE_EV, self.white_weight, self.whites < 0),
+            ("lower", self.shadows, HL_SH_RANGE_EV, self.shadow_weight,
+             self.shadows > 0),
+            ("lower", self.blacks, BLACK_TONE_EV, self.black_weight, self.blacks > 0),
+        )
+
+    def _applied(self):
+        """Slider value -> amount actually applied, per window."""
+        out = {}
+        for half, amount, _, weight, falls in self._windows():
+            scale = self.scales[half] if falls else 1.0
+            out[weight.__name__] = amount * scale
+        return out
 
     def _zonal_stops(self, t):
         s = 0.0
-        if self.effective_highlights != 0:
-            s += self.effective_highlights * HL_SH_RANGE_EV * self.highlight_weight(t)
-        if self.effective_shadows != 0:
-            s += self.effective_shadows * HL_SH_RANGE_EV * self.shadow_weight(t)
-        if self.whites != 0:
-            s += self.whites * self.zonal_scale * WHITE_TONE_EV * self.white_weight(t)
-        if self.blacks != 0:
-            s += self.blacks * self.zonal_scale * BLACK_TONE_EV * self.black_weight(t)
+        for half, amount, ev, weight, falls in self._windows():
+            if amount == 0:
+                continue
+            s += amount * (self.scales[half] if falls else 1.0) * ev * weight(t)
         return s
 
-    def _set_scale(self, scale):
-        self.zonal_scale = scale
-        self.effective_highlights = self.highlights * scale
-        self.effective_shadows = self.shadows * scale
+    def _force_scales(self, upper, lower):
+        self.scales = {"upper": upper, "lower": lower}
+        applied = self._applied()
+        self.effective_highlights = applied["highlight_weight"]
+        self.effective_shadows = applied["shadow_weight"]
+        self.effective_whites = applied["white_weight"]
+        self.effective_blacks = applied["black_weight"]
+        eased = 1.0
+        for half, amount, _, _, falls in self._windows():
+            if amount != 0 and falls:
+                eased = min(eased, self.scales[half])
+        self.zonal_scale = eased
 
-    def _solve_zonal_scale(self):
-        """ONE scale over the whole zonal sum, closed form, then eased onto the limit.
+    def _solve_zonal_scales(self):
+        """TWO scales, one per half of the range, closed form, then eased onto the limit.
 
-        See ToneEngine.solveZonalScale. Per-window caps were never a guarantee about
-        the total — each solved against the contrast slope alone and ignored the other
-        three windows — and they coupled what they did constrain, so Highlights' applied
-        amount swung 3.9x across the Contrast range. A clamp on the baked curve alone
-        removes the coupling and pays for it in flat patches: Highlights -100 with
-        Shadows +100, an ordinary "flatten it" move, left 160 of 1024 samples flat.
+        See ToneEngine.solveZonalLimits. One scale over the whole zonal SUM was the
+        previous answer and it coupled windows whose weights are exactly zero where the
+        other one acts: at contrast -100 with shadows/whites/blacks at -100, moving
+        Highlights from -100 to +40 lightened -2 EV by 24.4 code values, where
+        `highlight_weight` is 0. Solving each half against its own intervals removes
+        that; not easing a window that cannot fall removes the second one, where pushing
+        Highlights took away the help Whites was giving it and the applied amount peaked
+        at -90.
 
-        `mapped(t) = contrast_mapped(t) + scale * zonal(t)` is linear in `scale`, so
-        "mapped never falls" is one inequality per interval and the smallest ratio over
-        the intervals where the zonal sum falls IS the limit. The knee then keeps the
-        top of the slider alive: the limit is inversely proportional to the request, so
-        `scale * request` is constant the moment a hard cap binds."""
-        if (self.highlights == 0 and self.shadows == 0
-                and self.whites == 0 and self.blacks == 0):
-            self.zonal_limit = SEARCH_CEILING
-            self._set_scale(1.0)
-            return
-        self.zonal_limit = self._zonal_limit()
-        limit = self.zonal_limit
-        if limit <= 0:
-            self._set_scale(0.0)
-        else:
-            self._set_scale(min(1.0, limit * soft_knee(1.0 / limit, ZONAL_KNEE)))
+        `mapped(t) = contrast_mapped(t) + rising(t) + scale * falling(t)` is linear in
+        `scale`, so "mapped never falls" is one inequality per interval and the smallest
+        ratio over the intervals where the falling part falls IS the limit. The knee then
+        keeps the top of the slider alive."""
+        self.zonal_limits = {
+            "upper": self._half_limit("upper", 0.0, self.white_anchor_ev + 2),
+            "lower": self._half_limit("lower", self.black_anchor_ev - 2, 0.0),
+        }
+        self._force_scales(*(eased_scale(self.zonal_limits[h])
+                             for h in ("upper", "lower")))
 
-    def _zonal_limit(self):
-        """The largest scale on the zonal sum that keeps `mapped` non-decreasing."""
-        self._set_scale(1.0)
-        t = self.black_anchor_ev - 2
-        end = self.white_anchor_ev + 2
-        previous_zonal = self._zonal_stops(t)
-        previous_fixed = contrast_mapped(t, self.contrast, self.pivot)
+    def _half_limit(self, half, t0, t1):
+        """Largest scale on this half's falling windows that keeps `mapped` rising.
+
+        Both sweeps end at mid-grey, where all four weights are exactly zero, so no
+        interval ever straddles the halves and neither sweep can be charged for the
+        other's inversion."""
+        live = [w for w in self._windows() if w[0] == half and w[1] != 0]
+        if not any(w[4] for w in live):
+            return SEARCH_CEILING
+
+        def parts(t):
+            fall = sum(a * ev * wt(t) for _, a, ev, wt, f in live if f)
+            rise = sum(a * ev * wt(t) for _, a, ev, wt, f in live if not f)
+            return fall, rise
+
+        t = t0
+        p_fall, p_rise = parts(t)
+        p_fixed = contrast_mapped(t, self.contrast, self.pivot)
         limit = SEARCH_CEILING
-        while t < end:
-            t += MONOTONE_STEP_EV
-            zonal = self._zonal_stops(t)
+        while t < t1:
+            t = min(t + MONOTONE_STEP_EV, t1)
+            fall, rise = parts(t)
             fixed = contrast_mapped(t, self.contrast, self.pivot)
-            d_zonal = zonal - previous_zonal
-            if d_zonal < 0:
-                limit = min(limit, max((fixed - previous_fixed) / -d_zonal, 0.0))
-            previous_zonal, previous_fixed = zonal, fixed
+            d_fall = fall - p_fall
+            if d_fall < 0:
+                slack = (fixed - p_fixed) + (rise - p_rise)
+                limit = min(limit, max(slack / -d_fall, 0.0))
+            p_fall, p_rise, p_fixed = fall, rise, fixed
         return limit
 
     @property
@@ -2952,43 +3012,128 @@ def gen_tone_checks():
     # Highlights 57..100 all applying one identical value, dead over the top 43%
     # of the control. Every assertion above passes for a Highlights slider that
     # returns zero always, which is why neither showed up.
+    #
+    # This loop then swept ONE slider against Contrast, which is the one shape of the
+    # parameter space where the applied amount cannot run backwards: with nothing else
+    # in the zonal sum the limit is inversely proportional to the request, so
+    # `scale * request` rises by construction. Put a window that HELPS in the sum and it
+    # stops being true — at contrast -100 with whites +20 the applied Highlights amount
+    # peaked at -90 and fell back over the last ten settings. So the other four sliders
+    # now come along, through the region where they help and where they fight.
+    binding = 0
+    swept = 0
     for slider in ("highlights", "shadows"):
         for direction in (1, -1):
-            for contrast in (0.0, -60.0, 60.0):
-                previous = None
-                for setting in range(0, 101):
-                    kw = {slider: direction * setting, "contrast": contrast}
-                    e = ToneEngine(**kw)
-                    applied = abs(e.effective_highlights if slider == "highlights"
-                                  else e.effective_shadows)
-                    if previous is not None:
-                        check(applied >= previous - 1e-12,
-                              f"{slider} at {direction * setting} (contrast {contrast}) "
-                              f"applied LESS than at {direction * (setting - 1)}: "
-                              f"{applied:.6f} vs {previous:.6f}")
-                        check(setting < 2 or applied > previous + 1e-9,
-                              f"{slider} at {direction * setting} (contrast {contrast}) "
-                              f"applied exactly what {direction * (setting - 1)} did "
-                              f"({applied:.9f}) — the control is dead here")
-                    previous = applied
+            for contrast in (0.0, -100.0, -60.0, 60.0):
+                for whites in (-100.0, 0.0, 20.0, 100.0):
+                    for partner in (-100.0, 0.0, 100.0):
+                        previous = None
+                        for setting in range(0, 101):
+                            kw = {slider: direction * setting, "contrast": contrast,
+                                  "whites": whites, "blacks": partner,
+                                  "shadows" if slider == "highlights" else "highlights":
+                                      partner}
+                            e = ToneEngine(**kw)
+                            swept += 1
+                            if e.zonal_scale < 1 - 1e-12:
+                                binding += 1
+                            applied = abs(e.effective_highlights
+                                          if slider == "highlights"
+                                          else e.effective_shadows)
+                            where = (f"contrast {contrast} whites {whites} "
+                                     f"partner {partner}")
+                            if previous is not None:
+                                check(applied >= previous - 1e-12,
+                                      f"{slider} at {direction * setting} ({where}) "
+                                      f"applied LESS than at "
+                                      f"{direction * (setting - 1)}: "
+                                      f"{applied:.9f} vs {previous:.9f}")
+                                check(setting < 2 or applied > previous + 1e-12,
+                                      f"{slider} at {direction * setting} ({where}) "
+                                      f"applied exactly what "
+                                      f"{direction * (setting - 1)} did "
+                                      f"({applied:.9f}) — the control is dead here")
+                            previous = applied
+    check(binding > swept // 20,
+          f"only {binding} of {swept} settings bound the limiter — this sweep never "
+          f"reaches the region where the applied amount can run backwards")
 
-    # Moving one must not move the other — WHERE THAT IS POSSIBLE. Their windows are
-    # disjoint, so there is no reason for a healthy setting to couple them, and the old
-    # per-window caps coupled them anyway (Highlights -100 turned Shadows +60 into an
-    # effective +33.8). What replaced them is one scale over the whole zonal sum, which
-    # is 1.0 — no coupling at all — unless the four windows TOGETHER would run the tone
-    # response downhill. Then something has to give, and a shared scale gives least.
-    for contrast in (0.0, 60.0, 100.0):
-        for whites in (0.0, 100.0):
-            baseline = ToneEngine(shadows=60, contrast=contrast,
-                                  whites=whites).effective_shadows
-            for h in (-100.0, -50.0, 50.0, 100.0):
-                e = ToneEngine(shadows=60, highlights=h, contrast=contrast, whites=whites)
-                if e.zonal_scale >= 1 - 1e-12:
-                    check(abs(e.effective_shadows - baseline) < 1e-12,
-                          f"Highlights {h} moved Shadows +60 from {baseline:.6f} to "
-                          f"{e.effective_shadows:.6f} with the scale at 1 (contrast "
-                          f"{contrast}, whites {whites})")
+    # A window that cannot pull the mapping downhill is never eased. Whites above zero
+    # RISES everywhere its shelf acts, so it can no more invert the response than a
+    # window with no amount at all, and taking it down alongside Highlights was what
+    # made the applied Highlights amount fall back at the top of the slider.
+    helper_bound = 0
+    for contrast in (-100.0, -60.0, 0.0):
+        for whites in (20.0, 100.0):
+            e = ToneEngine(contrast=contrast, highlights=-100, whites=whites)
+            if e.zonal_scale < 1 - 1e-12:
+                helper_bound += 1
+            check(abs(e.effective_whites - whites / 100) < 1e-12,
+                  f"Whites {whites} rises everywhere it acts but was eased to "
+                  f"{e.effective_whites:.9f} at contrast {contrast}")
+    check(helper_bound > 0,
+          "Highlights -100 alongside Whites never bound the limiter, so nothing above "
+          "was measured under easing")
+
+    # Whites and Blacks are held to the same bar, now that the engine reports what they
+    # apply. They carry a tonal shelf and are eased by the same solve, and nothing
+    # anywhere asked whether the amount they end up applying rises with the slider. On
+    # the shared scale it did not: sweeping Whites at contrast -100 with Highlights -100
+    # and Shadows -100 handed back 0.00125 of applied amount between +97 and +98.
+    for slider in ("whites", "blacks"):
+        for direction in (1, -1):
+            for contrast in (-100.0, -60.0, 0.0):
+                for highlights in (-100.0, 0.0):
+                    for shadows in (-100.0, 0.0, 100.0):
+                        previous = None
+                        for setting in range(0, 101):
+                            kw = {slider: direction * setting, "contrast": contrast,
+                                  "highlights": highlights, "shadows": shadows}
+                            e = ToneEngine(**kw)
+                            applied = abs(e.effective_whites if slider == "whites"
+                                          else e.effective_blacks)
+                            where = (f"contrast {contrast} highlights {highlights} "
+                                     f"shadows {shadows}")
+                            if previous is not None:
+                                check(setting < 2 or applied > previous + 1e-15,
+                                      f"{slider} at {direction * setting} ({where}) "
+                                      f"applied no more than "
+                                      f"{direction * (setting - 1)} did: "
+                                      f"{applied:.12f} vs {previous:.12f}")
+                            previous = applied
+
+    # Moving one must not move the other. Their windows are disjoint — both weights
+    # return 0.0 EXACTLY on the other's side of mid-grey — so there is no tone at which
+    # one can reach the other, at any setting.
+    #
+    # This ran at contrast 0/60/100 and skipped every case where the scale was below 1,
+    # which is the only place they were ever able to reach each other: with one scale
+    # over the whole sum, Highlights -100 against contrast -100 cut Shadows -100 and
+    # Blacks -100 down by 58%, worth 24.4 code values at -2 EV. The guard is inverted
+    # now and the binding count is asserted.
+    bound = 0
+    for contrast in (0.0, -100.0, -60.0, 60.0):
+        for whites in (-100.0, 0.0, 20.0, 100.0):
+            for blacks in (-100.0, 0.0, 100.0):
+                alone = ToneEngine(shadows=60, contrast=contrast, whites=whites,
+                                   blacks=blacks)
+                for h in (-100.0, -50.0, 50.0, 100.0):
+                    e = ToneEngine(shadows=60, highlights=h, contrast=contrast,
+                                   whites=whites, blacks=blacks)
+                    if e.zonal_scale < 1 - 1e-12:
+                        bound += 1
+                    check(abs(e.effective_shadows - alone.effective_shadows) < 1e-12,
+                          f"Highlights {h} moved Shadows +60 from "
+                          f"{alone.effective_shadows:.9f} to "
+                          f"{e.effective_shadows:.9f} (contrast {contrast}, whites "
+                          f"{whites}, blacks {blacks})")
+                    check(abs(e.effective_blacks - alone.effective_blacks) < 1e-12,
+                          f"Highlights {h} moved Blacks {blacks} from "
+                          f"{alone.effective_blacks:.9f} to "
+                          f"{e.effective_blacks:.9f} (contrast {contrast}, whites "
+                          f"{whites})")
+    check(bound > 0, "the independence sweep never bound the limiter, so it is back to "
+                     "proving nothing")
 
     # Positive contrast steepens the base slope, so nothing the four windows can ask for
     # inverts it and the scale never binds at all.
@@ -3027,12 +3172,12 @@ def gen_tone_checks():
     for c, h, sh, w, b in ((-100, -100, 100, -100, 100), (-100, 0, 0, 0, 100),
                            (-60, -60, 60, 0, 40), (0, -100, 100, -100, 100)):
         e = ToneEngine(contrast=c, highlights=h, shadows=sh, whites=w, blacks=b)
-        limit = e.zonal_limit
-        check(limit < SEARCH_CEILING,
+        limits = dict(e.zonal_limits)
+        check(min(limits.values()) < SEARCH_CEILING,
               f"c{c} h{h} s{sh} w{w} b{b} was expected to bind and did not")
 
-        def mapped_falls(scale, e=e, c=c):
-            e._set_scale(scale)
+        def mapped_falls(upper, lower, e=e):
+            e._force_scales(upper, lower)
             t, worst_drop = e.black_anchor_ev - 2, 0.0
             previous = t + e.stops(t)
             while t < e.white_anchor_ev + 2:
@@ -3042,15 +3187,23 @@ def gen_tone_checks():
                 previous = m
             return worst_drop
 
-        check(mapped_falls(limit) >= -1e-9,
-              f"c{c} h{h} s{sh} w{w} b{b} already falls AT the limit {limit:.6f}")
-        check(mapped_falls(limit * 1.02) < -1e-9,
-              f"c{c} h{h} s{sh} w{w} b{b} is still monotone 2% above the limit "
-              f"{limit:.6f} — the limiter is being timid")
-        e._solve_zonal_scale()
-        check(e.zonal_scale < limit,
-              f"c{c} h{h} s{sh} w{w} b{b} applies the limit exactly, so the top of the "
-              f"slider is dead")
+        # AT both limits the response still rises. Each half is then pushed 2% past its
+        # own limit alone, with the other left at its limit, so a break belongs to the
+        # half that moved rather than to whichever half was weaker.
+        check(mapped_falls(limits["upper"], limits["lower"]) >= -1e-9,
+              f"c{c} h{h} s{sh} w{w} b{b} already falls AT its limits {limits}")
+        for half in ("upper", "lower"):
+            if limits[half] >= SEARCH_CEILING:
+                continue
+            pushed = dict(limits)
+            pushed[half] = limits[half] * 1.02
+            check(mapped_falls(pushed["upper"], pushed["lower"]) < -1e-9,
+                  f"c{c} h{h} s{sh} w{w} b{b} is still monotone 2% above the {half} "
+                  f"limit {limits[half]:.6f} — the limiter is being timid")
+            check(eased_scale(limits[half]) < limits[half],
+                  f"c{c} h{h} s{sh} w{w} b{b} applies the {half} limit exactly, so the "
+                  f"top of the slider is dead")
+        e._solve_zonal_scales()
 
     print("  zonal fixed points, anchor geometry, and a monotone composed picture")
     print("  every setting of Highlights and Shadows applies more than the last, "

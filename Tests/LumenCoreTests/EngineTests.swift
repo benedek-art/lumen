@@ -190,11 +190,106 @@ final class EngineTests: XCTestCase {
         }
     }
 
+    /// Highlights must not reach a shadow and Shadows must not reach a highlight —
+    /// INCLUDING where the monotonicity limiter binds, which is the only place either
+    /// of them has ever been able to.
+    ///
+    /// What was here were two one-slider slices: `stops(at: -3) == 0` for
+    /// `Tone(highlights: 100)` and its mirror. Both are satisfied by the weight
+    /// functions alone. A lone slider is precisely the case a shared scale cannot
+    /// couple, because there is nothing to couple it TO — so the assertion could not
+    /// fail however badly the scale leaked, and it did not fail while the scale leaked
+    /// this far: at `Tone(contrast: -100, shadows: -100, whites: -100, blacks: -100)`,
+    /// dragging Highlights from −100 to +40 LIGHTENED −2 EV by 24.4 sRGB code values,
+    /// and the top 60 points of the slider rendered byte-identically there.
+    /// `highlightWeight(-2)` is exactly 0 at that tone. The leak was the scale.
+    ///
+    /// So the sweep now runs the whole neighbourhood and counts how much of it BINDS.
+    /// A sweep that never binds is a sweep that proves nothing here, which is why the
+    /// count is asserted rather than trusted.
     func testHighlightsAndShadowsStayOutOfEachOthersTerritory() {
-        let h = ToneEngine(tone: Tone(highlights: 100))
-        let s = ToneEngine(tone: Tone(shadows: 100))
-        XCTAssertEqual(h.stops(at: -3), 0, accuracy: 1e-9)
-        XCTAssertEqual(s.stops(at: 3), 0, accuracy: 1e-9)
+        // The original one-slider slices, kept and tightened.
+        XCTAssertEqual(ToneEngine(tone: Tone(highlights: 100)).stops(at: -3), 0,
+                       accuracy: 1e-12)
+        XCTAssertEqual(ToneEngine(tone: Tone(shadows: 100)).stops(at: 3), 0,
+                       accuracy: 1e-12)
+
+        let below = stride(from: -12.0, through: 0.0, by: 0.25).map { $0 }
+        let above = stride(from: 0.0, through: 7.0, by: 0.25).map { $0 }
+        var binding = 0
+        var settings = 0
+        var worstLeak = (amount: 0.0, label: "")
+
+        for contrast in [-100.0, -60, 0, 60] {
+            for pivot in [-3.0, 0, 3] {
+                for whites in [-100.0, 0, 20, 100] {
+                    for blacks in [-100.0, 0, 100] {
+                        for partner in [-100.0, -60, 0, 60, 100] {
+                            // Highlights against a fixed everything-else. Nothing at or
+                            // below mid-grey may move, at any setting of Highlights.
+                            var reference: [Double]?
+                            for highlights in stride(from: -100.0, through: 100,
+                                                     by: 10.0) {
+                                let e = ToneEngine(tone: Tone(
+                                    contrast: contrast, contrastPivot: pivot,
+                                    highlights: highlights, shadows: partner,
+                                    whites: whites, blacks: blacks))
+                                settings += 1
+                                if e.zonalScale < 1 - 1e-12 { binding += 1 }
+                                let probe = below.map { e.stops(at: $0) }
+                                if let base = reference {
+                                    for (i, v) in probe.enumerated()
+                                    where abs(v - base[i]) > worstLeak.amount {
+                                        worstLeak = (abs(v - base[i]),
+                                                     "Highlights \(highlights) moved "
+                                                        + "\(below[i]) EV by "
+                                                        + "\(v - base[i]) stops at "
+                                                        + "c\(contrast) p\(pivot) "
+                                                        + "s\(partner) w\(whites) "
+                                                        + "b\(blacks)")
+                                    }
+                                } else {
+                                    reference = probe
+                                }
+                            }
+                            // Shadows against a fixed everything-else, mirrored.
+                            reference = nil
+                            for shadows in stride(from: -100.0, through: 100, by: 10.0) {
+                                let e = ToneEngine(tone: Tone(
+                                    contrast: contrast, contrastPivot: pivot,
+                                    highlights: partner, shadows: shadows,
+                                    whites: whites, blacks: blacks))
+                                settings += 1
+                                if e.zonalScale < 1 - 1e-12 { binding += 1 }
+                                let probe = above.map { e.stops(at: $0) }
+                                if let base = reference {
+                                    for (i, v) in probe.enumerated()
+                                    where abs(v - base[i]) > worstLeak.amount {
+                                        worstLeak = (abs(v - base[i]),
+                                                     "Shadows \(shadows) moved "
+                                                        + "\(above[i]) EV by "
+                                                        + "\(v - base[i]) stops at "
+                                                        + "c\(contrast) p\(pivot) "
+                                                        + "h\(partner) w\(whites) "
+                                                        + "b\(blacks)")
+                                    }
+                                } else {
+                                    reference = probe
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // The sweep has to spend real time where the scale is doing something, or it is
+        // the old test with more loops around it. The old independence check skipped
+        // every binding case by construction and that is exactly what it missed.
+        XCTAssertGreaterThan(binding, settings / 10,
+                             "only \(binding) of \(settings) settings bound the zonal "
+                                 + "limiter — this sweep is not testing the coupling")
+        XCTAssertEqual(worstLeak.amount, 0, accuracy: 1e-12, worstLeak.label)
     }
 
     /// Whites and Blacks move the anchors AND carry a tonal shelf of their own.
