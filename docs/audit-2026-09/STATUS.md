@@ -52,6 +52,32 @@ two surface-checker false-finding classes
   INDEPENDENTLY rather than recording what Swift says — three derivations, identical
   doubles (`29.738156229300458` at 2500 K). Daylight keeps its whole range with 2.2
   units of margin, now stated as a margin and pinned from both sides.
+- **Saturation turned every colour as it strengthened it — FIXED, with ceremony.**
+  Density's subtractive push raises channel ratios to a power in linear RGB, and a
+  log-RGB ray is not an iso-hue line in OKLab. At the shipped default, Saturation
+  rotated hue by 2.14 deg at +10 rising to 11.57 deg at +100, and 7.29 deg on the skin
+  band — "why do skin tones go orange". Now 0.000 deg (about 1e-12, the OKLCh round
+  trip) by construction. The darkening the dial is FOR survives, pinned by its own test.
+  Ceremony: exactly two of 135 records can move, because only `color.saturation` and
+  `color.density` put a positive saturation into the recipe; `color.vibrance` and
+  `color.protectSkin` set vibrance and were measured BYTE-IDENTICAL, which proves the
+  guard by measurement. `color.saturation` hueRotation 14.350459 -> 8.381810,
+  `color.density` 6.504056 -> 3.587667, authority holding in both (137.89 -> 137.44,
+  35.52 -> 36.88 — Density's RISES).
+- **The proof lane could say a control moved but not which one — FIXED.** Its failure
+  summary grepped `: error: -[`, which is Apple XCTest's `-[Class test]`. The job runs
+  on ubuntu, where swift-corelibs writes `Class.test : XCTAssert...` with no brackets,
+  so the pattern matched NOTHING and every failing sweep printed an empty failures list
+  under a non-zero exit. Then, once fixed, it named the TEST and still not the control,
+  because the assertion message is multi-line and grep prints matching lines: `-A 12`
+  carries the block. A ceremony that cannot say what moved is not a ceremony.
+- **The proof lane is red on something that predates tonight's colour work.** Its last
+  completed sweep failed at 05:27, an hour BEFORE the magenta bound landed at 06:25,
+  and was unreadable for the reason above. The `sharpen.*` records are the likely cause
+  — E2-04's frame migration was approved as pixel-moving and its re-pin was recorded as
+  open and never done. Deliberately NOT re-pinned here: re-pinning a number nobody has
+  explained is the one thing this ceremony exists to prevent. The next sweep will name
+  it, which is what the two fixes above buy.
 - **Two grade limiters each spend 95% of the SAME slope budget.** `solveLumScale`
   (the wheels' Luminance rings) and `solveBrillianceScale` (Colour Balance) each solve
   `1 + 3*slope >= 0.05` — each permitted to hand away 0.95 of a base slope of 1. They
