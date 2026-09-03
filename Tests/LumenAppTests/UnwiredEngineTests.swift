@@ -514,29 +514,72 @@ final class UnwiredEngineTests: XCTestCase {
                                  + "identity cube")
     }
 
-    /// WHAT AN IMPORTER WOULD ACTUALLY BE HANDED, measured rather than assumed. Three of
+    /// WHAT AN IMPORTER WOULD ACTUALLY BE HANDED, measured rather than assumed. Two of
     /// these five are rejections a `.cube` file from a real LUT pack can hit, and an
     /// import row that does not say so turns a supported file into "nothing happened".
+    ///
+    /// TWO MORE USED TO BE REJECTIONS AND WERE RECORDED HERE AS DEFECTS: a Windows
+    /// (CRLF) cube and a tab-separated one both came back nil, because the parser split
+    /// lines on a literal newline and fields on a literal space, so every value line
+    /// kept a trailing carriage return and `Float("0.5\r")` is nil. That is fixed —
+    /// `LUT3D.fromCubeFile` splits on `isNewline` and `isWhitespace` and trims
+    /// `.whitespacesAndNewlines` (`LUT.swift:351-354`) — so the two expectations are
+    /// INVERTED here rather than deleted, and the recorded defect becomes pinned
+    /// behaviour.
+    ///
+    /// Non-nil is deliberately not the claim. A line-ending fix that dropped or shifted
+    /// one field would still return a cube; what is asserted is that the same numbers
+    /// come back, sample for sample, against a literal table written out below.
+    /// (The parser's own suite is `LumenCoreTests/CubeParserTests.swift`; this pair
+    /// stays here so the file that recorded the defect is the file that retires it.)
     func testTheCubeParserAcceptsOnlyTheFormsItReallyAccepts() {
         XCTAssertNotNil(LUT3D.fromCubeFile("# a comment\n\n" + Self.redInvertingCube),
                         "comments and blank lines are part of the format")
         XCTAssertNil(LUT3D.fromCubeFile("LUT_1D_SIZE 4\n0 0 0\n1 1 1\n"),
                      "1-D cubes are refused by name, which is the right answer and has "
                          + "to be a NAMED one in any importer")
-        XCTAssertNil(
-            LUT3D.fromCubeFile(Self.redInvertingCube.replacingOccurrences(of: "\n",
-                                                                         with: "\r\n")),
-            "a CRLF cube parses today; if that has been fixed, this expectation is the "
-                + "thing to delete — the parser splits on \\n and trims only spaces and "
-                + "tabs, so every value line keeps a trailing carriage return and fails "
-                + "`Float(_:)`. Most .cube files in circulation were written on Windows")
-        XCTAssertNil(
-            LUT3D.fromCubeFile(Self.redInvertingCube.replacingOccurrences(of: " 0.",
-                                                                         with: "\t0.")),
-            "a tab-separated cube parses today; same note as above — the value split is "
-                + "on a literal space")
+        assertParsesToTheRedInvertingCube(
+            Self.redInvertingCube.replacingOccurrences(of: "\n", with: "\r\n"),
+            "a CRLF cube")
+        assertParsesToTheRedInvertingCube(
+            Self.redInvertingCube.replacingOccurrences(of: " 0.", with: "\t0."),
+            "a tab-separated cube")
         XCTAssertNil(LUT3D.fromCubeFile("LUT_3D_SIZE 4\n0.1 0.2\n"),
                      "a truncated triple is not a cube")
+    }
+
+    /// The whole of a 2×2×2 cube: eight entries of FOUR floats — R, G, B, and an alpha
+    /// the parser writes as 1 — in the format's order, red varying fastest, then green,
+    /// then blue. `LUT3D.data` is RGBA-packed to match `CIColorCube`, which is why the
+    /// count is 32 and not 24, and why `LUT3D.init(size:data:)` preconditions on
+    /// `size³ × 4`. Written out in full so a parse that drops the alpha, drops a row, or
+    /// transposes the axis order fails on the number that moved.
+    private static let redInvertingCubeData: [Float] = [
+        1, 0, 0, 1, 0, 0, 0, 1,     // b = 0, g = 0: r = 0, r = 1
+        1, 1, 0, 1, 0, 1, 0, 1,     // b = 0, g = 1
+        1, 0, 1, 1, 0, 0, 1, 1,     // b = 1, g = 0
+        1, 1, 1, 1, 0, 1, 1, 1,     // b = 1, g = 1
+    ]
+
+    /// Asserts a cube parsed to the red-inverting table itself, not merely to a table.
+    private func assertParsesToTheRedInvertingCube(_ text: String,
+                                                  _ what: String,
+                                                  file: StaticString = #filePath,
+                                                  line: UInt = #line) {
+        guard let lut = LUT3D.fromCubeFile(text) else {
+            return XCTFail("\(what) was rejected as malformed; this file used to RECORD "
+                               + "that rejection, so a regression here is a return to a "
+                               + "known defect rather than a new one",
+                           file: file, line: line)
+        }
+        XCTAssertEqual(lut.size, 2, "\(what): wrong cube size", file: file, line: line)
+        XCTAssertEqual(lut.data, Self.redInvertingCubeData,
+                       "\(what): parsed, but not to the numbers the file carries",
+                       file: file, line: line)
+        XCTAssertEqual(lut, LUT3D.fromCubeFile(Self.redInvertingCube),
+                       "\(what): parsed to a different table than the same cube written "
+                           + "with newline separators and spaces",
+                       file: file, line: line)
     }
 
     /// AND THE REASON THERE IS NO IMPORT ROW. Two recipes differing only in `look.lut`
