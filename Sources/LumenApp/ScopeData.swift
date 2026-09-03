@@ -184,6 +184,21 @@ extension AppState {
         // The frame cannot be un-proofed from here; what can be fixed from here is the
         // instrument's silence about it.
         let proof = activeSoftProof
+        // AND HOW MUCH OF THE PHOTOGRAPH IT IS. A zoomed loupe renders the visible
+        // rectangle and nothing else (`LoupeView.requestedRegion`), so above fit the
+        // frame handed here is a corner of the picture — which the developed-thumbnail
+        // cache four lines below the call site already refuses for exactly this reason
+        // ("a zoomed settle covers a rectangle, not the frame"), while the scopes took
+        // it and said nothing.
+        //
+        // `zoomLevel > 0` is the first clause of `regionActive` and the only one visible
+        // from here; the rest (an overlay, a masking workspace, an armed crop) can each
+        // stand the region ask down, so this errs toward disclosing. That is the right
+        // direction to be wrong in: every one of those states also puts something
+        // unusual in the frame, and the alternative is a silent corner. The exact answer
+        // is `model.regionUnit != nil`, which only `LoupeView` can pass.
+        let coverage: ScopeReadout.Provenance.Coverage =
+            zoomLevel > 0 ? .visibleRegion : .wholeFrame
         Task { [weak self] in
             let data = await Task.detached(priority: .utility) { () -> ScopeData? in
                 guard let buffer = AppState.buffer(
@@ -192,7 +207,8 @@ extension AppState {
                 var measured = AppState.measure(buffer, includeScopes: wantsScopes,
                                                 readout: space,
                                                 tap: AppState.scopeTap(from: image),
-                                                frame: .viewerFrame, proof: proof)
+                                                frame: .viewerFrame, coverage: coverage,
+                                                proof: proof)
                 if let waveform = measured.waveform {
                     measured.waveformImage = ScopeRaster.waveform(
                         waveform, peak: waveform.peak, tint: ScopeTint.neutral)
@@ -354,6 +370,8 @@ extension AppState {
                                     readout: ReadoutSpace,
                                     tap: ScopeTap?,
                                     frame: ScopeReadout.Provenance.Frame,
+                                    coverage: ScopeReadout.Provenance.Coverage
+                                        = .wholeFrame,
                                     proof: SoftProof?) -> ScopeData {
         var data = ScopeData()
         let transform = AppState.scopeTransform(requested: readout)
@@ -364,8 +382,8 @@ extension AppState {
             exact = true
         }
         data.histogram = histogram
-        data.provenance = AppState.provenance(frame: frame, proof: proof,
-                                              exactCounts: exact)
+        data.provenance = AppState.provenance(frame: frame, coverage: coverage,
+                                              proof: proof, exactCounts: exact)
         if includeScopes {
             // `traceColumns`, not 256 (W2/H2-04). `Waveform.compute` maps source column
             // x to `(x * columns) / width`, so a proxy narrower than the ask leaves
@@ -389,12 +407,14 @@ extension AppState {
     /// the pixels the binner walks — `PipelineRenderer.deliveredProof` strips exactly
     /// this pair on the way to a file, for the same reason.
     nonisolated static func provenance(frame: ScopeReadout.Provenance.Frame,
+                                       coverage: ScopeReadout.Provenance.Coverage
+                                           = .wholeFrame,
                                        proof: SoftProof?,
                                        exactCounts: Bool) -> ScopeReadout.Provenance {
         let on: Bool = proof?.enabled == true
         let paint: Bool = on
             && ((proof?.showGamutWarning ?? false) || (proof?.simulatePaperWhite ?? false))
-        return ScopeReadout.Provenance(frame: frame, proofed: on,
+        return ScopeReadout.Provenance(frame: frame, coverage: coverage, proofed: on,
                                        instrumentPaint: paint, exactCounts: exactCounts)
     }
 
@@ -535,11 +555,15 @@ extension AppState {
             let r: Int = Int(bytes[i])
             let g: Int = Int(bytes[i + 1])
             let b: Int = Int(bytes[i + 2])
-            if r <= lowCode { lowR += 1 } else if r >= highCode { highR += 1 }
-            if g <= lowCode { lowG += 1 } else if g >= highCode { highG += 1 }
-            if b <= lowCode { lowB += 1 } else if b >= highCode { highB += 1 }
+            if r <= lowCode { lowR += 1 }
+            if r >= highCode { highR += 1 }
+            if g <= lowCode { lowG += 1 }
+            if g >= highCode { highG += 1 }
+            if b <= lowCode { lowB += 1 }
+            if b >= highCode { highB += 1 }
             let y: Double = wr[r] + wg[g] + wb[b]
-            if y <= epsilon { lumaLow += 1 } else if y >= 1 - epsilon { lumaHigh += 1 }
+            if y <= epsilon { lumaLow += 1 }
+            if y >= 1 - epsilon { lumaHigh += 1 }
             p += 1
         }
 

@@ -415,6 +415,63 @@ final class MaskPanelTests: XCTestCase {
         }
     }
 
+    // MARK: - (f) Where a dragged mask lands
+
+    /// The rule a photographer can predict without being told: the dragged mask ends up
+    /// at the index the mask it was dropped on used to occupy, and everything else keeps
+    /// its relative order.
+    ///
+    /// Both directions, because the insertion index is the same expression for both and
+    /// that is only obvious once it has been checked: dragging DOWN, the removal has
+    /// already shifted the target to `to - 1`, so inserting at `to` puts the dragged mask
+    /// just after it; dragging UP, the target has not moved and inserting at `to` puts it
+    /// just before. One expression, two arguments.
+    func testADroppedMaskTakesTheIndexOfTheMaskItLandedOn() {
+        let list = ["a", "b", "c", "d"].map { Mask(id: $0) }
+        XCTAssertEqual(MaskPanel.reordered(list, moving: "a", onto: "c").map(\.id),
+                       ["b", "c", "a", "d"], "dragging down")
+        XCTAssertEqual(MaskPanel.reordered(list, moving: "d", onto: "b").map(\.id),
+                       ["a", "d", "b", "c"], "dragging up")
+        XCTAssertEqual(MaskPanel.reordered(list, moving: "a", onto: "b").map(\.id),
+                       ["b", "a", "c", "d"], "one place down")
+    }
+
+    /// Order is a render fact, so a reorder that quietly does nothing is worse than one
+    /// that is refused: both renderers walk `plan.masks` front to back, and where two
+    /// masks overlap the later one works on the earlier one's output.
+    func testAnImpossibleDropChangesNothingRatherThanGuessing() {
+        let list = ["a", "b"].map { Mask(id: $0) }
+        XCTAssertEqual(MaskPanel.reordered(list, moving: "a", onto: "a").map(\.id),
+                       ["a", "b"], "onto itself")
+        XCTAssertEqual(MaskPanel.reordered(list, moving: "ghost", onto: "b").map(\.id),
+                       ["a", "b"], "a mask that is not in the list")
+        XCTAssertEqual(MaskPanel.reordered(list, moving: "a", onto: "ghost").map(\.id),
+                       ["a", "b"], "a target that is not in the list")
+        XCTAssertEqual(MaskPanel.reordered([], moving: "a", onto: "b").count, 0)
+    }
+
+    /// IT ADOPTS THE TARGET'S FOLDER, and that is not a convenience.
+    ///
+    /// The list draws each group's members together and the loose masks after them, so a
+    /// mask dropped between two members of a folder that did NOT join the folder would be
+    /// drawn somewhere else entirely — the drop would read as refused, or worse, as
+    /// having moved it somewhere at random.
+    func testADroppedMaskJoinsTheFolderItLandedIn() {
+        var list = ["a", "b", "c"].map { Mask(id: $0) }
+        list[1].group = "sky"
+        list[2].group = "sky"
+        let after = MaskPanel.reordered(list, moving: "a", onto: "c")
+        XCTAssertEqual(after.map(\.id), ["b", "c", "a"])
+        XCTAssertEqual(after.first { $0.id == "a" }?.group, "sky",
+                       "a mask drawn among a folder's members is in that folder")
+
+        // The rule holds dragging the other way too, which is what makes it a rule
+        // rather than a special case for downward drops.
+        let back = MaskPanel.reordered(after, moving: "a", onto: "b")
+        XCTAssertEqual(back.map(\.id), ["a", "b", "c"])
+        XCTAssertEqual(back.first { $0.id == "a" }?.group, "sky")
+    }
+
     // MARK: - The scan's own foundation
 
     /// THE STRIPPER IS WHAT MAKES EVERY SCAN ABOVE MEAN ANYTHING, so it is asserted

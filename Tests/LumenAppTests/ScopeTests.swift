@@ -144,15 +144,17 @@ final class ScopeTests: XCTestCase {
     /// The provenance note is a full-width caption row, so it gets the whole content
     /// width — but it is generated text and every branch of it has to fit.
     func testEveryProvenanceNoteFitsTheColumnAtItsMinimumWidth() {
-        var notes: [String] = []
+        var notes: [String] = [ScopeReadout.Provenance.noteWidestCase]
         for frame in [ScopeReadout.Provenance.Frame.viewerFrame, .commissionedRender] {
-            for proofed in [false, true] {
-                for paint in [false, true] {
-                    for exact in [false, true] {
-                        let p = ScopeReadout.Provenance(frame: frame, proofed: proofed,
-                                                        instrumentPaint: paint,
-                                                        exactCounts: exact)
-                        if let note = p.note { notes.append(note) }
+            for coverage in [ScopeReadout.Provenance.Coverage.wholeFrame, .visibleRegion] {
+                for proofed in [false, true] {
+                    for paint in [false, true] {
+                        for exact in [false, true] {
+                            let p = ScopeReadout.Provenance(
+                                frame: frame, coverage: coverage, proofed: proofed,
+                                instrumentPaint: paint, exactCounts: exact)
+                            if let note = p.note { notes.append(note) }
+                        }
                     }
                 }
             }
@@ -212,6 +214,7 @@ final class ScopeTests: XCTestCase {
         var proof = SoftProof(enabled: true, showGamutWarning: false,
                               simulatePaperWhite: false)
         var p = AppState.provenance(frame: .viewerFrame, proof: proof, exactCounts: true)
+        XCTAssertEqual(p.coverage, .wholeFrame)
         XCTAssertTrue(p.proofed)
         XCTAssertFalse(p.instrumentPaint, "space and intent are a mapping, not a warning")
 
@@ -242,7 +245,7 @@ final class ScopeTests: XCTestCase {
         let p = AppState.provenance(frame: .viewerFrame,
                                     proof: SoftProof(enabled: true), exactCounts: true)
         XCTAssertTrue(p.instrumentPaint)
-        XCTAssertEqual(p.note, "Measuring the soft proof, gamut flag included")
+        XCTAssertEqual(p.note, "Binned: soft proof + gamut flag")
     }
 
     /// End to end through the real measurement: the provenance rides the data, and the

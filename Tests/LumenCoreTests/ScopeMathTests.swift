@@ -347,6 +347,47 @@ final class ScopeMathTests: XCTestCase {
         XCTAssertEqual(ScopeReadout.shortSpaceLabel(.outputProfile), "Output 255")
     }
 
+    // MARK: - The clipping predicate, and why the counter may compare instead of bin
+
+    /// `AppState.clipCounts` used to build three 256-entry code histograms and then read
+    /// them at exactly two indices — everything at or below `lowCode`, everything at or
+    /// above `highCode`. It now compares each code directly, which is only the same
+    /// measurement if the predicates are monotone in the code: `decode(c/255) ≤ ε` true
+    /// for a PREFIX of the range and `≥ 1 − ε` true for a SUFFIX, with nothing in
+    /// between qualifying.
+    ///
+    /// That is the sRGB TRC being monotone, which is true — and is exactly the kind of
+    /// "obviously true" that is worth an assertion when a per-pixel loop is rewritten
+    /// around it. All 256 codes, both ends, both directions.
+    func testTheClippingPredicatesAreMonotoneInTheCode() {
+        let epsilon = Histogram.clipEpsilon
+        var linear = [Double](repeating: 0, count: 256)
+        for c in 0..<256 { linear[c] = TransferFunction.srgb.decode(Double(c) / 255) }
+
+        var lowCode = -1
+        var highCode = 256
+        for c in 0..<256 {
+            if linear[c] <= epsilon { lowCode = c }
+            if linear[c] >= 1 - epsilon && c < highCode { highCode = c }
+        }
+        XCTAssertEqual(lowCode, 0, "only code 0 decodes to at or below epsilon")
+        XCTAssertEqual(highCode, 255, "and only code 255 reaches the ceiling")
+
+        for c in 0..<256 {
+            XCTAssertEqual(c <= lowCode, linear[c] <= epsilon,
+                           "code \(c): the prefix comparison must be the predicate")
+            XCTAssertEqual(c >= highCode, linear[c] >= 1 - epsilon,
+                           "code \(c): the suffix comparison must be the predicate")
+        }
+
+        // The neighbours, which are what make the thresholds meaningful rather than
+        // arbitrary: code 1 misses the floor and code 254 misses the ceiling.
+        XCTAssertEqual(linear[1], 0.000303527, accuracy: 1e-9)
+        XCTAssertGreaterThan(linear[1], epsilon)
+        XCTAssertEqual(linear[254], 0.991102, accuracy: 1e-6)
+        XCTAssertLessThan(linear[254], 1 - epsilon)
+    }
+
     // MARK: - What the luma trace is weighted by
 
     /// The label is not a caption someone typed: it is read off the transform the trace
@@ -382,14 +423,18 @@ final class ScopeMathTests: XCTestCase {
 
     // MARK: - Which image the numbers came off
 
-    /// The plain case spends no chrome: the frame on screen, no proof, counted exactly.
+    /// The plain case spends no chrome: the whole frame on screen, no proof, counted
+    /// exactly.
     func testThePlainMeasurementDisclosesNothingBecauseThereIsNothingToDisclose() {
         let plain = ScopeReadout.Provenance(frame: .viewerFrame, proofed: false,
                                             instrumentPaint: false, exactCounts: true)
         XCTAssertTrue(plain.isPlain)
         XCTAssertNil(plain.note)
+        XCTAssertTrue(plain.clauses.isEmpty)
         XCTAssertTrue(plain.statement(readout: .srgb255)
             .contains("frame on screen, after the display transform"))
+        XCTAssertTrue(plain.statement(readout: .srgb255)
+            .contains("covering the whole frame"))
         XCTAssertTrue(plain.statement(readout: .srgb255)
             .contains("counted over every pixel"))
     }
@@ -399,12 +444,12 @@ final class ScopeMathTests: XCTestCase {
     func testAProofedFrameSaysSoAndAFlaggedOneSaysMore() {
         let proofed = ScopeReadout.Provenance(frame: .viewerFrame, proofed: true,
                                               instrumentPaint: false, exactCounts: true)
-        XCTAssertEqual(proofed.note, "Measuring the soft proof")
+        XCTAssertEqual(proofed.note, "Binned: soft proof")
         XCTAssertFalse(proofed.isPlain)
 
         let flagged = ScopeReadout.Provenance(frame: .viewerFrame, proofed: true,
                                               instrumentPaint: true, exactCounts: true)
-        XCTAssertEqual(flagged.note, "Measuring the soft proof, gamut flag included")
+        XCTAssertEqual(flagged.note, "Binned: soft proof + gamut flag")
         XCTAssertTrue(flagged.statement(readout: .srgb255)
             .contains("flat grey over out-of-gamut pixels is binned as picture"))
 
@@ -416,13 +461,56 @@ final class ScopeMathTests: XCTestCase {
         XCTAssertNil(impossible.note)
     }
 
+    /// A zoomed loupe hands the scopes the visible rectangle, not the photograph. That
+    /// is a legitimate thing to measure and an illegitimate thing to leave unsaid.
+    func testAZoomedFrameSaysItIsMeasuringACorner() {
+        let zoomed = ScopeReadout.Provenance(frame: .viewerFrame,
+                                             coverage: .visibleRegion, proofed: false,
+                                             instrumentPaint: false, exactCounts: true)
+        XCTAssertEqual(zoomed.note, "Binned: visible region only")
+        XCTAssertFalse(zoomed.isPlain)
+        XCTAssertTrue(zoomed.statement(readout: .srgb255)
+            .contains("ONLY the rectangle on screen"))
+    }
+
+    /// Two things wrong at once still fit one line: the note takes the two worst clauses
+    /// and leaves the rest to the tooltip, because four joined would be 97 characters in
+    /// a slot 320 points wide and a truncated disclosure is worse than none.
+    func testTheNoteNeverGrowsPastTwoClauses() {
+        let everything = ScopeReadout.Provenance(frame: .commissionedRender,
+                                                 coverage: .visibleRegion, proofed: true,
+                                                 instrumentPaint: true,
+                                                 exactCounts: false)
+        XCTAssertEqual(everything.clauses.count, 4)
+        XCTAssertEqual(everything.note, ScopeReadout.Provenance.noteWidestCase)
+        XCTAssertEqual(ScopeReadout.Provenance.noteWidestCase.count, 53)
+
+        // And the pinned worst case is the longest note the assembly can emit.
+        var longest = 0
+        for frame in [ScopeReadout.Provenance.Frame.viewerFrame, .commissionedRender] {
+            for coverage in [ScopeReadout.Provenance.Coverage.wholeFrame, .visibleRegion] {
+                for proofed in [false, true] {
+                    for paint in [false, true] {
+                        for exact in [false, true] {
+                            let p = ScopeReadout.Provenance(
+                                frame: frame, coverage: coverage, proofed: proofed,
+                                instrumentPaint: paint, exactCounts: exact)
+                            longest = max(longest, p.note?.count ?? 0)
+                        }
+                    }
+                }
+            }
+        }
+        XCTAssertEqual(longest, ScopeReadout.Provenance.noteWidestCase.count)
+    }
+
     /// The grid's feed measures a render commissioned without a proof — so with ⇧S on,
     /// the two surfaces genuinely measure two different pictures, and the panel says
     /// which one it has.
     func testTheCommissionedRenderSaysItHasNoProof() {
         let grid = ScopeReadout.Provenance(frame: .commissionedRender, proofed: false,
                                            instrumentPaint: false, exactCounts: true)
-        XCTAssertEqual(grid.note, "Measuring a scope render — no soft proof")
+        XCTAssertEqual(grid.note, "Binned: scope render, no proof")
         XCTAssertTrue(grid.statement(readout: .srgb255)
             .contains("commissioned for the scopes"))
     }
@@ -434,7 +522,7 @@ final class ScopeMathTests: XCTestCase {
         let estimated = ScopeReadout.Provenance(frame: .viewerFrame, proofed: false,
                                                 instrumentPaint: false,
                                                 exactCounts: false)
-        XCTAssertEqual(estimated.note, "Clipping % estimated from the proxy")
+        XCTAssertEqual(estimated.note, "Binned: clipping % estimated")
         XCTAssertTrue(estimated.statement(readout: .srgb255)
             .contains("smaller than one box is invisible to it"))
     }
@@ -473,7 +561,7 @@ final class ScopeMathTests: XCTestCase {
                       "H2-04: the column count is a decision about the proxy's width")
         XCTAssertFalse(source.contains("columns: 256"),
                        "a fixed 256 is what leaves a narrow crop full of blank columns")
-        XCTAssertTrue(source.contains("frame: .viewerFrame, proof: proof"),
+        XCTAssertTrue(source.contains("frame: .viewerFrame, coverage: coverage,"),
                       "the loupe feed records that it binned the frame on screen, "
                       + "soft proof and all")
         XCTAssertTrue(source.contains("frame: .commissionedRender, proof: nil"),

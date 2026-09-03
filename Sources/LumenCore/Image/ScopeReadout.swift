@@ -245,7 +245,26 @@ public enum ScopeReadout {
             case commissionedRender
         }
 
+        public enum Coverage: String, Sendable, Equatable {
+            /// The whole photograph, as cropped.
+            case wholeFrame
+            /// Only the rectangle the viewer is showing — a zoomed loupe renders the
+            /// visible region and nothing else.
+            case visibleRegion
+        }
+
         public let frame: Frame
+        /// Whether those pixels are the whole photograph or only the part of it on
+        /// screen.
+        ///
+        /// A zoomed loupe renders the VISIBLE RECTANGLE, not the frame — the file that
+        /// caches developed thumbnails already refuses a region frame for exactly this
+        /// reason ("a zoomed settle covers a rectangle, not the frame"). The scopes take
+        /// the same frames and did not, so at 1:1 on a corner of a photograph the
+        /// histogram described that corner and said nothing. Both answers are defensible
+        /// — Resolve scopes the viewer, Lightroom scopes the image — but only if the
+        /// panel says which.
+        public let coverage: Coverage
         /// The soft proof's gamut mapping — space and intent — is in these pixels.
         public let proofed: Bool
         /// So is a proofing INSTRUMENT: the out-of-gamut flag's flat grey
@@ -258,38 +277,50 @@ public enum ScopeReadout {
         /// smaller than one box).
         public let exactCounts: Bool
 
-        public init(frame: Frame, proofed: Bool, instrumentPaint: Bool,
-                    exactCounts: Bool) {
+        public init(frame: Frame, coverage: Coverage = .wholeFrame,
+                    proofed: Bool, instrumentPaint: Bool, exactCounts: Bool) {
             self.frame = frame
+            self.coverage = coverage
             self.proofed = proofed
             self.instrumentPaint = instrumentPaint && proofed
             self.exactCounts = exactCounts
         }
 
-        /// The plain case: the frame on screen, unproofed, counted exactly. Nothing to
-        /// disclose, so `note` is nil and the panel spends no chrome.
+        /// The plain case: the whole frame on screen, unproofed, counted exactly.
+        /// Nothing to disclose, so `note` is nil and the panel spends no chrome.
         public var isPlain: Bool {
-            frame == .viewerFrame && !proofed && exactCounts
+            frame == .viewerFrame && coverage == .wholeFrame && !proofed && exactCounts
         }
 
-        /// One short line for the panel, or nil when there is nothing a photographer
-        /// would be surprised by. Ordered worst first: a scope binning the gamut flag is
-        /// a scope measuring its own warning, and that outranks everything else here.
-        public var note: String? {
-            if instrumentPaint {
-                return "Measuring the soft proof, gamut flag included"
-            }
-            if proofed {
-                return "Measuring the soft proof"
-            }
-            if frame == .commissionedRender {
-                return "Measuring a scope render — no soft proof"
-            }
-            if !exactCounts {
-                return "Clipping % estimated from the proxy"
-            }
-            return nil
+        /// Everything about this measurement a photographer would be surprised by,
+        /// worst first — a scope binning its own gamut warning outranks a scope binning
+        /// the visible corner, which outranks a proof, which outranks an estimate.
+        public var clauses: [String] {
+            var out: [String] = []
+            if instrumentPaint { out.append("soft proof + gamut flag") }
+            else if proofed { out.append("soft proof") }
+            if coverage == .visibleRegion { out.append("visible region only") }
+            if frame == .commissionedRender { out.append("scope render, no proof") }
+            if !exactCounts { out.append("clipping % estimated") }
+            return out
         }
+
+        /// One short line for the panel, or nil when there is nothing to say.
+        ///
+        /// AT MOST TWO CLAUSES. The line is a fixed slot — the develop column can be
+        /// dragged down to 320 points — and four clauses joined would be 97 characters
+        /// and truncate, which turns a disclosure into a worse silence than none. The
+        /// rest is in `statement`, which is the tooltip and has room.
+        public var note: String? {
+            let clauses = self.clauses
+            guard !clauses.isEmpty else { return nil }
+            return "Binned: " + clauses.prefix(2).joined(separator: " · ")
+        }
+
+        /// The widest `note` the assembly above can produce, for a layout budget to be
+        /// checked against.
+        public static let noteWidestCase: String =
+            "Binned: soft proof + gamut flag · visible region only"
 
         /// The whole sentence, for the tooltip: what was measured, in what, counted how.
         public func statement(readout: ReadoutSpace) -> String {
@@ -307,6 +338,10 @@ public enum ScopeReadout {
             } else {
                 out += "; the soft proof is not applied to this render"
             }
+            out += coverage == .visibleRegion
+                ? ", covering ONLY the rectangle on screen rather than the whole "
+                    + "photograph (zoom to fit to measure the frame)"
+                : ", covering the whole frame"
             out += ". Axis: " + readout.label + ". "
             out += exactCounts
                 ? "Clipping % counted over every pixel of that frame."

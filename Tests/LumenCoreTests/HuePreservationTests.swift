@@ -78,9 +78,25 @@ final class HuePreservationTests: XCTestCase {
 
     private func lch(_ c: RGB) -> OKLCh { Self.context.toLCh(c) }
 
-    /// Signed hue movement in degrees, input → output.
-    private func hueMove(_ input: RGB, _ output: RGB) -> Double {
-        Num.hueDelta(lch(input).h, lch(output).h)
+    /// Below this chroma a colour HAS no hue — the angle is the arctangent of two
+    /// numbers that are both noise, and the engine says so itself: `chromaGate` is
+    /// exactly zero at and below `gateLoChroma`, and no hue-selective tool is allowed
+    /// to act on a pixel there.
+    ///
+    /// It has to be said out loud in the test too, because a sweep that reads hue off
+    /// the output finds it the hard way. Saturation −100 and Vibrance −100 both drive
+    /// chroma to exactly zero — that is what they are FOR — and the hue of an exact
+    /// neutral came back 180° from where it started. Reported as a defect, that reads
+    /// "Vibrance −100 rotated hue by 180.000°"; it is nothing of the kind, and a grid
+    /// that cannot tell the two apart would have sent a fleet chasing it.
+    private static let hueIsMeaningful: Double = ColorEngine.gateLoChroma
+
+    /// Signed hue movement in degrees, input → output. `nil` when either end has no
+    /// hue to speak of.
+    private func hueMove(_ input: RGB, _ output: RGB) -> Double? {
+        let a = lch(input), b = lch(output)
+        guard a.C > Self.hueIsMeaningful, b.C > Self.hueIsMeaningful else { return nil }
+        return Num.hueDelta(a.h, b.h)
     }
 
     private func colorEngine(_ color: ColorAdjust,
@@ -98,8 +114,7 @@ final class HuePreservationTests: XCTestCase {
         var at: Sample?
         for s in samples {
             let out = engine.apply(s.rgb)
-            guard out.isFinite else { continue }
-            let d = abs(hueMove(s.rgb, out))
+            guard out.isFinite, let d = hueMove(s.rgb, out).map(abs) else { continue }
             if d > worst { worst = d; at = s }
         }
         return (worst, at)

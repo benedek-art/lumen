@@ -562,9 +562,12 @@ final class UnwiredEngineTests: XCTestCase {
     }
 
     func testTheCubeParserHasNoAppLayerCallerUntilAStageExists() {
-        XCTAssertTrue(sitesOf("LUT3D.fromCubeFile(").isEmpty,
+        // Scanned once into a local rather than twice — the assertion and its message
+        // were walking every file in the app target for the same needle.
+        let callers = sitesOf("LUT3D.fromCubeFile(")
+        XCTAssertTrue(callers.isEmpty,
                       "an import path has appeared in "
-                          + "\(sitesOf("LUT3D.fromCubeFile(").joined(separator: ", "))"
+                          + callers.joined(separator: ", ")
                           + " — check that a render stage reads `look.lut` before this "
                           + "expectation is relaxed, because the parser working has "
                           + "never been the thing standing between a photographer and a "

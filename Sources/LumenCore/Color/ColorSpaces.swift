@@ -156,12 +156,34 @@ public enum ChromaticAdaptation {
         -0.7502, 1.7135, 0.0367,
         0.0389, -0.0685, 1.0296)
 
+    /// THE TWO INVERSES, ONCE, beside the matrices they invert — the same treatment
+    /// `OKLabTransform.labToLMS` already gets, and for the same measured reason.
+    ///
+    /// `Mat3.inverse` is a COMPUTED property: it allocates four `[[Double]]`s and
+    /// re-derives the matrix on every read, at about 2 µs a time. `adapt` read it once
+    /// per call, and `adapt` is on the path of every render plan build, every
+    /// eyedropper candidate, and — since the magenta bound below — every step of two
+    /// bisections per distinct Kelvin. Deriving it once instead of per call is the same
+    /// matrix by construction: `Mat3.inverse` is a pure deterministic function of the
+    /// same constants, so this is bit-identical, not merely close.
+    public static let cat16Inverse: Mat3 = cat16.inverse
+    public static let bradfordInverse: Mat3 = bradford.inverse
+
     /// von Kries-style adaptation in the given cone space: XYZ(source white) → XYZ(dest white).
     public static func adapt(from source: RGB, to destination: RGB, cone: Mat3) -> Mat3 {
         let s = cone.apply(source)
         let d = cone.apply(destination)
         let gains = RGB(d.r / s.r, d.g / s.g, d.b / s.b)
-        return cone.inverse * Mat3.diagonal(gains) * cone
+        return inverse(of: cone) * Mat3.diagonal(gains) * cone
+    }
+
+    /// The cached inverse when the caller passes one of the two matrices this type
+    /// declares, and the derivation otherwise — `adapt` takes an arbitrary cone space
+    /// and must keep working for one this file has never seen.
+    private static func inverse(of cone: Mat3) -> Mat3 {
+        if cone == cat16 { return cat16Inverse }
+        if cone == bradford { return bradfordInverse }
+        return cone.inverse
     }
 
     public static func cat16(from source: Chromaticity, to destination: Chromaticity) -> Mat3 {
@@ -346,12 +368,17 @@ public enum ColorTemperature {
     /// full blue visual", which is exactly what a sign flip in the blue gain looks
     /// like.
     ///
-    /// **What the number means.** The guard's real effect is a ceiling on the blue
-    /// gain: holding the S response at or above this fraction of a physical
-    /// illuminant's holds the adaptation's blue multiplier at or below 1/0.15 ≈ 6.7×.
-    /// That is the quantity worth bounding, and it is why a floor rather than a fixed
-    /// tint limit is the right shape — the bound then means the same thing at every
-    /// temperature, and the tint it corresponds to falls out.
+    /// **What the number means, and what it does not.** The floor is a ceiling on the
+    /// blue gain of THIS adaptation — the pure tint move, as-shot equal to target —
+    /// holding it at or below 1/0.15 ≈ 6.7×. A floor rather than a fixed tint limit is
+    /// the right shape for that: the bound means the same thing at every temperature,
+    /// and the tint it corresponds to falls out.
+    ///
+    /// It is not a ceiling on the blue gain of the matrix a photograph actually renders
+    /// through, which composes this with the temperature move. At as-shot 5500 K,
+    /// target 2800 K, tint +80 — clamped by this floor to +69.80 — the working-space
+    /// blue gain is 17.7× and green is NEGATIVE. That is what `magentaMonotoneLimit`
+    /// below measures and bounds, and why `tintLimit` is now the smaller of the two.
     ///
     /// **Why 0.15.** It is the largest floor that leaves the shipped ±150 tint range
     /// unclamped at and above 5500 K (the limit it implies at 5500 K is +156), so
@@ -363,8 +390,10 @@ public enum ColorTemperature {
     /// sign flip.
     public static let tintConeFloor: Double = 0.15
 
-    /// The largest magenta tint at `kelvin` that still describes a colour a light
-    /// source could be, by the floor above.
+    /// The largest magenta tint at `kelvin` the render will honour: the smaller of the
+    /// two bounds below — the illuminant must still describe a colour a light source
+    /// could be (`tintConeFloor`), and the picture must still be going the way the
+    /// slider says (`magentaMonotoneLimit`).
     ///
     /// Only the magenta direction is bounded. Green tint moves the chromaticity toward
     /// the interior of the plane, where every cone response grows; it is admissible
@@ -379,7 +408,8 @@ public enum ColorTemperature {
     /// `chromaticity(kelvin:tint:)` → `clampedTint` → here — a 40-step bisection with
     /// two cone evaluations per step, per candidate. The kelvin values repeat heavily
     /// (each kelvin is probed at dozens of tints), so a cache by exact kelvin turns
-    /// ~6 000 bisections per eyedropper click into ~140. The function is pure, so the
+    /// ~6 000 bisections per eyedropper click into ~140 — and it matters more now that
+    /// each of those is two bisections rather than one. The function is pure, so the
     /// cache cannot change an answer, only how often it is derived —
     /// `testTheTintLimitCacheServesTheBisectionsAnswer` holds the pair together.
     public static func tintLimit(kelvin: Double) -> Double {
@@ -414,6 +444,14 @@ public enum ColorTemperature {
     private static var tintLimitComputations = 0
 
     private static func computeTintLimit(kelvin: Double) -> Double {
+        let physical = coneFloorLimit(kelvin: kelvin)
+        return Swift.min(physical, magentaMonotoneLimit(kelvin: kelvin, ceiling: physical))
+    }
+
+    /// The original bound: the illuminant must still be a colour a light source could
+    /// have, by `tintConeFloor`. Correct as far as it goes, and it is exactly as far as
+    /// it goes that `magentaMonotoneLimit` exists for.
+    private static func coneFloorLimit(kelvin: Double) -> Double {
         let base = unguardedConeResponse(kelvin: kelvin, tint: 0)
         guard base.r > 0, base.g > 0, base.b > 0 else { return maxTint }
 
@@ -437,6 +475,111 @@ public enum ColorTemperature {
         }
         return lo
     }
+
+    // MARK: - The magenta bound, measured on the picture instead of on the illuminant
+
+    /// The neutral the magenta bound is measured against: the daylight reference this
+    /// project already names as "what a file recording no camera neutral adapts from"
+    /// (`WhiteBalanceEngine.Neutral.reference`). Stated as a number here rather than
+    /// read from there because the bound has to be a function of the TARGET Kelvin
+    /// alone — `chromaticity(kelvin:tint:)` is handed nothing else, and the memo is
+    /// keyed on nothing else.
+    public static let magentaReferenceKelvin: Double = 5500
+
+    /// **The defect the cone floor does not close.** `tintConeFloor` bounds the
+    /// illuminant's own cone response, and it is verified on the DIAGONAL — as-shot
+    /// equal to target, a pure tint move — where it is very nearly exact: the rendered
+    /// green↔magenta axis turns round at +35.25 at 2000 K against a bound of +35.57,
+    /// at +68.75 at 2800 K against +69.80, at +152.50 at 5500 K against +155.58.
+    ///
+    /// Off the diagonal it is not. A daylight-balanced file taken to a warm target is
+    /// the ordinary way anybody uses the Temperature slider, and there the adaptation
+    /// carries the illuminant's runaway AND the temperature move together. Measured on
+    /// a 0.18 neutral, as-shot 5500 K:
+    ///
+    ///   · target 2800 K, tint +80 (the cone floor admits +69.80) renders
+    ///     **RGB(0.0967, −0.0872, 3.1857)** — a negative green channel, blue at 17.7×
+    ///     the neutral it started from, and an OKLab `a` of −0.089 against −0.038 with
+    ///     no tint at all. The magenta slider moved the picture toward GREEN.
+    ///   · target 2000 K, tint +40 (admits +35.57) renders RGB(0.0175, −0.3832, 6.4618).
+    ///   · the axis reverses at +4 at 2000 K, +30 at 2500 K, +46 at 2800 K, +67 at
+    ///     3200 K, +101 at 4000 K, +136 at 5000 K — every one of them inside the bound
+    ///     the guard was handing out, and every one of them inside the slider.
+    ///
+    /// `TintGuardTests` says "no (Kelvin, tint) pair the app can ask for" inverts the
+    /// picture, and sweeps only as-shot == target: the claim was broader than its
+    /// coverage, which is why this went four audits without being seen.
+    ///
+    /// So the bound is now measured on the thing the photographer is looking at. The
+    /// largest magenta tint at which the RENDERED neutral is still moving toward
+    /// magenta, and still has three non-negative channels, against the reference
+    /// neutral above. A dead top to the slider is an ordinary thing for a control to
+    /// do; a control that turns round in the middle of its travel is the "it fights me"
+    /// complaint, and a negative channel is not a colour at all.
+    ///
+    /// Green is untouched, as before — it moves toward the interior of the plane where
+    /// every response grows — and so is everything at and above 5500 K, where the turn
+    /// (+152.50) is outside the shipped ±150 range. Daylight work renders exactly as it
+    /// did; only the warm half of the temperature slider tightens.
+    private static func magentaMonotoneLimit(kelvin: Double, ceiling: Double) -> Double {
+        guard ceiling > 0 else { return ceiling }
+        // A quarter of a tint unit: the finite difference across it is ~1e-5 of `a`
+        // near the turn, ten orders of magnitude above double noise, and a twentieth of
+        // the smallest step the slider can be dragged.
+        let probe = 0.25
+
+        /// Still going the way it says at `t`, and still a colour.
+        func admissible(_ t: Double) -> Bool {
+            guard let here = renderedMagenta(kelvin: kelvin, tint: t) else { return false }
+            guard let ahead = renderedMagenta(kelvin: kelvin, tint: t + probe) else { return false }
+            return ahead >= here
+        }
+
+        // Both halves of the predicate are downward-closed on [0, ceiling] — the
+        // deflection is unimodal below the pole and the channels fail once and stay
+        // failed — so a bisection lands on the boundary rather than merely near it.
+        if admissible(ceiling) { return ceiling }
+        var lo = 0.0
+        var hi = ceiling
+        for _ in 0..<40 {
+            let mid = (lo + hi) / 2
+            if admissible(mid) { lo = mid } else { hi = mid }
+        }
+        return lo
+    }
+
+    /// Where a neutral at (Kelvin, tint) actually lands on the green↔magenta axis, in
+    /// the working space, adapted to the reference neutral — `nil` when it lands
+    /// somewhere that is not a colour.
+    ///
+    /// OKLab `a` rather than a linear-RGB opponent, because the runaway is a
+    /// CHROMATICITY move and a linear opponent cannot see it turn: at 2800 K the
+    /// linear `(r+b)/2 − g` goes on rising through the reversal purely because blue is
+    /// exploding, while `a` — which normalizes against lightness the way the eye does
+    /// — turns at +46 where the picture does. It is also the axis the rest of the
+    /// colour engine already measures green↔magenta on (`ColorEngine.tintAxisDegrees`).
+    private static func renderedMagenta(kelvin: Double, tint: Double) -> Double? {
+        let base = locus(kelvin: kelvin)
+        let source: Chromaticity
+        if tint == 0 {
+            source = base
+        } else {
+            let (u, v) = base.uv
+            source = Chromaticity.fromUV(u: u, v: v + tint * tintUnitInV)
+        }
+        let destination = locus(kelvin: magentaReferenceKelvin)
+        let adaptation = ChromaticAdaptation.adapt(from: source.xyz(), to: destination.xyz(),
+                                                  cone: ChromaticAdaptation.cat16)
+        let out = (workingFromXYZ * adaptation * workingToXYZ).apply(RGB(gray: LumenLog.midGrey))
+        guard out.isFinite, out.minComponent >= 0 else { return nil }
+        return OKLabTransform.working.toLab(out).a
+    }
+
+    /// `RGBColorSpace.toXYZ` is a computed property that runs a 3×3 inversion on every
+    /// read, and the bound above reads it eighty times per uncached Kelvin. Derived
+    /// once, from the same constants, so it is the same matrix.
+    private static let workingToXYZ: Mat3 = RGBColorSpace.rec2020.toXYZ
+    private static let workingFromXYZ: Mat3 = RGBColorSpace.rec2020.fromXYZ
 
     /// What `tint` is actually worth at `kelvin`, once physics has had its say.
     public static func clampedTint(kelvin: Double, tint: Double) -> Double {
