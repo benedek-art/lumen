@@ -38,6 +38,32 @@ mask panel labels and pitch · `isEdited` baseline · CI test-count ceiling ·
 two surface-checker false-finding classes
 
 ### The defects that were NOT in the audit
+- **The magenta slider moved the picture toward GREEN.** The tint guard bounds the
+  ILLUMINANT and was verified on the DIAGONAL — as-shot equal to target, a pure tint
+  move — where it is very nearly exact. Off that diagonal, which is the ordinary way
+  anyone uses the Temperature slider, the adaptation carries the illuminant's runaway
+  and the temperature move together: as-shot 5500 K, target 2800 K, tint +80 (inside
+  the guard's own +69.80) renders `RGB(0.0967, -0.0872, 3.1857)` — a NEGATIVE green
+  channel, blue at 17.7x. The green-magenta axis reverses at +30 at 2500 K, +46 at
+  2800 K, +67 at 3200 K, +101 at 4000 K, every one inside the slider. `TintGuardTests`
+  claimed no pair the app can ask for inverts the picture and swept only the diagonal:
+  the claim was broader than its coverage, which is why four audits missed it. The
+  bound is now measured on the rendered picture, and the Python reference derives it
+  INDEPENDENTLY rather than recording what Swift says — three derivations, identical
+  doubles (`29.738156229300458` at 2500 K). Daylight keeps its whole range with 2.2
+  units of margin, now stated as a margin and pinned from both sides.
+- **A test failed because the fix had been explained.** `withoutComments` blanks a
+  comment to SPACES OF THE SAME LENGTH so offsets survive stripping. An assertion that
+  looked in "the next 320 characters" therefore had eight lines of justifying prose
+  between it and the code, pushing the fix to 626 characters out. It failed against a
+  tree that already did what it asked. A character window over stripped source is a
+  length measurement dressed as a scope; anchor on the brace-matched body.
+- **Three export defects were fixed and their tests never noticed.** Three assertions
+  anchored on `if stopped {`, which had become `if stopped, written < Int(total) {` —
+  the guard that stops a COMPLETE delivery cancelled on its final file from reporting
+  as interrupted. All three failed on the unwrap with a message that could not say what
+  moved. The anchor is now one named constant, and the bare form is separately asserted
+  ABSENT so it cannot drift back to the defect.
 - **The ingest driver copied zero bytes.** `if bytes < 0 { write(chunk) }` — never true.
   Every frame a 0-byte file, deleted by its own verification. Its suite recorded
   `xxh64:ef46db3751d8e999`, which is XXH64 of the empty message, and nobody had run it.
