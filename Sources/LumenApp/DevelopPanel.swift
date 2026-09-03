@@ -554,9 +554,11 @@ struct DevelopPanel: View {
                                         + "visible and individually revertable.",
                                     action: { state.applyAutoTone() })
                 DevelopFooterButton(title: "Reset", systemImage: "arrow.uturn.backward",
-                                    help: "Return every setting to its default",
-                                    action: { state.resetSettings() })
-                    .disabled(!isRecipeModified)
+                                    help: "Put this photograph back to how it was "
+                                        + "imported (⇧⌘R). Ratings, flags, labels and "
+                                        + "keywords are untouched.",
+                                    action: { state.resetToImported() })
+                    .disabled(!state.canResetToImported)
                 // Through `commands`, not `state.history`. Reading the stack directly
                 // is what needed a `history.objectWillChange` → `AppState` forward to
                 // stay current, and that forward re-bodied the whole window on every

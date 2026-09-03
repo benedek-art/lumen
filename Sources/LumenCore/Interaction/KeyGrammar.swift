@@ -225,7 +225,7 @@ public enum KeyGrammar {
             KeyRow(KeyBinding("e", command: true), "Export"),
             KeyRow(KeyBinding("b", command: true),
                    "Assessment surround (ISO 12646 mid-grey)"),
-            KeyRow(KeyBinding("k", command: true), "Go to a control"),
+            KeyRow(KeyBinding("k", command: true), "Go to a control, or run a command"),
             KeyRow(KeyBinding("k", command: true, shift: true),
                    "Keyword the selection"),
             KeyRow(KeyBinding("g", command: true), "Stack the selection"),

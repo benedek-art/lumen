@@ -351,7 +351,7 @@ private struct LumenCommands: Commands {
                     Button("Paste Look") { state.pasteLook() }
                         .keyboardShortcut("v", modifiers: [.command, .option])
                     Divider()
-                    Button("Reset Settings") { state.resetSettings() }
+                    Button("Reset Settings") { state.resetToImported() }
                         .keyboardShortcut("r", modifiers: [.command, .shift])
                 }
             }

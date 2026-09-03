@@ -3031,14 +3031,18 @@ final class AppState: ObservableObject {
     /// Rendered files are left alone for the same reason they start on Linear: the
     /// camera has already denoised them, and their pixels no longer follow any sensor
     /// noise model this table knows.
+    /// The rule itself now lives in `Recipe.asImported(from:)` in LumenCore, where it
+    /// compiles and is tested on a machine with no Apple frameworks. This is the
+    /// bridge, and it is the only place that knows a URL is how you tell a rendered
+    /// file from a raw — `Recipe.SourceFile` takes that as a fact so the recipe model
+    /// does not carry a second copy of `PhotoFormats`' extension list.
+    ///
+    /// Six call sites read this. Before it was a bridge, each was an independent
+    /// reading of a baseline that has to agree with Reset exactly, or Reset lands
+    /// somewhere a fresh import never would.
     static func startingRecipe(for url: URL, iso: Int? = nil) -> Recipe {
-        var recipe = Recipe()
-        if PhotoFormats.isRendered(url) {
-            recipe.look.render.preset = "Linear"
-        } else if let iso {
-            recipe.develop.denoise = ISODefaults.startingDenoise(forISO: Double(iso))
-        }
-        return recipe
+        Recipe.asImported(from: Recipe.SourceFile(
+            isRendered: PhotoFormats.isRendered(url), iso: iso))
     }
 
     var currentRecipe: Recipe {
@@ -3783,17 +3787,6 @@ final class AppState: ObservableObject {
             // every photograph already graded with it keeps its grade.
             self.statusMessage = "Deleted \"\(look.name)\" — graded photos keep their grade"
             self.refreshSavedLooks()
-        }
-    }
-
-    func resetSettings() {
-        // Reset lands on the photo's own STARTING recipe, not on bare defaults:
-        // a JPEG's baseline carries the Linear preset (a bare Recipe() would apply
-        // a second tone map), a RAW's carries its ISO-resolved denoise.
-        updateRecipe { photo, recipe in
-            var base = AppState.startingRecipe(for: photo.id, iso: photo.iso)
-            base.pipelineVersion = recipe.pipelineVersion
-            recipe = base
         }
     }
 

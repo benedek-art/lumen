@@ -1,7 +1,14 @@
 // AppStateActions.swift
-// The actions that need the pipeline: Auto tone, which has to look at the picture
-// before it can suggest anything, and export, which drives the render at full size.
-// Both are async and both keep every pixel of work off the main actor.
+// The verbs that are too big to live among `AppState`'s state.
+//
+// Two of them need the pipeline: Auto tone, which has to look at the picture before it
+// can suggest anything, and export, which drives the render at full size. Both are async
+// and both keep every pixel of work off the main actor.
+//
+// Reset needs none of it — it is a pure value replacement — and it is here rather than
+// beside the copy/paste family because it is the same shape as those two in the way that
+// matters: a photographer's command with a stated contract, a named undo step, and a
+// baseline it has to resolve per photograph rather than once for the selection.
 
 #if os(macOS)
 
@@ -156,6 +163,76 @@ extension AppState {
                 (weights.r * r + weights.g * g + weights.b * b) * white)
         }
         return histogram.statistics
+    }
+
+    // MARK: - Reset
+
+    /// Put the selection back to how it was imported, in ONE undo step.
+    ///
+    /// The control a photographer reaches for when an edit has gone wrong, and the
+    /// reason it has to exist is not convenience: without it the way to try something is
+    /// to duplicate the photograph first, and a library full of defensive copies is the
+    /// habit an editor teaches when it cannot promise a way back.
+    ///
+    /// THE BASELINE IS THE PHOTOGRAPH'S OWN, never bare defaults, and
+    /// `Recipe.asImported(from:)` in LumenCore is the single statement of what that
+    /// means — a rendered file starts on the "Linear" display transform because Lumen's
+    /// own transform is the only one a raw will ever get and a second one crushes an
+    /// already-mapped picture; a camera raw starts on the Tier-1 denoise its capture ISO
+    /// calls for. That rule was `AppState.startingRecipe` and nothing else — a statement
+    /// in a target that compiles on macOS alone, so nothing could check the answer until
+    /// CI, and the four places that need it (this command, the two per-section Resets
+    /// that have to patch their own baseline back in afterwards, and the modified dot)
+    /// each carried their own reading of it. `RecipeReset.swift` is the one place now,
+    /// and `ResetSemanticsTests` is what holds it there.
+    ///
+    /// ONE STEP, AND IT IS NAMED. `label:` matters more than it looks: a step that
+    /// arrives without one wears `HistoryStack.unnamedLabel`, which the Edit menu prints
+    /// as "Undo Edit" and the history list treats as "nobody named this". Throwing away
+    /// a whole afternoon's grade is the single step in the app a photographer is most
+    /// likely to want to walk back deliberately, and it is the one that must not be
+    /// anonymous in the list they walk back through. No coalescing key, either: a reset
+    /// folded into the slider drag that preceded it would be one undo for both.
+    ///
+    /// WHAT IT PRESERVES is on `Recipe.resetToImported(from:)` at length. The short
+    /// version: rating, flag, colour label, keywords, album and stack membership are not
+    /// in a recipe at all, and `updateRecipe` records `PhotoEdit(recipe:)` with no
+    /// culling, so neither the reset nor undoing it can move a star. The crop goes, with
+    /// everything else in the develop and look layers, because in this app a crop is an
+    /// edit and there is no as-shot one to keep.
+    ///
+    /// Across the whole selection, like Paste Settings and Auto Tone — `updateRecipe`
+    /// resolves the baseline per photograph, so a raw at ISO 12800 and a JPEG reset in
+    /// the same gesture each land on their own starting point rather than on the
+    /// primary selection's.
+    func resetToImported() {
+        updateRecipe(label: "Reset") { photo, recipe in
+            recipe.resetToImported(from: AppState.sourceFile(for: photo))
+        }
+    }
+
+    /// Whether Reset would change anything for the current selection.
+    ///
+    /// Any photograph in the selection that is off its own baseline is enough — a batch
+    /// reset where four of five frames are already untouched still has work to do on the
+    /// fifth, and greying the command out because most of the selection is clean would
+    /// refuse the request the photographer actually made.
+    var canResetToImported: Bool {
+        editTargets.contains { photo in
+            !recipe(for: photo).isAsImported(from: AppState.sourceFile(for: photo))
+        }
+    }
+
+    /// The two facts about a file that decide its untouched recipe, read off the item
+    /// the scanner produced.
+    ///
+    /// The bridge is here and is deliberately thin. LumenCore does not know which
+    /// extensions are rendered — that list is `PhotoFormats`, and a second copy of it
+    /// inside the recipe model could disagree with the one the folder scan used about
+    /// the same file, which would be a photograph whose Reset lands somewhere its
+    /// modified dot does not.
+    static func sourceFile(for photo: PhotoItem) -> Recipe.SourceFile {
+        Recipe.SourceFile(isRendered: PhotoFormats.isRendered(photo.id), iso: photo.iso)
     }
 
     // MARK: - Export

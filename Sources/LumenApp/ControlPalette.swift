@@ -1,5 +1,5 @@
 // ControlPalette.swift
-// ⌘K: name a control, go to it.
+// ⌘K: name a control, go to it — or name a command, run it.
 //
 // docs/28 Phase 6 item 24. Nobody in the field has this — Lightroom, Capture One and
 // Darkroom all require you to know which panel a slider is in — and on macOS a ⌘K
@@ -22,10 +22,130 @@
 // The ranking is `ControlIndex` in LumenCore, where it is tested — it is exactly the
 // kind of rule that is wrong in ways only examples reveal, and "sat" ranking Capture
 // Sharpening above Saturation is not a thing anybody would notice by reading code.
+//
+// AND A SECOND LANE, for the things that are not places. Reset — put this photograph
+// back to how it was imported — is the control a photographer reaches for when an edit
+// has gone wrong, and until now the only two doors to it were the develop column's
+// footer and an Edit-menu item nobody opens the menu bar to find. It is a verb, so it
+// cannot be a `ControlIndex.Control`: those carry the section the palette navigates to,
+// and printing a destination in a row whose Return key does not go there is the one
+// failure a palette must not have (see `ControlIndex`'s note on why the LUT entry was
+// removed). Commands are their own lane, drawn first, and their right-hand column prints
+// the key equivalent rather than a place.
 
 #if os(macOS)
 import LumenCore
 import SwiftUI
+
+/// A verb the palette can run, as opposed to a place it can go.
+///
+/// An enum rather than a list of closures so that a new command cannot compile without
+/// answering every question this type asks about it — what it is called, what it is
+/// worth pressing, and when it is not.
+private enum PaletteCommand: String, CaseIterable, Identifiable {
+    case reset
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .reset: return "Reset"
+        }
+    }
+
+    /// THE SAME MARK THE FOOTER USES, for the reason the control rows read
+    /// `WorkspaceSection.symbolName`: a photographer who has pressed the Reset button in
+    /// the develop column should recognise this row as the same command rather than
+    /// learn a second vocabulary for it.
+    var symbol: String {
+        switch self {
+        case .reset: return "arrow.uturn.backward"
+        }
+    }
+
+    /// Printed where a control row prints its destination. It is also the only place in
+    /// the app that teaches this chord — the Edit menu item carries it, and nobody opens
+    /// a menu to discover a shortcut for a thing they are already doing.
+    ///
+    /// ⇧⌘R is already this command's, claimed by the "Reset Settings" item in
+    /// `LumenApp.swift`. Nothing new is bound here: `KeyGrammar` is checked against
+    /// every `.keyboardShortcut` in this target, and a palette that quietly minted a
+    /// second chord for a verb that has one would put the reference sheet and the app
+    /// into exactly the disagreement that test exists to catch.
+    var shortcut: String {
+        switch self {
+        case .reset: return "⇧⌘R"
+        }
+    }
+
+    /// Other words a photographer might reach for. Each is a name some other tool uses
+    /// or the phrase people actually type — not synonyms for their own sake.
+    var aliases: [String] {
+        switch self {
+        case .reset:
+            return ["reset settings", "revert", "start over", "undo everything",
+                    "as imported", "original", "default", "clear edits"]
+        }
+    }
+
+    /// Why this command cannot run right now, in words, or nil when it can.
+    ///
+    /// `@MainActor` on this and on `run`, and deliberately not on the enum: `AppState`
+    /// is main-actor isolated and these two touch it, while `matching` is arithmetic
+    /// over strings that any thread may do. `ControlPalette` gets its own isolation
+    /// inferred from `View`, so both ends of every call below already agree.
+    ///
+    /// SHOWN RATHER THAN HIDDEN, and that is the opposite of the rule the develop
+    /// column's section headers follow — where a Reset with nothing to put back is not
+    /// drawn at all, because a button that does nothing is the same lie as a caption
+    /// promising a dead shortcut. A search field is the case that inverts it: a
+    /// photographer who types "reset" and is told there is nothing by that name learns
+    /// that the app has no such command, which is false and is a worse answer than a
+    /// greyed row saying the photograph is already as it was imported. The row answers
+    /// the question either way; only one of the two answers is true.
+    @MainActor func unavailableReason(in state: AppState) -> String? {
+        switch self {
+        case .reset:
+            if state.primarySelection == nil { return "No photo selected" }
+            return state.canResetToImported ? nil : "Already as imported"
+        }
+    }
+
+    @MainActor func run(in state: AppState) {
+        switch self {
+        case .reset: state.resetToImported()
+        }
+    }
+
+    /// The commands `query` names, in this enum's own order.
+    ///
+    /// Matched here rather than through `ControlIndex.search`, and the reason is the
+    /// type rather than the rule: that function ranks `[ControlIndex.Control]`, every
+    /// one of which carries the `WorkspaceSection` the palette will navigate to, and a
+    /// command has no section — inventing one to satisfy the signature would put a
+    /// destination in the value that a later reader could believe. The ranking
+    /// `ControlIndex` exists to settle is a problem of forty entries competing for one
+    /// query ("sat" must mean Saturation and not Capture Sharpening); this lane is short
+    /// enough that a match is a match, and ties fall back to the order written above.
+    ///
+    /// Prefix, word-prefix and substring — `ControlIndex`'s top three strengths, and
+    /// deliberately not its fourth. Subsequence matching is what lets "clrty" find
+    /// Clarity, and it earns its looseness among forty candidates competing to be the
+    /// right slider; on a lane whose only entry throws away an afternoon's work, "s"
+    /// resolving to Reset is a worse trade than "rst" missing it.
+    static func matching(_ query: String) -> [PaletteCommand] {
+        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !needle.isEmpty else { return Self.allCases }
+        return Self.allCases.filter { command in
+            ([command.title] + command.aliases).contains { candidate in
+                let hay = candidate.lowercased()
+                return hay.hasPrefix(needle)
+                    || hay.split(separator: " ").contains { $0.hasPrefix(needle) }
+                    || hay.contains(needle)
+            }
+        }
+    }
+}
 
 struct ControlPalette: View {
     @EnvironmentObject var state: AppState
@@ -38,11 +158,16 @@ struct ControlPalette: View {
     @State private var selection: Int = 0
     @FocusState private var fieldFocused: Bool
 
+    private var commands: [PaletteCommand] { PaletteCommand.matching(query) }
     private var results: [ControlIndex.Control] { ControlIndex.search(query) }
+    /// One cursor over both lanes. The commands come first, so a row index below
+    /// `commands.count` is a verb and everything above it is a place — which is the only
+    /// arithmetic the arrow keys and Return need to know.
+    private var rowCount: Int { commands.count + results.count }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            TextField("Go to a control…", text: $query)
+            TextField("Go to a control, or run a command…", text: $query)
                 .textFieldStyle(.plain)
                 .font(.system(size: 15))
                 .padding(.horizontal, 12)
@@ -55,8 +180,8 @@ struct ControlPalette: View {
 
             Divider().overlay(Lumen.separator)
 
-            if results.isEmpty {
-                Text("No control by that name")
+            if rowCount == 0 {
+                Text("No control or command by that name")
                     .font(.lumenLead)
                     .foregroundStyle(Lumen.secondaryText)
                     .padding(.horizontal, 12)
@@ -65,12 +190,28 @@ struct ControlPalette: View {
                 ScrollViewReader { scroller in
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 0) {
-                            ForEach(Array(results.enumerated()), id: \.element.id) {
-                                index, control in
-                                row(control, isSelected: index == selection)
+                            ForEach(Array(commands.enumerated()), id: \.element.id) {
+                                index, command in
+                                commandRow(command, isSelected: index == selection)
                                     .id(index)
                                     .onTapGesture {
                                         selection = index
+                                        commit()
+                                    }
+                            }
+                            // Only between two populated lanes. A rule under an empty
+                            // list is a line that says a boundary happened where there
+                            // is nothing on the other side of it.
+                            if !commands.isEmpty && !results.isEmpty {
+                                Divider().overlay(Lumen.separator)
+                            }
+                            ForEach(Array(results.enumerated()), id: \.element.id) {
+                                index, control in
+                                let rowIndex = index + commands.count
+                                row(control, isSelected: rowIndex == selection)
+                                    .id(rowIndex)
+                                    .onTapGesture {
+                                        selection = rowIndex
                                         commit()
                                     }
                             }
@@ -115,6 +256,36 @@ struct ControlPalette: View {
         }
     }
 
+    /// A verb's row. Same geometry as a control's, so the two lanes scan as one list;
+    /// the glyph and the right-hand column are what tell them apart.
+    private func commandRow(_ command: PaletteCommand, isSelected: Bool) -> some View {
+        let reason = command.unavailableReason(in: state)
+        return HStack(spacing: 8) {
+            Image(systemName: command.symbol)
+                .font(.lumenGlyphRow)
+                .foregroundStyle(Lumen.secondaryText)
+                .frame(width: 18)
+            Text(command.title)
+                .font(.lumenLead)
+                .foregroundStyle(Lumen.primaryText)
+            Spacer()
+            // The chord when it can run, the reason when it cannot. Never both: the
+            // right-hand column of this list answers one question per row, and a row
+            // that printed a shortcut beside "Already as imported" would be teaching a
+            // key that does nothing at the moment it is read.
+            Text(reason ?? command.shortcut)
+                .font(.lumenBody)
+                .foregroundStyle(Lumen.secondaryText)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(isSelected ? Lumen.fillColor.opacity(0.30) : Color.clear)
+        // Dimmed as a whole rather than greyed a word at a time, which is how every
+        // other disabled row in the app reads.
+        .opacity(reason == nil ? 1 : 0.45)
+        .contentShape(Rectangle())
+    }
+
     private func row(_ control: ControlIndex.Control, isSelected: Bool) -> some View {
         HStack(spacing: 8) {
             // THE SAME MARK THE COLUMN USES, in the same order — glyph, then name.
@@ -156,17 +327,27 @@ struct ControlPalette: View {
     }
 
     private func move(_ delta: Int) -> KeyPress.Result {
-        guard !results.isEmpty else { return .handled }
+        guard rowCount > 0 else { return .handled }
         // Clamped rather than wrapped: a list that jumps from the bottom to the top under
         // a held arrow loses the photographer's place, and there is no long list here to
         // make wrapping worth that.
-        selection = min(max(selection + delta, 0), results.count - 1)
+        selection = min(max(selection + delta, 0), rowCount - 1)
         return .handled
     }
 
     private func commit() {
-        guard results.indices.contains(selection) else { return }
-        let control = results[selection]
+        // The commands are the first rows, so the cursor's own index says which lane it
+        // is in. A verb runs where a place is travelled to, and both close the palette —
+        // a command that left it open would leave a photographer typing into a field
+        // over the picture they just changed.
+        if commands.indices.contains(selection) {
+            commands[selection].run(in: state)
+            state.showControlPalette = false
+            return
+        }
+        let index = selection - commands.count
+        guard results.indices.contains(index) else { return }
+        let control = results[index]
         // `jump`, which is `reveal` plus everything arriving somewhere means — the view
         // mode, and the crop tool if the named control lives in Crop. `reveal` alone
         // moves the column and nothing else: pressed from the grid it would open the
