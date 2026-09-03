@@ -194,8 +194,13 @@ struct ScopesView: View {
     /// The caption is the scope's units, and a scope with unstated units is a picture of
     /// a scope. Three things belong here and one of them was missing.
     ///
-    /// `space.label` spells the readout space out in full ("sRGB 0–255"), which is what
-    /// the panel had. What it did NOT have was the weighting behind the word "Luma":
+    /// It has to fit ONE LINE at the column's minimum width (320 pt, `Lumen
+    /// .minimumPanelWidth`), which is what pays for the compressions: `space.label`'s
+    /// full form ("Output profile 0–255") became `shortSpaceLabel`'s, and "256 columns ×
+    /// 256 bins" became "256×256". Both spellings survive in the tooltip, where there is
+    /// room. Without them the waveform caption is 69 characters and truncates.
+    ///
+    /// What it did NOT have, at any width, was the weighting behind the word "Luma":
     /// `Waveform.compute` weights the WORKING triple by `transform.working
     /// .luminanceWeights`, so this is a Rec.2020-luminance waveform and not a Rec.709
     /// one and not a plain average — a distinction of several percent on saturated
@@ -212,12 +217,12 @@ struct ScopesView: View {
         case .waveform:
             guard let waveform else { return "Waveform — luma, column by column" }
             return ScopeReadout.lumaLabel(waveform.transform) + " waveform · "
-                + "\(waveform.columns) columns × \(waveform.bins) bins · "
-                + waveform.transform.space.label
+                + "\(waveform.columns)×\(waveform.bins) · "
+                + ScopeReadout.shortSpaceLabel(waveform.transform.space)
         case .parade:
             guard let parade else { return "RGB parade" }
-            return "RGB parade · \(parade.red.columns) columns × \(parade.red.bins) bins · "
-                + parade.red.transform.space.label
+            return "RGB parade · \(parade.red.columns)×\(parade.red.bins) · "
+                + ScopeReadout.shortSpaceLabel(parade.red.transform.space)
         case .vectorscope:
             guard let vectorscope else { return "Vectorscope — OKLab a/b" }
             return "OKLab a/b · ±" + String(format: "%.2f", vectorscope.extent)
@@ -242,7 +247,30 @@ struct ScopesView: View {
         guard let provenance = scopes?.provenance else {
             return "No measurement yet."
         }
-        return provenance.statement(readout: space)
+        return provenance.statement(readout: space) + " " + gridSentence
+    }
+
+    /// The grid the caption compresses to "256×256", spelled out where there is room —
+    /// and with the vertical's own rule, which is neither the caption's business nor the
+    /// histogram's: a waveform cell's brightness is its count against the whole scope's
+    /// peak, through a 0.4 gamma, so a single sample stays visible beside a thousand.
+    private var gridSentence: String {
+        switch kind {
+        case .waveform:
+            guard let waveform else { return "" }
+            return "\(waveform.columns) columns × \(waveform.bins) bins; "
+                + "cell brightness is count ÷ peak through a 0.4 gamma, so one sample "
+                + "stays visible beside a thousand."
+        case .parade:
+            guard let parade else { return "" }
+            return "\(parade.red.columns) columns × \(parade.red.bins) bins per channel, "
+                + "all three normalized against one peak so a weak channel draws weak."
+        case .vectorscope:
+            guard let vectorscope else { return "" }
+            return "\(vectorscope.resolution)×\(vectorscope.resolution) cells over "
+                + "OKLab a/b; \(vectorscope.outOfRangeCount) samples fell outside the "
+                + "plot and are drawn in its border cells."
+        }
     }
 
     // MARK: Rasterizing

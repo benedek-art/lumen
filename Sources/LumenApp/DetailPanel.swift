@@ -357,9 +357,13 @@ struct DetailPanel: View {
                 // of advance in an 86 pt column, which SwiftUI fits by shrinking to
                 // 10.3 pt — three tenths of a point above `LumenType`'s own 10 pt floor,
                 // with nothing between it and a failure but the metrics of a system
-                // font this app does not ship. "Halo Damping" measures ~74 pt (0.800 ×
-                // the old string, a ratio that holds to ±2% across three Helvetica-class
-                // faces), so it renders at the full 11 pt its four siblings do.
+                // font this app does not ship. "Halo Damping" estimates at ~74 pt
+                // (0.800 × the old string, a ratio that holds to ±2% across three
+                // Helvetica-class faces), which renders at the full 11 pt its four
+                // siblings do — and the estimate is not what this rests on:
+                // `UnwiredEngineTests.testTheSharpeningHaloRowFitsItsColumnAtFullSize`
+                // puts both names to the real face through the layout suite's own
+                // `TextMetric` and fails if the new one has to shrink at all.
                 //
                 // Renaming under the section that already supplies the context is the
                 // fix this panel has taken before: G1-01 turned `Luminance Contrast`

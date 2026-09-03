@@ -622,7 +622,7 @@ final class UnwiredEngineTests: XCTestCase {
     /// string — and `scripts/check-swift-surface.py` then reports the two words after it
     /// as identifiers declared nowhere. Writing the literal the honest way filed a false
     /// finding against this file; this is the same needle with nothing to misread.
-    private static let quote = String(UnicodeScalar(34 as UInt8))
+    private static let quote = "\u{22}"
 
     private static func titleArgument(_ name: String) -> String {
         "title: " + quote + name + quote

@@ -227,53 +227,29 @@ struct ExportSheet: View {
 
     // MARK: Footer
 
+    // SPLIT INTO NAMED PIECES, and it is a build fix rather than tidying.
+    //
+    // As ONE expression this footer stopped type-checking in reasonable time the moment
+    // the cancel affordance was added inside it: `build-macos` failed on the outer
+    // `VStack` with "the compiler is unable to type-check this expression in reasonable
+    // time". That is a TIME limit rather than a wrong type — nothing here looks wrong,
+    // no single line is at fault, and neither `swiftc -parse` nor the Linux build can
+    // see it, because this whole file sits behind `#if os(macOS)` and compiles to
+    // nothing off a Mac. A SwiftUI body is one constraint system, so every modifier,
+    // ternary and conditional in the subtree multiplies into the same solve; the fix is
+    // to hand the solver several small problems instead of one large one.
+    //
+    // Three bodies, each independently solvable, and every ternary that feeds a modifier
+    // hoisted into a `let` with an EXPLICIT type. `Lumen.primaryText` and its siblings
+    // are already `Color`, but an un-annotated ternary between two of them is still a
+    // fresh inference run inside the big system. Split further than feels necessary if
+    // anything is added here: a body that barely solves today is one that fails on the
+    // next modifier anybody writes.
+
     private var footer: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if state.isExporting {
-                VStack(alignment: .leading, spacing: 3) {
-                    // Drawn, for the same reason as the checkbox above — and this one
-                    // matters more, because an export bar is the one control in the app
-                    // a photographer watches instead of watching a photograph, so there
-                    // is nothing beside it to judge its hue against.
-                    LumenProgressBar(value: clampedProgress)
-                    HStack(spacing: 8) {
-                        Text(progressCaption)
-                            .font(.lumenCaption)
-                            .foregroundStyle(Lumen.secondaryText)
-                        Spacer(minLength: 0)
-                        // THE WAY OUT. A batch is photos × checked recipes, each one a
-                        // full-resolution develop render, so an accidental Export on a
-                        // folder of two hundred used to be an unstoppable half hour with
-                        // the only exit being to quit the app — which loses the catalog
-                        // write as well. There was no cancel anywhere: not here, not in
-                        // the menu, not by closing this sheet (closing it hides the
-                        // progress bar and the batch keeps writing).
-                        //
-                        // NO KEYBOARD SHORTCUT, deliberately. ⎋ is already this sheet's
-                        // Close, and a photographer who hits ⎋ meaning "put this dialog
-                        // away" must not thereby throw away twenty minutes of finished
-                        // exports. Stopping a delivery is worth the deliberate click.
-                        Button(cancelRequested ? "Cancelling…" : "Cancel") {
-                            cancelRequested = true
-                            state.cancelExport()
-                        }
-                        .disabled(cancelRequested)
-                        .help("Stop the batch after the file now being written. "
-                              + "Files already written are kept, and nothing is left "
-                              + "half-written — every delivery is renamed into place "
-                              + "once it is complete.")
-                    }
-                }
-            }
-            HStack(spacing: 10) {
-                Text(fileCountSummary)
-                    .font(.lumenBody)
-                    .foregroundStyle(fileCount == 0 ? Lumen.secondaryText : Lumen.primaryText)
-                Spacer()
-                Button("Export…") { state.chooseExportDestination() }
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(fileCount == 0 || state.isExporting)
-            }
+            exportProgressSection
+            footerActions
         }
         .padding(14)
         // The request belongs to ONE batch. Without this the button would stay dead for
@@ -282,6 +258,64 @@ struct ExportSheet: View {
         // later.
         .onChange(of: state.isExporting) { _, running in
             if !running { cancelRequested = false }
+        }
+    }
+
+    @ViewBuilder
+    private var exportProgressSection: some View {
+        if state.isExporting {
+            VStack(alignment: .leading, spacing: 3) {
+                // Drawn, for the same reason as the checkbox above — and this one
+                // matters more, because an export bar is the one control in the app
+                // a photographer watches instead of watching a photograph, so there
+                // is nothing beside it to judge its hue against.
+                LumenProgressBar(value: clampedProgress)
+                HStack(spacing: 8) {
+                    Text(progressCaption)
+                        .font(.lumenCaption)
+                        .foregroundStyle(Lumen.secondaryText)
+                    Spacer(minLength: 0)
+                    cancelButton
+                }
+            }
+        }
+    }
+
+    /// THE WAY OUT. A batch is photos × checked recipes, each one a full-resolution
+    /// develop render, so an accidental Export on a folder of two hundred used to be an
+    /// unstoppable half hour with the only exit being to quit the app — which loses the
+    /// catalog write as well. There was no cancel anywhere: not here, not in the menu,
+    /// and not by closing this sheet (closing it hides the progress bar and the batch
+    /// keeps writing).
+    ///
+    /// NO KEYBOARD SHORTCUT, deliberately. ⎋ is already this sheet's Close, and a
+    /// photographer who hits ⎋ meaning "put this dialog away" must not thereby throw
+    /// away twenty minutes of finished exports. Stopping a delivery is worth the
+    /// deliberate click.
+    private var cancelButton: some View {
+        let title: String = cancelRequested ? "Cancelling…" : "Cancel"
+        return Button(title) {
+            cancelRequested = true
+            state.cancelExport()
+        }
+        .disabled(cancelRequested)
+        .help("Stop the batch after the file now being written. "
+              + "Files already written are kept, and nothing is left "
+              + "half-written — every delivery is renamed into place "
+              + "once it is complete.")
+    }
+
+    private var footerActions: some View {
+        let summaryColor: Color = fileCount == 0 ? Lumen.secondaryText : Lumen.primaryText
+        let exportDisabled: Bool = fileCount == 0 || state.isExporting
+        return HStack(spacing: 10) {
+            Text(fileCountSummary)
+                .font(.lumenBody)
+                .foregroundStyle(summaryColor)
+            Spacer()
+            Button("Export…") { state.chooseExportDestination() }
+                .keyboardShortcut(.defaultAction)
+                .disabled(exportDisabled)
         }
     }
 

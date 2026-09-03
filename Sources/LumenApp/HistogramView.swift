@@ -274,12 +274,11 @@ struct HistogramView: View {
     /// %)" — because it is written for a place where an unlabeled number would be a
     /// defect. Here the axis it belongs to is on screen, so the long form buys nothing
     /// and costs the clipping percentages beside it their width.
+    /// One short name, shared with the scopes' caption — `ScopeReadout.shortSpaceLabel`.
+    /// It was a private `switch` here and a second full-length label there, so the two
+    /// instruments in the same column named the same space two different ways.
     static func shortLabel(_ space: ReadoutSpace) -> String {
-        switch space {
-        case .working: return "Working %"
-        case .srgb255: return "sRGB 255"
-        case .outputProfile: return "Output 255"
-        }
+        ScopeReadout.shortSpaceLabel(space)
     }
 
     /// What the pointer is over: the zone it would scrub, or the clipping summary when
@@ -290,8 +289,12 @@ struct HistogramView: View {
            let zone = zones.first(where: { $0.slider == slider }) {
             let share: Double = histogram.fraction(in: zone, channel: .luma) * 100
             let value: Double = HistogramView.toneValue(slider, in: state.currentRecipe)
-            return slider.displayName + "  " + HistogramView.format(value, decimals: sliderDecimals(slider))
-                + "   " + HistogramView.format(share, decimals: 1) + "% of pixels"
+            // The widest string this line ever holds, which is why the formatter is in
+            // `ScopeReadout` with its worst case pinned beside it rather than assembled
+            // here out of literals nothing could measure.
+            return ScopeReadout.zoneReadout(name: slider.displayName, value: value,
+                                            decimals: sliderDecimals(slider),
+                                            sharePercent: share)
         }
         if let axis = hoverAxis {
             return "Level " + HistogramView.format(

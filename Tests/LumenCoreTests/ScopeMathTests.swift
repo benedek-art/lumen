@@ -308,6 +308,45 @@ final class ScopeMathTests: XCTestCase {
         XCTAssertEqual(ScopeReadout.clipHeadlineWidestCase.count, 35)
     }
 
+    /// The other occupant of the readout slot, and the wider of the two. Its worst case
+    /// is pinned for the same reason: a fixed-width slot is only safe if something knows
+    /// the longest string that can land in it.
+    func testTheZoneReadoutsWidestCaseIsOneTheFormatterCanEmit() {
+        XCTAssertEqual(
+            ScopeReadout.zoneReadout(name: "Highlights", value: -100, decimals: 0,
+                                     sharePercent: 100),
+            ScopeReadout.zoneReadoutWidestCase)
+        XCTAssertEqual(ScopeReadout.zoneReadoutWidestCase,
+                       "Highlights -100 · 100.0% of frame")
+        XCTAssertEqual(ScopeReadout.zoneReadoutWidestCase.count, 33)
+
+        // Exposure prints two decimals over a ±5 range, so it is narrower despite them.
+        XCTAssertEqual(
+            ScopeReadout.zoneReadout(name: "Exposure", value: -5, decimals: 2,
+                                     sharePercent: 33.333),
+            "Exposure -5.00 · 33.3% of frame")
+        // A share cannot exceed the frame, and a non-finite value cannot print digits.
+        XCTAssertEqual(
+            ScopeReadout.zoneReadout(name: "Blacks", value: .nan, decimals: 0,
+                                     sharePercent: 1e9),
+            "Blacks — · 100.0% of frame")
+    }
+
+    /// One short name for a readout space, shared by the histogram's cycling label and
+    /// the scopes' caption — they used to be a private switch and a full-length label,
+    /// so the same space had two names four inches apart.
+    func testTheShortSpaceLabelsAreShortAndComplete() {
+        for space in ReadoutSpace.allCases {
+            let short = ScopeReadout.shortSpaceLabel(space)
+            XCTAssertFalse(short.isEmpty)
+            XCTAssertLessThanOrEqual(short.count, 10, "\(space) is too long for a line")
+            XCTAssertLessThan(short.count, space.label.count,
+                              "the short form has to be shorter than the long one")
+        }
+        XCTAssertEqual(ScopeReadout.shortSpaceLabel(.srgb255), "sRGB 255")
+        XCTAssertEqual(ScopeReadout.shortSpaceLabel(.outputProfile), "Output 255")
+    }
+
     // MARK: - What the luma trace is weighted by
 
     /// The label is not a caption someone typed: it is read off the transform the trace
@@ -451,6 +490,10 @@ final class ScopeMathTests: XCTestCase {
                       "read off the transform the trace carries, not typed")
         XCTAssertFalse(source.contains("\"Luma waveform · \""),
                        "an unstated weighting is not an instrument")
+        XCTAssertFalse(source.contains("transform.space.label"),
+                       "the full-length space name does not fit a 320 pt column")
+        XCTAssertTrue(source.contains("ScopeReadout.shortSpaceLabel("),
+                      "both instruments in the column name a space the same way")
     }
 
     // MARK: - helpers
