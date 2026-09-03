@@ -1386,18 +1386,35 @@ public final class PipelineRenderer {
             // copy of the url, because `BrushPlaneCache` keys on this string too
             // (`sourceKey:` in `bake` below) and that cache has the same door.
             let photograph = PlanTableCache.renderIdentity(for: sourceURL)
-            let sourceKey: String?
+            // ONE FINGERPRINT, COMPUTED ONCE, HANDED OUT PER MASK. It is one
+            // serialization of one recipe, so computing it in the loop would be waste —
+            // but SPENDING it in every mask's key was worse than waste, and that is the
+            // defect this shape exists to close. `maskSourceFingerprint` covers S6–S10:
+            // every tone, colour and grade subtree. Pasted into the key of a mask that
+            // does not read the picture — a brush, a polygon, a gradient stack the GPU
+            // declined, an AI matte with Follow at 0 — it made that mask's raster MISS
+            // on every exposure nudge and rebake something byte-identical to what the
+            // cache was already holding. One luma-range mask anywhere in the stack was
+            // enough to do it to every other mask in the stack, because this was a
+            // single string for the whole stack. That is the mask settle the owner
+            // reports as slow: the caches were built, the keys threw the hits away.
+            //
+            // nil is UNSPELLABLE, not "absent": it means the fingerprint would not
+            // encode, and the mask that needs it is then not cached at all (below). A
+            // mask that reads nothing keeps caching regardless, because a term it does
+            // not depend on cannot be missing from its key.
+            let pictureKey: String?
             if source != nil {
                 // `sourceURL` is threaded in from the caller — the local `source` is
                 // the staged ImageBuffer, which has no url (the first draft of this
                 // asked it for one and the macOS compiler said no).
-                sourceKey = Self.maskSourceFingerprint(recipe: plan.recipe)
+                pictureKey = Self.maskSourceFingerprint(recipe: plan.recipe)
                     .map { photograph + "|" + $0 }
             } else {
-                // No stage input was built, so there is no fingerprint to state. This
-                // term says that and nothing else; WHICH photograph is the key
+                // No stage input was built, so nothing in this plan is reading one and
+                // no mask has a fingerprint to state. WHICH photograph is the key
                 // builder's business now, not this branch's.
-                sourceKey = "-"
+                pictureKey = "-"
             }
 
             for mask in plan.masks {
@@ -1410,6 +1427,17 @@ public final class PipelineRenderer {
                     graph.maskImages[mask.id] = gpu
                     continue
                 }
+                // WHICH PICTURE TERM THIS MASK'S KEY CARRIES — asked of this mask,
+                // not of the stack. The same four questions `maskSource` asks of the
+                // whole plan, asked of one mask's dependency closure; see
+                // `maskReadsPicture`. `source == nil` short-circuits it because then
+                // the rasterizer has no picture to hand anybody and `pictureKey` is
+                // already "-".
+                let usesPicture = source != nil
+                    && Self.maskReadsPicture(mask, in: plan.allMasks,
+                                             strokeSets: strokeSets,
+                                             longEdge: Swift.max(width, height))
+                let sourceKey: String? = usesPicture ? pictureKey : "-"
                 let bake = { [brushPlanes] in
                     // The brush half is accumulated rather than replayed. Built inside
                     // `bake` and not before it, so a frame served a stale raster does
@@ -1421,14 +1449,17 @@ public final class PipelineRenderer {
                               let set = strokeSets[ref], !set.strokes.isEmpty else { continue }
                         // A brush WITHOUT automask does not read the picture, so its
                         // plane must not be thrown away when the exposure moves — that
-                        // invalidation is the cost this cache exists to remove.
-                        let readsPicture = set.strokes.contains { $0.automask }
+                        // invalidation is the cost this cache exists to remove. (A
+                        // stroke set that HAS automask is one of the four things that
+                        // make `usesPicture` true above, so `sourceKey` is the
+                        // fingerprint whenever this branch wants it.)
+                        let automasked = set.strokes.contains { $0.automask }
                         painted[ref] = brushPlanes.plane(
                             componentKey: "\(mask.id)#\(index)",
                             set: set,
                             size: (width: width, height: height),
-                            sourceKey: readsPicture ? (sourceKey ?? "-") : "-",
-                            source: readsPicture ? source : nil)
+                            sourceKey: automasked ? (sourceKey ?? "-") : "-",
+                            source: automasked ? source : nil)
                     }
                     return MaskRaster.combine(mask: mask,
                                               size: (width: width, height: height),
@@ -1603,6 +1634,56 @@ public final class PipelineRenderer {
         return Self.buffer(from: staged, context: context)
     }
 
+    /// Whether rasterizing THIS mask reads the picture — `maskSource`'s `needsPicture`,
+    /// asked of one mask instead of the whole stack.
+    ///
+    /// `maskSource` asks the plan-wide OR because it is deciding whether to BUILD the
+    /// stage input at all, and one reader is enough to make that worth doing. The raster
+    /// key is the opposite question: it must name what THIS mask depends on, and a term
+    /// that is in a key without being a dependency is a cache miss on every edit that
+    /// moves it. Answering the plan-wide question in the per-mask place is what made a
+    /// single luma-range mask invalidate an unrelated brush mask's raster on every tone
+    /// event.
+    ///
+    /// The four ways one mask reaches the picture, and they are the same four
+    /// `maskSource` unions over the stack — stated here once so the two cannot disagree
+    /// about what "reads the picture" means:
+    ///
+    /// 1. A component kind that samples it: `MaskKind.readsSourceImage`. False for the
+    ///    AI kinds and `depthRange` on purpose — those read a cached matte, and the
+    ///    matte is generated from `Recipe()` (`matteSourceImage`), so it does not move
+    ///    when tone does. Which photograph it belongs to is `maskRasterKey`'s
+    ///    unconditional first term, and stays so.
+    /// 2. A brush stroke with Automask on, which gates each stamp on a colour difference
+    ///    against the picture. `MaskKind.brush.readsSourceImage` is false — correctly,
+    ///    for a plain brush — so this has to be asked of the STROKES.
+    /// 3. Refine above the threshold, which runs a guided filter against the picture's
+    ///    structure (`MaskRaster.refined` guards on the same radius at the same long
+    ///    edge this is passed).
+    /// 4. ANY OF THE ABOVE IN A MASK THIS ONE REFERENCES. `combine` resolves a `maskRef`
+    ///    by evaluating the referenced stack with the same `source`, so "Sky ∩ Person"
+    ///    reads the picture exactly when Sky or Person does. `MaskDependency.closure`
+    ///    is the walk — the same one used everywhere else that has to follow a
+    ///    reference — so it terminates on a cycle and leads with `mask` itself.
+    ///
+    /// Conservative in the direction that matters: every route by which the rasterizer
+    /// could touch `source` for this mask puts the fingerprint back in its key. Being
+    /// wrong the other way would serve a mask baked against a different exposure.
+    static func maskReadsPicture(_ mask: Mask, in masks: [Mask],
+                                 strokeSets: [String: BrushStrokeSet],
+                                 longEdge: Int) -> Bool {
+        MaskDependency.closure(of: mask, in: masks).contains { linked in
+            if MaskRaster.refineRadius(feather: linked.refine.feather,
+                                       longEdge: longEdge) >= 1 { return true }
+            return linked.components.contains { component in
+                if component.kind.readsSourceImage { return true }
+                guard component.kind == .brush, let ref = component.strokesRef,
+                      let set = strokeSets[ref] else { return false }
+                return set.strokes.contains { $0.automask }
+            }
+        }
+    }
+
     /// The recipe subtrees the mask-source image is a function of — S6 white balance
     /// and exposure, S7 tone and zones, S9/S10 colour and grade — serialized
     /// canonically for the raster cache's key. Nil when any subtree fails to encode,
@@ -1649,8 +1730,12 @@ public final class PipelineRenderer {
     /// which Paste Settings makes identical on purpose. `WxH` is the raster size, which
     /// collides across every frame of the same aspect. `strokesKey` is stroke refs and
     /// counts. `mattesKey` is the matte KIND names — `aiSubject`, not the subject.
-    /// `sourceKey` is the picture-source fingerprint, which is absent ("-") for
-    /// precisely the matte-backed kinds where being wrong is most visible.
+    /// `sourceKey` is the picture-source fingerprint, and it is PER MASK: "-" for a
+    /// mask whose dependency closure reads no picture at all, so a brush or a polygon
+    /// stops being invalidated by a tone edit it does not depend on. It is not, and
+    /// must never be read as, a statement about which photograph this is — the
+    /// matte-backed kinds spell it "-" while being the most photograph-specific rasters
+    /// in the engine, which is exactly the confusion the first term above exists to end.
     static func maskRasterKey(sourceURL: URL,
                               maskJSON: String,
                               width: Int, height: Int,
@@ -1679,22 +1764,40 @@ public final class PipelineRenderer {
     /// `matteSourceImage` takes it as a default argument.
     public static let maskRasterLongEdge: Int = 1024
 
-    /// A single-channel plane as a grey CIImage stretched over the frame.
+    /// A single-channel plane as a single-channel CIImage stretched over the frame.
+    ///
+    /// `CIFormat.Rf` OVER THE PLANE'S OWN STORAGE, not an RGBAf interleave. This used to
+    /// allocate a `[Float]` four times the plane's size and fill it pixel by pixel
+    /// through `plane[x, y]` — a subscript that returns `Double`, so every mask pixel
+    /// took a Float→Double→Float round trip and three redundant writes into channels no
+    /// reader ever looked at. Measured at 4096×4096 on the bench lane: 723 ms to
+    /// interleave against 97 ms to hand `values` over as-is. That is per mask, per
+    /// settle, and — this is why it mattered more than its size suggests — it ran AFTER
+    /// the raster cache's lookup, on the hit as well as the miss, so it was the one
+    /// term in the settle path no cache could remove. `Plane.values` is already exactly
+    /// `width * height` contiguous `Float`s (its initializers precondition that), which
+    /// is precisely the bitmap Core Image wants; there is nothing left to repack.
+    ///
+    /// SAFE BECAUSE EVERY KERNEL THAT CONSUMES A MASK IMAGE READS `.r` AND NOTHING ELSE.
+    /// Two do: `blendMask` and `blendMaskMode`, the pair `RenderGraph.applyLocal` and
+    /// `applyLocalCurves` hand `maskImages[...]` to, both opening with
+    /// `float m = clamp(mask.r, 0.0, 1.0);`. (`maskFold` and `maskInvert` read `.r` too,
+    /// but they consume `MaskGPU`'s own images and never this one, and `thresholdMask`'s
+    /// `plane` argument comes from the dehaze stage.) Green, blue and alpha were being
+    /// written for nobody. `MaskKeyTests` scans `Kernels.swift` for a mask sampler read
+    /// through any other channel, so the next kernel that wants one fails a test rather
+    /// than reading zeroes.
+    ///
+    /// The CPU-side `Num.saturate` goes with the loop, and that is not a value change:
+    /// both consumers clamp to [0, 1] themselves, in the same line that reads the
+    /// channel. A non-finite plane value survived the old `Num.saturate` too — Swift's
+    /// `min`/`max` propagate NaN — so nothing that used to be clamped stops being.
     static func image(from plane: Plane, targetExtent: CGRect) -> CIImage? {
-        var pixels = [Float](repeating: 1, count: plane.width * plane.height * 4)
-        for y in 0..<plane.height {
-            for x in 0..<plane.width {
-                let v = Float(Num.saturate(plane[x, y]))
-                let i = (y * plane.width + x) * 4
-                pixels[i] = v
-                pixels[i + 1] = v
-                pixels[i + 2] = v
-            }
-        }
-        let data = pixels.withUnsafeBufferPointer { Data(buffer: $0) }
-        let image = CIImage(bitmapData: data, bytesPerRow: plane.width * 16,
+        let data = plane.values.withUnsafeBufferPointer { Data(buffer: $0) }
+        let image = CIImage(bitmapData: data,
+                            bytesPerRow: plane.width * MemoryLayout<Float>.size,
                             size: CGSize(width: plane.width, height: plane.height),
-                            format: .RGBAf, colorSpace: nil)
+                            format: .Rf, colorSpace: nil)
         guard plane.width > 0, plane.height > 0,
               targetExtent.width > 0, targetExtent.height > 0 else { return image }
         let sx = targetExtent.width / CGFloat(plane.width)

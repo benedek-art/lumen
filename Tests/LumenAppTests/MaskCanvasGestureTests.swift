@@ -257,10 +257,16 @@ final class MaskCanvasGestureTests: XCTestCase {
         XCTAssertEqual(brush.size, 0.002, accuracy: 1e-12)
         for _ in 0..<200 { brush.nudgeSize(up: true) }
         XCTAssertEqual(brush.size, 0.5, accuracy: 1e-12)
-        // Seventeen presses end to end, which is the claim `nudgeSize` makes about the
-        // feel of the ladder and the only reason 1.15 is the number.
+        // Forty presses end to end, which is the claim `nudgeSize` makes about the feel
+        // of the ladder and the only reason 1.15 is the number. The exact figure is
+        // log(250)/log(1.15) = 39.506, so the fortieth press is the one that reaches the
+        // ceiling and is clamped there — 1.15^39 lands at 0.466, short of 0.5.
+        //
+        // This assertion said 39, and its note said seventeen; both were written on a
+        // lane that cannot run this test. Two wrong numbers guarding one constant is
+        // worse than none, because the next person to change 1.15 would have trusted it.
         let steps = (log(0.5 / 0.002) / log(1.15)).rounded()
-        XCTAssertEqual(steps, 39, "the ladder's length has changed under its own note")
+        XCTAssertEqual(steps, 40, "the ladder's length has changed under its own note")
     }
 
     /// Feather is a PERCENTAGE of the stamp, so its ladder is linear — and clamped, so

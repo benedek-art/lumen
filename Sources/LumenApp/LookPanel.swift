@@ -445,45 +445,23 @@ struct LookPanel: View {
 
     /// Put a saved look on the selection, at the Amount the slider above is showing.
     ///
-    /// A SECOND COPY OF `AppState.applyLook`'S PLUMBING, said plainly because the house
-    /// rule is against it and this is an exception with a mechanical cause: `applyLook`
-    /// takes a `LookRow` and nothing else, so there is no way to hand it a strength
-    /// without changing its signature — a file this pass does not own. Collapse the two
-    /// the moment it takes `amount:`; two copies of a guard is the shape that let the
-    /// workspace tab become the one route into Crop that did not arm the tool.
+    /// ONE ROUTE INTO APPLYING A LOOK, NOT TWO. This body used to be a second copy of
+    /// `AppState.applyLook`'s plumbing — the target guard, the zero guard, the history
+    /// label and two sentences of status — for one mechanical reason: that verb took a
+    /// `LookRow` and nothing else, so there was no way to hand it a strength. It takes
+    /// `amount:` now (defaulted to full, so a caller with no strength to give still
+    /// reads as "apply this look"), the copy is gone, and the row's button and the row's
+    /// menu arrive at the same door as anything added later. Two copies of a guard that
+    /// have to agree is the shape that let the workspace tab become the one route into
+    /// Crop that did not arm the tool.
     ///
-    /// WHAT IS NOT DUPLICATED IS THE RULE. `LookSubset.applied(to:)` remains the only
-    /// thing that decides what a look does to a recipe at any strength, and it decides
-    /// it in LumenCore where it is tested. What is copied here is the target guard, the
-    /// history label and two sentences of status.
+    /// THE GUARDS WENT WITH THE PLUMBING rather than staying behind here. Refusing at
+    /// 0%, clamping, and saying "at 40%" in the status line are things applying a look
+    /// AT A STRENGTH does; a panel that kept them would be a panel whose second caller
+    /// silently does not have them. `LookSubset.applied(to:)` is still the only thing
+    /// that decides what a look does to a recipe, in LumenCore where it is tested.
     private func apply(_ look: LookRow) {
-        let targets = state.editTargets.count
-        guard targets > 0 else {
-            state.statusMessage = "Select the photos to apply \"\(look.name)\" to"
-            return
-        }
-        // SAID RATHER THAN DONE. `applied(to:)` returns the recipe untouched at zero, so
-        // going ahead would spend a history step on nothing and then report success —
-        // and a photographer who has left the slider at the bottom has almost certainly
-        // not decided to apply nothing. The sentence names the control to move.
-        guard applyAmount > 0 else {
-            state.statusMessage = "\"\(look.name)\" at 0% would change nothing — "
-                + "raise Amount to apply it"
-            return
-        }
-        guard var subset = try? look.subset() else {
-            state.statusMessage = "\"\(look.name)\" could not be read"
-            return
-        }
-        subset.amount = applyAmount
-        state.updateRecipe(label: "Apply Look") { recipe in
-            recipe = subset.applied(to: recipe)
-        }
-        let strength = applyAmount >= LookSubset.fullAmount
-            ? "" : " at \(LookPanel.wholePercent(applyAmount))%"
-        state.statusMessage = targets == 1
-            ? "Applied \"\(look.name)\"\(strength)"
-            : "Applied \"\(look.name)\"\(strength) to \(targets) photos"
+        state.applyLook(look, amount: applyAmount)
     }
 
     /// What the row's tooltip promises, which has to change when the Amount does: a
@@ -1226,15 +1204,33 @@ struct LookPanel: View {
                                              set: { $0.blackTarget = $1 }),
                         // 0…9 ON THE TRACK, 0…15 BY TYPING. `DisplayTransform` clamps
                         // this to `midGrey * 0.5` — 0.09, i.e. blackTarget 9 — so the top
-                        // 40% of a 0…15 track rendered identically to its 60% mark. And
-                        // the step had to come down: the preset's own value is 0.0152, so
-                        // at step 0.01 neither a drag, nor the readout scrub, nor a
-                        // keyboard nudge could land on it (0.0152 + 0.01 resolves to
-                        // 0.03), and `decimals: 2` printed it as "0.02" — a number that,
-                        // typed back, is 31% higher than the preset.
+                        // 40% of a 0…15 track rendered identically to its 60% mark.
+                        //
+                        // TWO DECIMALS, NOT THREE. Three over 0…9 is nine thousand
+                        // values, and the best gesture this app has — the readout scrub
+                        // under ⇧, 1,704 points of travel — moves 0.189 pt per step, so
+                        // the row advertised nine thousand numbers and could land on
+                        // about one in five of them. A readout printing a precision no
+                        // gesture can address is `labelWidth`'s "58 of the 201 integers"
+                        // one order finer, and it is the same defect for the same reason.
+                        //
+                        // THE THIRD DECIMAL WAS BOUGHT FOR THE PRESET'S OWN 0.0152 AND
+                        // WAS NEVER THE WAY BACK TO IT. This row resets through
+                        // `clearTransformOverride`, and `LumenSlider.reset()` calls
+                        // `onReset` INSTEAD OF writing `defaultValue` — so returning to
+                        // the preset is one double-click that sets the override to nil
+                        // and never touches the step grid. A value no drag has to reach
+                        // is not an argument for a step fine enough to reach it.
+                        //
+                        // What two decimals costs is the readout showing 0.02 for an
+                        // untouched 0.0152. These are PERCENTAGES of SDR white
+                        // (`RecipeLook`: "0…15 % of SDR white"), so that is 0.000152
+                        // against 0.0002 of white on the darkest pixel in the frame —
+                        // about a sixth of one 8-bit code value once encoded. The hard
+                        // range still takes 0.0152 typed.
                         range: 0...9, hardRange: 0...15,
                         defaultValue: base.blackTarget,
-                        step: 0.001, decimals: 3, bipolar: false,
+                        step: 0.01, decimals: 2, bipolar: false,
                         help: LookPanel.overrideHelp,
                         onReset: { clearTransformOverride(\.blackTarget) })
         }

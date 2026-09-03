@@ -1165,15 +1165,24 @@ struct LoupeView: View {
                 // of controls inside a stack that refuses hits looks exactly like a strip
                 // of controls and answers nothing.
                 //
-                // Bottom-leading, under the badges rather than beside them, so the mode's
-                // name is near the corner the rest of the viewer's status lives in
-                // without the two ever laying over each other.
+                // BOTTOM-TRAILING, and the corner is the one thing here that is not
+                // free choice. This ZStack is `alignment: .bottomLeading` and `badges`
+                // is already in it with the same padding, so a HUD placed bottom-leading
+                // lands exactly on the badge stack and — being later in the stack —
+                // draws OVER it. What it would cover is the zoom label and, with it, the
+                // "PROXY 1616×1080" suffix: the peaking HUD would hide the app's own
+                // warning that the frame is a stand-in while measuring edges on it. The
+                // opposite corner is empty in every viewer surface and keeps the two
+                // readings side by side where both can be read at once.
+                //
+                // The full-size frame is what does the placing: this stack's own
+                // alignment is bottom-LEADING, so the HUD has to carry its own.
                 if state.focusPeaking.isOn {
                     FocusPeakingHUD(settings: $state.focusPeaking,
                                     atPixelLevel: peakingIsPixelLevel)
                         .padding(10)
                         .frame(maxWidth: .infinity, maxHeight: .infinity,
-                               alignment: .bottomLeading)
+                               alignment: .bottomTrailing)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)

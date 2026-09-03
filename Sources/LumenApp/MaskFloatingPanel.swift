@@ -57,7 +57,8 @@ struct MaskFloatingPanel: View {
     @State private var dragging: CGSize?
     @State private var titleHovered = false
 
-    /// Wide enough that a mask's own name fits beside its picture.
+    /// Wide enough that a mask's own name fits beside its picture, and — at 290 rather
+    /// than 272 — wide enough that its sliders can address their own integers.
     ///
     /// 236 was not. A row spends 14 on the disclosure chevron, 44 on the thumbnail, 16
     /// on the eye, 18 on the row menu and 28 on padding and gaps — 120 points of chrome
@@ -65,7 +66,39 @@ struct MaskFloatingPanel: View {
     /// needs about 105 at 12 pt, so EVERY default name in the panel arrived truncated,
     /// in the one panel whose entire job is telling masks apart. At 272 the name gets
     /// 132 and the default names fit whole.
-    static let width: CGFloat = 272
+    ///
+    /// 272 FIXED THE NAMES AND LEFT THE TRACKS BROKEN. This is a FIXED-width host — the
+    /// develop column's drag handle does nothing for it — so the number written here is
+    /// the only track width the panel's 26 sliders will ever have. A `maskComponent` row
+    /// keeps `width − 190` of groove and a `maskDetail` row `width − 184`; at 272 that is
+    /// 82 and 88 points. Against the ~1.0 point-per-step floor `LumenControls` states in
+    /// its own words, 25 of those 26 rows are under it. The census, at four candidate
+    /// widths:
+    ///
+    ///     272 → 25 of 26 fail   (worst 0.353 — Size, 88 pt over 249 steps)
+    ///     290 →  4 fail         (Size, Rotation, From, To)
+    ///     320 →  4 fail         (the same four — 30 points, no row moved)
+    ///     330 →  2 fail         (Size, Rotation)
+    ///     433 →  0 fail
+    ///
+    /// 290 IS THE WIDTH THAT EARNS ITS PIXELS, and the SHAPE of that table is the reason
+    /// rather than the endpoint. Twenty-one of the 26 rows sit in one band at 0.820–0.917
+    /// — the 0–100-in-steps-of-1 class, a hair short of the floor — and 18 points carries
+    /// the whole band over it at once (82 → 100, 88 → 106). Above that band nothing is
+    /// bought in bulk again: 320 spends 30 further points and moves not one row, because
+    /// the next rows up are Rotation at 180 steps and From/To at 140, which do not clear
+    /// until 330, and Size at 249 steps does not clear until 433. Whoever reaches for 320
+    /// next is paying the picture 30 points for exactly nothing.
+    ///
+    /// AND THE PIXELS ARE REAL, which is the other half of the decision. This panel is a
+    /// HUD floating ON the photograph, so every point of its width is a point of somebody's
+    /// frame covered up — the standing argument against just making it wide. 18 of them
+    /// buy 21 controls their integers back, which is the best exchange rate available at
+    /// any width. The next 30 buy nothing, and the 143 beyond that buy two rows and a
+    /// hole in the picture half the width of the develop column. So the panel stops here,
+    /// and the four rows still under the floor are answered where every fine-quantum row
+    /// in the app is answered: by the readout's own scrub, not by more width.
+    static let width: CGFloat = 290
     /// The collapsed column: one thumbnail wide, plus its breathing room.
     static let railWidth: CGFloat = 62
     /// The title bar's own height.

@@ -1524,11 +1524,17 @@ struct MaskPanel: View {
                 // it, slowly move side to side" is a description of the tool getting in
                 // the way of the picture.
                 optionalSlider(id, i, "Feather", \.feather, 0...100, 50,
-                               behaviour: .softenEdge)
+                               behaviour: .softenEdge,
+                               help: "How far the ellipse's edge fades inward, as a "
+                                   + "share of its radius. At 0 the edge is a hard rim; "
+                                   + "at 100 the selection fades from the centre out.")
                 // ±90, not ±180: an axis-aligned ellipse has rotational period 180°
                 // (`MaskRaster.radialPlane`), so half the old track duplicated the other
                 // half — two thumb positions 180° apart rasterized the same mask.
-                optionalSlider(id, i, "Rotation", \.rotation, -90...90, 0, bipolar: true)
+                optionalSlider(id, i, "Rotation", \.rotation, -90...90, 0, bipolar: true,
+                               help: "Turns the ellipse, in degrees. ±90 covers every "
+                                   + "orientation there is: an ellipse has a half turn "
+                                   + "of symmetry, so 100° and −80° are the same shape.")
                 note(MaskPanel.ellipseHint(c))
             }
         case .lumaRange:
@@ -1538,8 +1544,16 @@ struct MaskPanel: View {
                 // axis over the CHANNEL above, never auto-ranged, so a band means the
                 // same thing on every frame and keeps meaning it when the channel
                 // changes under it — which is why every channel is on one axis.
-                bandSlider(id, i, "From", isLow: true, depth: false)
-                bandSlider(id, i, "To", isLow: false, depth: false)
+                bandSlider(id, i, "From", isLow: true, depth: false,
+                           help: "The dark end of the band, in EV on the fixed −10…+4 "
+                               + "axis. Anything darker than this is left unselected. "
+                               + "The axis never auto-ranges, so a band means the same "
+                               + "thing on every frame.")
+                bandSlider(id, i, "To", isLow: false, depth: false,
+                           help: "The bright end of the band, in EV on the same fixed "
+                               + "axis. Anything brighter is left unselected. It cannot "
+                               + "be dragged below From — inverting the band is the "
+                               + "Invert toggle's job.")
                 // "Smooth", NOT "Smoothness", and the second one did not fit. With a
                 // behaviour glyph beside it the name gets 56 points; "Smoothness"
                 // measures 64.8 at `lumenBody`, which `minimumScaleFactor(0.86)`
@@ -1554,12 +1568,19 @@ struct MaskPanel: View {
                 // Deliberately not "Soften": that is the Gaussian in the refinement
                 // chain, a different control on the same mask.
                 optionalSlider(id, i, "Smooth", \.smooth, 0...100, 50,
-                               behaviour: .smoothness)
+                               behaviour: .smoothness,
+                               help: "Smoothness of the band's edges — how gradually "
+                                   + "the selection falls off outside From and To. At 0 "
+                                   + "the band ends abruptly at each EV; at 100 it "
+                                   + "fades across the neighbouring stops.")
             }
         case .polygon:
             VStack(alignment: .leading, spacing: Lumen.rowGap) {
                 optionalSlider(id, i, "Feather", \.feather, 0...100, 0,
-                               behaviour: .softenEdge)
+                               behaviour: .softenEdge,
+                               help: "How far the outline's edge fades inward. At 0 the "
+                                   + "shape has a hard edge, which is the default here "
+                                   + "because a polygon is usually drawn along one.")
                 note(MaskPanel.outlineHint(c))
             }
         case .luminosity:
@@ -1573,7 +1594,11 @@ struct MaskPanel: View {
                 optionalSlider(id, i, "Level", \.level,
                                MaskRaster.luminosityMinLevel...MaskRaster.luminosityMaxLevel,
                                1, step: 0.1, decimals: 1,
-                               behaviour: .luminositySeries(c.series ?? .lights))
+                               behaviour: .luminositySeries(c.series ?? .lights),
+                               help: "How far up the series above to go. Each whole "
+                                   + "step narrows the selection toward the extreme the "
+                                   + "series names, and fractions in between are real "
+                                   + "positions rather than a snap.")
             }
         // Still editable, no longer offerable. Nothing PRODUCES a depth plane — no depth
         // estimator, no reader for an embedded one — so the kind left `rangeKinds` and
@@ -1590,14 +1615,23 @@ struct MaskPanel: View {
         // needs a model this application has not got.
         case .depthRange:
             VStack(alignment: .leading, spacing: Lumen.rowGap) {
-                bandSlider(id, i, "Near", isLow: true, depth: true)
-                bandSlider(id, i, "Far", isLow: false, depth: true)
+                bandSlider(id, i, "Near", isLow: true, depth: true,
+                           help: "The near edge of the depth band, 0 at the camera. "
+                               + "Anything closer than this is left unselected.")
+                bandSlider(id, i, "Far", isLow: false, depth: true,
+                           help: "The far edge of the depth band, 1 at the furthest "
+                               + "distance the plane records. Anything beyond it is "
+                               + "left unselected.")
                 // The same word as the luminance band's, because it is the same
                 // field. This row has no glyph and therefore the full 86 points, so it
                 // would have fitted either way — and one parameter wearing two names
                 // depending on which component kind is selected is the drift the
                 // rename was supposed to close, not open.
-                optionalSlider(id, i, "Smooth", \.smooth, 0...100, 50)
+                optionalSlider(id, i, "Smooth", \.smooth, 0...100, 50,
+                               help: "Smoothness of the band's edges — how gradually "
+                                   + "the selection falls off outside Near and Far. The "
+                                   + "same field as the luminance band's Smooth, and it "
+                                   + "means the same thing over distance.")
                 modelNote(c)
             }
         case .colorRange:
@@ -1606,7 +1640,11 @@ struct MaskPanel: View {
                 // One Refine, not three: it drives the hue, chroma and lightness
                 // tolerances together because the per-axis split has no field in the
                 // format, so the other two are absent rather than faked.
-                optionalSlider(id, i, "Tolerance", \.rangeAmount, 0...100, 50)
+                optionalSlider(id, i, "Tolerance", \.rangeAmount, 0...100, 50,
+                               help: "How far a pixel may sit from the sampled colours "
+                                   + "and still be selected. It moves the hue, chroma "
+                                   + "and lightness tolerances together — the format "
+                                   + "has no field to split them.")
             }
         case .similarity:
             similarityParameters(id, i, c)
@@ -2090,12 +2128,33 @@ struct MaskPanel: View {
                                } })
             if lightExpanded {
                 VStack(alignment: .leading, spacing: Lumen.rowGap) {
-                    adjustSlider(mask.id, "Exposure", \.exposure, -4...4, step: 0.05, decimals: 2)
-                    adjustSlider(mask.id, "Contrast", \.contrast, -100...100)
-                    adjustSlider(mask.id, "Highlights", \.highlights, -100...100)
-                    adjustSlider(mask.id, "Shadows", \.shadows, -100...100)
-                    adjustSlider(mask.id, "Whites", \.whites, -100...100)
-                    adjustSlider(mask.id, "Blacks", \.blacks, -100...100)
+                    adjustSlider(mask.id, "Exposure", \.exposure, -4...4, step: 0.05,
+                                 decimals: 2,
+                                 help: "Brightness of the selected area, in stops. +1 "
+                                     + "is twice the light, the same unit as the "
+                                     + "photograph's own Exposure.")
+                    adjustSlider(mask.id, "Contrast", \.contrast, -100...100,
+                                 help: "Spreads the selected area's tones away from "
+                                     + "mid-grey, or gathers them back toward it. "
+                                     + "Mid-grey itself does not move.")
+                    adjustSlider(mask.id, "Highlights", \.highlights, -100...100,
+                                 help: "Recovers or lifts the bright end of the "
+                                     + "selection, working in a window above mid-grey "
+                                     + "that Whites below re-shapes.")
+                    adjustSlider(mask.id, "Shadows", \.shadows, -100...100,
+                                 help: "Opens or deepens the dark end of the selection, "
+                                     + "in a window below mid-grey that Blacks below "
+                                     + "re-shapes.")
+                    adjustSlider(mask.id, "Whites", \.whites, -100...100,
+                                 help: "Moves the anchor the brightest tones are "
+                                     + "measured against, and shelves the top of the "
+                                     + "range with it — up to about 1.3 EV at +100, "
+                                     + "mid-grey untouched.")
+                    adjustSlider(mask.id, "Blacks", \.blacks, -100...100,
+                                 help: "Moves the anchor the darkest tones are measured "
+                                     + "against, and shelves the bottom of the range "
+                                     + "with it — up to about 2.2 EV at −100, mid-grey "
+                                     + "untouched.")
                     // Whites and Blacks do two things here. They move the tone engine's
                     // ANCHORS, which reshapes the Highlights and Shadows windows —
                     // globally those anchors also feed the display transform, which is
@@ -2128,9 +2187,18 @@ struct MaskPanel: View {
             if colourExpanded {
                 VStack(alignment: .leading, spacing: Lumen.rowGap) {
                     whiteBalanceRows(mask)
-                    adjustSlider(mask.id, "Hue", \.hue, -180...180)
-                    adjustSlider(mask.id, "Saturation", \.sat, -100...100)
-                    adjustSlider(mask.id, "Vibrance", \.vibrance, -100...100)
+                    adjustSlider(mask.id, "Hue", \.hue, -180...180,
+                                 help: "Rotates every colour the mask selects around "
+                                     + "the wheel, in degrees. A grey has no hue to "
+                                     + "rotate and does not move.")
+                    adjustSlider(mask.id, "Saturation", \.sat, -100...100,
+                                 help: "Strengthens or drains every colour in the "
+                                     + "selection by the same amount. At −100 the "
+                                     + "selected area is black and white.")
+                    adjustSlider(mask.id, "Vibrance", \.vibrance, -100...100,
+                                 help: "Saturation that holds back on colours already "
+                                     + "strong, so a dull sky comes up while skin stays "
+                                     + "where it is.")
                     // WIRED, AND THE TARGET IS NOW A COLOUR THE PHOTOGRAPHER CHOSE.
                     //
                     // It used to seed `[0.5, 0.5, 0.5]` and offer no way to change it,
@@ -2148,8 +2216,11 @@ struct MaskPanel: View {
                                        + "colour, holding each pixel's own brightness")
                     if hasTint {
                         tintTargetRow(mask)
-                        adjustSlider(mask.id, "Colorize amount", \.colorTintStrength, 0...100,
-                                     bipolar: false)
+                        adjustSlider(mask.id, "Colorize amount", \.colorTintStrength,
+                                     0...100, bipolar: false,
+                                     help: "How far toward the colour above the "
+                                         + "selection is mixed. Each pixel keeps its "
+                                         + "own brightness the whole way.")
                     }
                 }
             }
@@ -2313,12 +2384,22 @@ struct MaskPanel: View {
                                } })
             if detailExpanded {
                 VStack(alignment: .leading, spacing: Lumen.rowGap) {
-                    adjustSlider(mask.id, "Texture", \.texture, -100...100)
-                    adjustSlider(mask.id, "Clarity", \.clarity, -100...100)
-                    adjustSlider(mask.id, "Dehaze", \.dehaze, -100...100)
+                    adjustSlider(mask.id, "Texture", \.texture, -100...100,
+                                 help: "The finest scale of detail only — the size that "
+                                     + "reads as pore and grain. Negative smooths it "
+                                     + "without softening the edges around it.")
+                    adjustSlider(mask.id, "Clarity", \.clarity, -100...100,
+                                 help: "Contrast at a middling scale, which reads as "
+                                     + "weight and depth. Negative values glow.")
+                    adjustSlider(mask.id, "Dehaze", \.dehaze, -100...100,
+                                 help: "Cuts through the atmospheric veil over the "
+                                     + "selected area, or lays more of it back on.")
                     // Texture, Clarity and Dehaze reuse the global base–detail
                     // decomposition, and negative Sharpness softens.
-                    adjustSlider(mask.id, "Sharpness", \.sharpness, -100...100)
+                    adjustSlider(mask.id, "Sharpness", \.sharpness, -100...100,
+                                 help: "Sharpens the edges inside the selection. "
+                                     + "Negative softens, which is what makes this the "
+                                     + "row a skin mask reaches for.")
                     // DELIBERATELY ABSENT, and re-checked with this rebuild: local
                     // Noise, Noise (chroma), Moiré, Defringe and Grain. All five are
                     // fields on `LocalAdjust`, all five round-trip through the wire
@@ -2678,7 +2759,8 @@ struct MaskPanel: View {
     /// Luminance handles are denominated in EV over the fixed −10…+4 axis the normalized
     /// wire value sits on.
     private func bandSlider(_ id: String, _ i: Int, _ t: String,
-                            isLow: Bool, depth: Bool) -> some View {
+                            isLow: Bool, depth: Bool,
+                            help: String? = nil) -> some View {
         let r: ClosedRange<Double> = depth ? 0...1 : MaskPanel.evMin...MaskPanel.evMax
         let fallback: Double = isLow ? r.lowerBound : r.upperBound
         return LumenSlider(
@@ -2702,7 +2784,8 @@ struct MaskPanel: View {
                     }
                 }),
             range: r, defaultValue: fallback, step: depth ? 0.01 : 0.1,
-            decimals: depth ? 2 : 1, bipolar: false)
+            decimals: depth ? 2 : 1, bipolar: false,
+            help: help)
     }
 
     private func refineSlider(_ id: String, _ t: String, _ p: WritableKeyPath<MaskRefine, Double>,
@@ -2831,13 +2914,28 @@ struct MaskPanel: View {
                                  ColorTemperature.minKelvin...ColorTemperature.maxKelvin,
                                  neutral.kelvin, step: 50, bipolar: false,
                                  scale: MaskPanel.temperatureScale,
-                                 trackStops: Lumen.temperatureStops)
+                                 trackStops: Lumen.temperatureStops,
+                                 help: "The light the selected area is balanced for, in "
+                                     + "Kelvin — right to warm it, left to cool. Travel "
+                                     + "is spaced in mireds, so a move counts the same "
+                                     + "everywhere on the scale. Reset is the "
+                                     + "photograph's own white balance.")
             optionalAdjustSlider(mask.id, "Tint", \.kelvinTint, -150...150, neutral.tint,
                                  step: 1, bipolar: true,
-                                 trackStops: Lumen.tintStops)
+                                 trackStops: Lumen.tintStops,
+                                 help: "The green–magenta axis the Kelvin scale cannot "
+                                     + "reach, for the selected area: positive is "
+                                     + "magenta, negative green. Reset is the "
+                                     + "photograph's own white balance.")
         } else {
-            adjustSlider(mask.id, "Temp", \.temp, -100...100)
-            adjustSlider(mask.id, "Tint", \.tint, -100...100)
+            adjustSlider(mask.id, "Temp", \.temp, -100...100,
+                         help: "Warms or cools the selected area RELATIVE to however "
+                             + "the photograph is already balanced — there is no "
+                             + "absolute Kelvin here, because this recipe has none.")
+            adjustSlider(mask.id, "Tint", \.tint, -100...100,
+                         help: "Shifts the selected area toward magenta or green, "
+                             + "relative to the photograph's own balance. Positive is "
+                             + "magenta.")
         }
     }
 
@@ -2851,7 +2949,8 @@ struct MaskPanel: View {
                                       step: Double = 1, decimals: Int = 0,
                                       bipolar: Bool = false,
                                       scale: SliderScale = .linear,
-                                      trackStops: [LumenTrackStop]? = nil) -> some View {
+                                      trackStops: [LumenTrackStop]? = nil,
+                                      help: String? = nil) -> some View {
         LumenSlider(title: t,
                     value: maskValue(id, "abs." + t,
                                      get: { $0.adjust[keyPath: p] ?? standIn },
@@ -2860,18 +2959,27 @@ struct MaskPanel: View {
                     range: r, scale: scale, defaultValue: standIn,
                     step: step, decimals: decimals,
                     bipolar: bipolar,
-                    trackStops: trackStops)
+                    trackStops: trackStops,
+                    help: help)
     }
 
+    /// `help:` is on every one of these builders and not on `LumenSlider` alone for a
+    /// reason worth stating: a shared row builder without the parameter makes its call
+    /// sites UNABLE to carry a tooltip, and a control nobody can document is quietly
+    /// undocumentable rather than merely undocumented. Three helpers here lacked it and
+    /// 29 of the panel's 31 slider rows were bare because of it, while the develop
+    /// panels — which build `LumenSlider` directly — run at 60 of 71.
     private func adjustSlider(_ id: String, _ t: String,
                               _ p: WritableKeyPath<LocalAdjust, Double>,
                               _ r: ClosedRange<Double>, step: Double = 1,
-                              decimals: Int = 0, bipolar: Bool = true) -> some View {
+                              decimals: Int = 0, bipolar: Bool = true,
+                              help: String? = nil) -> some View {
         LumenSlider(title: t,
                     value: maskValue(id, t, get: { $0.adjust[keyPath: p] },
                                      set: { $0.adjust[keyPath: p] =
                                          Num.clamp($1, r.lowerBound, r.upperBound) }),
-                    range: r, defaultValue: 0, step: step, decimals: decimals, bipolar: bipolar)
+                    range: r, defaultValue: 0, step: step, decimals: decimals,
+                    bipolar: bipolar, help: help)
     }
 
 

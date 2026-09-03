@@ -165,7 +165,11 @@ final class MaskPanelTests: XCTestCase {
     func testTheRowPitchIsThirtyTwoAndOnTheFourPointGrid() {
         XCTAssertEqual(Lumen.rowGap, 4)
         XCTAssertEqual(Lumen.rowHeight, 24)
-        let rowPadding: CGFloat = 4
+        // 2, not 4. `LumenControls.swift` states the pitch as "rowHeight + 2·rowPadding
+        // + rowGap = 24 + 4 + 4 = 32", where the middle 4 is the PAIR of insets — so a
+        // single inset is 2. Reading that line as "rowPadding = 4" gives 36 and fails,
+        // which is what it did: this test was written on a lane that cannot run it.
+        let rowPadding: CGFloat = 2
         let pitch = Lumen.rowHeight + 2 * rowPadding + Lumen.rowGap
         XCTAssertEqual(pitch, 32, "rowHeight + 2·rowPadding + rowGap")
         XCTAssertEqual(pitch.truncatingRemainder(dividingBy: 4), 0, "the 4 pt grid")

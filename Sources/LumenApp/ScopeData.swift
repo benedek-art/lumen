@@ -254,6 +254,16 @@ extension AppState {
         // exactly the state the toggle creates and nothing else does. One ~1 MP render,
         // once; the next settle feeds the panel from the viewer's own frame again, and
         // says so, because the two carry different provenance.
+        //
+        // `scopes != nil` is the part that is deliberately conservative, and it leaves
+        // one case uncovered: with the histogram ALSO off there has been no measurement
+        // at all, so turning the scopes on still waits for the next settle. Covering it
+        // would mean commissioning a render whenever no measurement exists, and the
+        // moment that is true is the first frame of a photograph — where a second 1 MP
+        // render competes with the settle on the serial render actor, which is the
+        // second-decode cost docs/34 removed. The common case (the histogram is on by
+        // default, so a measurement exists) is covered; that one is not, and this is
+        // where it is written down rather than discovered.
         let scopesAskForWhatWeDoNotHave: Bool =
             showScopes && scopes != nil && scopes?.waveform == nil
         if viewMode == .loupe, !scopesAskForWhatWeDoNotHave { return }

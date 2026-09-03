@@ -72,12 +72,26 @@ struct CurveEditorView: View {
         case mask(String)      // the mask's id
     }
 
-    /// The frame's histogram, drawn under the curve. Optional because nothing may have
-    /// been rendered yet; nil simply draws no backdrop.
+    /// The frame's histogram, drawn under the curve. Still optional — nothing may have
+    /// been rendered yet, and nil simply draws no backdrop — but NO LONGER DEFAULTED.
     private let histogram: Histogram?
     private let target: Target
 
-    init(histogram: Histogram? = nil, target: Target = .global) {
+    /// `histogram` HAS NO DEFAULT, and its removal is a bug fix rather than a tidy-up.
+    ///
+    /// It was `histogram: Histogram? = nil`, and the mask panel's call site omitted the
+    /// argument entirely — so for months a mask's tone curve was drawn over an empty
+    /// square while the develop column's was drawn over the picture's own distribution.
+    /// Nothing announced it: the failure of an optional backdrop is a backdrop that is
+    /// simply not there, which looks exactly like a curve editor that never had one.
+    /// Seeing which tones the hand is moving is the entire reason a graph has a histogram
+    /// behind it, and the default is what made losing it silent.
+    ///
+    /// Required, the same omission is a compile error at every call site — including the
+    /// next surface that mounts this editor, which is the one this change is really for.
+    /// `nil` is still a legitimate thing to pass (nothing rendered yet); what is no longer
+    /// possible is passing it by accident.
+    init(histogram: Histogram?, target: Target = .global) {
         self.histogram = histogram
         self.target = target
     }
