@@ -96,7 +96,15 @@ jobs:
           echo "=== measured authority ==="
           sed -n '/control authority/,/^$/p' proof.log | head -200
           echo "=== failures ==="
-          grep -E ": error: -\[" proof.log | sed 's/^.*error: //' | head -30
+          # `: error: ` and NOT `: error: -\[`. The bracketed form is Apple XCTest's
+          # `-[Class testName]`; swift-corelibs-xctest writes `Class.testName : XCT...`
+          # with no brackets at all. This job runs on ubuntu, so the old pattern matched
+          # NOTHING here and every failing sweep printed an empty failures list under a
+          # non-zero exit — a ceremony that says a control moved and refuses to say
+          # which. Run 33723153890 is the example: 135 evidence sheets, exit 1, and no
+          # diagnosis. Both formats carry `: error: `, and the `sed` strips whatever
+          # precedes it either way.
+          grep -E ": error: " proof.log | sed 's/^.*error: //' | head -30
           exit $status
       - name: Keep the evidence sheets
         if: always()
