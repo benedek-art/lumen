@@ -169,17 +169,28 @@ final class LayoutMetricTests: XCTestCase {
     /// The floor `LumenControls.swift` states in its own words, applied at the width its
     /// own argument defends.
     ///
-    /// "At 320 a ±100 control had 0.90 points of travel per unit — under the ~1.0 at
-    /// which a one-pixel tremor stops costing a whole unit… At 380 it is 1.24, past
-    /// Lightroom's default." That is the entire case for `defaultPanelWidth` being 380
-    /// rather than 320, so 380 is where the claim is testable: if the default width does
-    /// not buy the floor, the number chosen to buy it has stopped working.
+    /// The sentence used to read "At 320 a ±100 control had 0.90 points of travel per
+    /// unit — under the ~1.0 at which a one-pixel tremor stops costing a whole unit… At
+    /// 380 it is 1.24, past Lightroom's default", and both of those figures were stale:
+    /// they predate `WorkspaceSectionView`'s card gutter (−20) and `valueWidth` going
+    /// 44 → 52 for the readout pill (−8 on every row in the app). The measured pair is
+    /// **0.710 and 1.010**, and `Lumen.defaultPanelWidth`'s comment now says so — which
+    /// is a repair rather than a concession: a comment that overstates the instrument by
+    /// 23% is how a panel gets narrowed twice.
     ///
-    /// Both figures in that sentence are stale — they predate `WorkspaceSectionView`'s
-    /// card gutter (−20), `DevelopDisclosure`'s inset going symmetric (−16 where it was
-    /// −8), and `valueWidth` going 44 → 52 for the readout pill (−8 on every row in the
-    /// app). The failure message prints what the chain is worth today so the next reader
-    /// gets the measured number rather than the remembered one.
+    /// WHAT THIS CENSUS STILL FAILS ON, AND WHY THE FLOOR IS NOT MOVING. Forty-two of
+    /// the 142 rows are under 1.0 at the default, and they are not a layout problem:
+    /// they are the fine-quantum rows — Exposure's 0.01 EV over ±5 is 1,000 steps and
+    /// would want 1,000 points of track, which no width this app permits comes near. The
+    /// answer to those is the readout's own scrub, and
+    /// `testEveryValueTheReadoutAdvertisesIsReachableBySomeGesture` is where that
+    /// answer is checked. So this census reads as a REPORT with a floor attached: the
+    /// floor is quoted from the source and stays quoted, and the message below prints
+    /// the whole ordered list so a reader can see which rows are the ±100 class the
+    /// claim is about and which are the fine-quantum rows it never covered. Narrowing
+    /// the census to the class the sentence names is a decision about what the product
+    /// promises; it is not a decision to take by editing a threshold until a run is
+    /// green.
     func testTheCoarseTrackClearsThePrecisionFloorAtTheDefaultPanelWidth() {
         let failures = precisionCensus(columnWidth: Lumen.defaultPanelWidth)
         report(failures, of: SliderInventory.all.count,
@@ -193,6 +204,14 @@ final class LayoutMetricTests: XCTestCase {
     /// This one is the panel audit's finding G1-02 restated: the column is resizable, the
     /// minimum is a state a photographer can actually be in, and a control that cannot
     /// address its own integers there is broken there.
+    ///
+    /// 99 of the 142 rows are under the floor here, against 42 at the default, and the
+    /// 57 that separate the two censuses are the 200-step class: 0.710 pt per unit at 320,
+    /// 1.010 at 380. `Lumen.defaultPanelWidth` now states that gap in the place the
+    /// promise is made, because the honest reading of these two numbers is that the
+    /// floor is bought by the width the panel OPENS at and spent again by dragging it in
+    /// — and a photographer who drags it in is trading precision for room knowingly,
+    /// which is a different thing from a control that arrives broken.
     func testTheCoarseTrackClearsThePrecisionFloorAtTheMinimumPanelWidth() {
         let failures = precisionCensus(columnWidth: Lumen.minimumPanelWidth)
         report(failures, of: SliderInventory.all.count,
@@ -209,11 +228,27 @@ final class LayoutMetricTests: XCTestCase {
     /// "58 of the 201 integer values could not be landed on by dragging at all", and the
     /// owner reported it as "limited to being able to touch it up slightly". That is a
     /// description of arithmetic, and this is the arithmetic.
+    ///
+    /// THE FOLD TERM IS ZERO NOW AND THE SHORTFALL IS UNCHANGED, which is the useful
+    /// thing this test has to say today. The disclosure's 16 points came back to the
+    /// track (`PanelChain.disclosureInset`), so a fold no longer costs a row anything and
+    /// a ±100 control inside one went 126 → 142 pt, 0.630 → 0.710 pt per unit. It is
+    /// still not 1.0, and no arrangement of insets can make it 1.0: 200 points of track
+    /// wants 350 points of card content, which wants a 378-point column. What is left is
+    /// a decision about `Lumen.minimumPanelWidth` — 320 today, 378 to make the floor
+    /// hold at every width the drag reaches — and that decision belongs to whoever owns
+    /// how narrow the column may be dragged, not to this file. The assertion stays where
+    /// it is so the number stays visible; softening it to 0.71 would turn the instrument
+    /// into a record of the tree it was run against.
     func testTheNarrowestTrackCanAddressEveryIntegerOfABipolarHundredControl() {
         let track = PanelChain.Host.developDisclosure
             .trackWidth(columnWidth: Lumen.minimumPanelWidth)
         let perUnit = Double(track) / 200
         let reachable = min(Double(track) + 1, 201).rounded(.down)
+        // The column this row would need for 200 points of groove, so the failure names
+        // the one lever left rather than only the shortfall.
+        let neededColumn = 200 + PanelChain.sliderChrome + 2 * PanelChain.cardInset
+            + 2 * PanelChain.scrollInset + 2 * PanelChain.disclosureInset
         XCTAssertGreaterThanOrEqual(
             perUnit, 1.0,
             "a ±100 slider in a fold at the minimum column has \(f(track)) pt of track "
@@ -224,7 +259,9 @@ final class LayoutMetricTests: XCTestCase {
             + "\(f(2 * PanelChain.disclosureInset)) fold − "
             + "\(f(PanelChain.sliderChrome)) row chrome "
             + "(label \(f(Lumen.labelWidth)) + 2×6 gaps + readout "
-            + "\(f(Lumen.valueWidth)))")
+            + "\(f(Lumen.valueWidth))). Clearing it needs 200 pt of track, i.e. a "
+            + "\(f(neededColumn)) pt column — every inset in the chain above is "
+            + "already spent")
     }
 
     /// The two-instrument contract, which is the question the track alone cannot answer.
@@ -271,11 +308,19 @@ final class LayoutMetricTests: XCTestCase {
             }
     }
 
+    /// Titled hosts only: `Host.trackWidth` prices a label column, and the two wheel-bar
+    /// hosts have no labelled row in them at all — printing them here would put a
+    /// negative number in the middle of a summary of the chain.
     private func chainSummary(columnWidth: CGFloat) -> String {
-        "track at column \(f(columnWidth)): "
-            + PanelChain.Host.allCases
-                .map { "\($0.rawValue) \(f($0.trackWidth(columnWidth: columnWidth)))" }
-                .joined(separator: ", ")
+        func untitled(_ host: PanelChain.Host) -> String {
+            f(host.contentWidth(columnWidth: columnWidth) - PanelChain.untitledSliderChrome)
+        }
+        let titled = PanelChain.Host.allCases
+            .filter(\.rowsAreTitled)
+            .map { "\($0.rawValue) \(f($0.trackWidth(columnWidth: columnWidth)))" }
+            .joined(separator: ", ")
+        return "track at column \(f(columnWidth)): \(titled); untitled wheel bars "
+            + "\(untitled(.gradeWheelBar)) / \(untitled(.maskWheelBar))"
     }
 
     // MARK: - (c) The value column
@@ -408,14 +453,24 @@ final class LayoutMetricTests: XCTestCase {
                + "names fit whole.")
     }
 
-    /// `LumenSegmented` is the one control in the kit whose label carries NO `lineLimit`
+    /// `LumenSegmented` was the one control in the kit whose label carried NO `lineLimit`
     /// and no `minimumScaleFactor`, inside a `.frame(maxWidth: .infinity)` share.
     ///
-    /// That means it does not truncate when it runs out of room — it WRAPS, and the whole
-    /// segmented control grows a second line, which is a row-height change rather than a
-    /// clipped word and reads as a rendering fault. Today every set clears its share with
-    /// room; this is here so the day a longer option is added, the panel says so instead
-    /// of quietly getting taller.
+    /// That meant it did not truncate when it ran out of room — it WRAPPED, and the whole
+    /// segmented control grew a second line, which is a row-height change rather than a
+    /// clipped word: it moves every control below it and reads as a rendering fault. The
+    /// control carries `.lineLimit(1)` now, so the failure mode is a clipped tail instead
+    /// of a taller panel.
+    ///
+    /// It gets no `minimumScaleFactor` to go with it, and that is why this test still
+    /// matters rather than being retired by the fix. These labels are drawn at
+    /// `.lumenCaption`, which is 10 pt, and `LumenType.swift`'s floor is 10 — there is no
+    /// room to shrink into, so a segment label that outgrows its share has nothing to
+    /// fall back on but truncation. The width is therefore the only thing keeping the
+    /// words whole, and the width is what is measured here. Today every set clears its
+    /// share (the widest is `Perceptual` at 50.7 in a 99.5 pt share); this is here so the
+    /// day a longer option is added, the suite says so instead of the panel quietly
+    /// eating a word.
     func testEverySegmentedControlsLabelsFitTheirShare() {
         // label set, the width the control is given, where it is drawn
         let controls: [(labels: [String], width: CGFloat, site: String)] = [
@@ -444,20 +499,21 @@ final class LayoutMetricTests: XCTestCase {
                 let w = TextMetric.width(label, LayoutFont.caption)
                 guard w > share else { continue }
                 failures.append("\(control.site): \"\(label)\" is \(f(w)) pt against a "
-                                + "\(f(share)) pt share — WRAPS, because LumenSegmented "
-                                + "sets no lineLimit")
+                                + "\(f(share)) pt share — TRUNCATES, and LumenSegmented "
+                                + "has no minimumScaleFactor to fall back on because its "
+                                + "labels are already at the 10 pt floor")
             }
         }
         report(failures, of: controls.reduce(0) { $0 + $1.labels.count },
-               "LumenSegmented has no lineLimit, so a label that does not fit makes the "
-               + "control two rows tall.")
+               "LumenSegmented draws its labels at the 10 pt floor with lineLimit(1) and "
+               + "no shrink, so a label that does not fit loses its tail.")
     }
 
     // MARK: - (e) The rest of the G1 list
 
     /// FINDING G1-06, measured at 11 pt rather than the 12 the audit had.
     ///
-    /// The develop footer is two rows of four `DevelopFooterButton`s: `HStack(spacing: 4)`
+    /// The develop footer is a stack of `HStack(spacing: 4)`s of `DevelopFooterButton`s
     /// inside `.padding(.horizontal, 8)`, each button `.frame(maxWidth: .infinity)` with
     /// no horizontal padding of its own and `.lineLimit(1)` on the word. So the width one
     /// button gets is fixed arithmetic, and what has to fit inside it is a 10 pt SF Symbol,
@@ -465,15 +521,35 @@ final class LayoutMetricTests: XCTestCase {
     ///
     /// The glyph is measured rather than allowed for: SF Symbols are not a fixed-width
     /// family, and "Paste Look" fails or passes on about three points.
-    func testEveryDevelopFooterButtonFitsItsQuarterOfTheRow() {
-        let commands: [(title: String, symbol: String)] = [
-            ("Auto Tone", "wand.and.stars"), ("Reset", "arrow.uturn.backward"),
-            ("Undo", "arrow.uturn.left"), ("Redo", "arrow.uturn.right"),
-            ("Copy", "doc.on.doc"), ("Paste", "doc.on.clipboard"),
-            ("Copy Look", "photo.stack"), ("Paste Look", "photo.stack.fill"),
+    ///
+    /// TWO THINGS IN THIS TEST WERE MEASURING A FOOTER THAT DOES NOT EXIST, and both are
+    /// corrected here rather than left because they happened to pass.
+    ///
+    ///   · the first command's title was `Auto Tone`; `DevelopPanel.swift` has drawn
+    ///     `Auto` for as long as this footer has existed. Measuring a string the app does
+    ///     not draw is the "suite measures its own copy of the app" failure this file's
+    ///     header is written against, and it cuts both ways — the extra five characters
+    ///     were slack in the wrong direction, but a shorter invented string would have
+    ///     hidden a real overflow;
+    ///   · the share was hard-coded to a quarter for all eight. It is a quarter for the
+    ///     four commands on the first row and a HALF for the four below it, which is the
+    ///     G1-06 fix: `Paste Look` needed 76.3 pt of a 73.0 pt quarter and `Copy Look`
+    ///     73.7, so the second row of four became two rows of two and each of those four
+    ///     buttons now gets 150.0.
+    func testEveryDevelopFooterButtonFitsItsShareOfTheRow() {
+        // DevelopPanel.swift: the footer takes 8 pt of gutter each side and stacks
+        // `HStack(spacing: 4)`s of `.frame(maxWidth: .infinity)` buttons, so a button's
+        // width is fixed arithmetic once the row's population is known.
+        func share(across count: Int) -> CGFloat {
+            (Lumen.minimumPanelWidth - 16 - CGFloat(4 * (count - 1))) / CGFloat(count)
+        }
+        // title, symbol, how many buttons share that button's row.
+        let commands: [(title: String, symbol: String, across: Int)] = [
+            ("Auto", "wand.and.stars", 4), ("Reset", "arrow.uturn.backward", 4),
+            ("Undo", "arrow.uturn.left", 4), ("Redo", "arrow.uturn.right", 4),
+            ("Copy", "doc.on.doc", 2), ("Paste", "doc.on.clipboard", 2),
+            ("Copy Look", "photo.stack", 2), ("Paste Look", "photo.stack.fill", 2),
         ]
-        // DevelopPanel.swift: footer padding 8 each side, three 4 pt gaps, four buttons.
-        let share = (Lumen.minimumPanelWidth - 16 - 12) / 4
         var failures: [String] = []
         for command in commands {
             let text = TextMetric.width(command.title, LayoutFont.body)
@@ -482,15 +558,17 @@ final class LayoutMetricTests: XCTestCase {
                         + "without it and a guessed width is not a measurement")
                 continue
             }
+            let budget = share(across: command.across)
             let need = glyph + 5 + text
-            guard need > share else { continue }
+            guard need > budget else { continue }
             failures.append("\(command.title): glyph \(f(glyph)) + 5 gap + text \(f(text)) "
-                            + "= \(f(need)) pt against a \(f(share)) pt quarter "
-                            + "— OVER by \(f(need - share)), truncates")
+                            + "= \(f(need)) pt against a \(f(budget)) pt share "
+                            + "(1 of \(command.across) across) "
+                            + "— OVER by \(f(need - budget)), truncates")
         }
         report(failures, of: commands.count,
-               "DevelopPanel.swift: eight footer commands, four across, at the minimum "
-               + "column width (G1-06).")
+               "DevelopPanel.swift: eight footer commands — four across, then two and "
+               + "two — at the minimum column width (G1-06).")
     }
 
     /// FINDING G1-01, verified rather than assumed.
@@ -569,11 +647,22 @@ final class LayoutMetricTests: XCTestCase {
         try pin("Sources/LumenApp/DevelopColumn.swift",
                 ".padding(.horizontal, 10) .padding(.top, 8) .padding(.bottom, 8)",
                 "section card gutter \(f(PanelChain.cardInset))")
-        // Symmetric, which is the G1-07 fix: `.leading` alone would put the label column
-        // 8 pt right of its neighbours while the readout stayed put.
+        // THE FOLD COSTS ITS ROWS NOTHING, pinned as two facts rather than one.
+        //
+        // The first is an ABSENCE — no horizontal padding between `content()` and its
+        // transition — and an absence is the hardest thing to pin, because the obvious
+        // way to write it is to delete the pin. So it is pinned as an adjacency: these
+        // two tokens are neighbours in the flattened source exactly when nothing sits
+        // between them, and any inset reintroduced there separates them and fails here.
+        // The second is where the fold's depth went instead, which is what makes the
+        // first one a design decision rather than an oversight somebody will "fix".
         try pin("Sources/LumenApp/DevelopPanel.swift",
-                ".padding(.horizontal, 8) .transition(.opacity.combined(",
-                "disclosure inset \(f(PanelChain.disclosureInset)), both sides")
+                "content() .transition(.opacity.combined(",
+                "disclosure content inset \(f(PanelChain.disclosureInset)) — a fold's "
+                + "track equals a top-level track")
+        try pin("Sources/LumenApp/DevelopPanel.swift",
+                "topRhythm: 10) .padding(.leading, 8)",
+                "fold depth carried on the header, not on the rows")
 
         // The row.
         try pin("Sources/LumenApp/LumenControls.swift",
@@ -619,6 +708,21 @@ final class LayoutMetricTests: XCTestCase {
         try pin("Sources/LumenApp/DevelopPanel.swift",
                 ".padding(.horizontal, 8) .padding(.vertical, 6)",
                 "footer gutter 8")
+
+        // The grading wheels' lightness bar, whose host is built out of the wheel's own
+        // diameter rather than out of any column — so the three literals that decide how
+        // wide its groove is live in two different files and none of them is a panel
+        // width.
+        try pin("Sources/LumenApp/LumenControls.swift",
+                ".padding(.leading, Lumen.valueWidth + 6) "
+                + ".frame(width: diameter + 2 * (Lumen.valueWidth + 6))",
+                "captioned wheel bar: counterweight and frame")
+        try pin("Sources/LumenApp/LumenControls.swift",
+                "lightnessBar .frame(width: diameter + 40)",
+                "compact wheel bar frame \(f(PanelChain.maskWheelBarWidth)) at the 68 pt wheel")
+        try pin("Sources/LumenApp/LookPanel.swift",
+                "path: gradeZone.path, diameter: 150)",
+                "grade wheel diameter \(f(PanelChain.gradeWheelDiameter))")
 
         // The scrub's fixed travel, and the fine gear.
         try pin("Sources/LumenApp/LumenControls.swift",

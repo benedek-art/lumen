@@ -130,41 +130,25 @@ final class ScaleHonestyTests: XCTestCase {
             ("dehaze", { r in r.develop.detail.dehaze = 45 }),
             // S12 was missing from this list for its whole life, and it was the one
             // stage on it that failed. The omission was half of E2-04: this is the
-            // exact harness for "a fixed pixel radius", `RenderGraph.swift:344` names
-            // SHARPENING as a stage that sizes itself off the long edge, and nothing
-            // here ever asked whether it did. `testACompleteEditSurvivesAFourfoldScale-
-            // Change` sets fourteen fields and not `detail.sharpen.amount` either, so
-            // the whole file could go green with S12 denominated in render pixels.
+            // exact harness for "a fixed pixel radius", `RenderGraph.swift` names
+            // SHARPENING in its own doctrine sentence as a stage that sizes itself off
+            // the long edge, and nothing here ever asked whether it did.
+            // `testACompleteEditSurvivesAFourfoldScaleChange` sets fourteen fields and
+            // not `detail.sharpen.amount` either, so the whole file went green with S12
+            // denominated in render pixels and a 7008 px export receiving 7% of what
+            // the fit preview was judged on.
             //
             // The entry carries a RADIUS on purpose. The panel default of 1.0 measured
             // 4.00 against this bar of 5 — under it, so a defect of 14x would have
-            // shipped past an entry that looked complete. Radius 1.5 reads 5.25 and
-            // 2.0 reads 6.07: the same defect, scaled, and only two of the three are
+            // shipped past an entry that looked complete. Radius 1.5 read 5.25 and
+            // 2.0 read 6.07: the same defect, scaled, and only two of the three were
             // visible to the assertion. A roster entry for a spatial stage has to push
             // the control that sets the SIZE, or it is sweeping the amount of a radius
             // it left at the value that hides the reading.
-            // `sharpen` BELONGS IN THIS LIST and is deliberately not in it yet.
-            //
-            // E2-04: S12 sharpening is denominated in render pixels, so a 7008 px export
-            // receives about 7% of what a 1600 px preview was judged on. Its absence from
-            // this roster is half of why that shipped — the other half is that three of
-            // the five sharpen proof records use `ProofFrames.stepEdge`, whose rim
-            // measures 34.4143 code values at 128, 1600, 4096 and 7008 px alike, so the
-            // frame cannot express the defect either.
-            //
-            // The mechanism is landed and unit-tested below
-            // (`SpatialOps.frameDenominatedSigma` / `fineDetailBand`), and it is inert:
-            // nothing calls it yet. Wiring it is two edits in `DetailEngine.applySharpen`
-            // and two in `RenderGraph.applySharpen`, and it moves pixels — three sharpen
-            // proof records HARD FAIL their authority floors afterwards, because at a
-            // 128 px frame the scaled sigma (radius x 128/2560) never clears
-            // `gaussianBlur`'s own `sigma > 0.05` guard and the stage goes silent. The
-            // records have to move to a 2048 px frame in the same landing; re-measured
-            // there they come back at 29.7363 and 34.4143 rather than 0.
-            //
-            // Adding the roster entry before that landing would red this lane for a
-            // defect it correctly describes, which is the one thing a scale-honesty
-            // roster must not do. It goes in with the wiring.
+            ("sharpen", { r in
+                r.develop.detail.sharpen.amount = 100
+                r.develop.detail.sharpen.radius = 2.0
+            }),
         ] {
             let d = measureStage(mutate)
             print(String(format: "  SPATIAL  %-18@ %.4f", name, d))
@@ -343,22 +327,31 @@ final class ScaleHonestyTests: XCTestCase {
     /// `SpatialOps.fineDetailBand`, and `DetailEngine.applySharpen` reads them at two
     /// call sites — the `gaussianBlur` sigma and the `d.details[0] + 0.5 * d.details[1]`
     /// band. Both paths have to read them or this reads 0.113; `RenderGraph.applySharpen`
-    /// is the GPU twin and takes the same two changes.
+    /// is the GPU twin and takes the same two changes, which it now has.
     ///
-    /// The end-to-end assertion this defect needs, held back until the stage is wired.
-    ///
-    /// Measured today through `DetailEngine.applySharpen`: a texture one two-hundredth of
-    /// the frame wide gets 0.113 of the sharpening at 6400 px that it gets at 1600 px.
-    /// With the wiring it reads 0.92. The assertion is written and its numbers are known;
-    /// what it needs is the two-line change in `DetailEngine.applySharpen` that makes
-    /// `SpatialOps.frameDenominatedSigma` and `SpatialOps.fineDetailBand` actually run.
-    ///
-    /// Kept as a skip rather than deleted so the number does not have to be rediscovered,
-    /// and so the next person sees the shape of the assertion that closes it.
-    func testSharpeningMeansTheSameFractionOfThePictureAtEitherRenderSize() throws {
-        throw XCTSkip("E2-04's mechanism is landed and inert; DetailEngine.applySharpen "
-                      + "is not wired to it yet. Wired, this asserts a 1600-to-6400 px "
-                      + "ratio of 0.92 +/- 0.10; today it measures 0.113.")
+    /// The bound is on the RATIO and it is two-sided, which is the whole point: "the
+    /// export got more than the preview" was true of the broken stage too, so a
+    /// one-sided assertion would have passed on the defect. A frame-denominated stage
+    /// lands near 1 from whichever side the resampling puts it on.
+    func testSharpeningMeansTheSameFractionOfThePictureAtEitherRenderSize() {
+        let preview = sharpeningAdded(longEdge: 1600, radius: 2.0)
+        let delivered = sharpeningAdded(longEdge: 6400, radius: 2.0)
+        print(String(format: "  SHARPEN  1600 px %.4f  6400 px %.4f  ratio %.4f",
+                     preview, delivered, delivered / preview))
+        // The stage has to have DONE something at the preview size, or the ratio below
+        // is one small number over another and means nothing.
+        XCTAssertGreaterThan(preview, 2.9,
+                             "S12 added \(preview) code values at 1600 px, which is "
+                                 + "under the floor docs/20 calls invisible — this "
+                                 + "measures nothing")
+        XCTAssertEqual(delivered / preview, 0.92, accuracy: 0.10,
+                       "sharpening set on a 1600 px fit preview arrives in a 6400 px "
+                           + "delivered file at \(delivered / preview) of its strength "
+                           + "(\(preview) code values against \(delivered)). Denominated "
+                           + "in render pixels this reads 0.113 — the radius and the "
+                           + "fine band are sized off the buffer instead of off the "
+                           + "picture, so the photographer set sharpening on a "
+                           + "photograph and got it on a grid")
     }
 
     /// Masks are normalized to the frame, so a gradient placed on a fit preview has to

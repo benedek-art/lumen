@@ -344,7 +344,31 @@ struct DetailPanel: View {
                 // on the rim it exists for (the pinned defect record in
                 // FieldBaselineProbeTests), so the tooltip must not promise a halo
                 // cure the engine does not yet deliver. Reword when that test flips.
-                LumenSlider(title: "Halo Suppression",
+                //
+                // WHICH IS ALSO WHY THE NAME MOVED. "Halo Suppression" made in one word
+                // the promise the tooltip below spends three sentences refusing: the
+                // stage damps, and on this build it damps in the wrong place. "Damping"
+                // is the word the engine, the tooltip and the defect record all already
+                // use, so the label now says what the row does rather than what the
+                // control is for.
+                //
+                // The width was the second reason and the one that is measurable.
+                // "Halo Suppression" was the tightest passing label in the app: 92.0 pt
+                // of advance in an 86 pt column, which SwiftUI fits by shrinking to
+                // 10.3 pt — three tenths of a point above `LumenType`'s own 10 pt floor,
+                // with nothing between it and a failure but the metrics of a system
+                // font this app does not ship. "Halo Damping" measures ~74 pt (0.800 ×
+                // the old string, a ratio that holds to ±2% across three Helvetica-class
+                // faces), so it renders at the full 11 pt its four siblings do.
+                //
+                // Renaming under the section that already supplies the context is the
+                // fix this panel has taken before: G1-01 turned `Luminance Contrast`
+                // into `Contrast` and `Colour Smoothness` into `Smoothness` in the
+                // denoise fold below, for the same column and the same reason.
+                //
+                // The wire field is untouched — `detail.sharpen.haloSuppression` is the
+                // recipe's name for it and no saved edit moves.
+                LumenSlider(title: "Halo Damping",
                             value: binder.value(\.develop.detail.sharpen.haloSuppression,
                                                 "detail.sharpen.haloSuppression"),
                             range: 0...100, hardRange: nil, defaultValue: 0,

@@ -440,14 +440,25 @@ final class LookAmountTests: XCTestCase {
                       "the Amount row is drawn against something other than the "
                       + "panel's own amount")
         // Deliberately loose about HOW the amount reaches the apply, and tight about
-        // THAT it does. The panel holds a second copy of `AppState.applyLook`'s
+        // THAT it is HANDED ON. The panel holds a second copy of `AppState.applyLook`'s
         // plumbing today only because that verb takes a `LookRow` and nothing else;
         // when it grows an `amount:` the two collapse and this body becomes one call.
-        // Both shapes carry `applyAmount` into the apply, and neither of them is the
-        // defect being guarded — which is a control that is drawn, bound, and then
-        // never spent, exactly what `SpeedEdit.Parameter.lookAmount` was.
+        // `amount = applyAmount` is today's shape and `amount: applyAmount` is that
+        // one, so either satisfies this and neither is the defect being guarded — a
+        // control that is drawn, bound, and then never spent, exactly what
+        // `SpeedEdit.Parameter.lookAmount` was.
+        //
+        // A BARE `apply.contains("applyAmount")` IS NOT ENOUGH and this assertion's
+        // first draft was exactly that: it survives deleting the one line that spends
+        // the amount, because the zero guard above it and the status sentence below it
+        // both READ `applyAmount` and neither applies anything. A test satisfied by the
+        // two lines that only talk about a value is the same class of defect as the
+        // unstripped-comment scan warned about two paragraphs up — it passes on a panel
+        // that draws the slider, refuses to apply at 0%, prints "at 40%" in the status
+        // bar, and then lands the look whole.
         let apply = try Self.body(after: "private func apply(_ look: LookRow)", in: panel)
-        XCTAssertTrue(apply.contains("applyAmount"),
+        XCTAssertTrue(apply.contains("amount = applyAmount")
+                        || apply.contains("amount: applyAmount"),
                       "the panel applies the look without ever handing on the Amount "
                       + "the photographer set, so the slider moves and nothing else "
                       + "does — which is the defect this whole feature started as")

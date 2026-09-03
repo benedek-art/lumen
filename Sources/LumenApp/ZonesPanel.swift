@@ -59,6 +59,35 @@ struct ZonesPanel: View {
         var id: String { name }
     }
 
+    /// THE ZONE ROWS' QUANTUM, IN STOPS — 0.05, up from 0.01.
+    ///
+    /// 0.01 was a number the readout advertised and no gesture could land on. The
+    /// arithmetic, which is the whole argument: the register sits in a
+    /// `DevelopDisclosure` inside a develop-column card, so its track is the column
+    /// less 8 pt of scroll inset, 20 pt of card gutter, 16 pt of fold inset and 150 pt
+    /// of row chrome (an 86 pt label, two 6 pt gaps, a 52 pt readout) — 126 pt at the
+    /// 320 pt minimum column, 186 pt at the 380 pt default. Six stops at 0.01 is 600
+    /// addressable values across that, which is **0.21 pt of travel per step** at the
+    /// minimum and 0.31 at the default: a one-pixel tremor of the hand moves the value
+    /// three to five steps, and roughly five in six of the values the two decimals
+    /// promise cannot be landed on by dragging at all.
+    ///
+    /// At 0.05 the same track carries 120 steps — 1.05 pt/step at the minimum column and
+    /// 1.55 at the default — which clears the floor `LumenControls.swift` states in its
+    /// own words ("~1.0, under which a one-pixel tremor costs a whole unit") at every
+    /// width the column can be dragged to. The step is coarsened rather than the panel
+    /// widened because the panel's width is not this row's to spend.
+    ///
+    /// Two decimals STAY: 0.05 needs the hundredths place, so the readout is not
+    /// promising precision the track does not have — it is spelling the quantum. The
+    /// hard range still accepts a typed 1.37 for anyone who wants one.
+    ///
+    /// Coarser than Exposure's 0.01 EV on purpose. That is the master control a frame is
+    /// set by, and the app's answer for it is the readout's own scrub; these are per-zone
+    /// trims, and a twentieth of a stop is already finer than the difference two adjacent
+    /// zones make at any pivot spacing the strip allows.
+    private static let stopStep: Double = 0.05
+
     private static let register: [ZoneRow] = [
         ZoneRow(name: "Darks", path: \Zones.dark),
         ZoneRow(name: "Shadows", path: \Zones.shadow),
@@ -106,7 +135,7 @@ struct ZonesPanel: View {
                 LumenSlider(title: zone.name,
                             value: evBinding(zone.path, key: "zones.\(zone.name)"),
                             range: -3...3, hardRange: -5...5,
-                            defaultValue: 0, step: 0.01, decimals: 2,
+                            defaultValue: 0, step: Self.stopStep, decimals: 2,
                             help: "Exposure for this zone alone, in stops. Its pull "
                                 + "is strongest at the zone's own pivot and fades to "
                                 + "nothing at its neighbours', so zones blend instead "
@@ -135,7 +164,7 @@ struct ZonesPanel: View {
             LumenSlider(title: "Global",
                         value: evBinding(\Zones.global, key: "zones.Global"),
                         range: -3...3, hardRange: -5...5,
-                        defaultValue: 0, step: 0.01, decimals: 2,
+                        defaultValue: 0, step: Self.stopStep, decimals: 2,
                         help: "A flat exposure trim across the whole axis, in stops — "
                             + "the same at every tone, so a finished zone set can be "
                             + "brightened or darkened as one.")

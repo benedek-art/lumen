@@ -319,8 +319,21 @@ struct ReadoutHUD: View {
                         RoundedRectangle(cornerRadius: Lumen.swatchRadius(11))
                             .strokeBorder(Lumen.separator, lineWidth: 0.5)
                     }
+                // `lumenCaptionNumeric`, not `.system(size: 10, design: .monospaced)`,
+                // which is what this line said. `design: .monospaced` is SF MONO — a
+                // second typeface, three millimetres from the `lumenCaption` that names
+                // the readout space on the next line, which is SF Pro. LumenType.swift
+                // opens on exactly this: "there were TWO TYPEFACES… only three sites
+                // used `.monospacedDigit()`, which is the right one."
+                //
+                // The property the readout actually needs is that the digits do not
+                // jitter as the cursor moves, and tabular figures give that without a
+                // second family. `lumenCaptionNumeric` is the token written for it —
+                // "the raw panel's readouts… annotations that happen to be numbers".
+                // The letters R/G/B and the gaps between them are fixed, so only digits
+                // vary, and tabular digits hold the column.
                 Text(numbers)
-                    .font(.system(size: 10, design: .monospaced))
+                    .font(.lumenCaptionNumeric)
                     .foregroundStyle(Lumen.primaryText)
             }
             Text(sample.space.label)

@@ -349,7 +349,7 @@ public struct VerifiedCopyDriver: Sendable {
         let reader: FileHandle
         do {
             reader = try FileHandle(forReadingFrom: copy.source)
-        } catch {
+        } catch let error {
             // One frame the card will not give up. Every destination for it fails, and
             // the run carries on with the next frame.
             for destination in copy.destinations {
@@ -376,7 +376,7 @@ public struct VerifiedCopyDriver: Sendable {
             let folder = destination.url.deletingLastPathComponent()
             do {
                 try fm.createDirectory(at: folder, withIntermediateDirectories: true)
-            } catch {
+            } catch let error {
                 results.append(verdict(destination.url, destination.url, destination.role,
                                        .failed(.unwritableDestination(error.localizedDescription))))
                 continue
@@ -434,7 +434,7 @@ public struct VerifiedCopyDriver: Sendable {
             var chunk: Data?
             do {
                 chunk = try reader.read(upToCount: chunkSize)
-            } catch {
+            } catch let error {
                 readFailure = error.localizedDescription
                 break
             }
@@ -444,9 +444,9 @@ public struct VerifiedCopyDriver: Sendable {
             var surviving: [Writer] = []
             for writer in live {
                 do {
-                    if bytes < 0 { try writer.handle.write(contentsOf: chunk) }
+                    try writer.handle.write(contentsOf: chunk)
                     surviving.append(writer)
-                } catch {
+                } catch let error {
                     // This destination is gone — a full volume, a card pulled out of
                     // the other slot. The others keep receiving the same read.
                     try? writer.handle.close()
@@ -489,7 +489,7 @@ public struct VerifiedCopyDriver: Sendable {
                     landed = ExportRecipe.disambiguated(landed) { fm.fileExists(atPath: $0.path) }
                 }
                 try fm.moveItem(at: writer.temp, to: landed)
-            } catch {
+            } catch let error {
                 try? fm.removeItem(at: writer.temp)
                 results.append(verdict(writer.planned, writer.final, writer.role,
                                        .failed(.unwritableDestination(error.localizedDescription))))
@@ -504,7 +504,7 @@ public struct VerifiedCopyDriver: Sendable {
             let found: IngestDigest
             do {
                 found = try readback.digest(of: landed, chunkSize: chunkSize)
-            } catch {
+            } catch let error {
                 try? fm.removeItem(at: landed)
                 results.append(verdict(writer.planned, landed, writer.role,
                                        .failed(.unreadableCopy(error.localizedDescription))))

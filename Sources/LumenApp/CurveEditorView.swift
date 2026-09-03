@@ -9,10 +9,13 @@
 //     evaluation the pipeline bakes into its LUT — so the editor cannot drift from the
 //     render.
 //   · Every edit lands through `AppState.updateRecipe(coalescingKey:)`, keyed by the
-//     curve being edited, so dragging a control point is one undo step.
-//   · Points are edited through `CurveStack.settingPoint(_:x:y:snap:)`, the same helper
-//     the target adjustment tool uses, and x is clamped between a point's neighbours so
-//     a drag can never reorder the array under its own index.
+//     curve AND THE POINT being edited, so dragging one control point is one undo step
+//     and moving a second one is a second step.
+//   · NONE OF THE EDITING ARITHMETIC LIVES HERE. Which point a press took hold of,
+//     where that point may go, whether it may be deleted, and what the readout says
+//     are all `CurveEditing` in LumenCore, because this file is inside
+//     `#if os(macOS)` and nothing under that flag can be tested. What is left below is
+//     drawing and gestures — the two things a test could not check anyway.
 //
 // Parametric mode swaps the control points for the four region sliders and the three
 // movable splits, because those are what a parametric curve actually is: bounded
@@ -28,13 +31,11 @@ import SwiftUI
 
 // MARK: - Plot point
 
-/// A sanitized control point. The wire form is `[[x, y], …]`; anything malformed —
-/// short rows, non-finite numbers — is dropped here rather than defended against at
-/// every use site.
-private struct CurvePoint {
-    let x: Double
-    let y: Double
-}
+// A control point is `[x, y]` and a curve is `[[Double]]`, which is the wire form and
+// the form `CurveEditing` states every rule in. There WAS a `CurvePoint` struct here,
+// wrapping the same two numbers, and every gesture converted into it and back out of it
+// on the way to the recipe — two conversions per mouse event whose only product was a
+// second definition of "sanitized" living where no test could reach it.
 
 /// One parametric region, as the graph draws it: the span the splits mark out for it,
 /// the slider that owns it, and how far along the axis that slider actually reaches.
@@ -148,9 +149,10 @@ struct CurveEditorView: View {
     @State private var splitGrabOffset: CGFloat = 0
 
     private static let sampleCount: Int = 128
+    /// The press radius, in the plot's own points. The drawn dot is radius 3, so the
+    /// target is more than twice the ink — stated apart on purpose, and converted to
+    /// `CurveEditing`'s fractions at the one place that knows the plot's size.
     private static let hitRadius: CGFloat = 8
-    private static let minimumSplitGap: Double = 0.02
-    private static let defaultSplits: [Double] = [0.25, 0.5, 0.75]
     /// Deep enough for a 10-point triangle to sit under the plot without touching it.
     private static let railHeight: CGFloat = 12
     /// The four regions in the order the maths reads them — dark to light, which is
@@ -159,10 +161,14 @@ struct CurveEditorView: View {
     /// so the two orders are deliberately opposite and each site says which it is on.
     private static let regionTitles: [String] = ["Shadows", "Darks", "Lights", "Highlights"]
     private static let reachSamples: Int = 96
-    /// Small enough that the band names read as a caption on the graph rather than as a
-    /// second heading over it.
-    private static let regionLabelSize: CGFloat = 9
-    /// Measured once, and off the same face `.system(size:)` resolves to. A `Canvas`
+    /// `.lumenCaption`'s own size, held as a number because the width measurement below
+    /// needs an `NSFont` and a SwiftUI `Font` cannot be asked for its point size.
+    ///
+    /// It was 9 — under the app's own stated floor ("10 is the floor", LumenType.swift),
+    /// and invisible to the ratchet that enforces it because the floor is checked as the
+    /// literal `.system(size: 9`, which a named constant is not.
+    private static let regionLabelSize: CGFloat = 10
+    /// Measured once, and off the same face `.lumenCaption` resolves to. A `Canvas`
     /// redraws on every mouse move over the plot, and text metrics do not change
     /// between frames.
     private static let regionLabelWidths: [CGFloat] = regionTitles.map {
@@ -289,7 +295,7 @@ struct CurveEditorView: View {
             let size: CGSize = geometry.size
             let backdrop: [Double] = histogram?.normalized(.luma) ?? []
             let samples: [Double] = curveSamples
-            let controls: [CurvePoint] = channel == .parametric ? [] : currentPoints
+            let controls: [[Double]] = channel == .parametric ? [] : currentPoints
             let regions: [ParametricRegion] = channel == .parametric
                 ? CurveEditorView.regions(splits: currentSplits) : []
             let highlight: Int? = channel == .parametric ? highlightRegion : nil
@@ -375,11 +381,16 @@ struct CurveEditorView: View {
     @ViewBuilder
     private var contextItems: some View {
         if channel != .parametric {
+            // Disabled over an ANCHOR as well as over empty graph. The item used to
+            // be enabled wherever a point was under the pointer, and the two ends are
+            // not deletable — so a right-click on the black point offered Delete Point
+            // and then did nothing, which is the one failure mode worse than the menu
+            // item not being there.
             Button("Delete Point") { deleteNearestPoint() }
-                .disabled(nearestPointIndex(to: hoverLocation, size: plotSize) == nil)
+                .disabled(!hoveredPointIsDeletable)
             Button("Flatten \(channel.displayName)") { flattenCurrentCurve() }
         } else {
-            Button("Reset Splits") { writeSplits(CurveEditorView.defaultSplits) }
+            Button("Reset Splits") { writeSplits(CurveEditing.defaultSplits) }
             Button("Reset Regions") { resetParametricRegions() }
         }
     }
@@ -397,23 +408,97 @@ struct CurveEditorView: View {
                 Text("\(currentPoints.count) pts")
                     .font(.lumenCaption)
                     .foregroundStyle(Lumen.secondaryText)
+                    .lineLimit(1)
             }
+            resetButton
         }
         .frame(height: 14)
+    }
+
+    /// THE WAY BACK, ON THE SURFACE.
+    ///
+    /// Flatten and Reset Splits existed only in the plot's context menu, so the answer to
+    /// "put it back" was a right-click on a graph whose left-click adds a point — an
+    /// affordance nothing announces, in an editor where the ways to make an unwanted
+    /// change are a single click and a single drag. Every other section in the column
+    /// carries its reset in its header; this one is inside a section it does not own, so
+    /// it carries its own, on the row that is already about the curve's state.
+    ///
+    /// Disabled at the default rather than hidden: a control that appears when you are
+    /// least expecting it moves the row it is in, and this row holds a number the hand is
+    /// reading while it drags.
+    private var resetButton: some View {
+        // Branched into a local rather than written as a multi-line ternary in the
+        // argument list, which is this repository's ground rule for the one shape
+        // `check-swift-surface.py` is known to mis-read (docs/32 ground rule 4).
+        let hint: String
+        if channel == .parametric {
+            hint = "Put the four region sliders and the three splits back to their "
+                + "defaults."
+        } else {
+            hint = "Flatten \(channel.displayName) — every point of this curve goes, "
+                + "and the other five curves are untouched."
+        }
+        return Button(action: resetCurrentCurve) {
+            Image(systemName: "arrow.uturn.backward")
+                .font(.lumenGlyphCaption)
+                // The glyph's own bounds are no hit target — the same measurement the
+                // printer rows and this panel's eyedroppers were fixed by.
+                .frame(width: 20, height: 14)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(canReset ? Lumen.primaryText : Lumen.secondaryText)
+        .disabled(!canReset)
+        .lumenClickCursor()
+        .help(hint)
+    }
+
+    /// Whether there is anything to go back FROM, asked of the curve on screen.
+    private var canReset: Bool {
+        if channel == .parametric { return curveSet.parametric != ParametricCurve() }
+        return !CurveEditing.isIdentity(currentPoints)
+    }
+
+    private func resetCurrentCurve() {
+        if channel == .parametric {
+            resetParametricRegions()
+        } else {
+            flattenCurrentCurve()
+        }
     }
 
     /// In/out in percent of the encoded axis — the coordinate display docs/04 §7.1 asks
     /// for. The absolute 0–255 form belongs to the histogram's readout-space picker and
     /// arrives with it.
+    ///
+    /// THE POINT BEING DRAGGED WINS, which is the half that was missing: the readout
+    /// tracked `hoverLocation` alone, and a hover is not what a hand is doing while it
+    /// holds a control point. What it reported during a drag was the curve's value under
+    /// the pointer — close to the point's own coordinates, equal to them only when the
+    /// drag happened to be dead on the trace, and undefined the moment the pointer left
+    /// the plot. So the one number a photographer places a point BY was never actually
+    /// shown while the point was being placed.
     private var readoutText: String {
+        if channel != .parametric, let index = dragPointIndex {
+            let points: [[Double]] = currentPoints
+            if points.indices.contains(index), points[index].count >= 2 {
+                return CurveEditing.readout(input: points[index][0] * 100,
+                                            output: points[index][1] * 100)
+            }
+        }
+        if channel == .parametric, let index = dragSplitIndex {
+            let splits: [Double] = currentSplits
+            if splits.indices.contains(index) {
+                return CurveEditing.splitReadout(index: index, position: splits[index])
+            }
+        }
         guard let location = hoverLocation, plotSize.width > 1, plotSize.height > 1 else {
             return channel.displayName
         }
-        let x: Double = CurveEditorView.clamp01(Double(location.x / plotSize.width))
-        let inValue: Double = x * 100
-        let outValue: Double = CurveEditorView.clamp01(evaluate(x)) * 100
-        return "in " + CurveEditorView.format(inValue) + "%   out "
-            + CurveEditorView.format(outValue) + "%"
+        let x: Double = CurveEditing.clamp01(Double(location.x / plotSize.width))
+        return CurveEditing.readout(input: x * 100,
+                                    output: CurveEditing.clamp01(evaluate(x)) * 100)
     }
 
     // MARK: Parametric controls
@@ -521,7 +606,7 @@ struct CurveEditorView: View {
             case .blue: y = curve.channelCurve(x, channel: 2)
             case .luma: y = curve.lumaCurve(x)
             }
-            out[i] = CurveEditorView.clamp01(y)
+            out[i] = CurveEditing.clamp01(y)
         }
         return out
     }
@@ -542,20 +627,34 @@ struct CurveEditorView: View {
         }
     }
 
-    private var currentPoints: [CurvePoint] {
+    private var currentPoints: [[Double]] {
         guard let keyPath = pointsKeyPath else { return [] }
-        return CurveEditorView.sanitized(curveSet[keyPath: keyPath])
+        return CurveEditing.sanitized(curveSet[keyPath: keyPath])
     }
 
-    private func writePoints(_ points: [CurvePoint]) {
+    /// Write a point list back under one coalescing key.
+    ///
+    /// An identity curve is stored as nil so it costs the render nothing — the same rule
+    /// `editCurve` applies one level up for a mask's whole `CurveSet`.
+    private func commitPoints(_ points: [[Double]], key: String) {
         guard let keyPath = pointsKeyPath, points.count >= 2 else { return }
-        let raw: [[Double]] = points.map { [$0.x, $0.y] }
-        let identity: Bool = points.count == 2
-            && abs(points[0].x) < 1e-9 && abs(points[0].y) < 1e-9
-            && abs(points[1].x - 1) < 1e-9 && abs(points[1].y - 1) < 1e-9
-        editCurve(keyPrefix + channel.rawValue) { set in
-            set[keyPath: keyPath] = identity ? nil : raw
+        let identity: Bool = CurveEditing.isIdentity(points)
+        editCurve(key) { set in
+            set[keyPath: keyPath] = identity ? nil : points
         }
+    }
+
+    /// The key ONE POINT's drag records under (K-038).
+    ///
+    /// It used to be `curve.<channel>` for every point of a curve, and
+    /// `HistoryCoalescing` folds two edits sharing a key, a photo set and a 1.2 s window
+    /// into one step — so placing a point and then moving a different one, two decisions
+    /// seconds apart, was a single undo entry and ⌘Z took both away. A drag holds one
+    /// index for its whole life, so one drag is still one step; that is what makes the
+    /// index the right identity here rather than the channel.
+    private func pointKey(_ index: Int) -> String {
+        CurveEditing.pointCoalescingKey(prefix: keyPrefix, channel: channel.rawValue,
+                                        index: index)
     }
 
     private func flattenCurrentCurve() {
@@ -566,11 +665,11 @@ struct CurveEditorView: View {
     }
 
     private var currentSplits: [Double] {
-        CurveEditorView.sanitizedSplits(curveSet.parametric.splits)
+        CurveEditing.sanitizedSplits(curveSet.parametric.splits)
     }
 
     private func writeSplits(_ splits: [Double]) {
-        let clean: [Double] = CurveEditorView.sanitizedSplits(splits)
+        let clean: [Double] = CurveEditing.sanitizedSplits(splits)
         editCurve(keyPrefix + "parametric.splits") { $0.parametric.splits = clean }
     }
 
@@ -629,7 +728,7 @@ struct CurveEditorView: View {
             beginSplitDrag(at: location, size: size)
             return
         }
-        let points: [CurvePoint] = currentPoints
+        let points: [[Double]] = currentPoints
         if let hit = nearestPointIndex(to: location, size: size) {
             if NSEvent.modifierFlags.contains(.option) {
                 deletePoint(at: hit)
@@ -640,14 +739,15 @@ struct CurveEditorView: View {
             return
         }
         // A click on empty graph adds a point and keeps dragging it, which is the same
-        // gesture as placing one and adjusting it in one motion.
-        let x: Double = CurveEditorView.clamp01(Double(location.x / size.width))
-        let y: Double = CurveEditorView.clamp01(1 - Double(location.y / size.height))
-        let updated: [[Double]] = CurveStack.settingPoint(points.map { [$0.x, $0.y] },
-                                                          x: x, y: y)
-        let sanitized: [CurvePoint] = CurveEditorView.sanitized(updated)
-        writePoints(sanitized)
-        dragPointIndex = CurveEditorView.indexOfNearestX(sanitized, x: x)
+        // gesture as placing one and adjusting it in one motion — so the placement and
+        // the adjustment share a key and stay ONE undo step.
+        let x: Double = CurveEditing.clamp01(Double(location.x / size.width))
+        let y: Double = CurveEditing.clamp01(1 - Double(location.y / size.height))
+        let updated: [[Double]] = CurveEditing.sanitized(
+            CurveStack.settingPoint(points, x: x, y: y))
+        let placed: Int? = CurveEditing.nearestIndexByX(updated, x: x)
+        commitPoints(updated, key: pointKey(placed ?? 0))
+        dragPointIndex = placed
     }
 
     /// Take hold of the split under the press, or — on the second click of a
@@ -664,9 +764,9 @@ struct CurveEditorView: View {
         }
         if (NSApp.currentEvent?.clickCount ?? 1) >= 2 {
             var splits: [Double] = currentSplits
-            guard index < splits.count, index < CurveEditorView.defaultSplits.count
+            guard index < splits.count, index < CurveEditing.defaultSplits.count
             else { dragConsumed = true; return }
-            splits[index] = CurveEditorView.defaultSplits[index]
+            splits[index] = CurveEditing.defaultSplits[index]
             writeSplits(splits)
             dragConsumed = true
             return
@@ -676,20 +776,22 @@ struct CurveEditorView: View {
     }
 
     /// 10–90%, per docs/04 §7.1: a split pinned to either end would leave a region with
-    /// no axis under it and nothing for its slider to do.
+    /// no axis under it and nothing for its slider to do. The bound is
+    /// `CurveEditing.clampedSplit`, which is the same one `sanitizedSplits` repairs to —
+    /// two copies of it is how the sanitiser came to breach its own ceiling.
     private func moveSplit(_ index: Int, toX locationX: CGFloat, size: CGSize) {
         guard size.width > 1 else { return }
         var splits: [Double] = currentSplits
         guard index >= 0, index < splits.count else { return }
         let x: Double = Double((locationX - splitGrabOffset) / size.width)
-        splits[index] = Swift.min(Swift.max(CurveEditorView.clamp01(x), 0.10), 0.90)
+        splits[index] = CurveEditing.clampedSplit(x)
         writeSplits(splits)
     }
 
     private func updateDrag(to location: CGPoint, size: CGSize) {
         guard size.width > 1, size.height > 1 else { return }
-        let x: Double = CurveEditorView.clamp01(Double(location.x / size.width))
-        let y: Double = CurveEditorView.clamp01(1 - Double(location.y / size.height))
+        let x: Double = CurveEditing.clamp01(Double(location.x / size.width))
+        let y: Double = CurveEditing.clamp01(1 - Double(location.y / size.height))
 
         if channel == .parametric {
             guard let index = dragSplitIndex else { return }
@@ -698,48 +800,46 @@ struct CurveEditorView: View {
         }
 
         guard let index = dragPointIndex else { return }
-        var points: [CurvePoint] = currentPoints
-        guard index >= 0, index < points.count else { return }
-        // Clamp x inside the neighbours' window: the array stays sorted, so the index
-        // this drag is holding stays the point the user grabbed.
-        let gap: Double = 0.004
-        let lower: Double = index > 0 ? points[index - 1].x + gap : 0
-        let upper: Double = index < points.count - 1 ? points[index + 1].x - gap : 1
-        let clampedX: Double = upper > lower ? Swift.min(Swift.max(x, lower), upper) : points[index].x
-        points[index] = CurvePoint(x: clampedX, y: y)
-        writePoints(points)
+        let points: [[Double]] = currentPoints
+        guard points.indices.contains(index) else { return }
+        // `moved` clamps x inside the neighbours' window, so the array stays strictly
+        // increasing and the index this drag is holding stays the point the hand grabbed.
+        commitPoints(CurveEditing.moved(points, index: index, toX: x, toY: y),
+                     key: pointKey(index))
     }
 
+    /// Releasing well outside the graph deletes the point (docs/04 §7, from ART).
+    ///
+    /// It cannot take an anchor with it: `deletePoint` refuses those, so pulling the
+    /// black point down and left — which is a thing photographers do to a curve on
+    /// purpose — leaves it where the drag last put it instead of removing it.
     private func endDrag(at location: CGPoint, size: CGSize) {
         guard channel != .parametric, let index = dragPointIndex else { return }
         guard size.width > 1, size.height > 1 else { return }
-        let outside: Bool = location.x < -CurveEditorView.hitRadius
-            || location.y < -CurveEditorView.hitRadius
-            || location.x > size.width + CurveEditorView.hitRadius
-            || location.y > size.height + CurveEditorView.hitRadius
-        if outside { deletePoint(at: index) }
+        let escaped: Bool = CurveEditing.escapes(
+            x: Double(location.x / size.width),
+            y: Double(location.y / size.height),
+            marginX: Double(CurveEditorView.hitRadius / size.width),
+            marginY: Double(CurveEditorView.hitRadius / size.height))
+        if escaped { deletePoint(at: index) }
     }
 
     // MARK: Point editing
 
+    /// The point under a press, with a target bigger than the ink.
+    ///
+    /// The tolerance goes to `CurveEditing` as a FRACTION of the plot in each axis, which
+    /// is the same circle in points that `hitRadius` names — the plot is square
+    /// (`aspectRatio(1)`), so the two fractions describe one radius.
     private func nearestPointIndex(to location: CGPoint?, size: CGSize) -> Int? {
         guard channel != .parametric, let location else { return nil }
         guard size.width > 1, size.height > 1 else { return nil }
-        let points: [CurvePoint] = currentPoints
-        var best: Int? = nil
-        var bestDistance: CGFloat = CurveEditorView.hitRadius
-        for i in 0..<points.count {
-            let px: CGFloat = CGFloat(points[i].x) * size.width
-            let py: CGFloat = (1 - CGFloat(points[i].y)) * size.height
-            let dx: CGFloat = px - location.x
-            let dy: CGFloat = py - location.y
-            let distance: CGFloat = (dx * dx + dy * dy).squareRoot()
-            if distance <= bestDistance {
-                bestDistance = distance
-                best = i
-            }
-        }
-        return best
+        return CurveEditing.hitIndex(
+            currentPoints,
+            x: Double(location.x / size.width),
+            y: 1 - Double(location.y / size.height),
+            toleranceX: Double(CurveEditorView.hitRadius / size.width),
+            toleranceY: Double(CurveEditorView.hitRadius / size.height))
     }
 
     /// The split within `hitRadius` of the press, or none — the same radius, and the
@@ -767,17 +867,34 @@ struct CurveEditorView: View {
         return best
     }
 
+    /// Whether the point under the pointer is one the two-anchor rule permits removing.
+    private var hoveredPointIsDeletable: Bool {
+        guard let index = nearestPointIndex(to: hoverLocation, size: plotSize)
+        else { return false }
+        return CurveEditing.isDeletable(index: index, count: currentPoints.count)
+    }
+
     private func deleteNearestPoint() {
         guard let index = nearestPointIndex(to: hoverLocation, size: plotSize) else { return }
         deletePoint(at: index)
     }
 
-    /// A curve needs two points to mean anything, so the last two are not deletable.
+    /// THE TWO ANCHORS ARE NOT DELETABLE, which is what `CurveEditing.deleting` decides.
+    ///
+    /// The rule here was "a curve needs two points", so the FIRST and LAST were removable
+    /// the moment a third existed — by ⌥-click, by the context menu, and by dragging one
+    /// out of the graph, which is reachable simply by pulling the black point down and to
+    /// the left. `MonotoneCubic` then extends flat below the new first x: every shadow
+    /// under it renders one identical value, a posterized block the graph draws as a
+    /// horizontal line, and nothing but Flatten undoes it — which throws away every other
+    /// point the photographer placed.
+    ///
+    /// A distinct key from `pointKey`, so a delete is its own undo step rather than
+    /// folding into the drag that preceded it.
     private func deletePoint(at index: Int) {
-        var points: [CurvePoint] = currentPoints
-        guard points.count > 2, index >= 0, index < points.count else { return }
-        points.remove(at: index)
-        writePoints(points)
+        guard let remaining = CurveEditing.deleting(currentPoints, at: index) else { return }
+        commitPoints(remaining,
+                     key: keyPrefix + "delete." + channel.rawValue + ".\(index)")
     }
 
     // MARK: Drawing
@@ -786,7 +903,7 @@ struct CurveEditorView: View {
                              size: CGSize,
                              backdrop: [Double],
                              samples: [Double],
-                             controls: [CurvePoint],
+                             controls: [[Double]],
                              regions: [ParametricRegion],
                              highlight: Int?,
                              tint: Color) {
@@ -844,7 +961,7 @@ struct CurveEditorView: View {
                 ? regionLabelWidths[r] : .infinity
             if labelWidth + 8 <= band.width {
                 context.draw(Text(region.title)
-                                .font(.system(size: regionLabelSize))
+                                .font(.lumenCaption)
                                 .foregroundStyle(lit ? Lumen.primaryText
                                                      : Lumen.secondaryText),
                              at: CGPoint(x: band.midX, y: 9), anchor: .center)
@@ -921,9 +1038,9 @@ struct CurveEditorView: View {
         }
 
         // Control points last, so they are never hidden by the trace they define.
-        for point in controls {
-            let cx: CGFloat = size.width * CGFloat(clamp01(point.x))
-            let cy: CGFloat = size.height - CGFloat(clamp01(point.y)) * size.height
+        for point in controls where point.count >= 2 {
+            let cx: CGFloat = size.width * CGFloat(clamp01(point[0]))
+            let cy: CGFloat = size.height - CGFloat(clamp01(point[1])) * size.height
             let rect = CGRect(x: cx - 3, y: cy - 3, width: 6, height: 6)
             context.fill(Path(ellipseIn: rect), with: .color(Lumen.panelBackground))
             context.stroke(Path(ellipseIn: rect), with: .color(tint), lineWidth: 1.5)
@@ -969,7 +1086,7 @@ struct CurveEditorView: View {
     /// copied is the FORMULA — `ZoneWeights.crossfade` over `regionCentres`, times the
     /// same `4x(1−x)` envelope — so the shape drawn is the shape applied.
     private static func regions(splits: [Double]) -> [ParametricRegion] {
-        let clean: [Double] = sanitizedSplits(splits)
+        let clean: [Double] = CurveEditing.sanitizedSplits(splits)
         let bounds: [Double] = [0] + clean + [1]
         let centres: [Double] = CurveStack.regionCentres(clean)
         let n: Int = Swift.max(2, reachSamples)
@@ -1005,81 +1122,13 @@ struct CurveEditorView: View {
 
     // MARK: Sanitizing
 
-    private static func sanitized(_ raw: [[Double]]?) -> [CurvePoint] {
-        guard let raw, !raw.isEmpty else {
-            return [CurvePoint(x: 0, y: 0), CurvePoint(x: 1, y: 1)]
-        }
-        var out: [CurvePoint] = []
-        out.reserveCapacity(raw.count)
-        for row in raw where row.count >= 2 {
-            let x: Double = row[0]
-            let y: Double = row[1]
-            guard x.isFinite, y.isFinite else { continue }
-            out.append(CurvePoint(x: clamp01(x), y: clamp01(y)))
-        }
-        guard out.count >= 2 else {
-            return [CurvePoint(x: 0, y: 0), CurvePoint(x: 1, y: 1)]
-        }
-        out.sort { $0.x < $1.x }
-        return out
-    }
-
-    private static func sanitizedSplits(_ raw: [Double]) -> [Double] {
-        var out: [Double] = raw.count == 3 ? raw : defaultSplits
-        for i in 0..<out.count where !out[i].isFinite {
-            out[i] = defaultSplits[i]
-        }
-        out.sort()
-        for i in 0..<out.count {
-            out[i] = Swift.min(Swift.max(out[i], 0.10), 0.90)
-        }
-        // THE CEILING IS THE SAME 0.90 THE CLAMP ABOVE USES, not 0.98.
-        //
-        // It was 0.98, which let the gap repair push a split past the range every
-        // interactive path enforces and that docs/04 specifies — clamp the third split to
-        // 0.90, find it within the minimum gap of the second, and this line moved it to
-        // 0.92. Only reachable from a decoded recipe whose three splits arrive under
-        // 0.02 apart, since `ParametricCurve` decodes `splits` without validating them,
-        // so it is a malformed-sidecar path rather than anything a hand can do. But a
-        // sanitiser whose repair violates the bound it just applied is not a sanitiser.
-        //
-        // Pushing UP from the previous split can therefore run out of room, so the last
-        // resort walks the earlier ones DOWN instead — the alternative is returning a
-        // set that is still unsorted or still overlapping, which is what this function
-        // exists to rule out.
-        for i in 1..<out.count where out[i] <= out[i - 1] + minimumSplitGap {
-            out[i] = Swift.min(0.90, out[i - 1] + minimumSplitGap)
-        }
-        for i in stride(from: out.count - 2, through: 0, by: -1)
-        where out[i] >= out[i + 1] - minimumSplitGap {
-            out[i] = Swift.max(0.10, out[i + 1] - minimumSplitGap)
-        }
-        return out
-    }
-
-    private static func indexOfNearestX(_ points: [CurvePoint], x: Double) -> Int? {
-        guard !points.isEmpty else { return nil }
-        var best: Int = 0
-        var bestDistance: Double = abs(points[0].x - x)
-        for i in 1..<points.count {
-            let distance: Double = abs(points[i].x - x)
-            if distance < bestDistance {
-                bestDistance = distance
-                best = i
-            }
-        }
-        return best
-    }
-
-    private static func clamp01(_ v: Double) -> Double {
-        guard v.isFinite else { return 0 }
-        return Swift.min(Swift.max(v, 0), 1)
-    }
-
-    private static func format(_ v: Double) -> String {
-        guard v.isFinite else { return "—" }
-        return String(format: "%.1f", v)
-    }
+    /// The drawing code's shorthand for `CurveEditing.clamp01`.
+    ///
+    /// Every other sanitiser that used to live here — the point list, the splits, the
+    /// nearest-x lookup, the readout's formatter — is in `CurveEditing` now, and this
+    /// one is a forward rather than a fifth copy. A NaN reaching a `Path` is a drawing
+    /// that silently disappears, which is why the guard exists at all.
+    private static func clamp01(_ v: Double) -> Double { CurveEditing.clamp01(v) }
 }
 
 #endif

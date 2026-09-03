@@ -226,7 +226,38 @@ struct BasicPanel: View {
                         hardRange: 2000...50000,
                         scale: .reciprocal,
                         defaultValue: neutral.kelvin,
-                        step: 10, decimals: 0, bipolar: true,
+                        // 50 K, NOT 10 K, BECAUSE 10 K WAS A NUMBER NO GESTURE COULD
+                        // LAND ON.
+                        //
+                        // 2000…50000 at a 10 K quantum is 4,800 addressable values.
+                        // `LayoutMetricTests` asks the honest reachability question —
+                        // can the BEST of the four gestures this control offers land on
+                        // every value its own readout advertises — and for this row the
+                        // answer was no by a factor of three: the widest column, the
+                        // readout's own scrub (426 pt of travel) and ⇧'s quarter gear
+                        // together give 1,704 points for 4,800 steps, i.e. 0.355 pt per
+                        // step. A control that prints values a hand cannot reach is
+                        // advertising a resolution it does not have, and the slowest way
+                        // to discover that is by trying to hit one.
+                        //
+                        // 50 K makes it 960 steps at 1.775 pt per step on that gesture,
+                        // which clears the floor with room. Nothing photographic is lost:
+                        // Canon, Nikon and Sony all step their own Kelvin dials at 100 K,
+                        // so this is half the quantum of the instruments the number came
+                        // from — and it is the DRAG's quantum only. Typing is not snapped
+                        // (`commitText` clamps to the hard range and writes what was
+                        // typed), so an exact Kelvin from a grey card still goes straight
+                        // in.
+                        //
+                        // The proper fix is a mired-denominated step, and it is not
+                        // available from here: `SliderTrack.snapped` rounds in the
+                        // VALUE's units, so a single scalar cannot be uniform on the
+                        // mired axis this row travels on. That asymmetry is what makes
+                        // any Kelvin step wrong somewhere — 50 K is 12.5 mired at 2000 K
+                        // and 0.02 mired at 50000 K — and 50 puts the sensible end of it
+                        // (1.65 mired at 5500 K, under a just-noticeable shift) where
+                        // photographs actually are.
+                        step: 50, decimals: 0, bipolar: true,
                         // Blue below neutral, amber above, placed in Kelvin so the
                         // grey stop lands where the mired axis actually puts 5500 K
                         // (about two thirds along, not the middle). docs/28 Phase 2.

@@ -362,6 +362,41 @@ final class MaskDependencyTests: XCTestCase {
         XCTAssertEqual(MaskDependency.contributing(in: recipe).map(\.id), ["a", "b"])
     }
 
+    /// The roster is narrowed to ONE PROVIDER at the walk rather than at the caller,
+    /// and the narrowing is load-bearing: `VisionMattes.kinds(in:)` is asked "what
+    /// should the segmenter generate", and a kind no on-device framework can serve has
+    /// no business in that answer. Handing `.aiSky` to a Vision pass records an ATTEMPT
+    /// for a request never issued, and an attempt with nothing found is exactly what
+    /// the panel prints as "Vision found no clear subject" — a specific, actionable
+    /// error message about a model that is not bundled and never ran.
+    func testTheRosterIsNarrowedToTheProviderThatWasAskedFor() {
+        var sky = Mask(id: "sky", name: "Sky",
+                       components: [MaskComponent(op: .add, kind: .aiSky)])
+        sky.enabled = false
+        let subject = Mask(id: "s", name: "Subject",
+                           components: [MaskComponent(op: .add, kind: .aiSubject)])
+        let user = Mask(id: "b", name: "Skin",
+                        components: [reference("sky"), reference("s", op: .intersect),
+                                     radial(0.5)])
+        var recipe = Recipe()
+        recipe.masks = [sky, subject, user]
+
+        XCTAssertEqual(MaskDependency.wantedMattes(in: recipe, from: .vision),
+                       [.aiSubject],
+                       "a kind no on-device framework can serve reached the segmenter's "
+                           + "roster, which records an attempt for a request never made")
+        XCTAssertEqual(MaskDependency.wantedMattes(in: recipe, from: .model), [.aiSky],
+                       "the un-bundled half of the same reference went missing, so "
+                           + "nothing can say which model the mask is waiting for")
+        XCTAssertEqual(MaskDependency.wantedMattes(in: recipe), [.aiSky, .aiSubject],
+                       "unnarrowed, the roster is every matte the render needs")
+
+        // And a kind that needs no matte at all is in neither answer, whatever it is
+        // reached through.
+        XCTAssertFalse(MaskDependency.wantedMattes(in: recipe).contains(.radial))
+        XCTAssertFalse(MaskDependency.wantedMattes(in: recipe).contains(.maskRef))
+    }
+
     /// End to end, on pixels, through the renderer the goldens and the headless tooling
     /// use: B's exposure lift has to land where the switched-off A selects.
     func testTheEditLandsOnThePixelsTheSwitchedOffMaskSelects() {

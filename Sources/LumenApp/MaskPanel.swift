@@ -30,6 +30,18 @@
 // Every slider is a `LumenSlider`, every edit goes through
 // `updateRecipe(coalescingKey:)` so one drag is one undo step, and every index into
 // `components` is bounds-checked at read and at write.
+//
+// AND EVERY STACK OF ROWS IS `Lumen.rowGap`, which it was not. This file held the last
+// twenty-nine `spacing: 2` in the develop column — a row pitch of 30 against the
+// 24 + 4 + 4 = 32 the seven other panels stack at, and `rowGap`'s own comment records
+// that 2 was the number it replaced ("It was 2, for a pitch of 30 — off the grid, and
+// the grid is the whole argument for the row being 24"). The token was introduced,
+// thirty-six call sites were migrated, and the panel with the most rows in the
+// application kept the old literal, so the app shipped two row pitches: one in the
+// column, one in the mask editor beside it. Two points per row is invisible on any
+// single row and unmistakable down a stack of fifteen — it is the arithmetic under
+// "everything is super back to back to back". Named rather than re-typed, so the next
+// pitch argument is had in one place.
 
 #if os(macOS)
 
@@ -311,7 +323,7 @@ struct MaskPanel: View {
     /// It scales the adjustments and never the selection, so this is where it belongs
     /// and this is why it is no longer called Amount.
     private func effectZone(_ mask: Mask) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: Lumen.rowGap) {
             LumenSlider(title: "Strength",
                         value: maskValue(mask.id, "amount", get: { $0.amount },
                                          set: { $0.amount = Num.clamp($1, 0, 200) }),
@@ -328,7 +340,7 @@ struct MaskPanel: View {
 
     private var maskListSection: some View {
         let list = masks
-        return VStack(alignment: .leading, spacing: 2) {
+        return VStack(alignment: .leading, spacing: Lumen.rowGap) {
             if showsOwnHeader {
                 LumenSectionHeader(title: "Masks", isExpanded: nil,
                                    isModified: !list.isEmpty)
@@ -376,7 +388,7 @@ struct MaskPanel: View {
                     // and its Edge into the list, so there was no way to switch masks
                     // without also unfolding one. Before that they were all permanently
                     // on screen; the owner's word for that was "overwhelmed".
-                    VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: Lumen.rowGap) {
                         maskRow(mask, index: index)
                         if expandedMaskIDs.contains(mask.id) {
                             maskDetail(mask)
@@ -1311,7 +1323,7 @@ struct MaskPanel: View {
         // three times here at three different call sites. The rows, the Add/Subtract
         // pair and the editor each carried their own `.padding(.leading, 14)`, so
         // anything that moved one of them moved one left edge out of three.
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: Lumen.rowGap) {
             ForEach(Array(mask.components.indices), id: \.self) { i in
                 componentRow(mask, i)
             }
@@ -1376,7 +1388,7 @@ struct MaskPanel: View {
         return HStack(spacing: 5) {
             Text(MaskPanel.kindName(component.kind)).font(.lumenBody).lineLimit(1)
                 .foregroundStyle(isSelected ? Lumen.primaryText : Lumen.secondaryText)
-            if index > 0 || component.op != .add {
+            if MaskPanel.showsOperation(at: index, op: component.op) {
                 LumenBadge(text: MaskPanel.opName(component.op))
             }
             if component.invert { LumenBadge(text: "Inverted") }
@@ -1429,7 +1441,7 @@ struct MaskPanel: View {
     }
 
     private func componentEditor(_ id: String, _ i: Int, _ c: MaskComponent) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: Lumen.rowGap) {
             LumenSegmented(options: [(value: MaskOp.add, label: "Add"),
                                      (value: MaskOp.subtract, label: "Subtract"),
                                      (value: MaskOp.intersect, label: "Intersect")],
@@ -1497,14 +1509,14 @@ struct MaskPanel: View {
                  : "Drag on the photograph to draw the gradient. The span between the "
                      + "ends is the feather; ⇧ snaps the angle to 15°.")
         case .similarityLine:
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: Lumen.rowGap) {
                 note(MaskPanel.optionalLineIsSet(c)
                      ? MaskPanel.lineSummary(c) + "."
                      : "Drag on the photograph to draw the fade.")
                 similarityParameters(id, i, c)
             }
         case .radial:
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: Lumen.rowGap) {
                 // BOTH SLIDERS ARE NOW THE SECOND WAY TO DO THIS, and they stay for the
                 // same reason a numeric field stays beside a colour picker: a slider is
                 // how you type 45° exactly, and the handle is how you find it. The
@@ -1520,7 +1532,7 @@ struct MaskPanel: View {
                 note(MaskPanel.ellipseHint(c))
             }
         case .lumaRange:
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: Lumen.rowGap) {
                 channelRow(id, i, c)
                 // From / To, not Band Lo / Band Hi. Both are EV on the fixed −10…+4
                 // axis over the CHANNEL above, never auto-ranged, so a band means the
@@ -1528,17 +1540,30 @@ struct MaskPanel: View {
                 // changes under it — which is why every channel is on one axis.
                 bandSlider(id, i, "From", isLow: true, depth: false)
                 bandSlider(id, i, "To", isLow: false, depth: false)
-                optionalSlider(id, i, "Smoothness", \.smooth, 0...100, 50,
+                // "Smooth", NOT "Smoothness", and the second one did not fit. With a
+                // behaviour glyph beside it the name gets 56 points; "Smoothness"
+                // measures 64.8 at `lumenBody`, which `minimumScaleFactor(0.86)`
+                // rescues by rendering it at 9.5 pt — under the 10 pt floor
+                // `LumenType.swift` sets and enforces nowhere else. A label that fits
+                // only by going smaller than every label around it has not fitted; it
+                // has quietly become a second type size.
+                //
+                // The short form is the field's own name (`MaskComponent.smooth`) and
+                // it sits in a stack of one-word labels — From, To, Near, Far — where
+                // the suffix was carrying no meaning the row did not already have.
+                // Deliberately not "Soften": that is the Gaussian in the refinement
+                // chain, a different control on the same mask.
+                optionalSlider(id, i, "Smooth", \.smooth, 0...100, 50,
                                behaviour: .smoothness)
             }
         case .polygon:
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: Lumen.rowGap) {
                 optionalSlider(id, i, "Feather", \.feather, 0...100, 0,
                                behaviour: .softenEdge)
                 note(MaskPanel.outlineHint(c))
             }
         case .luminosity:
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: Lumen.rowGap) {
                 channelRow(id, i, c)
                 seriesRow(id, i, c)
                 // The generator, and there is only one of it. Lumenzia's whole purpose
@@ -1564,14 +1589,19 @@ struct MaskPanel: View {
         // it does `modelNote` marks it inert in the same badge as every other kind that
         // needs a model this application has not got.
         case .depthRange:
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: Lumen.rowGap) {
                 bandSlider(id, i, "Near", isLow: true, depth: true)
                 bandSlider(id, i, "Far", isLow: false, depth: true)
-                optionalSlider(id, i, "Smoothness", \.smooth, 0...100, 50)
+                // The same word as the luminance band's, because it is the same
+                // field. This row has no glyph and therefore the full 86 points, so it
+                // would have fitted either way — and one parameter wearing two names
+                // depending on which component kind is selected is the drift the
+                // rename was supposed to close, not open.
+                optionalSlider(id, i, "Smooth", \.smooth, 0...100, 50)
                 modelNote(c)
             }
         case .colorRange:
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: Lumen.rowGap) {
                 sampleChips(id, i, c)
                 // One Refine, not three: it drives the hue, chroma and lightness
                 // tolerances together because the per-axis split has no field in the
@@ -1593,7 +1623,7 @@ struct MaskPanel: View {
         // Vision kind whose editor skipped it, so a People mask could never show
         // NOTHING FOUND however long you waited.
         case .aiPerson:
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: Lumen.rowGap) {
                 // Six words, and they name what IS selected rather than what is not.
                 // Per-person chips and the nine body parts need a face-landmark pass
                 // and a per-person matte the wire format cannot express, which is a
@@ -1619,7 +1649,7 @@ struct MaskPanel: View {
     /// drawn. Size is a fraction of the source long edge, so a stroke keeps its width at
     /// export resolution.
     private func brushParameters() -> some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: Lumen.rowGap) {
             LumenSlider(title: "Size", value: brushValue(\.size), range: 0.002...0.5,
                         defaultValue: BrushStroke.defaultSize, step: 0.002, decimals: 3,
                         bipolar: false,
@@ -1640,7 +1670,20 @@ struct MaskPanel: View {
                         help: "How much each pass lays down. Low Flow builds the "
                             + "selection up gradually, so you can paint over the same "
                             + "place twice to deepen it. The digit keys set it.")
-            LumenSlider(title: "Max strength", value: brushValue(\.density), range: 0...100,
+            // "Ceiling", NOT "Max strength", and it is a measurement rather than a
+            // preference. A glyph-bearing label gets `Lumen.labelWidth` minus the
+            // glyph and its gap — 56 points — and "Max strength" renders 67.4 at
+            // `lumenBody`, so it was truncating on every brush this app has ever
+            // drawn. `LumenControls.swift`'s claim that "at `inRowWidth` the name
+            // keeps 56 and every label in the app fits" was believed rather than
+            // checked until a text metric measured it.
+            //
+            // The word is not a compromise: the behaviour shape beside it is called
+            // `.densityCeiling` and the tooltip below it opens "The ceiling repeated
+            // passes build toward". The row was already saying "ceiling" twice while
+            // the label said something longer and less exact — "Max strength" invites
+            // the reading that it scales the stroke, which is Flow's job.
+            LumenSlider(title: "Ceiling", value: brushValue(\.density), range: 0...100,
                         defaultValue: 100, step: 1, decimals: 0, bipolar: false,
                         behaviour: .densityCeiling, behaviourValue: brush.density / 100,
                         help: "The ceiling repeated passes build toward. At 60 the "
@@ -1676,7 +1719,7 @@ struct MaskPanel: View {
     private func referenceRow(_ id: String, _ i: Int, _ c: MaskComponent) -> some View {
         let others = masks.filter { $0.id != id }
         let target = others.first { $0.id == c.maskRef }
-        return VStack(alignment: .leading, spacing: 2) {
+        return VStack(alignment: .leading, spacing: Lumen.rowGap) {
             HStack(spacing: 6) {
                 Text("Points at")
                     .font(.lumenBody)
@@ -1764,7 +1807,7 @@ struct MaskPanel: View {
     private func similarityParameters(_ id: String, _ i: Int,
                                       _ c: MaskComponent) -> some View {
         let points = c.points ?? []
-        return VStack(alignment: .leading, spacing: 2) {
+        return VStack(alignment: .leading, spacing: Lumen.rowGap) {
             sampleChips(id, i, c)
             // The spatial half, which used to have no controls because it had no
             // fields. Reach is one slider over every point of this component rather
@@ -1790,8 +1833,33 @@ struct MaskPanel: View {
                             bipolar: false)
                 pointSigns(id, i, points)
             }
-            optionalSlider(id, i, "Colour tolerance", \.chromaSel, 0...100, 50)
-            optionalSlider(id, i, "Brightness tolerance", \.lumaSel, 0...100, 50)
+            // "Colour" and "Brightness", and the two names they replace were
+            // "Colour tolerance" and "Brightness tolerance".
+            //
+            // The label column is 86 points and the longer of the two measures 106.3 at
+            // `lumenBody` — past the 0.86 shrink floor, so it was truncating outright,
+            // and its partner at about 85 was inside the column by a point. Two rows
+            // that read "Brightness toler…" and "Colour toleranc…" is the exact defect
+            // `Lumen.labelWidth`'s own comment was widened to 94 to avoid: names that
+            // differ only in the part that got cut.
+            //
+            // The word is not lost, it has MOVED — onto the tooltip, which is where
+            // this panel has been retiring its prose rows all along ("a photographer
+            // looking at their photograph is not reading, and a photographer who stops
+            // to ask is hovering", `LumenSlider.help`). Nothing was shortened to make
+            // room; the qualifier is said once per row, in full, where it is asked for.
+            //
+            // The pair also reads better short: these are the two AXES of one gate, so
+            // naming the axis and putting the quantity in the tooltip is the same shape
+            // as From / To above and Near / Far beside it.
+            optionalSlider(id, i, "Colour", \.chromaSel, 0...100, 50,
+                           help: "The chroma half of the tolerance: how far a pixel's "
+                               + "colour may sit from the samples and still be "
+                               + "selected. Brightness below is the other half.")
+            optionalSlider(id, i, "Brightness", \.lumaSel, 0...100, 50,
+                           help: "The lightness half of the tolerance: how far a "
+                               + "pixel's brightness may sit from the samples and "
+                               + "still be selected. Colour above is the other half.")
         }
     }
 
@@ -1929,7 +1997,7 @@ struct MaskPanel: View {
         // gone and the mask's own chevron is now the one control that decides whether
         // any of this is on screen — a disclosure inside a disclosure is the "box inside
         // of a box inside of a box" the panel keeps being told about.
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: Lumen.rowGap) {
             // Drawn in the order the engine runs them — an edge-aware snap
             // against the image structure, a boundary shift, a Gaussian soften,
             // then the density remap — which is why they are not alphabetical
@@ -2003,7 +2071,7 @@ struct MaskPanel: View {
     /// state than not having written it: a reader would have believed the behaviour
     /// shipped.
     private func adjustSections(_ mask: Mask) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: Lumen.rowGap) {
             lightSection(mask)
             curveSection(mask)
             colourSection(mask)
@@ -2014,14 +2082,14 @@ struct MaskPanel: View {
     }
 
     private func lightSection(_ mask: Mask) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: Lumen.rowGap) {
             LumenSectionHeader(title: "Light", isExpanded: $lightExpanded,
                                isModified: mask.adjust.isModified(.light),
                                onReset: { editMask(mask.id, key: nil) {
                                    $0.adjust.reset(.light)
                                } })
             if lightExpanded {
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: Lumen.rowGap) {
                     adjustSlider(mask.id, "Exposure", \.exposure, -4...4, step: 0.05, decimals: 2)
                     adjustSlider(mask.id, "Contrast", \.contrast, -100...100)
                     adjustSlider(mask.id, "Highlights", \.highlights, -100...100)
@@ -2051,14 +2119,14 @@ struct MaskPanel: View {
 
     private func colourSection(_ mask: Mask) -> some View {
         let hasTint = mask.adjust.colorTint != nil
-        return VStack(alignment: .leading, spacing: 2) {
+        return VStack(alignment: .leading, spacing: Lumen.rowGap) {
             LumenSectionHeader(title: "Colour", isExpanded: $colourExpanded,
                                isModified: mask.adjust.isModified(.colour),
                                onReset: { editMask(mask.id, key: nil) {
                                    $0.adjust.reset(.colour)
                                } })
             if colourExpanded {
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: Lumen.rowGap) {
                     whiteBalanceRows(mask)
                     adjustSlider(mask.id, "Hue", \.hue, -180...180)
                     adjustSlider(mask.id, "Saturation", \.sat, -100...100)
@@ -2090,11 +2158,11 @@ struct MaskPanel: View {
 
     private func curveSection(_ mask: Mask) -> some View {
         let has = mask.adjust.curve != nil
-        return VStack(alignment: .leading, spacing: 2) {
+        return VStack(alignment: .leading, spacing: Lumen.rowGap) {
             LumenSectionHeader(title: "Curve", isExpanded: $curveExpanded, isModified: has,
                                onReset: { editMask(mask.id, key: nil) { $0.adjust.curve = nil } })
             if curveExpanded {
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: Lumen.rowGap) {
                     // The same editor the global curve uses, pointed at this mask.
                     // A second, simpler widget here would be two curve UIs that could
                     // disagree about what the pipeline applies; this one draws
@@ -2115,7 +2183,7 @@ struct MaskPanel: View {
 
     private func wheelsSection(_ mask: Mask) -> some View {
         let has = mask.adjust.wheels != nil
-        return VStack(alignment: .leading, spacing: 2) {
+        return VStack(alignment: .leading, spacing: Lumen.rowGap) {
             LumenSectionHeader(title: "Grading", isExpanded: $wheelsExpanded, isModified: has,
                                onReset: { editMask(mask.id, key: nil) { $0.adjust.wheels = nil } })
             if wheelsExpanded {
@@ -2162,12 +2230,12 @@ struct MaskPanel: View {
         let swatches = mask.adjust.pointColors
         let index: Int? = swatches.isEmpty
             ? nil : Swift.min(Swift.max(selectedSwatch, 0), swatches.count - 1)
-        return VStack(alignment: .leading, spacing: 2) {
+        return VStack(alignment: .leading, spacing: Lumen.rowGap) {
             LumenSectionHeader(title: "Point Colour", isExpanded: $pointExpanded,
                                isModified: !swatches.isEmpty,
                                onReset: { editMask(mask.id, key: nil) { $0.adjust.pointColors = [] } })
             if pointExpanded {
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: Lumen.rowGap) {
                     HStack(spacing: 4) {
                         ForEach(Array(swatches.indices), id: \.self) { s in
                             Button { selectedSwatch = s } label: {
@@ -2212,14 +2280,14 @@ struct MaskPanel: View {
     }
 
     private func detailSection(_ mask: Mask) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: Lumen.rowGap) {
             LumenSectionHeader(title: "Presence & Detail", isExpanded: $detailExpanded,
                                isModified: mask.adjust.isModified(.detail),
                                onReset: { editMask(mask.id, key: nil) {
                                    $0.adjust.reset(.detail)
                                } })
             if detailExpanded {
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: Lumen.rowGap) {
                     adjustSlider(mask.id, "Texture", \.texture, -100...100)
                     adjustSlider(mask.id, "Clarity", \.clarity, -100...100)
                     adjustSlider(mask.id, "Dehaze", \.dehaze, -100...100)
@@ -2562,7 +2630,8 @@ struct MaskPanel: View {
                                 _ r: ClosedRange<Double>, _ d: Double,
                                 step: Double = 1, decimals: Int = 0,
                                 bipolar: Bool = false,
-                                behaviour: BehaviourShape? = nil) -> some View {
+                                behaviour: BehaviourShape? = nil,
+                                help: String? = nil) -> some View {
         let current = component(id, i)?[keyPath: p] ?? d
         return LumenSlider(title: t,
                     value: Binding(get: { component(id, i)?[keyPath: p] ?? d },
@@ -2575,7 +2644,8 @@ struct MaskPanel: View {
                     bipolar: bipolar,
                     behaviour: behaviour,
                     behaviourValue: (current - r.lowerBound)
-                        / Swift.max(r.upperBound - r.lowerBound, 1e-9))
+                        / Swift.max(r.upperBound - r.lowerBound, 1e-9),
+                    help: help)
     }
 
     /// The luminance and depth bands, cross-clamped so `lo` can never pass `hi` — the
@@ -3393,6 +3463,25 @@ struct MaskPanel: View {
     }
 
     /// The same three, capitalised, for a badge that stands alone on a row.
+    /// WHETHER THIS ROW PRINTS ITS OPERATION, which is the rule the badge draws by.
+    ///
+    /// Every component after the first shows one, always — how a part meets the parts
+    /// above it is the only thing about a stack that cannot be read off the kind names,
+    /// and a row that hides it is a row a photographer has to open the editor to
+    /// understand. Subtract and Intersect show one wherever they sit, first included:
+    /// a leading Subtract is a real state the format can hold (it selects nothing, and
+    /// the row saying so is how anybody would find that out).
+    ///
+    /// The only silence is a LEADING ADD. Every stack seeds empty and the first
+    /// component is what fills it, so `∪` on row one was pure ceremony — it was also
+    /// the `∪` the owner read as part of the word beside it and asked about ("Ubrush").
+    ///
+    /// Named rather than left as a `||` in the view body because it is the thing a test
+    /// can ask: whether the composition operator is on the row at all.
+    static func showsOperation(at index: Int, op: MaskOp) -> Bool {
+        index > 0 || op != .add
+    }
+
     static func opName(_ op: MaskOp) -> String {
         switch op {
         case .add: return "Add"

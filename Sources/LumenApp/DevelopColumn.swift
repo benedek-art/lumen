@@ -383,9 +383,14 @@ extension WorkspaceSection {
         case .curve: return "point.topleft.down.to.point.bottomright.curvepath"
         // Texture, Clarity and Dehaze — the three sliders that make a flat frame read
         // as present. The standard "enhance" glyph, and the only near-collision in this
-        // table: `LumenSlider`'s per-row auto button is `wand.and.stars`. They differ
-        // in silhouette and never in position — that wand is at the right end of a
-        // slider row, this one at the left end of a header.
+        // table: the develop footer's `Auto` button is `wand.and.stars`. They differ in
+        // silhouette and never in position — that wand is in the footer at the foot of
+        // the column, this one at the left end of a section header.
+        //
+        // The collision used to be stated against `LumenSlider`'s per-row auto button,
+        // which was a wand that nothing ever passed a closure to and has been removed;
+        // a symbol table that designs around a control nobody can see is one more way
+        // for dead code to keep costing something after it stops running.
         case .presence: return "wand.and.rays"
         // Sharpening and denoise, which is work done at the pixel. A dot grid says
         // "the fine structure" without pretending to be a magnifier; the app's one
@@ -779,7 +784,25 @@ private struct ExportRecipesSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            DevelopNote("Export recipes are edited in the export sheet.")
+            // PROMINENT, WHICH IS THE DIFFERENCE BETWEEN A SECTION AND A HEADING WITH
+            // NOTHING UNDER IT (G1-04).
+            //
+            // `DevelopNote` defaults to `prominent: false`, and not-prominent means NOT
+            // DRAWN — the ⓘ row it used to mean was retired in docs/30 §2.2. So this
+            // section rendered as its own heading above a bare accent link: a card
+            // saying "Export Recipes", then "Open Export…", and no sentence anywhere
+            // explaining why a section named for a thing does not contain it. The
+            // photographer's question there is "is this broken, or is it somewhere
+            // else?" and the panel had no answer visible.
+            //
+            // It is the first of `DevelopNote`'s own two licensed cases, verbatim:
+            // honesty work — a stage that lives somewhere else — where "hiding a
+            // disclosure behind a hover is the same as not making it". There is no
+            // control here to hang a `.help()` on either, which is what makes every
+            // other collapsed note safe to collapse; the link is the only hoverable
+            // thing in the section and its tooltip would be about opening the sheet.
+            DevelopNote("Export recipes are edited in the export sheet.",
+                        prominent: true)
             Button("Open Export…") { state.activeSheet = .export }
                 .buttonStyle(.plain)
                 .font(.lumenBody)

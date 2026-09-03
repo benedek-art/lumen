@@ -1056,8 +1056,17 @@ public struct RenderGraph {
         let masking = Num.clamp(sharpen.masking, 0, 100) / 100
         let halo = Num.clamp(sharpen.haloSuppression, 0, 100) / 100
 
-        // The fine band is the reference's, exactly: the two finest a-trous bands,
-        // `details[0] + 0.5 * details[1]`.
+        // The fine band is the reference's, exactly — now including WHICH two a-trous
+        // bands it is. Both halves are frame-denominated (E2-04): the unsharp sigma
+        // through `SpatialOps.frameDenominatedSigma` and the band through
+        // `Self.fineDetailBand`, which is the twin of `SpatialOps.fineDetailBand` and
+        // reads the same `fineBandLevel`. Fixed at `details[0] + 0.5 * details[1]` and
+        // at a pixel radius, one Sharpening setting meant a different fraction of the
+        // photograph at every render size, and a 7008 px export received 7% of what the
+        // fit preview showed. A 2560 px render is unchanged.
+        //
+        // The algebra of one band, kept here because the kernel chain below is written
+        // out of it:
         //
         // It used to be `lum - gaussianBlur(lum, sigma: radius * 0.4)`, and that made
         // the Detail slider run BACKWARDS. A narrower blur is closer to the identity, so
@@ -1075,21 +1084,19 @@ public struct RenderGraph {
         // that Detail 0 and Detail 100 differ by more than 1e-4, which a sign inversion
         // satisfies perfectly.
         //
-        // Algebra, with s1 and s2 the a-trous smooths at steps 1 and 2:
-        //     d0 = lum - s1,  d1 = s1 - s2
-        //     d0 + 0.5*d1 = lum - 0.5*(s1 + s2)
+        // Algebra, with s_i the a-trous smooths (`s0 = lum`, `s_{i+1}` a b-spline pass
+        // at step 2^i, which is the chain `SpatialOps.atrousWavelet` builds):
+        //     d_i = s_i - s_{i+1}
+        //     d_i + 0.5*d_{i+1} = s_i - 0.5*(s_{i+1} + s_{i+2})
         // `bSplinePass` is the same operator as `SpatialOps.atrousSmooth` — pinned by
         // `testAtrousStepMatchesTheReference` — and `blendMask(a, b, 0.5)` is the mean,
         // so the reference's band is reproducible here without a new kernel.
         guard let lum = Self.logLuminance(image),
-              let blurred = Self.gaussianBlur(lum, sigma: radius),
-              let smooth1 = Self.bSplinePass(lum, step: 1),
-              let smooth2 = Self.bSplinePass(smooth1, step: 2),
-              let half = Self.constant(RGB(gray: 0.5), extent: image.extent),
-              let meanSmooth = KernelLibrary.apply(KernelLibrary.blendMask,
-                                                   extent: image.extent,
-                                                   [smooth1, smooth2, half]),
-              let fine = Self.subtract(lum, meanSmooth),
+              let blurred = Self.gaussianBlur(
+                lum, sigma: SpatialOps.frameDenominatedSigma(radius: radius,
+                                                             longEdge: longEdge)),
+              let fine = Self.fineDetailBand(lum, extent: image.extent,
+                                             longEdge: longEdge),
               let structure = Self.localStructure(
                 lum, radius: Self.structureRadius(longEdge: longEdge)),
               let delta = KernelLibrary.apply(
@@ -1107,6 +1114,59 @@ public struct RenderGraph {
             return filter.outputImage?.cropped(to: image.extent) ?? image
         }
         return out
+    }
+
+    /// The GPU twin of `SpatialOps.fineDetailBand`: the two-scale band a
+    /// deconvolution-weighted sharpener puts its energy in, placed on the FRAME rather
+    /// than on the pixel grid.
+    ///
+    /// `band(i) = details[i] + 0.5·details[i+1] = s_i − ½(s_{i+1} + s_{i+2})`, at the
+    /// continuous level `SpatialOps.fineBandLevel` returns, linearly blended between the
+    /// two adjacent integer bands. Continuous rather than rounded for the reason that
+    /// function gives: a rounded band steps a whole octave at 2560·√2, and the picture
+    /// would change by 21.6% because the preview ladder moved by two pixels.
+    ///
+    /// Both renderers read the SAME level from the same function, which is the only
+    /// thing that keeps them on one band. Two paths agreeing on a number they each then
+    /// use differently is how the Detail slider ran backwards here for a whole release.
+    ///
+    /// At the 2560 px reference the level is 0, `fraction` is 0, and this is exactly the
+    /// two passes and one mean that stood in `applySharpen` before — same operators,
+    /// same steps, byte for byte. The chain only lengthens above the reference, where a
+    /// coarser band is what the frame is asking for: at most five passes, at 10240 px
+    /// and beyond, which is where `fineBandLevel`'s own ceiling stops it.
+    static func fineDetailBand(_ lum: CIImage, extent: CGRect,
+                               longEdge: Int) -> CIImage? {
+        let levels = DetailEngine.waveletLevels
+        let level = SpatialOps.fineBandLevel(longEdge: longEdge, levels: levels)
+        let lower = Swift.min(Swift.max(Int(level.rounded(.down)), 0), levels - 2)
+        let fraction = level - Double(lower)
+
+        // `s0 = lum`, `s_{i+1} = bSplinePass(s_i, step: 2^i)` — the à-trous dilation
+        // schedule, spelled the way `SpatialOps.atrousWavelet` spells it. Only the
+        // smooths the band actually reads are built.
+        var smooths: [CIImage] = [lum]
+        let needed = fraction > 0 ? lower + 3 : lower + 2
+        for i in 0..<needed {
+            guard let next = Self.bSplinePass(smooths[i], step: 1 << i) else { return nil }
+            smooths.append(next)
+        }
+
+        guard let half = Self.constant(RGB(gray: 0.5), extent: extent) else { return nil }
+        func band(_ i: Int) -> CIImage? {
+            guard i + 2 < smooths.count,
+                  let mean = KernelLibrary.apply(KernelLibrary.blendMask, extent: extent,
+                                                 [smooths[i + 1], smooths[i + 2], half])
+            else { return nil }
+            return Self.subtract(smooths[i], mean)
+        }
+
+        guard let low = band(lower) else { return nil }
+        guard fraction > 0, let high = band(lower + 1),
+              let mix = Self.constant(RGB(gray: fraction), extent: extent)
+        else { return low }
+        return KernelLibrary.apply(KernelLibrary.blendMask, extent: extent,
+                                   [low, high, mix])
     }
 
     /// Gaussian blur that keeps the extent it was given — THE one Gaussian in this
@@ -1432,6 +1492,50 @@ public struct RenderGraph {
         let size = GrainPlan.plateSize
         guard extent.width > 0, extent.height > 0 else { return nil }
 
+        /// Scale one plate to its cell size, tile it over the plane, and ANCHOR the
+        /// lattice to the TOP of the frame.
+        ///
+        /// The anchoring is the one line here that is not obvious, and it is a fix.
+        /// `ImageBuffer` is top-down while Core Image's extent is bottom-up, so image
+        /// row `y` renders at `y_CI = maxY − 1 − y`; the plate is built from a top-down
+        /// array through the same `CIImage(bitmapData:)`, so its row 0 lands at the TOP
+        /// of the plate's own extent; and `affineTile` repeats that extent from the CI
+        /// ORIGIN. Compose those three and the GPU read plate row `(128 − h + y) mod 128`
+        /// where `ReferenceRenderer.applyGrain` reads row `y` — the same row only when
+        /// the frame's height happened to be a multiple of 128, which is why nothing
+        /// noticed. Measured on a 160×96 frame at exactly one plate texel per render
+        /// pixel, the two renderers differed by 0.16699 at (16, 0) against a parity
+        /// bound of 1e-3, while the 128-row frame agreed to 1e-6.
+        ///
+        /// A TRANSLATION and not a mirror: the image and the plate cross the
+        /// top-down/bottom-up boundary in the same direction, so `y`'s coefficient
+        /// survives with its sign and only the offset moves. That is what makes this
+        /// one number rather than a flip of the stored array.
+        ///
+        /// Anchoring the lattice to `extent.maxY` puts a tile's top edge on the frame's
+        /// top edge, which is where the plate's own row 0 lives — so top-down row `y`
+        /// reads plate row `y`, which is what the reference reads. Taken modulo one tile
+        /// period because the tiling is periodic and a small offset keeps the sampler's
+        /// coordinates near the frame: `maxY − period ≡ maxY (mod period)`.
+        ///
+        /// It moves rows only. x carries no flip and the lattice already starts where
+        /// the frame does, which is why the 160-wide fixture — chosen so the tile WRAPS
+        /// in x — was exact before this and stays exact after it.
+        func tiled(_ plate: CIImage, scale: Double) -> CIImage {
+            let scaled = plate.transformed(
+                by: CGAffineTransform(scaleX: CGFloat(scale), y: CGFloat(scale)))
+            let tiler = CIFilter.affineTile()
+            tiler.inputImage = scaled
+            tiler.transform = .identity
+            let repeated = tiler.outputImage ?? scaled
+            let period = Double(size) * scale
+            guard period.isFinite, period > 0 else { return repeated }
+            let offset = Double(extent.maxY).truncatingRemainder(dividingBy: period)
+            guard offset != 0 else { return repeated }
+            return repeated.transformed(
+                by: CGAffineTransform(translationX: 0, y: CGFloat(offset)))
+        }
+
         /// One layer's tile: its noise in `channel`, zero elsewhere, so the three sum to
         /// a packed RGB plate. Alpha rides on the red tile alone — addition compositing
         /// adds alpha too, and three opaque tiles would sum to 3.
@@ -1453,13 +1557,9 @@ public struct RenderGraph {
             let image = CIImage(bitmapData: data, bytesPerRow: size * 16,
                                 size: CGSize(width: size, height: size),
                                 format: .RGBAf, colorSpace: nil)
-            let scale = grain.plateScale(longEdgePixels: longEdge, channel: channel)
-            let scaled = image.transformed(
-                by: CGAffineTransform(scaleX: CGFloat(scale), y: CGFloat(scale)))
-            let tiler = CIFilter.affineTile()
-            tiler.inputImage = scaled
-            tiler.transform = .identity
-            return tiler.outputImage ?? scaled
+            return tiled(image,
+                         scale: grain.plateScale(longEdgePixels: longEdge,
+                                                 channel: channel))
         }
 
         if grain.profile.monochrome {
@@ -1481,13 +1581,9 @@ public struct RenderGraph {
             let image = CIImage(bitmapData: data, bytesPerRow: size * 16,
                                 size: CGSize(width: size, height: size),
                                 format: .RGBAf, colorSpace: nil)
-            let scale = grain.plateScale(longEdgePixels: longEdge, channel: 0)
-            let scaled = image.transformed(
-                by: CGAffineTransform(scaleX: CGFloat(scale), y: CGFloat(scale)))
-            let tiler = CIFilter.affineTile()
-            tiler.inputImage = scaled
-            tiler.transform = .identity
-            return (tiler.outputImage ?? scaled).cropped(to: extent)
+            return tiled(image,
+                         scale: grain.plateScale(longEdgePixels: longEdge, channel: 0))
+                .cropped(to: extent)
         }
 
         guard let red = tile(channel: 0), let green = tile(channel: 1),

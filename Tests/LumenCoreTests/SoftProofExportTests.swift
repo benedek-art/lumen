@@ -188,6 +188,21 @@ final class SoftProofExportTests: XCTestCase {
     func testTheExportPlanIsBuiltWithTheDeliveredProof() throws {
         let source = Self.stripped(try Self.pipelineSource())
 
+        // BOTH plans, because drift has two directions. The measured half of this file
+        // and the plan comparison in `ExportSoftProofTests` both need the preview to be
+        // proofing for the export's proof to be worth comparing against — a future edit
+        // that dropped the argument from `previewPlan` instead would leave the loupe
+        // unproofed and the file proofed, which is the same broken promise photographed
+        // from the other side. That comparison runs where Core Image exists; this is the
+        // half of it that runs on every lane.
+        let preview = try Self.body(of: "func previewPlan(", in: source,
+                                    upTo: "func exportPlan(")
+        XCTAssertTrue(preview.contains("softProof: softProof"),
+                      "the preview plan stopped carrying the proof, so ⇧S no longer "
+                          + "reaches the loupe")
+        XCTAssertTrue(preview.contains("lutSize: LUT3D.interactiveSize"),
+                      "and still be the interactive plan it was")
+
         let plan = try Self.body(of: "func exportPlan(", in: source,
                                  upTo: "static func deliveredProof(")
         XCTAssertTrue(plan.contains("softProof: Self.deliveredProof(softProof)"),

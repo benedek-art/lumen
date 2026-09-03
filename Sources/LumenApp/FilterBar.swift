@@ -290,14 +290,14 @@ struct FilterBar: View {
                             .font(.lumenGlyphCaption)
                             .foregroundStyle(value <= state.filter.minRating
                                              ? Lumen.primaryText : Lumen.trackColor)
-                        Text("\(ratingCount(value))")
+                        Text(countText(ratingCount(value)))
                             .font(.lumenCaptionNumeric)
                             .foregroundStyle(Lumen.tertiaryText)
                     }
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help("Rating \(value) or better — \(ratingCount(value)) photos")
+                .help(helpCount("Rating \(value) or better", ratingCount(value)))
             }
         }
     }
@@ -318,14 +318,14 @@ struct FilterBar: View {
                                                   ? Lumen.primaryText : Color.black.opacity(0.35),
                                                   lineWidth: state.filter.labels.contains(label) ? 2 : 1)
                             )
-                        Text("\(labelCount(label))")
+                        Text(countText(labelCount(label)))
                             .font(.lumenCaptionNumeric)
                             .foregroundStyle(Lumen.tertiaryText)
                     }
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help("\(label.displayName) — \(labelCount(label)) photos")
+                .help(helpCount(label.displayName, labelCount(label)))
             }
             Spacer(minLength: 6)
             chip(title: "Unlabelled", systemImage: nil, count: labelCount(.none),
@@ -713,30 +713,64 @@ struct FilterBar: View {
     // stays exactly where it was for the status bar and the cell badges, which are
     // bookkeeping rather than promises.
 
-    private func flagCount(_ flag: PhotoFlag) -> Int {
+    // NIL IS A THIRD ANSWER, and it is the half of this that was still lying.
+    //
+    // These three read `facets`, which is empty for the round trip after the popover
+    // opens. Returning 0 there draws a hard "0" under every star and every colour —
+    // which is not "not counted yet", it is the specific claim that clicking returns
+    // nothing, made about a folder that in fact has forty picks in it. The metadata
+    // menu already had the distinction ("Counting…" versus "No lens has been read
+    // yet") and these did not, so the two halves of the same popover disagreed about
+    // whether an answer had arrived. Nil means the catalog has not answered; the chips
+    // draw no number at all until it has, and every number they do draw is one the
+    // catalog stood behind.
+    //
+    // A counted 0 is drawn, and that is the point of the change rather than a detail:
+    // honest counts are narrowed by every lit chip, so 0 is now COMMON and is the most
+    // useful number on the chip — "★5 · 0" is what stops you clicking it.
+
+    private func flagCount(_ flag: PhotoFlag) -> Int? {
         guard state.isLibraryQueryLive else {
             return memoryCount { $0.flags = [flag] }
         }
+        guard facetsCounted else { return nil }
         return facets.flags[CatalogService.coreFlag(flag)] ?? 0
     }
 
-    private func ratingCount(_ minimum: Int) -> Int {
+    private func ratingCount(_ minimum: Int) -> Int? {
         guard (1...5).contains(minimum) else { return 0 }
         guard state.isLibraryQueryLive else {
             return memoryCount { $0.minRating = minimum }
         }
+        guard facetsCounted else { return nil }
         return facets.ratingAtLeast[minimum]
     }
 
-    private func labelCount(_ label: ColorLabel) -> Int {
+    private func labelCount(_ label: ColorLabel) -> Int? {
         guard state.isLibraryQueryLive else {
             return memoryCount { $0.labels = [label] }
         }
+        guard facetsCounted else { return nil }
         // "Unlabelled" is its own number rather than a sixth colour, because it is its
         // own predicate: `label IN (…)` can never match the NULL an unlabelled
         // photograph stores.
         guard let core = CatalogService.coreLabel(label) else { return facets.unlabeled }
         return facets.labels[core] ?? 0
+    }
+
+    /// An uncounted facet reads as an en dash rather than as a number, in a slot the
+    /// same width as the number that replaces it, so the popover does not reflow under
+    /// the pointer when the answer lands.
+    private func countText(_ count: Int?) -> String {
+        count.map(String.init) ?? "–"
+    }
+
+    /// The tooltip's version. An uncounted facet says what it is rather than reading
+    /// "— – photos", which is the kind of sentence that only ever appears in a build
+    /// where nobody looked at the tooltip.
+    private func helpCount(_ title: String, _ count: Int?) -> String {
+        guard let count else { return title }
+        return "\(title) — \(count) photo" + (count == 1 ? "" : "s")
     }
 
     /// The same rule, evaluated the only way a session with no catalog can.
@@ -801,7 +835,10 @@ struct FilterBar: View {
                 Text(title)
                     .font(.lumenCaption)
                     .lineLimit(1)
-                if let count, count > 0 {
+                // `count != nil`, not `count > 0`. A counted zero is the whole
+                // point of an honest count — it is what tells you not to click — and
+                // the old guard swallowed exactly the number worth showing.
+                if let count {
                     Text("\(count)")
                         .font(.lumenCaptionNumeric)
                         .foregroundStyle(Lumen.secondaryText)

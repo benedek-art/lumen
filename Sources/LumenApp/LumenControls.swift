@@ -314,10 +314,40 @@ enum Lumen {
     ///
     /// 380 rather than 320 because the arithmetic says so. A row spends
     /// `labelWidth + valueWidth + two 6pt gaps` on text no matter how wide the column
-    /// is, so every point added to the panel is a point added to the TRACK. At 320 a
-    /// ±100 control had 0.90 points of travel per unit — under the ~1.0 at which a
-    /// one-pixel tremor stops costing a whole unit, and below Lightroom's narrowest
-    /// state. At 380 it is 1.24, past Lightroom's default and next to Capture One's.
+    /// is, so every point added to the panel is a point added to the TRACK.
+    ///
+    /// THIS PARAGRAPH USED TO SAY 0.90 AT 320 AND 1.24 AT 380, AND BOTH WERE STALE BY
+    /// ABOUT A FIFTH. They were written before `WorkspaceSectionView` wrapped every
+    /// section in a card (−20 points on every row in the column) and before
+    /// `valueWidth` went 44 → 52 for the readout pill (−8 more), and nobody re-derived
+    /// them — which is the ordinary fate of a number that is remembered rather than
+    /// measured. `LayoutMetricTests` measures it: the chain is
+    /// `column − 8 scroll − 20 card − 150 row chrome`, so a ±100 control gets **142 pt
+    /// of track at the 320 minimum and 202 at the 380 default — 0.710 and 1.010 points
+    /// per unit.** 1.24 was 23% over the truth.
+    ///
+    /// WHICH MAKES THE ~1.0 FLOOR A PROMISE ABOUT THE DEFAULT WIDTH, and the promise
+    /// belongs written where it is made rather than left for a reader to infer a
+    /// stronger one. At 380 a ±100 control clears the floor by a hundredth of a point.
+    /// At the 320 minimum it does not clear it and cannot be made to: 1.0 pt per unit
+    /// needs 200 points of track, which needs 350 points of card content, which needs a
+    /// 378-point column — so buying it at the minimum means making the minimum the
+    /// default and deleting the drag-in half of a resize the owner asked for by name.
+    /// Dragging the column narrow is a deliberate trade of precision for room and the
+    /// photographer is the one making it; what this constant guarantees is that nobody
+    /// STARTS there.
+    ///
+    /// And it is a floor for the ±100 CLASS — 51 of the app's 142 slider rows, and the
+    /// class the whole argument above is about — not for every row. (53 rows land on
+    /// exactly 0.710/1.010: the other two are Mask Strength at 0…200 and Look's Skew at
+    /// −1…1 in hundredths, which merely happen to divide their ranges into the same 200
+    /// steps.) Exposure's declared 0.01 EV over ±5 is 1,000 steps and would want 1,000
+    /// points of track; no width this app permits reaches that and none is meant to,
+    /// because the track is the coarse instrument by design and the scrub is the fine one
+    /// (`scrubTrack`: three track-widths per full range, twelve under ⇧). Whether a
+    /// step is reachable AT ALL is asked there, by
+    /// `testEveryValueTheReadoutAdvertisesIsReachableBySomeGesture`, and that is the
+    /// question a photographer can actually feel.
     ///
     /// The owner asked for the drag directly: "what if I can have a click and drag? So
     /// if I wanted a specific size, I can click or drag the right side pop-up window
@@ -347,13 +377,24 @@ enum Lumen {
     ///
     /// 86 fits every name that exists — the four denoise labels that forced 94
     /// (`Luminance Contrast` and friends) measure under 84 at 11 pt SF Pro, and 94 was
-    /// rounded up from a measurement rather than measured. 44 fits `-5.00`, the longest
-    /// readout, with room. With the column's padding at 8 that is 180 pt of track:
-    /// **0.90 pt per unit, up 27%**, and 143 of the 201 values become 181 of them.
+    /// rounded up from a measurement rather than measured.
     ///
-    /// It is still short of the 1.0 that would make a ±100 control genuinely precise —
-    /// that needs the resizable column in docs/30 Phase D, which takes it past
-    /// Lightroom's default. This is the half available without touching layout.
+    /// THE REST OF THIS PARAGRAPH USED TO READ "44 fits `-5.00`, the longest readout"
+    /// AND THEN DIVIDE BY IT, and every clause of that is now false. The readout column
+    /// is 52 — see `valueWidth`, which argues the raise — and `-5.00` was never the
+    /// longest string this app's own formatter can produce: `15.000` is, Black target's
+    /// hard limit at three decimals, so the column was sized against the wrong string
+    /// and the track arithmetic downstream inherited the error.
+    ///
+    /// Measured rather than recalled (`LayoutMetricTests`): `86 + 6 + 6 + 52` is 150
+    /// points of chrome, and after the scroll inset and the section card that leaves
+    /// **142 pt of track at the 320 minimum and 202 at the 380 default.** The first of
+    /// those is the arresting one — it is EXACTLY the 142 the paragraph above condemns,
+    /// with exactly its 0.71 pt per unit and its 58 unreachable integers. Trimming the
+    /// label column bought the track back and then the section card and the readout
+    /// pill spent it again, so the narrow column has arrived where it started. What
+    /// carries the precision now is the width the panel OPENS at; see
+    /// `defaultPanelWidth`, where that promise is stated at the width that keeps it.
     ///
     /// `SliderDragTests` re-proves the drag's properties parametrically from 100 to
     /// 400 pt of track, so nothing here is pinned to a width.
@@ -463,7 +504,18 @@ struct LumenSlider: View {
     /// dot still carry it too; they were never enough on their own, which is why the
     /// fill exists.
     var trackStops: [LumenTrackStop]?
-    var wand: (() -> Void)?
+    // THERE WAS A `wand: (() -> Void)?` HERE AND NOTHING EVER PASSED ONE.
+    //
+    // It drew a `wand.and.stars` button after the readout, took a 6-point gap and
+    // carried its own `.help("Set \(title) automatically")` — a whole fifth column in
+    // the narrowest instrument in the application, reserved for a per-row "auto" that
+    // was never wired at any of the ninety-seven `LumenSlider` call sites. Dead
+    // parameters on a shared control are not free: it appeared in every reader's mental
+    // model of the row, in every estimate of what a row spends horizontally, and in
+    // `DevelopColumn`'s symbol table as a near-collision to design around. The one
+    // auto in the app is the develop footer's `Auto`, which writes six sliders at once
+    // through `AutoTone.suggest(from:)` and is visible, arguable and revertable — a
+    // per-row wand would have been a second, quieter way to do the same thing.
     /// What this control does, in one clause, for the tooltip.
     ///
     /// The sentences that used to sit under the panels as prose belong here: a
@@ -639,17 +691,6 @@ struct LumenSlider: View {
             track
 
             valueField
-
-            if let wand {
-                Button(action: wand) {
-                    Image(systemName: "wand.and.stars")
-                        .font(.lumenGlyphCaption)
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(Lumen.secondaryText)
-                .lumenClickCursor()
-                .help("Set \(title) automatically")
-            }
         }
         .frame(height: Lumen.rowHeight)
         // AIR AROUND THE ROW, and it belongs to the row rather than to each of the
@@ -1660,8 +1701,38 @@ struct LumenSegmented<T: Hashable>: View {
                     selection = option.value
                 } label: {
                     HStack(spacing: 3) {
+                        // ONE LINE, ALWAYS — this was the only label in the kit with no
+                        // line limit at all, inside a `.frame(maxWidth: .infinity)`
+                        // share.
+                        //
+                        // Without it a label that outgrows its share does not truncate,
+                        // it WRAPS: the segment gets a second line, every segment in the
+                        // row matches its height, and the whole control becomes two rows
+                        // tall — which shoves the rest of the panel down and reads as a
+                        // rendering fault rather than as a long word. That is a strictly
+                        // worse failure than a clipped tail, because it moves controls
+                        // the photographer was not looking at.
+                        //
+                        // NO `minimumScaleFactor` TO GO WITH IT, deliberately, and the
+                        // reason is `LumenType.swift`'s own sentence: "10 is the floor."
+                        // These labels are already drawn at `.lumenCaption`, which IS 10
+                        // — there is no room between the size they render at and the
+                        // smallest size this project permits, so any shrink factor here
+                        // would be a way of getting under the floor without writing a
+                        // size down anywhere. The slider row can afford 0.86 because its
+                        // labels start at 11.
+                        //
+                        // Which leaves the width itself as the thing to keep honest, and
+                        // that is measured rather than trusted:
+                        // `testEverySegmentedControlsLabelsFitTheirShare` puts every
+                        // option string in the app through the share its own control
+                        // gives it at the narrowest column. Today the widest is
+                        // `Perceptual` at 50.7 pt in a 99.5 pt share, so nothing here
+                        // truncates; the day somebody adds a longer option the suite says
+                        // so instead of the panel quietly getting taller.
                         Text(option.label)
                             .font(.lumenCaption)
+                            .lineLimit(1)
                         if marked.contains(option.value) {
                             Circle()
                                 .fill(Lumen.accent)
@@ -1837,11 +1908,19 @@ struct LumenColorWheel: View {
 
             if captionedBar {
                 // CENTRED ON THE WHEEL, NOT ON THE ROW. An untitled slider is a track
-                // plus a 44-point readout, so the groove's midpoint sits 25 points left
-                // of the row's — under a 150-point wheel that read as a bar hanging off
-                // one shoulder. The leading padding is the readout's exact counterweight
-                // (valueWidth + the row's 6-point gap), which puts the groove's centre
-                // on the wheel's centre by construction rather than by eye.
+                // plus a readout, so the groove's midpoint sits half a readout-plus-gap
+                // left of the row's — under a 150-point wheel that read as a bar hanging
+                // off one shoulder. The leading padding is the readout's exact
+                // counterweight (valueWidth + the row's 6-point gap), which puts the
+                // groove's centre on the wheel's centre by construction rather than by
+                // eye.
+                //
+                // Written as arithmetic rather than as a number because it stopped being
+                // one: this comment said "a 44-point readout, so the groove's midpoint
+                // sits 25 points left" and `valueWidth` has been 52 since the readout
+                // became a pill, which makes the offset 29. The CODE was always right —
+                // it reads the constant — and only the prose had to be re-derived, which
+                // is the argument for not restating a constant in prose at all.
                 lightnessBar
                     .padding(.leading, Lumen.valueWidth + 6)
                     .frame(width: diameter + 2 * (Lumen.valueWidth + 6))

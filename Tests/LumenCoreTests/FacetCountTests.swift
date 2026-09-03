@@ -193,6 +193,85 @@ final class FacetCountTests: XCTestCase {
         }
     }
 
+    // MARK: - The chip with no number on it
+
+    /// The "Edited: no" chip is the one criterion in the bar that draws no count, and it
+    /// was wrong in exactly the way a count is wrong: it promised untouched photographs
+    /// and did not return them.
+    ///
+    /// `photo.edited` is decided once, by `saveRecipe`, and it compared the saved recipe
+    /// against the TYPE's default. A photograph's own as-imported recipe is not the
+    /// type's default for two large classes of file — a rendered file is imported
+    /// carrying the Linear display transform, and a raw with a recorded ISO is imported
+    /// carrying its ISO denoise profile — so both were marked edited by the act of being
+    /// imported and stayed marked. The pencil badge lit on every untouched JPEG in the
+    /// library, pressing Reset could not put it out, and `photo.edited = ?` in
+    /// `buildPhotoQuery` could never show them.
+    ///
+    /// The baseline comes from `Recipe.asImported(from:)`, which is the one statement of
+    /// what as-imported means; this asks the question through the filter rather than
+    /// through that function, so it is the CATALOG's answer being pinned and not the
+    /// rule restating itself.
+    func testTheUntouchedChipReturnsFilesWhoseBaselineIsNotABareRecipe() throws {
+        let store = try makeStore()
+        let folderID = try store.registerFolder(path: "/Volumes/Shoots/2026-08-22")
+        let files = [
+            ScannedFile(filename: "DSC0001.ARW", fileSize: 40_000_000,
+                        fileMTime: 1_700_000_000, ext: "arw"),
+            ScannedFile(filename: "DSC0002.JPG", fileSize: 8_000_000,
+                        fileMTime: 1_700_000_000, ext: "jpg"),
+            ScannedFile(filename: "DSC0003.ARW", fileSize: 40_000_000,
+                        fileMTime: 1_700_000_000, ext: "arw"),
+        ]
+        _ = try store.scan(folderID: folderID, files: files, at: CatalogStore.now())
+        var ids: [Int64] = []
+        for file in files {
+            guard let row = try store.photo(folderID: folderID, filename: file.filename)
+            else { return XCTFail("the scan did not register \(file.filename)") }
+            ids.append(row.id)
+        }
+        // Every frame here has an ISO the denoise table has an opinion about, so the
+        // raw baseline is not a bare `Recipe()` either — a fixture at base ISO would let
+        // the old comparison pass on two of the three files.
+        for id in ids { try store.setMetadata(PhotoMetadata(iso: 12800), photoID: id) }
+
+        let raw = Recipe.SourceFile(isRendered: false, iso: 12800)
+        let rendered = Recipe.SourceFile(isRendered: true, iso: 12800)
+        try store.saveRecipe(Recipe.asImported(from: raw), photoID: ids[0],
+                             isCurrent: true, isRenderedFile: false)
+        try store.saveRecipe(Recipe.asImported(from: rendered), photoID: ids[1],
+                             isCurrent: true, isRenderedFile: true)
+        // One frame that really was worked on, so this cannot pass by calling
+        // everything untouched.
+        var worked = Recipe.asImported(from: raw)
+        worked.develop.tone.exposure = 1.5
+        try store.saveRecipe(worked, photoID: ids[2], isCurrent: true,
+                             isRenderedFile: false)
+
+        XCTAssertEqual(try store.photo(id: ids[0])?.edited, false,
+                       "an untouched high-ISO raw was marked edited by its own import")
+        XCTAssertEqual(try store.photo(id: ids[1])?.edited, false,
+                       "an untouched JPEG was marked edited by its own import")
+        XCTAssertEqual(try store.photo(id: ids[2])?.edited, true,
+                       "a moved exposure slider was not recorded as an edit")
+
+        // And through the chip, which is the thing the photographer actually clicks.
+        var untouched = PhotoQuery()
+        untouched.edited = false
+        untouched.includeMissing = false
+        XCTAssertEqual(
+            Set(try store.photos(matching: untouched, folderID: folderID).map(\.id)),
+            Set([ids[0], ids[1]]),
+            "the \"Edited: no\" chip did not return the photographs nobody has touched")
+
+        var touched = PhotoQuery()
+        touched.edited = true
+        touched.includeMissing = false
+        XCTAssertEqual(
+            try store.photos(matching: touched, folderID: folderID).map(\.id), [ids[2]],
+            "the \"Edited\" chip returned photographs nobody has touched")
+    }
+
     // MARK: - That the fixture can tell the honest answer from the wrong ones
 
     /// Without this, the equality above could pass on a catalog where every wrong

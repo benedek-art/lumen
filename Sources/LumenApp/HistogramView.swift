@@ -10,6 +10,10 @@
 //   · Per-frame cost is proportional to the number of bins, never to pixels. Each trace
 //     is one polyline with at most one vertex per horizontal point, decimated by max so
 //     a one-bin spike survives the decimation instead of disappearing at small sizes.
+//   · The headline percentages and the corner triangles are ONE computation. They were
+//     two — a luma-channel number beside an R/G/B-coloured triangle — and the pair
+//     disagreed on every single-channel clip. Both now come from
+//     `ScopeReadout.clipping`, which owns the threshold and the worst-of-R/G/B rule.
 //   · Dragging a zone scrubs the six-slider tone panel through
 //     `AppState.updateRecipe(coalescingKey:)`, so one drag is one undo step and the
 //     graph and the panel can never disagree about what a slider is worth. The middle
@@ -95,6 +99,20 @@ struct HistogramView: View {
         VStack(alignment: .leading, spacing: 6) {
             graph
             readoutLine
+            // WHAT IT IS A HISTOGRAM OF, and only when that is not the plain answer.
+            //
+            // The instrument has two feeds that measure two different pictures — the
+            // frame on screen with its soft proof in it, or a render commissioned
+            // without one — and it printed neither. A permanent caption for the ordinary
+            // case would be chrome; `Provenance.note` is nil there, so this row does not
+            // exist unless something a photographer would be surprised by is true.
+            if let note = state.scopes?.provenance?.note {
+                Text(note)
+                    .font(.lumenCaption)
+                    .foregroundStyle(Lumen.secondaryText)
+                    .lineLimit(1)
+                    .help(measurementStatement)
+            }
         }
         .padding(.horizontal, 8)
         .padding(.top, 8)
@@ -185,6 +203,23 @@ struct HistogramView: View {
             }
             .pickerStyle(.inline)
         }
+        // The instrument's own specification, where an instrument's specification goes:
+        // which image was binned, on which axis, how the clipping percentages were
+        // arrived at, what the luma trace is weighted by, and what the vertical is. Not
+        // one of those was written anywhere in the app before this line.
+        .help(measurementStatement)
+    }
+
+    /// The full sentence behind the graph, assembled from the measurement's own record
+    /// rather than from what this view assumes about its feed.
+    private var measurementStatement: String {
+        guard let histogram else { return "No measurement yet." }
+        let provenance: ScopeReadout.Provenance = state.scopes?.provenance
+            ?? ScopeReadout.Provenance(frame: .viewerFrame, proofed: false,
+                                       instrumentPaint: false, exactCounts: false)
+        return provenance.statement(readout: histogram.transform.space)
+            + " Luma trace: " + ScopeReadout.lumaLabel(histogram.transform) + ". "
+            + ScopeReadout.verticalScaleNote
     }
 
     // MARK: Readout line
@@ -262,10 +297,16 @@ struct HistogramView: View {
             return "Level " + HistogramView.format(
                 HistogramView.level(atAxis: axis, in: state.readoutSpace), decimals: 1)
         }
-        return HistogramView.format(histogram.clippedPercent(.luma, end: .high), decimals: 2)
-            + "% white · "
-            + HistogramView.format(histogram.clippedPercent(.luma, end: .low), decimals: 2)
-            + "% black"
+        // THE SAME NUMBERS THE TRIANGLES ARE PAINTED FROM (W2/H2-08).
+        //
+        // This line used to read the LUMA channel while the triangle four points away
+        // read R/G/B. Luma clips only when essentially all three channels are at the
+        // ceiling — `Histogram.compute` bins `w·(r,g,b)` into channel 3 — so every
+        // single-channel clip there is (sunset, sodium light, a red dress) painted the
+        // triangle red beside a number that said `0.00% white`. `ScopeReadout
+        // .clipHeadline` and `clippingStrength`/`clippingColor` below now come out of
+        // one function over one `Histogram`, so the two cannot say different things.
+        return ScopeReadout.clipHeadline(histogram)
     }
 
     /// The number to print for a hover position on the histogram's axis.
@@ -436,23 +477,22 @@ struct HistogramView: View {
         state.clippingOverlay = state.clippingOverlay == mode ? nil : mode
     }
 
+    /// The triangle's brightness and its colour, from ONE report over the histogram the
+    /// graph above is drawing. `ScopeReadout.clipping` owns the threshold, the worst-of-
+    /// R/G/B rule and the ramp; three expressions in two files used to own a third each.
+    private func clipReport(end: Histogram.End) -> ScopeReadout.ClipReport? {
+        guard let histogram else { return nil }
+        return ScopeReadout.clipping(histogram, end: end)
+    }
+
     private func clippingStrength(end: Histogram.End) -> Double {
-        guard let histogram else { return 0 }
-        var worst: Double = 0
-        for channel in [Histogram.Channel.red, .green, .blue] {
-            worst = Swift.max(worst, histogram.clippedFraction(channel, end: end))
-        }
-        // A tenth of a percent of the frame is already worth noticing, so the ramp is
-        // deliberately steep at the bottom rather than linear over the whole range.
-        return HistogramView.clamp01((worst * 200).squareRoot())
+        clipReport(end: end)?.strength ?? 0
     }
 
     private func clippingColor(end: Histogram.End) -> Color {
-        guard let histogram else { return Lumen.trackColor }
-        let mask: Int = histogram.clippingMask(end: end, threshold: 0.00005)
-        guard let rgb = ClippingOverlay.colour(mask: mask, allChannels: RGB.one) else {
-            return Lumen.trackColor
-        }
+        guard let report = clipReport(end: end),
+              let rgb = ClippingOverlay.colour(mask: report.mask, allChannels: RGB.one)
+        else { return Lumen.trackColor }
         return Color(red: HistogramView.clamp01(rgb.r),
                      green: HistogramView.clamp01(rgb.g),
                      blue: HistogramView.clamp01(rgb.b))
@@ -461,9 +501,9 @@ struct HistogramView: View {
     private func clippingHelp(end: Histogram.End, locked: Bool) -> String {
         let name: String = end == .low ? "Shadow clipping" : "Highlight clipping"
         guard let histogram else { return name }
-        let r: String = HistogramView.format(histogram.clippedPercent(.red, end: end), decimals: 2)
-        let g: String = HistogramView.format(histogram.clippedPercent(.green, end: end), decimals: 2)
-        let b: String = HistogramView.format(histogram.clippedPercent(.blue, end: end), decimals: 2)
+        let r: String = ScopeReadout.percentString(histogram.clippedPercent(.red, end: end))
+        let g: String = ScopeReadout.percentString(histogram.clippedPercent(.green, end: end))
+        let b: String = ScopeReadout.percentString(histogram.clippedPercent(.blue, end: end))
         return name + " — R " + r + "%, G " + g + "%, B " + b + "%. "
             + (locked ? "Click to unlock the overlay." : "Click to lock the overlay on.")
     }

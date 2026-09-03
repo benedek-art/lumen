@@ -338,8 +338,34 @@ public struct LookSubset: Codable, Equatable, Sendable {
         // A puck at the centre has no direction, and `isNeutral` reads sat and lum
         // only, so the angle is free. It keeps the look's rather than falling to zero,
         // which would silently rewrite a stored hue to red on the way through.
-        let hue = sat > 0 ? Num.wrapHue(atan2(y, x) * 180 / .pi) : carried.hue
+        let hue = sat > 0 ? LookSubset.wrappedHue(atan2(y, x) * 180 / .pi) : carried.hue
         return Wheel(hue: hue, sat: sat, lum: Num.mix(own.lum, carried.lum, t))
+    }
+
+    /// `Num.wrapHue` with its top end actually closed.
+    ///
+    /// `wrapHue` is `remainder`-then-`+360`, so ANY input in the last few ulps below
+    /// zero comes back as exactly 360: `-5.7e-14 + 360` has no representable neighbour
+    /// short of 360 and rounds to it. That input is not hypothetical here, it is the
+    /// commonest interesting case — two grades on opposite sides of red, 350° and 10°,
+    /// meet at a puck whose `atan2` is zero to within a rounding error, and the sign of
+    /// that error is not something the caller gets to choose. Half of the time the walk
+    /// between two neighbouring tints reports 360°.
+    ///
+    /// Which is the SAME COLOUR, and that is exactly why it is worth folding rather than
+    /// leaving: nothing renders differently, so nothing would ever surface it, while
+    /// `Wheel(hue: 360)` and `Wheel(hue: 0)` serialize to different canonical text and
+    /// therefore to different `recipe_fp` values. Two applications of one look at one
+    /// amount would key two cache entries and pin two proof records, decided by a
+    /// floating-point sign. It also puts a number outside the picker's own 0..<360 into
+    /// the recipe, which no wheel control can produce or display.
+    ///
+    /// Folded here rather than in `Num.wrapHue` because that function has twenty other
+    /// callers across the colour engine and its boundary is their business to change,
+    /// not this file's — see this pass's report.
+    private static func wrappedHue(_ degrees: Double) -> Double {
+        let wrapped = Num.wrapHue(degrees)
+        return wrapped >= 360 ? 0 : wrapped
     }
 
     /// The advanced grid, interpolated field by field — `hueShift` included.

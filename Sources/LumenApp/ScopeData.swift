@@ -31,6 +31,16 @@
 // the binner sees a pixel, so the readout-space picker gets one honest answer and two
 // refusals — see `scopeTransform(requested:)`, which is where the argument lives.
 //
+// WHICH IMAGE, said once here and printed by the panel. The two feeds below do not
+// measure the same picture. `measureScopes(fromViewerFrame:)` bins the frame the viewer
+// is already showing, which `LoupeView` renders WITH `state.activeSoftProof` — so with
+// ⇧S on the numbers describe the proofed rendition, and with the gamut flag on (its
+// default) they also describe the flat grey the flag paints over out-of-gamut pixels.
+// `scheduleScopeRefresh` commissions its own render, and `renderOneShot` deliberately
+// takes no proof at all. Both are defensible; neither may be silent. Every measurement
+// therefore carries a `ScopeReadout.Provenance`, and the views print it whenever the
+// answer is not the plain one.
+//
 // Refreshes are debounced and superseded: during a slider drag the scopes update from
 // the newest settled state, never from a queue of stale ones.
 
@@ -55,6 +65,16 @@ struct ScopeData: @unchecked Sendable {
     var waveformImage: CGImage?
     var paradeImages: [CGImage]?    // R, G, B — one normalization, in ScopeRaster
     var vectorscopeImage: CGImage?
+
+    /// WHICH IMAGE THESE NUMBERS CAME OFF — see `ScopeReadout.Provenance`.
+    ///
+    /// The panel used to print a histogram and say nothing at all about what it was a
+    /// histogram OF, and the two feeds in this file do not measure the same picture: the
+    /// loupe bins the frame the viewer is showing, soft proof and all, while the grid
+    /// commissions a render the coordinator deliberately builds without one. Carrying
+    /// the answer with the bins is what lets `HistogramView` and `ScopesView` disclose
+    /// it instead of the reader having to know which surface they are on.
+    var provenance: ScopeReadout.Provenance?
 }
 
 // MARK: - The tap
@@ -148,6 +168,22 @@ extension AppState {
         // this is the whole of H2-02's first half: `measure` used to hard-code
         // `.srgb255` four times and never see this value at all.
         let space = readoutSpace
+        // THE PROOF IS IN THESE PIXELS, and that is the whole reason this is read here.
+        //
+        // `LoupeView` renders the viewer frame with `softProof: state.activeSoftProof`,
+        // and the frame handed to this function IS that render. So with ⇧S on, the bins
+        // describe the proofed rendition — which is defensible and arguably what a
+        // photographer proofing a print wants — and with the gamut flag on (it defaults
+        // to ON, `SoftProof.init`) they also describe `SoftProof.warningColor`, a flat
+        // mid grey painted over every out-of-gamut pixel. That grey is an INSTRUMENT.
+        // Binning it puts a spike at code 128 in all three channels and moves every
+        // percentage the panel prints, and `RenderCoordinator.renderOneShot` states the
+        // rule in its own comment — "a histogram with a gamut flag's flat grey binned
+        // into it would be measuring the warning rather than the photograph".
+        //
+        // The frame cannot be un-proofed from here; what can be fixed from here is the
+        // instrument's silence about it.
+        let proof = activeSoftProof
         Task { [weak self] in
             let data = await Task.detached(priority: .utility) { () -> ScopeData? in
                 guard let buffer = AppState.buffer(
@@ -155,7 +191,8 @@ extension AppState {
                 else { return nil }
                 var measured = AppState.measure(buffer, includeScopes: wantsScopes,
                                                 readout: space,
-                                                tap: AppState.scopeTap(from: image))
+                                                tap: AppState.scopeTap(from: image),
+                                                frame: .viewerFrame, proof: proof)
                 if let waveform = measured.waveform {
                     measured.waveformImage = ScopeRaster.waveform(
                         waveform, peak: waveform.peak, tint: ScopeTint.neutral)
@@ -231,7 +268,12 @@ extension AppState {
                 else { return nil }
                 var measured = AppState.measure(buffer, includeScopes: wantsScopes,
                                                 readout: space,
-                                                tap: AppState.scopeTap(from: result.image))
+                                                tap: AppState.scopeTap(from: result.image),
+                                                // `renderOneShot` takes no soft proof,
+                                                // by its own argument — so this feed
+                                                // measures the unproofed edit, and says
+                                                // so, whatever ⇧S is doing.
+                                                frame: .commissionedRender, proof: nil)
                 // Rasterize HERE, once per measurement, so the view never does — the
                 // traces used to be re-rasterized on every body evaluation.
                 if let waveform = measured.waveform {
@@ -310,23 +352,50 @@ extension AppState {
     nonisolated static func measure(_ buffer: ImageBuffer,
                                     includeScopes: Bool,
                                     readout: ReadoutSpace,
-                                    tap: ScopeTap?) -> ScopeData {
+                                    tap: ScopeTap?,
+                                    frame: ScopeReadout.Provenance.Frame,
+                                    proof: SoftProof?) -> ScopeData {
         var data = ScopeData()
         let transform = AppState.scopeTransform(requested: readout)
         var histogram = Histogram.compute(buffer, bins: 256, transform: transform)
+        var exact: Bool = false
         if let tap, let counts = AppState.clipCounts(in: tap) {
             histogram = AppState.redenominated(histogram, to: counts)
+            exact = true
         }
         data.histogram = histogram
+        data.provenance = AppState.provenance(frame: frame, proof: proof,
+                                              exactCounts: exact)
         if includeScopes {
-            data.waveform = Waveform.compute(buffer, channel: .luma, columns: 256,
+            // `traceColumns`, not 256 (W2/H2-04). `Waveform.compute` maps source column
+            // x to `(x * columns) / width`, so a proxy narrower than the ask leaves
+            // `columns − width` of them never written — 85 of 256 blank on a 1:3 crop,
+            // 128 on a 1:4 — and they are true zeros, so the plate draws a picket fence
+            // and the trace stops reading left-to-right as the picture does.
+            let columns: Int = ScopeReadout.traceColumns(forWidth: buffer.width)
+            data.waveform = Waveform.compute(buffer, channel: .luma, columns: columns,
                                              bins: 256, transform: transform)
-            data.parade = Parade.compute(buffer, columns: 256, bins: 256,
+            data.parade = Parade.compute(buffer, columns: columns, bins: 256,
                                          transform: transform)
             data.vectorscope = Vectorscope.compute(buffer, resolution: 192, zoom: 1,
                                                    space: transform.working)
         }
         return data
+    }
+
+    /// What the measurement is a measurement OF. Split out so both feeds build it the
+    /// same way and a test can reach the rule: a proof is "instrument paint" when the
+    /// gamut flag or the paper-white simulation is on, because those two put chrome into
+    /// the pixels the binner walks — `PipelineRenderer.deliveredProof` strips exactly
+    /// this pair on the way to a file, for the same reason.
+    nonisolated static func provenance(frame: ScopeReadout.Provenance.Frame,
+                                       proof: SoftProof?,
+                                       exactCounts: Bool) -> ScopeReadout.Provenance {
+        let on: Bool = proof?.enabled == true
+        let paint: Bool = on
+            && ((proof?.showGamutWarning ?? false) || (proof?.simulatePaperWhite ?? false))
+        return ScopeReadout.Provenance(frame: frame, proofed: on,
+                                       instrumentPaint: paint, exactCounts: exactCounts)
     }
 
     /// The traces' bins, re-denominated in the frame's own pixels, with the exact

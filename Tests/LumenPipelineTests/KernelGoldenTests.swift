@@ -224,18 +224,22 @@ final class KernelGoldenTests: XCTestCase {
     /// carries no flip, so a wrap there should be exact; asserting it is how that stays
     /// true.
     ///
-    /// IF THE 96-ROW CASE IS RED ON ITS FIRST RUN, THAT IS THE FINDING AND NOT A BROKEN
-    /// TEST. The arithmetic above was derived from the source on a machine with no GPU,
-    /// so it is a prediction; what the run settles is whether it is right. A red 96 with
-    /// a green 128, and a worst figure on the order of the grain's own amplitude rather
-    /// than of 1e-6, is that prediction confirmed, and the fix is one line of geometry
-    /// in `RenderGraph.grainPlate` — either flip the plate's rows when it is built, or
-    /// translate the tiling by the frame's height — not a change to anything here.
-    /// Note that the divergence is a TRANSLATION and not a mirror: the image and the
-    /// plate cross the top-down/bottom-up boundary in the same direction, so `y`'s
-    /// coefficient survives with its sign and only the offset moves. That distinction
-    /// matters for the fix, and it is the one thing the printed offset above says that
-    /// the assertion message cannot.
+    /// THE 96-ROW CASE WAS RED ON ITS FIRST RUN, AND THAT WAS THE FINDING. The
+    /// arithmetic above was derived from the source on a machine with no GPU, so it was
+    /// a prediction; the run settled it — 128 green to 1e-6, 96 red by
+    /// 0.16699093580245972 at (16, 0), which is the grain's own amplitude and not an
+    /// interpolation. The divergence is a TRANSLATION and not a mirror: the image and
+    /// the plate cross the top-down/bottom-up boundary in the same direction, so `y`'s
+    /// coefficient survives with its sign and only the offset moves. That is the one
+    /// thing the printed offset above says that the assertion message cannot, and it is
+    /// what made the fix one number rather than a flip of the stored array.
+    ///
+    /// It is fixed: `RenderGraph.grainPlate` now anchors the tile lattice to
+    /// `extent.maxY` — a tile's top edge on the frame's top edge, which is where the
+    /// plate's own row 0 lives — so top-down row `y` reads plate row `y` at every frame
+    /// height. Both heights are held here because the fix is a translation and a
+    /// translation is invisible at the height where it is zero: 128 alone would pass
+    /// with the placement broken, which is exactly how this shipped.
     ///
     /// WHAT THIS DOES NOT COVER, so the next reader is not told more than is true. At
     /// one texel per pixel every octave resolves, so the band limit is inert here and
@@ -313,61 +317,31 @@ final class KernelGoldenTests: XCTestCase {
                     + "reference moved %.4f, predicted plate-row offset %d",
                 width, height, longEdge, scale, worst, moved,
                 (GrainPlan.plateSize - height % GrainPlan.plateSize) % GrainPlan.plateSize))
-            // EXPECTED FAILURE, and the finding is the reason.
-            //
-            // This test found a real, pre-existing defect on its first run: at 96 rows
-            // the GPU differs from the reference by 0.16699093580245972 at (16, 0),
-            // where 1e-3 is the bound. The 128-row case passes. That is exactly the
-            // signature the message below predicts — the plate is tiled from Core
-            // Image's bottom-up origin while `ImageBuffer` is top-down, so the GPU
-            // samples plate row (128 − h + y) mod 128 where the reference reads row y,
-            // and the two agree only when the height is a multiple of 128.
-            //
-            // It is NOT a regression from this landing. Grain has never had a
-            // GPU-to-reference parity test — that absence is finding I2-04, and this
-            // test is what closed it. The defect it found is older than the test.
-            //
-            // Left as an expected failure rather than fixed, deliberately: the fix is a
-            // row translation in `RenderGraph.grainPlate`, its SIGN cannot be settled
-            // without running it, `LumenPipeline` does not build on the free lane, and
-            // it moves grain placement on every film render — a pixel-moving change in
-            // the shipping path that wants the proof ceremony beside it, not a guess
-            // pushed through CI at ten minutes a cycle.
-            //
-            // Left as an expected failure rather than skipped, equally deliberately:
-            // the comparison still RUNS and still prints its number on every lane, and
-            // the moment somebody fixes the placement this stops failing, the expected
-            // failure becomes an unexpected pass, and the lane goes red asking for this
-            // block to be deleted. A skip would have gone quiet instead — which is the
-            // failure mode I2-04 exists to end.
-            // Scoped to the failing case, and the scope IS the mechanism: a height that
-            // is a multiple of the plate size makes the translation zero, so that case
-            // passes today and an unconditional expectation would go unfulfilled on it —
-            // which XCTest reds as an unexpected pass. Guarding on the same modulus the
-            // message names keeps both halves honest: 128 must pass, 96 must fail, and
-            // the day the placement is fixed the 96 case turns into the unexpected pass
-            // that asks for this block to be deleted.
-            if height % GrainPlan.plateSize != 0 {
-                XCTExpectFailure("GPU grain is translated against the reference whenever "
-                                 + "the frame height is not a multiple of "
-                                 + "\(GrainPlan.plateSize) — the plate's placement in "
-                                 + "RenderGraph.grainPlate. Delete this expectation when "
-                                 + "that lands.")
-            }
+            // THE EXPECTED FAILURE THAT USED TO STAND HERE IS GONE, because what it
+            // expected is fixed. It was scoped to `height % GrainPlan.plateSize != 0`,
+            // it fired on the 96-row case at 0.16699093580245972, and its own message
+            // asked for its deletion the day the placement landed. Leaving it would red
+            // this lane as an unexpected pass on a correct fix — which is the same
+            // reason it was an expectation rather than a skip: this comparison runs and
+            // prints its number on every lane, and neither a fix nor a regression can
+            // reach the shipping path quietly.
             XCTAssertLessThan(worst, 1e-3,
                               "the GPU's grain differs from the reference's by \(worst) "
                                   + "at \(worstAt) on the \(width)x\(height) frame. At one "
                                   + "texel per render pixel there is no interpolation to "
                                   + "blame: the two are reading different rows of the "
                                   + "same plate. `ImageBuffer` is top-down and Core "
-                                  + "Image's extent is bottom-up, so the tiled plate is "
-                                  + "sampled at row (\(GrainPlan.plateSize) − h + y) mod "
-                                  + "\(GrainPlan.plateSize) where the reference reads row "
-                                  + "y — identical only when the height is a multiple of "
-                                  + "\(GrainPlan.plateSize). If the 128-row case passed "
+                                  + "Image's extent is bottom-up, so an unanchored tiled "
+                                  + "plate is sampled at row (\(GrainPlan.plateSize) − h "
+                                  + "+ y) mod \(GrainPlan.plateSize) where the reference "
+                                  + "reads row y — identical only when the height is a "
+                                  + "multiple of \(GrainPlan.plateSize), which is why "
+                                  + "this ran at two heights. If the 128-row case passed "
                                   + "and this did not, that translation is the whole of "
-                                  + "the difference and the fix is the plate's placement "
-                                  + "in `RenderGraph.grainPlate`, not anything here")
+                                  + "the difference and the answer is the plate's "
+                                  + "placement in `RenderGraph.grainPlate` — which "
+                                  + "anchors the tile lattice to `extent.maxY` for "
+                                  + "exactly this reason — not anything here")
         }
     }
 

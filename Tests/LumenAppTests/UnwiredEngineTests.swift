@@ -33,8 +33,33 @@
 //      is found equally well in both, which is the local-mean divide's entire claim; and
 //      the three sensitivities admit strictly more of the same frame in the documented
 //      order.
+//
+// THE SAME TWO QUESTIONS WERE PUT TO TWO MORE ENGINES, and the three answers are all
+// different, which is the reason this file names each one rather than reporting "three
+// engines wired":
+//
+//   · FOCUS PEAKING — real, and now called. Above. ONE STEP IS STILL OPEN and this file
+//     says so rather than implying otherwise: the engine has a caller and the overlay
+//     that calls it is finished, but nothing MOUNTS that overlay yet — `LoupeView` does
+//     not build `FocusPeakingOverlayView`, `AppState` holds no `FocusPeakingSettings`,
+//     and no key writes one. Those three edits are in files this landing does not own.
+//     Until they land the marks are unreachable from the interface, which is the same
+//     defect as an uncalled engine standing one layer higher, and
+//     `testTheColourRangeIsolationCompositeIsCalledAndDrawn` below is what that
+//     assertion looks like when it can be made.
+//   · COLOUR-RANGE ISOLATION — real, and it was already called. `MaskOverlay
+//     .Mode.imageOnBW` over a `.colorRange` plane IS "the selection in colour, the rest
+//     neutral", it has a caller here and the view that draws it is mounted in the loupe.
+//     What is missing is narrower than the audit's row: Point Colour has no isolation
+//     view, and cannot have an honest one until `ColorEngine` exposes the swatch weight
+//     its pixel loop already computes privately.
+//   · LUT IMPORT — the PARSER is real; the FEATURE is not. `LUT3D.fromCubeFile` builds a
+//     genuine cube, and no render stage anywhere reads `look.lut`. An import row would
+//     be a control that changes no pixel, so the scan below asserts the parser has NO
+//     app-layer caller and says what has to exist before it may.
 #if os(macOS)
 
+import AppKit
 import CoreGraphics
 import XCTest
 import LumenCore
@@ -400,6 +425,227 @@ final class UnwiredEngineTests: XCTestCase {
                        "a black peaking mark is invisible on the defocused shadow it "
                            + "would have to be found in")
     }
+
+    // MARK: - Colour-range isolation: called, drawn, and not a pass-through
+
+    /// The same scan, on the engine behind "show me only what this colour selection
+    /// grabs". Both halves have callers, so this is a regression guard and not a
+    /// discovery — but it is written out because the three engines this file was pointed
+    /// at came with one label between them, and only the measurement tells them apart.
+    func testTheColourRangeIsolationCompositeIsCalledAndDrawn() {
+        XCTAssertFalse(sitesOf("MaskOverlay.composite(").isEmpty,
+                       "nothing in the app composites a mask over the picture any more; "
+                           + "the isolation modes are the only way to see what a colour "
+                           + "selection actually covers")
+        let mounts = sitesOf("MaskOverlayView(").filter { $0 != "ViewerOverlays.swift" }
+        XCTAssertFalse(mounts.isEmpty,
+                       "MaskOverlayView is built in ViewerOverlays.swift and mounted "
+                           + "nowhere — an overlay with no caller is the same defect as "
+                           + "an engine with no caller, one layer up")
+    }
+
+    /// AND THAT CALLING IT DOES SOMETHING. `imageOnBW` is the isolation view: the
+    /// selected pixels keep their colour, everything else goes neutral. A pass-through
+    /// that returned the picture at every alpha would look right on a screenshot of a
+    /// selected area and would be useless, which is the whole failure this file exists
+    /// to separate from a fix.
+    func testIsolationKeepsTheSelectionInColourAndNeutralisesTheRest() {
+        let red = RGB(0.82, 0.16, 0.18)
+        let inside = MaskOverlay.composite(picture: red, alpha: 1, mode: .imageOnBW,
+                                           tint: .red)
+        let outside = MaskOverlay.composite(picture: red, alpha: 0, mode: .imageOnBW,
+                                            tint: .red)
+        XCTAssertEqual(inside.r, red.r, accuracy: 1e-9, "the selection lost its colour")
+        XCTAssertEqual(inside.g, red.g, accuracy: 1e-9)
+        XCTAssertEqual(inside.b, red.b, accuracy: 1e-9)
+        XCTAssertEqual(outside.r, outside.g, accuracy: 1e-9,
+                       "the unselected pixels are not neutral — \(outside)")
+        XCTAssertEqual(outside.g, outside.b, accuracy: 1e-9)
+        XCTAssertNotEqual(outside.r, red.r, accuracy: 1e-3,
+                          "unselected pixels came back unchanged: the isolation view is "
+                              + "a pass-through and shows nothing")
+        // Halfway is halfway, so the mode is a blend and not a switch.
+        let half = MaskOverlay.composite(picture: red, alpha: 0.5, mode: .imageOnBW,
+                                         tint: .red)
+        XCTAssertEqual(half.r, (red.r + outside.r) / 2, accuracy: 1e-9)
+    }
+
+    /// The plane the isolation view is drawn from is a measurement too, and the axis
+    /// worth proving is the one a colour selection is bought for: a pixel of the picked
+    /// hue is admitted and its opposite is not. A range that admitted everything would
+    /// composite to "the whole frame is selected", which reads as a working feature.
+    func testTheColourRangePlaneSelectsTheSampledHueAndNotItsOpposite() {
+        let n = 16
+        var buffer = ImageBuffer(width: n, height: n)
+        for y in 0..<n {
+            for x in 0..<n {
+                buffer[x, y] = y < n / 2 ? RGB(0.60, 0.10, 0.10) : RGB(0.10, 0.30, 0.60)
+            }
+        }
+        var component = MaskComponent(op: .add, kind: .colorRange)
+        component.samples = [[0.60, 0.10, 0.10]]
+        component.rangeAmount = 50
+        let plane = MaskRaster.rasterize(component: component,
+                                         size: (width: n, height: n),
+                                         source: buffer)
+        XCTAssertGreaterThan(plane[n / 2, 2], 0.5,
+                             "the sampled colour is not selected by its own sample")
+        XCTAssertEqual(plane[n / 2, n - 2], 0, accuracy: 1e-9,
+                       "the blue half is selected by a red sample too — the range admits "
+                           + "everything, and an isolation view drawn from it would show "
+                           + "an unchanged frame and call it a selection")
+    }
+
+    // MARK: - LUT import: a real parser in front of a stage that does not exist
+
+    /// The parser is not a stub. It returns a cube that differs from the identity by the
+    /// amount the file asked for — which is the assertion a `return .identity()` stub
+    /// fails and a `return nil` stub fails differently.
+    func testTheCubeParserBuildsARealCubeAndNotTheIdentity() {
+        guard let lut = LUT3D.fromCubeFile(Self.redInvertingCube) else {
+            return XCTFail("the parser rejected a well-formed 2×2×2 Iridas cube")
+        }
+        XCTAssertEqual(lut.size, 2)
+        XCTAssertEqual(lut.sample(RGB(0, 0, 0)).r, 1, accuracy: 1e-5,
+                       "black did not come back with its red inverted")
+        XCTAssertEqual(lut.sample(RGB(1, 0, 0)).r, 0, accuracy: 1e-5)
+        XCTAssertGreaterThan(lut.maxAbsDifference(LUT3D.identity(size: 2)), 0.5,
+                             "the parser returned something indistinguishable from the "
+                                 + "identity cube")
+    }
+
+    /// WHAT AN IMPORTER WOULD ACTUALLY BE HANDED, measured rather than assumed. Three of
+    /// these five are rejections a `.cube` file from a real LUT pack can hit, and an
+    /// import row that does not say so turns a supported file into "nothing happened".
+    func testTheCubeParserAcceptsOnlyTheFormsItReallyAccepts() {
+        XCTAssertNotNil(LUT3D.fromCubeFile("# a comment\n\n" + Self.redInvertingCube),
+                        "comments and blank lines are part of the format")
+        XCTAssertNil(LUT3D.fromCubeFile("LUT_1D_SIZE 4\n0 0 0\n1 1 1\n"),
+                     "1-D cubes are refused by name, which is the right answer and has "
+                         + "to be a NAMED one in any importer")
+        XCTAssertNil(
+            LUT3D.fromCubeFile(Self.redInvertingCube.replacingOccurrences(of: "\n",
+                                                                         with: "\r\n")),
+            "a CRLF cube parses today; if that has been fixed, this expectation is the "
+                + "thing to delete — the parser splits on \\n and trims only spaces and "
+                + "tabs, so every value line keeps a trailing carriage return and fails "
+                + "`Float(_:)`. Most .cube files in circulation were written on Windows")
+        XCTAssertNil(
+            LUT3D.fromCubeFile(Self.redInvertingCube.replacingOccurrences(of: " 0.",
+                                                                         with: "\t0.")),
+            "a tab-separated cube parses today; same note as above — the value split is "
+                + "on a literal space")
+        XCTAssertNil(LUT3D.fromCubeFile("LUT_3D_SIZE 4\n0.1 0.2\n"),
+                     "a truncated triple is not a cube")
+    }
+
+    /// AND THE REASON THERE IS NO IMPORT ROW. Two recipes differing only in `look.lut`
+    /// are the same picture — not by convention but by construction: `renderIdentity`
+    /// strips the field because no stage on any path reads it.
+    ///
+    /// So the caller scan below is INVERTED on purpose. Everywhere else in this file a
+    /// missing caller is the defect; here a caller is, because a row that imports a
+    /// `.cube` into a slot nothing renders is a control that does nothing — the exact
+    /// thing this file was written to stop shipping.
+    func testNothingRendersALookLUTSoAnImportRowWouldChangeNoPixel() {
+        var withLUT = Recipe()
+        withLUT.look.lut = LUTReference(ref: "blob:xxh64:0123456789abcdef",
+                                        name: "Probe", tap: .log, amount: 42)
+        XCTAssertNotEqual(withLUT, Recipe(),
+                          "the recipe does not even carry the LUT; this test is "
+                              + "measuring the wrong field")
+        XCTAssertTrue(withLUT.rendersSameAs(Recipe()),
+                      "a look carrying a LUT now renders differently from one without — "
+                          + "which means a stage HAS landed. Delete the `copy.look.lut = "
+                          + "nil` line in `Recipe.renderIdentity` in the same commit, and "
+                          + "then the import row this test blocks is worth building")
+    }
+
+    func testTheCubeParserHasNoAppLayerCallerUntilAStageExists() {
+        XCTAssertTrue(sitesOf("LUT3D.fromCubeFile(").isEmpty,
+                      "an import path has appeared in "
+                          + "\(sitesOf("LUT3D.fromCubeFile(").joined(separator: ", "))"
+                          + " — check that a render stage reads `look.lut` before this "
+                          + "expectation is relaxed, because the parser working has "
+                          + "never been the thing standing between a photographer and a "
+                          + "LUT")
+    }
+
+    // MARK: - One label, and the column it has to fit in
+
+    /// The Sharpening section's fifth row was the tightest passing label in the app:
+    /// `Halo Suppression` measured 92.0 pt of advance in an 86 pt column and fitted only
+    /// by shrinking to 10.3 pt, three tenths of a point above `LumenType.swift`'s own
+    /// stated floor. Passing, but on the strength of a system font's metrics rather than
+    /// on any decision this app made.
+    ///
+    /// It lives here rather than in `LayoutMetricTests` because `DetailPanel.swift` is
+    /// the file this change is in, and a proof that travels with its subject is one
+    /// nobody has to go looking for. The instrument is that suite's — `TextMetric` is
+    /// CoreText underneath and measures the real face at the real size.
+    ///
+    /// Read from the panel, not from `SliderInventory`: asking the inventory whether a
+    /// name is gone only proves the inventory says so.
+    func testTheSharpeningHaloRowFitsItsColumnAtFullSize() throws {
+        let panel = try LayoutSource.flattened("Sources/LumenApp/DetailPanel.swift")
+        let old = TextMetric.fit("Halo Suppression", LayoutFont.body,
+                                 budget: Lumen.labelWidth,
+                                 minimumScaleFactor: PanelChain.labelScaleFloor)
+        XCTAssertFalse(panel.contains(Self.titleArgument("Halo Suppression")),
+                       "Halo Suppression is back in DetailPanel.swift: \(old.nominal) pt "
+                           + "against \(old.budget) pt, rendered at \(old.renderedSize) pt "
+                           + "— which passes, and passes by less than any other label in "
+                           + "the app")
+        XCTAssertTrue(panel.contains(Self.titleArgument("Halo Damping")),
+                      "the row is named neither thing; measure whatever replaced it")
+
+        let fit = TextMetric.fit("Halo Damping", LayoutFont.body,
+                                 budget: Lumen.labelWidth,
+                                 minimumScaleFactor: PanelChain.labelScaleFloor)
+        XCTAssertLessThan(fit.nominal, old.nominal,
+                          "the new name is not shorter than the one it replaced")
+        XCTAssertFalse(fit.shrinks,
+                       "Halo Damping measures \(fit.nominal) pt in a \(fit.budget) pt "
+                           + "column and still has to shrink; the rename bought nothing")
+        XCTAssertEqual(fit.renderedSize, LayoutFont.body.pointSize, accuracy: 1e-9,
+                       "it renders at \(fit.renderedSize) pt beside four siblings at "
+                           + "\(LayoutFont.body.pointSize)")
+    }
+
+    // MARK: - Fixtures
+
+    /// `title: "<name>"` as it appears in a `LumenSlider(` call, built rather than
+    /// written out.
+    ///
+    /// The quote is assembled from its code point because an ESCAPED quote inside a
+    /// Swift string reads, to a scanner that is not a Swift parser, as the end of that
+    /// string — and `scripts/check-swift-surface.py` then reports the two words after it
+    /// as identifiers declared nowhere. Writing the literal the honest way filed a false
+    /// finding against this file; this is the same needle with nothing to misread.
+    private static let quote = String(UnicodeScalar(34 as UInt8))
+
+    private static func titleArgument(_ name: String) -> String {
+        "title: " + quote + name + quote
+    }
+
+    /// A 2×2×2 Iridas cube whose only transform is an inverted red channel — small
+    /// enough to read, and far enough from the identity that a stub returning one is
+    /// caught by a threshold rather than by an exact compare.
+    private static let redInvertingCube: String = {
+        // The title is quoted the way the format quotes it, via `quote` — see the note
+        // on that constant for why no escaped quote appears anywhere in this file.
+        var s = "TITLE " + quote + "probe" + quote + "\n"
+            + "LUT_3D_SIZE 2\n"
+            + "DOMAIN_MIN 0.0 0.0 0.0\nDOMAIN_MAX 1.0 1.0 1.0\n"
+        for b in 0..<2 {
+            for g in 0..<2 {
+                for r in 0..<2 {
+                    s += "\(1 - Double(r)) \(Double(g)) \(Double(b))\n"
+                }
+            }
+        }
+        return s
+    }()
 }
 
 #endif

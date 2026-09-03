@@ -152,12 +152,22 @@ enum PanelChain {
     /// the one the accordion added on the owner's third review, and its own comment
     /// prices it: "It costs the track 12 points."
     static let cardInset: CGFloat = 10
-    /// `DevelopPanel.swift` — `DevelopDisclosure`'s inset, each side.
+    /// `DevelopPanel.swift` — what a `DevelopDisclosure` costs the rows inside it, each
+    /// side. **Zero, and that is the point of this entry rather than an omission.**
     ///
-    /// It was `.leading` alone; it is `.horizontal` now, which was the fix for G1-07 and
-    /// which DOUBLED what the fold costs the track. The read is better and the
-    /// precision is worse, and both halves of that are measurable here.
-    static let disclosureInset: CGFloat = 8
+    /// It has been all three of its possible values. `.leading` alone was G1-07: the
+    /// fold's rows started 8 pt right of their neighbours while the value column stayed
+    /// put. `.horizontal` squared the read and doubled the price — 16 pt off every row
+    /// in a fold, which at the 380 default put a ±100 control inside one at 0.93 pt per
+    /// unit against 1.010 outside, i.e. the section that folds was the section that lost
+    /// the floor `defaultPanelWidth` exists to buy. The depth now sits on the fold's
+    /// HEADER instead, so the sub-heading is still one level in and every groove in the
+    /// column starts at the same x.
+    ///
+    /// Kept as a named zero rather than deleted, and kept pinned: it is the term that
+    /// says a fold's track equals a top-level track, and a term deleted from a chain is
+    /// a term nobody notices coming back.
+    static let disclosureInset: CGFloat = 0
 
     /// The floating Masks pop-out — a fixed-width host, so the column's resize does
     /// nothing for it and every number below is the only number it ever has.
@@ -177,6 +187,19 @@ enum PanelChain {
     static let exportEditorInset: CGFloat = 14
     static let dividerWidth: CGFloat = 1
 
+    /// The lightness bar under a grading wheel, in `LookPanel`'s single large wheel.
+    ///
+    /// `LumenColorWheel` centres it on the wheel by paying a counterweight equal to the
+    /// readout column — `.padding(.leading, valueWidth + 6)` inside a
+    /// `diameter + 2 × (valueWidth + 6)` frame — which means the groove comes out
+    /// exactly as wide as the wheel is, by construction rather than by eye. 150 is the
+    /// diameter `LookPanel.swift:693` asks for.
+    static let gradeWheelDiameter: CGFloat = 150
+    /// The same bar in the mask panel's compact four-up, which cannot pay the
+    /// counterweight (two captioned bars would overrun a 272 pt column), so the row sits
+    /// in a bare `diameter + 40` frame at the default 68 pt wheel.
+    static let maskWheelBarWidth: CGFloat = 68 + 40
+
     /// What a `LumenSlider` row spends before the groove: the label frame, the two 6 pt
     /// gaps of its `HStack(spacing: 6)`, and the readout's frame.
     ///
@@ -185,6 +208,17 @@ enum PanelChain {
     /// eight points came out of every track in the application.
     static let rowGap: CGFloat = 6
     static var sliderChrome: CGFloat { Lumen.labelWidth + rowGap + rowGap + Lumen.valueWidth }
+
+    /// What an UNTITLED row spends, which is not the same thing and is why this exists.
+    ///
+    /// `LumenSlider`'s body opens `if !title.isEmpty`, so a row with no name reserves no
+    /// label column AND loses one of the two gaps — the `HStack(spacing: 6)` has two
+    /// children instead of three. The file says why in as many words at that branch: the
+    /// wheels' lightness bar is a slider with an empty title inside a 108-point column,
+    /// and charging it the full 150 points of chrome "asked for 158 points of a
+    /// 108-point row and left the track squeezed to nothing". A model that charged it
+    /// anyway would report a negative track and call the row broken for the wrong reason.
+    static var untitledSliderChrome: CGFloat { rowGap + Lumen.valueWidth }
 
     /// The readout's own padding, inside its 52 pt frame, so the digits get less than
     /// the column is wide.
@@ -220,9 +254,23 @@ enum PanelChain {
         case maskComponent
         /// The export sheet's editor column.
         case exportSheet
+        /// The lightness bar under the grade's single large wheel — a fixed frame built
+        /// from the wheel's own diameter, not from any column.
+        case gradeWheelBar
+        /// The same bar under one of the mask panel's four-up wheels.
+        case maskWheelBar
 
         /// True for the hosts whose width follows the develop column's drag handle.
         var resizes: Bool { self == .developTop || self == .developDisclosure }
+
+        /// True for the hosts whose rows carry a name.
+        ///
+        /// The wheels' lightness bar is the app's one untitled slider and it pays
+        /// `untitledSliderChrome` instead, so `trackWidth` below — which assumes a label
+        /// column and both gaps — does not describe it and would report a 108-point host
+        /// as having −42 points of track. Ask `SliderSpec.trackWidth`, which knows the
+        /// title, for any row's actual groove.
+        var rowsAreTitled: Bool { self != .gradeWheelBar && self != .maskWheelBar }
 
         /// The width available to a row's content, given the develop column's width.
         func contentWidth(columnWidth: CGFloat) -> CGFloat {
@@ -240,11 +288,18 @@ enum PanelChain {
             case .exportSheet:
                 return exportSheetWidth - exportRecipeColumn - dividerWidth
                     - 2 * exportEditorInset
+            case .gradeWheelBar:
+                // `diameter + 2 × (valueWidth + rowGap)` of frame, less the leading
+                // counterweight of `valueWidth + rowGap` that centres it.
+                return gradeWheelDiameter + Lumen.valueWidth + rowGap
+            case .maskWheelBar:
+                return maskWheelBarWidth
             }
         }
 
-        /// The drag track's own width — what is left of the row after the label, the two
-        /// gaps and the readout.
+        /// The drag track's own width for a TITLED row — what is left of the row after
+        /// the label, the two gaps and the readout. Meaningless where `rowsAreTitled` is
+        /// false; `SliderSpec.trackWidth` is the one to ask about a particular row.
         func trackWidth(columnWidth: CGFloat) -> CGFloat {
             contentWidth(columnWidth: columnWidth) - sliderChrome
         }
@@ -293,7 +348,14 @@ struct SliderSpec {
     /// reachable set is the steps across the soft range and nothing between them.
     var addressableSteps: Double { ((range.upperBound - range.lowerBound) / step).rounded() }
 
-    func trackWidth(columnWidth: CGFloat) -> CGFloat { host.trackWidth(columnWidth: columnWidth) }
+    /// An untitled row is charged untitled chrome. See `PanelChain.untitledSliderChrome`
+    /// — the label column and one of the two gaps are not drawn at all when the title is
+    /// empty, and charging them anyway makes the wheels' lightness bar look like a
+    /// negative-width control instead of a 150-point one.
+    func trackWidth(columnWidth: CGFloat) -> CGFloat {
+        host.contentWidth(columnWidth: columnWidth)
+            - (title.isEmpty ? PanelChain.untitledSliderChrome : PanelChain.sliderChrome)
+    }
 
     /// The measurement the whole of finding G1-02 is about: how far the pointer travels
     /// for one step of the value.
@@ -335,7 +397,12 @@ enum SliderInventory {
     /// `testTheInventoryCoversEveryShippedSlider` counts the call sites in the sources
     /// and fails when this number and that count disagree — add a slider without adding
     /// it here and the suite says so.
-    static let callSiteCount = 96
+    ///
+    /// It said 96 against a tree holding 97, and the tripwire did its job: the one it
+    /// could not find was `LumenColorWheel`'s lightness bar, the app's only untitled
+    /// slider and the only one written inside the control kit rather than at a panel's
+    /// call site. Both of its geometries are in the table below now.
+    static let callSiteCount = 97
 
     /// Every slider the app ships, resolved through its builder where the call site is
     /// a helper rather than a literal — `MaskPanel.adjustSlider`, `LookPanel.bipolarSlider`,
@@ -347,26 +414,29 @@ enum SliderInventory {
     /// the WIDEST member of each list stands for the row.
     static let all: [SliderSpec] = [
         // Basic — white balance and tone.
+        // 50 K rather than 10: at 10 the row advertised 4,800 values and the best of the
+        // four gestures could land on 0.355 pt of one. See the step's own note at the
+        // call site. `MaskPanel.swift:2391` is the same control and still carries 10.
         SliderSpec("Temp", "BasicPanel.swift:222", .developTop, 2000...50000,
-                   hard: 2000...50000, step: 10),
-        SliderSpec("Tint", "BasicPanel.swift:244", .developTop, -150...150,
+                   hard: 2000...50000, step: 50),
+        SliderSpec("Tint", "BasicPanel.swift:275", .developTop, -150...150,
                    hard: -300...300, step: 1),
-        SliderSpec("Exposure", "BasicPanel.swift:436", .developTop, -5...5,
+        SliderSpec("Exposure", "BasicPanel.swift:467", .developTop, -5...5,
                    hard: -10...10, step: 0.01, decimals: 2),
-        SliderSpec("Contrast", "BasicPanel.swift:445", .developTop, -100...100, step: 1),
-        SliderSpec("Pivot", "BasicPanel.swift:459", .developTop, -4...4,
+        SliderSpec("Contrast", "BasicPanel.swift:476", .developTop, -100...100, step: 1),
+        SliderSpec("Pivot", "BasicPanel.swift:490", .developTop, -4...4,
                    step: 0.01, decimals: 2),
-        SliderSpec("Highlights", "BasicPanel.swift:491", .developTop, -100...100, step: 1),
-        SliderSpec("Shadows", "BasicPanel.swift:498", .developTop, -100...100, step: 1),
-        SliderSpec("Whites", "BasicPanel.swift:505", .developTop, -100...100, step: 1),
-        SliderSpec("Blacks", "BasicPanel.swift:513", .developTop, -100...100, step: 1),
-        SliderSpec("Texture", "BasicPanel.swift:535", .developTop, -100...100, step: 1),
-        SliderSpec("Clarity", "BasicPanel.swift:551", .developTop, -100...100, step: 1),
-        SliderSpec("Dehaze", "BasicPanel.swift:558", .developTop, -100...100, step: 1),
-        SliderSpec("Vibrance", "BasicPanel.swift:631", .developTop, -100...100, step: 1),
-        SliderSpec("Saturation", "BasicPanel.swift:638", .developTop, -100...100, step: 1),
-        SliderSpec("Density", "BasicPanel.swift:651", .developTop, 0...100, step: 1),
-        SliderSpec("Protect Skin", "BasicPanel.swift:662", .developTop, 0...100, step: 1),
+        SliderSpec("Highlights", "BasicPanel.swift:522", .developTop, -100...100, step: 1),
+        SliderSpec("Shadows", "BasicPanel.swift:529", .developTop, -100...100, step: 1),
+        SliderSpec("Whites", "BasicPanel.swift:536", .developTop, -100...100, step: 1),
+        SliderSpec("Blacks", "BasicPanel.swift:544", .developTop, -100...100, step: 1),
+        SliderSpec("Texture", "BasicPanel.swift:566", .developTop, -100...100, step: 1),
+        SliderSpec("Clarity", "BasicPanel.swift:582", .developTop, -100...100, step: 1),
+        SliderSpec("Dehaze", "BasicPanel.swift:589", .developTop, -100...100, step: 1),
+        SliderSpec("Vibrance", "BasicPanel.swift:662", .developTop, -100...100, step: 1),
+        SliderSpec("Saturation", "BasicPanel.swift:669", .developTop, -100...100, step: 1),
+        SliderSpec("Density", "BasicPanel.swift:682", .developTop, 0...100, step: 1),
+        SliderSpec("Protect Skin", "BasicPanel.swift:693", .developTop, 0...100, step: 1),
 
         // Colour — mixer, point colour, black and white.
         SliderSpec("Hue", "ColorPanel.swift:162", .developTop, -100...100, step: 1),
@@ -546,6 +616,20 @@ enum SliderInventory {
         SliderSpec("Ramp to", "MaskPanel.swift:1686", .maskDetail, 0...100, step: 1),
         SliderSpec("Ramp shape", "MaskPanel.swift:1687", .maskDetail, 0.2...5,
                    step: 0.05, decimals: 2),
+
+        // The grading wheels' lightness bar — one call site, two geometries, and the
+        // slider this table did not have.
+        //
+        // It is the app's only UNTITLED `LumenSlider`, which is exactly why it was
+        // missing: it is not written at a panel's call site but inside `LumenColorWheel`,
+        // it carries no name to search the panels for, and every label check in this
+        // suite already filters empty titles out. An unmeasured control is the one that
+        // ships broken, and this one is the app's narrowest track by a wide margin —
+        // `MaskPanel`'s four-up gets 50 points for 200 steps, a quarter of a point each.
+        SliderSpec("", "LumenControls.swift:1943 (LookPanel.swift:693)", .gradeWheelBar,
+                   -1...1, step: 0.01, decimals: 2),
+        SliderSpec("", "LumenControls.swift:1943 (MaskPanel.swift:2840)", .maskWheelBar,
+                   -1...1, step: 0.01, decimals: 2),
 
         // Zones — five named stops plus the global trim, inside a `DevelopDisclosure`.
         // "Midtones" is the widest of the six names.

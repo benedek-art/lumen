@@ -2048,23 +2048,62 @@ public final class CatalogStore {
     /// one `is_current = 1` edit per photo (the unique partial index from migration 2
     /// makes that a constraint, not a hope). `photo.edited` is maintained in the same
     /// transaction so the "edited" chip and the pencil badge never join and parse.
-    public func saveRecipe(_ recipe: Recipe, photoID: Int64, isCurrent: Bool) throws {
+    public func saveRecipe(_ recipe: Recipe, photoID: Int64, isCurrent: Bool,
+                           isRenderedFile: Bool = false) throws {
         try saveRecipe(recipe, photoID: photoID, kind: .working,
-                       name: nil, isCurrent: isCurrent)
+                       name: nil, isCurrent: isCurrent, isRenderedFile: isRenderedFile)
     }
 
+    /// - Parameter isRenderedFile: whether this photograph is a file somebody has
+    ///   already tone-mapped — a JPEG, HEIC, PNG or TIFF — rather than a camera raw.
+    ///   It decides the baseline `edited` is measured against, and it is a PARAMETER
+    ///   because LumenCore does not own the list of rendered extensions:
+    ///   `PhotoFormats` in the app target does, and a second copy of that list here
+    ///   could disagree with the one the folder scan used about the same file. Its
+    ///   default is `false` — the raw case — so a caller that does not know says
+    ///   nothing rather than guessing "JPEG".
     @discardableResult
     public func saveRecipe(_ recipe: Recipe, photoID: Int64, kind: EditKind,
                            name: String?, isCurrent: Bool,
+                           isRenderedFile: Bool = false,
                            at now: Int64 = CatalogStore.now()) throws -> Int64 {
         let json = try CanonicalJSON.canonicalRecipeJSON(recipe)
         let fingerprint = try RecipeFingerprint.fingerprint(recipe)
-        // "Edited" means the recipe differs from the default at its own pipeline
-        // version — comparing against a *different* version's default would light the
-        // pencil badge on every photo after a pipeline bump.
+        // "Edited" means the recipe differs from what a fresh import of THIS
+        // PHOTOGRAPH would have left behind — not from the type's default.
+        //
+        // It compared against `Recipe(pipelineVersion:)`, and the two are not the same
+        // baseline for two large classes of file: a rendered file is imported carrying
+        // `look.render.preset = "Linear"`, and a raw with a recorded ISO is imported
+        // carrying `ISODefaults.startingDenoise(forISO:)`. So every JPEG in the library
+        // was marked edited by its own import and stayed marked forever — the pencil
+        // badge lit on a photograph nobody had touched, Reset unable to put it out, and
+        // the "Edited: no" chip (`photo.edited = ?`, in `buildPhotoQuery`) refusing to
+        // show it at all. That last one is a filter whose number and whose rows
+        // disagree, which is the same defect as the facet counts wearing a different
+        // hat.
+        //
+        // `Recipe.asImported(from:)` is the ONE statement of what as-imported means —
+        // `RecipeReset.swift`, unit-tested on Linux — and this reads it rather than
+        // restating it. The ISO comes off the photo row because the row is where the
+        // scanner put it; only `isRendered` has to be told, because the extension list
+        // that answers it lives in the app target on purpose.
+        //
+        // The pipeline version is normalized onto the baseline for the reason the old
+        // comment gave and which still holds: comparing against a *different* version's
+        // default would light the pencil badge on every photo after a pipeline bump.
+        //
         // `rendersSameAs`, not `!=`: a recipe differing only by a mask name is not an
         // edit, and lighting the pencil badge for one is a lie about the photograph.
-        let isEdited = !recipe.rendersSameAs(Recipe(pipelineVersion: recipe.pipelineVersion))
+        // That is also why this cannot simply call `Recipe.isAsImported(from:)`, which
+        // compares whole documents with `==`; the baseline is the shared half, and the
+        // comparison is this call's own.
+        let capturedISO = try db.scalarInt("SELECT iso FROM photo WHERE id = ?;",
+                                           [.integer(photoID)])
+        var baseline = Recipe.asImported(from: Recipe.SourceFile(
+            isRendered: isRenderedFile, iso: capturedISO.map { Int($0) }))
+        baseline.pipelineVersion = recipe.pipelineVersion
+        let isEdited = !recipe.rendersSameAs(baseline)
         // A ROW CANNOT CLAIM A VERSION ITS WRITER DOES NOT IMPLEMENT.
         //
         // `Recipe`'s decoder carries a version it reads rather than restamping it, so a
@@ -4073,12 +4112,15 @@ public final class CatalogStore {
         throw CatalogError.unavailable
     }
 
-    public func saveRecipe(_ recipe: Recipe, photoID: Int64, isCurrent: Bool) throws {
+    public func saveRecipe(_ recipe: Recipe, photoID: Int64, isCurrent: Bool,
+                           isRenderedFile: Bool = false) throws {
         throw CatalogError.unavailable
     }
     @discardableResult
     public func saveRecipe(_ recipe: Recipe, photoID: Int64, kind: EditKind,
-                           name: String?, isCurrent: Bool, at now: Int64 = 0) throws -> Int64 {
+                           name: String?, isCurrent: Bool,
+                           isRenderedFile: Bool = false,
+                           at now: Int64 = 0) throws -> Int64 {
         throw CatalogError.unavailable
     }
     public func currentRecipe(photoID: Int64) throws -> Recipe? {

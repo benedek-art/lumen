@@ -744,13 +744,25 @@ struct ColorPanel: View {
 
     /// One slider, two modes. In "all bands" the slider reads the mean and writes the
     /// difference, so a global move keeps whatever spread the user built by hand.
+    ///
+    /// THE GROUP MOVE IS `GroupMove`, NOT A PER-BAND CLAMP (B3-01). This row clamped each
+    /// band into ±100 as it went, which is not the same operation: with bands at
+    /// `[+50, −50, 0 …]` the mean is 0, and dragging to +100 asks band 0 for 150 — clipped
+    /// to 100 — while every other band moves the full 100. The 100-unit difference the
+    /// photographer built between Red and Blue is squeezed to 50 at the rail and does NOT
+    /// come back when the drag comes back, under a caption promising in as many words
+    /// that "the spread between them is preserved".
+    ///
+    /// `GroupMove.allowed` stops the SET when the first member reaches the rail, so the
+    /// move is a rigid translation: every difference inside the set survives it exactly,
+    /// and dragging back restores the set bit for bit. The rule and its properties live
+    /// in LumenCore, where they are tested; the panel does not restate them.
     private func mixerBinding(_ component: MixerComponent) -> Binding<Double> {
         Binding(
             get: {
                 let bands = ColorPanel.normalizedBands(state.currentRecipe.develop.mixer.bands)
                 if allBands {
-                    let total = bands.reduce(0.0) { $0 + component.value($1) }
-                    return total / Double(bands.count)
+                    return GroupMove.mean(bands.map { component.value($0) })
                 }
                 let i = min(max(selectedBand, 0), bands.count - 1)
                 return component.value(bands[i])
@@ -762,12 +774,12 @@ struct ColorPanel: View {
                 state.updateRecipe(coalescingKey: key) { recipe in
                     var bands = ColorPanel.normalizedBands(recipe.develop.mixer.bands)
                     if everything {
-                        let sum = bands.reduce(0.0) { $0 + component.value($1) }
-                        let mean = sum / Double(bands.count)
-                        let delta = newValue - mean
-                        for i in bands.indices {
-                            let moved = component.value(bands[i]) + delta
-                            component.write(&bands[i], Num.clamp(moved, -100, 100))
+                        let values = bands.map { component.value($0) }
+                        let moved = GroupMove.moved(values,
+                                                    by: newValue - GroupMove.mean(values),
+                                                    lower: -100, upper: 100)
+                        for i in bands.indices where i < moved.count {
+                            component.write(&bands[i], moved[i])
                         }
                     } else {
                         let i = min(max(index, 0), bands.count - 1)

@@ -568,15 +568,39 @@ public struct DetailEngine: Sendable {
 
         let lum = image.luminancePlane(space: d.space)
         let logLum = lum.map { Num.safeLog2($0 / 0.18) }
-        let blurred = SpatialOps.gaussianBlur(logLum, sigma: radius)
+        // DENOMINATED IN THE FRAME, not in the buffer this render happens to land in.
+        // Radius went into `gaussianBlur` as a pixel count, so the same setting
+        // addressed a different FRACTION of the photograph at every render size —
+        // measured, a texture 1/200 of the frame wide took +3.81 code values of added
+        // contrast at 1600 px and +0.29 at 7008, so a delivered file received 7% of the
+        // sharpening the fit preview was judged on. Every neighbouring spatial stage
+        // already tracks the long edge (`pyramidLevels`, `bandCenter`,
+        // `RenderGraph.structureRadius` — sharpening's own masking gate); this is the
+        // one that did not. `frameDenominatedSigma` carries the reference frame and the
+        // reasoning; `RenderGraph.applySharpen` reads the same two functions.
+        //
+        // The long edge is the RENDER's, because `logLum` is this render's own grid and
+        // a sigma is a count of its pixels. A 2560 px render is unchanged: that is the
+        // frame every one of these stages is quoted at.
+        let sigma = SpatialOps.frameDenominatedSigma(radius: radius,
+                                                     longEdge: Swift.max(w, h))
+        let blurred = SpatialOps.gaussianBlur(logLum, sigma: sigma)
 
-        // Fine-scale component: the two finest à-trous bands, which is where a
-        // deconvolution-weighted sharpener puts its energy.
+        // Fine-scale component: the two finest à-trous bands the FRAME asks for, which
+        // is where a deconvolution-weighted sharpener puts its energy. Fixed at
+        // `details[0] + 0.5·details[1]` this was the second half of the same defect —
+        // à-trous steps 1 and 2 are fixed pixel scales — and the level is continuous
+        // rather than rounded so the band does not step an octave as the preview ladder
+        // does (`SpatialOps.fineBandLevel`).
+        //
+        // The long edge here is the DECOMPOSITION's, not the render's: the level picks
+        // an à-trous dilation, which is a fact about the stack's own sampling, and the
+        // band is resampled onto the render extent afterwards. At 2560 px the level is
+        // 0 and this is the exact expression that stood here before.
         var fine = Plane(width: w, height: h)
-        if d.details.count >= 2 {
-            let f0 = fit(d.details[0], width: w, height: h)
-            let f1 = fit(d.details[1], width: w, height: h)
-            fine = f0.zip(f1) { $0 + 0.5 * $1 }
+        if let band = SpatialOps.fineDetailBand(d.details,
+                                                longEdge: Swift.max(d.width, d.height)) {
+            fine = fit(band, width: w, height: h)
         }
         let gradient = fit(d.gradient, width: w, height: h)
 

@@ -39,11 +39,21 @@ public enum SpeedEdit {
     ///   bakes it into the parameters, which is what lets every render path stay
     ///   ignorant of it), so there is nothing on the frame under the pointer for a `K`
     ///   drag to move. The Look panel's Amount slider sets what the NEXT apply lands at;
-    ///   `K` needs an amount that lives on the frame, which means a field on `Look` read
+    ///   `K` needs an amount that LIVES ON THE FRAME, which means a field on `Look` read
     ///   at one choke point in the plan — see `LookSubset.applied(to:)`'s closing
-    ///   paragraph for what that costs. Until it exists, `K` must not be wired: a hold
-    ///   that resolves to `.edit` and then writes nothing is worse than an unbound key,
-    ///   because it also swallows whatever `K` would otherwise have done.
+    ///   paragraph for what that costs.
+    ///
+    ///   So this is the one letter the dispatcher must not simply hand to a writer.
+    ///   `K` STAYS IN THE MAP — it is one of docs/12 §12.4's eight and
+    ///   `SpeedEditTests.testTheMappedLettersAreTheSpecsEight` pins the set, while
+    ///   `testEveryParameterHasExactlyOneLetter` forbids a case no letter reaches, so
+    ///   dropping it here would be editing the spec from the wrong end. `resolve` is
+    ///   right about it too: a hold on `K` really is a speed edit, once there is
+    ///   something for it to move. What must not happen is a dispatcher routing `K` to a
+    ///   no-op write — a hold that resolves to `.edit` and then changes nothing is worse
+    ///   than an unbound key, because it also swallows whatever `K` would otherwise have
+    ///   done. Until `Look` carries a live amount, `K` is the case a dispatcher handles
+    ///   by saying so in the status bar rather than by pretending.
     public enum Parameter: String, CaseIterable, Sendable {
         case exposure, contrast, highlights, shadows, temp, tint, lookAmount, maskAmount
 

@@ -264,6 +264,20 @@ final class MaskCostTests: XCTestCase {
 
     // MARK: - helpers
 
+    /// The braces, named once as a BALANCED PAIR rather than written as three loose
+    /// literals. Not a flourish, and not a style preference:
+    /// `scripts/check-swift-surface.py` finds a type's body by counting brace
+    /// characters with comments stripped and STRINGS LEFT IN PLACE, so a file holding
+    /// an odd number of brace literals hands it an unbalanced count, its whole member
+    /// index for that type comes back empty, and every property this class reads off
+    /// `self` is then reported as unbound — fourteen such reports came from the first
+    /// draft of this file, which spent `open` twice against `close` once.
+    ///
+    /// The findings were noise; the coverage lost behind them was not. A type whose
+    /// members the checker cannot see is a type whose renames it cannot catch, which
+    /// is most of what that script is for.
+    private static let brace: (open: Character, close: Character) = ("{", "}")
+
     /// The body of `store` in one of the pipeline's mask caches, braces matched,
     /// comments already gone.
     private static func storeBody(of file: String) throws -> String {
@@ -273,7 +287,8 @@ final class MaskCostTests: XCTestCase {
                     + "it rather than deleting it")
             return ""
         }
-        guard let open = source.range(of: "{", range: declaration.upperBound..<source.endIndex)
+        guard let open = source.range(of: String(brace.open),
+                                      range: declaration.upperBound..<source.endIndex)
         else {
             XCTFail("\(file)'s store has no body")
             return ""
@@ -281,8 +296,8 @@ final class MaskCostTests: XCTestCase {
         var depth = 0
         var index = open.lowerBound
         while index < source.endIndex {
-            if source[index] == "{" { depth += 1 }
-            if source[index] == "}" {
+            if source[index] == brace.open { depth += 1 }
+            if source[index] == brace.close {
                 depth -= 1
                 if depth == 0 { break }
             }

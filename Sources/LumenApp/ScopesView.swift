@@ -72,6 +72,15 @@ struct ScopesView: View {
                 .font(.lumenCaption)
                 .foregroundStyle(Lumen.secondaryText)
                 .lineLimit(1)
+                .help(measurementStatement)
+            // Only when the answer is not the plain one — see `provenanceNote`.
+            if let provenanceNote {
+                Text(provenanceNote)
+                    .font(.lumenCaption)
+                    .foregroundStyle(Lumen.secondaryText)
+                    .lineLimit(1)
+                    .help(measurementStatement)
+            }
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
@@ -182,11 +191,28 @@ struct ScopesView: View {
             .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusCard, style: .continuous))
     }
 
+    /// The caption is the scope's units, and a scope with unstated units is a picture of
+    /// a scope. Three things belong here and one of them was missing.
+    ///
+    /// `space.label` spells the readout space out in full ("sRGB 0–255"), which is what
+    /// the panel had. What it did NOT have was the weighting behind the word "Luma":
+    /// `Waveform.compute` weights the WORKING triple by `transform.working
+    /// .luminanceWeights`, so this is a Rec.2020-luminance waveform and not a Rec.709
+    /// one and not a plain average — a distinction of several percent on saturated
+    /// colour, and the exact confusion `RGBColorSpace.luminanceWeights`' own comment
+    /// warns about. `ScopeReadout.lumaLabel` reads it off the transform the trace
+    /// actually carries, so the caption cannot drift from the arithmetic.
+    ///
+    /// The column count is printed because it is now DERIVED (`ScopeReadout
+    /// .traceColumns`) rather than fixed at 256: a narrow crop gets a narrower, complete
+    /// scope instead of a 256-column one with a third of its columns blank, and the
+    /// caption is where that shows.
     private var caption: String {
         switch kind {
         case .waveform:
             guard let waveform else { return "Waveform — luma, column by column" }
-            return "Luma waveform · \(waveform.columns) columns × \(waveform.bins) bins · "
+            return ScopeReadout.lumaLabel(waveform.transform) + " waveform · "
+                + "\(waveform.columns) columns × \(waveform.bins) bins · "
                 + waveform.transform.space.label
         case .parade:
             guard let parade else { return "RGB parade" }
@@ -199,6 +225,24 @@ struct ScopesView: View {
                 + String(format: "%.0f", Vectorscope.skinToneLineDegrees) + "° ±"
                 + String(format: "%.0f", Vectorscope.skinBandHalfWidthDegrees) + "°"
         }
+    }
+
+    /// The same disclosure the histogram makes, on the same terms: printed only when the
+    /// answer is not the plain one, because a permanent caption for the ordinary case is
+    /// chrome. Both panels read one `ScopeReadout.Provenance` off one measurement, so
+    /// they cannot describe different pictures.
+    private var provenanceNote: String? { scopes?.provenance?.note }
+
+    /// What these traces are a trace OF — the tooltip behind every panel.
+    private var measurementStatement: String {
+        let space: ReadoutSpace = waveform?.transform.space
+            ?? parade?.red.transform.space
+            ?? scopes?.histogram?.transform.space
+            ?? .srgb255
+        guard let provenance = scopes?.provenance else {
+            return "No measurement yet."
+        }
+        return provenance.statement(readout: space)
     }
 
     // MARK: Rasterizing

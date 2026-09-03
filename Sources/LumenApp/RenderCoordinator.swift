@@ -98,22 +98,49 @@ actor RenderCoordinator {
     /// could explain. A decode cache several times the size of the thumbnail cache is
     /// the tail wagging the dog.
     ///
-    /// 768 MB holds one native inspection plane and a full interactive working set for
-    /// the photograph on screen, with room for a second photograph's settle beside it —
-    /// which is what a compare pane and a before/after need. Above that the app is
-    /// holding pixels for photographs nobody is looking at.
-    private static let decodeResidencyBudget = 768 * 1024 * 1024
+    /// THE NUMBER THAT USED TO BE HERE WAS A CLAIM, NOT A BOUND, and correcting it is
+    /// half of the fix. It read `768 * 1024 * 1024`, under a sentence saying 768 MiB
+    /// "holds one native inspection plane and a full interactive working set for the
+    /// photograph on screen, with room for a second photograph's settle beside it".
+    /// The sentence is the right policy and the arithmetic under it had never been
+    /// done: one inspection plane is up to 512 MiB and one interactive working set is
+    /// 320 MiB, so the photograph on screen ALONE is 832 MiB before a second one is
+    /// considered. 768 was below the residency of a single source, which no trim can
+    /// reach without evicting the decode of the photograph being rendered — and the
+    /// two loops below duly stopped at 1792 MiB, 2.33x the advertised figure, with
+    /// nothing anywhere able to notice because the budget was a constant in a target no
+    /// CI lane builds.
+    ///
+    /// So the budget is DERIVED from the per-source bounds it has to accommodate, in
+    /// LumenCore, where the multiplication can be run: `sourceCeilingBytes` (one
+    /// photograph entire) plus one more interactive working set (the compare pane
+    /// beside it). Changing either per-source bound moves this number; changing this
+    /// number without them goes red in `RenderBudgetTests`.
+    ///
+    /// It is LARGER than the constant it replaces, and that is the correction rather
+    /// than a regression. 768 MiB was never held. What was held was 1792 MiB, and what
+    /// is held now is a ceiling the trim below can actually reach from any state.
+    private static let decodeResidencyBudget = DecodeResidency.processBudgetBytes
 
     /// Bring held decodes back under `decodeResidencyBudget`, least-recently-used source
     /// first, never touching the newest.
     ///
-    /// Two passes, coarsening as it goes, because the two classes are worth very
-    /// different amounts. A native inspection plane belongs to whichever photograph is
-    /// being INSPECTED, and only one photograph can be; every other source holding one
-    /// is holding it against a zoom that already ended. The interactive working set is
-    /// different — a compare pane really does want its pane's decode between frames — so
-    /// it is only released once dropping the inspection planes has failed to get under
-    /// the line, and then from the coldest source forward.
+    /// The ORDER is `DecodeResidency.releaseOrder` and its argument lives there; this is
+    /// the executor. Three phases, coarsening as they go: the cold sources' inspection
+    /// planes, then everything the cold sources hold, then — and this phase is what was
+    /// missing — everything the LIVE sources hold too, coldest first, still excluding
+    /// the newest. Without the third phase the walk simply stopped while over budget and
+    /// the four spared working sets were 960 MiB of a floor the trim could not reach.
+    ///
+    /// Why this is now a bound and was not before: after the last phase only the newest
+    /// source is holding anything, and one source cannot exceed
+    /// `DecodeResidency.sourceCeilingBytes`, which `budgetCoversOneSource` asserts is at
+    /// or below the budget. `DecodeResidency.residualBytes` walks the same order against
+    /// modelled holdings and proves it for every source count and live-set size.
+    ///
+    /// It learns what each release freed from the release's own return value rather than
+    /// from a model of what a source holds, which is why only the order is pushed down:
+    /// `AppleRawSource` publishes `heldDecodeBytes` as a total and no split.
     ///
     /// Releasing a decode is always CORRECT, never merely acceptable: the entry is
     /// recomputable from a file that has not moved, the `CIRAWFilter` and the capture
@@ -127,44 +154,39 @@ actor RenderCoordinator {
     /// a file Core Image will re-read — so a protocol requirement would be a method
     /// existing for one implementation. The cast says that in one line instead.
     private func trimDecodeResidency() {
-        func held() -> Int {
-            sourceOrder.reduce(0) { total, url in
-                total + ((sources[url] as? AppleRawSource)?.heldDecodeBytes ?? 0)
-            }
+        var total = sourceOrder.reduce(0) { running, url in
+            running + ((sources[url] as? AppleRawSource)?.heldDecodeBytes ?? 0)
         }
-        var total = held()
         guard total > Self.decodeResidencyBudget else { return }
-        // Oldest first, newest excluded: the newest is the photograph a render just
-        // asked for, and taking its decode is taking the one that is about to be used.
-        let cold: [URL] = Array(sourceOrder.dropLast())
-        for url in cold {
+        for step in DecodeResidency.releaseOrder(sourceCount: sourceOrder.count,
+                                                 liveSources: Self.residencyLiveSources) {
             guard total > Self.decodeResidencyBudget else { return }
-            guard let raw = sources[url] as? AppleRawSource else { continue }
-            total -= raw.releaseInspectionDecodes()
-        }
-        // The blunt pass spares the surfaces that legitimately alternate. A four-up
-        // survey and a two-pane compare render several photographs in rotation, each one
-        // becoming "newest" in turn, so a rule that protected only the newest would have
-        // every pane release the decode the next pane's frame just made it re-do — a
-        // trim that manufactures exactly the re-demosaic it exists to prevent. The
-        // inspection pass above needs no such guard: the compare panes deliberately keep
-        // the interactive cap, so they never mint an inspection entry at all.
-        let alternating: [URL] = Array(sourceOrder.suffix(Self.residencyLiveSources))
-        for url in cold where !alternating.contains(url) {
-            guard total > Self.decodeResidencyBudget else { return }
-            guard let raw = sources[url] as? AppleRawSource else { continue }
-            total -= raw.releaseDecodes()
+            guard let raw = sources[sourceOrder[step.index]] as? AppleRawSource
+            else { continue }
+            switch step {
+            case .inspection: total -= raw.releaseInspectionDecodes()
+            case .everything: total -= raw.releaseDecodes()
+            }
         }
     }
 
-    /// How many of the most recently used sources the blunt trim leaves alone.
+    /// How many of the most recently used sources the trim releases from LAST.
     ///
     /// Not "the number of panes", which is not a fixed number — the survey is N-up over
     /// whatever the photographer selected. It is the number of surfaces that alternate
     /// at FULL render cost: the loupe (one), the two-up compare (two), and one spare for
     /// the photograph an arrow press is about to land on. A survey's cells are 160–520 pt
     /// and ask for a few hundred pixels each, so ten of them together hold a fraction of
-    /// the budget and this pass never reaches them however many there are.
+    /// the budget and the walk never reaches them however many there are.
+    ///
+    /// A PREFERENCE NOW, NOT AN EXEMPTION, and the difference is the whole of I3-02's
+    /// second half. These four used to be spared unconditionally, so a process over
+    /// budget with only live sources holding stayed over budget for as long as the user
+    /// kept looking: 320 MiB apiece that the trim was forbidden to take however badly
+    /// the machine needed it. They are now merely last in `releaseOrder`, which keeps
+    /// the alternation argument intact — the walk stops the moment it is under budget,
+    /// and with an honest budget a two-up compare never reaches them at all — while
+    /// removing the clause that turned a budget into a floor.
     private static let residencyLiveSources = 4
 
     /// Files the renderer's bounded matte cache has dropped since the app last asked.
@@ -271,6 +293,16 @@ actor RenderCoordinator {
 
         do {
             let source = try self.source(for: url)
+            // AND AFTER THE ALLOCATION, NOT ONLY BEFORE IT — the other half of the
+            // budget being advisory. `source(for:)` trims on the way in, which bounds
+            // the process against what the LAST render left behind and says nothing
+            // about what this one is about to add: a newest source holding nothing at
+            // the check can hold `DecodeResidency.sourceCeilingBytes` by the time the
+            // frame is delivered, and if the app then goes idle that total stands
+            // untrimmed until something asks for a source again. Which is precisely
+            // when it hurts — a wired IOSurface working set left sitting over budget
+            // while nothing is happening is the paging the budget exists to prevent.
+            defer { trimDecodeResidency() }
             guard !stale() else { return nil }
 
             // The fallback the kernel header promises, actually taken.
@@ -372,6 +404,12 @@ actor RenderCoordinator {
     func renderFullSize(url: URL, recipe: Recipe,
                         strokeSets: [String: BrushStrokeSet] = [:]) throws -> CGImage {
         let source = try self.source(for: url)
+        // Trimmed on the way OUT as well as the way in: this asks at the sensor's own
+        // long edge, so it mints an inspection-class entry of up to
+        // `DraftLadder.materializedDecodeByteCeiling` that nothing would otherwise
+        // reconsider until the next source lookup — and an export is often the last
+        // thing the app does before being left alone.
+        defer { trimDecodeResidency() }
         generateMattesNow(source: source, recipe: recipe)
         return try renderer.renderPreview(source: source, recipe: recipe,
                                           maxLongEdge: Int(source.nativeLongEdge),
@@ -386,6 +424,10 @@ actor RenderCoordinator {
                 exportRecipe: ExportRecipe,
                 strokeSets: [String: BrushStrokeSet] = [:]) throws -> [String] {
         let source = try self.source(for: url)
+        // Same reason as `renderFullSize`, and more so for a batch: two hundred files
+        // through this call is two hundred native decodes, each one bounded by the trim
+        // on the way in to the NEXT file and the last one by nothing at all.
+        defer { trimDecodeResidency() }
         generateMattesNow(source: source, recipe: recipe)
         return try renderer.export(source: source, recipe: recipe, to: destination,
                                    using: exportRecipe, strokeSets: strokeSets)
@@ -513,6 +555,11 @@ actor RenderCoordinator {
     /// happens while they page.
     func warmDecode(url: URL, recipe: Recipe, longEdge: Int) {
         guard let source = try? self.source(for: url) else { return }
+        // A warm is the one path whose ENTIRE product is a cache entry, so it is the one
+        // path that must not be allowed to leave the process over budget: read-ahead
+        // runs when the photographer has settled and stopped, which is exactly the state
+        // in which nothing else will call `source(for:)` and re-check.
+        defer { trimDecodeResidency() }
         let native = source.nativeLongEdge
         guard native > 0, longEdge > 0 else { return }
         let scale = Swift.min(1.0, Double(longEdge) / native)

@@ -568,7 +568,12 @@ final class CatalogService: @unchecked Sendable {
                 try store.setLabel(coreLabel(appLabel(mergedLabel)), photoID: row.id)
             }
             if let recovered = state.recipe, recovered != storedRecipe {
-                try store.saveRecipe(recovered, photoID: row.id, isCurrent: true)
+                // `isRenderedFile:` because `photo.edited` is measured against what a
+                // fresh import of THIS file would have left behind, and for a JPEG
+                // that is not a bare `Recipe()`. `PhotoFormats` is the app target's
+                // list on purpose — see the parameter's own note in `CatalogStore`.
+                try store.saveRecipe(recovered, photoID: row.id, isCurrent: true,
+                                     isRenderedFile: PhotoFormats.isRendered(file))
             }
 
             // Stamp what we have just READ. Without this half, a sidecar we have never
@@ -666,7 +671,12 @@ final class CatalogService: @unchecked Sendable {
             }
             if let id = catalogID {
                 do {
-                    try self.store.saveRecipe(recipe, photoID: id, isCurrent: true)
+                    try self.store.saveRecipe(
+                        recipe, photoID: id, isCurrent: true,
+                        // The pencil badge and the "Edited: no" chip both read the
+                        // `edited` this sets, and both were lit on every untouched
+                        // rendered file in the library until this argument existed.
+                        isRenderedFile: PhotoFormats.isRendered(url))
                 } catch {
                     NSLog("Lumen catalog: recipe write failed — %@", String(describing: error))
                     self.onFailure?("Could not save the edit for "

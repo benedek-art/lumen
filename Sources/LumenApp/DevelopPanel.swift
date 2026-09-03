@@ -235,26 +235,44 @@ struct DevelopDisclosure<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            // 10, not the section rhythm's 20: a disclosure is a fold inside a section,
-            // and giving it a full boundary would make the sub-heading read as louder
-            // than the heading it sits under.
+            // THE FOLD'S DEPTH IS ON THE HEADER, AND ITS ROWS PAY NOTHING FOR IT.
+            //
+            // This inset has now been all three of its possible values, and the third
+            // is the one that costs the instrument nothing.
+            //
+            // It began as `.leading` alone on the content, which was a real defect
+            // (G1-07): every row inside Zones and Noise Reduction started 8 pt right of
+            // the rows above while the value column did not move, so they read as nudged
+            // rather than nested and their tracks were 8 pt shorter than every other
+            // track in the panel. The fix made it `.horizontal`, which squared the read
+            // and DOUBLED the price — 16 points off every row inside a fold, on top of
+            // the 8 the misalignment had already been costing.
+            //
+            // Sixteen points is not a rounding error in this column. `LayoutMetricTests`
+            // measures the chain, and a fold at the 380 default was running 186 pt of
+            // track against 202 everywhere else: a ±100 control inside one sat at 0.93
+            // pt per unit while its neighbour outside sat at 1.010, i.e. on the wrong
+            // side of the ~1.0 floor `Lumen.defaultPanelWidth` exists to buy — the
+            // section that folds was the section that lost the guarantee. At the 320
+            // minimum it was 126 against 142.
+            //
+            // So the depth moves to the HEADER. A sub-heading indented under the heading
+            // it sits beneath is the ordinary outline statement of "this is one level
+            // in", it is made in type rather than in geometry, and it leaves every
+            // groove in the develop column starting and ending at the same two x
+            // coordinates whether it is inside a fold or not — which is a stronger
+            // version of exactly what G1-07 asked for, since the rows now align with the
+            // whole card rather than merely with each other. The 16 points go back to
+            // the instrument: 186 → 202 at the default, 126 → 142 at the minimum.
+            //
+            // `topRhythm` is 10 rather than the section rhythm's 20 for the same reason
+            // the depth is 8 rather than the card's own gutter: a disclosure is a fold
+            // inside a section, and giving it a full boundary would make the sub-heading
+            // read as louder than the heading it sits under.
             LumenSectionHeader(title: title, isExpanded: $isExpanded, topRhythm: 10)
+                .padding(.leading, 8)
             if isExpanded {
                 content()
-                    // BOTH SIDES, OR NEITHER. It was `.leading` alone, so every row
-                    // inside Zones and Noise Reduction started 8 pt right of the rows
-                    // above while the value column did not move: the rows read as
-                    // nudged rather than nested, and their tracks were 8 pt shorter
-                    // than every other track in the panel — which at the narrow column
-                    // is the difference between 0.75 and 0.71 points per unit, on the
-                    // side of the threshold where a one-pixel tremor costs a whole
-                    // unit. Look's hand-built folds take no inset at all, so the column
-                    // had two kinds of fold indenting differently.
-                    //
-                    // Symmetric costs the track the same 8 pt it already cost, and buys
-                    // back the read: a fold that is inset on both sides is nested, and
-                    // one inset on a single side is a mistake.
-                    .padding(.horizontal, 8)
                     .transition(.opacity.combined(
                         with: .scale(scale: 0.97, anchor: .top)))
             }
@@ -574,6 +592,30 @@ struct DevelopPanel: View {
                                     action: { state.redo() })
                     .disabled(!commands.canRedo)
             }
+            // TWO ACROSS, NOT FOUR, AND THAT IS FINDING G1-06 (measured).
+            //
+            // All eight of these used to sit four to a row. At the 320 minimum a footer
+            // button's share is `(320 − 16 gutter − 12 gaps) / 4` = 73.0 pt, and each
+            // button has to hold a 10 pt SF Symbol, a 5 pt gap and its verb inside that
+            // with `.lineLimit(1)` on the word. `LayoutMetricTests` measures the glyphs
+            // rather than allowing for them — SF Symbols are not a fixed-width family —
+            // and the two-word commands do not fit: **`Paste Look` wants 76.3 and
+            // `Copy Look` 73.7.** They fit at the 380 default and truncate the moment the
+            // column is dragged in, which is the worst shape a defect can have: it is
+            // invisible to whoever shipped it.
+            //
+            // The alternative was dropping the words and leaving the two Look commands
+            // as bare glyphs. Their tooltips do carry the sentence, but `photo.stack` and
+            // `photo.stack.fill` are the same silhouette twice, adjacent, and this file's
+            // own footer comment is that these are VERBS rather than tiles — an icon-only
+            // pair would be the 2008 toolbar coming back through a side door, and it
+            // would make copy and paste distinguishable only by a fill.
+            //
+            // So the pair splits instead. Copy/Paste is one row, Copy Look/Paste Look the
+            // next, which is also the honest grouping — the two clipboard scopes, one per
+            // line — and 2×2 gives each button `(320 − 16 − 4) / 2` = 150.0 pt, twice what
+            // the widest of them needs. The cost is one footer row of height in a column
+            // that scrolls.
             HStack(spacing: 4) {
                 DevelopFooterButton(title: "Copy", systemImage: "doc.on.doc",
                                     help: "Copy all develop settings",
@@ -581,6 +623,8 @@ struct DevelopPanel: View {
                 DevelopFooterButton(title: "Paste", systemImage: "doc.on.clipboard",
                                     help: "Paste develop settings onto the selection",
                                     action: { state.pasteSettings() })
+            }
+            HStack(spacing: 4) {
                 DevelopFooterButton(title: "Copy Look", systemImage: "photo.stack",
                                     help: "Copy only the portable creative subtree — "
                                         + "grade, film stock, render preset (D4)",

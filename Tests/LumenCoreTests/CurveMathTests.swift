@@ -291,7 +291,9 @@ final class CurveMathTests: XCTestCase {
         for symbol in ["CurveEditing.moved(", "CurveEditing.deleting(",
                        "CurveEditing.hitIndex(", "CurveEditing.sanitized(",
                        "CurveEditing.sanitizedSplits(", "CurveEditing.escapes(",
-                       "CurveEditing.pointCoalescingKey(", "CurveEditing.readout("] {
+                       "CurveEditing.pointCoalescingKey(", "CurveEditing.readout(",
+                       "CurveEditing.isIdentity(", "CurveEditing.clampedSplit(",
+                       "CurveEditing.nearestIndexByX(", "CurveEditing.splitReadout("] {
             XCTAssertTrue(source.contains(symbol),
                           "CurveEditorView no longer calls \(symbol) — the rule is in "
                           + "LumenCore where it is tested, and a view that stopped "
@@ -312,6 +314,111 @@ final class CurveMathTests: XCTestCase {
                       "B3-01: the All-bands row must translate the set through "
                       + "GroupMove, not clamp each band on its own")
         XCTAssertTrue(source.contains("GroupMove.mean("))
+    }
+
+    /// THE ANCHOR GUARD IS THE RULE, NOT AN ARITHMETIC ACCIDENT.
+    ///
+    /// The editor's own deletion guard was `points.count > 2` — "a curve needs two
+    /// points" — which lets the FIRST and LAST go the moment a third exists, by ⌥-click,
+    /// by the context menu, and by dragging one out of the graph. `CurveEditing.deleting`
+    /// refuses both anchors; this is the assertion that the old count test is not still
+    /// standing beside it, letting one of the three routes through.
+    func testTheCurveEditorHasNoDeletionRuleOfItsOwnLeft() throws {
+        let source = try Self.appSource("CurveEditorView.swift")
+        XCTAssertFalse(source.contains("points.count > 2"),
+                       "the count-alone guard deletes a black or white anchor as soon as "
+                       + "a third point exists — MonotoneCubic then extends flat below "
+                       + "the new first x and every shadow under it renders one value")
+    }
+
+    /// A WAY BACK THAT IS NOT A RIGHT-CLICK.
+    ///
+    /// Flatten and Reset Splits lived only in the plot's context menu — on a graph whose
+    /// LEFT click adds a point, so the one gesture that undoes an unwanted curve was the
+    /// one gesture nothing announces. `resetButton` is on the readout row; this asserts
+    /// it is declared AND placed, because a private view that nothing renders compiles.
+    func testTheCurveEditorCarriesItsOwnResetOnTheSurface() throws {
+        let source = try Self.appSource("CurveEditorView.swift")
+        XCTAssertTrue(source.contains("private var resetButton: some View"))
+        XCTAssertEqual(source.components(separatedBy: "resetButton").count - 1, 2,
+                       "resetButton must be declared once and placed once — a reset "
+                       + "affordance that is never added to a row is a way back that "
+                       + "does not exist")
+        XCTAssertTrue(source.contains("func resetCurrentCurve()"))
+    }
+
+    /// The ink and the target, pinned where the arithmetic test above assumes them.
+    ///
+    /// `testTheHitTargetIsLargerThanTheDrawnPoint` proves 8 catches a press 6 pt off a
+    /// dot of radius 3. That proof is about the editor only while the editor still draws
+    /// at 3 and presses at 8, and neither number is reachable from LumenCore.
+    func testTheDrawnPointStaysSmallerThanThePressItAnswersTo() throws {
+        let source = try Self.appSource("CurveEditorView.swift")
+        XCTAssertTrue(source.contains("hitRadius: CGFloat = 8"),
+                      "the press radius moved; re-derive testTheHitTargetIsLarger…")
+        XCTAssertTrue(source.contains("width: 6, height: 6"),
+                      "the control dot is drawn from a 6 pt box (radius 3) — a dot that "
+                      + "grew past the tolerance would make the target smaller than the "
+                      + "ink, which is the defect the two numbers are stated apart for")
+    }
+
+    // MARK: - The Zones register's quantum
+
+    /// A CONTROL WHOSE READOUT ADVERTISES VALUES NO GESTURE CAN LAND ON IS LYING.
+    ///
+    /// The zone rows sat at `step: 0.01` over ±3 stops — 600 addressable values — inside
+    /// a `DevelopDisclosure`, which is the narrowest host in the develop column. At the
+    /// 320 pt minimum the track is 126 pt, so one step was 0.21 pt of travel: a
+    /// one-pixel tremor moved the value five steps, and about five in six of the values
+    /// the two decimals promise could not be reached by dragging at all.
+    ///
+    /// The floor is `LumenControls.swift`'s own sentence — "~1.0, under which a
+    /// one-pixel tremor costs a whole unit" — and the numerator and denominator are both
+    /// READ from the app rather than typed here, so the day the label column or the step
+    /// moves this recomputes instead of reassuring.
+    func testTheZoneRowsStepIsCoarseEnoughForTheNarrowestTrackItGets() throws {
+        let zones = try Self.appSource("ZonesPanel.swift")
+        let controls = try Self.appSource("LumenControls.swift")
+
+        let step = try XCTUnwrap(Self.literal("stopStep: Double = ", in: zones))
+        let column = try XCTUnwrap(Self.literal("minimumPanelWidth: CGFloat = ", in: controls))
+        let label = try XCTUnwrap(Self.literal("labelWidth: CGFloat = ", in: controls))
+        let readout = try XCTUnwrap(Self.literal("valueWidth: CGFloat = ", in: controls))
+
+        // Both rows are the same geometry, and both must be on the constant.
+        XCTAssertEqual(zones.components(separatedBy: "step: Self.stopStep").count - 1, 2,
+                       "the five zone rows and the Global trim share one quantum; a "
+                       + "literal left behind at one of them is a row the census cannot "
+                       + "see")
+        XCTAssertEqual(zones.components(separatedBy: "range: -3...3").count - 1, 2)
+
+        // The develop column's fold chain: 2×4 scroll inset + 2×10 card gutter + 2×8
+        // disclosure inset, each one literal in one file and pinned in
+        // Tests/LumenAppTests/LayoutMetricSupport.swift.
+        let foldChain: Double = 44
+        // What a LumenSlider row spends before the groove: the label frame, its two
+        // 6 pt gaps and the readout frame.
+        let chrome = label + 6 + 6 + readout
+        let track = column - foldChain - chrome
+        let steps = ((-3.0).distance(to: 3.0) / step).rounded()
+        let perStep = track / steps
+
+        XCTAssertEqual(track, 126, accuracy: 0.001)
+        XCTAssertGreaterThanOrEqual(
+            perStep, 1.0,
+            "a zone row has \(track) pt of track over \(Int(steps)) steps of \(step) "
+            + "stops — \(perStep) pt per step, under the ~1.0 at which a one-pixel "
+            + "tremor stops costing a whole step. Coarsen the step; the panel's width is "
+            + "not this row's to spend")
+    }
+
+    /// The first number after `needle`, as the source writes it. Comments are already
+    /// stripped by `appSource`, so a doc comment quoting the old value cannot answer.
+    private static func literal(_ needle: String, in source: String) -> Double? {
+        guard let range = source.range(of: needle) else { return nil }
+        let digits = source[range.upperBound...]
+            .prefix { $0.isNumber || $0 == "." || $0 == "-" }
+        return Double(digits)
     }
 
     private static func appSource(_ name: String) throws -> String {
