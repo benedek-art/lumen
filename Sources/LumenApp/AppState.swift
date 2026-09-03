@@ -1703,7 +1703,60 @@ final class AppState: ObservableObject {
     /// menus rebuilt per mouse event. `CommandState`'s header has the rest of it.
     let commands = CommandState()
 
-    init() {
+    /// WHERE THE SESSION'S TWO ON-DISK LOCATIONS COME FROM — as closures, rather than
+    /// as calls hard-coded inside `openCatalog`.
+    ///
+    /// This pair is the test seam, and it is the only reason either property exists.
+    /// `init()` opened the REAL catalog under `~/Library/Application Support/Lumen` and
+    /// created the REAL preview cache under `~/Library/Caches/Lumen`, unconditionally,
+    /// from the initializer body — so merely CONSTRUCTING an `AppState` was an act with
+    /// consequences on the owner's own machine, and no test could ever do it. That is
+    /// not a small inconvenience. An `AppState` is what every view in this app needs as
+    /// its `@EnvironmentObject`, so a hub that cannot be constructed in a test is a UI
+    /// layer that cannot be HOSTED in a test — which is why every UI check in this tree
+    /// is a scan of source text, and why this application has never once measured its
+    /// own layout. `Package.swift`'s LumenAppTests header states the restriction in as
+    /// many words: "never a full `AppState`, whose init opens the real catalog in
+    /// Application Support". This closes that, and nothing else.
+    ///
+    /// Closures and not a `URL`, because production's route is not a constant: it is
+    /// `FileManager`'s lookup with `create: true`, which can fail, and whose failure has
+    /// to keep landing in `openCatalog`'s existing `catch` — "catalog unavailable, edits
+    /// live in memory this session" — rather than in an initializer that has no way to
+    /// say it. Deferring the whole call keeps the failure where it was and keeps the
+    /// order it happened in. Nothing about the app's route to its catalog moved; it only
+    /// acquired a name.
+    private let catalogDirectory: () throws -> URL
+
+    /// The disk half of the browse cache, by the same seam and for the same reason:
+    /// `PreviewStore.defaultDirectory()` CREATES `~/Library/Caches/Lumen` on the way
+    /// past, so a test that redirected only the catalog would still leave a directory
+    /// behind in the owner's Library and would still not be an isolated test.
+    private let previewDirectory: () -> URL?
+
+    /// Production's catalog location: `~/Library/Application Support/Lumen`, created if
+    /// it is not there. Lifted verbatim out of `openCatalog` — same lookup, same
+    /// `create: true`, same `createDirectory` behind it — and still invoked from inside
+    /// that method's `do`, so both throws land in the same `catch` they always did.
+    nonisolated static func applicationSupportCatalogDirectory() throws -> URL {
+        let support = try FileManager.default.url(
+            for: .applicationSupportDirectory, in: .userDomainMask,
+            appropriateFor: nil, create: true)
+        let directory = support.appendingPathComponent("Lumen", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory,
+                                                withIntermediateDirectories: true)
+        return directory
+    }
+
+    /// The app constructs this as `AppState()`, and both defaults are production's own
+    /// routes, so the launch path is character for character the one it has always been.
+    /// A test passes temporary directories instead and gets a hub that touches nothing
+    /// outside them.
+    init(catalogDirectory: @escaping () throws -> URL
+            = AppState.applicationSupportCatalogDirectory,
+         previewDirectory: @escaping () -> URL? = PreviewStore.defaultDirectory) {
+        self.catalogDirectory = catalogDirectory
+        self.previewDirectory = previewDirectory
         openCatalog()
         // Every history mutation, and nothing else. `refresh` is equality-guarded, so
         // a drag — one coalesced step, label "Edit" from first event to last — reaches
@@ -2388,12 +2441,7 @@ final class AppState: ObservableObject {
 
     private func openCatalog() {
         do {
-            let support = try FileManager.default.url(
-                for: .applicationSupportDirectory, in: .userDomainMask,
-                appropriateFor: nil, create: true)
-            let directory = support.appendingPathComponent("Lumen", isDirectory: true)
-            try FileManager.default.createDirectory(at: directory,
-                                                    withIntermediateDirectories: true)
+            let directory = try catalogDirectory()
             let service = try CatalogService(directory: directory)
             service.onFailure = { [weak self] message in
                 Task { @MainActor in
@@ -2406,7 +2454,7 @@ final class AppState: ObservableObject {
             // `~/Library/Caches` rather than beside the catalog because that is where
             // the OS expects reclaimable data and where Time Machine will not carry
             // tens of gigabytes of regenerable previews.
-            if let cacheDirectory = PreviewStore.defaultDirectory() {
+            if let cacheDirectory = previewDirectory() {
                 let store = PreviewStore(catalog: service, directory: cacheDirectory)
                 previews = store
                 thumbnails.attach(previews: store)

@@ -73,8 +73,11 @@ let package = Package(
         // 39% of the codebase went unfalsifiable by construction. Files are
         // `#if os(macOS)` like LumenPipelineTests', so the Linux lanes build an empty
         // target and lose nothing. Tests here exercise pure app logic (counts, keys,
-        // gesture bookkeeping) — never a full `AppState`, whose init opens the real
-        // catalog in Application Support.
+        // gesture bookkeeping), and — since the catalog and preview-cache locations
+        // became injectable — a real `AppState` constructed against temp directories.
+        // Before that seam its init opened the owner's catalog in Application Support
+        // and created `~/Library/Caches/Lumen`, which is why no test here had ever
+        // hosted a view.
         .testTarget(
             name: "LumenAppTests",
             dependencies: ["LumenApp", "LumenCore"],
