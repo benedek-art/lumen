@@ -2435,7 +2435,7 @@ def _unguarded_cone_response(kelvin, tint):
     return mat_apply(CAT16, (x / y, 1.0, (1 - x - y) / y))
 
 
-def tint_limit(kelvin):
+def _cone_floor_limit(kelvin):
     """Largest magenta tint at this temperature that still describes a colour a light
     source could be. Only magenta is bounded; green moves toward the interior of the
     plane where every cone response grows."""
@@ -2458,6 +2458,93 @@ def tint_limit(kelvin):
         else:
             hi = mid
     return lo
+
+
+# The neutral the magenta bound is measured against: the daylight reference a file
+# that records no camera neutral adapts from.
+MAGENTA_REFERENCE_KELVIN = 5500.0
+
+_REC2020_FROM_XYZ = mat_inverse(_REC2020_TO_XYZ)
+
+
+def _von_kries(source_xy, destination_xy, cone):
+    """XYZ(source white) -> XYZ(destination white), by scaling cone responses."""
+    def xyz(ch):
+        x, y = ch
+        return (x / y, 1.0, (1 - x - y) / y)
+    s = mat_apply(cone, xyz(source_xy))
+    d = mat_apply(cone, xyz(destination_xy))
+    gains = [[d[0] / s[0], 0.0, 0.0], [0.0, d[1] / s[1], 0.0], [0.0, 0.0, d[2] / s[2]]]
+    return mat_mul(mat_mul(mat_inverse(cone), gains), cone)
+
+
+def _rendered_magenta(kelvin, tint):
+    """Where a mid-grey neutral lands on OKLab's green<->magenta axis once it has been
+    adapted from the (K, tint) illuminant to the reference neutral — or None when it
+    lands somewhere that is not a colour.
+
+    The cone floor above bounds the ILLUMINANT. This bounds the PICTURE, which is not
+    the same statement once the temperature move and the tint move compose: at as-shot
+    5500 K, target 2800 K, tint +80 — inside the cone floor's own +69.80 — the render
+    is (0.0967, -0.0872, 3.1857), a negative green channel, and its OKLab `a` is
+    -0.089 against -0.038 untinted, so the magenta slider moved the picture toward
+    green. OKLab rather than a linear-RGB opponent because the runaway is a
+    CHROMATICITY move: the linear `(r+b)/2 - g` goes on rising straight through the
+    reversal purely because blue is exploding.
+    """
+    base = locus(kelvin)
+    if tint == 0:
+        source = base
+    else:
+        u, v = xy_to_uv(*base)
+        source = uv_to_xy(u, v + tint * TINT_UNIT_IN_V)
+    adaptation = _von_kries(source, locus(MAGENTA_REFERENCE_KELVIN), CAT16)
+    m = mat_mul(mat_mul(_REC2020_FROM_XYZ, adaptation), _REC2020_TO_XYZ)
+    out = mat_apply(m, (0.18, 0.18, 0.18))
+    if not all(math.isfinite(c) for c in out) or min(out) < 0:
+        return None
+    return oklab_from_rgb(out)[1]
+
+
+def _magenta_monotone_limit(kelvin, ceiling):
+    """Largest magenta tint at which the rendered neutral is still MOVING toward
+    magenta, and still a colour.
+
+    A quarter of a tint unit is the probe: the finite difference across it is ~1e-5 of
+    `a` near the turn, ten orders of magnitude above double noise, and a twentieth of
+    the smallest step the slider can be dragged. Both halves of the predicate are
+    downward-closed on [0, ceiling] — the deflection is unimodal below the pole and the
+    channels fail once and stay failed — so a bisection lands on the boundary.
+    """
+    if ceiling <= 0:
+        return ceiling
+    probe = 0.25
+
+    def admissible(t):
+        here = _rendered_magenta(kelvin, t)
+        if here is None:
+            return False
+        ahead = _rendered_magenta(kelvin, t + probe)
+        return ahead is not None and ahead >= here
+
+    if admissible(ceiling):
+        return ceiling
+    lo, hi = 0.0, ceiling
+    for _ in range(40):
+        mid = (lo + hi) / 2
+        if admissible(mid):
+            lo = mid
+        else:
+            hi = mid
+    return lo
+
+
+def tint_limit(kelvin):
+    """The largest magenta tint the render will honour: the smaller of the two bounds
+    above. The illuminant must still be a colour a light source could be, AND the
+    picture must still be going the way the slider says."""
+    physical = _cone_floor_limit(kelvin)
+    return min(physical, _magenta_monotone_limit(kelvin, physical))
 
 
 def clamped_tint(kelvin, tint):

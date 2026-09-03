@@ -518,9 +518,19 @@ public enum ColorTemperature {
     /// complaint, and a negative channel is not a colour at all.
     ///
     /// Green is untouched, as before — it moves toward the interior of the plane where
-    /// every response grows — and so is everything at and above 5500 K, where the turn
-    /// (+152.50) is outside the shipped ±150 range. Daylight work renders exactly as it
-    /// did; only the warm half of the temperature slider tightens.
+    /// every response grows — and so is everything at and above 5500 K. Daylight work
+    /// renders exactly as it did; only the warm half of the temperature slider tightens.
+    ///
+    /// **READ THE MARGIN, NOT THE SENTENCE.** "Untouched at and above 5500 K" is true
+    /// and it is true by 2.2 units: the bound at 5500 K is +152.22 against a shipped
+    /// slider that stops at +150, and it first enters the shipped range at about
+    /// 5430 K (5400 K is already +149.13). This bound is a function of the `locus` fit,
+    /// and `locus` crossfades from the Planckian branch to the daylight branch through
+    /// a smoothstep between 3500 and 4500 K — so a change anywhere near that fit moves
+    /// the 5500 K number, and an inequality test that only asks "is it at least 150"
+    /// would not notice until the margin had already become a clamp on ordinary
+    /// daylight work. `testTheMagentaBoundKeepsItsDaylightMarginOnBothSides` pins the
+    /// crossover from both sides for that reason.
     private static func magentaMonotoneLimit(kelvin: Double, ceiling: Double) -> Double {
         guard ceiling > 0 else { return ceiling }
         // A quarter of a tint unit: the finite difference across it is ~1e-5 of `a`

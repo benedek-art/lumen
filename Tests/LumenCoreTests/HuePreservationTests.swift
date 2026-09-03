@@ -903,6 +903,41 @@ final class HuePreservationTests: XCTestCase {
         }
     }
 
+    /// THE CROSSOVER, PINNED FROM BOTH SIDES.
+    ///
+    /// The test below asserts the inequality the guard's contract is written as — the
+    /// bound is at least 150 from 5500 K up — and an inequality is not enough here,
+    /// because the margin is 2.2 units. The bound at 5500 K is +152.22 against a
+    /// slider that stops at +150, and it first enters the shipped range at about
+    /// 5430 K: 5400 K is already +149.13.
+    ///
+    /// Both directions matter, and for different reasons. If the bound DROPS below
+    /// 150 at 5500 K, ordinary daylight work starts hitting a clamp that the guard's
+    /// own docstring promises it never will — and an "at least 150" test passes right
+    /// up until the moment that happens, which is too late to be told. If it RISES far
+    /// above 150, the bound has stopped tracking the turn it is supposed to be
+    /// measuring and the reversal is back inside the slider somewhere warmer.
+    ///
+    /// The bound is a function of the `locus` fit, and `locus` crossfades from the
+    /// Planckian branch to the daylight branch through a smoothstep between 3500 and
+    /// 4500 K. A change anywhere near that fit moves this number. Failing here means
+    /// the margin moved; go and look at what it is now before deciding whether the
+    /// bound or the fit is wrong.
+    func testTheMagentaBoundKeepsItsDaylightMarginOnBothSides() {
+        let atDaylight = ColorTemperature.tintLimit(kelvin: 5500)
+        XCTAssertGreaterThanOrEqual(atDaylight, ColorTemperature.maxTint,
+                                    "5500 K now clamps inside the shipped range at \(atDaylight)")
+        XCTAssertLessThan(atDaylight, 160,
+                          "5500 K's bound rose to \(atDaylight) — it has stopped tracking the turn")
+
+        // And the crossover itself: the bound enters the shipped range between these
+        // two temperatures, which is what "about 5430 K" means as an assertion.
+        XCTAssertLessThan(ColorTemperature.tintLimit(kelvin: 5400), ColorTemperature.maxTint,
+                          "the bound no longer enters the shipped range below 5500 K")
+        XCTAssertGreaterThan(ColorTemperature.tintLimit(kelvin: 5450), 140,
+                             "the bound fell far below the shipped range just under daylight")
+    }
+
     /// The bound tightened only where it had to. Daylight — the range the guard's own
     /// contract promises is untouched — still spends its whole ±150.
     func testTheMagentaBoundLeavesDaylightAlone() {
