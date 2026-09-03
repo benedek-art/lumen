@@ -77,8 +77,10 @@ struct GridView: View {
                 .onAppear {
                     // ↑/↓ are the keymap's, but only the grid knows how wide a row is.
                     state.gridColumns = columnCount(width: geometry.size.width, side: side)
+                    // The ROLL, not a fresh array of its URLs — see the `onChange`
+                    // below for the keystroke this projection used to be paid on.
                     state.thumbnails.prefetch(around: state.primarySelection?.id,
-                                              in: photos.map(\.id), size: pixels,
+                                              in: photos, size: pixels,
                                               surface: .grid)
                 }
                 .onChange(of: geometry.size.width) { _, width in
@@ -103,7 +105,17 @@ struct GridView: View {
                         lastClickedID = nil
                         proxy.scrollTo(id, anchor: .center)
                     }
-                    state.thumbnails.prefetch(around: id, in: photos.map(\.id),
+                    // THE ROLL IS HANDED OVER WHOLE, and this is the culling-at-scale
+                    // fix rather than a tidy-up. `photos.map(\.id)` built a new array
+                    // of every URL in the folder here, on every key repeat — 25 to 30 a
+                    // second with an arrow key held down — and the filmstrip below did
+                    // the same thing with the same roll on the same keystroke, to hand
+                    // the loader eleven of them. `AppState.photos` is already memoised;
+                    // this projection of it was not, so the one array the grid is
+                    // backed by was in effect being rebuilt twice per frame at 2,000
+                    // frames and would be rebuilt twice as often again at 4,000. The
+                    // loader reads only the window's own indices now.
+                    state.thumbnails.prefetch(around: id, in: photos,
                                               size: pixels, surface: .grid)
                 }
             }

@@ -23,11 +23,47 @@
 // even started. The strip passes `surface: .filmstrip` now, and the loader warms every
 // level `ThumbnailLadder.warmSizes` names for that surface; which levels those are is
 // asserted in LumenCore against the number the loupe actually requests.
+//
+// One more thing this strip owes a photographer holding an arrow key down: it must land
+// on the frame that is selected, not on the frame that was selected a beat ago. The
+// centring scroll below is animated, and an animation that is restarted every 35 ms
+// never arrives — see `CursorArrivals` for what that looked like and what replaced it.
 
 #if os(macOS)
 
+import Foundation
 import LumenCore
 import SwiftUI
+
+/// How fast the cursor is arriving, so the strip can tell paging from scrubbing.
+///
+/// A REFERENCE BOX, not `@State private var rate = EventRate()`, and that is the point
+/// rather than an implementation detail: `@State` publishes on every write, so keeping
+/// the meter as a struct in state would re-body the strip a second time per keystroke —
+/// the exact per-key cost this file is spending its comments removing. Nothing draws
+/// from this; it is scratch that the view writes through on its way past.
+private final class CursorArrivals {
+
+    private var rate = EventRate()
+
+    /// Note that the cursor has just moved, and answer whether it is now moving faster
+    /// than one scroll animation can finish.
+    ///
+    /// `false` for the first move after a pause — `EventRate` reports no rate from a
+    /// single timestamp, which is the right answer here: one arrow press is paging, and
+    /// paging is what the glide is for.
+    ///
+    /// The meter's window is a trailing second, so the strip stays in cut mode for a
+    /// beat after the key comes up. That is deliberate rather than tolerated: a hand
+    /// that has just run down forty frames is still running, and the frame the eye is
+    /// catching up with should be waiting where it will be, not travelling towards it.
+    func outrunsAnimation(settleSeconds: Double) -> Bool {
+        let now = Double(DispatchTime.now().uptimeNanoseconds) / 1e9
+        rate.record(at: now)
+        guard let perSecond = rate.perSecond(now: now) else { return false }
+        return perSecond * settleSeconds > 1
+    }
+}
 
 struct FilmstripView: View {
     @EnvironmentObject var state: AppState
@@ -41,6 +77,10 @@ struct FilmstripView: View {
     /// same double-click race. See `handleCellClick` in GridView.swift for the trace.
     @State private var lastClickedID: URL?
 
+    /// The key-repeat meter the centring scroll consults. Constructed once by `@State`
+    /// and never republished; see `CursorArrivals`.
+    @State private var arrivals = CursorArrivals()
+
     /// Three steps, not a free drag: the strip is furniture, and 72/96/128 are the
     /// sizes at which the cells stay legible without the strip competing with the
     /// photograph. 128 is also the ceiling the fixed 256-pixel cache level can serve
@@ -52,6 +92,16 @@ struct FilmstripView: View {
     /// One fixed cache level: the strip must not re-decode when its height steps or
     /// the grid slider move.
     private static let pixels: Int = 256
+
+    /// How long the centring scroll takes to arrive — `Lumen.motionState`'s own 0.12 s,
+    /// written out because `Animation` does not answer questions about itself.
+    ///
+    /// It is a duration used as a RATE LIMIT: a cursor moving faster than one of these
+    /// per second-fraction can never see the end of an animation, so above that the
+    /// strip stops starting them. If the motion token is ever retimed, this number
+    /// follows it — the two are the same fact, and the only thing keeping them together
+    /// is this sentence.
+    private static let settleSeconds: Double = 0.12
 
     /// Clamped on read rather than on write, because a value restored from a previous
     /// version's bounds is not the user doing anything wrong.
@@ -108,8 +158,10 @@ struct FilmstripView: View {
                     if let id = state.primarySelection?.id {
                         proxy.scrollTo(id, anchor: .center)
                     }
+                    // The roll itself, not a fresh array of its URLs — see the grid's
+                    // `onChange` for what that projection cost per key repeat.
                     state.thumbnails.prefetch(around: state.primarySelection?.id,
-                                              in: photos.map(\.id), size: pixels,
+                                              in: photos, size: pixels,
                                               surface: stripSurface)
                 }
                 .onChange(of: state.primarySelection?.id) { _, id in
@@ -123,11 +175,32 @@ struct FilmstripView: View {
                         lastClickedID = nil
                     } else {
                         lastClickedID = nil
-                        withAnimation(Lumen.motionState) {
+                        // THE SCROLL IS ISSUED HERE, ON THIS PASS, IN BOTH BRANCHES.
+                        // Only the glide is negotiable, and that is the whole of the
+                        // rule: the strip may take 120 ms to move, it may never take
+                        // 120 ms to decide WHICH frame to move to.
+                        //
+                        // Culling a real shoot means holding → down, and macOS repeats
+                        // at 25–30 a second — three or four cursor moves inside one
+                        // `motionState`. Each one restarted the animation from wherever
+                        // the last one had got to, so the strip spent the whole run
+                        // chasing a target it never reached and the cell under the
+                        // centre line was never the selected one. That is precisely the
+                        // drift a cull cannot have: the photographer rates what is in
+                        // front of them.
+                        //
+                        // So above the rate one animation can settle, the strip CUTS.
+                        // A single press, or a click, still glides — one move at a time
+                        // is paging, and the glide is what makes the direction legible.
+                        if arrivals.outrunsAnimation(settleSeconds: Self.settleSeconds) {
                             proxy.scrollTo(id, anchor: .center)
+                        } else {
+                            withAnimation(Lumen.motionState) {
+                                proxy.scrollTo(id, anchor: .center)
+                            }
                         }
                     }
-                    state.thumbnails.prefetch(around: id, in: photos.map(\.id),
+                    state.thumbnails.prefetch(around: id, in: photos,
                                               size: pixels, surface: stripSurface)
                 }
             }

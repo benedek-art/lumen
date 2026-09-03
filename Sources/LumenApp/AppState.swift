@@ -1815,6 +1815,29 @@ final class AppState: ObservableObject {
     /// same array.
     private var catalogIDCache: [URL: Int64]?
 
+    /// Where a photograph sits in the roll, without walking the roll to find out.
+    ///
+    /// Six call sites reached for `photos.firstIndex(of:)` on the keystroke path —
+    /// `comparisonSet`, both halves of a shift-extended `select`, `moveSelection` on
+    /// every arrow press, `advanceIfNeeded` after a cull and `cursorIndex`. Each is a
+    /// linear scan, and at least three of them run on a single arrow key.
+    ///
+    /// `PhotoItem`'s `==` is `a.id == b.id` and nothing else, so a lookup by URL is not
+    /// an approximation of what those calls did — it is the same comparison, memoised.
+    /// `RollCursor` verifies its own answer against the roll it is handed (the length
+    /// matches and the photograph is still standing at the remembered index) before it
+    /// returns, so this needs no hook in `invalidatePhotoCache()` and cannot warm around
+    /// a stale frame: an unverifiable memo rebuilds, because a miss is the one answer
+    /// that cannot be checked in constant time.
+    private var rollCursor = RollCursor()
+
+    /// The index of `photo` in the roll as it stands, or nil when the roll no longer
+    /// holds it. Identical in result to `photos.firstIndex(of: photo)`.
+    func rollIndex(of photo: PhotoItem) -> Int? {
+        let list = photos
+        return rollCursor.index(of: photo.id, inRollOf: list.count) { list[$0].id }
+    }
+
     func invalidatePhotoCache() {
         photoCache = nil
         catalogIDCache = nil
@@ -2689,7 +2712,7 @@ final class AppState: ObservableObject {
         if selected.count >= 2 { return selected }
         guard let primary = primarySelection else { return selected }
         let all = photos
-        if let index = all.firstIndex(of: primary), index + 1 < all.count {
+        if let index = rollIndex(of: primary), index + 1 < all.count {
             return [primary, all[index + 1]]
         }
         return [primary]
@@ -2704,8 +2727,8 @@ final class AppState: ObservableObject {
                 selection.insert(photo.id)
             }
         } else if extending, let anchor = primarySelection,
-                  let from = photos.firstIndex(of: anchor),
-                  let to = photos.firstIndex(of: photo) {
+                  let from = rollIndex(of: anchor),
+                  let to = rollIndex(of: photo) {
             let range = from <= to ? from...to : to...from
             selection = Set(photos[range].map(\.id))
         } else {
@@ -2790,7 +2813,7 @@ final class AppState: ObservableObject {
         let selected = selectedPhotos
         let step = ArrowNavigation.step(
             delta: delta,
-            libraryCursor: primarySelection.flatMap { list.firstIndex(of: $0) },
+            libraryCursor: primarySelection.flatMap { rollIndex(of: $0) },
             libraryCount: list.count,
             selectionCursor: primarySelection.flatMap { selected.firstIndex(of: $0) },
             selectionCount: selected.count,
@@ -2895,23 +2918,37 @@ final class AppState: ObservableObject {
         guard !targets.isEmpty else { return }
         var before: [URL: HistoryStack.PhotoEdit] = [:]
         var after: [URL: HistoryStack.PhotoEdit] = [:]
-        for i in allPhotos.indices where targets.contains(allPhotos[i].id) {
-            let was = Self.culling(of: allPhotos[i])
-            body(&allPhotos[i])
-            let now = Self.culling(of: allPhotos[i])
+        // Mutate a local copy and publish once, for the reason `adoptCaptureISO`
+        // already documents: `allPhotos` is `@Published`, so a per-element write
+        // republishes the whole grid. This is the cull path, where a keystroke over a
+        // forty-frame selection therefore fired forty `objectWillChange` publishes and
+        // forty `invalidatePhotoCache()` runs — each one throwing away the contact
+        // sheet the next iteration rebuilds. Rating a whole selection is one edit and
+        // is now one publish.
+        var updated = allPhotos
+        var freshPrimary: PhotoItem?
+        for i in updated.indices where targets.contains(updated[i].id) {
+            let was = Self.culling(of: updated[i])
+            body(&updated[i])
+            let now = Self.culling(of: updated[i])
             guard now != was else { continue }
-            before[allPhotos[i].id] = HistoryStack.PhotoEdit(culling: was)
-            after[allPhotos[i].id] = HistoryStack.PhotoEdit(culling: now)
+            before[updated[i].id] = HistoryStack.PhotoEdit(culling: was)
+            after[updated[i].id] = HistoryStack.PhotoEdit(culling: now)
             // Whether this keystroke is entitled to speak about the colour label. A
             // flag or a rating is not: `photo.label` cannot tell "no label" from "a
             // label this build has no word for", so asserting it deleted other tools'
             // labels from the file.
-            catalog?.saveCullingState(allPhotos[i], labelChanged: was.label != now.label)
-            if allPhotos[i].id == primarySelection?.id {
-                primarySelection = allPhotos[i]
+            catalog?.saveCullingState(updated[i], labelChanged: was.label != now.label)
+            if updated[i].id == primarySelection?.id {
+                freshPrimary = updated[i]
             }
         }
         guard !after.isEmpty else { return }
+        // Only now, and only once. `after` being empty means nothing actually changed,
+        // so the early return above also spares the grid a publish for a keystroke that
+        // set a rating to the rating it already had.
+        allPhotos = updated
+        if let freshPrimary { primarySelection = freshPrimary }
         // No coalescing key: every cull decision is its own step. One keystroke over a
         // multi-selection is already one step, because it is one `record` call.
         history.record(before: before, after: after, coalescingKey: nil, label: label)
@@ -2946,7 +2983,7 @@ final class AppState: ObservableObject {
         let list = photos
         guard !list.isEmpty else { return }
         guard let current = primarySelection,
-              let found = list.firstIndex(of: current) else {
+              let found = rollIndex(of: current) else {
             // The photo left the filtered list under us. Its old neighbour is the
             // honest place to land.
             if let index {
@@ -2961,7 +2998,7 @@ final class AppState: ObservableObject {
     /// Where the cursor sits in the list as it stands right now.
     private var cursorIndex: Int? {
         guard let current = primarySelection else { return nil }
-        return photos.firstIndex(of: current)
+        return rollIndex(of: current)
     }
 
     // MARK: Recipes

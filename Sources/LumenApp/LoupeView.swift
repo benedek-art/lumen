@@ -1311,17 +1311,20 @@ struct LoupeView: View {
                                     viewerHasPhoto: model.imageURL == photo.id,
                                     gestureInFlight: state.sliderGestureActive)
         else { return }
-        let ids = state.photos.map(\.id)
-        guard let cursor = ids.firstIndex(of: photo.id) else { return }
+        // The roll itself, not a fresh `[URL]` projection of it. Building one cost a
+        // whole-roll allocation on every settle, and the linear search that followed
+        // cost a second pass; `rollIndex` is the memoised lookup and `state.photos` is
+        // already cached, so the pair is now a dictionary hit.
+        let roll = state.photos
+        guard let cursor = state.rollIndex(of: photo) else { return }
         // Forward unless the last move was backward — a photographer who just pressed
         // left is going left again.
-        let targets = DecodeWarming.indices(cursor: cursor, count: ids.count,
+        let targets = DecodeWarming.indices(cursor: cursor, count: roll.count,
                                             movingForward: state.movingForward)
         for i in targets {
             guard !Task.isCancelled else { return }
-            let url = ids[i]
             await state.renderCoordinator.warmDecode(
-                url: url, recipe: state.recipe(for: state.photos[i]), longEdge: longEdge)
+                url: roll[i].id, recipe: state.recipe(for: roll[i]), longEdge: longEdge)
         }
     }
 
@@ -1336,7 +1339,7 @@ struct LoupeView: View {
     @MainActor
     private func warmNeighbours() {
         state.thumbnails.prefetch(around: photo.id,
-                                  in: state.photos.map(\.id),
+                                  in: state.photos,
                                   size: ThumbnailLadder.loupeInstantPixels,
                                   surface: .loupe)
     }
