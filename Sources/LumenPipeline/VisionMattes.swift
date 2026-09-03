@@ -53,15 +53,27 @@ public enum VisionMattes {
 
     /// The kinds in a recipe that Vision can serve. Empty is the common case and the
     /// caller's fast exit.
+    ///
+    /// The walk is `MaskDependency.contributing`, not `recipe.masks where enabled`, and
+    /// that is finding F5-01. A mask can reference another through a `.maskRef`
+    /// component, and switching the referenced mask off — which is what you do
+    /// constantly, to see what a mask is doing — used to drop it from this roster. Its
+    /// matte was then never generated, so the mask built ON it had nothing to intersect
+    /// and rendered as nothing: no selection in the loupe, and the same absence written
+    /// into the exported file, because both reach this through
+    /// `RenderCoordinator.missingMatteKinds`.
+    ///
+    /// Disabling a mask removes its own contribution. It does not delete its geometry
+    /// out from under something that points at it.
+    ///
+    /// NOT by dropping the filter, which is the cheap fix and the wrong one: that asks
+    /// Vision for a matte belonging to a switched-off mask nobody references, which
+    /// records an attempted pass for a request the recipe never needed — and
+    /// `AppState.matteStatus` turns attempted-and-absent into `.notFound`, so the panel
+    /// would report "Vision found no clear subject" about a mask that is simply off.
+    /// Reachability, not removal.
     public static func kinds(in recipe: Recipe) -> Set<MaskKind> {
-        var wanted: Set<MaskKind> = []
-        for mask in recipe.masks where mask.enabled {
-            for component in mask.components
-            where component.kind.matteProvider == .vision {
-                wanted.insert(component.kind)
-            }
-        }
-        return wanted
+        MaskDependency.wantedMattes(in: recipe, from: .vision)
     }
 
     /// Generate the requested mattes. Returns only what was actually produced: a
