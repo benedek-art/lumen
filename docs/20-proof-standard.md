@@ -96,15 +96,16 @@ from a fixed set so that records are comparable across controls and across time:
 |---|---|---|
 | `neutralRamp` | a linear grey ramp over the working range | tone, curves, display transform |
 | `colourChart` | 24 patches at known chromaticities, including two skin tones | white balance, mixer, point colour, the B&W mix |
-| `stepEdge` | a hard edge at a known contrast | sharpening, halo and rim bounds, edge-aware masks |
+| `stepEdge` | a hard edge at a known contrast | halo and rim bounds, edge-aware masks |
 | `fineTexture` | band-limited detail at several spatial frequencies | texture, clarity, capture sharpening |
+| `wideFineTexture` | `fineTexture` at 2048 px, where a frame-denominated sharpening radius is still several pixels wide | creative sharpening's Detail and Masking |
 | `noisyISO6400` | a clean frame plus a measured sensor-noise model | every denoise control |
 | `hazySky` | a veiled gradient with a known airlight | dehaze, and the gradient-vs-edge case that has twice reverted the Texture port |
 | `hotPixels` | isolated spikes on an otherwise clean frame | hot pixels |
 | `chromaEdge` | a saturated colour boundary | colour denoise, defringe, chromatic aberration |
 | `noisyChromaEdge` | `chromaEdge` under the same sensor-noise model, with `chromaEdge` as ground truth | colour denoise scored on what it costs as well as what it removes |
 | `tonalColourWedge` | eight band-centre hues over the whole −9…+5 EV zone axis, one luminance per row | grading wheels, zone geometry, primaries, film stocks |
-| `wideStepEdge` | `stepEdge` at 2048 px, where a film-gate kernel is several pixels wide | halation |
+| `wideStepEdge` | `stepEdge` at 2048 px, where a film-gate kernel is several pixels wide | halation, and creative sharpening's Amount, Radius and Halo Damping — at 128 px the frame-denominated sigma never clears `gaussianBlur`'s own support floor, so those controls measured 0.0000 authority with 20 dead steps |
 | `grainField` | a grey ramp at 4096 px, where a grain plate cell clears its half-pixel floor | film grain amount and size |
 
 A control swept on a frame that does not contain its subject records `INVALID PROBE`,

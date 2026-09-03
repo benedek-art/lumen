@@ -664,15 +664,18 @@ changed the picture.
   place — `renderReference` and `KernelLibrary.unavailableKernels` — but a file is not a
   preview, and silently substituting the reference renderer mid-export is a decision
   that wants a Mac to test on first.
-- Creative sharpening is not resolution-scaled — `applySharpen` takes its radius in raw
-  pixels and its à-trous band at fixed pixel steps, where every other spatial stage
-  sizes itself off the long edge — so an export is less sharpened than the frame the
-  user judged. **And no surface in the application shows the difference**: previews
-  render at up to 4096 px, so "1:1" on a 45 MP file is already a half-resolution render
-  and there is nowhere to look at export sharpening honestly. The Masking gate IS
-  frame-proportional, so the gate and the band it gates scale differently as well. The
-  claim is by construction, not by number — `ScaleHonestyTests` covers texture and
-  clarity and not sharpen — and the panel says so rather than the delta being measured.
+- Creative sharpening IS resolution-scaled now, and this bullet used to say the
+  opposite. `applySharpen` took its radius in raw pixels and its à-trous band at fixed
+  pixel steps while every other spatial stage sized itself off the long edge, so an
+  export was less sharpened than the frame the user judged — and no surface in the
+  application showed the difference, since previews cap at 4096 px and "1:1" on a 45 MP
+  file is already a half-resolution render. That is E2-04, and it is closed: the sigma
+  is frame-denominated and the fine band follows the decomposition's grid, on the CPU
+  and the GPU alike. It is now a number rather than a construction — `ScaleHonestyTests`
+  covers sharpen alongside texture and clarity, and the measurement is **0.11 → 0.92**
+  of its strength arriving in a 6400 px delivery from a 1600 px preview. At 2560 px,
+  the reference width, both halves are the identity, so that render is byte-for-byte
+  what it always was.
 
   Also: a mask's COLOUR table still runs at 33³ even on export
   (`RenderGraph.Options.lutSize` has one reader now — the local curve's table, which
