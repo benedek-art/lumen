@@ -384,12 +384,26 @@ extension AppState {
                     : " — \(reducedFiles) reduced, GPU "
                         + (reducedKernels.count == 1 ? "kernel" : "kernels")
                         + " unavailable: " + reducedKernels.sorted().joined(separator: ", ")
-                if stopped {
+                // `stopped` alone is not enough, and the case is not rare: the cancel
+                // check runs at the END of every iteration including the last, so a
+                // photographer who clicks Stop while the FINAL file is encoding gets
+                // `stopped = true` out of a loop that had nothing left to do. The
+                // delivery is complete and the message would have called it interrupted
+                // — and the only way to tell would be noticing the two numbers match,
+                // which is exactly the arithmetic this message exists to spare them.
+                if stopped, written < Int(total) {
                     // Say it was stopped. Reporting "Exported 4 files" for a batch the
                     // photographer halted at 4 of 200 reads as a finished run, and the
                     // whole point of the button is that they know it did not finish.
+                    //
+                    // The first failure is NAMED here for the same reason the branch
+                    // below names it: "2 failed" cannot tell a disk error from masking
+                    // that could not be read, and the second decides whether the
+                    // delivery can go out at all. A halted, part-delivered run with
+                    // something also wrong is the one that needs it most.
                     let failureNote = failures.isEmpty ? ""
                         : " — \(failures.count) failed"
+                            + (failures.first.map { " — " + $0 } ?? "")
                     self.statusMessage = "Stopped — \(written) file"
                         + (written == 1 ? "" : "s") + " of \(Int(total)) written"
                         + failureNote + renamedNote + reducedNote

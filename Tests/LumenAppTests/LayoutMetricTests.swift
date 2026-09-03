@@ -725,7 +725,7 @@ final class LayoutMetricTests: XCTestCase {
 
         // The floating Masks pop-out, which never resizes.
         try pin("Sources/LumenApp/MaskFloatingPanel.swift",
-                "static let width: CGFloat = 272",
+                "static let width: CGFloat = 290",
                 "mask panel width \(f(PanelChain.maskPanelWidth))")
         try pin("Sources/LumenApp/MaskFloatingPanel.swift",
                 ".padding(.horizontal, 10) .padding(.top, 8) .padding(.bottom, 10)",

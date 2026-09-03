@@ -171,7 +171,7 @@ enum PanelChain {
 
     /// The floating Masks pop-out — a fixed-width host, so the column's resize does
     /// nothing for it and every number below is the only number it ever has.
-    static let maskPanelWidth: CGFloat = 272
+    static let maskPanelWidth: CGFloat = 290
     /// `MaskFloatingPanel.swift` — the content's own gutter, each side.
     static let maskPanelContentInset: CGFloat = 10
     /// `MaskPanel.swift` — `maskDetail`'s indent and its trailing partner.

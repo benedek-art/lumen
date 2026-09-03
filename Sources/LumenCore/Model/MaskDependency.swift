@@ -60,15 +60,31 @@ public enum MaskDependency {
     /// the same reason: the limit is a property of evaluation, and duplicating it here
     /// would be a second answer to keep in step with the first.
     public static func contributing(in recipe: Recipe) -> [Mask] {
-        // First-wins on a duplicate id, which is what every `firstIndex(where:)` in the
-        // application resolves to — the lookup here must not disagree with them.
+        // First-wins on a duplicate id for the TARGET lookup, which is what every
+        // `firstIndex(where:)` in the application resolves to — resolving a reference
+        // here must not disagree with them.
         var byID: [String: Mask] = [:]
         for mask in recipe.masks where byID[mask.id] == nil { byID[mask.id] = mask }
 
+        // The ROOTS are walked by ROW, not by id, and that distinction is a defect this
+        // walk had. `RenderPlan.masks` is a `compactMap` over rows, so two masks sharing
+        // one id both RENDER — while seeding the queue by id skipped the second one
+        // entirely, and its `maskRef` targets were never fetched. The second row then
+        // rendered empty, in the loupe and in the file, with no badge: exactly the bug
+        // this file exists to close, reintroduced by the lookup rather than by the rule.
+        //
+        // Ids are not unique by construction — `Mask.init(from:)` invents one when the
+        // key is absent, so a hand-edited sidecar or a catalog from another writer can
+        // carry a collision, and `appendingMasks` re-issues ids without remapping.
         var wanted: Set<String> = []
         var queue: [String] = []
         for mask in recipe.masks where recipe.effective(mask).enabled {
-            if wanted.insert(mask.id).inserted { queue.append(mask.id) }
+            wanted.insert(mask.id)
+            for component in mask.components where component.kind == .maskRef {
+                guard let ref = component.maskRef, !ref.isEmpty, byID[ref] != nil,
+                      wanted.insert(ref).inserted else { continue }
+                queue.append(ref)
+            }
         }
 
         var head = 0

@@ -133,20 +133,20 @@ final class MaskKeyTests: XCTestCase {
 
     func testTheMaskKindsThatReadNoPicture() {
         // Geometry, and a brush without Automask: nothing here samples the photograph,
-        // so nothing here is invalidated by a tone edit.
-        for kind: MaskKind in [.brush, .linear, .radial, .polygon] {
-            XCTAssertFalse(kind.readsSourceImage, "\(kind.rawValue)")
-        }
-        // The matte-backed kinds read a matte, and the matte is generated from a default
-        // recipe — so it does not move when tone does either. WHICH photograph it
-        // belongs to is a different term, and an unconditional one.
-        for kind: MaskKind in [.aiSubject, .aiSky, .aiBackground, .aiObject,
-                               .aiPerson, .aiLandscape, .depthRange] {
+        // so nothing here is invalidated by a tone edit. The matte-backed kinds join
+        // them — a matte is generated from a DEFAULT recipe (`matteSourceImage`), so it
+        // does not move when tone does either, and which photograph it belongs to is a
+        // different term of the key, and an unconditional one.
+        let geometry: [MaskKind] = [.brush, .linear, .radial, .polygon,
+                                    .aiSubject, .aiSky, .aiBackground, .aiObject,
+                                    .aiPerson, .aiLandscape, .depthRange]
+        for kind in geometry {
             XCTAssertFalse(kind.readsSourceImage, "\(kind.rawValue)")
         }
         // And the ones that genuinely sample it, which must keep the fingerprint.
-        for kind: MaskKind in [.lumaRange, .colorRange, .similarity,
-                               .similarityLine, .luminosity] {
+        let readers: [MaskKind] = [.lumaRange, .colorRange, .similarity,
+                                   .similarityLine, .luminosity]
+        for kind in readers {
             XCTAssertTrue(kind.readsSourceImage, "\(kind.rawValue)")
         }
     }

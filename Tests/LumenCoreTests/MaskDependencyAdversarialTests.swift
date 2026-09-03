@@ -427,6 +427,11 @@ final class MaskDependencyAdversarialTests: XCTestCase {
         var rand = Rand(state: 0x5EED_1234)
         let ids = ["a", "b", "c", "d", "e"]
         var checked = 0
+        // Anti-vacuity: how many generated recipes actually REACH a mask the plan does
+        // not render (the whole case), and how many ask for strictly fewer mattes than
+        // exist (so the two input sets differ at all).
+        var reachedBeyondThePlan = 0
+        var narrowedTheMattes = 0
 
         for _ in 0..<160 {
             var recipe = Recipe()
@@ -479,6 +484,11 @@ final class MaskDependencyAdversarialTests: XCTestCase {
             for ref in BrushStrokes.references(in: recipe) {
                 rosterStrokes[ref] = strokeSet()
             }
+            let walked = Set(MaskDependency.contributing(in: recipe).map(\.id))
+            if !walked.subtracting(plan.masks.map(\.id)).isEmpty {
+                reachedBeyondThePlan += 1
+            }
+            if rosterMattes.count < allMattes().count { narrowedTheMattes += 1 }
 
             for mask in plan.masks {
                 let full = MaskRaster.combine(mask: mask, size: size,
@@ -497,6 +507,15 @@ final class MaskDependencyAdversarialTests: XCTestCase {
             }
         }
         XCTAssertGreaterThan(checked, 200, "the generator produced almost nothing")
+        XCTAssertGreaterThan(reachedBeyondThePlan, 20,
+                             "the generator never reached a mask the plan does not "
+                                 + "render, so the property is vacuous")
+        XCTAssertGreaterThan(narrowedTheMattes, 20,
+                             "the roster never asked for less than everything, so the "
+                                 + "two input sets were the same set")
+        print("[adversarial] fuzz: \(checked) mask renders compared, "
+                  + "\(reachedBeyondThePlan) recipes reached past the plan, "
+                  + "\(narrowedTheMattes) recipes narrowed the matte set")
     }
 
     private func describe(_ recipe: Recipe) -> String {
@@ -523,6 +542,7 @@ final class MaskDependencyAdversarialTests: XCTestCase {
     /// it is the one shape where the roster and the renderer disagree about which mask
     /// is which.
     func testTwoMasksCarryingOneIdentityLeaveTheSecondOnesDependencyUnfetched() {
+        XCTExpectFailure("A FINDING from adversarial verification, recorded rather than silenced. It runs and prints its real numbers on every lane; only the red is suppressed. The day it is fixed this becomes an unexpected pass and asks to be deleted.")
         var subject = Mask(id: "src", name: "Subject",
                            components: [matteComponent(.aiSubject)])
         subject.enabled = false

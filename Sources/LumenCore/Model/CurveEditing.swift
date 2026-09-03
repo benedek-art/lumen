@@ -87,7 +87,30 @@ public enum CurveEditing {
         }
         guard out.count >= 2 else { return identity }
         out.sort { $0[0] < $1[0] }
-        return out
+
+        // DROP POINTS THAT SHARE AN X, and note that the clamp above can CREATE them:
+        // two x values above 1 both land on 1, two below 0 both land on 0. Ordinary
+        // doubles in a sidecar this application did not write — nothing rejects them on
+        // the way in, and `CurveEditing.sanitized` is the only thing between a decoded
+        // `[[Double]]?` and the editor.
+        //
+        // The consequence is not a lost shadow, it is a lost photograph. `MonotoneCubic`
+        // drops any point whose x is not greater than the one before it, and with one
+        // surviving point it evaluates to that point's y at every input — the whole
+        // frame renders as a single flat value, while the editor draws control points
+        // that are not there.
+        //
+        // The same test `MonotoneCubic` runs, run here instead, because this function's
+        // stated job is that anything malformed is repaired at this one point rather
+        // than defended against at every use site. It was doing everything but this.
+        var strict: [[Double]] = []
+        strict.reserveCapacity(out.count)
+        for point in out {
+            if let last = strict.last, point[0] <= last[0] { continue }
+            strict.append(point)
+        }
+        guard strict.count >= 2 else { return identity }
+        return strict
     }
 
     public static let identity: [[Double]] = [[0, 0], [1, 1]]

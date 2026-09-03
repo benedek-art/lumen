@@ -198,7 +198,7 @@ struct ScopesView: View {
     /// .minimumPanelWidth`), which is what pays for the compressions: `space.label`'s
     /// full form ("Output profile 0–255") became `shortSpaceLabel`'s, and "256 columns ×
     /// 256 bins" became "256×256". Both spellings survive in the tooltip, where there is
-    /// room. Without them the waveform caption is 69 characters and truncates.
+    /// room. Without them the waveform caption is 70 characters and truncates.
     ///
     /// What it did NOT have, at any width, was the weighting behind the word "Luma":
     /// `Waveform.compute` weights the WORKING triple by `transform.working

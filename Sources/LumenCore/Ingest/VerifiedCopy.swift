@@ -91,6 +91,10 @@ public enum IngestCopyFailure: Sendable, Equatable {
     case unwritableDestination(String)
     case unreadableCopy(String)
     case verificationMismatch(expected: IngestDigest, found: IngestDigest)
+    /// The source delivered fewer bytes than the card scan recorded, without raising an
+    /// error — a clean premature EOF. Distinct from `verificationMismatch` because
+    /// nothing disagreed: the copy matched the read exactly, and the read was short.
+    case shortRead(expected: Int64, read: Int64)
 
     /// The sentence the sheet shows. Never "something went wrong": the difference
     /// between a full disk and a card going bad is the whole of what the photographer
@@ -103,6 +107,9 @@ public enum IngestCopyFailure: Sendable, Equatable {
             return "could not be written to the destination: " + why
         case .unreadableCopy(let why):
             return "landed but could not be read back to verify it: " + why
+        case .shortRead(let expected, let read):
+            return "the source ended early — the card said \(expected) bytes and only "
+                + "\(read) arrived, so nothing was written"
         case .verificationMismatch(let expected, let found):
             return "the copy does not match the source — source \(expected), copy "
                 + "\(found) — so the copy was deleted"
@@ -478,6 +485,32 @@ public struct VerifiedCopyDriver: Sendable {
         }
 
         let inFlight = IngestDigest(hex: digest.hexDigest(), byteCount: bytes)
+
+        // THE FRAME HAS TO BE THE SIZE THE CARD SAID IT WAS.
+        //
+        // Without this the verification is self-referential: it hashes what the read
+        // returned and compares it to what landed, which proves the copy equals the
+        // READ and never that the read was the whole file. A source that ends early
+        // and cleanly — a dying reader returning a premature EOF, a card swapped at the
+        // same mount path after the scan, a camera still flushing — sails through as
+        // "every copy verified", and `allVerified` is what unlocks the eject button.
+        // That is the one failure this whole subsystem exists to prevent, and the
+        // number needed to catch it was already in hand: `copy.byteCount` is what the
+        // scan recorded and what the sheet showed the photographer.
+        //
+        // Fails every destination rather than the frame quietly: each volume holds a
+        // short file, and none of them may be counted as ingested.
+        if bytes != copy.byteCount {
+            let planned = IngestDigest(hex: "", byteCount: copy.byteCount)
+            for writer in live {
+                try? fm.removeItem(at: writer.temp)
+                results.append(verdict(writer.planned, writer.final, writer.role,
+                                       .failed(.shortRead(expected: copy.byteCount,
+                                                          read: bytes))))
+                _ = planned
+            }
+            return FrameOutcome(results: results, cancelled: false)
+        }
 
         for writer in live {
             var landed = writer.final

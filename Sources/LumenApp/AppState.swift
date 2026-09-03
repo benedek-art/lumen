@@ -1492,17 +1492,39 @@ final class AppState: ObservableObject {
 
     @Published var activeSheet: SheetKind?
 
+    /// Put a sheet up, unless doing so would take the Stop button off screen.
+    ///
+    /// `activeSheet` holds exactly ONE sheet, and the export sheet now stays up for the
+    /// whole run because it holds the only Stop button in the application. Before that
+    /// change nothing could displace anything — the export sheet was never up during a
+    /// batch — and afterwards a single ⌘/ or ⇧⌘I replaced it and the export carried on
+    /// writing with no way to stop it anywhere in the app. ⌘E brings it back, and
+    /// nothing told the photographer that.
+    ///
+    /// Refused rather than queued, and it says why: a request to see the key reference
+    /// during a two-hundred-file export is a request the photographer will repeat in ten
+    /// seconds, and silently swallowing it is how a menu item becomes untrustworthy.
+    /// Closing the sheet by hand is still allowed — that is a deliberate act, and the
+    /// status bar keeps saying an export is running.
+    private func present(_ sheet: SheetKind?) {
+        if isExporting, activeSheet == .export, let sheet, sheet != .export {
+            statusMessage = "An export is running — stop it or let it finish first"
+            return
+        }
+        activeSheet = sheet
+    }
+
     var showKeyReference: Bool {
         get { activeSheet == .keyReference }
-        set { activeSheet = newValue ? .keyReference : (showKeyReference ? nil : activeSheet) }
+        set { present(newValue ? .keyReference : (showKeyReference ? nil : activeSheet)) }
     }
     var showExportSheet: Bool {
         get { activeSheet == .export }
-        set { activeSheet = newValue ? .export : (showExportSheet ? nil : activeSheet) }
+        set { present(newValue ? .export : (showExportSheet ? nil : activeSheet)) }
     }
     var showIngestSheet: Bool {
         get { activeSheet == .ingest }
-        set { activeSheet = newValue ? .ingest : (showIngestSheet ? nil : activeSheet) }
+        set { present(newValue ? .ingest : (showIngestSheet ? nil : activeSheet)) }
     }
 
     /// True while anything modal is on screen — the bare-key grammar stands down.
@@ -3794,22 +3816,59 @@ final class AppState: ObservableObject {
 
     /// Put a saved look on the selection: one history step, undoable, and every frame
     /// keeps its own white balance, exposure, crop and masks.
-    func applyLook(_ look: LookRow) {
+    ///
+    /// `amount` IS HOW MUCH OF IT LANDS, and the three rules that go with it live here
+    /// rather than in the panel: clamp what arrives, refuse at zero, and say the strength
+    /// in the status line when it is not the whole look. `LookPanel`'s own comment is that
+    /// "a panel that kept them would be a panel whose second caller silently does not have
+    /// them" — the command palette and the speed edit are both waiting to be that second
+    /// caller, and neither of them has a slider to have clamped the value on the way in.
+    ///
+    /// Defaulted to the whole look so that "apply this look" stays one word for every
+    /// caller that has no strength to express. `LookSubset.applied(to:)` takes 100 as the
+    /// exact path it has always taken — no blend, the same bytes, no pinned render
+    /// re-baked — so the default is not merely equivalent to the old call, it is it.
+    ///
+    /// The clamp is `LookSubset.clampedAmount`, which reads a non-finite value as FULL
+    /// rather than as zero: every unreadable answer to "how much of this look" has to
+    /// fail toward the look being there, and a bare clamp would let NaN through to poison
+    /// the blend into black.
+    func applyLook(_ look: LookRow, amount: Double = LookSubset.fullAmount) {
         let targets = editTargets.count
         guard targets > 0 else {
             statusMessage = "Select the photos to apply \"\(look.name)\" to"
             return
         }
-        guard let subset = try? look.subset() else {
+        let strength = LookSubset.clampedAmount(amount)
+        // Refused rather than recorded. `applied(to:)` returns the target untouched at
+        // zero, so the edit would be a history step that changes nothing — an undo the
+        // photographer has to press twice to get past, and a status line claiming a look
+        // was applied when the frame is exactly as it was.
+        guard strength > 0 else {
+            statusMessage = "\"\(look.name)\" at 0% would change nothing"
+            return
+        }
+        guard var subset = try? look.subset() else {
             statusMessage = "\"\(look.name)\" could not be read"
             return
         }
+        // The saved look carries whatever amount it was stored at; what the caller asks
+        // for now overrides it. The amount is spent at the moment of applying and is not
+        // kept on the photograph (`applied(to:)` argues that at length), so this is the
+        // only place it can be said.
+        subset.amount = strength
         updateRecipe(label: "Apply Look") { recipe in
             recipe = subset.applied(to: recipe)
         }
+        // The strength is named only when it is not the whole look, because "Applied
+        // Portra at 100%" reads as a setting the photographer chose rather than as the
+        // ordinary gesture it is.
+        let partial = strength < LookSubset.fullAmount
+            ? " at \(Int(strength.rounded()))%"
+            : ""
         statusMessage = targets == 1
-            ? "Applied \"\(look.name)\""
-            : "Applied \"\(look.name)\" to \(targets) photos"
+            ? "Applied \"\(look.name)\"\(partial)"
+            : "Applied \"\(look.name)\"\(partial) to \(targets) photos"
     }
 
     func renameLook(_ look: LookRow, to name: String) {

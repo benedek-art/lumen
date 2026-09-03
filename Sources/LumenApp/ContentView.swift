@@ -865,7 +865,16 @@ private struct StatusBar: View {
                 .foregroundStyle(Lumen.secondaryText)
             Spacer()
             if state.isExporting {
-                Text("Exporting \(Int(state.exportProgress * 100))%")
+                // Two states, not one. Once a stop has been asked for, the percentage
+                // keeps climbing through the file being finished — and this readout is
+                // the only always-visible sign of an export, so a photographer who
+                // pressed Stop and then closed the sheet was watching a number rise on
+                // a batch that was already stopping. `exportCancelRequested` was
+                // published and nothing read it; the sheet's own "Cancelling…" is local
+                // `@State` and goes away with the sheet.
+                Text(state.exportCancelRequested
+                     ? "Stopping — finishing this file"
+                     : "Exporting \(Int(state.exportProgress * 100))%")
                     .font(.lumenCaption)
                     .foregroundStyle(Lumen.secondaryText)
             }
