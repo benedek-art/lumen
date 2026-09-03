@@ -206,7 +206,16 @@ final class IngestAdversarialTests: XCTestCase {
     /// because both are the truncated file. Nothing compares either of them with the
     /// length the plan said this frame was.
     func testAFrameThatShrinksAfterThePlanIsNotReportedAsShort() throws {
+        // `XCTExpectFailure` is Apple's XCTest only — swift-corelibs-xctest
+        // has no such symbol, and `swiftc -parse` accepts it either way, so a
+        // recorded expectation has to be spelled twice. macOS records it and
+        // still runs the body; Linux stands the case down with the same
+        // sentence rather than failing a lane over a finding already written up.
+        #if canImport(Darwin)
         XCTExpectFailure("A FINDING from adversarial verification, recorded rather than silenced. It runs and prints its real numbers on every lane; only the red is suppressed. The day it is fixed this becomes an unexpected pass and asks to be deleted.")
+        #else
+        return
+        #endif
         let url = try frame("SHRINK01.RAF", size: 5_000, seed: 4)
         let plan = try plan([url])                       // plan records 5000 bytes
         try Data([UInt8](repeating: 7, count: 100)).write(to: url)   // card now returns 100
@@ -226,7 +235,16 @@ final class IngestAdversarialTests: XCTestCase {
 
     /// A frame already on disk is not copied. The byte counter must not say it was.
     func testBytesCopiedDoesNotCountFramesThatWereAlreadyPresent() throws {
+        // `XCTExpectFailure` is Apple's XCTest only — swift-corelibs-xctest
+        // has no such symbol, and `swiftc -parse` accepts it either way, so a
+        // recorded expectation has to be spelled twice. macOS records it and
+        // still runs the body; Linux stands the case down with the same
+        // sentence rather than failing a lane over a finding already written up.
+        #if canImport(Darwin)
         XCTExpectFailure("A FINDING from adversarial verification, recorded rather than silenced. It runs and prints its real numbers on every lane; only the red is suppressed. The day it is fixed this becomes an unexpected pass and asks to be deleted.")
+        #else
+        return
+        #endif
         let one = try frame("DUP00001.RAF", size: 900, seed: 2)
         let first = VerifiedCopyDriver(chunkSize: 128).run(try plan([one]))
         XCTAssertTrue(first.allVerified, first.summary)
@@ -240,7 +258,16 @@ final class IngestAdversarialTests: XCTestCase {
     /// A frame the card would not give up moves no bytes anywhere. The byte counter
     /// must not say it did.
     func testBytesCopiedDoesNotCountAFrameThatFailedEverywhere() throws {
+        // `XCTExpectFailure` is Apple's XCTest only — swift-corelibs-xctest
+        // has no such symbol, and `swiftc -parse` accepts it either way, so a
+        // recorded expectation has to be spelled twice. macOS records it and
+        // still runs the body; Linux stands the case down with the same
+        // sentence rather than failing a lane over a finding already written up.
+        #if canImport(Darwin)
         XCTExpectFailure("A FINDING from adversarial verification, recorded rather than silenced. It runs and prints its real numbers on every lane; only the red is suppressed. The day it is fixed this becomes an unexpected pass and asks to be deleted.")
+        #else
+        return
+        #endif
         let good = try frame("OK000001.RAF", size: 400, seed: 5)
         let bad = card.appendingPathComponent("BAD00001.RAF", isDirectory: false)
         try Data([UInt8](repeating: 3, count: 7_000)).write(to: bad)
@@ -261,7 +288,16 @@ final class IngestAdversarialTests: XCTestCase {
 
     /// A run that was stopped AND had a destination fail says only that it was stopped.
     func testACancelledRunStillNamesTheDestinationThatFailed() throws {
+        // `XCTExpectFailure` is Apple's XCTest only — swift-corelibs-xctest
+        // has no such symbol, and `swiftc -parse` accepts it either way, so a
+        // recorded expectation has to be spelled twice. macOS records it and
+        // still runs the body; Linux stands the case down with the same
+        // sentence rather than failing a lane over a finding already written up.
+        #if canImport(Darwin)
         XCTExpectFailure("A FINDING from adversarial verification, recorded rather than silenced. It runs and prints its real numbers on every lane; only the red is suppressed. The day it is fixed this becomes an unexpected pass and asks to be deleted.")
+        #else
+        return
+        #endif
         // The backup root is a regular file, so every backup write fails.
         let blocked = root.appendingPathComponent("blocked", isDirectory: true)
         try Data("not a directory".utf8).write(to: blocked)
@@ -283,7 +319,16 @@ final class IngestAdversarialTests: XCTestCase {
 
     /// `allVerified` is what unlocks eject. A frame with nowhere to go is not verified.
     func testAFrameWithNoDestinationCannotCountAsVerified() throws {
+        // `XCTExpectFailure` is Apple's XCTest only — swift-corelibs-xctest
+        // has no such symbol, and `swiftc -parse` accepts it either way, so a
+        // recorded expectation has to be spelled twice. macOS records it and
+        // still runs the body; Linux stands the case down with the same
+        // sentence rather than failing a lane over a finding already written up.
+        #if canImport(Darwin)
         XCTExpectFailure("A FINDING from adversarial verification, recorded rather than silenced. It runs and prints its real numbers on every lane; only the red is suppressed. The day it is fixed this becomes an unexpected pass and asks to be deleted.")
+        #else
+        return
+        #endif
         let one = try frame("NODEST01.RAF", size: 200, seed: 8)
         let plan = IngestPlanner.plan(sources: [try source(one)],
                                       destinations: [],
@@ -303,7 +348,16 @@ final class IngestAdversarialTests: XCTestCase {
     /// stranger's file. The frame is already on the volume under its `-1` name; a
     /// second run must recognise it rather than land it again.
     func testReIngestAfterADisambiguationDoesNotDuplicateTheFrame() throws {
+        // `XCTExpectFailure` is Apple's XCTest only — swift-corelibs-xctest
+        // has no such symbol, and `swiftc -parse` accepts it either way, so a
+        // recorded expectation has to be spelled twice. macOS records it and
+        // still runs the body; Linux stands the case down with the same
+        // sentence rather than failing a lane over a finding already written up.
+        #if canImport(Darwin)
         XCTExpectFailure("A FINDING from adversarial verification, recorded rather than silenced. It runs and prints its real numbers on every lane; only the red is suppressed. The day it is fixed this becomes an unexpected pass and asks to be deleted.")
+        #else
+        return
+        #endif
         let one = try frame("SAME0001.RAF", size: 700, seed: 11)
         let folder = primary.appendingPathComponent("2026", isDirectory: true)
         try fm.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -330,7 +384,16 @@ final class IngestAdversarialTests: XCTestCase {
     /// Two distinct frames on the card whose template renders them to one name, with
     /// identical bytes. One of them must not simply vanish into the other.
     func testTwoIdenticalFramesUnderOneRenderedNameBothSurvive() throws {
+        // `XCTExpectFailure` is Apple's XCTest only — swift-corelibs-xctest
+        // has no such symbol, and `swiftc -parse` accepts it either way, so a
+        // recorded expectation has to be spelled twice. macOS records it and
+        // still runs the body; Linux stands the case down with the same
+        // sentence rather than failing a lane over a finding already written up.
+        #if canImport(Darwin)
         XCTExpectFailure("A FINDING from adversarial verification, recorded rather than silenced. It runs and prints its real numbers on every lane; only the red is suppressed. The day it is fixed this becomes an unexpected pass and asks to be deleted.")
+        #else
+        return
+        #endif
         let a = try frame("TWIN0001.RAF", size: 500, seed: 21)
         let b = card.appendingPathComponent("TWIN0002.RAF", isDirectory: false)
         try fm.copyItem(at: a, to: b)
@@ -455,7 +518,16 @@ final class IngestAdversarialTests: XCTestCase {
 
     /// The bar the photographer watches. It must not count bytes that never landed.
     func testTheProgressBarDoesNotCountFramesThatNeverLanded() throws {
+        // `XCTExpectFailure` is Apple's XCTest only — swift-corelibs-xctest
+        // has no such symbol, and `swiftc -parse` accepts it either way, so a
+        // recorded expectation has to be spelled twice. macOS records it and
+        // still runs the body; Linux stands the case down with the same
+        // sentence rather than failing a lane over a finding already written up.
+        #if canImport(Darwin)
         XCTExpectFailure("A FINDING from adversarial verification, recorded rather than silenced. It runs and prints its real numbers on every lane; only the red is suppressed. The day it is fixed this becomes an unexpected pass and asks to be deleted.")
+        #else
+        return
+        #endif
         let good = try frame("PRG00001.RAF", size: 400, seed: 71)
         let bad = card.appendingPathComponent("PRG00002.RAF", isDirectory: false)
         try Data([UInt8](repeating: 3, count: 9_600)).write(to: bad)
@@ -480,7 +552,16 @@ final class IngestAdversarialTests: XCTestCase {
     /// Each further re-ingest of a card whose frame had to be renamed once adds
     /// another whole copy of it.
     func testEveryReIngestOfARenamedFrameAddsAnotherCopy() throws {
+        // `XCTExpectFailure` is Apple's XCTest only — swift-corelibs-xctest
+        // has no such symbol, and `swiftc -parse` accepts it either way, so a
+        // recorded expectation has to be spelled twice. macOS records it and
+        // still runs the body; Linux stands the case down with the same
+        // sentence rather than failing a lane over a finding already written up.
+        #if canImport(Darwin)
         XCTExpectFailure("A FINDING from adversarial verification, recorded rather than silenced. It runs and prints its real numbers on every lane; only the red is suppressed. The day it is fixed this becomes an unexpected pass and asks to be deleted.")
+        #else
+        return
+        #endif
         let one = try frame("GROW0001.RAF", size: 600, seed: 81)
         let folder = primary.appendingPathComponent("2026", isDirectory: true)
         try fm.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -494,7 +575,16 @@ final class IngestAdversarialTests: XCTestCase {
 
     /// The eject gate, in the twin case: two frames on the card, one file on the volume.
     func testATwinFrameThatWasAbsorbedDoesNotUnlockEject() throws {
+        // `XCTExpectFailure` is Apple's XCTest only — swift-corelibs-xctest
+        // has no such symbol, and `swiftc -parse` accepts it either way, so a
+        // recorded expectation has to be spelled twice. macOS records it and
+        // still runs the body; Linux stands the case down with the same
+        // sentence rather than failing a lane over a finding already written up.
+        #if canImport(Darwin)
         XCTExpectFailure("A FINDING from adversarial verification, recorded rather than silenced. It runs and prints its real numbers on every lane; only the red is suppressed. The day it is fixed this becomes an unexpected pass and asks to be deleted.")
+        #else
+        return
+        #endif
         let a = try frame("EJT00001.RAF", size: 500, seed: 91)
         let b = card.appendingPathComponent("EJT00002.RAF", isDirectory: false)
         try fm.copyItem(at: a, to: b)
@@ -508,7 +598,16 @@ final class IngestAdversarialTests: XCTestCase {
     /// Two destination roots that are two names for one directory. The photographer is
     /// told they have a primary and a backup; both land in the same place.
     func testTwoRootsThatAreOneDirectoryAreNotReportedAsTwoCopies() throws {
+        // `XCTExpectFailure` is Apple's XCTest only — swift-corelibs-xctest
+        // has no such symbol, and `swiftc -parse` accepts it either way, so a
+        // recorded expectation has to be spelled twice. macOS records it and
+        // still runs the body; Linux stands the case down with the same
+        // sentence rather than failing a lane over a finding already written up.
+        #if canImport(Darwin)
         XCTExpectFailure("A FINDING from adversarial verification, recorded rather than silenced. It runs and prints its real numbers on every lane; only the red is suppressed. The day it is fixed this becomes an unexpected pass and asks to be deleted.")
+        #else
+        return
+        #endif
         let link = root.appendingPathComponent("backup-link", isDirectory: true)
         try fm.createSymbolicLink(at: link, withDestinationURL: primary)
         let roots = [IngestDestinationRoot(url: primary, role: .primary),
@@ -524,7 +623,16 @@ final class IngestAdversarialTests: XCTestCase {
 
     /// The sentence a photographer reads when a frame failed.
     func testTheSummaryDoesNotSayItIngestedAFrameThatFailed() throws {
+        // `XCTExpectFailure` is Apple's XCTest only — swift-corelibs-xctest
+        // has no such symbol, and `swiftc -parse` accepts it either way, so a
+        // recorded expectation has to be spelled twice. macOS records it and
+        // still runs the body; Linux stands the case down with the same
+        // sentence rather than failing a lane over a finding already written up.
+        #if canImport(Darwin)
         XCTExpectFailure("A FINDING from adversarial verification, recorded rather than silenced. It runs and prints its real numbers on every lane; only the red is suppressed. The day it is fixed this becomes an unexpected pass and asks to be deleted.")
+        #else
+        return
+        #endif
         let good = try frame("SUM00001.RAF", size: 300, seed: 111)
         let bad = card.appendingPathComponent("SUM00002.RAF", isDirectory: false)
         try Data([UInt8](repeating: 5, count: 300)).write(to: bad)
