@@ -123,13 +123,49 @@ public struct Recipe: Codable, Equatable, Sendable {
     /// The recipe reduced to what actually reaches a pixel — what the fingerprint
     /// hashes, and what `rendersSameAs` compares.
     ///
-    /// Masks lose their name AND their id. The name is a label for the panel. The id
-    /// is a random UUID, and hashing it had two costs: renaming a mask changed
-    /// `recipe_fp`, which keys every preview and artifact in the cache, so one
-    /// keystroke in a text field threw away the 1:1 and fit renders of a 45-megapixel
-    /// frame — and two photos given genuinely identical mask edits got different
-    /// fingerprints, so they could never share a cached artifact. What the renderer
-    /// needs to tell masks apart is their position in the stack, which survives here.
+    /// Masks lose their name, and they lose the ARBITRARY BYTES of their id. The name is
+    /// a label for the panel. The id is a random UUID, and hashing it had two costs:
+    /// renaming a mask changed `recipe_fp`, which keys every preview and artifact in the
+    /// cache, so one keystroke in a text field threw away the 1:1 and fit renders of a
+    /// 45-megapixel frame — and two photos given genuinely identical mask edits got
+    /// different fingerprints, so they could never share a cached artifact. What the
+    /// renderer needs to tell masks apart is their position in the stack, which survives
+    /// here.
+    ///
+    /// BUT A MASK'S ID IS COSMETIC ONLY WHILE NOTHING NAMES IT, and blanking it outright
+    /// was the audited half of that. `MaskComponent.maskRef` names another mask BY ID and
+    /// `MaskRaster.referenced` resolves it against this same list, so for a recipe
+    /// carrying a reference the id is not a label — it is the edge of a graph, and
+    /// erasing one end of the edge while hashing the other broke the projection in BOTH
+    /// directions:
+    ///
+    ///   · two recipes that render DIFFERENT pictures hashed the same. Mask "Sky" with
+    ///     id A and mask "Sky ∩ Person" pointing at A renders the intersection; give Sky
+    ///     any other id and the reference dangles, which `MaskRaster.referenced` reports
+    ///     as ABSENT, so the second mask selects nothing. Both blanked to `id: ""` and
+    ///     both hashed to the same `recipe_fp` — a cache key that hands back the other
+    ///     picture, and a `rendersSameAs` that calls a real edit no edit.
+    ///
+    ///   · two recipes that render the SAME picture hashed differently — the very case
+    ///     the blanking exists to close. Build the same two-mask stack on two photos, or
+    ///     paste one batch of masks twice (`appendingMasks` re-issues the colliding ids
+    ///     and remaps the references with them), and the UUID leaks straight back into
+    ///     the hash through `maskRef`.
+    ///
+    /// So a reference-bearing recipe keeps the STRUCTURE and drops the arbitrary bytes,
+    /// which is the move the group comment below already reasons its way to, one level
+    /// over: each mask's id becomes its position in the stack — already part of this
+    /// projection — and every reference is rewritten to the canonical id of the mask it
+    /// actually resolves to. FIRST-WINS on a duplicate id, matching `masks.first(where:)`
+    /// in `MaskRaster.referenced` and `MaskDependency`'s `byID`, so a recipe with
+    /// colliding ids hashes as the picture it renders rather than the one it describes.
+    /// A reference that resolves to nothing canonicalizes to the empty string: deleted,
+    /// dangling and never-there are one rendered result — absent — so they are one key.
+    ///
+    /// A recipe with NO reference keeps the blanking, byte for byte, and therefore keeps
+    /// its existing `recipe_fp`. The id genuinely is cosmetic there, and re-keying every
+    /// cached preview in the catalog to close a case those recipes cannot reach would be
+    /// a cost with nothing behind it. `MaskReferenceIdentityTests` states both halves.
     ///
     /// A switched-off black-and-white mix goes the same way, for the same reason. It is
     /// eight numbers no pixel reads, kept so the photographer gets them back; hashing
@@ -138,13 +174,35 @@ public struct Recipe: Codable, Equatable, Sendable {
     /// make the library call a photo edited when it renders exactly as it was shot.
     ///
     /// The stored `edit.recipe` is still the full-fidelity recipe; this projection
-    /// exists only to be hashed and compared.
+    /// exists only to be hashed and compared — nothing here renders.
     public var renderIdentity: Recipe {
         var copy = self
-        copy.masks = masks.map { mask in
-            var stripped = mask.withoutCosmetics
-            stripped.id = ""
-            return stripped
+        let references = masks.contains { mask in
+            mask.components.contains { $0.kind == .maskRef }
+        }
+        if references {
+            var canonical: [String: String] = [:]
+            for (index, mask) in masks.enumerated() where canonical[mask.id] == nil {
+                canonical[mask.id] = String(index)
+            }
+            copy.masks = masks.enumerated().map { index, mask in
+                var stripped = mask.withoutCosmetics
+                stripped.id = String(index)
+                stripped.components = stripped.components.map { component in
+                    guard component.kind == .maskRef, let ref = component.maskRef
+                    else { return component }
+                    var resolved = component
+                    resolved.maskRef = canonical[ref] ?? ""
+                    return resolved
+                }
+                return stripped
+            }
+        } else {
+            copy.masks = masks.map { mask in
+                var stripped = mask.withoutCosmetics
+                stripped.id = ""
+                return stripped
+            }
         }
         // Groups go through the same projection, and their ids CANNOT be blanked the
         // way a mask's is: a mask names its group by id, so erasing the id would fold
